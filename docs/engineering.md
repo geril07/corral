@@ -37,7 +37,7 @@ Dependency direction, enforced by lint (import boundaries):
 
 - `protocol` depends on nothing internal.
 - `server` → `protocol`. `client` → `protocol`. `web` → `client`, `protocol`.
-- `desktop` imports no app code; it starts the server and loads the web bundle.
+- `desktop` → `protocol` (the server endpoint file contract only); it starts the server and loads the web bundle.
 - Nothing imports `server` except its own tests. A client never reaches into server code for types; shared types live in `protocol`.
 
 Internal packages export TypeScript source (no build step). The server runs that source directly in Node, so all code is restricted to erasable TypeScript (`erasableSyntaxOnly`: no enums, namespaces or parameter properties) and relative imports carry `.ts` extensions. The production server is bundled into one file with `vp pack`. Verified: Node 26 runs the server from source, including workspace packages reached through pnpm symlinks.

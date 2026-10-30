@@ -11,6 +11,7 @@
     "test:e2e": "vp run @corral/web#build && vp pack && ../../scripts/headless.sh playwright test"
   },
   "devDependencies": {
+    "@corral/protocol": "workspace:*",
     "@playwright/test": "catalog:",
     "electron": "catalog:"
   }

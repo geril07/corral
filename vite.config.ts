@@ -64,7 +64,7 @@ export default defineConfig({
         },
       },
       {
-        files: ["packages/client/**", "apps/web/**", "apps/desktop/**"],
+        files: ["packages/client/**", "apps/web/**"],
         rules: {
           "eslint/no-restricted-imports": [
             "error",
@@ -73,6 +73,23 @@ export default defineConfig({
                 {
                   group: ["@corral/server", "@corral/server/**"],
                   message: "Clients talk to the server over the protocol only.",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        // The desktop shell may read the server's endpoint file contract, nothing else internal.
+        files: ["apps/desktop/**"],
+        rules: {
+          "eslint/no-restricted-imports": [
+            "error",
+            {
+              patterns: [
+                {
+                  group: ["@corral/**", "!@corral/protocol", "!@corral/protocol/**"],
+                  message: "The desktop shell imports only @corral/protocol.",
                 },
               ],
             },

@@ -263,6 +263,9 @@ importers:
 
   apps/desktop:
     devDependencies:
+      '@corral/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
       '@playwright/test':
         specifier: 'catalog:'
         version: 1.64.1
