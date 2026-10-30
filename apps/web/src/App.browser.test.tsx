@@ -1,8 +1,8 @@
-import { createCorralClient, type CorralClient } from "@corral/client/corral-client";
 import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
-import { afterEach, expect, test, vi } from "vite-plus/test";
+import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
+import { prefixShifted, prefixThen, screenText, realServerClients } from "../test/real-client.ts";
 import { serverUrl } from "../test/server-url.ts";
 import { App } from "./App.tsx";
 
@@ -10,33 +10,7 @@ const claimNextProtocolVersion = (url: string) =>
   new WebSocket(url.replace(`protocol=${PROTOCOL_VERSION}`, `protocol=${PROTOCOL_VERSION + 1}`));
 
 const SIZE = { cols: 80, rows: 24 };
-const clients: CorralClient[] = [];
-
-/** A client for the real server, closed after the test. */
-function newClient(url = serverUrl(), createSocket?: (url: string) => WebSocket) {
-  const client = createCorralClient({
-    serverUrl: url,
-    backoff: { initialMs: 20, maxMs: 100 },
-    ...(createSocket ? { createSocket } : {}),
-  });
-  clients.push(client);
-  return client;
-}
-
-afterEach(async () => {
-  // Terminals belong to the server, not the test: close what the test left behind.
-  const { api } = newClient().connection;
-  await vi.waitFor(async () => {
-    const listed = await api.terminals.list();
-    await Promise.all(listed.map((terminal) => api.terminals.close({ id: terminal.id })));
-    if (listed.length > 0) throw new Error("terminals were still open");
-  });
-  for (const client of clients.splice(0)) client.close();
-});
-
-function screenText(): string {
-  return window.corralScreenText?.() ?? "";
-}
+const { newClient } = realServerClients();
 
 test("the prefix chord arms prefix mode and the next key disarms it", async () => {
   await render(<App client={newClient()} prefix="alt+a" />);
@@ -59,7 +33,6 @@ const workspace = () => page.getByRole("navigation", { name: "workspace" });
 // Terminals of the test server run /bin/sh, which the sidebar labels "sh · <folder>".
 const terminalButtons = () => workspace().getByRole("button", { name: /^sh · / });
 const selectButton = (index: number) => terminalButtons().nth(index);
-const prefixThen = (key: string) => userEvent.keyboard(`{Alt>}a{/Alt}${key}`);
 
 test("prefix then c opens a terminal that takes the keyboard straight away", async () => {
   await render(<App client={newClient()} prefix="alt+a" />);
@@ -167,7 +140,6 @@ test("an unreachable server shows as disconnected and the workspace stays up", a
   await expect.element(workspace()).toBeVisible();
 });
 
-const prefixShifted = (key: string) => userEvent.keyboard(`{Alt>}a{/Alt}{Shift>}${key}{/Shift}`);
 const focusedIsTerminal = () => document.activeElement?.classList.contains("xterm-helper-textarea");
 
 test("prefix shift+p opens the add-project dialog, where the prefix and its keys are inert", async () => {

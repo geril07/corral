@@ -2,6 +2,7 @@ import type { TestProject } from "vite-plus/test/node";
 // The one place web code reaches into the server: browser tests run against the real thing.
 import { SERVER_URL_KEY } from "./server-url-key.ts";
 import { startServer } from "../../server/src/transport/server.ts";
+import { removeGitRepos } from "./git-repos.ts";
 
 /** Vitest global setup: one real server per run; tests clear its terminals between them. */
 export default async function setup(project: TestProject) {
@@ -12,5 +13,8 @@ export default async function setup(project: TestProject) {
   // apps/web does not depend on directly, so its keys are typed `never` here.
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   project.provide(SERVER_URL_KEY as never, server.url as never);
-  return () => server.close();
+  return async () => {
+    await server.close();
+    removeGitRepos();
+  };
 }
