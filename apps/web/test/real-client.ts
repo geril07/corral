@@ -13,9 +13,10 @@ export const prefixShifted = (key: string) =>
   userEvent.keyboard(`{Alt>}a{/Alt}{Shift>}${key}{/Shift}`);
 
 /**
- * Registers the cleanup after each test and returns a way to open clients on the one real server of the run, closed after the test. The server outlives tests,
- * so afterwards everything a test left on it is removed: tasks (with their worktrees and
- * terminals), loose terminals and projects.
+ * Registers the cleanup that runs after each test and returns `newClient`, which opens clients
+ * on the one real server of the run (they are closed afterwards). The server outlives tests, so
+ * the cleanup removes everything a test left on it: tasks (with their worktrees and terminals),
+ * loose terminals and projects.
  */
 export function realServerClients() {
   const clients: CorralClient[] = [];

@@ -10,8 +10,9 @@ async function openedWindow(app: ElectronApplication) {
 
 // The test hook of apps/web/src/screen-text-hook.ts: the WebGL renderer leaves no text in the DOM.
 const screenText = (page: Page) => page.evaluate<string>("window.corralScreenText?.() ?? ''");
-const listItems = (page: Page) =>
-  page.getByRole("navigation", { name: "terminals" }).getByRole("listitem");
+// Terminals of the test server run /bin/sh, which the sidebar labels "sh · <folder>".
+const terminalButtons = (page: Page) =>
+  page.getByRole("navigation", { name: "workspace" }).getByRole("button", { name: /^sh · / });
 
 // MVP step 1: the sessions belong to the server, not to the window.
 test("a terminal and its screen are still there after closing the app and opening it again", async ({
@@ -24,7 +25,7 @@ test("a terminal and its screen are still there after closing the app and openin
   await expect(firstWindow.getByText("No terminals")).toBeVisible();
   await firstWindow.keyboard.press("Alt+KeyA");
   await firstWindow.keyboard.press("KeyC");
-  await expect(listItems(firstWindow)).toHaveCount(1);
+  await expect(terminalButtons(firstWindow)).toHaveCount(1);
 
   // The arithmetic makes the marker line appear only as output, never in the echoed command.
   await firstWindow.keyboard.type(`echo ${marker}-$((6*7))`);
@@ -38,7 +39,7 @@ test("a terminal and its screen are still there after closing the app and openin
   const second = await launchApp();
   const secondWindow = await openedWindow(second);
   expect(readEndpoint(stateDir)?.pid).toBe(pid);
-  await expect(listItems(secondWindow)).toHaveCount(1);
+  await expect(terminalButtons(secondWindow)).toHaveCount(1);
   await expect.poll(() => screenText(secondWindow)).toContain(`${marker}-42`);
 
   // It is the same live shell, not a copy of its screen.
