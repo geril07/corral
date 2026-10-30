@@ -112,6 +112,7 @@ export const contract = {
       .errors({
         NOT_A_GIT_REPOSITORY: { data: z.object({ path: z.string() }) },
         PROJECT_EXISTS: { data: z.object({ id: ProjectId }) },
+        ...gitFailed,
       })
       .input(z.object({ path: z.string().min(1) }))
       .output(Project),

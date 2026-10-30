@@ -43,6 +43,8 @@ export function createRpcRouter({ projects, tasks, terminals }: RpcServices) {
               return errors.NOT_A_GIT_REPOSITORY({ data: { path: error.path } });
             if (error instanceof ProjectExistsError)
               return errors.PROJECT_EXISTS({ data: { id: error.id } });
+            if (error instanceof GitError)
+              return errors.GIT_FAILED({ data: { message: error.message } });
             return undefined;
           },
         ),

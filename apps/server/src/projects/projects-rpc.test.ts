@@ -24,6 +24,18 @@ test("add registers the repository, named after its directory", async () => {
   });
 });
 
+test("add of a repository with no branch to start tasks from fails with GIT_FAILED", async () => {
+  const repo = initRepo(join(server.scratchDir, "app"));
+  runGit(repo, "checkout", "-q", "--detach");
+  runGit(repo, "branch", "-q", "-D", "main");
+  const api = await server.rpc();
+
+  await expect(api.projects.add({ path: repo })).rejects.toMatchObject({
+    code: "GIT_FAILED",
+    data: { message: expect.stringContaining("no branch") },
+  });
+});
+
 test("add from a subdirectory registers the repository root", async () => {
   const repo = initRepo(join(server.scratchDir, "app"));
   mkdirSync(join(repo, "src", "deep"), { recursive: true });
