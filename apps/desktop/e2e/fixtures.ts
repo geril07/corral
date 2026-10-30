@@ -32,7 +32,7 @@ export const test = base.extend<Fixtures>({
           args: [path.join(import.meta.dirname, ".."), `--user-data-dir=${stateDir}/electron`],
           // A plain sh keeps the prompt of terminals created without a command predictable. The
           // fake agents (apps/server/test/fake-agents) come first on PATH so that no test can start
-          // a real agent, and CODEX_HOME keeps the real ~/.codex out of reach.
+          // a real agent, and CODEX_HOME and CLAUDE_CONFIG_DIR keep the real ~/.codex and ~/.claude out of reach.
           env: {
             ...process.env,
             CORRAL_STATE_DIR: stateDir,
@@ -40,6 +40,7 @@ export const test = base.extend<Fixtures>({
             SHELL: "/bin/sh",
             PATH: `${FAKE_AGENTS_BIN}${path.delimiter}${process.env["PATH"] ?? ""}`,
             CODEX_HOME: `${stateDir}/codex`,
+            CLAUDE_CONFIG_DIR: `${stateDir}/claude`,
           },
         });
         apps.push(app);
