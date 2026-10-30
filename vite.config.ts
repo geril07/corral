@@ -38,6 +38,11 @@ const cmdkImport = {
   message: "cmdk is used through common/ui only.",
 };
 
+const lucideImport = {
+  group: ["lucide-react", "lucide-react/**"],
+  message: "Icons are used through common/ui only.",
+};
+
 /** Every module other than `own`, imported only through its public index.ts. */
 function otherModules(own: string) {
   return WEB_MODULES.flatMap((module) =>
@@ -198,6 +203,7 @@ export default defineConfig({
                 serverImport,
                 baseUiImport,
                 cmdkImport,
+                lucideImport,
                 { group: upFromCommon, message: "common imports nothing above it." },
               ],
             },
@@ -215,6 +221,7 @@ export default defineConfig({
                 serverImport,
                 baseUiImport,
                 cmdkImport,
+                lucideImport,
                 {
                   group: upFromModule,
                   message: "A module does not import app or routes.",
@@ -234,6 +241,7 @@ export default defineConfig({
                 serverImport,
                 baseUiImport,
                 cmdkImport,
+                lucideImport,
                 {
                   group: upFromModule,
                   message: "A module does not import app or routes.",
@@ -258,6 +266,7 @@ export default defineConfig({
                 serverImport,
                 baseUiImport,
                 cmdkImport,
+                lucideImport,
                 {
                   group: ["../app/**", "../../app/**", "../modules/**", "!../modules/*/index.ts"],
                   message: "Routes import modules through their public index.ts.",
@@ -272,7 +281,7 @@ export default defineConfig({
         rules: {
           "eslint/no-restricted-imports": [
             "error",
-            { patterns: [serverImport, baseUiImport, cmdkImport] },
+            { patterns: [serverImport, baseUiImport, cmdkImport, lucideImport] },
           ],
         },
       },
@@ -283,7 +292,7 @@ export default defineConfig({
         rules: {
           "eslint/no-restricted-imports": [
             "error",
-            { patterns: [serverImport, baseUiImport, cmdkImport] },
+            { patterns: [serverImport, baseUiImport, cmdkImport, lucideImport] },
           ],
         },
       },

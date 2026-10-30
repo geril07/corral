@@ -4,7 +4,7 @@ import { cn } from "../lib/cn.ts";
 import { Input } from "./input.tsx";
 
 const popupClass =
-  "z-50 max-h-60 min-w-[var(--anchor-width)] overflow-y-auto rounded-control border border-border bg-surface-raised";
+  "z-[60] max-h-60 min-w-[var(--anchor-width)] overflow-y-auto rounded-control border border-border bg-surface-raised";
 
 function Root<Value, Multiple extends boolean | undefined = false>(
   props: ComponentProps<typeof BaseCombobox.Root<Value, Multiple>>,
@@ -30,8 +30,8 @@ export function ComboboxPopup({
   className?: string;
 }) {
   return (
-    <BaseCombobox.Portal>
-      <BaseCombobox.Positioner sideOffset={4}>
+    <BaseCombobox.Portal container={document.body}>
+      <BaseCombobox.Positioner sideOffset={4} className="z-[60]">
         <BaseCombobox.Popup className={cn(popupClass, className)}>
           <BaseCombobox.Empty className="px-2 py-1 text-text-muted empty:hidden">
             No such branch.
