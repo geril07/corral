@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@base-ui/react": "catalog:",
     "@corral/client": "workspace:*",
     "@corral/protocol": "workspace:*",
     "@xterm/addon-fit": "catalog:",
@@ -17,6 +18,7 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
+    "@orpc/client": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",

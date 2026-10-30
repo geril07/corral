@@ -39,17 +39,25 @@ body {
   border-right: 1px solid var(--line);
 }
 
-.terminal-list ul {
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.workspace ul {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.terminal-list li {
-  display: flex;
+.workspace ul ul {
+  padding-left: 12px;
 }
 
-.terminal-list button {
+.workspace button {
   color: inherit;
   background: none;
   border: 0;
@@ -57,7 +65,19 @@ body {
   cursor: pointer;
 }
 
-.terminal-list .select {
+.workspace .row {
+  display: flex;
+}
+
+.workspace .row.project .select {
+  font-weight: 600;
+}
+
+.workspace .row.project[data-current="true"] .select {
+  color: var(--accent);
+}
+
+.workspace .select {
   flex: 1;
   min-width: 0;
   padding: 6px 10px;
@@ -67,29 +87,197 @@ body {
   white-space: nowrap;
 }
 
-.terminal-list .select[aria-current="true"] {
+.workspace .select[aria-current="true"] {
   background: #1f2937;
   box-shadow: inset 2px 0 var(--accent);
 }
 
-.terminal-list .exited .select {
+.workspace .branch,
+.workspace .archive-toggle,
+.workspace .exited .select,
+.workspace .archived .select {
   color: var(--dim);
 }
 
-.terminal-list .close {
-  padding: 6px 10px;
+.workspace .archive-toggle {
+  padding: 4px 10px;
+  text-align: left;
+}
+
+.workspace .icon {
+  padding: 6px 8px;
   color: var(--dim);
 }
 
-.terminal-list .close:hover {
+.workspace .icon:hover {
+  color: var(--text);
+}
+
+.workspace .icon.danger:hover {
   color: var(--danger);
 }
 
-.terminal-list .create {
-  width: 100%;
+.workspace .actions {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--line);
+}
+
+.workspace .actions button {
   padding: 8px 10px;
-  text-align: left;
   color: var(--accent);
+}
+
+.workspace .actions button:disabled {
+  color: var(--dim);
+  cursor: default;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 55%);
+}
+
+.modal {
+  position: fixed;
+  top: 20vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 440px;
+  max-width: calc(100vw - 32px);
+  max-height: 70vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.modal-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.modal-description,
+.modal .hint {
+  margin: 0 0 12px;
+  color: var(--dim);
+  word-break: break-word;
+}
+
+.modal .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  color: var(--dim);
+}
+
+.modal input:not([type="radio"]) {
+  padding: 6px 8px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.modal input:focus-visible,
+.modal button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.modal .kinds {
+  display: flex;
+  gap: 14px;
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
+  color: var(--dim);
+}
+
+.modal .kinds legend {
+  padding: 0 0 4px;
+}
+
+.modal .form-error,
+.modal .dirty p {
+  margin: 0 0 10px;
+  color: var(--danger);
+  word-break: break-word;
+}
+
+.modal .dirty ul {
+  max-height: 160px;
+  margin: 0 0 12px;
+  padding: 6px 10px;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--bg);
+  border-radius: 4px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal-actions button {
+  padding: 6px 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.modal-actions button.primary {
+  color: #fff;
+  background: #1f6feb;
+  border-color: #1f6feb;
+}
+
+.modal-actions button.danger {
+  color: #fff;
+  background: #b62324;
+  border-color: #b62324;
+}
+
+.modal-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.combobox-popup {
+  max-height: 240px;
+  min-width: var(--anchor-width);
+  overflow-y: auto;
+  z-index: 10;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.combobox-item,
+.combobox-empty {
+  padding: 5px 8px;
+  cursor: default;
+}
+
+.combobox-item[data-highlighted] {
+  background: #1f2937;
+  box-shadow: inset 2px 0 var(--accent);
+}
+
+.combobox-empty:empty {
+  display: none;
 }
 
 .sidebar footer {

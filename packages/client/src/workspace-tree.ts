@@ -54,10 +54,10 @@ export function tasksInOrder(tree: WorkspaceTree): Task[] {
 
 /** What the user pointed at last; any part may be stale or missing. */
 export interface Chosen {
-  projectId?: string;
+  projectId?: string | undefined;
   /** `null`: the group of terminals outside any task. */
-  taskId?: string | null;
-  terminalId?: string;
+  taskId?: string | null | undefined;
+  terminalId?: string | undefined;
 }
 
 export interface Selection {

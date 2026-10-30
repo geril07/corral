@@ -9,6 +9,11 @@ import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
 import { publishScreenText } from "./screen-text-hook.ts";
 
+/** The element xterm.js takes keystrokes on, for returning focus to the terminal after a dialog. */
+export function terminalInput(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(".terminal-host .xterm-helper-textarea");
+}
+
 const THEME = { background: "#0d1117", foreground: "#d6dde6", cursor: "#d6dde6" };
 
 interface TerminalViewProps {
