@@ -21,9 +21,14 @@ const { values } = parseArgs({
 });
 
 const stateDir = resolveStateDir(process.env, homedir());
-mkdirSync(stateDir, { recursive: true, mode: 0o700 });
-// The endpoint file carries the capability, so an existing state dir must not stay group/world readable.
-chmodSync(stateDir, 0o700);
+try {
+  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+  // The endpoint file carries the capability, so an existing state dir must not stay group/world readable.
+  chmodSync(stateDir, 0o700);
+} catch (error) {
+  console.error(`corral-server: cannot use state directory ${stateDir}: ${messageOf(error)}`);
+  process.exit(1);
+}
 
 const acquired = acquireLock(stateDir);
 if (acquired.status === "refused") {
@@ -64,14 +69,27 @@ function standDownIfLockLost() {
 }
 
 if (!standDownIfLockLost()) {
-  endpoint = publishEndpoint(stateDir, {
-    pid: process.pid,
-    url: server.url,
-    capability: server.capability,
-    protocolVersion: PROTOCOL_VERSION,
-    startedAt: Date.now(),
-  });
-  // Parents (desktop app, tests) wait for this line to learn the URL.
-  console.log(`corral-server listening ${server.url}`);
-  setInterval(standDownIfLockLost, LOCK_CHECK_INTERVAL_MS).unref();
+  try {
+    endpoint = publishEndpoint(stateDir, {
+      pid: process.pid,
+      url: server.url,
+      capability: server.capability,
+      protocolVersion: PROTOCOL_VERSION,
+      startedAt: Date.now(),
+    });
+  } catch (error) {
+    console.error(
+      `corral-server: cannot publish the endpoint file in ${stateDir}: ${messageOf(error)}`,
+    );
+    shutdown(1);
+  }
+  if (endpoint !== undefined) {
+    // Parents (desktop app, tests) wait for this line to learn the URL.
+    console.log(`corral-server listening ${server.url}`);
+    setInterval(standDownIfLockLost, LOCK_CHECK_INTERVAL_MS).unref();
+  }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

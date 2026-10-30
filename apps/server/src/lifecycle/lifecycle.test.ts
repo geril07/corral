@@ -7,6 +7,7 @@ import {
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import {
   chmodSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   renameSync,
@@ -55,11 +56,11 @@ afterEach(async () => {
   rmSync(stateDir, { recursive: true, force: true });
 });
 
-function launch(): Launched {
+function launch(stateDirectory = stateDir): Launched {
   const proc = spawn(process.execPath, [MAIN], {
     env: {
       ...process.env,
-      CORRAL_STATE_DIR: stateDir,
+      CORRAL_STATE_DIR: stateDirectory,
       CORRAL_DATA_DIR: path.join(stateDir, "data"),
       CORRAL_CONFIG_DIR: path.join(stateDir, "config"),
     },
@@ -120,6 +121,29 @@ async function deadPid(): Promise<number> {
 function writeLock(content: string) {
   writeFileSync(lockFilePath(stateDir), content);
 }
+
+describe("startup failures", () => {
+  test("an unusable state directory exits with an actionable message, not a stack", async () => {
+    const blocked = path.join(stateDir, "not-a-directory");
+    writeFileSync(blocked, "x");
+
+    const result = await within(launch(blocked).exited, "the server to exit");
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("corral-server: cannot use state directory");
+    expect(result.stderr).not.toContain("    at ");
+  });
+
+  test("a failed endpoint publish exits with an actionable message", async () => {
+    mkdirSync(endpointFilePath(stateDir));
+
+    const result = await within(launch().exited, "the server to exit");
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("corral-server: cannot publish the endpoint file");
+    expect(result.stderr).not.toContain("listening");
+  });
+});
 
 describe("endpoint file", () => {
   test("describes the running server, which accepts our protocol version", async () => {
