@@ -17,6 +17,8 @@ export function newOpenCodeSessionId(): string {
 export const opencode: AgentAdapter = {
   command: "opencode",
   newSessionId: newOpenCodeSessionId,
+  // OpenCode 2.1.4 has no model or provider flag on this command; a profile is env-only.
+  launchArgs: () => [],
   startArgs: (id) => (id === null ? [] : ["--session", id]),
   resumeArgs: (id) => ["--session", id],
 };

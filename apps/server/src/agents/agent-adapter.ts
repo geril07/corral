@@ -4,6 +4,8 @@ export interface AgentAdapter {
   command: string;
   /** The id a new conversation is started with; `null` for an agent that picks its own (Codex). */
   newSessionId(): string | null;
+  /** The agent-native flags for the model/provider a profile or the user chose; `[]` when neither is set. */
+  launchArgs(model: string | null, provider: string | null): string[];
   /** `agentSessionId` is `null` when the agent picks its own id. */
   startArgs(agentSessionId: string | null): string[];
   resumeArgs(agentSessionId: string): string[];

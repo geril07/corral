@@ -33,6 +33,8 @@ function hasTranscript(agentSessionId: string, env: NodeJS.ProcessEnv): boolean 
 export const claude: AgentAdapter = {
   command: "claude",
   newSessionId: randomUUID,
+  // Claude Code has no provider flag; a gateway is routed with ANTHROPIC_BASE_URL/AUTH_TOKEN.
+  launchArgs: (model) => (model === null ? [] : ["--model", model]),
   startArgs: (id) => (id === null ? [] : ["--session-id", id]),
   resumeArgs: (id) => ["--resume", id],
   hasConversation: hasTranscript,

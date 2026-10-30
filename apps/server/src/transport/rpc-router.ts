@@ -12,8 +12,14 @@ import type { ProjectService } from "../projects/project-service.ts";
 import {
   AgentNotFoundError,
   AlreadyRunningError,
+  LaunchModelInvalidError,
+  LaunchModelUnsupportedError,
+  LaunchProfileKindMismatchError,
+  LaunchProfileUnknownError,
   SessionNotFoundError,
 } from "../sessions/errors.ts";
+import { MissingEnvRefError, ReservedEnvRefError } from "../agents/launch-env.ts";
+import type { SessionKind } from "@corral/protocol/rpc";
 import type { SessionService } from "../sessions/session-service.ts";
 import { TaskNotFoundError, WorktreeDirtyError } from "../tasks/errors.ts";
 import type { TaskService } from "../tasks/task-service.ts";
@@ -37,6 +43,35 @@ async function translating<T>(
   } catch (error) {
     throw translate(error) ?? error;
   }
+}
+
+/** Maps the launch errors shared by start and restart; `undefined` lets anything else propagate. */
+function launchError(
+  error: unknown,
+  errors: {
+    LAUNCH_PROFILE_UNKNOWN: (options: { data: { id: string } }) => Error;
+    LAUNCH_PROFILE_KIND_MISMATCH: (options: { data: { id: string; kind: SessionKind } }) => Error;
+    LAUNCH_MODEL_UNSUPPORTED: (options: { data: { kind: SessionKind } }) => Error;
+    LAUNCH_MODEL_INVALID: (options: { data: { kind: SessionKind } }) => Error;
+    LAUNCH_ENV_MISSING: (options: { data: { profileId: string | null; name: string } }) => Error;
+    LAUNCH_ENV_RESERVED: (options: { data: { name: string } }) => Error;
+  },
+): Error | undefined {
+  if (error instanceof LaunchProfileUnknownError)
+    return errors.LAUNCH_PROFILE_UNKNOWN({ data: { id: error.id } });
+  if (error instanceof LaunchProfileKindMismatchError)
+    return errors.LAUNCH_PROFILE_KIND_MISMATCH({ data: { id: error.id, kind: error.kind } });
+  if (error instanceof LaunchModelUnsupportedError)
+    return errors.LAUNCH_MODEL_UNSUPPORTED({ data: { kind: error.kind } });
+  if (error instanceof LaunchModelInvalidError)
+    return errors.LAUNCH_MODEL_INVALID({ data: { kind: error.kind } });
+  if (error instanceof MissingEnvRefError)
+    return errors.LAUNCH_ENV_MISSING({
+      data: { profileId: error.profileId, name: error.variable },
+    });
+  if (error instanceof ReservedEnvRefError)
+    return errors.LAUNCH_ENV_RESERVED({ data: { name: error.variable } });
+  return undefined;
 }
 
 export function createRpcRouter({ config, projects, tasks, sessions, terminals }: RpcServices) {
@@ -127,13 +162,17 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
     sessions: {
       start: os.sessions.start.handler(({ input, errors }) =>
         translating(
-          () => sessions.start(input.taskId, input.kind, input.size),
+          () =>
+            sessions.start(input.taskId, input.kind, input.size, {
+              profileId: input.profileId,
+              model: input.model,
+            }),
           (error) => {
             if (error instanceof TaskNotFoundError)
               return errors.TASK_NOT_FOUND({ data: { id: error.id } });
             if (error instanceof AgentNotFoundError)
               return errors.AGENT_NOT_FOUND({ data: { command: error.command } });
-            return undefined;
+            return launchError(error, errors);
           },
         ),
       ),
@@ -146,7 +185,7 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
             if (error instanceof AlreadyRunningError) return errors.ALREADY_RUNNING();
             if (error instanceof AgentNotFoundError)
               return errors.AGENT_NOT_FOUND({ data: { command: error.command } });
-            return undefined;
+            return launchError(error, errors);
           },
         ),
       ),

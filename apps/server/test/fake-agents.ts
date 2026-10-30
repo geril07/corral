@@ -18,6 +18,8 @@ export interface Launch {
     CORRAL_STATUS_URL?: string;
     CORRAL_STATUS_TOKEN?: string;
   };
+  /** The variables named by $FAKE_AGENT_LOG_ENV, so a test can see an explicit profile value. */
+  envSentinels: Record<string, string | undefined>;
   /** The fake opencode only: what the server's inline config would load into the real one. */
   opencode?: { configContent: string; pluginDir?: string; pluginPresent: boolean };
 }

@@ -1,6 +1,6 @@
 import { eventIterator, oc } from "@orpc/contract";
 import { z } from "zod";
-import { configContract } from "./config.ts";
+import { AgentKind, EnvRef, configContract } from "./config.ts";
 import { Label } from "./label.ts";
 
 /** Control channel, served at `RPC_PATH` over WebSocket with oRPC. Terminal bytes go elsewhere. */
@@ -113,8 +113,7 @@ export const CreateTaskInput = z.object({
 });
 export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
 
-export const AgentKind = z.enum(["claude", "codex", "pi", "opencode"]);
-export type AgentKind = z.infer<typeof AgentKind>;
+export { AgentKind } from "./config.ts";
 export const SessionKind = z.enum(["shell", ...AgentKind.options]);
 export type SessionKind = z.infer<typeof SessionKind>;
 
@@ -134,6 +133,22 @@ export const AgentStatus = z.object({
   updatedAt: z.number(),
 });
 export type AgentStatus = z.infer<typeof AgentStatus>;
+
+/**
+ * The nonsecret launch choices a session was started with. Persisted and never re-read from the
+ * config file, so editing or deleting a profile does not change an existing conversation.
+ * Environment entries are names only; their values are resolved from the server environment
+ * again on every launch.
+ */
+export const LaunchSnapshot = z.object({
+  kind: AgentKind,
+  /** The profile selected at start, with the revision it had then. `null` for a bare model choice. */
+  profile: z.object({ id: z.string(), name: z.string(), revision: z.string() }).nullable(),
+  model: z.string().nullable(),
+  provider: z.string().nullable(),
+  env: z.array(EnvRef),
+});
+export type LaunchSnapshot = z.infer<typeof LaunchSnapshot>;
 
 /**
  * Something running in a task: a shell or an agent. Persisted, unlike terminals: after a
@@ -172,6 +187,16 @@ export const Session = z.object({
   label: Label.nullable().optional(),
   /** Epoch milliseconds. */
   createdAt: z.number(),
+  /**
+   * The launch choices this session was started with. Absent on an old server; `null` for a
+   * session with neither a profile nor a model choice (the unchanged default launch).
+   */
+  launch: LaunchSnapshot.nullable().optional(),
+  /**
+   * Why the last start or restore could not launch the session, safe to show and never holding
+   * a resolved environment value. `null` when nothing failed or on an old server. Not persisted.
+   */
+  launchError: z.string().nullable().optional(),
 });
 export type Session = z.infer<typeof Session>;
 
@@ -179,6 +204,15 @@ const terminalNotFound = { NOT_FOUND: { data: z.object({ id: TerminalId }) } };
 const projectNotFound = { PROJECT_NOT_FOUND: { data: z.object({ id: ProjectId }) } };
 const taskNotFound = { TASK_NOT_FOUND: { data: z.object({ id: TaskId }) } };
 const sessionNotFound = { SESSION_NOT_FOUND: { data: z.object({ id: SessionId }) } };
+/** A launch was refused before anything was spawned; `name` is a profile id or an env variable name, never a value. */
+const launchRefused = {
+  LAUNCH_PROFILE_UNKNOWN: { data: z.object({ id: z.string() }) },
+  LAUNCH_PROFILE_KIND_MISMATCH: { data: z.object({ id: z.string(), kind: SessionKind }) },
+  LAUNCH_MODEL_UNSUPPORTED: { data: z.object({ kind: SessionKind }) },
+  LAUNCH_MODEL_INVALID: { data: z.object({ kind: SessionKind }) },
+  LAUNCH_ENV_MISSING: { data: z.object({ profileId: z.string().nullable(), name: z.string() }) },
+  LAUNCH_ENV_RESERVED: { data: z.object({ name: z.string() }) },
+};
 /** Git refused or failed; `message` is git's own stderr, meant for the user. */
 const gitFailed = { GIT_FAILED: { data: z.object({ message: z.string() }) } };
 
@@ -240,10 +274,26 @@ export const contract = {
     /**
      * Starts a shell or an agent in the task's workspace, in a new terminal. The agent CLI is
      * looked up on the server's `PATH`; a missing one fails with `AGENT_NOT_FOUND`.
+     *
+     * `profileId` selects a profile from the server's config file. `model` chooses a native model
+     * for this conversation; it overrides the profile's model and needs no profile. A model the
+     * agent kind cannot take is refused, never ignored. The choices are snapshotted on the session.
      */
     start: oc
-      .errors({ ...taskNotFound, AGENT_NOT_FOUND: { data: z.object({ command: z.string() }) } })
-      .input(z.object({ taskId: TaskId, kind: SessionKind, size: TerminalSize }))
+      .errors({
+        ...taskNotFound,
+        AGENT_NOT_FOUND: { data: z.object({ command: z.string() }) },
+        ...launchRefused,
+      })
+      .input(
+        z.object({
+          taskId: TaskId,
+          kind: SessionKind,
+          size: TerminalSize,
+          profileId: z.string().min(1).optional(),
+          model: z.string().min(1).optional(),
+        }),
+      )
       .output(Session),
     /** Starts a `stopped` (or `unresumable`, as a new conversation) session again in a new terminal. */
     restart: oc
@@ -251,6 +301,7 @@ export const contract = {
         ...sessionNotFound,
         ALREADY_RUNNING: {},
         AGENT_NOT_FOUND: { data: z.object({ command: z.string() }) },
+        ...launchRefused,
       })
       .input(z.object({ id: SessionId, size: TerminalSize }))
       .output(Session),

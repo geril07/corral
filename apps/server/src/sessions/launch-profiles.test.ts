@@ -1,0 +1,390 @@
+import { ConfigState } from "@corral/protocol/config";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { afterEach, expect, test, vi } from "vite-plus/test";
+import { useFakeAgents } from "../../test/fake-agents.ts";
+import { claudeTranscriptExists } from "../../test/claude-transcripts.ts";
+import { addTask } from "../../test/project-fixture.ts";
+import { useServer, within } from "../../test/server-fixture.ts";
+import { launchesOf, sessionsOf } from "../../test/session-helpers.ts";
+
+const server = useServer();
+const agents = useFakeAgents();
+const SIZE = { cols: 80, rows: 24 };
+const configFile = () => join(server.configDir, "config.toml");
+const SENTINEL_TOKEN = "sk-profile-secret-sentinel-2f6d";
+
+afterEach(() => vi.restoreAllMocks());
+
+async function writeConfig(
+  text: string,
+  until: (state: ConfigState) => boolean,
+): Promise<ConfigState> {
+  await mkdir(server.configDir, { recursive: true });
+  await writeFile(configFile(), text);
+  const api = await server.rpc();
+  const updates = await api.config.watch();
+  try {
+    return await within(
+      (async () => {
+        for await (const raw of updates) {
+          const state = ConfigState.parse(raw);
+          if (until(state)) return state;
+        }
+        throw new Error("config.watch ended before the expected state");
+      })(),
+      "the config change",
+    );
+  } finally {
+    await updates.return?.();
+  }
+}
+
+function claudeProfile(model = "claude-sonnet-4-5", source = "LAUNCH_ANTHROPIC_TOKEN") {
+  return `
+[profiles.claude-gateway]
+name = "Claude gateway"
+agent = "claude"
+model = "${model}"
+env = [{ targetName = "ANTHROPIC_AUTH_TOKEN", fromEnv = "${source}" }]
+`;
+}
+
+function databaseContents(): string {
+  const db = new DatabaseSync(join(server.dataDir, "corral.db"));
+  try {
+    return JSON.stringify(db.prepare("SELECT * FROM sessions").all());
+  } finally {
+    db.close();
+  }
+}
+
+test("a Claude profile puts its model and referenced token into the launch, and nowhere public", async () => {
+  vi.stubEnv("FAKE_AGENT_LOG_ENV", "ANTHROPIC_AUTH_TOKEN");
+  vi.stubEnv("LAUNCH_ANTHROPIC_TOKEN", SENTINEL_TOKEN);
+  const consoleCalls: unknown[][] = [];
+  vi.spyOn(console, "log").mockImplementation((...args) => consoleCalls.push(args));
+  vi.spyOn(console, "warn").mockImplementation((...args) => consoleCalls.push(args));
+  vi.spyOn(console, "error").mockImplementation((...args) => consoleCalls.push(args));
+  const state = await writeConfig(claudeProfile(), (config) => config.profiles.length === 1);
+  expect(state.profiles[0]).toMatchObject({
+    id: "claude-gateway",
+    env: [{ targetName: "ANTHROPIC_AUTH_TOKEN", fromEnv: "LAUNCH_ANTHROPIC_TOKEN" }],
+  });
+  expect(JSON.stringify(state)).not.toContain(SENTINEL_TOKEN);
+
+  const { api, task } = await addTask(server, "Gateway");
+  const session = await api.sessions.start({
+    taskId: task.id,
+    kind: "claude",
+    size: SIZE,
+    profileId: "claude-gateway",
+  });
+  const client = await server.attach(session.terminalId!);
+  await client.waitForScreen("fake claude ready");
+  const [launch] = await launchesOf(agents, "claude", 1);
+
+  expect(launch!.argv).toEqual([
+    "--model",
+    "claude-sonnet-4-5",
+    "--session-id",
+    session.agentSessionId,
+  ]);
+  expect(launch!.envSentinels).toEqual({ ANTHROPIC_AUTH_TOKEN: SENTINEL_TOKEN });
+  expect(session.launch).toMatchObject({
+    kind: "claude",
+    profile: {
+      id: "claude-gateway",
+      name: "Claude gateway",
+      revision: expect.stringMatching(/^[0-9a-f]{12}$/),
+    },
+    model: "claude-sonnet-4-5",
+    provider: null,
+    env: [{ targetName: "ANTHROPIC_AUTH_TOKEN", fromEnv: "LAUNCH_ANTHROPIC_TOKEN" }],
+  });
+  expect(session.launchError).toBeNull();
+  expect(JSON.stringify(session)).not.toContain(SENTINEL_TOKEN);
+
+  expect(launch!.argv.join("\n")).not.toContain(SENTINEL_TOKEN);
+  expect(databaseContents()).not.toContain(SENTINEL_TOKEN);
+  expect(await readFile(join(server.dataDir, "corral.db"), "utf8").catch(() => "")).not.toContain(
+    SENTINEL_TOKEN,
+  );
+  expect(JSON.stringify(consoleCalls)).not.toContain(SENTINEL_TOKEN);
+});
+
+test("a profile chooses a Codex model and native provider, and resume keeps both", async () => {
+  await writeConfig(
+    '[profiles.codex]\nname = "Codex"\nagent = "codex"\nmodel = "gpt-5-codex"\nprovider = "openai"\n',
+    (config) => config.profiles.length === 1,
+  );
+  const { api, task } = await addTask(server, "Codex choice");
+  const session = await api.sessions.start({
+    taskId: task.id,
+    kind: "codex",
+    size: SIZE,
+    profileId: "codex",
+  });
+  const [launch] = await launchesOf(agents, "codex", 1);
+  expect(launch!.argv).toEqual(["-m", "gpt-5-codex", "-c", "model_provider=openai"]);
+  await expect
+    .poll(
+      async () => (await sessionsOf(api)).find((entry) => entry.id === session.id)?.agentSessionId,
+      {
+        timeout: 10_000,
+      },
+    )
+    .toBe(launch!.rolloutId);
+
+  await api.sessions.stop({ id: session.id });
+  const restarted = await api.sessions.restart({ id: session.id, size: SIZE });
+  expect((await launchesOf(agents, "codex", 2))[1]!.argv).toEqual([
+    "-m",
+    "gpt-5-codex",
+    "-c",
+    "model_provider=openai",
+    "resume",
+    launch!.rolloutId,
+  ]);
+  expect(restarted.launch).toEqual(session.launch);
+});
+
+test("a pi profile passes provider and model together, and settling/resuming keeps them", async () => {
+  await writeConfig(
+    '[profiles.pi-work]\nname = "pi work"\nagent = "pi"\nmodel = "anthropic/claude-sonnet-4:high"\nprovider = "anthropic"\n',
+    (config) => config.profiles.length === 1,
+  );
+  const { api, task } = await addTask(server, "pi choice");
+  const session = await api.sessions.start({
+    taskId: task.id,
+    kind: "pi",
+    size: SIZE,
+    profileId: "pi-work",
+  });
+  const first = (await launchesOf(agents, "pi", 1))[0]!;
+  expect(first.argv).toEqual([
+    "--provider",
+    "anthropic",
+    "--model",
+    "anthropic/claude-sonnet-4:high",
+    "--session-id",
+    session.agentSessionId,
+  ]);
+
+  await api.tasks.setState({ id: task.id, state: "settled" });
+  expect((await sessionsOf(api))[0]).toMatchObject({ id: session.id, state: "stopped" });
+  await api.tasks.setState({ id: task.id, state: "active" });
+  expect((await launchesOf(agents, "pi", 2))[1]!.argv).toEqual([
+    "--provider",
+    "anthropic",
+    "--model",
+    "anthropic/claude-sonnet-4:high",
+    "--session-id",
+    session.agentSessionId,
+  ]);
+});
+
+test("an OpenCode profile is env-only and its status plugin still loads", async () => {
+  vi.stubEnv("FAKE_AGENT_LOG_ENV", "OPENCODE_TEST_TOKEN");
+  vi.stubEnv("LAUNCH_OPENCODE_TOKEN", SENTINEL_TOKEN);
+  await writeConfig(
+    `[profiles.oc]\nname = "OpenCode"\nagent = "opencode"\nenv = [{ targetName = "OPENCODE_TEST_TOKEN", fromEnv = "LAUNCH_OPENCODE_TOKEN" }]\n`,
+    (config) => config.profiles.length === 1,
+  );
+  const { api, task } = await addTask(server, "OpenCode choice");
+  const session = await api.sessions.start({
+    taskId: task.id,
+    kind: "opencode",
+    size: SIZE,
+    profileId: "oc",
+  });
+  const [launch] = await launchesOf(agents, "opencode", 1);
+
+  expect(launch!.argv).toEqual(["--standalone", "--session", session.agentSessionId]);
+  expect(launch!.envSentinels).toEqual({ OPENCODE_TEST_TOKEN: SENTINEL_TOKEN });
+  expect(launch!.opencode).toMatchObject({ pluginPresent: true });
+
+  await expect(
+    api.sessions.start({
+      taskId: task.id,
+      kind: "opencode",
+      size: SIZE,
+      profileId: "oc",
+      model: "gpt-5",
+    }),
+  ).rejects.toMatchObject({ code: "LAUNCH_MODEL_UNSUPPORTED", data: { kind: "opencode" } });
+  expect(await launchesOf(agents, "opencode", 1)).toHaveLength(1);
+});
+
+test("a model can be chosen without a profile; a shell or opencode refuses it", async () => {
+  const { api, task } = await addTask(server, "Model only");
+  const session = await api.sessions.start({
+    taskId: task.id,
+    kind: "claude",
+    size: SIZE,
+    model: "claude-opus-4-1",
+  });
+  const [launch] = await launchesOf(agents, "claude", 1);
+  expect(launch!.argv).toEqual([
+    "--model",
+    "claude-opus-4-1",
+    "--session-id",
+    session.agentSessionId,
+  ]);
+  expect(session.launch).toMatchObject({
+    kind: "claude",
+    profile: null,
+    model: "claude-opus-4-1",
+    provider: null,
+    env: [],
+  });
+
+  await expect(
+    api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE, model: "any" }),
+  ).rejects.toMatchObject({ code: "LAUNCH_MODEL_UNSUPPORTED", data: { kind: "shell" } });
+  await expect(
+    api.sessions.start({ taskId: task.id, kind: "codex", size: SIZE, model: "bad model" }),
+  ).rejects.toMatchObject({ code: "LAUNCH_MODEL_INVALID", data: { kind: "codex" } });
+  expect(await agents.launches()).toHaveLength(1);
+});
+
+test("a session with no profile or model keeps the unchanged default launch", async () => {
+  const { api, task } = await addTask(server, "Default");
+  const session = await api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE });
+
+  expect((await launchesOf(agents, "claude", 1))[0]!.argv).toEqual([
+    "--session-id",
+    session.agentSessionId,
+  ]);
+  expect(session.launch).toBeNull();
+  expect(session.launchError).toBeNull();
+});
+
+test("an invalid whole profile is not selectable, a model/provider mismatch is refused", async () => {
+  await writeConfig(
+    '[profiles.broken]\nname = "Broken"\nagent = "claude"\nmodel = "not a model"\nenv = [{ targetName = "TOKEN", fromEnv = "SERVER" }]\n[profiles.ok]\nname = "OK"\nagent = "pi"\n',
+    (config) => config.profiles.some((profile) => profile.id === "ok"),
+  );
+  const { api, task } = await addTask(server, "Invalid profile");
+
+  await expect(
+    api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE, profileId: "broken" }),
+  ).rejects.toMatchObject({ code: "LAUNCH_PROFILE_UNKNOWN", data: { id: "broken" } });
+  await expect(
+    api.sessions.start({ taskId: task.id, kind: "codex", size: SIZE, profileId: "ok" }),
+  ).rejects.toMatchObject({
+    code: "LAUNCH_PROFILE_KIND_MISMATCH",
+    data: { id: "ok", kind: "codex" },
+  });
+  expect(await agents.launches()).toEqual([]);
+});
+
+test("a missing environment reference fails visibly and spawns nothing", async () => {
+  await writeConfig(claudeProfile("claude-sonnet-4-5", "LAUNCH_ABSENT_TOKEN"), (config) =>
+    config.profiles.some((profile) => profile.id === "claude-gateway"),
+  );
+  const { api, task } = await addTask(server, "Missing token");
+
+  await expect(
+    api.sessions.start({
+      taskId: task.id,
+      kind: "claude",
+      size: SIZE,
+      profileId: "claude-gateway",
+    }),
+  ).rejects.toMatchObject({
+    code: "LAUNCH_ENV_MISSING",
+    data: { profileId: "claude-gateway", name: "LAUNCH_ABSENT_TOKEN" },
+  });
+  expect(await agents.launches()).toEqual([]);
+  expect(await sessionsOf(api)).toEqual([]);
+});
+
+test("a restore that loses a reference becomes stopped with a visible, valueless reason", async () => {
+  const variable = "LAUNCH_RESTORE_TOKEN";
+  const previous = process.env[variable];
+  process.env[variable] = SENTINEL_TOKEN;
+  try {
+    await writeConfig(claudeProfile("claude-sonnet-4-5", variable), (config) =>
+      config.profiles.some((profile) => profile.id === "claude-gateway"),
+    );
+    const { api, task } = await addTask(server, "Lost ref");
+    const session = await api.sessions.start({
+      taskId: task.id,
+      kind: "claude",
+      size: SIZE,
+      profileId: "claude-gateway",
+    });
+    await launchesOf(agents, "claude", 1);
+
+    delete process.env[variable];
+    await server.restart();
+
+    const restored = (await sessionsOf(await server.rpc()))[0]!;
+    expect(restored).toMatchObject({ id: session.id, state: "stopped", terminalId: null });
+    expect(restored.launchError).toContain(variable);
+    expect(restored.launchError).not.toContain(SENTINEL_TOKEN);
+    expect(await launchesOf(agents, "claude", 1)).toHaveLength(1);
+  } finally {
+    if (previous === undefined) delete process.env[variable];
+    else process.env[variable] = previous;
+  }
+});
+
+test("editing or deleting a profile and restarting keeps the snapshot and re-resolves values", async () => {
+  const variable = "LAUNCH_IMMUTABLE_TOKEN";
+  const previous = process.env[variable];
+  process.env[variable] = "value-one";
+  try {
+    vi.stubEnv("FAKE_AGENT_LOG_ENV", "ANTHROPIC_AUTH_TOKEN");
+    await writeConfig(claudeProfile("claude-sonnet-4-5", variable), (config) =>
+      config.profiles.some((profile) => profile.id === "claude-gateway"),
+    );
+    const { api, task } = await addTask(server, "Immutable");
+    const session = await api.sessions.start({
+      taskId: task.id,
+      kind: "claude",
+      size: SIZE,
+      profileId: "claude-gateway",
+    });
+    const client = await server.attach(session.terminalId!);
+    await client.waitForScreen("fake claude ready");
+    client.type("hello\n");
+    await client.waitForScreen("fake claude got: hello");
+    await launchesOf(agents, "claude", 1);
+    expect(claudeTranscriptExists(agents.claudeConfigDir, session.agentSessionId!)).toBe(true);
+
+    // The file now describes another model; the running conversation must not change.
+    await writeConfig(claudeProfile("claude-other-model", variable), (config) =>
+      config.profiles.some((profile) => profile.model === "claude-other-model"),
+    );
+    process.env[variable] = "value-two";
+    await server.restart();
+
+    const restored = (await sessionsOf(await server.rpc()))[0]!;
+    expect(restored.launch).toEqual(session.launch);
+    const second = (await launchesOf(agents, "claude", 2))[1]!;
+    expect(second.argv).toEqual([
+      "--model",
+      "claude-sonnet-4-5",
+      "--resume",
+      session.agentSessionId,
+    ]);
+    expect(second.envSentinels).toEqual({ ANTHROPIC_AUTH_TOKEN: "value-two" });
+
+    // Deleting the profile does not make the session unlaunchable either.
+    await rm(configFile());
+    await server.restart();
+    expect((await launchesOf(agents, "claude", 3))[2]!.argv).toEqual([
+      "--model",
+      "claude-sonnet-4-5",
+      "--resume",
+      session.agentSessionId,
+    ]);
+    expect((await sessionsOf(await server.rpc()))[0]!.launch).toEqual(session.launch);
+  } finally {
+    if (previous === undefined) delete process.env[variable];
+    else process.env[variable] = previous;
+  }
+});

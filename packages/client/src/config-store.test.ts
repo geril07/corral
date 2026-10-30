@@ -20,6 +20,7 @@ test("starts with the defaults, before the server has sent the config and withou
     loaded: false,
     path: "",
     config: defaultConfig(),
+    profiles: [],
     problems: [],
   });
 
@@ -30,6 +31,7 @@ test("starts with the defaults, before the server has sent the config and withou
     config: {
       keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } },
     },
+    profiles: [],
     problems: [],
   });
 });

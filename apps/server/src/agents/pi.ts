@@ -9,6 +9,11 @@ import type { AgentAdapter } from "./agent-adapter.ts";
 export const pi: AgentAdapter = {
   command: "pi",
   newSessionId: randomUUID,
+  // pi's `--provider` searches for `--model`; both are passed as native pi values.
+  launchArgs: (model, provider) => [
+    ...(provider === null ? [] : ["--provider", provider]),
+    ...(model === null ? [] : ["--model", model]),
+  ],
   startArgs: (id) => (id === null ? [] : ["--session-id", id]),
   resumeArgs: (id) => ["--session-id", id],
 };

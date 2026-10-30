@@ -1,13 +1,28 @@
-import { Session } from "@corral/protocol/rpc";
+import { LaunchSnapshot, Session } from "@corral/protocol/rpc";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 
-/** What is persisted of a session; the terminal is not (decision 12). */
-export const StoredSession = Session.omit({ terminalId: true, status: true });
+/**
+ * What is persisted of a session; the terminal and its transient status are not (decision 12).
+ * `launchError` is not persisted: a restore failure is reported by the server run that saw it.
+ */
+export const StoredSession = Session.omit({
+  terminalId: true,
+  status: true,
+  launchError: true,
+}).extend({ launch: LaunchSnapshot.nullable() });
 export type StoredSession = z.infer<typeof StoredSession>;
 
 const COLUMNS = `id, task_id AS taskId, kind, agent_session_id AS agentSessionId, state, label,
-  created_at AS createdAt`;
+  created_at AS createdAt, launch_spec AS launchSpec`;
+
+function fromRow(row: unknown): StoredSession {
+  const { launchSpec, ...rest } = z.record(z.string(), z.unknown()).parse(row);
+  return StoredSession.parse({
+    ...rest,
+    launch: typeof launchSpec === "string" ? (JSON.parse(launchSpec) as unknown) : null,
+  });
+}
 
 export class SessionStore {
   readonly #db: DatabaseSync;
@@ -17,15 +32,12 @@ export class SessionStore {
   }
 
   list(): StoredSession[] {
-    return this.#db
-      .prepare(`SELECT ${COLUMNS} FROM sessions ORDER BY rowid`)
-      .all()
-      .map((row) => StoredSession.parse(row));
+    return this.#db.prepare(`SELECT ${COLUMNS} FROM sessions ORDER BY rowid`).all().map(fromRow);
   }
 
   get(id: string): StoredSession | undefined {
     const row = this.#db.prepare(`SELECT ${COLUMNS} FROM sessions WHERE id = ?`).get(id);
-    return row && StoredSession.parse(row);
+    return row && fromRow(row);
   }
 
   /** The sessions that were running when their task was settled and start again when it is not. */
@@ -35,7 +47,7 @@ export class SessionStore {
         `SELECT ${COLUMNS} FROM sessions WHERE task_id = ? AND resume_on_unsettle = 1 ORDER BY rowid`,
       )
       .all(taskId)
-      .map((row) => StoredSession.parse(row));
+      .map(fromRow);
   }
 
   /** The agent session ids that sessions of `kind` already hold. */
@@ -53,8 +65,9 @@ export class SessionStore {
   insert(session: StoredSession): void {
     this.#db
       .prepare(
-        `INSERT INTO sessions (id, task_id, kind, agent_session_id, state, label, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sessions
+           (id, task_id, kind, agent_session_id, state, label, created_at, launch_spec)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         session.id,
@@ -64,6 +77,7 @@ export class SessionStore {
         session.state,
         session.label ?? null,
         session.createdAt,
+        session.launch === null ? null : JSON.stringify(session.launch),
       );
   }
 

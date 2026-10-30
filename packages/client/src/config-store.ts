@@ -4,6 +4,7 @@ import {
   type ClientConfig,
   type ConfigProblem,
   type ConfigState,
+  type LaunchProfile,
 } from "@corral/protocol/config";
 import type { RpcConnection } from "./rpc-connection.ts";
 import { createWatchStore, type WatchStore } from "./watch-store.ts";
@@ -19,6 +20,8 @@ export interface ConfigSnapshot {
   /** Absolute path of the file the server reads. */
   path: string;
   config: ClientConfig;
+  /** Valid profiles only; an invalid profile is dropped whole and reported in `problems`. */
+  profiles: readonly LaunchProfile[];
   problems: readonly ConfigProblem[];
 }
 
@@ -30,6 +33,7 @@ export function createConfigStore(connection: RpcConnection): ConfigStore {
     loaded: false,
     path: "",
     config: defaultConfig(),
+    profiles: [],
     problems: [],
   };
   return createWatchStore<ConfigState, ConfigSnapshot>(connection, {
@@ -48,6 +52,7 @@ export function createConfigStore(connection: RpcConnection): ConfigStore {
             loaded: true,
             path: state.path,
             config: state.config,
+            profiles: state.profiles ?? [],
             problems: state.problems,
           }
         : initial,

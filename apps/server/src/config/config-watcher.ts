@@ -10,6 +10,8 @@ const DEBOUNCE_MS = 50;
 const REARM_MS = 1000;
 
 export interface ConfigWatcher {
+  /** The latest state read from disk, including the profiles a new session may choose. */
+  state(): ConfigState;
   /** The state now and after every change on disk; unchanged reads push nothing. */
   watch(signal: AbortSignal | undefined): AsyncGenerator<ConfigState>;
   close(): void;
@@ -107,6 +109,7 @@ export function watchConfigFile(filePath: string): ConfigWatcher {
   arm();
 
   return {
+    state: () => state,
     watch: (signal) => changes.watch(() => state, signal),
     close() {
       closed = true;
@@ -126,11 +129,12 @@ function readConfigFile(filePath: string): ConfigState {
   } catch (error) {
     const code = errnoCode(error);
     if (code === "ENOENT" || code === "ENOTDIR") {
-      return { path: filePath, config: defaultConfig(), problems: [] };
+      return { path: filePath, config: defaultConfig(), profiles: [], problems: [] };
     }
     return {
       path: filePath,
       config: defaultConfig(),
+      profiles: [],
       problems: [
         {
           severity: "error",

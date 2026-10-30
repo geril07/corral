@@ -13,11 +13,15 @@ import { defaultConfig, parseConfigFile } from "./config-file.ts";
 const defaults = defaultConfig();
 
 test("an empty file is the defaults, without problems", () => {
-  expect(parseConfigFile("")).toEqual({ config: defaults, problems: [] });
+  expect(parseConfigFile("")).toEqual({ config: defaults, profiles: [], problems: [] });
 });
 
 test("a file with no [keys] section is the defaults too", () => {
-  expect(parseConfigFile("# nothing here yet\n")).toEqual({ config: defaults, problems: [] });
+  expect(parseConfigFile("# nothing here yet\n")).toEqual({
+    config: defaults,
+    profiles: [],
+    problems: [],
+  });
 });
 
 test("a prefix entry applies over the default", () => {

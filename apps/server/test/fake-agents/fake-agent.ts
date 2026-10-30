@@ -37,14 +37,17 @@ if (name === "claude" && !claudeConfigDir) {
   );
   process.exit(99);
 }
-const claudeFlag = name === "claude" ? argv[0] : undefined;
-const claudeId = name === "claude" ? argv[1] : undefined;
+// Launch flags (--model, -c …) may precede the conversation flag.
+const claudeFlagIndex =
+  name === "claude" ? argv.findIndex((arg) => arg === "--session-id" || arg === "--resume") : -1;
+const claudeFlag = claudeFlagIndex >= 0 ? argv[claudeFlagIndex] : undefined;
+const claudeId = claudeFlagIndex >= 0 ? argv[claudeFlagIndex + 1] : undefined;
 if (claudeFlag === "--resume" && claudeId && !claudeTranscriptExists(claudeConfigDir!, claudeId)) {
   console.error(`No conversation found with session ID: ${claudeId}`);
   process.exit(1);
 }
 
-const startsConversation = name === "codex" && argv[0] !== "resume";
+const startsConversation = name === "codex" && !argv.includes("resume");
 const rolloutMode = process.env["FAKE_CODEX_ROLLOUT"] ?? "eager";
 const rolloutId = startsConversation ? randomUUID() : undefined;
 
@@ -62,6 +65,10 @@ function openCodePlugin(): { configContent: string; pluginDir?: string; pluginPr
 }
 
 const logFile = process.env["FAKE_AGENT_LOG"];
+const loggedEnvNames = (process.env["FAKE_AGENT_LOG_ENV"] ?? "")
+  .split(",")
+  .map((variable) => variable.trim())
+  .filter((variable) => variable !== "");
 if (logFile) {
   const launch = {
     agent: name,
@@ -75,6 +82,9 @@ if (logFile) {
       CORRAL_STATUS_URL: process.env["CORRAL_STATUS_URL"],
       CORRAL_STATUS_TOKEN: process.env["CORRAL_STATUS_TOKEN"],
     },
+    envSentinels: Object.fromEntries(
+      loggedEnvNames.map((envName) => [envName, process.env[envName]]),
+    ),
     opencode: name === "opencode" ? openCodePlugin() : undefined,
   };
   appendFileSync(logFile, `${JSON.stringify(launch)}\n`);

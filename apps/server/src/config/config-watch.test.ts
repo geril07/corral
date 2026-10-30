@@ -31,6 +31,7 @@ test("yields the defaults when there is no file and no config directory", async 
   expect(watcher.initial).toEqual({
     path: configFile(),
     config: { keys: { prefix: DEFAULT_PREFIX, bindings: DEFAULT_BINDINGS } },
+    profiles: [],
     problems: [],
   });
 });
@@ -121,6 +122,7 @@ test("deleting the file goes back to the defaults", async () => {
   expect(await watcher.next("the defaults after the delete")).toEqual({
     path: configFile(),
     config: defaults,
+    profiles: [],
     problems: [],
   });
 });

@@ -33,6 +33,9 @@ export const MIGRATIONS: readonly string[] = [
   `UPDATE tasks SET state = 'settled' WHERE state = 'archived';
    ALTER TABLE sessions ADD COLUMN resume_on_unsettle INTEGER NOT NULL DEFAULT 0;`,
   `ALTER TABLE sessions ADD COLUMN label TEXT;`,
+  // Nonsecret launch choices (model/provider/profile revision/env reference names) as JSON.
+  // Stored once at start; a later config edit never rewrites it.
+  `ALTER TABLE sessions ADD COLUMN launch_spec TEXT;`,
 ];
 
 export const DATABASE_FILE = "corral.db";

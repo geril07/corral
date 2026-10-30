@@ -1,18 +1,31 @@
 import {
   ActionId,
+  AgentKind,
   DEFAULT_BINDINGS,
   DEFAULT_PREFIX,
   type ClientConfig,
   type ConfigProblem,
+  type EnvRef,
+  type LaunchProfile,
 } from "@corral/protocol/config";
 import { formatChord, parseChord, type Chord } from "@corral/protocol/keymap";
+import { createHash } from "node:crypto";
 import { parse as parseToml, TomlError } from "smol-toml";
+import { launchChoiceProblems } from "../agents/launch-capabilities.ts";
+import { ENV_NAME, isReservedEnvName } from "../agents/launch-env.ts";
 
 const PREFIX_PATH = "keys.prefix";
 const BINDINGS_PATH = "keys.bindings";
+const PROFILES_PATH = "profiles";
+const PROFILE_KEYS = new Set(["name", "agent", "model", "provider", "env"]);
+const ENV_KEYS = new Set(["targetName", "fromEnv"]);
+const PROFILE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const MAX_PROFILE_NAME = 80;
+const MAX_ENV_REFS = 32;
 
 export interface ParsedConfigFile {
   config: ClientConfig;
+  profiles: LaunchProfile[];
   problems: ConfigProblem[];
 }
 
@@ -34,14 +47,17 @@ export function parseConfigFile(text: string): ParsedConfigFile {
   try {
     document = parseToml(text);
   } catch (error) {
-    return { config, problems: [tomlProblem(error)] };
+    return { config, profiles: [], problems: [tomlProblem(error)] };
   }
-  if (!isTable(document)) return { config, problems: [errorAt("", "the file is not a table")] };
+  if (!isTable(document))
+    return { config, profiles: [], problems: [errorAt("", "the file is not a table")] };
 
   const keys = document["keys"];
   for (const key of Object.keys(document)) {
-    if (key !== "keys") problems.push(errorAt(key, `unknown section "${key}"`));
+    if (key !== "keys" && key !== "profiles")
+      problems.push(errorAt(key, `unknown section "${key}"`));
   }
+  const profiles = validProfiles(document["profiles"], problems);
   if (keys !== undefined && !isTable(keys)) {
     problems.push(errorAt("keys", `expected a table, got ${describe(keys)}`));
   } else if (keys !== undefined) {
@@ -120,7 +136,7 @@ export function parseConfigFile(text: string): ParsedConfigFile {
         ? binding.text
         : DEFAULT_BINDINGS[action];
   }
-  return { config, problems };
+  return { config, profiles, problems };
 }
 
 interface Assignment {
@@ -160,6 +176,147 @@ function validPrefix(
     problems.push(errorAt(PREFIX_PATH, messageOf(error)));
     return undefined;
   }
+}
+
+/**
+ * Profiles are all-or-nothing: one unknown key, bad type, reserved variable or unsupported
+ * model/provider drops the whole profile, so a selectable profile always describes the launch
+ * that will happen. Messages never quote a file value, which may be a secret.
+ */
+function validProfiles(value: unknown, problems: ConfigProblem[]): LaunchProfile[] {
+  if (value === undefined) return [];
+  if (!isTable(value)) {
+    problems.push(errorAt(PROFILES_PATH, `expected a table, got ${describe(value)}`));
+    return [];
+  }
+  const profiles: LaunchProfile[] = [];
+  for (const [id, entry] of Object.entries(value)) {
+    if (!PROFILE_ID.test(id)) {
+      problems.push(
+        errorAt(
+          PROFILES_PATH,
+          "a profile id must be letters, digits, dot, underscore or dash, starting with a letter or digit",
+        ),
+      );
+      continue;
+    }
+    const path = `${PROFILES_PATH}.${id}`;
+    if (!isTable(entry)) {
+      problems.push(errorAt(path, `expected a table, got ${describe(entry)}`));
+      continue;
+    }
+    const issues: string[] = [];
+    for (const key of Object.keys(entry)) {
+      if (!PROFILE_KEYS.has(key)) issues.push("unknown key in the profile");
+    }
+    const name = profileName(entry["name"], issues);
+    const parsedAgent = AgentKind.safeParse(entry["agent"]);
+    const agent = parsedAgent.success ? parsedAgent.data : null;
+    if (agent === null) issues.push(`agent must be one of ${AgentKind.options.join(", ")}`);
+    const model = textField(entry["model"], "model", issues);
+    const provider = textField(entry["provider"], "provider", issues);
+    const env = profileEnv(entry["env"], issues);
+    if (agent !== null) {
+      for (const problem of launchChoiceProblems({ kind: agent, model, provider })) {
+        issues.push(problem.message);
+      }
+    }
+    if (issues.length > 0 || agent === null) {
+      for (const message of issues) problems.push(errorAt(path, message));
+      continue;
+    }
+    const definition = { id, name, agent, model, provider, env };
+    profiles.push({ ...definition, revision: profileRevision(definition) });
+  }
+  return profiles;
+}
+
+function profileName(value: unknown, issues: string[]): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    issues.push("the profile needs a non-empty name");
+    return "";
+  }
+  if (value.length > MAX_PROFILE_NAME) {
+    issues.push(`the profile name may be at most ${MAX_PROFILE_NAME} characters`);
+  }
+  // oxlint-disable-next-line no-control-regex -- rejecting control characters is the point
+  if (/[\u0000-\u001f\u007f]/.test(value)) {
+    issues.push("the profile name may not hold control characters");
+  }
+  return value.trim();
+}
+
+function textField(value: unknown, field: string, issues: string[]): string | null {
+  if (value === undefined) return null;
+  if (typeof value !== "string") {
+    issues.push(`${field} must be a string`);
+    return null;
+  }
+  return value;
+}
+
+function profileEnv(value: unknown, issues: string[]): EnvRef[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    issues.push("env must be an array of { targetName, fromEnv } tables");
+    return [];
+  }
+  if (value.length > MAX_ENV_REFS) {
+    issues.push(`env may hold at most ${MAX_ENV_REFS} references`);
+    return [];
+  }
+  const refs: EnvRef[] = [];
+  const targets = new Set<string>();
+  for (const item of value) {
+    if (!isTable(item)) {
+      issues.push("each env entry must be a table");
+      continue;
+    }
+    for (const key of Object.keys(item)) {
+      if (!ENV_KEYS.has(key)) {
+        issues.push(
+          "an env entry holds only targetName and fromEnv; literal values are not supported",
+        );
+      }
+    }
+    const targetName = item["targetName"];
+    const fromEnv = item["fromEnv"];
+    if (typeof targetName !== "string" || !ENV_NAME.test(targetName)) {
+      issues.push("env targetName must be an environment variable name");
+      continue;
+    }
+    if (typeof fromEnv !== "string" || !ENV_NAME.test(fromEnv)) {
+      issues.push("env fromEnv must be an environment variable name");
+      continue;
+    }
+    if (isReservedEnvName(targetName)) {
+      issues.push("env may not set a reserved variable");
+      continue;
+    }
+    if (targets.has(targetName)) {
+      issues.push("env sets the same variable twice");
+      continue;
+    }
+    targets.add(targetName);
+    refs.push({ targetName, fromEnv });
+  }
+  return refs;
+}
+
+function profileRevision(profile: Omit<LaunchProfile, "revision">): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        profile.id,
+        profile.name,
+        profile.agent,
+        profile.model,
+        profile.provider,
+        profile.env.map((ref) => [ref.targetName, ref.fromEnv]),
+      ]),
+    )
+    .digest("hex")
+    .slice(0, 12);
 }
 
 function validBindings(keys: unknown, problems: ConfigProblem[]): Map<ActionId, FileBinding> {

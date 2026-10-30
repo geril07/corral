@@ -16,6 +16,10 @@ import { z } from "zod";
  * ```
  */
 
+/** The agent CLIs Corral can launch. */
+export const AgentKind = z.enum(["claude", "codex", "pi", "opencode"]);
+export type AgentKind = z.infer<typeof AgentKind>;
+
 /** Every action a key can run, also listed in the command palette. */
 export const ActionId = z.enum([
   "new-terminal",
@@ -62,6 +66,35 @@ export const DEFAULT_BINDINGS: Readonly<Record<ActionId, string>> = {
   "command-palette": "space",
 };
 
+/**
+ * A server environment variable a profile hands to the agent. Only names: the value is read
+ * from the server environment at launch and never stored, sent to a client or written to argv.
+ */
+export const EnvRef = z.object({
+  /** Variable name in the agent's environment. */
+  targetName: z.string(),
+  /** Variable name in the server's environment the value comes from. */
+  fromEnv: z.string(),
+});
+export type EnvRef = z.infer<typeof EnvRef>;
+
+/**
+ * A named launch profile from the config file: an agent and, where the agent supports it, a
+ * native model/provider. It changes explicit launch choices only; it does not isolate the
+ * agent from the server's other environment variables or from the agent's own credential files.
+ */
+export const LaunchProfile = z.object({
+  id: z.string(),
+  name: z.string(),
+  agent: AgentKind,
+  model: z.string().nullable(),
+  provider: z.string().nullable(),
+  env: z.array(EnvRef),
+  /** Content revision of this definition, so a session can say which one it was launched with. */
+  revision: z.string(),
+});
+export type LaunchProfile = z.infer<typeof LaunchProfile>;
+
 /** The effective configuration: defaults with the file's valid entries applied. */
 export const ClientConfig = z.object({
   keys: z.object({
@@ -89,6 +122,8 @@ export const ConfigState = z.object({
   /** Absolute path of the file the server reads; it may not exist. */
   path: z.string(),
   config: ClientConfig,
+  /** The profiles whose every field is valid; an invalid profile is dropped whole. */
+  profiles: z.array(LaunchProfile),
   problems: z.array(ConfigProblem),
 });
 export type ConfigState = z.infer<typeof ConfigState>;

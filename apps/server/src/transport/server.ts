@@ -52,6 +52,7 @@ export function startServer(options: {
   const terminals = new TerminalRegistry();
   const projectStore = new ProjectStore(database);
   const taskStore = new TaskStore(database);
+  const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, homedir())));
   // Known once the server listens, which is before any session starts.
   let httpOrigin = "";
   const sessions = new SessionService({
@@ -60,10 +61,10 @@ export function startServer(options: {
     terminals,
     statusUrl: (sessionId) => `${httpOrigin}${statusReportPath(sessionId)}`,
     openCode: OpenCodeIntegration.install(dataDir),
+    config,
   });
   const tasks = new TaskService({ store: taskStore, projects: projectStore, sessions, dataDir });
   const projects = new ProjectService(projectStore, tasks);
-  const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, homedir())));
   const rpc = new RPCHandler(createRpcRouter({ config, projects, tasks, sessions, terminals }));
   const http = createServer((request, response) => {
     const sessionId = statusReportSessionId(

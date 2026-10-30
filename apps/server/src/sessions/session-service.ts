@@ -1,3 +1,4 @@
+import type { LaunchProfile } from "@corral/protocol/config";
 import type {
   AgentStatus,
   CreateTerminalInput,
@@ -15,7 +16,9 @@ import {
   type CodexSessionWatch,
 } from "../agents/codex-sessions.ts";
 import { isExecutable } from "../agents/executable-lookup.ts";
+import { MissingEnvRefError, resolveEnvRefs, ReservedEnvRefError } from "../agents/launch-env.ts";
 import { ChangeFeed } from "../changes/change-feed.ts";
+import type { ConfigWatcher } from "../config/config-watcher.ts";
 import { newId } from "../storage/ids.ts";
 import { TaskNotFoundError } from "../tasks/errors.ts";
 import { SerialQueue } from "../tasks/serial-queue.ts";
@@ -24,7 +27,16 @@ import { sameStatus, statusAfterExit, statusFromReport } from "../status/agent-s
 import type { OpenCodeIntegration } from "../status/opencode-integration.ts";
 import { newStatusToken, tokensEqual } from "../status/status-token.ts";
 import type { TerminalRegistry } from "../terminals/terminal-registry.ts";
-import { AgentNotFoundError, AlreadyRunningError, SessionNotFoundError } from "./errors.ts";
+import {
+  AgentNotFoundError,
+  AlreadyRunningError,
+  LaunchModelInvalidError,
+  LaunchModelUnsupportedError,
+  LaunchProfileKindMismatchError,
+  LaunchProfileUnknownError,
+  SessionNotFoundError,
+} from "./errors.ts";
+import { launchSnapshotFor } from "./launch-snapshot.ts";
 import type { SessionStore, StoredSession } from "./session-store.ts";
 
 /** Sessions started again after a server restart have no client to size them yet. */
@@ -51,8 +63,11 @@ export class SessionService {
   readonly #live = new Map<string, Live>();
   readonly #statusUrl: (sessionId: string) => string;
   readonly #openCode: OpenCodeIntegration;
+  readonly #config: Pick<ConfigWatcher, "state">;
   // Kept after the process is gone: a `done` or `error` outlives it. Not persisted.
   readonly #statuses = new Map<string, AgentStatus>();
+  // Why the last launch failed; visible to clients that connect after a restore. Not persisted.
+  readonly #launchErrors = new Map<string, string>();
   readonly #changes = new ChangeFeed();
   // Starting, stopping and removing wait for processes; one at a time keeps a session's steps in order.
   readonly #queue = new SerialQueue();
@@ -65,12 +80,15 @@ export class SessionService {
     /** Where an agent of this session POSTs its status; resolved at launch, when the server is listening. */
     statusUrl: (sessionId: string) => string;
     openCode: OpenCodeIntegration;
+    /** The current config, for the profile a new session names. Never read on resume. */
+    config: Pick<ConfigWatcher, "state">;
   }) {
     this.#store = options.store;
     this.#tasks = options.tasks;
     this.#terminals = options.terminals;
     this.#statusUrl = options.statusUrl;
     this.#openCode = options.openCode;
+    this.#config = options.config;
   }
 
   list(): Session[] {
@@ -81,9 +99,16 @@ export class SessionService {
     return this.#changes.watch(() => this.list(), signal);
   }
 
-  start(taskId: string, kind: SessionKind, size: TerminalSize): Promise<Session> {
+  start(
+    taskId: string,
+    kind: SessionKind,
+    size: TerminalSize,
+    choice: { profileId?: string | undefined; model?: string | undefined } = {},
+  ): Promise<Session> {
     return this.#queue.run(async () => {
       const task = this.#task(taskId);
+      const profile = choice.profileId === undefined ? undefined : this.#profile(choice.profileId);
+      const launch = launchSnapshotFor({ kind, profile, modelOverride: choice.model });
       const stored: StoredSession = {
         id: newId(),
         taskId,
@@ -92,6 +117,7 @@ export class SessionService {
         state: "running",
         label: null,
         createdAt: Date.now(),
+        launch,
       };
       this.#launch(stored, task, size, "start");
       this.#store.insert(stored);
@@ -106,7 +132,12 @@ export class SessionService {
       if (stored.state === "running") throw new AlreadyRunningError(id);
       // The exited terminal of a session that stopped by itself stays listed until now.
       const previous = this.#live.get(id);
-      this.#launch(stored, this.#task(stored.taskId), size, "resume");
+      try {
+        this.#launch(stored, this.#task(stored.taskId), size, "resume");
+      } catch (error) {
+        this.#launchErrors.set(id, launchFailureReason(error));
+        throw error;
+      }
       if (previous) await this.#terminals.close(previous.terminalId);
       this.#store.setState(id, "running");
       this.#store.setResumeOnUnsettle(id, false);
@@ -131,6 +162,7 @@ export class SessionService {
       await this.#halt(id);
       this.#store.delete(id);
       this.#statuses.delete(id);
+      this.#launchErrors.delete(id);
       this.#changes.notify();
     });
   }
@@ -185,6 +217,7 @@ export class SessionService {
         await this.#halt(stored.id);
         this.#store.delete(stored.id);
         this.#statuses.delete(stored.id);
+        this.#launchErrors.delete(stored.id);
       }
       if (doomed.length > 0) this.#changes.notify();
     });
@@ -265,36 +298,56 @@ export class SessionService {
       ...stored,
       terminalId: this.#live.get(stored.id)?.terminalId ?? null,
       status: this.#statuses.get(stored.id) ?? null,
+      launchError: this.#launchErrors.get(stored.id) ?? null,
     };
+  }
+
+  #profile(id: string): LaunchProfile {
+    const profile = this.#config.state().profiles.find((candidate) => candidate.id === id);
+    if (!profile) throw new LaunchProfileUnknownError(id);
+    return profile;
   }
 
   /** Spawns the session's process in a new terminal; throws, changing nothing, when it cannot. */
   #launch(stored: StoredSession, task: Task, size: TerminalSize, how: "start" | "resume"): void {
     const adapter = stored.kind === "shell" ? undefined : AGENTS[stored.kind];
     const statusToken = newStatusToken();
-    const env: Record<string, string> = {
-      CORRAL_SESSION_ID: stored.id,
-      CORRAL_TASK_ID: stored.taskId,
-    };
-    const input: CreateTerminalInput = { cwd: task.workspacePath, env, size };
+    // One effective environment for the spawn, the executable check, transcript/rollout discovery
+    // and the OpenCode plugin. A missing reference fails here, before anything is spawned.
+    const env = stringEnv({ ...process.env });
+    if (stored.launch !== null) {
+      Object.assign(
+        env,
+        resolveEnvRefs(stored.launch.env, process.env, stored.launch.profile?.id ?? null),
+      );
+    }
+    // Server-owned variables win over profile references.
+    env["CORRAL_SESSION_ID"] = stored.id;
+    env["CORRAL_TASK_ID"] = stored.taskId;
+    const input: CreateTerminalInput = { cwd: task.workspacePath, size };
     if (adapter) {
       env["CORRAL_STATUS_URL"] = this.#statusUrl(stored.id);
       env["CORRAL_STATUS_TOKEN"] = statusToken;
-      if (!isExecutable(adapter.command, process.env["PATH"]))
+      if (!isExecutable(adapter.command, env["PATH"]))
         throw new AgentNotFoundError(adapter.command);
       input.command = adapter.command;
       const id = stored.agentSessionId;
       const resumable =
-        how === "resume" && id !== null && (adapter.hasConversation?.(id, process.env) ?? true);
-      input.args = resumable ? adapter.resumeArgs(id) : adapter.startArgs(id);
+        how === "resume" && id !== null && (adapter.hasConversation?.(id, env) ?? true);
+      let args = [
+        ...adapter.launchArgs(stored.launch?.model ?? null, stored.launch?.provider ?? null),
+        ...(resumable ? adapter.resumeArgs(id) : adapter.startArgs(id)),
+      ];
       if (stored.kind === "opencode") {
-        const plugin = this.#openCode.launch(process.env);
+        const plugin = this.#openCode.launch(env);
         if (plugin) {
-          input.args = [...plugin.args, ...input.args];
+          args = [...plugin.args, ...args];
           Object.assign(env, plugin.env);
         }
       }
+      input.args = args;
     }
+    input.env = env;
     const spawnedAt = Date.now();
     const info = this.#terminals.create(
       input,
@@ -311,7 +364,7 @@ export class SessionService {
     const discovery =
       stored.kind === "codex" && stored.agentSessionId === null
         ? watchForCodexSession({
-            home: codexHome(process.env),
+            home: codexHome(env),
             cwd: task.workspacePath,
             since: spawnedAt,
             claimedIds: () => this.#store.agentSessionIds("codex"),
@@ -327,6 +380,7 @@ export class SessionService {
       statusToken,
       reportedOverHttp: false,
     });
+    this.#launchErrors.delete(stored.id);
     void this.#terminals
       .get(info.id)
       ?.whenExitRecorded()
@@ -355,10 +409,18 @@ export class SessionService {
       this.#launch(stored, this.#task(stored.taskId), RESTORED_SIZE, "resume");
       this.#store.setState(stored.id, "running");
     } catch (error) {
-      console.error(
-        `corral-server: could not restore session ${stored.id} (${stored.kind})`,
-        error,
-      );
+      const reason = launchFailureReason(error);
+      this.#launchErrors.set(stored.id, reason);
+      if (safeLaunchError(error)) {
+        console.error(
+          `corral-server: could not restore session ${stored.id} (${stored.kind}): ${reason}`,
+          error,
+        );
+      } else {
+        console.error(
+          `corral-server: could not restore session ${stored.id} (${stored.kind}): ${reason}`,
+        );
+      }
       this.#store.setState(stored.id, "stopped");
     }
   }
@@ -387,4 +449,43 @@ export class SessionService {
     const lost = stored.kind === "codex" && stored.agentSessionId === null;
     this.#store.setState(id, lost ? "unresumable" : "stopped");
   }
+}
+
+function stringEnv(env: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  );
+}
+
+/** Known launch errors carry only choices and reference names, so their object is safe in a log. */
+function safeLaunchError(error: unknown): boolean {
+  return (
+    error instanceof MissingEnvRefError ||
+    error instanceof ReservedEnvRefError ||
+    error instanceof AgentNotFoundError ||
+    error instanceof LaunchProfileKindMismatchError ||
+    error instanceof LaunchModelUnsupportedError ||
+    error instanceof LaunchModelInvalidError
+  );
+}
+
+/** A reason a later client can show. Known errors name choices or references, never values. */
+function launchFailureReason(error: unknown): string {
+  if (error instanceof MissingEnvRefError) {
+    return `the server has no environment variable ${error.variable}${
+      error.profileId === null ? "" : ` for profile ${error.profileId}`
+    }`;
+  }
+  if (error instanceof ReservedEnvRefError) {
+    return "the saved launch sets a reserved environment variable";
+  }
+  if (
+    error instanceof AgentNotFoundError ||
+    error instanceof LaunchProfileKindMismatchError ||
+    error instanceof LaunchModelUnsupportedError ||
+    error instanceof LaunchModelInvalidError
+  ) {
+    return error.message;
+  }
+  return "the session could not be launched; see the server log";
 }

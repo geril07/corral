@@ -52,10 +52,16 @@ export function formatChord(chord: Chord): string {
   return [...modifiers, codeToKey(chord.code)].join("+");
 }
 
-export function matchesChord(
-  event: Pick<KeyboardEvent, "code" | "ctrlKey" | "altKey" | "shiftKey" | "metaKey">,
-  chord: Chord,
-): boolean {
+/** The part of a `KeyboardEvent` a binding reads; named so server code needs no DOM lib. */
+export interface ChordEvent {
+  readonly code: string;
+  readonly ctrlKey: boolean;
+  readonly altKey: boolean;
+  readonly shiftKey: boolean;
+  readonly metaKey: boolean;
+}
+
+export function matchesChord(event: ChordEvent, chord: Chord): boolean {
   return (
     event.code === chord.code &&
     event.ctrlKey === chord.ctrl &&
