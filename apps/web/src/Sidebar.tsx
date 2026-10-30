@@ -1,3 +1,4 @@
+import { sessionStatus, taskStatus } from "@corral/client/agent-status";
 import { describeSessionState } from "@corral/client/session-state";
 import type {
   Entry,
@@ -9,6 +10,7 @@ import type {
 } from "@corral/client/workspace-tree";
 import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
 import { useState } from "react";
+import { StatusIndicator } from "./StatusIndicator.tsx";
 
 export function terminalLabel(terminal: TerminalInfo): string {
   const program = terminal.command.split("/").pop() || terminal.command;
@@ -75,14 +77,16 @@ export function Sidebar(props: SidebarProps) {
     const current = session.id === selection.entryId;
     const running = session.state === "running";
     const { badge, note } = describeSessionState(session);
+    const status = sessionStatus(session);
     return (
       <li key={session.id} className={running ? undefined : "stopped"}>
         <div className="row">
+          <StatusIndicator status={status} />
           <button
             type="button"
             className="select"
             aria-current={current ? "true" : undefined}
-            title={note}
+            title={[status?.message, note].filter(Boolean).join("\n") || undefined}
             onClick={() => props.onSelectEntry(entry)}
             onKeyDown={(event) => {
               // Enter on the selected session that is not running starts it again.
@@ -126,38 +130,43 @@ export function Sidebar(props: SidebarProps) {
     );
   };
 
-  const taskItem = ({ task, sessions }: TaskNode) => (
-    <li key={task.id} className={task.state === "settled" ? "settled" : undefined}>
-      <div className="row">
-        <button
-          type="button"
-          className="select"
-          aria-current={task.id === selection.taskId ? "true" : undefined}
-          onClick={() => props.onSelectTask(task)}
-        >
-          {task.title}
-          <span className="branch"> {task.branch}</span>
-        </button>
-        <button
-          type="button"
-          className="icon"
-          aria-label={`${task.state === "active" ? "settle" : "unsettle"} ${task.title}`}
-          onClick={() => props.onToggleSettle(task)}
-        >
-          {task.state === "active" ? "▾" : "▴"}
-        </button>
-        <button
-          type="button"
-          className="icon danger"
-          aria-label={`remove task ${task.title}`}
-          onClick={() => props.onRemoveTask(task)}
-        >
-          ×
-        </button>
-      </div>
-      {sessions.length > 0 && <ul>{sessions.map(sessionItem)}</ul>}
-    </li>
-  );
+  const taskItem = ({ task, sessions }: TaskNode) => {
+    const status = taskStatus(sessions.map((entry) => entry.session))?.status;
+    return (
+      <li key={task.id} className={task.state === "settled" ? "settled" : undefined}>
+        <div className="row">
+          <StatusIndicator status={status} />
+          <button
+            type="button"
+            className="select"
+            aria-current={task.id === selection.taskId ? "true" : undefined}
+            title={status?.message}
+            onClick={() => props.onSelectTask(task)}
+          >
+            {task.title}
+            <span className="branch"> {task.branch}</span>
+          </button>
+          <button
+            type="button"
+            className="icon"
+            aria-label={`${task.state === "active" ? "settle" : "unsettle"} ${task.title}`}
+            onClick={() => props.onToggleSettle(task)}
+          >
+            {task.state === "active" ? "▾" : "▴"}
+          </button>
+          <button
+            type="button"
+            className="icon danger"
+            aria-label={`remove task ${task.title}`}
+            onClick={() => props.onRemoveTask(task)}
+          >
+            ×
+          </button>
+        </div>
+        {sessions.length > 0 && <ul>{sessions.map(sessionItem)}</ul>}
+      </li>
+    );
+  };
 
   return (
     <nav

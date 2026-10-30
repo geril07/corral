@@ -14,6 +14,7 @@ const session: Session = {
   agentSessionId: "abc",
   terminalId: "term",
   state: "running",
+  status: null,
   createdAt: 0,
 };
 

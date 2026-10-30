@@ -13,6 +13,7 @@ const session = (state: Session["state"], kind: Session["kind"] = "claude"): Ses
   agentSessionId: null,
   terminalId: null,
   state,
+  status: null,
   createdAt: 0,
 });
 

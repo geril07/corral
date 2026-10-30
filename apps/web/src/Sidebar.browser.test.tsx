@@ -40,6 +40,7 @@ const session = (
   agentSessionId: null,
   terminalId: state === "running" ? `term-${id}` : null,
   state,
+  status: null,
   createdAt: Number(id.replace(/\D/g, "")),
 });
 const terminal = (id: string, taskId: string | null, sessionId: string | null): TerminalInfo => ({
@@ -53,13 +54,14 @@ const terminal = (id: string, taskId: string | null, sessionId: string | null): 
   exit: null,
 });
 
-function renderSidebar(chosen: Chosen = {}) {
-  const sessions = [
-    session("s1", "a", "shell"),
-    session("s2", "a", "claude"),
-    session("s3", "a", "codex", "stopped"),
-    session("s4", "b", "pi", "unresumable"),
-  ];
+const defaultSessions = [
+  session("s1", "a", "shell"),
+  session("s2", "a", "claude"),
+  session("s3", "a", "codex", "stopped"),
+  session("s4", "b", "pi", "unresumable"),
+];
+
+function renderSidebar(chosen: Chosen = {}, sessions: Session[] = defaultSessions) {
   const tree = buildWorkspaceTree(
     [project("p1"), project("p2")],
     [task("a"), task("b"), task("old", "settled")],
@@ -235,4 +237,44 @@ test("Enter on a stopped session that is not the selected one only selects it", 
   expect(handlers.onSelectEntry).toHaveBeenCalledWith(
     expect.objectContaining({ type: "session", id: "s3" }),
   );
+});
+
+const reporting = (base: Session, status: NonNullable<Session["status"]>): Session => ({
+  ...base,
+  status,
+});
+
+test("sessions and tasks show their agent status with a text alternative and the message on hover", async () => {
+  await renderSidebar({}, [
+    session("s1", "a", "shell"),
+    reporting(session("s2", "a", "claude"), {
+      state: "blocked",
+      kind: "permission",
+      message: "Run rm -rf build?",
+      updatedAt: 1,
+    }),
+    reporting(session("s3", "a", "codex"), { state: "working", updatedAt: 2 }),
+    reporting(session("s4", "b", "pi"), { state: "idle", updatedAt: 3 }),
+  ]).rendered;
+
+  // The task takes the most urgent of its sessions' statuses; the sessions show their own.
+  const status = (name: string) => nav().getByRole("img", { name });
+  await expect.element(status("blocked · permission")).toHaveLength(2);
+  await expect.element(status("working")).toHaveLength(1);
+  await expect.element(status("idle")).toHaveLength(2);
+  await expect.element(sessionButton("claude")).toHaveAttribute("title", "Run rm -rf build?");
+  await expect
+    .element(nav().getByRole("button", { name: /^task a/ }))
+    .toHaveAttribute("title", "Run rm -rf build?");
+  await expect.element(sessionButton("shell")).not.toHaveAttribute("title");
+});
+
+test("a stopped session shows only the done or error it kept, and a stale working is dropped", async () => {
+  await renderSidebar({}, [
+    reporting(session("s1", "a", "claude", "stopped"), { state: "done", updatedAt: 1 }),
+    reporting(session("s3", "a", "codex", "stopped"), { state: "working", updatedAt: 2 }),
+  ]).rendered;
+
+  await expect.element(nav().getByRole("img", { name: "done" })).toHaveLength(2);
+  await expect.element(nav().getByRole("img", { name: "working" })).not.toBeInTheDocument();
 });

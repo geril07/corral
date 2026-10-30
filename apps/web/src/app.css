@@ -421,3 +421,30 @@ main {
   color: var(--dim);
   font-family: ui-monospace, Menlo, Consolas, monospace;
 }
+
+.workspace .status {
+  flex: none;
+  width: 18px;
+  align-self: center;
+  text-align: center;
+}
+
+.status[data-state="blocked"] {
+  color: #f0883e;
+}
+
+.status[data-state="error"] {
+  color: var(--danger);
+}
+
+.status[data-state="working"] {
+  color: var(--accent);
+}
+
+.status[data-state="done"] {
+  color: #56d364;
+}
+
+.status[data-state="idle"] {
+  color: var(--dim);
+}
