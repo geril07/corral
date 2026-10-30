@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "prepare": "vp config --no-agent",
-    "check": "vp check && vp run -r typecheck && vp test run --project node",
+    "check": "node scripts/check-web-ui.mjs && vp check && vp run -r typecheck && vp test run --project node",
     "fmt": "vp fmt",
     "lint": "vp lint",
     "typecheck": "vp run -r typecheck",

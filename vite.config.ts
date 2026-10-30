@@ -1,6 +1,74 @@
 import { defineConfig } from "vite-plus";
 
-const IGNORED = ["**/node_modules/**", "**/dist/**", "**/out/**", "pnpm-lock.yaml"];
+const IGNORED = [
+  "**/node_modules/**",
+  "**/dist/**",
+  "**/out/**",
+  "pnpm-lock.yaml",
+  "apps/web/src/routeTree.gen.ts",
+];
+
+const WEB_MODULES = [
+  "board",
+  "connection",
+  "keymap",
+  "projects",
+  "sessions",
+  "status",
+  "tasks",
+  "terminal",
+  "workspace",
+] as const;
+
+const serverImport = {
+  group: ["@corral/server", "@corral/server/**"],
+  message: "Clients talk to the server over the protocol only.",
+};
+
+const baseUiImport = {
+  group: ["@base-ui/react", "@base-ui/react/**"],
+  message: "Base UI is used through common/ui only.",
+};
+
+/** Every module other than `own`, imported only through its public index.ts. */
+function otherModules(own: string) {
+  return WEB_MODULES.flatMap((module) =>
+    module === own
+      ? []
+      : [
+          `../${module}`,
+          `../${module}/**`,
+          `!../${module}/index.ts`,
+          `../../${module}`,
+          `../../${module}/**`,
+          `!../../${module}/index.ts`,
+          `../../../${module}`,
+          `../../../${module}/**`,
+          `!../../../${module}/index.ts`,
+        ],
+  );
+}
+
+const upFromCommon = [
+  "../app/**",
+  "../../app/**",
+  "../../../app/**",
+  "../routes/**",
+  "../../routes/**",
+  "../../../routes/**",
+  "../modules/**",
+  "../../modules/**",
+  "../../../modules/**",
+];
+
+const upFromModule = [
+  "../app/**",
+  "../../app/**",
+  "../../../app/**",
+  "../routes/**",
+  "../../routes/**",
+  "../../../routes/**",
+];
 
 export default defineConfig({
   staged: {
@@ -53,6 +121,34 @@ export default defineConfig({
         },
       },
       {
+        // Raw DOM controls and inline styles only exist inside the UI kit.
+        files: ["apps/web/src/**/*.tsx"],
+        excludeFiles: ["apps/web/src/common/ui/**"],
+        plugins: ["react"],
+        rules: {
+          "react/forbid-dom-props": [
+            "error",
+            {
+              forbid: [
+                { propName: "style", message: "Style through common/ui, not a style prop." },
+              ],
+            },
+          ],
+          "react/forbid-elements": [
+            "error",
+            {
+              forbid: [
+                { element: "button", message: "Use Button from common/ui." },
+                { element: "input", message: "Use Input or a common/ui field control." },
+                { element: "select", message: "Use a common/ui control." },
+                { element: "textarea", message: "Use a common/ui control." },
+                { element: "dialog", message: "Use Dialog/ConfirmDialog from common/ui." },
+              ],
+            },
+          ],
+        },
+      },
+      {
         // Dependency direction (docs/engineering.md): protocol is a leaf, clients never import the server.
         files: ["packages/protocol/**"],
         rules: {
@@ -67,19 +163,107 @@ export default defineConfig({
         },
       },
       {
-        files: ["packages/client/**", "apps/web/**"],
+        files: ["packages/client/**"],
+        rules: {
+          "eslint/no-restricted-imports": ["error", { patterns: [serverImport] }],
+        },
+      },
+      {
+        // The kit is the only place that imports Base UI.
+        files: ["apps/web/src/common/ui/**"],
+        rules: {
+          "eslint/no-restricted-imports": ["error", { patterns: [serverImport] }],
+        },
+      },
+      {
+        // common -> nothing above it (app, routes, modules).
+        files: ["apps/web/src/common/**"],
+        excludeFiles: ["apps/web/src/common/ui/**"],
         rules: {
           "eslint/no-restricted-imports": [
             "error",
             {
               patterns: [
+                serverImport,
+                baseUiImport,
+                { group: upFromCommon, message: "common imports nothing above it." },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        // A module may use common and another module's public index.ts; never app or routes.
+        files: ["apps/web/src/modules/**"],
+        rules: {
+          "eslint/no-restricted-imports": [
+            "error",
+            {
+              patterns: [
+                serverImport,
+                baseUiImport,
                 {
-                  group: ["@corral/server", "@corral/server/**"],
-                  message: "Clients talk to the server over the protocol only.",
+                  group: upFromModule,
+                  message: "A module does not import app or routes.",
                 },
               ],
             },
           ],
+        },
+      },
+      ...WEB_MODULES.map((module) => ({
+        files: [`apps/web/src/modules/${module}/**`],
+        rules: {
+          "eslint/no-restricted-imports": [
+            "error",
+            {
+              patterns: [
+                serverImport,
+                baseUiImport,
+                {
+                  group: upFromModule,
+                  message: "A module does not import app or routes.",
+                },
+                {
+                  group: otherModules(module),
+                  message: "Another module is imported through its index.ts only.",
+                },
+              ],
+            },
+          ],
+        },
+      })),
+      {
+        // Routes compose modules through their index.ts and do not import app.
+        files: ["apps/web/src/routes/**"],
+        rules: {
+          "eslint/no-restricted-imports": [
+            "error",
+            {
+              patterns: [
+                serverImport,
+                baseUiImport,
+                {
+                  group: ["../app/**", "../../app/**", "../modules/**", "!../modules/*/index.ts"],
+                  message: "Routes import modules through their public index.ts.",
+                },
+              ],
+            },
+          ],
+        },
+      },
+      {
+        files: ["apps/web/src/app/**"],
+        rules: {
+          "eslint/no-restricted-imports": ["error", { patterns: [serverImport, baseUiImport] }],
+        },
+      },
+      {
+        // Test fixtures and the Vite config are outside the UI layering.
+        files: ["apps/web/**"],
+        excludeFiles: ["apps/web/src/**"],
+        rules: {
+          "eslint/no-restricted-imports": ["error", { patterns: [serverImport, baseUiImport] }],
         },
       },
       {
