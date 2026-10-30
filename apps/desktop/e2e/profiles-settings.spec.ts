@@ -62,6 +62,7 @@ env = [{ targetName = "ANTHROPIC_AUTH_TOKEN", fromEnv = "E2E_PROFILE_TOKEN" }]
   const profiles = window.getByRole("region", { name: "Agent profiles" });
   await expect(profiles).toContainText("Claude sonnet");
   await expect(profiles).toContainText("claude-sonnet-4-5");
+  await profiles.getByRole("button", { name: "environment references for Claude sonnet" }).click();
   await expect(profiles).toContainText("ANTHROPIC_AUTH_TOKEN");
   await expect(profiles).toContainText("E2E_PROFILE_TOKEN");
 
