@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vite-plus/test";
+import { SessionStore } from "../sessions/session-store.ts";
 import { MIGRATIONS, migrate, openDatabase, schemaVersion } from "./database.ts";
 
 let dataDir: string;
@@ -93,4 +94,32 @@ test("migrating a database from before labels keeps its sessions, unlabelled", (
   migrate(db, MIGRATIONS);
 
   expect(db.prepare("SELECT id, label FROM sessions").all()).toEqual([{ id: "s", label: null }]);
+  db.close();
+});
+
+test("a session from before launch profiles keeps its old launch behavior", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db, MIGRATIONS.slice(0, 3));
+  db.exec(`
+    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
+    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
+      VALUES ('t', 'p', 'task', 'b', '/n', 0, 'active', 1);
+    INSERT INTO sessions (id, task_id, kind, agent_session_id, state, created_at)
+      VALUES ('s', 't', 'claude', 'old-session', 'stopped', 2);
+  `);
+
+  migrate(db, MIGRATIONS);
+
+  expect(db.prepare("SELECT launch_spec FROM sessions WHERE id = 's'").get()).toEqual({
+    launch_spec: null,
+  });
+  expect(new SessionStore(db).get("s")).toMatchObject({
+    id: "s",
+    kind: "claude",
+    agentSessionId: "old-session",
+    launch: null,
+  });
+  db.close();
+});
 });
