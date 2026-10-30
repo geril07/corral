@@ -11,7 +11,7 @@ import {
   FormError,
 } from "../../common/ui/index.ts";
 
-interface FindTaskDialogProps {
+export interface FindTaskDialogProps {
   projects: readonly Project[];
   tasks: readonly Task[];
   /** Shows the task's existing context without changing any task's state. */

@@ -9,3 +9,4 @@ export {
   workspaceSearchSchema,
   type WorkspaceSearch,
 } from "./workspace-search.ts";
+export { FindTaskDialog, type FindTaskDialogProps } from "./find-task-dialog.tsx";
