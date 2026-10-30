@@ -37,6 +37,8 @@ interface Live {
   terminalId: string;
   discovery: CodexSessionWatch | undefined;
   statusToken: string;
+  /** Once this launch has had an HTTP report accepted, its OSC 7501 reports no longer change the status. */
+  reportedOverHttp: boolean;
 }
 
 export type StatusReportOutcome = "accepted" | "unknown-session" | "forbidden";
@@ -137,6 +139,7 @@ export class SessionService {
     const live = this.#live.get(id);
     const running = live !== undefined && this.#terminals.get(live.terminalId)?.info.exit === null;
     if (!live || !running || !tokensEqual(live.statusToken, token)) return "forbidden";
+    live.reportedOverHttp = true;
     this.#setStatus(id, statusFromReport(report, Date.now()));
     return "accepted";
   }
@@ -284,8 +287,10 @@ export class SessionService {
       input,
       { taskId: stored.taskId, sessionId: stored.id },
       // The token names this launch: a terminal being replaced must not write over the new one's status.
+      // OSC 7501 fills in only until the launch's first accepted HTTP report (Orca's rule: the plugin wins).
       (status) => {
-        if (this.#live.get(stored.id)?.statusToken === statusToken)
+        const live = this.#live.get(stored.id);
+        if (live?.statusToken === statusToken && !live.reportedOverHttp)
           this.#setStatus(stored.id, status);
       },
     );
@@ -303,7 +308,12 @@ export class SessionService {
             },
           })
         : undefined;
-    this.#live.set(stored.id, { terminalId: info.id, discovery, statusToken });
+    this.#live.set(stored.id, {
+      terminalId: info.id,
+      discovery,
+      statusToken,
+      reportedOverHttp: false,
+    });
     void this.#terminals
       .get(info.id)
       ?.whenExitRecorded()

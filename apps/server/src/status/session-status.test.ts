@@ -216,7 +216,7 @@ test("a token stops working when the session's process is replaced or gone", asy
   void client;
 });
 
-test("an HTTP report and an OSC 7501 report on one session: the last one wins", async () => {
+test("OSC 7501 fills in until the first HTTP report of a launch; after it the HTTP channel decides", async () => {
   const { client, watcher, launch } = await startAgent("claude");
   const agent = (await launch())!;
 
@@ -226,15 +226,63 @@ test("an HTTP report and an OSC 7501 report on one session: the last one wins", 
     204,
   );
   await watcher.until((status) => status?.state === "blocked", "http blocked");
+  // The marker comes through OSC after the ignored report, so the check cannot pass by being early.
   client.type(`osc ${reportBody({ state: "done" })}\n`);
-  await watcher.until((status) => status?.state === "done", "osc done");
+  client.type(`probe ${reportBody({ state: "error" })}\n`);
+  await client.waitForScreen("fake claude probe answered");
+  expect((await post(agent, JSON.stringify({ state: "idle" }))).status).toBe(204);
+  await watcher.until((status) => status?.state === "idle", "http idle");
 
   expect(watcher.statuses.map((status) => status?.state ?? null)).toEqual([
     null,
     "working",
     "blocked",
+    "idle",
+  ]);
+  await watcher.stop();
+});
+
+test("an HTTP report that arrives after OSC ones replaces them, and an unaccepted one does not switch the channel", async () => {
+  const { client, watcher, launch } = await startAgent("claude");
+  const agent = (await launch())!;
+
+  expect((await post(agent, JSON.stringify({ state: "working" }), "wrong")).status).toBe(403);
+  client.type(`osc ${reportBody({ state: "blocked", kind: "permission" })}\n`);
+  await watcher.until((status) => status?.state === "blocked", "osc blocked");
+  client.type(`osc ${reportBody({ state: "done" })}\n`);
+  await watcher.until(
+    (status) => status?.state === "done",
+    "osc still counts after a refused report",
+  );
+
+  expect(watcher.statuses.map((status) => status?.state ?? null)).toEqual([
+    null,
+    "blocked",
     "done",
   ]);
+  await watcher.stop();
+});
+
+test("a new launch of the session listens to OSC 7501 again until its own first HTTP report", async () => {
+  const { api, session, client, watcher } = await startAgent("claude");
+  const first = (await launchesOf(agents, "claude", 1))[0]!;
+  expect((await post(first, JSON.stringify({ state: "working" }))).status).toBe(204);
+  await watcher.until((status) => status?.state === "working", "http working");
+  // An agent that exits by itself leaves its launch listed until the restart, the path where state could leak.
+  client.type("exit\n");
+  await expect
+    .poll(async () => (await sessionsOf(api))[0]?.state, { timeout: 10_000 })
+    .toBe("stopped");
+  await api.sessions.restart({ id: session.id, size: SIZE });
+  await watcher.until((status) => status === null, "the reset");
+  const restarted = await server.attach((await sessionsOf(api))[0]!.terminalId!);
+  await restarted.waitForScreen("fake claude ready");
+
+  restarted.type(`osc ${reportBody({ state: "blocked", kind: "auth" })}\n`);
+  await watcher.until((status) => status?.state === "blocked", "osc after relaunch");
+
+  // The earlier launch's token is dead, so it cannot take the channel back either.
+  expect((await post(first, JSON.stringify({ state: "idle" }))).status).toBe(403);
   await watcher.stop();
 });
 
