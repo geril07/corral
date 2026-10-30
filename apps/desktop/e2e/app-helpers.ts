@@ -55,8 +55,11 @@ export async function addProject(window: Page, repo: string) {
   ).toBeVisible();
 }
 
-/** Creates a task with a new branch from the keyboard; its shell session starts with it. */
-export async function createTask(window: Page, title: string) {
+/**
+ * Creates a task with a new branch from the keyboard; its shell session starts with it.
+ * `shellCount` is how many shell sessions the sidebar lists afterwards, all tasks together.
+ */
+export async function createTask(window: Page, title: string, shellCount = 1) {
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyT");
   await expect(
@@ -68,6 +71,6 @@ export async function createTask(window: Page, title: string) {
     workspace(window).getByRole("button", { name: new RegExp(`^${title}`) }),
   ).toHaveAttribute("aria-current", "true");
   await expect(workspace(window).getByRole("button", { name: "shell", exact: true })).toHaveCount(
-    1,
+    shellCount,
   );
 }
