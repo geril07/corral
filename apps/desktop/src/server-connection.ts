@@ -11,6 +11,14 @@ import {
 
 const POLL_INTERVAL_MS = 50;
 
+/**
+ * Chromium leaves many of its file descriptors inheritable, so a plain spawn from Electron
+ * hands the server Playwright's pipes (the launcher then never sees the app exit) and
+ * Chromium's profile locks (held for as long as the server lives). Close everything above
+ * stderr before exec.
+ */
+const EXEC_WITHOUT_INHERITED_FDS = `for entry in /dev/fd/*; do fd=\${entry##*/}; [ "$fd" -gt 2 ] 2>/dev/null && eval "exec $fd>&-"; done; exec "$@"`;
+
 export type ServerConnection =
   | { status: "ready"; url: string; pid: number }
   /** A live server on another protocol version. Never stopped here: who stops old servers is open. */
@@ -108,12 +116,16 @@ function startDetachedServer(options: EnsureServerOptions): Starter {
   let failure: string | undefined;
   try {
     // Own process group and no stdio shared with us, so the server outlives this app.
-    const child = spawn("node", [options.serverEntry], {
-      detached: true,
-      stdio: ["ignore", log, log],
-      env: { ...process.env, CORRAL_STATE_DIR: options.stateDir },
-    });
-    child.once("error", (error) => (failure = `Cannot start node: ${error.message}`));
+    const child = spawn(
+      "bash",
+      ["-c", EXEC_WITHOUT_INHERITED_FDS, "corral-server", "node", options.serverEntry],
+      {
+        detached: true,
+        stdio: ["ignore", log, log],
+        env: { ...process.env, CORRAL_STATE_DIR: options.stateDir },
+      },
+    );
+    child.once("error", (error) => (failure = `Cannot start the server (bash): ${error.message}`));
     child.once("exit", (code, signal) => {
       // Refusal means another server holds the lock; its endpoint is what we wait for.
       if (code === SERVER_LOCK_REFUSED_EXIT_CODE) return;
