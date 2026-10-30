@@ -13,6 +13,12 @@ import { z } from "zod";
  *
  * [keys.bindings]   # action = chord after the prefix; "" unbinds
  * new-agent = "a"
+ *
+ * [profiles.gateway]  # a launch profile; see docs/agent-profiles.md
+ * name = "Claude via gateway"
+ * agent = "claude"
+ * model = "claude-sonnet-4-5"
+ * env = [{ targetName = "ANTHROPIC_AUTH_TOKEN", fromEnv = "GATEWAY_TOKEN" }]
  * ```
  */
 
