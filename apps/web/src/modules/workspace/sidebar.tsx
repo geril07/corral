@@ -1,3 +1,4 @@
+import { cn } from "../../common/lib/cn.ts";
 import { sessionStatus, taskStatus } from "@corral/client/agent-status";
 import { sessionLabels } from "@corral/client/session-labels";
 import { describeSessionState } from "@corral/client/session-state";
@@ -20,7 +21,9 @@ export function terminalLabel(terminal: TerminalInfo): string {
   return `${program} · ${folder}`;
 }
 
-const ROW_BUTTON = "min-w-0 flex-1 truncate px-2.5 py-1.5 text-left text-inherit";
+// Rows read from the left and cut at the right: a centred, clipped label hides the start of a title.
+const ROW_BUTTON =
+  "min-w-0 flex-1 shrink justify-start overflow-hidden px-2.5 py-1.5 text-left text-inherit";
 const ROW_ICON = "my-0.5";
 const SETTLE_TOGGLE =
   "w-full px-2.5 py-1 text-left text-text-muted disabled:cursor-default disabled:opacity-60";
@@ -99,10 +102,10 @@ export function Sidebar(props: SidebarProps) {
               title={status?.message}
               onClick={() => props.onSelectTask(task)}
             >
-              <span className={task.state === "settled" ? "text-text-muted" : undefined}>
+              <span className={cn("truncate", task.state === "settled" && "text-text-muted")}>
                 {task.title}
               </span>
-              <span className="text-text-muted"> {task.branch}</span>
+              <span className="min-w-0 max-w-1/3 truncate text-text-muted">{task.branch}</span>
             </Button>
           </Tooltip>
           <Button
