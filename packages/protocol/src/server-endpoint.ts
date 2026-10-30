@@ -5,6 +5,8 @@ export const ServerEndpoint = z.object({
   pid: z.number().int().positive(),
   /** WebSocket base URL, e.g. `ws://127.0.0.1:4000`. */
   url: z.string(),
+  /** Random per server run; every WebSocket must present it as a subprotocol. Absent before protocol 2. */
+  capability: z.string().min(1).optional(),
   protocolVersion: z.number().int(),
   /** Epoch milliseconds. */
   startedAt: z.number(),

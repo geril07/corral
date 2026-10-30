@@ -1,4 +1,5 @@
-import { protocolUrl } from "@corral/protocol/handshake";
+import { capabilityProtocols, protocolUrl } from "@corral/protocol/handshake";
+import type { ServerTarget } from "@corral/protocol/server-target";
 import { RPC_PATH, type Contract } from "@corral/protocol/rpc";
 import { createORPCClient, type ClientContext } from "@orpc/client";
 import { RPCLink } from "@orpc/client/websocket";
@@ -8,7 +9,7 @@ import { ReconnectingSocket, type Backoff, type CreateSocket } from "./reconnect
 import { Store, type ReadableStore } from "./store.ts";
 
 export interface RpcConnectionOptions {
-  serverUrl: string;
+  server: ServerTarget;
   backoff?: Backoff;
   createSocket?: CreateSocket;
 }
@@ -26,7 +27,8 @@ export function connectRpc(options: RpcConnectionOptions): RpcConnection {
   let link: RPCLink<ClientContext> | undefined;
 
   const socket = new ReconnectingSocket({
-    url: protocolUrl(options.serverUrl, RPC_PATH),
+    url: protocolUrl(options.server.url, RPC_PATH),
+    protocols: capabilityProtocols(options.server.capability),
     backoff: options.backoff,
     createSocket: options.createSocket,
     onState: (next) => state.set(next),

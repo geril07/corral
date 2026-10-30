@@ -63,8 +63,11 @@ export function useServer() {
     await rm(scratchDir, { recursive: true, force: true });
   });
 
-  function connect(serverUrl = server.url): CorralClient {
-    const client = createCorralClient({ serverUrl, backoff: FAST_BACKOFF });
+  function connect(url = server.url): CorralClient {
+    const client = createCorralClient({
+      server: { url, capability: server.capability },
+      backoff: FAST_BACKOFF,
+    });
     cleanups.push(() => client.close());
     return client;
   }
@@ -73,14 +76,17 @@ export function useServer() {
     get url() {
       return server.url;
     },
+    get capability() {
+      return server.capability;
+    },
     connect,
     /** A git repository on `main` with one commit, in a directory that is deleted after the test. */
     repo(name = "repo"): string {
       return initRepo(join(scratchDir, name));
     },
     /** Opens a client and waits until it is connected. */
-    async connected(serverUrl?: string): Promise<CorralClient> {
-      const client = connect(serverUrl);
+    async connected(url?: string): Promise<CorralClient> {
+      const client = connect(url);
       await eventually(() => {
         if (client.connection.state.getSnapshot().status !== "connected")
           throw new Error("not yet");

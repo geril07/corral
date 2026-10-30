@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, protocolUrl } from "@corral/protocol/handshake";
+import { capabilityProtocols, PROTOCOL_VERSION, protocolUrl } from "@corral/protocol/handshake";
 import { endpointFilePath, ServerEndpoint } from "@corral/protocol/server-endpoint";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -48,10 +48,12 @@ function processGroup(pid: number): string {
 test("starts a detached server when none runs, and the next call reuses it", async () => {
   const first = await ensureServer(options);
 
-  const { pid, url } = readEndpoint();
-  expect(first).toEqual({ status: "ready", pid, url });
+  const { pid, url, capability } = readEndpoint();
+  if (capability === undefined) throw new Error("published endpoint has no capability");
+  expect(first).toEqual({ status: "ready", pid, server: { url, capability } });
+  expect(capability).toMatch(/^[A-Za-z0-9_-]{43}$/);
   expect(processGroup(pid)).not.toBe(processGroup(process.pid));
-  const socket = new WebSocket(protocolUrl(url, "/rpc"));
+  const socket = new WebSocket(protocolUrl(url, "/rpc"), capabilityProtocols(capability));
   await new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
   socket.close();
 
@@ -62,6 +64,7 @@ test("an endpoint file left by a crashed server is replaced by a new server", as
   const crashed = {
     pid: 2 ** 22 + 1,
     url: "ws://127.0.0.1:1",
+    capability: "stale-capability",
     protocolVersion: PROTOCOL_VERSION,
     startedAt: 0,
   };
@@ -71,6 +74,30 @@ test("an endpoint file left by a crashed server is replaced by a new server", as
 
   expect(connection.status).toBe("ready");
   expect(readEndpoint().pid).not.toBe(crashed.pid);
+});
+
+test("an endpoint from protocol 1 is reported as a version mismatch, not as a live server", async () => {
+  const listener = net.createServer().listen(0, "127.0.0.1");
+  listeners.push(listener);
+  await new Promise((resolve) => listener.once("listening", resolve));
+  const address = listener.address();
+  if (address === null || typeof address === "string") throw new Error("listener has no port");
+  const old = {
+    pid: process.pid,
+    url: `ws://127.0.0.1:${address.port}`,
+    protocolVersion: 1,
+    startedAt: 0,
+  };
+  writeFileSync(endpointFilePath(stateDir), JSON.stringify(old));
+
+  const connection = await ensureServer(options);
+
+  expect(connection).toEqual({
+    status: "protocol-mismatch",
+    pid: process.pid,
+    serverProtocolVersion: 1,
+  });
+  expect(readEndpoint()).toEqual(old);
 });
 
 test("a live server on another protocol version is reported and left alone", async () => {
@@ -83,6 +110,7 @@ test("a live server on another protocol version is reported and left alone", asy
   const other = {
     pid: process.pid,
     url: `ws://127.0.0.1:${port}`,
+    capability: "another-server-capability",
     protocolVersion: PROTOCOL_VERSION + 1,
     startedAt: 0,
   };

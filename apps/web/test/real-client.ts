@@ -1,8 +1,9 @@
 import { createCorralClient, type CorralClient } from "@corral/client/corral-client";
+import type { CreateSocket } from "@corral/client/reconnecting-socket";
 import { afterEach, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import { writeConfig } from "./config-command.ts";
-import { serverUrl } from "./server-url.ts";
+import { serverTarget } from "./server-url.ts";
 
 /** What the active terminal shows; see `screen-text-hook.ts`. */
 export function screenText(): string {
@@ -48,9 +49,9 @@ export function realServerClients() {
     for (const client of clients.splice(0)) client.close();
   });
 
-  function newClient(url = serverUrl(), createSocket?: (url: string) => WebSocket): CorralClient {
+  function newClient(target = serverTarget(), createSocket?: CreateSocket): CorralClient {
     const client = createCorralClient({
-      serverUrl: url,
+      server: target,
       backoff: { initialMs: 20, maxMs: 100 },
       ...(createSocket ? { createSocket } : {}),
     });

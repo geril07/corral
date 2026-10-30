@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, chmodSync } from "node:fs";
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
 import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
@@ -22,6 +22,8 @@ const { values } = parseArgs({
 
 const stateDir = resolveStateDir(process.env, homedir());
 mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+// The endpoint file carries the capability, so an existing state dir must not stay group/world readable.
+chmodSync(stateDir, 0o700);
 
 const acquired = acquireLock(stateDir);
 if (acquired.status === "refused") {
@@ -65,6 +67,7 @@ if (!standDownIfLockLost()) {
   endpoint = publishEndpoint(stateDir, {
     pid: process.pid,
     url: server.url,
+    capability: server.capability,
     protocolVersion: PROTOCOL_VERSION,
     startedAt: Date.now(),
   });

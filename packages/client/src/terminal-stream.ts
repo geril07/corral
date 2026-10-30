@@ -1,4 +1,5 @@
-import { protocolUrl } from "@corral/protocol/handshake";
+import { capabilityProtocols, protocolUrl } from "@corral/protocol/handshake";
+import type { ServerTarget } from "@corral/protocol/server-target";
 import type { TerminalExit, TerminalSize } from "@corral/protocol/rpc";
 import {
   ServerTerminalMessage,
@@ -26,7 +27,7 @@ export type TerminalStreamState =
   | { status: "not-found" };
 
 export interface TerminalStreamOptions {
-  serverUrl: string;
+  server: ServerTarget;
   terminalId: string;
   surface: TerminalSurface;
   backoff?: Backoff;
@@ -58,7 +59,8 @@ export class TerminalStream {
   constructor(options: TerminalStreamOptions) {
     this.#surface = options.surface;
     this.#connection = new ReconnectingSocket({
-      url: protocolUrl(options.serverUrl, terminalStreamPath(options.terminalId)),
+      url: protocolUrl(options.server.url, terminalStreamPath(options.terminalId)),
+      protocols: capabilityProtocols(options.server.capability),
       backoff: options.backoff,
       createSocket: options.createSocket,
       onState: (state) => this.#state.set(state),

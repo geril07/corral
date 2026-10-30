@@ -1,4 +1,4 @@
-import { renameSync, writeFileSync } from "node:fs";
+import { renameSync, writeFileSync, chmodSync } from "node:fs";
 import { endpointFilePath, type ServerEndpoint } from "@corral/protocol/server-endpoint";
 import { identityOf, removeIfOwned, scratchPathNextTo } from "./owned-file.ts";
 
@@ -14,7 +14,9 @@ export interface PublishedEndpoint {
 export function publishEndpoint(stateDir: string, endpoint: ServerEndpoint): PublishedEndpoint {
   const target = endpointFilePath(stateDir);
   const scratch = scratchPathNextTo(target, "endpoint");
-  writeFileSync(scratch, JSON.stringify(endpoint), { flag: "wx" });
+  writeFileSync(scratch, JSON.stringify(endpoint), { flag: "wx", mode: 0o600 });
+  // Explicit even with a permissive umask; the rename replaces the old inode, not its mode.
+  chmodSync(scratch, 0o600);
   const identity = identityOf(scratch);
   renameSync(scratch, target);
   return { remove: () => removeIfOwned(target, identity) };

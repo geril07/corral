@@ -3,6 +3,7 @@ import { closeSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
+import type { ServerTarget } from "@corral/protocol/server-target";
 import {
   endpointFilePath,
   ServerEndpoint,
@@ -20,7 +21,7 @@ const POLL_INTERVAL_MS = 50;
 const EXEC_WITHOUT_INHERITED_FDS = `for entry in /dev/fd/*; do fd=\${entry##*/}; [ "$fd" -gt 2 ] 2>/dev/null && eval "exec $fd>&-"; done; exec "$@"`;
 
 export type ServerConnection =
-  | { status: "ready"; url: string; pid: number }
+  | { status: "ready"; server: ServerTarget; pid: number }
   /** A live server on another protocol version. Never stopped here: who stops old servers is open. */
   | { status: "protocol-mismatch"; pid: number; serverProtocolVersion: number }
   | { status: "failed"; message: string };
@@ -56,13 +57,24 @@ export async function ensureServer(options: EnsureServerOptions): Promise<Server
 }
 
 function describe(endpoint: ServerEndpoint): ServerConnection {
-  return endpoint.protocolVersion === PROTOCOL_VERSION
-    ? { status: "ready", url: endpoint.url, pid: endpoint.pid }
-    : {
-        status: "protocol-mismatch",
-        pid: endpoint.pid,
-        serverProtocolVersion: endpoint.protocolVersion,
-      };
+  if (endpoint.protocolVersion !== PROTOCOL_VERSION) {
+    return {
+      status: "protocol-mismatch",
+      pid: endpoint.pid,
+      serverProtocolVersion: endpoint.protocolVersion,
+    };
+  }
+  if (endpoint.capability === undefined) {
+    return {
+      status: "failed",
+      message: `The running Corral server (pid ${endpoint.pid}) published an endpoint without a capability. Stop that server and start the app again. It was left running, so its sessions are untouched.`,
+    };
+  }
+  return {
+    status: "ready",
+    server: { url: endpoint.url, capability: endpoint.capability },
+    pid: endpoint.pid,
+  };
 }
 
 /**

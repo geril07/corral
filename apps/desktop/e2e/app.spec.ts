@@ -41,6 +41,7 @@ const test = base.extend<Fixtures>({
             CORRAL_STATE_DIR: stateDir,
             CORRAL_DATA_DIR: `${stateDir}/data`,
             CORRAL_CONFIG_DIR: `${stateDir}/config`,
+            SHELL: "/bin/sh",
           },
         });
         apps.push(app);
@@ -93,7 +94,7 @@ test("the window shows the app and the prefix chord arms prefix mode", async ({ 
   await expect(window.getByRole("status", { name: "prefix mode" })).toBeVisible();
 });
 
-test("the window is given the URL of the server the app started", async ({
+test("the window is given the URL of the server the app started, and the capability only over IPC", async ({
   launchApp,
   stateDir,
 }) => {
@@ -102,6 +103,44 @@ test("the window is given the URL of the server the app started", async ({
   const endpoint = readEndpoint(stateDir);
   expect(endpoint).toBeDefined();
   expect(new URL(window.url()).searchParams.get("server")).toBe(endpoint?.url);
+  expect(window.url()).not.toContain(endpoint?.capability);
+  expect(
+    await window.evaluate<{ url: string; capability: string }>("window.corral.server()"),
+  ).toEqual({ url: endpoint?.url, capability: endpoint?.capability });
+  const log = readFileSync(path.join(stateDir, "server.log"), "utf8");
+  expect(log).not.toContain(endpoint?.capability);
+
+  // The preload bridge is for the trusted top frame only; a document inside an iframe has none.
+  const frameBridge = await window.evaluate<string>(
+    `new Promise((resolve) => {
+      const frame = document.createElement("iframe");
+      frame.srcdoc = '<script>parent.postMessage(typeof window.corral, "*")<\\/script>';
+      window.addEventListener("message", (event) => resolve(event.data), { once: true });
+      document.body.append(frame);
+    })`,
+  );
+  expect(frameBridge).toBe("undefined");
+});
+
+test("a reload reconnects through the preload bridge and keeps the hash route", async ({
+  launchApp,
+}) => {
+  const window = await openedWindow(await launchApp());
+  const workspace = window.getByRole("navigation", { name: "workspace" });
+  await expect(window.getByText("No terminals")).toBeVisible();
+  await window.keyboard.press("Alt+KeyA");
+  await window.keyboard.press("KeyC");
+  await expect(workspace.getByRole("button", { name: /^sh · / })).toHaveCount(1);
+
+  await window.evaluate("window.location.hash = '#/board'");
+  await expect(window).toHaveURL(/#\/board$/);
+  await window.reload();
+  await window.waitForURL(/[?&]server=/);
+
+  await expect(window).toHaveURL(/#\/board$/);
+  // Back on the workspace after the reload, the terminal list comes from the reconnected RPC.
+  await window.evaluate("window.location.hash = '#/'");
+  await expect(workspace.getByRole("button", { name: /^sh · / })).toHaveCount(1);
 });
 
 test("the server outlives the app and the next launch reuses it", async ({
@@ -135,6 +174,7 @@ test("a live server on another protocol version is reported in the window and le
     const other: ServerEndpoint = {
       pid: process.pid,
       url: `ws://127.0.0.1:${address.port}`,
+      capability: "another-server-capability",
       protocolVersion: PROTOCOL_VERSION + 1,
       startedAt: 0,
     };

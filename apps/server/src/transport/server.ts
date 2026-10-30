@@ -1,4 +1,9 @@
-import { checkProtocolVersion, PROTOCOL_MISMATCH_CLOSE_CODE } from "@corral/protocol/handshake";
+import {
+  CAPABILITY_SUBPROTOCOL,
+  capabilityFromProtocols,
+  checkProtocolVersion,
+  PROTOCOL_MISMATCH_CLOSE_CODE,
+} from "@corral/protocol/handshake";
 import { RPC_PATH } from "@corral/protocol/rpc";
 import { configFilePath, resolveConfigDir } from "@corral/protocol/server-endpoint";
 import { statusReportPath } from "@corral/protocol/status-report";
@@ -19,11 +24,14 @@ import { openDatabase } from "../storage/database.ts";
 import { TaskService } from "../tasks/task-service.ts";
 import { TaskStore } from "../tasks/task-store.ts";
 import { TerminalRegistry } from "../terminals/terminal-registry.ts";
+import { capabilityMatches, newCapability } from "./capability.ts";
 import { createRpcRouter } from "./rpc-router.ts";
 import { serveTerminalStream } from "./terminal-stream-socket.ts";
 
 export interface RunningServer {
   readonly url: string;
+  /** Per-run secret every client must present; clients get it from the endpoint file. */
+  readonly capability: string;
   close(): Promise<void>;
 }
 
@@ -39,6 +47,7 @@ export function startServer(options: {
   const temporaryDataDir =
     options.dataDir === undefined ? mkdtempSync(join(tmpdir(), "corral-data-")) : undefined;
   const dataDir = options.dataDir ?? temporaryDataDir!;
+  const capability = newCapability();
   const database = openDatabase(dataDir);
   const terminals = new TerminalRegistry();
   const projectStore = new ProjectStore(database);
@@ -69,9 +78,20 @@ export function startServer(options: {
       response.end();
     });
   });
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    // Negotiate only the marker, so the token is not echoed in the handshake response.
+    handleProtocols: (protocols) =>
+      protocols.has(CAPABILITY_SUBPROTOCOL) ? CAPABILITY_SUBPROTOCOL : false,
+  });
 
   http.on("upgrade", (request, socket, head) => {
+    const offered = subprotocolsOf(request.headers["sec-websocket-protocol"]);
+    if (!capabilityMatches(capability, capabilityFromProtocols(offered))) {
+      // Before routing, so a socket without the capability learns nothing about paths either.
+      socket.end("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+      return;
+    }
     const url = new URL(request.url ?? "/", "ws://localhost");
     const route = routeOf(url.pathname);
     if (!route) {
@@ -114,6 +134,7 @@ export function startServer(options: {
       sessions.restore();
       resolve({
         url: `ws://${options.host}:${address.port}`,
+        capability,
         close: () => (closing ??= shutDown()),
       });
     });
@@ -144,4 +165,14 @@ function routeOf(pathname: string): Route | undefined {
 
 function terminateAll(sockets: Iterable<WebSocket>): void {
   for (const socket of sockets) socket.terminate();
+}
+
+/** `Sec-WebSocket-Protocol` is a comma-separated list; Node may hand it over as one or many. */
+function subprotocolsOf(header: string | string[] | undefined): string[] {
+  if (header === undefined) return [];
+  const text = Array.isArray(header) ? header.join(",") : header;
+  return text
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
 }

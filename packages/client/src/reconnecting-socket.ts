@@ -13,10 +13,12 @@ export function reconnectDelayMs(failures: number, backoff: Backoff): number {
   return Math.min(backoff.maxMs, backoff.initialMs * 2 ** Math.max(0, failures - 1));
 }
 
-export type CreateSocket = (url: string) => WebSocket;
+export type CreateSocket = (url: string, protocols: string[]) => WebSocket;
 
 export interface ReconnectingSocketOptions {
   url: string;
+  /** Sent on every attempt, including reconnects, so a capability never needs re-provisioning. */
+  protocols: string[];
   backoff?: Backoff | undefined;
   createSocket?: CreateSocket | undefined;
   onState(state: ConnectionState): void;
@@ -49,7 +51,8 @@ export class ReconnectingSocket {
   #connect(): void {
     this.#options.onState({ status: "connecting" });
     const socket =
-      this.#options.createSocket?.(this.#options.url) ?? new WebSocket(this.#options.url);
+      this.#options.createSocket?.(this.#options.url, this.#options.protocols) ??
+      new WebSocket(this.#options.url, this.#options.protocols);
     socket.binaryType = "arraybuffer";
     this.#socket = socket;
     socket.addEventListener("open", () => {

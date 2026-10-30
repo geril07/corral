@@ -1,4 +1,4 @@
-import { protocolUrl } from "@corral/protocol/handshake";
+import { capabilityProtocols, protocolUrl } from "@corral/protocol/handshake";
 import type { TerminalSize } from "@corral/protocol/rpc";
 import {
   ServerTerminalMessage,
@@ -54,10 +54,10 @@ export class StreamClient {
   static async connect(
     serverUrl: string,
     terminalId: string,
-    options: { ack?: boolean; url?: string } = {},
+    options: { ack?: boolean; url?: string; capability: string },
   ): Promise<StreamClient> {
     const url = options.url ?? protocolUrl(serverUrl, terminalStreamPath(terminalId));
-    const socket = new WebSocket(url);
+    const socket = new WebSocket(url, capabilityProtocols(options.capability));
     const client = new StreamClient(socket, options.ack ?? true);
     await new Promise<void>((resolve, reject) => {
       socket.once("open", resolve);

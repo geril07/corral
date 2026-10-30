@@ -1,14 +1,23 @@
-import { PROTOCOL_VERSION, protocolUrl } from "@corral/protocol/handshake";
+import { capabilityProtocols, PROTOCOL_VERSION, protocolUrl } from "@corral/protocol/handshake";
 import {
   endpointFilePath,
   ServerEndpoint,
   SERVER_LOCK_REFUSED_EXIT_CODE,
 } from "@corral/protocol/server-endpoint";
-import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vite-plus/test";
+import { WebSocket as WsWebSocket } from "ws";
 import { lockFilePath } from "./lock.ts";
 import { identityOf, sameFile } from "./owned-file.ts";
 
@@ -22,6 +31,8 @@ interface Launched {
   /** Resolves with the URL from the readiness line, or `null` when the process exits first. */
   readonly listening: Promise<string | null>;
   readonly exited: Promise<{ code: number | null; stderr: string }>;
+  /** Everything the process wrote so far, for asserting a secret never reaches it. */
+  output(): string;
 }
 
 let stateDir: string;
@@ -69,7 +80,7 @@ function launch(): Launched {
     });
     void exited.then(() => resolve(null));
   });
-  return { proc, pid: proc.pid!, listening, exited };
+  return { proc, pid: proc.pid!, listening, exited, output: () => stdout + stderr };
 }
 
 function within<T>(promise: Promise<T>, what: string): Promise<T> {
@@ -88,6 +99,11 @@ async function start(): Promise<Launched & { url: string }> {
 
 function readEndpoint(): ServerEndpoint {
   return ServerEndpoint.parse(JSON.parse(readFileSync(endpointFilePath(stateDir), "utf8")));
+}
+
+function capabilityOf(endpoint = readEndpoint()): string {
+  if (endpoint.capability === undefined) throw new Error("endpoint has no capability");
+  return endpoint.capability;
 }
 
 function stop(server: Launched, signal: NodeJS.Signals) {
@@ -112,12 +128,74 @@ describe("endpoint file", () => {
     expect(readEndpoint()).toEqual({
       pid: server.pid,
       url: server.url,
+      capability: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
       protocolVersion: PROTOCOL_VERSION,
       startedAt: expect.any(Number),
     });
-    const socket = new WebSocket(protocolUrl(readEndpoint().url, "/rpc"));
+    const endpoint = readEndpoint();
+    const socket = new WebSocket(
+      protocolUrl(endpoint.url, "/rpc"),
+      capabilityProtocols(capabilityOf(endpoint)),
+    );
     await within(new Promise((resolve) => socket.addEventListener("open", resolve)), "open");
     socket.close();
+  });
+
+  test("is readable only by its owner and the capability is never written to the log or argv", async () => {
+    chmodSync(stateDir, 0o755);
+    const server = await start();
+    const endpoint = readEndpoint();
+
+    expect(statSync(stateDir).mode & 0o777).toBe(0o700);
+    expect(statSync(endpointFilePath(stateDir)).mode & 0o777).toBe(0o600);
+    expect(server.output()).not.toContain(endpoint.capability);
+    const argv = execFileSync("ps", ["-o", "args=", "-p", String(server.pid)], {
+      encoding: "utf8",
+    });
+    expect(argv).not.toContain(endpoint.capability);
+  });
+
+  test("replacing an endpoint left with looser permissions makes the new file owner-only", async () => {
+    const target = endpointFilePath(stateDir);
+    writeFileSync(
+      target,
+      JSON.stringify({
+        pid: 1,
+        url: "ws://127.0.0.1:1",
+        protocolVersion: 1,
+        startedAt: 0,
+      }),
+    );
+    chmodSync(target, 0o644);
+    const before = statSync(target);
+
+    const server = await start();
+    const after = statSync(target);
+
+    expect(after.mode & 0o777).toBe(0o600);
+    expect(after.ino).not.toBe(before.ino);
+    expect(readEndpoint().pid).toBe(server.pid);
+  });
+
+  test("a restarted server rotates the capability, and the old one is refused", async () => {
+    const first = await start();
+    const oldCapability = capabilityOf();
+    await stop(first, "SIGTERM");
+
+    await start();
+    const newCapability = capabilityOf();
+    expect(newCapability).not.toBe(oldCapability);
+
+    const socket = new WsWebSocket(
+      protocolUrl(readEndpoint().url, "/rpc"),
+      capabilityProtocols(oldCapability),
+    );
+    const error = await within(
+      new Promise<string>((resolve) => socket.once("error", (event) => resolve(event.message))),
+      "the old capability to be refused",
+    );
+    expect(error).toContain("401");
+    expect(readEndpoint().capability).toBe(newCapability);
   });
 });
 

@@ -44,7 +44,7 @@ export function useServer() {
   });
 
   async function rpc() {
-    const client = await connectRpc(server.url);
+    const client = await connectRpc(server.url, server.capability);
     rpcClients.push(client);
     return client.api;
   }
@@ -52,6 +52,9 @@ export function useServer() {
   return {
     get url() {
       return server.url;
+    },
+    get capability() {
+      return server.capability;
     },
     /** The server's data directory, which holds its database and worktrees. */
     get dataDir() {
@@ -80,7 +83,10 @@ export function useServer() {
       return api.terminals.create({ size: DEFAULT_SIZE, ...program, ...input });
     },
     async attach(id: string, options: { ack?: boolean; url?: string } = {}): Promise<StreamClient> {
-      const client = await StreamClient.connect(server.url, id, options);
+      const client = await StreamClient.connect(server.url, id, {
+        ...options,
+        capability: server.capability,
+      });
       streams.push(client);
       return client;
     },

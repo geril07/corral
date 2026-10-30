@@ -1,3 +1,4 @@
+import type { ServerTarget } from "@corral/protocol/server-target";
 import type { Backoff, CreateSocket } from "./reconnecting-socket.ts";
 import { createConfigStore, type ConfigStore } from "./config-store.ts";
 import { createProjectsStore, type ProjectsStore } from "./projects-store.ts";
@@ -8,7 +9,7 @@ import { createTerminalsStore, type TerminalsStore } from "./terminals-store.ts"
 import { TerminalStream, type TerminalSurface } from "./terminal-stream.ts";
 
 export interface CorralClientOptions {
-  serverUrl: string;
+  server: ServerTarget;
   backoff?: Backoff;
   createSocket?: CreateSocket;
 }

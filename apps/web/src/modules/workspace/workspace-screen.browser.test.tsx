@@ -8,11 +8,17 @@ import {
   screenText,
   realServerClients,
 } from "../../../test/real-client.ts";
-import { serverUrl } from "../../../test/server-url.ts";
+import { serverTarget } from "../../../test/server-url.ts";
 import { App, renderApp } from "../../../test/render-app.tsx";
 
-const claimNextProtocolVersion = (url: string) =>
-  new WebSocket(url.replace(`protocol=${PROTOCOL_VERSION}`, `protocol=${PROTOCOL_VERSION + 1}`));
+const claimNextProtocolVersion: (url: string, protocols: string[]) => WebSocket = (
+  url,
+  protocols,
+) =>
+  new WebSocket(
+    url.replace(`protocol=${PROTOCOL_VERSION}`, `protocol=${PROTOCOL_VERSION + 1}`),
+    protocols,
+  );
 
 const SIZE = { cols: 80, rows: 24 };
 const { newClient } = realServerClients();
@@ -144,15 +150,17 @@ test("a terminal whose process ended stays listed as exited until it is closed",
 });
 
 test("a server on another protocol version gets a clear message instead of the workspace", async () => {
-  await render(<App client={newClient(serverUrl(), claimNextProtocolVersion)} />);
+  await render(<App client={newClient(serverTarget(), claimNextProtocolVersion)} />);
 
   await expect.element(page.getByRole("alert")).toBeVisible();
-  await expect.element(page.getByText(/The server speaks protocol version 1;/)).toBeVisible();
+  await expect
+    .element(page.getByText(new RegExp(`The server speaks protocol version ${PROTOCOL_VERSION};`)))
+    .toBeVisible();
   await expect.element(workspace()).not.toBeInTheDocument();
 });
 
 test("an unreachable server shows as disconnected and the workspace stays up", async () => {
-  await render(<App client={newClient("ws://127.0.0.1:1")} />);
+  await render(<App client={newClient({ url: "ws://127.0.0.1:1", capability: "unreachable" })} />);
 
   await expect
     .element(page.getByRole("status", { name: "connection" }))

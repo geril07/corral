@@ -1,4 +1,4 @@
-import { protocolUrl } from "@corral/protocol/handshake";
+import { capabilityProtocols, protocolUrl } from "@corral/protocol/handshake";
 import { RPC_PATH } from "@corral/protocol/rpc";
 import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/websocket";
@@ -10,8 +10,11 @@ export interface RpcClient {
   close(): void;
 }
 
-export async function connectRpc(serverUrl: string): Promise<RpcClient> {
-  const websocket = new WebSocket(protocolUrl(serverUrl, RPC_PATH));
+export async function connectRpc(serverUrl: string, capability: string): Promise<RpcClient> {
+  const websocket = new WebSocket(
+    protocolUrl(serverUrl, RPC_PATH),
+    capabilityProtocols(capability),
+  );
   await new Promise<void>((resolve, reject) => {
     websocket.addEventListener("open", () => resolve(), { once: true });
     websocket.addEventListener("error", () => reject(new Error("rpc socket failed to open")), {
