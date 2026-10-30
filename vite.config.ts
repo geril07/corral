@@ -30,6 +30,11 @@ const baseUiImport = {
   message: "Base UI is used through common/ui only.",
 };
 
+const cmdkImport = {
+  group: ["cmdk", "cmdk/**"],
+  message: "cmdk is used through common/ui only.",
+};
+
 /** Every module other than `own`, imported only through its public index.ts. */
 function otherModules(own: string) {
   return WEB_MODULES.flatMap((module) =>
@@ -186,6 +191,7 @@ export default defineConfig({
               patterns: [
                 serverImport,
                 baseUiImport,
+                cmdkImport,
                 { group: upFromCommon, message: "common imports nothing above it." },
               ],
             },
@@ -202,6 +208,7 @@ export default defineConfig({
               patterns: [
                 serverImport,
                 baseUiImport,
+                cmdkImport,
                 {
                   group: upFromModule,
                   message: "A module does not import app or routes.",
@@ -220,6 +227,7 @@ export default defineConfig({
               patterns: [
                 serverImport,
                 baseUiImport,
+                cmdkImport,
                 {
                   group: upFromModule,
                   message: "A module does not import app or routes.",
@@ -243,6 +251,7 @@ export default defineConfig({
               patterns: [
                 serverImport,
                 baseUiImport,
+                cmdkImport,
                 {
                   group: ["../app/**", "../../app/**", "../modules/**", "!../modules/*/index.ts"],
                   message: "Routes import modules through their public index.ts.",
@@ -255,7 +264,10 @@ export default defineConfig({
       {
         files: ["apps/web/src/app/**"],
         rules: {
-          "eslint/no-restricted-imports": ["error", { patterns: [serverImport, baseUiImport] }],
+          "eslint/no-restricted-imports": [
+            "error",
+            { patterns: [serverImport, baseUiImport, cmdkImport] },
+          ],
         },
       },
       {
@@ -263,7 +275,10 @@ export default defineConfig({
         files: ["apps/web/**"],
         excludeFiles: ["apps/web/src/**"],
         rules: {
-          "eslint/no-restricted-imports": ["error", { patterns: [serverImport, baseUiImport] }],
+          "eslint/no-restricted-imports": [
+            "error",
+            { patterns: [serverImport, baseUiImport, cmdkImport] },
+          ],
         },
       },
       {
