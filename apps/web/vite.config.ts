@@ -9,6 +9,7 @@ export default defineConfig({
   test: {
     name: "browser",
     include: ["src/**/*.browser.test.tsx"],
+    globalSetup: ["test/real-server.ts"],
     browser: {
       enabled: true,
       headless: true,

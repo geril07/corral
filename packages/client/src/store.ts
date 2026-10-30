@@ -1,7 +1,7 @@
 /** The read side of a store: what `useSyncExternalStore` takes, so any UI can follow it. */
 export interface ReadableStore<T> {
-  subscribe(listener: () => void): () => void;
-  getSnapshot(): T;
+  subscribe: (listener: () => void) => () => void;
+  getSnapshot: () => T;
 }
 
 export class Store<T> implements ReadableStore<T> {

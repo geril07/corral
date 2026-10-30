@@ -1,4 +1,12 @@
+import { createCorralClient } from "@corral/client/corral-client";
+import { resolveServerUrl } from "@corral/client/server-url";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.tsx";
 
-createRoot(document.getElementById("root")!).render(<App prefix="alt+a" />);
+const root = document.getElementById("root")!;
+try {
+  const client = createCorralClient({ serverUrl: resolveServerUrl(window.location) });
+  createRoot(root).render(<App client={client} prefix="alt+a" />);
+} catch (error) {
+  root.textContent = error instanceof Error ? error.message : String(error);
+}

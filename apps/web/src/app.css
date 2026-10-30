@@ -1,0 +1,158 @@
+:root {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --panel: #151b23;
+  --line: #262e38;
+  --text: #d6dde6;
+  --dim: #8a94a1;
+  --accent: #58a6ff;
+  --danger: #ff7b72;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font:
+    13px/1.4 system-ui,
+    sans-serif;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 0;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+
+.terminal-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.terminal-list li {
+  display: flex;
+}
+
+.terminal-list button {
+  color: inherit;
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.terminal-list .select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-list .select[aria-current="true"] {
+  background: #1f2937;
+  box-shadow: inset 2px 0 var(--accent);
+}
+
+.terminal-list .exited .select {
+  color: var(--dim);
+}
+
+.terminal-list .close {
+  padding: 6px 10px;
+  color: var(--dim);
+}
+
+.terminal-list .close:hover {
+  color: var(--danger);
+}
+
+.terminal-list .create {
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  color: var(--accent);
+}
+
+.sidebar footer {
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+}
+
+.sidebar footer p,
+.sidebar footer output {
+  display: block;
+  margin: 2px 0;
+}
+
+.sidebar footer output {
+  color: var(--accent);
+}
+
+.sidebar .failure {
+  color: var(--danger);
+}
+
+main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminal-view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-host {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 0 0 8px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.terminal-notice {
+  margin: 0;
+  padding: 6px 10px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+}
+
+.empty {
+  padding: 16px;
+  color: var(--dim);
+}
+
+.mismatch {
+  max-width: 560px;
+  margin: 10vh auto;
+  padding: 0 16px;
+}
+
+.mismatch h1 {
+  font-size: 18px;
+  color: var(--danger);
+}
