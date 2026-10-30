@@ -3,6 +3,9 @@ import { defineConfig } from "vite-plus";
 const IGNORED = ["**/node_modules/**", "**/dist/**", "**/out/**", "pnpm-lock.yaml"];
 
 export default defineConfig({
+  staged: {
+    "*": "vp check --fix",
+  },
   test: {
     // Flaky tests are fixed, not retried (docs/engineering.md).
     retry: 0,

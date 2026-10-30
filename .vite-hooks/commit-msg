@@ -1,0 +1,10 @@
+#!/bin/sh
+# Conventional Commits: type(scope)!: summary. fixup!/squash! are allowed for `git rebase --autosquash`.
+subject=$(head -n1 "$1")
+pattern='^((feat|fix|docs|refactor|perf|test|build|ci|chore|style|revert)(\([a-z0-9-]+\))?!?: [^ ].*|(fixup|squash|amend)! .+)$'
+if ! printf '%s\n' "$subject" | grep -Eq "$pattern"; then
+  echo "commit-msg: not a Conventional Commit: \"$subject\"" >&2
+  echo "expected: type(scope): summary, e.g. \"fix(server): keep the final screen on exit\"" >&2
+  echo "types: feat fix docs refactor perf test build ci chore style revert" >&2
+  exit 1
+fi

@@ -11,7 +11,7 @@ Node and pnpm come from `mise.toml`. `pnpm check` is the gate before every commi
 
 ## Commits
 
-Conventional Commits: `type(scope): summary`, scope = package or app (`protocol`, `server`, `client`, `web`, `desktop`) or `docs`/`tooling`. Parallel work goes on `<milestone>/<part>` branches merged into `main` with `--no-ff`, so each merge marks a checkpoint.
+Conventional Commits (`type(scope): summary`, scope = package or app), checked by the `commit-msg` hook; `pre-commit` formats and lints staged files. History is linear: work branches are rebased onto `main` and fast-forwarded, never merged.
 
 ## Gotchas
 
