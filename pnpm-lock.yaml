@@ -306,6 +306,9 @@ importers:
       '@types/ws':
         specifier: 'catalog:'
         version: 8.18.2
+      fast-check:
+        specifier: 'catalog:'
+        version: 4.10.2
 
   apps/web:
     dependencies:

@@ -19,6 +19,7 @@
   "devDependencies": {
     "@corral/client": "workspace:*",
     "@orpc/client": "catalog:",
-    "@types/ws": "catalog:"
+    "@types/ws": "catalog:",
+    "fast-check": "catalog:"
   }
 }
