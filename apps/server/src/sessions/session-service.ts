@@ -1,10 +1,12 @@
 import type {
+  AgentStatus,
   CreateTerminalInput,
   Session,
   SessionKind,
   Task,
   TerminalSize,
 } from "@corral/protocol/rpc";
+import type { StatusReport } from "@corral/protocol/status-report";
 import { AGENTS } from "../agents/agents.ts";
 import {
   codexHome,
@@ -17,6 +19,9 @@ import { newId } from "../storage/ids.ts";
 import { TaskNotFoundError } from "../tasks/errors.ts";
 import { SerialQueue } from "../tasks/serial-queue.ts";
 import type { TaskStore } from "../tasks/task-store.ts";
+import { sameStatus, statusAfterExit, statusFromReport } from "../status/agent-status.ts";
+import type { OpenCodeIntegration } from "../status/opencode-integration.ts";
+import { newStatusToken, tokensEqual } from "../status/status-token.ts";
 import type { TerminalRegistry } from "../terminals/terminal-registry.ts";
 import { AgentNotFoundError, AlreadyRunningError, SessionNotFoundError } from "./errors.ts";
 import type { SessionStore, StoredSession } from "./session-store.ts";
@@ -24,26 +29,45 @@ import type { SessionStore, StoredSession } from "./session-store.ts";
 /** Sessions started again after a server restart have no client to size them yet. */
 const RESTORED_SIZE: TerminalSize = { cols: 80, rows: 24 };
 
-/** The terminal a session runs in, and the search for the Codex id while there is none yet. */
+/**
+ * The terminal a session runs in, the search for the Codex id while there is none yet, and the
+ * token this launch of the agent reports status with.
+ */
 interface Live {
   terminalId: string;
   discovery: CodexSessionWatch | undefined;
+  statusToken: string;
 }
+
+export type StatusReportOutcome = "accepted" | "unknown-session" | "forbidden";
 
 export class SessionService {
   readonly #store: SessionStore;
   readonly #tasks: TaskStore;
   readonly #terminals: TerminalRegistry;
   readonly #live = new Map<string, Live>();
+  readonly #statusUrl: (sessionId: string) => string;
+  readonly #openCode: OpenCodeIntegration;
+  // Kept after the process is gone: a `done` or `error` outlives it. Not persisted.
+  readonly #statuses = new Map<string, AgentStatus>();
   readonly #changes = new ChangeFeed();
   // Starting, stopping and removing wait for processes; one at a time keeps a session's steps in order.
   readonly #queue = new SerialQueue();
   #shuttingDown = false;
 
-  constructor(options: { store: SessionStore; tasks: TaskStore; terminals: TerminalRegistry }) {
+  constructor(options: {
+    store: SessionStore;
+    tasks: TaskStore;
+    terminals: TerminalRegistry;
+    /** Where an agent of this session POSTs its status; resolved at launch, when the server is listening. */
+    statusUrl: (sessionId: string) => string;
+    openCode: OpenCodeIntegration;
+  }) {
     this.#store = options.store;
     this.#tasks = options.tasks;
     this.#terminals = options.terminals;
+    this.#statusUrl = options.statusUrl;
+    this.#openCode = options.openCode;
   }
 
   list(): Session[] {
@@ -102,8 +126,19 @@ export class SessionService {
       this.#stored(id);
       await this.#halt(id);
       this.#store.delete(id);
+      this.#statuses.delete(id);
       this.#changes.notify();
     });
+  }
+
+  /** An agent's HTTP status report. Only the launch that got the token can report, and only while its process runs. */
+  reportStatus(id: string, token: string, report: StatusReport): StatusReportOutcome {
+    if (!this.#store.get(id)) return "unknown-session";
+    const live = this.#live.get(id);
+    const running = live !== undefined && this.#terminals.get(live.terminalId)?.info.exit === null;
+    if (!live || !running || !tokensEqual(live.statusToken, token)) return "forbidden";
+    this.#setStatus(id, statusFromReport(report, Date.now()));
+    return "accepted";
   }
 
   /** Closing a session's terminal stops the session; any other terminal is just closed. False when the id is unknown. */
@@ -133,6 +168,7 @@ export class SessionService {
         // oxlint-disable-next-line no-await-in-loop -- processes are stopped one after the other
         await this.#halt(stored.id);
         this.#store.delete(stored.id);
+        this.#statuses.delete(stored.id);
       }
       if (doomed.length > 0) this.#changes.notify();
     });
@@ -209,18 +245,25 @@ export class SessionService {
   }
 
   #withTerminal(stored: StoredSession): Session {
-    return { ...stored, terminalId: this.#live.get(stored.id)?.terminalId ?? null };
+    return {
+      ...stored,
+      terminalId: this.#live.get(stored.id)?.terminalId ?? null,
+      status: this.#statuses.get(stored.id) ?? null,
+    };
   }
 
   /** Spawns the session's process in a new terminal; throws, changing nothing, when it cannot. */
   #launch(stored: StoredSession, task: Task, size: TerminalSize, how: "start" | "resume"): void {
     const adapter = stored.kind === "shell" ? undefined : AGENTS[stored.kind];
-    const input: CreateTerminalInput = {
-      cwd: task.workspacePath,
-      env: { CORRAL_SESSION_ID: stored.id, CORRAL_TASK_ID: stored.taskId },
-      size,
+    const statusToken = newStatusToken();
+    const env: Record<string, string> = {
+      CORRAL_SESSION_ID: stored.id,
+      CORRAL_TASK_ID: stored.taskId,
     };
+    const input: CreateTerminalInput = { cwd: task.workspacePath, env, size };
     if (adapter) {
+      env["CORRAL_STATUS_URL"] = this.#statusUrl(stored.id);
+      env["CORRAL_STATUS_TOKEN"] = statusToken;
       if (!isExecutable(adapter.command, process.env["PATH"]))
         throw new AgentNotFoundError(adapter.command);
       input.command = adapter.command;
@@ -228,9 +271,25 @@ export class SessionService {
       const resumable =
         how === "resume" && id !== null && (adapter.hasConversation?.(id, process.env) ?? true);
       input.args = resumable ? adapter.resumeArgs(id) : adapter.startArgs(id);
+      if (stored.kind === "opencode") {
+        const plugin = this.#openCode.launch(process.env);
+        if (plugin) {
+          input.args = [...plugin.args, ...input.args];
+          Object.assign(env, plugin.env);
+        }
+      }
     }
     const spawnedAt = Date.now();
-    const info = this.#terminals.create(input, { taskId: stored.taskId, sessionId: stored.id });
+    const info = this.#terminals.create(
+      input,
+      { taskId: stored.taskId, sessionId: stored.id },
+      // The token names this launch: a terminal being replaced must not write over the new one's status.
+      (status) => {
+        if (this.#live.get(stored.id)?.statusToken === statusToken)
+          this.#setStatus(stored.id, status);
+      },
+    );
+    this.#statuses.delete(stored.id);
     const discovery =
       stored.kind === "codex" && stored.agentSessionId === null
         ? watchForCodexSession({
@@ -244,7 +303,7 @@ export class SessionService {
             },
           })
         : undefined;
-    this.#live.set(stored.id, { terminalId: info.id, discovery });
+    this.#live.set(stored.id, { terminalId: info.id, discovery, statusToken });
     void this.#terminals
       .get(info.id)
       ?.whenExitRecorded()
@@ -290,8 +349,16 @@ export class SessionService {
     this.#live.delete(id);
   }
 
+  #setStatus(id: string, status: AgentStatus | null): void {
+    if (sameStatus(this.#statuses.get(id) ?? null, status)) return;
+    if (status) this.#statuses.set(id, status);
+    else this.#statuses.delete(id);
+    this.#changes.notify();
+  }
+
   /** A session whose process is gone: `stopped`, unless it is a Codex session whose id was never learned. */
   #settle(id: string): void {
+    this.#setStatus(id, statusAfterExit(this.#statuses.get(id) ?? null));
     const stored = this.#store.get(id);
     if (!stored) return;
     const lost = stored.kind === "codex" && stored.agentSessionId === null;

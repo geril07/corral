@@ -67,6 +67,7 @@ test("after a server restart, running sessions start again — agents resumed by
   expect(claudeLaunches[2]!.argv).toEqual(["--resume", claude.agentSessionId]);
   expect((await launchesOf(agents, "pi", 2))[1]!.argv).toEqual(["--session-id", pi.agentSessionId]);
   expect((await launchesOf(agents, "opencode", 2))[1]!.argv).toEqual([
+    "--standalone",
     "--session",
     opencode.agentSessionId,
   ]);

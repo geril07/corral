@@ -85,8 +85,9 @@ const IDS_WE_CHOOSE = {
   },
   opencode: {
     format: /^ses_[0-9A-Za-z]{26}$/,
-    start: (id: string) => ["--session", id],
-    resume: (id: string) => ["--session", id],
+    // `--standalone` makes OpenCode run its server in the process, where the status plugin lives.
+    start: (id: string) => ["--standalone", "--session", id],
+    resume: (id: string) => ["--standalone", "--session", id],
   },
 } as const;
 
@@ -122,9 +123,13 @@ test.each(["claude", "pi", "opencode"] as const)(
 );
 
 test.each([
-  { kind: "claude", flag: "--session-id", flagAfterPrompt: "--resume" },
-  { kind: "pi", flag: "--session-id", flagAfterPrompt: "--session-id" },
-  { kind: "opencode", flag: "--session", flagAfterPrompt: "--session" },
+  { kind: "claude", flag: ["--session-id"], flagAfterPrompt: ["--resume"] },
+  { kind: "pi", flag: ["--session-id"], flagAfterPrompt: ["--session-id"] },
+  {
+    kind: "opencode",
+    flag: ["--standalone", "--session"],
+    flagAfterPrompt: ["--standalone", "--session"],
+  },
 ] as const)(
   "a $kind session restarted before any prompt keeps its id; the conversation is resumed once it has history",
   async ({ kind, flag, flagAfterPrompt }) => {
@@ -136,14 +141,14 @@ test.each([
     await api.sessions.stop({ id: session.id });
     const second = await api.sessions.restart({ id: session.id, size: SIZE });
     const client = await ready(second, `fake ${kind} ready`);
-    expect((await launchesOf(kind, 2))[1]!.argv).toEqual([flag, id]);
+    expect((await launchesOf(kind, 2))[1]!.argv).toEqual([...flag, id]);
     expect(second.agentSessionId).toBe(id);
 
     client.type("hello\n");
     await client.waitForScreen(`fake ${kind} got: hello`);
     await api.sessions.stop({ id: session.id });
     await api.sessions.restart({ id: session.id, size: SIZE });
-    expect((await launchesOf(kind, 3))[2]!.argv).toEqual([flagAfterPrompt, id]);
+    expect((await launchesOf(kind, 3))[2]!.argv).toEqual([...flagAfterPrompt, id]);
   },
 );
 

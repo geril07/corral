@@ -1,5 +1,6 @@
 import { checkProtocolVersion, PROTOCOL_MISMATCH_CLOSE_CODE } from "@corral/protocol/handshake";
 import { RPC_PATH } from "@corral/protocol/rpc";
+import { statusReportPath } from "@corral/protocol/status-report";
 import { RPCHandler } from "@orpc/server/ws";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
@@ -10,6 +11,8 @@ import { ProjectService } from "../projects/project-service.ts";
 import { ProjectStore } from "../projects/project-store.ts";
 import { SessionService } from "../sessions/session-service.ts";
 import { SessionStore } from "../sessions/session-store.ts";
+import { OpenCodeIntegration } from "../status/opencode-integration.ts";
+import { handleStatusReport, statusReportSessionId } from "../status/status-report-http.ts";
 import { openDatabase } from "../storage/database.ts";
 import { TaskService } from "../tasks/task-service.ts";
 import { TaskStore } from "../tasks/task-store.ts";
@@ -38,16 +41,31 @@ export function startServer(options: {
   const terminals = new TerminalRegistry();
   const projectStore = new ProjectStore(database);
   const taskStore = new TaskStore(database);
+  // Known once the server listens, which is before any session starts.
+  let httpOrigin = "";
   const sessions = new SessionService({
     store: new SessionStore(database),
     tasks: taskStore,
     terminals,
+    statusUrl: (sessionId) => `${httpOrigin}${statusReportPath(sessionId)}`,
+    openCode: OpenCodeIntegration.install(dataDir),
   });
   const tasks = new TaskService({ store: taskStore, projects: projectStore, sessions, dataDir });
   const projects = new ProjectService(projectStore, tasks);
   const rpc = new RPCHandler(createRpcRouter({ projects, tasks, sessions, terminals }));
-  sessions.restore();
-  const http = createServer((_request, response) => response.writeHead(404).end());
+  const http = createServer((request, response) => {
+    const sessionId = statusReportSessionId(
+      new URL(request.url ?? "/", "http://localhost").pathname,
+    );
+    if (sessionId === undefined) {
+      response.writeHead(404).end();
+      return;
+    }
+    handleStatusReport(request, response, sessionId, sessions).catch(() => {
+      if (!response.headersSent) response.writeHead(500);
+      response.end();
+    });
+  });
   const wss = new WebSocketServer({ noServer: true });
 
   http.on("upgrade", (request, socket, head) => {
@@ -88,12 +106,21 @@ export function startServer(options: {
       const address = http.address();
       if (address === null || typeof address === "string")
         throw new Error(`unexpected address ${address}`);
+      httpOrigin = `http://${loopbackHost(options.host)}:${address.port}`;
+      sessions.restore();
       resolve({
         url: `ws://${options.host}:${address.port}`,
         close: () => (closing ??= shutDown()),
       });
     });
   });
+}
+
+/** Where a process on this machine reaches a server bound to `host`. */
+function loopbackHost(host: string): string {
+  if (host === "" || host === "0.0.0.0") return "127.0.0.1";
+  if (host === "::") return "[::1]";
+  return host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
 }
 
 type Route = { kind: "rpc" } | { kind: "terminal-stream"; terminalId: string };

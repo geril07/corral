@@ -3,7 +3,7 @@ import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 
 /** What is persisted of a session; the terminal is not (decision 12). */
-export const StoredSession = Session.omit({ terminalId: true });
+export const StoredSession = Session.omit({ terminalId: true, status: true });
 export type StoredSession = z.infer<typeof StoredSession>;
 
 const COLUMNS = `id, task_id AS taskId, kind, agent_session_id AS agentSessionId, state,

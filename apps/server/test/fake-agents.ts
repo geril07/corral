@@ -12,12 +12,21 @@ export interface Launch {
   pid: number;
   /** The conversation id the fake codex writes its rollout under, when it started a conversation. */
   rolloutId?: string;
-  env: { CORRAL_SESSION_ID?: string; CORRAL_TASK_ID?: string };
+  env: {
+    CORRAL_SESSION_ID?: string;
+    CORRAL_TASK_ID?: string;
+    CORRAL_STATUS_URL?: string;
+    CORRAL_STATUS_TOKEN?: string;
+  };
+  /** The fake opencode only: what the server's inline config would load into the real one. */
+  opencode?: { configContent: string; pluginDir?: string; pluginPresent: boolean };
 }
 
 /**
- * Puts the fake agents (`fake-agents/`) first on `PATH` for the test and points `CODEX_HOME` and
- * `CLAUDE_CONFIG_DIR` at temporary directories, so nothing reaches the real CLIs, `~/.codex` or `~/.claude`. The server
+ * Puts the fake agents (`fake-agents/`) first on `PATH` for the test and points `CODEX_HOME`,
+ * `CLAUDE_CONFIG_DIR` and `OPENCODE_CONFIG_DIR` at temporary directories, so nothing reaches the
+ * real CLIs, `~/.codex`, `~/.claude` or `~/.config/opencode`. A developer's own inline OpenCode
+ * config is blanked, or the server would (rightly) not inject the status plugin. The server
  * reads the environment when it launches a session, so this works with `useServer()` in any order.
  */
 export function useFakeAgents() {
@@ -30,6 +39,8 @@ export function useFakeAgents() {
     vi.stubEnv("PATH", `${FAKE_BIN}${delimiter}${process.env["PATH"] ?? ""}`);
     vi.stubEnv("CODEX_HOME", join(root, "codex"));
     vi.stubEnv("CLAUDE_CONFIG_DIR", join(root, "claude"));
+    vi.stubEnv("OPENCODE_CONFIG_DIR", join(root, "opencode"));
+    vi.stubEnv("OPENCODE_CONFIG_CONTENT", "");
     vi.stubEnv("FAKE_AGENT_LOG", logFile);
     vi.stubEnv("FAKE_CODEX_ROLLOUT", "eager");
     vi.stubEnv("FAKE_CLAUDE_TRANSCRIPT", "lazy");
