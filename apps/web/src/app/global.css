@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+@theme {
+  --color-*: initial;
+
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  --color-surface: #0d1117;
+  --color-surface-raised: #151b23;
+  --color-surface-active: #1f2937;
+  --color-border: #262e38;
+  --color-text: #d6dde6;
+  --color-text-muted: #8a94a1;
+  --color-accent: #58a6ff;
+  --color-accent-strong: #1f6feb;
+  --color-accent-foreground: #ffffff;
+  --color-danger: #ff7b72;
+  --color-danger-strong: #b62324;
+  --color-danger-foreground: #ffffff;
+  --color-focus-ring: #58a6ff;
+  --color-overlay: rgb(0 0 0 / 55%);
+
+  --color-status-blocked: #f0883e;
+  --color-status-error: #ff7b72;
+  --color-status-working: #58a6ff;
+  --color-status-done: #56d364;
+  --color-status-idle: #8a94a1;
+
+  --color-terminal-background: #0d1117;
+  --color-terminal-foreground: #d6dde6;
+  --color-terminal-cursor: #d6dde6;
+
+  --font-sans: system-ui, sans-serif;
+  --font-mono: ui-monospace, Menlo, Consolas, monospace;
+
+  --radius-control: 0.25rem;
+  --radius-panel: 0.375rem;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: 13px/1.4 var(--font-sans);
+  }
+}
+
+/* xterm.js needs a sized container; everything else is styled by the kit. */
+.terminal-host,
+.terminal-host .xterm {
+  height: 100%;
+}

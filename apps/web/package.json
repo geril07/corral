@@ -11,11 +11,19 @@
     "@base-ui/react": "catalog:",
     "@corral/client": "workspace:*",
     "@corral/protocol": "workspace:*",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-router": "^1.170.46",
+    "@tanstack/router-plugin": "^1.168.48",
     "@xterm/addon-fit": "catalog:",
     "@xterm/addon-webgl": "catalog:",
     "@xterm/xterm": "catalog:",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "tailwind-merge": "^3.7.0",
+    "tailwindcss": "^4.3.3",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@orpc/client": "catalog:",
