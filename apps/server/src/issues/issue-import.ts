@@ -10,7 +10,7 @@ import {
 } from "./errors.ts";
 import { parseIssueOutput } from "./issue-output.ts";
 import { parseIssueUrl, type IssueRef } from "./issue-url.ts";
-import { isTrustedIssueHost } from "./trusted-hosts.ts";
+import { issueHostTrust } from "./trusted-hosts.ts";
 
 export const DEFAULT_ISSUE_TIMEOUT_MS = 10_000;
 const MAX_ISSUE_TIMEOUT_MS = 60_000;
@@ -41,8 +41,8 @@ export class IssueImportService {
   ): Promise<TaskSource> {
     signal?.throwIfAborted();
     const ref = parseIssueUrl(input.url, input.provider);
-    if (!(await isTrustedIssueHost(projectPath, ref, process.env)))
-      throw new IssueHostUntrustedError(ref.provider, ref.host);
+    const trust = await issueHostTrust(projectPath, ref, process.env);
+    if (trust === undefined) throw new IssueHostUntrustedError(ref.provider, ref.host);
     signal?.throwIfAborted();
     const { command, args } = readCommand(ref);
     const stdout = await runReadOnlyCommand({
@@ -51,6 +51,10 @@ export class IssueImportService {
       cwd: projectPath,
       timeoutMs: this.#timeoutMs,
       provider: ref.provider,
+      // A project remote alone does not bind the operator's global enterprise token to that
+      // vendor. Only GH_HOST-bound (or public) GitHub hosts keep it; host-scoped CLI auth still
+      // applies for other trusted GitHub hosts.
+      stripEnterpriseTokens: ref.provider === "github" && !trust.publicHost && !trust.operatorHost,
       signal,
     });
     return parseIssueOutput(ref.provider, stdout, ref, Date.now());
@@ -89,9 +93,10 @@ function runReadOnlyCommand(options: {
   cwd: string;
   timeoutMs: number;
   provider: IssueProvider;
+  stripEnterpriseTokens: boolean;
   signal: AbortSignal | undefined;
 }): Promise<string> {
-  const { command, args, cwd, timeoutMs, provider, signal } = options;
+  const { command, args, cwd, timeoutMs, provider, stripEnterpriseTokens, signal } = options;
   return new Promise((resolve, reject) => {
     signal?.throwIfAborted();
     const controller = new AbortController();
@@ -109,7 +114,7 @@ function runReadOnlyCommand(options: {
       {
         cwd,
         // Nothing may wait for a prompt, a pager, an update check or print a token in debug output.
-        env: childEnvironment(),
+        env: childEnvironment(stripEnterpriseTokens),
         encoding: "utf8",
         maxBuffer: MAX_OUTPUT_BYTES,
         killSignal: "SIGKILL",
@@ -189,9 +194,13 @@ function failureMessage(stderr: string): string {
   return "The issue tool failed.";
 }
 
-function childEnvironment(): NodeJS.ProcessEnv {
+function childEnvironment(stripEnterpriseTokens: boolean): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const name of DEBUG_ENV) delete env[name];
+  if (stripEnterpriseTokens) {
+    delete env["GH_ENTERPRISE_TOKEN"];
+    delete env["GITHUB_ENTERPRISE_TOKEN"];
+  }
   return {
     ...env,
     GH_PROMPT_DISABLED: "1",

@@ -24,6 +24,10 @@ export function envTrustedHosts(
 
 /** The host a git remote points at; SSH transport ports are not web/API ports, so they are dropped. */
 export function hostOfRemote(remote: string): string | undefined {
+  // Local paths are not remotes. Check Windows drives, UNC paths and file: before scp syntax,
+  // or C:\\repo would look like host "c".
+  if (/^[a-z]:/i.test(remote) || /^(?:\/\/|\\\\)/.test(remote) || /^file:/i.test(remote))
+    return undefined;
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(remote)) {
     let url: URL;
     try {
@@ -39,25 +43,35 @@ export function hostOfRemote(remote: string): string | undefined {
   return scp?.[1]?.toLowerCase();
 }
 
+/** How a custom host earned its trust; public hosts need no binding. */
+export interface IssueHostTrust {
+  publicHost: boolean;
+  /** The operator named this exact host for this provider (GH_HOST/GITLAB_HOST). */
+  operatorHost: boolean;
+}
+
 /** Public hosts are trusted by definition; self-hosted hosts need a project remote or operator env. */
-export async function isTrustedIssueHost(
+export async function issueHostTrust(
   projectPath: string,
   ref: IssueRef,
   env: NodeJS.ProcessEnv,
-): Promise<boolean> {
+): Promise<IssueHostTrust | undefined> {
   const hostname = new URL(ref.url).hostname;
-  if (publicProviderForHost(hostname) === ref.provider) return true;
-  if (envTrustedHosts(ref.provider, env).has(ref.host)) return true;
+  if (publicProviderForHost(hostname) === ref.provider)
+    return { publicHost: true, operatorHost: false };
+  if (envTrustedHosts(ref.provider, env).has(ref.host))
+    return { publicHost: false, operatorHost: true };
   let remotes: string;
   try {
     remotes = await git(projectPath, ["remote", "-v"]);
   } catch {
-    return false;
+    return undefined;
   }
-  return remotes.split("\n").some((line) => {
+  const matched = remotes.split("\n").some((line) => {
     const remote = line.split(/\s+/)[1];
     return remote !== undefined && hostOfRemote(remote) === ref.host;
   });
+  return matched ? { publicHost: false, operatorHost: false } : undefined;
 }
 
 function hostOfValue(value: string): string | undefined {

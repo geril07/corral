@@ -74,12 +74,17 @@ function sameIdentity(returnedUrl: string, ref: IssueRef, provider: IssueProvide
     const returned = parseIssueUrl(returnedUrl, provider);
     return (
       returned.host === ref.host &&
-      returned.repository === ref.repository &&
+      sameRepository(provider, returned.repository, ref.repository) &&
       returned.number === ref.number
     );
   } catch {
     return false;
   }
+}
+
+/** GitHub owner/repo names are case-insensitive; GitLab paths stay exact until its rules are verified. */
+function sameRepository(provider: IssueProvider, left: string, right: string): boolean {
+  return provider === "github" ? left.toLowerCase() === right.toLowerCase() : left === right;
 }
 
 function parseJson(text: string): unknown {
