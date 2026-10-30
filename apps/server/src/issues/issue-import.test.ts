@@ -17,7 +17,7 @@ test("a pre-aborted signal rejects before any CLI starts", async () => {
 
     await expect(
       service.resolve(cwd, { url: "https://github.com/acme/app/issues/1" }, controller.signal),
-    ).rejects.toThrow(/abort/i);
+    ).rejects.toThrow(/abort|cancel/i);
     expect(clis.calls()).toEqual([]);
   } finally {
     await rm(cwd, { recursive: true, force: true });
@@ -39,7 +39,7 @@ test("cancelling an import kills the CLI instead of leaving it running", async (
     await vi.waitFor(() => expect(existsSync(pidFile)).toBe(true));
     controller.abort();
 
-    await expect(resolving).rejects.toThrow(/abort/i);
+    await expect(resolving).rejects.toThrow(/abort|cancel/i);
     const pid = Number(readFileSync(pidFile, "utf8"));
     await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(/ESRCH/));
   } finally {

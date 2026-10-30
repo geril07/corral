@@ -128,7 +128,8 @@ function runReadOnlyCommand(options: {
           return;
         }
         if (signal?.aborted) {
-          reject(error);
+          // Do not forward execFile's error: it can carry stderr with credentials.
+          reject(new DOMException("The issue import was cancelled.", "AbortError"));
           return;
         }
         if (error.code === "ENOENT") {
