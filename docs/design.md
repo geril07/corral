@@ -67,7 +67,8 @@ A task's status comes from its agent sessions (working / blocked / done / error 
 ### Status
 
 - The server's headless terminal parses OSC 7501 and answers its `?` probe (Claude Code and pi only report after the probe). A session's status is its root record; a blocked subagent makes the session blocked.
-- OpenCode reports through a plugin ported from Herdr that POSTs to `CORRAL_STATUS_URL`. The server writes the plugin into its data dir and points only the OpenCode processes it launches there with `OPENCODE_CONFIG_DIR`, so the user's global OpenCode config is untouched. If the user already sets `OPENCODE_CONFIG_DIR`, the server leaves it alone and that session has no status.
+- OpenCode reports through a plugin derived from Herdr's (v2 plugin API) that POSTs to `CORRAL_STATUS_URL`. Measured on 2.1.4 (isolated HOME): plugins load inside OpenCode's shared background service with the first client's environment, so the server launches `opencode --standalone` (server in the client process) and loads the plugin through `OPENCODE_CONFIG_CONTENT`, which merges with the user's global config and `OPENCODE_CONFIG`; `OPENCODE_CONFIG_DIR` would replace the global config and is not used. If the user already sets `OPENCODE_CONFIG_CONTENT`, the session has no plugin status.
+- OpenCode 2.1.4 also sends OSC 7501 itself (whether it reports `blocked` is unverified). Once a launch has delivered an HTTP report, OSC no longer changes that session's status until the next launch (Orca's rule, without Orca's 2-minute takeover when the plugin goes quiet).
 - A task's status is the most urgent of its sessions': blocked, error, working, done, idle.
 - Board: all active tasks across projects with their status and the agent's message, most urgent first, opened from the keyboard; choosing a task jumps to the session that needs attention.
 
