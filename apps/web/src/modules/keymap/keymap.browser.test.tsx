@@ -9,6 +9,7 @@ import {
   appWithProject,
   createTask,
   focusedIsTerminal,
+  taskButton,
   workspace,
 } from "../../../test/task-flows.tsx";
 
@@ -73,6 +74,29 @@ test("a config file changes the prefix and every action follows it", async () =>
 
   await prefixThen("c");
   await expect.element(terminalButtons()).toHaveLength(1);
+});
+
+test("from a loose terminal the palette navigates to the one task in both directions", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Only");
+  await client.connection.api.terminals.create({ size: { cols: 80, rows: 24 } });
+  const noTask = workspace().getByRole("button", { name: "No task" });
+  await expect.element(noTask).toBeVisible();
+
+  await noTask.click();
+  await prefixThen(" ");
+  await expect.element(paletteItem(/Next task/)).toHaveAttribute("aria-disabled", "false");
+  await expect.element(paletteItem(/Previous task/)).toHaveAttribute("aria-disabled", "false");
+  await userEvent.keyboard("next task{Enter}");
+  await expect.element(palette()).not.toBeInTheDocument();
+  await expect.element(taskButton("Only")).toHaveAttribute("aria-current", "true");
+
+  await noTask.click();
+  await prefixThen(" ");
+  await expect.element(paletteItem(/Previous task/)).toHaveAttribute("aria-disabled", "false");
+  await userEvent.keyboard("previous task{Enter}");
+  await expect.element(palette()).not.toBeInTheDocument();
+  await expect.element(taskButton("Only")).toHaveAttribute("aria-current", "true");
 });
 
 test("config problems show as a notice whose dialog lists each one with the file path", async () => {

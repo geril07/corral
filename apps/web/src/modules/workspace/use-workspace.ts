@@ -167,6 +167,9 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
   };
 
   const board = buildBoard(tree);
+  const taskIds = taskOrder.map((task) => task.id);
+  const nextTaskId = stepActive(taskIds, selection.taskId ?? undefined, 1);
+  const previousTaskId = stepActive(taskIds, selection.taskId ?? undefined, -1);
 
   const jumpTo = (row: BoardRow) => {
     choose({ projectId: row.project.id, taskId: row.task.id, entryId: row.sessionId });
@@ -309,13 +312,13 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
     "next-task": {
       label: "Next task",
       group: "Tasks",
-      enabled: taskOrder.length > 1,
+      enabled: nextTaskId !== undefined && nextTaskId !== selection.taskId,
       run: () => stepTask(1),
     },
     "previous-task": {
       label: "Previous task",
       group: "Tasks",
-      enabled: taskOrder.length > 1,
+      enabled: previousTaskId !== undefined && previousTaskId !== selection.taskId,
       run: () => stepTask(-1),
     },
     "add-project": {
