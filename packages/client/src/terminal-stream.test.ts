@@ -131,7 +131,8 @@ test("when the process exits the stream reports it, keeps the screen and does no
   await eventually(() =>
     expect(stream.state.getSnapshot()).toEqual({ status: "exited", exit: { exitCode: 7 } }),
   );
-  expect(terminal.screen).toContain("last-words");
+  // The exit message can arrive before the terminal has parsed the snapshot written ahead of it.
+  await eventually(() => expect(terminal.screen).toContain("last-words"));
   const connectionsOnExit = proxy.accepted;
   expect(connectionsOnExit).toBe(2); // the RPC socket and this stream
 
@@ -139,7 +140,7 @@ test("when the process exits the stream reports it, keeps the screen and does no
   await eventually(() =>
     expect(later.stream.state.getSnapshot()).toEqual({ status: "exited", exit: { exitCode: 7 } }),
   );
-  expect(later.terminal.screen).toContain("last-words");
+  await eventually(() => expect(later.terminal.screen).toContain("last-words"));
 });
 
 test("a terminal that does not exist, or was closed while attached, shows as not found", async () => {
