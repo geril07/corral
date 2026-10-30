@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "node --watch --watch-path=src --watch-path=../../packages src/main.ts",
     "start": "node src/main.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:contracts": "vp test run --config vitest.contracts.config.ts"
   },
   "dependencies": {
     "@corral/protocol": "workspace:*",
