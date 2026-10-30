@@ -29,6 +29,16 @@ export function resolveStateDir(
   return `${stateHome}/corral`;
 }
 
+/** Projects, tasks and worktrees: `$CORRAL_DATA_DIR`, else `$XDG_DATA_HOME/corral`, else `~/.local/share/corral`. */
+export function resolveDataDir(
+  env: Readonly<Record<string, string | undefined>>,
+  homeDir: string,
+): string {
+  if (env["CORRAL_DATA_DIR"]) return env["CORRAL_DATA_DIR"];
+  const dataHome = env["XDG_DATA_HOME"] || `${homeDir}/.local/share`;
+  return `${dataHome}/corral`;
+}
+
 export function endpointFilePath(stateDir: string): string {
   return `${stateDir}/endpoint.json`;
 }

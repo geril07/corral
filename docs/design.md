@@ -44,8 +44,11 @@ Replaces Herdr for its author; Orca and T3 Code (`.refs/`) are references, not b
 
 ## Domain model
 
-- **Project**: a git repository.
-- **Task**: goal (text), status, branch, worktree. Creating a task creates the branch and worktree; picking an existing branch is an option.
+- **Project**: a git repository, added by path.
+- **Task**: title, state (active / archived), branch, workspace. The workspace is one of: a new worktree on a new branch (default; branch named from the title, off the project's default branch), a new worktree on an existing branch, or the project's main working tree (no worktree).
+  - Worktrees live in the data dir (`~/.local/share/corral/worktrees/<project>/<task>`), not next to the repository, so they never show up in the user's repository directory.
+  - Removing a task closes its terminals and removes the worktree it owns, but refuses a worktree with uncommitted or untracked changes unless forced. Branches are never deleted by Corral.
+  - Projects and tasks persist in SQLite (`<data dir>/corral.db`); terminals do not (decision 12).
 - **Session**: lives in a task. Either a shell, or an agent session `{ agent, agentSessionId, view: terminal | chat }`.
 - **Space**: an optional saved grouping or filter over tasks, not a container.
 - **Board**: all tasks with their status, navigable from the keyboard.
