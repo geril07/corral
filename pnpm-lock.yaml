@@ -297,6 +297,9 @@ importers:
       '@corral/client':
         specifier: workspace:*
         version: link:../../packages/client
+      '@orpc/client':
+        specifier: 'catalog:'
+        version: 1.16.1
       '@types/ws':
         specifier: 'catalog:'
         version: 8.18.2
