@@ -48,6 +48,26 @@ test.skipIf(!installed("claude"))(
   },
 );
 
+test.skipIf(!installed("claude"))(
+  "claude --resume of an id with no conversation exits 1 with 'No conversation found', without a network call",
+  async () => {
+    const id = "11111111-2222-4333-8444-555555555555";
+    const result = await run("claude", ["-p", "--resume", id, "hi"], {
+      timeout: 30_000,
+      cwd: sandbox,
+      env: { PATH: process.env["PATH"], HOME: sandbox, CLAUDE_CONFIG_DIR: join(sandbox, "claude") },
+    }).then(
+      ({ stdout, stderr }) => ({ code: 0, output: stdout + stderr }),
+      (error: { code: number; stdout: string; stderr: string }) => ({
+        code: error.code,
+        output: error.stdout + error.stderr,
+      }),
+    );
+    expect(result.code).toBe(1);
+    expect(result.output).toContain(`No conversation found with session ID: ${id}`);
+  },
+);
+
 test.skipIf(!installed("pi"))(
   "pi takes --session-id <id> that creates the session when missing",
   async () => {

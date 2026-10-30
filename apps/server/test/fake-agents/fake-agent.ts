@@ -4,11 +4,16 @@
 //   the file named by $FAKE_AGENT_LOG;
 // - prints `fake <name> ready`, then reads lines from stdin: `exit [code]` exits, anything
 //   else is answered with `fake <name> got: <line>`;
+// - the fake claude models "no conversation yet" as the real one does: `--resume <id>` of an id
+//   without a transcript prints the real message and exits 1. A `--session-id <id>` conversation
+//   gets its transcript in $CLAUDE_CONFIG_DIR/projects at the first line that is not a command
+//   (`lazy`, the default) or at start (`eager`), per $FAKE_CLAUDE_TRANSCRIPT;
 // - the fake codex, when it starts a new conversation, writes a rollout file into
 //   $CODEX_HOME/sessions as the real one does, per $FAKE_CODEX_ROLLOUT: `eager` (the default)
 //   at start, `lazy` on the first line that is not a command, `never` not at all.
 import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
+import { claudeTranscriptExists, writeClaudeTranscript } from "../claude-transcripts.ts";
 import { writeRollout } from "../rollouts.ts";
 
 const [name, ...argv] = process.argv.slice(2);
@@ -16,6 +21,20 @@ const codexHome = process.env["CODEX_HOME"];
 if (name === "codex" && !codexHome) {
   console.error("fake codex: refusing to run without CODEX_HOME, it would use the real ~/.codex");
   process.exit(99);
+}
+
+const claudeConfigDir = process.env["CLAUDE_CONFIG_DIR"];
+if (name === "claude" && !claudeConfigDir) {
+  console.error(
+    "fake claude: refusing to run without CLAUDE_CONFIG_DIR, it would use the real ~/.claude",
+  );
+  process.exit(99);
+}
+const claudeFlag = name === "claude" ? argv[0] : undefined;
+const claudeId = name === "claude" ? argv[1] : undefined;
+if (claudeFlag === "--resume" && claudeId && !claudeTranscriptExists(claudeConfigDir!, claudeId)) {
+  console.error(`No conversation found with session ID: ${claudeId}`);
+  process.exit(1);
 }
 
 const startsConversation = name === "codex" && argv[0] !== "resume";
@@ -46,6 +65,12 @@ function writeRolloutOnce(): void {
 }
 if (rolloutMode === "eager") writeRolloutOnce();
 
+const transcriptMode = process.env["FAKE_CLAUDE_TRANSCRIPT"] ?? "lazy";
+function writeTranscriptOnce(): void {
+  if (claudeId && claudeConfigDir) writeClaudeTranscript(claudeConfigDir, process.cwd(), claudeId);
+}
+if (transcriptMode === "eager") writeTranscriptOnce();
+
 console.log(`fake ${name} ready`);
 
 let pending = "";
@@ -58,6 +83,7 @@ process.stdin.on("data", (chunk: string) => {
     const exit = /^exit(?: (\d+))?$/.exec(line);
     if (exit) process.exit(Number(exit[1] ?? 0));
     if (rolloutMode === "lazy") writeRolloutOnce();
+    if (transcriptMode === "lazy") writeTranscriptOnce();
     console.log(`fake ${name} got: ${line}`);
   }
 });

@@ -199,10 +199,10 @@ export class SessionService {
       if (!isExecutable(adapter.command, process.env["PATH"]))
         throw new AgentNotFoundError(adapter.command);
       input.command = adapter.command;
-      input.args =
-        how === "resume" && stored.agentSessionId !== null
-          ? adapter.resumeArgs(stored.agentSessionId)
-          : adapter.startArgs(stored.agentSessionId);
+      const id = stored.agentSessionId;
+      const resumable =
+        how === "resume" && id !== null && (adapter.hasConversation?.(id, process.env) ?? true);
+      input.args = resumable ? adapter.resumeArgs(id) : adapter.startArgs(id);
     }
     const spawnedAt = Date.now();
     const info = this.#terminals.create(input, { taskId: stored.taskId, sessionId: stored.id });

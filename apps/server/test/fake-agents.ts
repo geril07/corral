@@ -16,8 +16,8 @@ export interface Launch {
 }
 
 /**
- * Puts the fake agents (`fake-agents/`) first on `PATH` for the test and points `CODEX_HOME` at
- * a temporary directory, so nothing reaches the real CLIs or the real `~/.codex`. The server
+ * Puts the fake agents (`fake-agents/`) first on `PATH` for the test and points `CODEX_HOME` and
+ * `CLAUDE_CONFIG_DIR` at temporary directories, so nothing reaches the real CLIs, `~/.codex` or `~/.claude`. The server
  * reads the environment when it launches a session, so this works with `useServer()` in any order.
  */
 export function useFakeAgents() {
@@ -29,8 +29,10 @@ export function useFakeAgents() {
     logFile = join(root, "launches.jsonl");
     vi.stubEnv("PATH", `${FAKE_BIN}${delimiter}${process.env["PATH"] ?? ""}`);
     vi.stubEnv("CODEX_HOME", join(root, "codex"));
+    vi.stubEnv("CLAUDE_CONFIG_DIR", join(root, "claude"));
     vi.stubEnv("FAKE_AGENT_LOG", logFile);
     vi.stubEnv("FAKE_CODEX_ROLLOUT", "eager");
+    vi.stubEnv("FAKE_CLAUDE_TRANSCRIPT", "lazy");
   });
   afterEach(async () => {
     vi.unstubAllEnvs();
@@ -41,6 +43,10 @@ export function useFakeAgents() {
     /** What `CODEX_HOME` is for the server under test. */
     get codexHome() {
       return join(root, "codex");
+    },
+    /** What `CLAUDE_CONFIG_DIR` is for the server under test. */
+    get claudeConfigDir() {
+      return join(root, "claude");
     },
     /** Every launch so far, oldest first. */
     async launches(): Promise<Launch[]> {

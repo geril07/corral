@@ -99,7 +99,7 @@ test.each(["claude", "pi", "opencode"] as const)(
     const session = await api.sessions.start({ taskId: task.id, kind, size: SIZE });
     const id = session.agentSessionId!;
     expect(id).toMatch(format);
-    await ready(session, `fake ${kind} ready`);
+    const client = await ready(session, `fake ${kind} ready`);
     expect(await launchesOf(kind, 1)).toMatchObject([
       {
         argv: start(id),
@@ -108,6 +108,9 @@ test.each(["claude", "pi", "opencode"] as const)(
       },
     ]);
 
+    // Claude Code has no conversation to resume before the first prompt.
+    client.type("hello\n");
+    await client.waitForScreen(`fake ${kind} got: hello`);
     await api.sessions.stop({ id: session.id });
     const restarted = await api.sessions.restart({ id: session.id, size: SIZE });
     expect(restarted).toMatchObject({ id: session.id, agentSessionId: id, state: "running" });
@@ -115,6 +118,32 @@ test.each(["claude", "pi", "opencode"] as const)(
       argv: resume(id),
       env: { CORRAL_SESSION_ID: session.id, CORRAL_TASK_ID: task.id },
     });
+  },
+);
+
+test.each([
+  { kind: "claude", flag: "--session-id", flagAfterPrompt: "--resume" },
+  { kind: "pi", flag: "--session-id", flagAfterPrompt: "--session-id" },
+  { kind: "opencode", flag: "--session", flagAfterPrompt: "--session" },
+] as const)(
+  "a $kind session restarted before any prompt keeps its id; the conversation is resumed once it has history",
+  async ({ kind, flag, flagAfterPrompt }) => {
+    const { api, task } = await addTask(server, "No prompt");
+    const session = await api.sessions.start({ taskId: task.id, kind, size: SIZE });
+    const id = session.agentSessionId!;
+    await ready(session, `fake ${kind} ready`);
+
+    await api.sessions.stop({ id: session.id });
+    const second = await api.sessions.restart({ id: session.id, size: SIZE });
+    const client = await ready(second, `fake ${kind} ready`);
+    expect((await launchesOf(kind, 2))[1]!.argv).toEqual([flag, id]);
+    expect(second.agentSessionId).toBe(id);
+
+    client.type("hello\n");
+    await client.waitForScreen(`fake ${kind} got: hello`);
+    await api.sessions.stop({ id: session.id });
+    await api.sessions.restart({ id: session.id, size: SIZE });
+    expect((await launchesOf(kind, 3))[2]!.argv).toEqual([flagAfterPrompt, id]);
   },
 );
 

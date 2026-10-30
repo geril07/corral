@@ -20,6 +20,11 @@ test("after a server restart, running sessions start again — agents resumed by
     api.sessions.start({ taskId: task.id, kind, size: SIZE });
   const shell = await start("shell");
   const claude = await start("claude");
+  // Resuming needs a conversation, which Claude Code only has after the first prompt.
+  const claudeClient = await server.attach(claude.terminalId!);
+  await claudeClient.waitForScreen("fake claude ready");
+  claudeClient.type("hello\n");
+  await claudeClient.waitForScreen("fake claude got: hello");
   const pi = await start("pi");
   const opencode = await start("opencode");
   const codex = await start("codex");
@@ -69,6 +74,21 @@ test("after a server restart, running sessions start again — agents resumed by
     "resume",
     codexLaunch!.rolloutId,
   ]);
+});
+
+test("a Claude session that never got a prompt is restored under the same id, as a new conversation", async () => {
+  const { api, task } = await addTask(server, "Silent");
+  const session = await api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE });
+  await launchesOf(agents, "claude", 1);
+
+  await server.restart();
+
+  const launches = await launchesOf(agents, "claude", 2);
+  expect(launches[1]!.argv).toEqual(["--session-id", session.agentSessionId]);
+  const [restored] = await sessionsOf(await server.rpc());
+  expect(restored).toMatchObject({ state: "running", agentSessionId: session.agentSessionId });
+  const client = await server.attach(restored!.terminalId!);
+  await client.waitForScreen("fake claude ready");
 });
 
 test("a restored agent gets the same CORRAL_* environment and works in its task's workspace", async () => {

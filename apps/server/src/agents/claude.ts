@@ -1,5 +1,33 @@
 import { randomUUID } from "node:crypto";
+import { existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { AgentAdapter } from "./agent-adapter.ts";
+
+export function claudeConfigDir(env: NodeJS.ProcessEnv): string {
+  return env["CLAUDE_CONFIG_DIR"] || join(homedir(), ".claude");
+}
+
+/**
+ * Workaround: `--resume <id>` exits with "No conversation found" until the first prompt has
+ * been sent, and Claude Code has no command that says whether a conversation exists (the only
+ * probes, `-p --resume`, would run it). So this reads Claude's internals: the transcript
+ * `<config dir>/projects/<escaped cwd>/<id>.jsonl`. Only its existence is used. The directory
+ * name is derived from the cwd by a scheme that is not ours (it also hashes long paths), so the
+ * project directories are searched for the file instead; ids are unique UUIDs.
+ */
+function hasTranscript(agentSessionId: string, env: NodeJS.ProcessEnv): boolean {
+  const projects = join(claudeConfigDir(env), "projects");
+  let directories: string[];
+  try {
+    directories = readdirSync(projects);
+  } catch {
+    return false;
+  }
+  return directories.some((directory) =>
+    existsSync(join(projects, directory, `${agentSessionId}.jsonl`)),
+  );
+}
 
 /** `--session-id` takes a UUID and starts the conversation under it; `--resume` continues it. */
 export const claude: AgentAdapter = {
@@ -7,4 +35,5 @@ export const claude: AgentAdapter = {
   newSessionId: randomUUID,
   startArgs: (id) => (id === null ? [] : ["--session-id", id]),
   resumeArgs: (id) => ["--resume", id],
+  hasConversation: hasTranscript,
 };
