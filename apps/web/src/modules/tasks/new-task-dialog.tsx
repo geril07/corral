@@ -1,6 +1,6 @@
 import { describeError } from "@corral/client/rpc-errors";
-import type { CreateTaskInput, Project } from "@corral/protocol/rpc";
-import { useEffect, useState } from "react";
+import type { CreateTaskInput, Project, TaskSource } from "@corral/protocol/rpc";
+import { useEffect, useRef, useState } from "react";
 import { useAttempt } from "../../common/hooks/use-attempt.ts";
 import {
   Button,
@@ -15,6 +15,7 @@ import {
   RadioGroup,
   RadioGroupItem,
 } from "../../common/ui/index.ts";
+import { IssueImportSection, type ResolveIssue } from "./issue-import.tsx";
 
 type WorkspaceKind = CreateTaskInput["workspace"]["type"];
 
@@ -42,6 +43,8 @@ export interface NewTaskDialogProps {
   loadBranches: (projectId: string) => Promise<string[]>;
   /** Resolves once the task is created; a rejection is shown in the dialog. */
   onCreate: (input: CreateTaskInput) => Promise<void>;
+  /** Reads an issue only when the user asks; the project is the currently selected one. */
+  onResolveIssue: (projectId: string, input: Parameters<ResolveIssue>[0], signal: AbortSignal) => Promise<TaskSource>;
   onClose: () => void;
 }
 
@@ -50,10 +53,15 @@ export function NewTaskDialog({
   project,
   loadBranches,
   onCreate,
+  onResolveIssue,
   onClose,
 }: NewTaskDialogProps) {
   const [projectId, setProjectId] = useState(project.id);
   const [title, setTitle] = useState("");
+  const [source, setSource] = useState<TaskSource>();
+  const [importing, setImporting] = useState(false);
+  const titleRef = useRef("");
+  const titleTouched = useRef(false);
   const [kind, setKind] = useState<WorkspaceKind>("new-branch");
   const [branchName, setBranchName] = useState("");
   const [baseBranch, setBaseBranch] = useState("");
@@ -79,6 +87,13 @@ export function NewTaskDialog({
     setProjectId(next);
     setExisting(null);
     setBaseBranch("");
+    if (source !== undefined) {
+      setSource(undefined);
+      if (!titleTouched.current) {
+        titleRef.current = "";
+        setTitle("");
+      }
+    }
   };
 
   const workspace = (): CreateTaskInput["workspace"] | undefined => {
@@ -91,7 +106,20 @@ export function NewTaskDialog({
     };
   };
   const chosenWorkspace = workspace();
-  const ready = title.trim() !== "" && chosenWorkspace !== undefined && !attempt.pending;
+  const ready =
+    title.trim() !== "" && chosenWorkspace !== undefined && !attempt.pending && !importing;
+
+  const changeTitle = (next: string) => {
+    titleRef.current = next;
+    titleTouched.current = true;
+    setTitle(next);
+  };
+  const defaultTitle = (issueTitle: string) => {
+    // A title the user typed stays; an empty or untouched title follows the issue.
+    if (titleTouched.current && titleRef.current.trim() !== "") return;
+    titleRef.current = issueTitle;
+    setTitle(issueTitle);
+  };
 
   return (
     <Dialog title="New task" description={`In project ${selectedProject.name}.`} onClose={onClose}>
@@ -103,6 +131,7 @@ export function NewTaskDialog({
             onCreate({
               projectId,
               title: title.trim(),
+              ...(source === undefined ? {} : { source }),
               workspace: chosenWorkspace,
             }),
           );
@@ -111,12 +140,21 @@ export function NewTaskDialog({
         <Field label="Title">
           <Input
             value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            onChange={(event) => changeTitle(event.target.value)}
             autoComplete="off"
             autoFocus
           />
         </Field>
         <ProjectPicker projects={projects} value={projectId} onChange={chooseProject} />
+        <IssueImportSection
+          projectId={projectId}
+          onResolveIssue={(input, signal) => onResolveIssue(projectId, input, signal)}
+          source={source}
+          onImported={setSource}
+          onCleared={() => setSource(undefined)}
+          onTitleDefault={defaultTitle}
+          onImportingChange={setImporting}
+        />
         <fieldset className="mb-2.5 border-0 p-0">
           <legend className="mb-1 p-0 text-text-muted">Workspace</legend>
           <RadioGroup

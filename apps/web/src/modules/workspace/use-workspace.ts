@@ -15,6 +15,7 @@ import {
 import type { ActionId } from "@corral/protocol/config";
 import type {
   CreateTaskInput,
+  IssueProvider,
   Project,
   Session,
   SessionKind,
@@ -41,6 +42,7 @@ export type DialogState =
   | { kind: "add-project" }
   | { kind: "new-task"; project: Project }
   | { kind: "remove-task"; task: Task }
+  | { kind: "task-source"; task: Task }
   | { kind: "pick-agent"; taskId: string }
   | { kind: "remove-session"; session: Session }
   | { kind: "find-task" }
@@ -309,6 +311,8 @@ export function useWorkspace({
     if (task) openDialog({ kind: "remove-task", task });
   };
   const openRemoveSession = (session: Session) => openDialog({ kind: "remove-session", session });
+  const openTaskSource = (task: Task, opener?: HTMLElement) =>
+    openDialog({ kind: "task-source", task }, opener);
 
   const addProject = async (path: string) => {
     const project = await api.projects.add({ path });
@@ -322,6 +326,20 @@ export function useWorkspace({
     showTask(task);
     void startSession(task.id, "shell");
   };
+
+  const resolveIssue = (
+    projectId: string,
+    input: { url: string; provider?: IssueProvider | undefined },
+    signal: AbortSignal,
+  ) =>
+    api.projects.resolveIssue(
+      {
+        projectId,
+        url: input.url,
+        ...(input.provider === undefined ? {} : { provider: input.provider }),
+      },
+      { signal },
+    );
 
   const removeTask = async (task: Task, force: boolean) => {
     const next = taskOrder.find(
@@ -518,12 +536,14 @@ export function useWorkspace({
     loadBranches,
     openRemoveTask,
     openRemoveSession,
+    openTaskSource,
     openAddProject,
     openPalette,
     openFindTask,
     openConfigProblems,
     addProject,
     createTask,
+    resolveIssue,
     removeTask,
     setDialog,
   };

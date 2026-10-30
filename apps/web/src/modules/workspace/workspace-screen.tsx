@@ -3,7 +3,7 @@ import { ActionId, type ClientConfig } from "@corral/protocol/config";
 import { AppShell, Button, Kbd, MainPanel, SidebarPanel, Tooltip } from "../../common/ui/index.ts";
 import { AddProjectDialog } from "../projects/index.ts";
 import { AgentPicker, RemoveSessionDialog, StoppedSession } from "../sessions/index.ts";
-import { NewTaskDialog, RemoveTaskDialog } from "../tasks/index.ts";
+import { NewTaskDialog, RemoveTaskDialog, TaskSourceDialog } from "../tasks/index.ts";
 import { TerminalView } from "../terminal/index.ts";
 import { ConnectionNotice } from "../connection/index.ts";
 import {
@@ -80,12 +80,14 @@ export function WorkspaceScreen({
     loadBranches,
     openRemoveTask,
     openRemoveSession,
+    openTaskSource,
     openAddProject,
     openPalette,
     openFindTask,
     openConfigProblems,
     addProject,
     createTask,
+    resolveIssue,
     removeTask,
     setDialog,
   } = useWorkspace({ search, onChange, onOpenBoard, onOpenSettings });
@@ -112,6 +114,7 @@ export function WorkspaceScreen({
           onStopSession={(session) => void stopSession(session)}
           onRestartSession={(session) => void restartSession(session)}
           onRemoveSession={openRemoveSession}
+          onViewSource={openTaskSource}
           onToggleSettle={(task) => void toggleSettle(task)}
           onRemoveTask={openRemoveTask}
           onAddProject={openAddProject}
@@ -200,6 +203,7 @@ export function WorkspaceScreen({
           project={dialog.project}
           loadBranches={loadBranches}
           onCreate={createTask}
+          onResolveIssue={resolveIssue}
           onClose={() => setDialog(undefined)}
         />
       )}
@@ -231,6 +235,13 @@ export function WorkspaceScreen({
         <RemoveTaskDialog
           task={dialog.task}
           onRemove={(force) => removeTask(dialog.task, force)}
+          onClose={() => setDialog(undefined)}
+        />
+      )}
+      {dialog?.kind === "task-source" && (
+        <TaskSourceDialog
+          source={dialog.task.source!}
+          taskTitle={dialog.task.title}
           onClose={() => setDialog(undefined)}
         />
       )}

@@ -69,6 +69,8 @@ interface SidebarProps {
   onNewAgent: (opener?: HTMLElement) => void;
   onOpenPalette: (opener?: HTMLElement) => void;
   onOpenBoard: () => void;
+  /** Opens the controlled source dialog; only tasks with a source offer it. */
+  onViewSource: (task: Task, opener?: HTMLElement) => void;
   onFindTask: (opener?: HTMLElement) => void;
 }
 
@@ -119,6 +121,9 @@ export function Sidebar(props: SidebarProps) {
       onRestart={props.onRestartSession}
       onRemoveSession={props.onRemoveSession}
       onRenameEntry={props.onRenameEntry}
+      onViewSource={
+        node.task.source ? (opener) => props.onViewSource(node.task, opener) : undefined
+      }
       hint={hint}
     />
   );
@@ -390,6 +395,7 @@ function TaskRow({
   onRestart,
   onRemoveSession,
   onRenameEntry,
+  onViewSource,
   hint,
 }: {
   node: TaskNode;
@@ -404,6 +410,7 @@ function TaskRow({
   onRestart: (session: Session) => void;
   onRemoveSession: (session: Session) => void;
   onRenameEntry: (entry: Entry) => void;
+  onViewSource?: ((opener?: HTMLElement) => void) | undefined;
   hint: (label: string, action: ActionId) => string;
 }) {
   const { task, sessions } = node;
@@ -473,6 +480,11 @@ function TaskRow({
           select
         )}
         <OverflowMenu label={`Task actions for ${task.title}`}>
+          {onViewSource && (
+            <MenuItem onClick={(event) => onViewSource(event.currentTarget)}>
+              View issue source…
+            </MenuItem>
+          )}
           <MenuItem onClick={onToggleSettle}>
             {task.state === "active" ? "Settle task" : "Unsettle task"}
           </MenuItem>
