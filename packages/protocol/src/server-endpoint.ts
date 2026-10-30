@@ -42,3 +42,17 @@ export function resolveDataDir(
 export function endpointFilePath(stateDir: string): string {
   return `${stateDir}/endpoint.json`;
 }
+
+/** User configuration: `$CORRAL_CONFIG_DIR`, else `$XDG_CONFIG_HOME/corral`, else `~/.config/corral`. */
+export function resolveConfigDir(
+  env: Readonly<Record<string, string | undefined>>,
+  homeDir: string,
+): string {
+  if (env["CORRAL_CONFIG_DIR"]) return env["CORRAL_CONFIG_DIR"];
+  const configHome = env["XDG_CONFIG_HOME"] || `${homeDir}/.config`;
+  return `${configHome}/corral`;
+}
+
+export function configFilePath(configDir: string): string {
+  return `${configDir}/config.toml`;
+}
