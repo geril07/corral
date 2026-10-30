@@ -4,6 +4,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+const FAKE_AGENTS_BIN = path.join(import.meta.dirname, "../../server/test/fake-agents/bin");
+
 interface Fixtures {
   stateDir: string;
   launchApp: () => Promise<ElectronApplication>;
@@ -28,12 +30,16 @@ export const test = base.extend<Fixtures>({
       await use(async () => {
         const app = await electron.launch({
           args: [path.join(import.meta.dirname, ".."), `--user-data-dir=${stateDir}/electron`],
-          // A plain sh keeps the prompt of terminals created without a command predictable.
+          // A plain sh keeps the prompt of terminals created without a command predictable. The
+          // fake agents (apps/server/test/fake-agents) come first on PATH so that no test can start
+          // a real agent, and CODEX_HOME keeps the real ~/.codex out of reach.
           env: {
             ...process.env,
             CORRAL_STATE_DIR: stateDir,
             CORRAL_DATA_DIR: `${stateDir}/data`,
             SHELL: "/bin/sh",
+            PATH: `${FAKE_AGENTS_BIN}${path.delimiter}${process.env["PATH"] ?? ""}`,
+            CODEX_HOME: `${stateDir}/codex`,
           },
         });
         apps.push(app);
