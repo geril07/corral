@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, test } from "vite-plus/test";
+import { afterEach, beforeEach, expect, test, vi } from "vite-plus/test";
 import { ensureServer, type EnsureServerOptions } from "./server-connection.ts";
 
 const SERVER_ENTRY = path.join(import.meta.dirname, "../../server/src/main.ts");
@@ -17,6 +17,8 @@ let listeners: net.Server[] = [];
 beforeEach(() => {
   stateDir = mkdtempSync(path.join(tmpdir(), "corral-desktop-"));
   options = { stateDir, serverEntry: SERVER_ENTRY, startTimeoutMs: 15_000 };
+  // The spawned server inherits our environment; keep its database out of the user's data dir.
+  vi.stubEnv("CORRAL_DATA_DIR", path.join(stateDir, "data"));
 });
 
 afterEach(() => {
@@ -31,6 +33,7 @@ afterEach(() => {
     // No endpoint, or the server is already gone.
   }
   rmSync(stateDir, { recursive: true, force: true });
+  vi.unstubAllEnvs();
 });
 
 function readEndpoint(): ServerEndpoint {
