@@ -35,7 +35,7 @@ test("a renamed task session keeps its name, its process and its conversation ac
   const first = await launchApp();
   const window = await openedWindow(first);
   // The window takes keys only once the workspace has loaded (as every other spec waits).
-  await expect(window.getByText("No terminals")).toBeVisible();
+  await expect(window.getByText("No projects yet")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Labels");
 
@@ -82,7 +82,7 @@ test("a renamed loose terminal keeps its name when the app is opened again; only
 }) => {
   const first = await launchApp();
   const window = await openedWindow(first);
-  await expect(window.getByText("No terminals")).toBeVisible();
+  await expect(window.getByText("No projects yet")).toBeVisible();
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyC");
   const natural = workspace(window).getByRole("button", { name: /^sh · / });
@@ -110,6 +110,6 @@ test("a renamed loose terminal keeps its name when the app is opened again; only
   await expect.poll(() => isAlive(serverPid)).toBe(false);
   const third = await launchApp();
   const afterRestart = await openedWindow(third);
-  await expect(afterRestart.getByText("No terminals")).toBeVisible();
+  await expect(afterRestart.getByText("No projects yet")).toBeVisible();
   await expect(row(afterRestart, "logs")).toHaveCount(0);
 });

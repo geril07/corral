@@ -22,7 +22,7 @@ test("a terminal and its screen are still there after closing the app and openin
   const marker = `hello-${randomBytes(4).toString("hex")}`;
   const first = await launchApp();
   const firstWindow = await openedWindow(first);
-  await expect(firstWindow.getByText("No terminals")).toBeVisible();
+  await expect(firstWindow.getByText("No projects yet")).toBeVisible();
   await firstWindow.keyboard.press("Alt+KeyA");
   await firstWindow.keyboard.press("KeyC");
   await expect(terminalButtons(firstWindow)).toHaveCount(1);

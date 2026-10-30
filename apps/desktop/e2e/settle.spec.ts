@@ -16,7 +16,7 @@ test("settling a task stops its agent and unsettling resumes the conversation", 
 }) => {
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("No terminals")).toBeVisible();
+  await expect(window.getByText("No projects yet")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Finished");
   const sidebar = workspace(window);

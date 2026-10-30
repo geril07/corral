@@ -17,7 +17,7 @@ test("an agent session is started, stopped and restarted, and a running one come
   const repo = createRepo(stateDir);
   const first = await launchApp();
   const window = await openedWindow(first);
-  await expect(window.getByText("No terminals")).toBeVisible();
+  await expect(window.getByText("No projects yet")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Agents");
   const session = (name: string, exact = true) =>

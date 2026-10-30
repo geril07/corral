@@ -14,7 +14,7 @@ test("a task gets a worktree and a terminal in it, and removing it leaves the br
 }) => {
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("No terminals")).toBeVisible();
+  await expect(window.getByText("No projects yet")).toBeVisible();
 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("Shift+KeyP");
@@ -72,7 +72,7 @@ test("projects and tasks are still there when the app is opened again", async ({
   const repo = createRepo(stateDir);
   const first = await launchApp();
   const firstWindow = await openedWindow(first);
-  await expect(firstWindow.getByText("No terminals")).toBeVisible();
+  await expect(firstWindow.getByText("No projects yet")).toBeVisible();
   await firstWindow.keyboard.press("Alt+KeyA");
   await firstWindow.keyboard.press("Shift+KeyP");
   await expect(

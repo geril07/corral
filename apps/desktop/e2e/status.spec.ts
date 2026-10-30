@@ -19,7 +19,7 @@ test("a blocked agent shows in the sidebar and on the board, and Enter jumps to 
 }) => {
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("No terminals")).toBeVisible();
+  await expect(window.getByText("No projects yet")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Alpha");
   const sidebar = workspace(window);
@@ -46,7 +46,8 @@ test("a blocked agent shows in the sidebar and on the board, and Enter jumps to 
     "Run rm -rf build?",
   );
 
-  await createTask(window, "Beta", 2);
+  await createTask(window, "Beta");
+  await sidebar.getByRole("button", { name: "Expand sessions for Alpha" }).click();
   await expect(claude).not.toHaveAttribute("aria-current", "true");
 
   await window.keyboard.press("Alt+KeyA");
@@ -87,7 +88,7 @@ test("prefix g jumps to the blocked session from another task and says so when n
 }) => {
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("No terminals")).toBeVisible();
+  await expect(window.getByText("No projects yet")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Alpha");
   const sidebar = workspace(window);
@@ -109,7 +110,7 @@ test("prefix g jumps to the blocked session from another task and says so when n
   await window.keyboard.press("Enter");
   await expect(sidebar.getByRole("img", { name: "blocked · question" })).toHaveCount(2);
 
-  await createTask(window, "Beta", 2);
+  await createTask(window, "Beta");
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyG");
 
