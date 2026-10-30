@@ -62,7 +62,14 @@ A task's status comes from its agent sessions (working / blocked / done / error 
 - Agent session ids, checked against `--help` of the versions in the table below:
   - Claude Code: `--session-id <uuid>` at start, `--resume <uuid>` to resume. pi: `--session-id <id>` both ways (creates it if missing). OpenCode: `--session <id>` both ways (creates it if missing).
   - Codex cannot be given an id. Herdr and Orca learn it from a `SessionStart` hook they install in the user's global `~/.codex/hooks.json`. Corral does not touch global agent config in MVP; instead the server finds the new rollout file in `$CODEX_HOME/sessions` whose `session_meta.cwd` is the task's workspace and that started after the spawn (workaround: two Codex sessions started at once in one workspace are ambiguous). Resume: `codex resume <id>`.
-- Agents get `CORRAL_SESSION_ID` and `CORRAL_TASK_ID` in their environment, for hooks and plugins later.
+- Agents get `CORRAL_SESSION_ID` and `CORRAL_TASK_ID` in their environment, plus `CORRAL_STATUS_URL` and `CORRAL_STATUS_TOKEN` for agents that report status over HTTP.
+
+### Status
+
+- The server's headless terminal parses OSC 7501 and answers its `?` probe (Claude Code and pi only report after the probe). A session's status is its root record; a blocked subagent makes the session blocked.
+- OpenCode reports through a plugin ported from Herdr that POSTs to `CORRAL_STATUS_URL`. The server writes the plugin into its data dir and points only the OpenCode processes it launches there with `OPENCODE_CONFIG_DIR`, so the user's global OpenCode config is untouched. If the user already sets `OPENCODE_CONFIG_DIR`, the server leaves it alone and that session has no status.
+- A task's status is the most urgent of its sessions': blocked, error, working, done, idle.
+- Board: all active tasks across projects with their status and the agent's message, most urgent first, opened from the keyboard; choosing a task jumps to the session that needs attention.
 
 ## Agent status
 

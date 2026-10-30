@@ -110,6 +110,23 @@ export type AgentKind = z.infer<typeof AgentKind>;
 export const SessionKind = z.enum(["shell", ...AgentKind.options]);
 export type SessionKind = z.infer<typeof SessionKind>;
 
+export const AgentState = z.enum(["working", "blocked", "done", "error", "idle"]);
+export type AgentState = z.infer<typeof AgentState>;
+
+/**
+ * What an agent last reported about itself (OSC 7501, or a plugin for agents without it).
+ * `kind` says what a `blocked` agent waits for.
+ */
+export const AgentStatus = z.object({
+  state: AgentState,
+  kind: z.enum(["permission", "question", "auth"]).optional(),
+  /** Short text from the agent: task summary, the approval it asks for, an error. */
+  message: z.string().optional(),
+  /** Epoch milliseconds of the report. */
+  updatedAt: z.number(),
+});
+export type AgentStatus = z.infer<typeof AgentStatus>;
+
 /**
  * Something running in a task: a shell or an agent. Persisted, unlike terminals: after a
  * server restart every session that was running is started again, a shell fresh and an agent
@@ -133,6 +150,12 @@ export const Session = z.object({
    * starting it again would open a new conversation.
    */
   state: z.enum(["running", "stopped", "unresumable"]),
+  /**
+   * The agent's last reported status; `null` for shells and for agents that reported nothing
+   * yet. Cleared when the process exits, except `done` and `error`, which outlive it. Not
+   * persisted across a server restart.
+   */
+  status: AgentStatus.nullable(),
   /** Epoch milliseconds. */
   createdAt: z.number(),
 });
