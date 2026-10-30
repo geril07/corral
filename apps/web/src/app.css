@@ -93,14 +93,14 @@ body {
 }
 
 .workspace .branch,
-.workspace .archive-toggle,
+.workspace .settle-toggle,
 .workspace .exited .select,
 .workspace .stopped .select,
-.workspace .archived .select {
+.workspace .settled .select {
   color: var(--dim);
 }
 
-.workspace .archive-toggle {
+.workspace .settle-toggle {
   padding: 4px 10px;
   text-align: left;
 }

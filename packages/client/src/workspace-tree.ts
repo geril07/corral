@@ -28,7 +28,7 @@ export interface TaskNode {
 export interface ProjectNode {
   project: Project;
   active: readonly TaskNode[];
-  archived: readonly TaskNode[];
+  settled: readonly TaskNode[];
 }
 
 /** What the sidebar shows: project → tasks → sessions, plus the terminals outside any task. */
@@ -69,7 +69,7 @@ export function buildWorkspaceTree(
       return {
         project,
         active: own.filter((task) => task.state === "active").map(node),
-        archived: own.filter((task) => task.state === "archived").map(node),
+        settled: own.filter((task) => task.state === "settled").map(node),
       };
     }),
     loose: terminals
@@ -78,10 +78,10 @@ export function buildWorkspaceTree(
   };
 }
 
-/** Tasks in the order the sidebar lists them: per project, active first, then archived. */
+/** Tasks in the order the sidebar lists them: per project, active first, then settled. */
 export function tasksInOrder(tree: WorkspaceTree): Task[] {
-  return tree.projects.flatMap(({ active, archived }) =>
-    [...active, ...archived].map(({ task }) => task),
+  return tree.projects.flatMap(({ active, settled }) =>
+    [...active, ...settled].map(({ task }) => task),
   );
 }
 
@@ -117,7 +117,7 @@ export function resolveSelection(tree: WorkspaceTree, chosen: Chosen): Selection
   let task: Task | undefined;
   if (chosenTask) task = chosenTask;
   else if (chosen.taskId !== null) {
-    task = [...(chosenProject?.active ?? []), ...(chosenProject?.archived ?? [])][0]?.task;
+    task = [...(chosenProject?.active ?? []), ...(chosenProject?.settled ?? [])][0]?.task;
   }
 
   const entries = entriesOf(tree, task?.id ?? null);
@@ -142,8 +142,8 @@ export function currentEntry(tree: WorkspaceTree, selection: Selection): Entry |
 }
 
 function taskSessions(tree: WorkspaceTree, taskId: string): readonly SessionEntry[] {
-  for (const { active, archived } of tree.projects) {
-    const found = [...active, ...archived].find((node) => node.task.id === taskId);
+  for (const { active, settled } of tree.projects) {
+    const found = [...active, ...settled].find((node) => node.task.id === taskId);
     if (found) return found.sessions;
   }
   return [];

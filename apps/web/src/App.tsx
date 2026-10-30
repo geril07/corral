@@ -45,7 +45,7 @@ type Action =
   | "previous-session"
   | "new-task"
   | "remove-task"
-  | "archive-task"
+  | "settle-task"
   | "next-task"
   | "previous-task"
   | "add-project";
@@ -61,7 +61,7 @@ const BINDINGS: Readonly<Record<string, Action>> = {
   p: "previous-session",
   t: "new-task",
   "shift+t": "remove-task",
-  a: "archive-task",
+  d: "settle-task",
   j: "next-task",
   k: "previous-task",
   "shift+p": "add-project",
@@ -192,11 +192,11 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
     showTask(taskOrder.find((task) => task.id === id));
   };
 
-  const toggleArchive = (task: Task) =>
+  const toggleSettle = (task: Task) =>
     attempt(async () => {
       await api.tasks.setState({
         id: task.id,
-        state: task.state === "active" ? "archived" : "active",
+        state: task.state === "active" ? "settled" : "active",
       });
     });
 
@@ -262,7 +262,7 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
       else if (action === "previous-session") stepEntry(-1);
       else if (action === "new-task") openNewTask();
       else if (action === "remove-task") openRemoveTask(currentTask);
-      else if (action === "archive-task" && currentTask) void toggleArchive(currentTask);
+      else if (action === "settle-task" && currentTask) void toggleSettle(currentTask);
       else if (action === "next-task") stepTask(1);
       else if (action === "previous-task") stepTask(-1);
       else if (action === "add-project") setDialog({ kind: "add-project" });
@@ -294,7 +294,7 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
           onStopSession={(session) => void stopSession(session)}
           onRestartSession={(session) => void restartSession(session)}
           onRemoveSession={(session) => setDialog({ kind: "remove-session", session })}
-          onToggleArchive={(task) => void toggleArchive(task)}
+          onToggleSettle={(task) => void toggleSettle(task)}
           onRemoveTask={openRemoveTask}
           onAddProject={() => setDialog({ kind: "add-project" })}
           onNewTask={openNewTask}
@@ -311,10 +311,10 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
           {armed ? (
             <output aria-label="prefix mode">
               prefix: c shell · s agent · x stop · r restart · X remove session · n/p session · t
-              new task · T remove task · a archive · j/k task · P add project
+              new task · T remove task · d settle · j/k task · P add project
             </output>
           ) : (
-            <p className="hint">{prefix} then c s x r X n p t T a j k P</p>
+            <p className="hint">{prefix} then c s x r X n p t T d j k P</p>
           )}
         </footer>
       </aside>

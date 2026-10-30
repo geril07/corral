@@ -114,6 +114,30 @@ test("prefix x stops the session, which stays in the list; prefix r starts it ag
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 });
 
+test("prefix d settles the task, stopping its agent, and unsettling resumes the conversation", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Agents");
+  await startAgent("claude", "1");
+  await userEvent.keyboard("remember-me{Enter}");
+  await expect.poll(wrappedScreen).toContain("fake claude got: remember-me");
+  const { id, agentSessionId } = sessionOf(client, "claude");
+
+  await prefixThen("d");
+  await expect.element(workspace().getByRole("button", { name: "Settled (1)" })).toBeVisible();
+  await expect.element(sessionButton("claude", "stopped")).toBeVisible();
+  expect(sessionOf(client, "claude")).toMatchObject({ state: "stopped", terminalId: null });
+
+  await prefixThen("d");
+  await expect.element(sessionButton("claude")).toBeVisible();
+  await vi.waitFor(() => expect(sessionOf(client, "claude").state).toBe("running"));
+  await vi.waitFor(async () =>
+    expect(await argvOf(id)).toEqual([
+      ["--session-id", agentSessionId],
+      ["--resume", agentSessionId],
+    ]),
+  );
+});
+
 test("Enter on the stopped session's pane starts it again", async () => {
   const { client } = await appWithProject(newClient());
   await createTask("Agents");

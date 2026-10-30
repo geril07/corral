@@ -43,7 +43,7 @@ const terminal = (id: string, taskId: string | null, sessionId: string | null): 
 });
 
 const projects = [project("p1"), project("p2")];
-const tasks = [task("t1", "p1"), task("t2", "p1", "archived"), task("t3", "p1"), task("t4", "p2")];
+const tasks = [task("t1", "p1"), task("t2", "p1", "settled"), task("t3", "p1"), task("t4", "p2")];
 const sessions = [
   session("sa", "t1", "a", 2),
   session("sb", "t3", "b"),
@@ -60,12 +60,12 @@ const terminals = [
 ];
 const tree = buildWorkspaceTree(projects, tasks, sessions, terminals);
 
-test("the tree groups sessions under tasks and tasks under projects, active before archived", () => {
+test("the tree groups sessions under tasks and tasks under projects, active before settled", () => {
   expect(tree.projects.map((node) => node.active.map((n) => n.task.id))).toEqual([
     ["t1", "t3"],
     ["t4"],
   ]);
-  expect(tree.projects[0]?.archived.map((n) => n.task.id)).toEqual(["t2"]);
+  expect(tree.projects[0]?.settled.map((n) => n.task.id)).toEqual(["t2"]);
   expect(tree.loose.map((entry) => entry.id)).toEqual(["c"]);
   expect(tasksInOrder(tree).map((t) => t.id)).toEqual(["t1", "t3", "t2", "t4"]);
 });
@@ -86,7 +86,7 @@ test("a session whose terminal has not arrived yet has no terminal", () => {
 
 test("a session whose task has not arrived yet is not listed anywhere", () => {
   const shown = tree.projects.flatMap((node) =>
-    [...node.active, ...node.archived].flatMap((n) => n.sessions.map((entry) => entry.id)),
+    [...node.active, ...node.settled].flatMap((n) => n.sessions.map((entry) => entry.id)),
   );
   expect(shown).not.toContain("orphan");
   expect(tree.loose.map((entry) => entry.id)).not.toContain("o");

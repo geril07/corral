@@ -21,7 +21,7 @@ async function clientWithProject() {
   return { client, repo, project, api: client.connection.api };
 }
 
-test("the list starts unloaded, then follows create, archive and remove", async () => {
+test("the list starts unloaded, then follows create, settle and remove", async () => {
   const { client, project, api } = await clientWithProject();
   await eventually(() => expect(client.tasks.getSnapshot().loaded).toBe(true));
   expect(client.tasks.getSnapshot().tasks).toEqual([]);
@@ -35,8 +35,8 @@ test("the list starts unloaded, then follows create, archive and remove", async 
   expect(task).toMatchObject({ state: "active", ownsWorktree: true, title: "Fix login" });
   expect(existsSync(task.workspacePath)).toBe(true);
 
-  const archived = await api.tasks.setState({ id: task.id, state: "archived" });
-  await eventually(() => expect(client.tasks.getSnapshot().tasks).toEqual([archived]));
+  const settled = await api.tasks.setState({ id: task.id, state: "settled" });
+  await eventually(() => expect(client.tasks.getSnapshot().tasks).toEqual([settled]));
 
   await api.tasks.remove({ id: task.id });
   await eventually(() => expect(client.tasks.getSnapshot().tasks).toEqual([]));

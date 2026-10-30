@@ -94,21 +94,33 @@ test("prefix c adds a shell session to the current task, j and k move between ta
   await expect.poll(wrappedScreen).toContain(second.workspacePath);
 });
 
-test("prefix a archives the current task and again unarchives it", async () => {
-  await appWithProject();
+test("prefix d settles the current task, which stops its shell, and again unsettles it, which starts a new one", async () => {
+  const { client } = await appWithProject();
   await createTask("Old news");
+  const shell = client.sessions.getSnapshot().sessions[0]!;
+  expect(shell.state).toBe("running");
 
-  await prefixThen("a");
-  const toggle = workspace().getByRole("button", { name: "Archived (1)" });
+  await prefixThen("d");
+  const toggle = workspace().getByRole("button", { name: "Settled (1)" });
   await expect.element(toggle).toBeVisible();
   await expect.element(taskButton("Old news")).toHaveAttribute("aria-current", "true");
   await expect
-    .element(workspace().getByRole("button", { name: "unarchive Old news" }))
+    .element(workspace().getByRole("button", { name: "unsettle Old news" }))
     .toBeVisible();
+  await vi.waitFor(() =>
+    expect(client.sessions.getSnapshot().sessions).toEqual([
+      { ...shell, state: "stopped", terminalId: null },
+    ]),
+  );
 
-  await prefixThen("a");
+  await prefixThen("d");
   await expect.element(toggle).not.toBeInTheDocument();
-  await expect.element(workspace().getByRole("button", { name: "archive Old news" })).toBeVisible();
+  await expect.element(workspace().getByRole("button", { name: "settle Old news" })).toBeVisible();
+  await vi.waitFor(() =>
+    expect(client.sessions.getSnapshot().sessions).toEqual([
+      { ...shell, state: "running", terminalId: expect.any(String) },
+    ]),
+  );
 });
 
 test("an existing branch is picked in the dialog with the keyboard", async () => {

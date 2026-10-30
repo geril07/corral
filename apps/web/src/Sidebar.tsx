@@ -27,7 +27,7 @@ interface SidebarProps {
   onStopSession: (session: Session) => void;
   onRestartSession: (session: Session) => void;
   onRemoveSession: (session: Session) => void;
-  onToggleArchive: (task: Task) => void;
+  onToggleSettle: (task: Task) => void;
   onRemoveTask: (task: Task) => void;
   onAddProject: () => void;
   onNewTask: () => void;
@@ -37,10 +37,10 @@ interface SidebarProps {
 
 export function Sidebar(props: SidebarProps) {
   const { tree, selection } = props;
-  // Projects whose archived tasks the user opened; the group is also open while it holds the current task.
-  const [openArchives, setOpenArchives] = useState<ReadonlySet<string>>(new Set());
-  const toggleArchive = (projectId: string) =>
-    setOpenArchives((open) => {
+  // Projects whose settled tasks the user opened; the group is also open while it holds the current task.
+  const [openSettledGroups, setOpenSettledGroups] = useState<ReadonlySet<string>>(new Set());
+  const toggleSettle = (projectId: string) =>
+    setOpenSettledGroups((open) => {
       const next = new Set(open);
       if (!next.delete(projectId)) next.add(projectId);
       return next;
@@ -127,7 +127,7 @@ export function Sidebar(props: SidebarProps) {
   };
 
   const taskItem = ({ task, sessions }: TaskNode) => (
-    <li key={task.id} className={task.state === "archived" ? "archived" : undefined}>
+    <li key={task.id} className={task.state === "settled" ? "settled" : undefined}>
       <div className="row">
         <button
           type="button"
@@ -141,8 +141,8 @@ export function Sidebar(props: SidebarProps) {
         <button
           type="button"
           className="icon"
-          aria-label={`${task.state === "active" ? "archive" : "unarchive"} ${task.title}`}
-          onClick={() => props.onToggleArchive(task)}
+          aria-label={`${task.state === "active" ? "settle" : "unsettle"} ${task.title}`}
+          onClick={() => props.onToggleSettle(task)}
         >
           {task.state === "active" ? "▾" : "▴"}
         </button>
@@ -167,9 +167,9 @@ export function Sidebar(props: SidebarProps) {
       onMouseDown={(event) => event.preventDefault()}
     >
       <ul>
-        {tree.projects.map(({ project, active, archived }) => {
-          const holdsCurrent = archived.some(({ task }) => task.id === selection.taskId);
-          const archiveOpen = holdsCurrent || openArchives.has(project.id);
+        {tree.projects.map(({ project, active, settled }) => {
+          const holdsCurrent = settled.some(({ task }) => task.id === selection.taskId);
+          const settledOpen = holdsCurrent || openSettledGroups.has(project.id);
           return (
             <li key={project.id}>
               <div className="row project" data-current={project.id === selection.projectId}>
@@ -183,19 +183,19 @@ export function Sidebar(props: SidebarProps) {
               </div>
               <ul>
                 {active.map(taskItem)}
-                {archived.length > 0 && (
+                {settled.length > 0 && (
                   <li>
                     <button
                       type="button"
-                      className="archive-toggle"
-                      aria-expanded={archiveOpen}
+                      className="settle-toggle"
+                      aria-expanded={settledOpen}
                       disabled={holdsCurrent}
-                      onClick={() => toggleArchive(project.id)}
+                      onClick={() => toggleSettle(project.id)}
                     >
-                      <span aria-hidden>{archiveOpen ? "▾" : "▸"} </span>
-                      Archived ({archived.length})
+                      <span aria-hidden>{settledOpen ? "▾" : "▸"} </span>
+                      Settled ({settled.length})
                     </button>
-                    {archiveOpen && <ul>{archived.map(taskItem)}</ul>}
+                    {settledOpen && <ul>{settled.map(taskItem)}</ul>}
                   </li>
                 )}
               </ul>

@@ -62,7 +62,7 @@ function renderSidebar(chosen: Chosen = {}) {
   ];
   const tree = buildWorkspaceTree(
     [project("p1"), project("p2")],
-    [task("a"), task("b"), task("old", "archived")],
+    [task("a"), task("b"), task("old", "settled")],
     sessions,
     [terminal("term-s1", "a", "s1"), terminal("term-s2", "a", "s2"), terminal("loose", null, null)],
   );
@@ -75,7 +75,7 @@ function renderSidebar(chosen: Chosen = {}) {
     onStopSession: vi.fn<(session: Session) => void>(),
     onRestartSession: vi.fn<(session: Session) => void>(),
     onRemoveSession: vi.fn<(session: Session) => void>(),
-    onToggleArchive: vi.fn<(task: Task) => void>(),
+    onToggleSettle: vi.fn<(task: Task) => void>(),
     onRemoveTask: vi.fn<(task: Task) => void>(),
     onAddProject: vi.fn<() => void>(),
     onNewTask: vi.fn<() => void>(),
@@ -116,9 +116,9 @@ test("a session that is not running says so, and an unresumable one says why on 
   await expect.element(sessionButton("claude")).not.toHaveAttribute("title");
 });
 
-test("archived tasks stay collapsed until the group is opened", async () => {
+test("settled tasks stay collapsed until the group is opened", async () => {
   await renderSidebar().rendered;
-  const toggle = nav().getByRole("button", { name: "Archived (1)" });
+  const toggle = nav().getByRole("button", { name: "Settled (1)" });
 
   await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
   await expect.element(nav().getByRole("button", { name: /^task old/ })).not.toBeInTheDocument();
@@ -173,8 +173,8 @@ test("clicking reports what was picked", async () => {
   await nav().getByRole("button", { name: "repo-p2" }).click();
   expect(handlers.onSelectProject).toHaveBeenCalledWith(expect.objectContaining({ id: "p2" }));
 
-  await nav().getByRole("button", { name: "archive task a" }).click();
-  expect(handlers.onToggleArchive).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
+  await nav().getByRole("button", { name: "settle task a" }).click();
+  expect(handlers.onToggleSettle).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
 
   await nav().getByRole("button", { name: "remove task task b" }).click();
   expect(handlers.onRemoveTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
