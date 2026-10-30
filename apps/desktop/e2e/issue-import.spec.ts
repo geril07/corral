@@ -14,6 +14,7 @@ test("an imported issue keeps its source when the app is opened again", async ({
       number: 7,
       title: "Imported issue",
       body: "Issue body with <b>text</b> kept as text.",
+      url: "https://github.com/acme/app/issues/7",
     }),
   );
 

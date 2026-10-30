@@ -22,7 +22,12 @@ const appWithProject = () => openProject(newClient());
 const GITHUB_URL = "https://github.com/acme/app/issues/7";
 
 function issue(body: string, title = "Issue title") {
-  return JSON.stringify({ number: 7, title, body });
+  return JSON.stringify({
+    number: 7,
+    title,
+    body,
+    url: "https://github.com/acme/app/issues/7",
+  });
 }
 
 function taskNamed(client: CorralClient, title: string): Task {
@@ -37,6 +42,8 @@ afterEach(async () => {
   await setServerEnv("FAKE_ISSUE_RESPONSE", "");
   await setServerEnv("FAKE_ISSUE_STDERR", "");
   await setServerEnv("FAKE_ISSUE_EXIT", "1");
+  await setServerEnv("GH_ENTERPRISE_TOKEN", null);
+  await setServerEnv("GITLAB_HOST", null);
   await clearIssueCliCalls();
 });
 
@@ -75,7 +82,13 @@ test("an explicit GitHub import fills the title, keeps a local edit, and the sou
   expect(await issueCliCalls()).toEqual([
     {
       command: "gh",
-      argv: ["issue", "view", GITHUB_URL, "--repo=github.com/acme/app", "--json=number,title,body"],
+      argv: [
+        "issue",
+        "view",
+        GITHUB_URL,
+        "--repo=github.com/acme/app",
+        "--json=number,title,body,url",
+      ],
       cwd: repo,
     },
   ]);
@@ -96,9 +109,15 @@ test("an explicit GitHub import fills the title, keeps a local edit, and the sou
 test("a self-hosted host asks for GitHub or GitLab before the second explicit import", async () => {
   await clearIssueCliCalls();
   const { client, repo } = await appWithProject();
+  await setServerEnv("GITLAB_HOST", "gitlab.example.com");
   await setServerEnv(
     "FAKE_ISSUE_RESPONSE",
-    JSON.stringify({ iid: 3, title: "Self hosted title", description: "Self hosted body" }),
+    JSON.stringify({
+      iid: 3,
+      title: "Self hosted title",
+      description: "Self hosted body",
+      web_url: "https://gitlab.example.com/group/project/-/issues/3",
+    }),
   );
 
   await prefixThen("t");
@@ -165,7 +184,7 @@ test("malformed, auth, network and missing-CLI failures leave manual creation wo
   await importIssueButton().click();
   await expect
     .element(newTaskDialog().getByRole("alert"))
-    .toMatchTextContent("dial tcp: lookup github.com: no such host");
+    .toMatchTextContent("Could not reach the issue host.");
 
   const previousPath = await setServerEnv("PATH", await issueCliPath("missing"));
   try {
@@ -186,4 +205,31 @@ test("malformed, auth, network and missing-CLI failures leave manual creation wo
   await expect.element(taskButton("Manual after failures")).toBeVisible();
   expect(taskNamed(client, "Manual after failures").source).toBeUndefined();
   await expect.element(taskSourceButton("Manual after failures")).not.toBeInTheDocument();
+});
+
+test("an arbitrary host chosen as GitHub is untrusted before the CLI runs", async () => {
+  await clearIssueCliCalls();
+  const { client } = await appWithProject();
+  await setServerEnv("GH_ENTERPRISE_TOKEN", "SENTINEL_ENTERPRISE_TOKEN");
+
+  await prefixThen("t");
+  await userEvent.fill(issueUrlField(), "https://attacker.example/acme/app/issues/1");
+  await importIssueButton().click();
+  await expect
+    .element(newTaskDialog().getByText("attacker.example could be GitHub or GitLab"))
+    .toBeVisible();
+  await newTaskDialog().getByRole("radio", { name: "GitHub" }).click();
+  await importIssueButton().click();
+  await expect
+    .element(newTaskDialog().getByRole("alert"))
+    .toMatchTextContent(/attacker\.example is not a configured GitHub host/);
+  expect(await issueCliCalls()).toEqual([]);
+
+  await userEvent.fill(
+    newTaskDialog().getByRole("textbox", { name: "Title" }),
+    "Manual after untrusted host",
+  );
+  await newTaskDialog().getByRole("button", { name: "Create task" }).click();
+  await expect.element(taskButton("Manual after untrusted host")).toBeVisible();
+  expect(taskNamed(client, "Manual after untrusted host").source).toBeUndefined();
 });

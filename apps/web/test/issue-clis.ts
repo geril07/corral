@@ -75,6 +75,10 @@ function writeFake(binDir: string, command: "gh" | "glab"): void {
 const fs = require("node:fs");
 const log = process.env.FAKE_ISSUE_LOG;
 if (log) fs.appendFileSync(log, JSON.stringify({ command: ${JSON.stringify(command)}, argv: process.argv.slice(2), cwd: process.cwd() }) + "\\n");
+if (process.env.GH_DEBUG || process.env.GLAB_DEBUG || process.env.GIT_TRACE || process.env.GIT_CURL_VERBOSE) {
+  process.stderr.write("native CLI debug environment leaked\\n");
+  process.exit(2);
+}
 const mode = process.env.FAKE_ISSUE_MODE || "ok";
 if (mode === "fail") {
   process.stderr.write(process.env.FAKE_ISSUE_STDERR || "the issue tool failed\\n");
