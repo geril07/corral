@@ -44,6 +44,11 @@ export class TerminalStream {
   readonly #connection: ReconnectingSocket;
   /** The open socket; input is accepted from here on, the server orders it after the snapshot. */
   #open: WebSocket | undefined;
+  /**
+   * Input typed before the first connection opens, e.g. right after creating a terminal. It is
+   * sent on open; if that first attempt fails it is dropped, as typing is never replayed later.
+   */
+  #earlyInput: Uint8Array<ArrayBuffer>[] | undefined = [];
   /** Set once the current socket has delivered its first snapshot. */
   #attached: WebSocket | undefined;
   #desiredSize: TerminalSize | undefined;
@@ -59,6 +64,8 @@ export class TerminalStream {
       onState: (state) => this.#state.set(state),
       onOpen: (socket) => {
         this.#open = socket;
+        for (const data of this.#earlyInput ?? []) socket.send(data);
+        this.#earlyInput = undefined;
         socket.addEventListener("message", (event) => this.#onMessage(socket, event));
       },
       onClose: (event) => this.#onClose(event),
@@ -69,11 +76,11 @@ export class TerminalStream {
     return this.#state;
   }
 
-  /** Keyboard input. Dropped while not connected: replaying typing after a reconnect would surprise. */
+  /** Keyboard input. Dropped while not connected (after the first attempt): replaying old typing would surprise. */
   input(data: string | Uint8Array<ArrayBuffer>): void {
-    const socket = this.#open;
-    if (!socket) return;
-    socket.send(typeof data === "string" ? new TextEncoder().encode(data) : data);
+    const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
+    if (this.#open) this.#open.send(bytes);
+    else this.#earlyInput?.push(bytes);
   }
 
   /** Asks for this size, now or as soon as the terminal is attached; the latest request wins. */
@@ -85,11 +92,13 @@ export class TerminalStream {
   close(): void {
     this.#connection.close();
     this.#open = undefined;
+    this.#earlyInput = undefined;
     this.#attached = undefined;
   }
 
   #onClose(event: CloseEvent): "retry" | "stop" {
     this.#open = undefined;
+    this.#earlyInput = undefined;
     this.#attached = undefined;
     this.#lastSentSize = undefined;
     if (event.code === TERMINAL_NOT_FOUND_CLOSE_CODE) {

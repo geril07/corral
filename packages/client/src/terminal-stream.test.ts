@@ -19,6 +19,19 @@ test("attaching shows what the terminal printed before, and typing round-trips",
   await eventually(() => expect(terminal.screen).toContain("got:héllo"));
 });
 
+test("input typed before the socket has opened is not lost", async () => {
+  const client = await server.connected();
+  const info = await server.createTerminal(
+    client,
+    sh(`while read line; do echo "got:$line"; done`),
+  );
+
+  const { terminal, stream } = server.attach(client, info.id);
+  stream.input("early\n");
+
+  await eventually(() => expect(terminal.screen).toContain("got:early"));
+});
+
 test("resize reaches the process and comes back as the terminal's size, without a loop", async () => {
   const client = await server.connected();
   const info = await server.createTerminal(client, sh(`read x; stty size; read y`));
