@@ -36,6 +36,10 @@ test("a task is as urgent as its most urgent session: blocked, error, working, d
   expect(taskStatus(sessions)?.sessionId).toBe("blocked");
 });
 
+test("the order of urgency is the one the design states", () => {
+  expect(STATES_BY_URGENCY).toEqual(["blocked", "error", "working", "done", "idle"]);
+});
+
 test("a task with no reporting session has no status", () => {
   expect(taskStatus([])).toBeUndefined();
   expect(taskStatus([session("shell", "running", null)])).toBeUndefined();
