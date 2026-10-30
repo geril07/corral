@@ -27,7 +27,7 @@ apps/
   web/        React client (runs in Electron and in a browser)
   desktop/    Electron shell: window, starts/finds the server, loads web
 packages/
-  protocol/   wire contracts: zod schemas, RPC router type, terminal frame format, protocol version
+  protocol/   wire contracts: zod schemas, oRPC contract, terminal stream messages, protocol version
   client/     framework-agnostic client runtime: RPC client, terminal stream client with acks,
               reconnect, stores; shared by web now and mobile later
 docs/

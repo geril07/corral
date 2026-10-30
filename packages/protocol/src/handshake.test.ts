@@ -1,19 +1,18 @@
 import { describe, expect, test } from "vite-plus/test";
-import { answerHello, PROTOCOL_VERSION } from "./handshake.ts";
+import { checkProtocolVersion, PROTOCOL_VERSION, protocolUrl } from "./handshake.ts";
 
-describe("answerHello", () => {
-  test("welcomes a client on the same protocol version", () => {
-    expect(answerHello({ type: "hello", protocolVersion: PROTOCOL_VERSION })).toEqual({
-      type: "welcome",
-      protocolVersion: PROTOCOL_VERSION,
-    });
+describe("protocol version in the URL", () => {
+  test("a URL built by protocolUrl passes the server check", () => {
+    const url = new URL(protocolUrl("ws://127.0.0.1:4000", "/terminals/a%2Fb"));
+    expect(url.pathname).toBe("/terminals/a%2Fb");
+    expect(checkProtocolVersion(url)).toBeNull();
   });
 
-  test("rejects a client on another version and names the server's version", () => {
-    expect(answerHello({ type: "hello", protocolVersion: PROTOCOL_VERSION + 1 })).toEqual({
-      type: "rejected",
-      reason: "protocol-mismatch",
-      serverProtocolVersion: PROTOCOL_VERSION,
-    });
+  test("another or missing version is rejected with the server's version", () => {
+    for (const query of [`?protocol=${PROTOCOL_VERSION + 1}`, ""]) {
+      expect(checkProtocolVersion(new URL(`ws://h/rpc${query}`))).toEqual({
+        serverProtocolVersion: PROTOCOL_VERSION,
+      });
+    }
   });
 });

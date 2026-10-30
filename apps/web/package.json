@@ -10,6 +10,9 @@
   "dependencies": {
     "@corral/client": "workspace:*",
     "@corral/protocol": "workspace:*",
+    "@xterm/addon-fit": "catalog:",
+    "@xterm/addon-webgl": "catalog:",
+    "@xterm/xterm": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

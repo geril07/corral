@@ -9,6 +9,10 @@
   },
   "dependencies": {
     "@corral/protocol": "workspace:*",
+    "@orpc/server": "catalog:",
+    "@xterm/addon-serialize": "catalog:",
+    "@xterm/headless": "catalog:",
+    "node-pty": "catalog:",
     "ws": "catalog:",
     "zod": "catalog:"
   },

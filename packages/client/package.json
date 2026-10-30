@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@corral/protocol": "workspace:*"
+    "@corral/protocol": "workspace:*",
+    "@orpc/client": "catalog:",
+    "@orpc/contract": "catalog:"
   },
   "devDependencies": {
     "fast-check": "catalog:"

@@ -1,5 +1,8 @@
-import { connect } from "@corral/client/connection";
-import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
+import {
+  PROTOCOL_MISMATCH_CLOSE_CODE,
+  PROTOCOL_VERSION,
+  ProtocolMismatchReason,
+} from "@corral/protocol/handshake";
 import { afterEach, beforeEach, expect, test } from "vite-plus/test";
 import { startServer, type RunningServer } from "./server.ts";
 
@@ -9,29 +12,14 @@ beforeEach(async () => {
 });
 afterEach(() => server.close());
 
-test("a client on the same protocol version gets a usable connection", async () => {
-  const result = await connect(server.url);
-  expect(result.ok).toBe(true);
-  if (result.ok) result.socket.close();
-});
-
 test("a client on another protocol version is told the server's version and disconnected", async () => {
-  const socket = new WebSocket(server.url);
-  await new Promise((resolve) => socket.addEventListener("open", resolve, { once: true }));
-  const closed = new Promise<CloseEvent>((resolve) =>
+  const socket = new WebSocket(`${server.url}/rpc?protocol=${PROTOCOL_VERSION + 1}`);
+  const closed = await new Promise<CloseEvent>((resolve) =>
     socket.addEventListener("close", resolve, { once: true }),
   );
-  const reply = new Promise<unknown>((resolve) =>
-    socket.addEventListener("message", (event) => resolve(JSON.parse(String(event.data))), {
-      once: true,
-    }),
-  );
-  socket.send(JSON.stringify({ type: "hello", protocolVersion: PROTOCOL_VERSION + 1 }));
 
-  expect(await reply).toEqual({
-    type: "rejected",
-    reason: "protocol-mismatch",
+  expect(closed.code).toBe(PROTOCOL_MISMATCH_CLOSE_CODE);
+  expect(ProtocolMismatchReason.parse(JSON.parse(closed.reason))).toEqual({
     serverProtocolVersion: PROTOCOL_VERSION,
   });
-  expect((await closed).code).toBe(1008);
 });
