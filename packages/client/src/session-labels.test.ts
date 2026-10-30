@@ -34,3 +34,31 @@ test("copies of one kind after the first are numbered, other kinds are not", () 
     ]),
   );
 });
+
+test("a name the user gave a session stands in for its natural label", () => {
+  expect(sessionLabels([{ ...shell("1"), label: "build" }, claude("2"), shell("3")])).toEqual(
+    new Map([
+      ["1", "build"],
+      ["2", "claude"],
+      ["3", "shell 2"],
+    ]),
+  );
+});
+
+test("a name given to the first copy does not renumber the others, and taking it away brings the number back", () => {
+  const sessions = [shell("1"), shell("2")];
+  const named = [{ ...sessions[0]!, label: "build" }, sessions[1]!];
+  expect(sessionLabels(named).get("2")).toBe("shell 2");
+  expect(sessionLabels([{ ...sessions[0]!, label: null }, sessions[1]!])).toEqual(
+    new Map([
+      ["1", "shell"],
+      ["2", "shell 2"],
+    ]),
+  );
+  expect(sessionLabels([{ ...sessions[0]!, label: "   " }, sessions[1]!])).toEqual(
+    new Map([
+      ["1", "shell"],
+      ["2", "shell 2"],
+    ]),
+  );
+});
