@@ -34,6 +34,7 @@ export type DialogState =
   | { kind: "remove-task"; task: Task }
   | { kind: "pick-agent"; taskId: string }
   | { kind: "remove-session"; session: Session }
+  | { kind: "find-task" }
   | { kind: "command-palette" }
   | { kind: "config-problems" };
 
@@ -80,6 +81,17 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
   };
   const showTask = (task: Task | undefined) =>
     choose({ projectId: task?.projectId, taskId: task?.id, entryId: undefined });
+
+  const openTask = (task: Task) => {
+    setFailure(undefined);
+    showTask(task);
+  };
+
+  /** The same reactivation lifecycle as unsettling in the sidebar; sessions then resume. */
+  const continueTask = async (task: Task) => {
+    await api.tasks.setState({ id: task.id, state: "active" });
+    showTask(task);
+  };
 
   const attempt = async (work: () => Promise<void>) => {
     setFailure(undefined);
@@ -309,6 +321,12 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
         if (currentTask) void toggleSettle(currentTask);
       },
     },
+    "find-task": {
+      label: "Find task",
+      group: "Tasks",
+      enabled: true,
+      run: () => setDialog({ kind: "find-task" }),
+    },
     "next-task": {
       label: "Next task",
       group: "Tasks",
@@ -363,6 +381,8 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
     config,
     prefix,
     connection,
+    projects,
+    tasks,
     tree,
     selection,
     loaded,
@@ -377,6 +397,8 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
     rememberFitSize,
     choose,
     showTask,
+    openTask,
+    continueTask,
     createTerminal,
     openAgentPicker,
     pickAgent,

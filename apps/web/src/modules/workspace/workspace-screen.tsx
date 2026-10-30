@@ -13,6 +13,7 @@ import {
   formatBinding,
 } from "../keymap/index.ts";
 import { Sidebar } from "./sidebar.tsx";
+import { FindTaskDialog } from "./find-task-dialog.tsx";
 import { useWorkspace } from "./use-workspace.ts";
 import type { WorkspaceSearch } from "./workspace-search.ts";
 
@@ -34,6 +35,8 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
     config,
     prefix,
     connection,
+    projects,
+    tasks,
     tree,
     selection,
     loaded,
@@ -46,6 +49,8 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
     rememberFitSize,
     choose,
     showTask,
+    openTask,
+    continueTask,
     createTerminal,
     openAgentPicker,
     pickAgent,
@@ -92,6 +97,7 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
           onNewTask={openNewTask}
           onNewTerminal={() => void createTerminal(selection.taskId)}
           onNewAgent={openAgentPicker}
+          onFindTask={() => setDialog({ kind: "find-task" })}
         />
         <footer className="border-t border-border px-2.5 py-2 text-text-muted">
           <ConnectionNotice state={connection} />
@@ -172,6 +178,15 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
         <RemoveTaskDialog
           task={dialog.task}
           onRemove={(force) => removeTask(dialog.task, force)}
+          onClose={() => setDialog(undefined)}
+        />
+      )}
+      {dialog?.kind === "find-task" && (
+        <FindTaskDialog
+          projects={projects}
+          tasks={tasks}
+          onOpen={openTask}
+          onContinue={continueTask}
           onClose={() => setDialog(undefined)}
         />
       )}

@@ -45,6 +45,7 @@ interface SidebarProps {
   onNewTask: () => void;
   onNewTerminal: () => void;
   onNewAgent: () => void;
+  onFindTask: () => void;
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -287,6 +288,9 @@ export function Sidebar(props: SidebarProps) {
           disabled={selection.taskId === null}
         >
           New agent
+        </Button>
+        <Button variant="ghost" size="sm" onClick={props.onFindTask}>
+          Find task
         </Button>
       </div>
     </nav>

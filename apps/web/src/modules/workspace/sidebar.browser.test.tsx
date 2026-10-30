@@ -81,6 +81,7 @@ function renderSidebar(chosen: Chosen = {}, sessions: Session[] = defaultSession
     onNewTask: vi.fn<() => void>(),
     onNewTerminal: vi.fn<() => void>(),
     onNewAgent: vi.fn<() => void>(),
+    onFindTask: vi.fn<() => void>(),
   };
   const rendered = render(
     <Sidebar tree={tree} selection={resolveSelection(tree, chosen)} {...handlers} />,
@@ -204,10 +205,12 @@ test("clicking reports what was picked", async () => {
   await nav().getByRole("button", { name: "New task" }).click();
   await nav().getByRole("button", { name: "New terminal" }).click();
   await nav().getByRole("button", { name: "New agent" }).click();
+  await nav().getByRole("button", { name: "Find task" }).click();
   expect(handlers.onAddProject).toHaveBeenCalledOnce();
   expect(handlers.onNewTask).toHaveBeenCalledOnce();
   expect(handlers.onNewTerminal).toHaveBeenCalledOnce();
   expect(handlers.onNewAgent).toHaveBeenCalledOnce();
+  expect(handlers.onFindTask).toHaveBeenCalledOnce();
 });
 
 test("Enter on the selected session that is not running starts it again; on a running one it does not", async () => {
