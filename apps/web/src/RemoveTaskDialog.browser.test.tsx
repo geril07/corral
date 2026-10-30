@@ -36,6 +36,7 @@ test("it says what removing does and starts on Cancel, so a stray Enter removes 
 
   await expect.element(dialog()).toMatchTextContent("/data/worktrees/repo/fix-login");
   await expect.element(dialog()).toMatchTextContent("fix-login stays");
+  await expect.element(dialog()).toMatchTextContent("Stops its sessions");
   await expect.element(button("Cancel")).toHaveFocus();
 
   await userEvent.keyboard("{Enter}");

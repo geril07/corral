@@ -1,5 +1,13 @@
-import type { Selection, TaskNode, WorkspaceTree } from "@corral/client/workspace-tree";
-import type { Project, Task, TerminalInfo } from "@corral/protocol/rpc";
+import { describeSessionState } from "@corral/client/session-state";
+import type {
+  Entry,
+  SessionEntry,
+  Selection,
+  TaskNode,
+  TerminalEntry,
+  WorkspaceTree,
+} from "@corral/client/workspace-tree";
+import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
 import { useState } from "react";
 
 export function terminalLabel(terminal: TerminalInfo): string {
@@ -14,13 +22,17 @@ interface SidebarProps {
   onSelectProject: (project: Project) => void;
   onSelectTask: (task: Task) => void;
   onSelectLoose: () => void;
-  onSelectTerminal: (terminal: TerminalInfo) => void;
+  onSelectEntry: (entry: Entry) => void;
   onCloseTerminal: (id: string) => void;
+  onStopSession: (session: Session) => void;
+  onRestartSession: (session: Session) => void;
+  onRemoveSession: (session: Session) => void;
   onToggleArchive: (task: Task) => void;
   onRemoveTask: (task: Task) => void;
   onAddProject: () => void;
   onNewTask: () => void;
   onNewTerminal: () => void;
+  onNewAgent: () => void;
 }
 
 export function Sidebar(props: SidebarProps) {
@@ -34,14 +46,14 @@ export function Sidebar(props: SidebarProps) {
       return next;
     });
 
-  const terminalItem = (terminal: TerminalInfo) => (
+  const terminalItem = ({ terminal }: TerminalEntry) => (
     <li key={terminal.id} className={terminal.exit ? "exited" : undefined}>
       <div className="row">
         <button
           type="button"
           className="select"
-          aria-current={terminal.id === selection.terminalId ? "true" : undefined}
-          onClick={() => props.onSelectTerminal(terminal)}
+          aria-current={terminal.id === selection.entryId ? "true" : undefined}
+          onClick={() => props.onSelectEntry({ type: "terminal", id: terminal.id, terminal })}
         >
           {terminalLabel(terminal)}
           {terminal.exit && <span className="badge"> exited ({terminal.exit.exitCode})</span>}
@@ -58,7 +70,63 @@ export function Sidebar(props: SidebarProps) {
     </li>
   );
 
-  const taskItem = ({ task, terminals }: TaskNode) => (
+  const sessionItem = (entry: SessionEntry) => {
+    const { session } = entry;
+    const current = session.id === selection.entryId;
+    const running = session.state === "running";
+    const { badge, note } = describeSessionState(session);
+    return (
+      <li key={session.id} className={running ? undefined : "stopped"}>
+        <div className="row">
+          <button
+            type="button"
+            className="select"
+            aria-current={current ? "true" : undefined}
+            title={note}
+            onClick={() => props.onSelectEntry(entry)}
+            onKeyDown={(event) => {
+              // Enter on the selected session that is not running starts it again.
+              if (event.key !== "Enter" || !current || running) return;
+              event.preventDefault();
+              props.onRestartSession(session);
+            }}
+          >
+            {session.kind}
+            {badge && <span className="badge"> {badge}</span>}
+          </button>
+          {running ? (
+            <button
+              type="button"
+              className="icon"
+              aria-label={`stop ${session.kind}`}
+              onClick={() => props.onStopSession(session)}
+            >
+              ■
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="icon"
+              aria-label={`restart ${session.kind}`}
+              onClick={() => props.onRestartSession(session)}
+            >
+              ▶
+            </button>
+          )}
+          <button
+            type="button"
+            className="icon danger"
+            aria-label={`remove ${session.kind}`}
+            onClick={() => props.onRemoveSession(session)}
+          >
+            ×
+          </button>
+        </div>
+      </li>
+    );
+  };
+
+  const taskItem = ({ task, sessions }: TaskNode) => (
     <li key={task.id} className={task.state === "archived" ? "archived" : undefined}>
       <div className="row">
         <button
@@ -87,7 +155,7 @@ export function Sidebar(props: SidebarProps) {
           ×
         </button>
       </div>
-      {terminals.length > 0 && <ul>{terminals.map(terminalItem)}</ul>}
+      {sessions.length > 0 && <ul>{sessions.map(sessionItem)}</ul>}
     </li>
   );
 
@@ -158,6 +226,9 @@ export function Sidebar(props: SidebarProps) {
         </button>
         <button type="button" onClick={props.onNewTerminal}>
           New terminal
+        </button>
+        <button type="button" onClick={props.onNewAgent} disabled={selection.taskId === null}>
+          New agent
         </button>
       </div>
     </nav>

@@ -12,7 +12,8 @@ const { newClient } = realServerClients();
 const workspace = () => page.getByRole("navigation", { name: "workspace" });
 const taskButton = (title: string) =>
   workspace().getByRole("button", { name: new RegExp(`^${title}`) });
-const terminalButtons = () => workspace().getByRole("button", { name: /^sh · / });
+const shellButtons = () => workspace().getByRole("button", { name: /^shell/ });
+const looseButtons = () => workspace().getByRole("button", { name: /^sh · / });
 const focusedIsTerminal = () => document.activeElement?.classList.contains("xterm-helper-textarea");
 
 const addProjectDialog = () => page.getByRole("dialog", { name: "Add project" });
@@ -32,15 +33,15 @@ async function appWithProject(branches: string[] = []) {
   return { client, repo };
 }
 
-/** Creates a task from the keyboard with a new branch and waits for its terminal. */
-/** `terminalCount` is how many terminals the sidebar lists afterwards, all tasks together. */
-async function createTask(title: string, terminalCount = 1) {
+/** Creates a task from the keyboard with a new branch and waits for its shell. */
+/** `shellCount` is how many shell sessions the sidebar lists afterwards, all tasks together. */
+async function createTask(title: string, shellCount = 1) {
   await prefixThen("t");
   await expect.element(newTaskDialog().getByRole("textbox", { name: "Title" })).toHaveFocus();
   await userEvent.keyboard(`${title}{Enter}`);
   await expect.element(newTaskDialog()).not.toBeInTheDocument();
   await expect.element(taskButton(title)).toHaveAttribute("aria-current", "true");
-  await expect.element(terminalButtons()).toHaveLength(terminalCount);
+  await expect.element(shellButtons()).toHaveLength(shellCount);
 }
 
 /** The screen with wrapped lines joined, so a long path is found whatever the width. */
@@ -89,7 +90,7 @@ test("a new task gets its own worktree and a terminal opens in it", async () => 
   await expect.poll(wrappedScreen).toContain(task.workspacePath);
 });
 
-test("prefix c adds a terminal to the current task, j and k move between tasks, n and p between its terminals", async () => {
+test("prefix c adds a shell session to the current task, j and k move between tasks, n and p between its sessions", async () => {
   const { client } = await appWithProject();
   await createTask("First");
   await createTask("Second", 2);
@@ -97,7 +98,7 @@ test("prefix c adds a terminal to the current task, j and k move between tasks, 
   const second = taskNamed(client, "Second");
 
   await prefixThen("c");
-  await expect.element(terminalButtons()).toHaveLength(3);
+  await expect.element(shellButtons()).toHaveLength(3);
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
   await userEvent.keyboard("pwd{Enter}");
   await expect.poll(wrappedScreen).toContain(second.workspacePath);
@@ -187,7 +188,7 @@ test("shift+t removes a clean task after a confirmation, and Escape keeps it", a
 
   await expect.element(removeTaskDialog()).not.toBeInTheDocument();
   await expect.element(taskButton("Short lived")).not.toBeInTheDocument();
-  await expect.element(terminalButtons()).toHaveLength(0);
+  await expect.element(shellButtons()).toHaveLength(0);
   expect(client.tasks.getSnapshot().tasks).toHaveLength(0);
 });
 
@@ -222,7 +223,8 @@ test("terminals outside any task are listed under No task, apart from the tasks"
   await expect.element(workspace().getByRole("button", { name: "No task" })).toBeVisible();
 
   await prefixThen("c");
-  await expect.element(terminalButtons()).toHaveLength(3);
+  await expect.element(looseButtons()).toHaveLength(2);
+  await expect.element(shellButtons()).toHaveLength(1);
   await prefixThen("k");
   await expect.element(taskButton("Work")).toHaveAttribute("aria-current", "true");
 });

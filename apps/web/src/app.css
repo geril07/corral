@@ -95,6 +95,7 @@ body {
 .workspace .branch,
 .workspace .archive-toggle,
 .workspace .exited .select,
+.workspace .stopped .select,
 .workspace .archived .select {
   color: var(--dim);
 }
@@ -343,4 +344,80 @@ main {
 .mismatch h1 {
   font-size: 18px;
   color: var(--danger);
+}
+
+.stopped-session {
+  max-width: 480px;
+  padding: 24px 16px;
+}
+
+.stopped-session h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.stopped-session p {
+  margin: 0 0 12px;
+}
+
+.stopped-session .hint {
+  color: var(--dim);
+}
+
+.stopped-session button {
+  padding: 6px 12px;
+  color: #fff;
+  background: #1f6feb;
+  border: 1px solid #1f6feb;
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.stopped-session button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.modal .agents {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+
+.modal .agent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.modal .agent:has([data-checked]) {
+  background: #1f2937;
+  box-shadow: inset 2px 0 var(--accent);
+}
+
+.modal .agent-radio {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--dim);
+  border-radius: 50%;
+}
+
+.modal .agent-radio[data-checked] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.modal .agent-radio:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.modal .agent kbd {
+  color: var(--dim);
+  font-family: ui-monospace, Menlo, Consolas, monospace;
 }

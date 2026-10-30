@@ -1,7 +1,12 @@
-import { buildWorkspaceTree, resolveSelection, type Chosen } from "@corral/client/workspace-tree";
-import type { Project, Task, TerminalInfo } from "@corral/protocol/rpc";
+import {
+  buildWorkspaceTree,
+  resolveSelection,
+  type Chosen,
+  type Entry,
+} from "@corral/client/workspace-tree";
+import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
-import { page } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 // oxlint-disable-next-line import/no-unassigned-import -- stylesheet: a dialog is only reachable once it is positioned
 import "./app.css";
@@ -23,38 +28,59 @@ const task = (id: string, state: Task["state"] = "active"): Task => ({
   state,
   createdAt: 0,
 });
-const terminal = (id: string, taskId: string | null, command = "/bin/sh"): TerminalInfo => ({
+const session = (
+  id: string,
+  taskId: string,
+  kind: Session["kind"],
+  state: Session["state"] = "running",
+): Session => ({
   id,
   taskId,
-  command,
+  kind,
+  agentSessionId: null,
+  terminalId: state === "running" ? `term-${id}` : null,
+  state,
+  createdAt: Number(id.replace(/\D/g, "")),
+});
+const terminal = (id: string, taskId: string | null, sessionId: string | null): TerminalInfo => ({
+  id,
+  taskId,
+  sessionId,
+  command: "/bin/sh",
   args: [],
   cwd: `/work/${taskId ?? "home"}`,
   size: { cols: 80, rows: 24 },
   exit: null,
 });
 
-function renderSidebar(chosen: Chosen = {}, terminals: TerminalInfo[] = []) {
+function renderSidebar(chosen: Chosen = {}) {
+  const sessions = [
+    session("s1", "a", "shell"),
+    session("s2", "a", "claude"),
+    session("s3", "a", "codex", "stopped"),
+    session("s4", "b", "pi", "unresumable"),
+  ];
   const tree = buildWorkspaceTree(
     [project("p1"), project("p2")],
     [task("a"), task("b"), task("old", "archived")],
-    [
-      terminal("t1", "a"),
-      terminal("t2", "a", "/usr/bin/claude"),
-      terminal("t3", null),
-      ...terminals,
-    ],
+    sessions,
+    [terminal("term-s1", "a", "s1"), terminal("term-s2", "a", "s2"), terminal("loose", null, null)],
   );
   const handlers = {
     onSelectProject: vi.fn<(project: Project) => void>(),
     onSelectTask: vi.fn<(task: Task) => void>(),
     onSelectLoose: vi.fn<() => void>(),
-    onSelectTerminal: vi.fn<(terminal: TerminalInfo) => void>(),
+    onSelectEntry: vi.fn<(entry: Entry) => void>(),
     onCloseTerminal: vi.fn<(id: string) => void>(),
+    onStopSession: vi.fn<(session: Session) => void>(),
+    onRestartSession: vi.fn<(session: Session) => void>(),
+    onRemoveSession: vi.fn<(session: Session) => void>(),
     onToggleArchive: vi.fn<(task: Task) => void>(),
     onRemoveTask: vi.fn<(task: Task) => void>(),
     onAddProject: vi.fn<() => void>(),
     onNewTask: vi.fn<() => void>(),
     onNewTerminal: vi.fn<() => void>(),
+    onNewAgent: vi.fn<() => void>(),
   };
   const rendered = render(
     <Sidebar tree={tree} selection={resolveSelection(tree, chosen)} {...handlers} />,
@@ -64,17 +90,30 @@ function renderSidebar(chosen: Chosen = {}, terminals: TerminalInfo[] = []) {
 
 const nav = () => page.getByRole("navigation", { name: "workspace" });
 
-test("projects list their active tasks, each with its terminals; loose terminals sit under No task", async () => {
+const sessionButton = (kind: string, state?: string) =>
+  nav().getByRole("button", { name: state ? `${kind} ${state}` : new RegExp(`^${kind}$`) });
+
+test("projects list their active tasks, each with its sessions; loose terminals sit under No task", async () => {
   await renderSidebar().rendered;
 
   await expect.element(nav().getByRole("button", { name: "repo-p1" })).toBeVisible();
   await expect.element(nav().getByRole("button", { name: "repo-p2" })).toBeVisible();
   await expect.element(nav().getByRole("button", { name: /^task a/ })).toBeVisible();
   await expect.element(nav().getByRole("button", { name: /^task b/ })).toBeVisible();
-  await expect.element(nav().getByRole("button", { name: "sh · a" })).toBeVisible();
-  await expect.element(nav().getByRole("button", { name: "claude · a" })).toBeVisible();
+  await expect.element(sessionButton("shell")).toBeVisible();
+  await expect.element(sessionButton("claude")).toBeVisible();
   await expect.element(nav().getByRole("button", { name: "No task" })).toBeVisible();
-  await expect.element(nav().getByRole("button", { name: "sh · home" })).toBeVisible();
+  await expect.element(nav().getByRole("button", { name: /^sh · / })).toBeVisible();
+});
+
+test("a session that is not running says so, and an unresumable one says why on hover", async () => {
+  await renderSidebar().rendered;
+
+  await expect.element(sessionButton("codex", "stopped")).toBeVisible();
+  await expect
+    .element(sessionButton("pi", "unresumable"))
+    .toHaveAttribute("title", expect.stringContaining("new conversation"));
+  await expect.element(sessionButton("claude")).not.toHaveAttribute("title");
 });
 
 test("archived tasks stay collapsed until the group is opened", async () => {
@@ -100,25 +139,31 @@ test("the group opens by itself while it holds the current task", async () => {
     .toHaveAttribute("aria-current", "true");
 });
 
-test("the current task and terminal are marked", async () => {
-  await renderSidebar({ taskId: "a", terminalId: "t2" }).rendered;
+test("the current task and session are marked", async () => {
+  await renderSidebar({ taskId: "a", entryId: "s2" }).rendered;
 
   await expect
     .element(nav().getByRole("button", { name: /^task a/ }))
     .toHaveAttribute("aria-current", "true");
-  await expect
-    .element(nav().getByRole("button", { name: "claude · a" }))
-    .toHaveAttribute("aria-current", "true");
-  await expect
-    .element(nav().getByRole("button", { name: "sh · a" }))
-    .not.toHaveAttribute("aria-current");
+  await expect.element(sessionButton("claude")).toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton("shell")).not.toHaveAttribute("aria-current");
 });
 
 test("clicking reports what was picked", async () => {
-  const { handlers } = renderSidebar();
+  const { rendered, handlers } = renderSidebar();
+  await rendered;
 
-  await nav().getByRole("button", { name: "claude · a" }).click();
-  expect(handlers.onSelectTerminal).toHaveBeenCalledWith(expect.objectContaining({ id: "t2" }));
+  await sessionButton("claude").click();
+  expect(handlers.onSelectEntry).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "session", id: "s2" }),
+  );
+
+  await nav()
+    .getByRole("button", { name: /^sh · / })
+    .click();
+  expect(handlers.onSelectEntry).toHaveBeenLastCalledWith(
+    expect.objectContaining({ type: "terminal", id: "loose" }),
+  );
 
   await nav()
     .getByRole("button", { name: /^task b/ })
@@ -134,13 +179,60 @@ test("clicking reports what was picked", async () => {
   await nav().getByRole("button", { name: "remove task task b" }).click();
   expect(handlers.onRemoveTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
 
-  await nav().getByRole("button", { name: "close sh · a" }).click();
-  expect(handlers.onCloseTerminal).toHaveBeenCalledWith("t1");
+  await nav().getByRole("button", { name: "stop claude" }).click();
+  expect(handlers.onStopSession).toHaveBeenCalledWith(expect.objectContaining({ id: "s2" }));
+
+  await nav().getByRole("button", { name: "restart codex" }).click();
+  expect(handlers.onRestartSession).toHaveBeenCalledWith(expect.objectContaining({ id: "s3" }));
+
+  await nav().getByRole("button", { name: "remove shell" }).click();
+  expect(handlers.onRemoveSession).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
+
+  await nav()
+    .getByRole("button", { name: /^close sh · / })
+    .click();
+  expect(handlers.onCloseTerminal).toHaveBeenCalledWith("loose");
 
   await nav().getByRole("button", { name: "Add project" }).click();
   await nav().getByRole("button", { name: "New task" }).click();
   await nav().getByRole("button", { name: "New terminal" }).click();
+  await nav().getByRole("button", { name: "New agent" }).click();
   expect(handlers.onAddProject).toHaveBeenCalledOnce();
   expect(handlers.onNewTask).toHaveBeenCalledOnce();
   expect(handlers.onNewTerminal).toHaveBeenCalledOnce();
+  expect(handlers.onNewAgent).toHaveBeenCalledOnce();
+});
+
+test("Enter on the selected session that is not running starts it again; on a running one it does not", async () => {
+  const { rendered, handlers } = renderSidebar({ taskId: "a", entryId: "s3" });
+  await rendered;
+
+  const stopped = sessionButton("codex", "stopped");
+  await expect.element(stopped).toHaveAttribute("aria-current", "true");
+  stopped.element().focus();
+  await userEvent.keyboard("{Enter}");
+  expect(handlers.onRestartSession).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ id: "s3" }),
+  );
+
+  const running = sessionButton("claude");
+  running.element().focus();
+  await userEvent.keyboard("{Enter}");
+  expect(handlers.onRestartSession).toHaveBeenCalledOnce();
+  expect(handlers.onSelectEntry).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "session", id: "s2" }),
+  );
+});
+
+test("Enter on a stopped session that is not the selected one only selects it", async () => {
+  const { rendered, handlers } = renderSidebar({ taskId: "a", entryId: "s1" });
+  await rendered;
+
+  sessionButton("codex", "stopped").element().focus();
+  await userEvent.keyboard("{Enter}");
+
+  expect(handlers.onRestartSession).not.toHaveBeenCalled();
+  expect(handlers.onSelectEntry).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "session", id: "s3" }),
+  );
 });

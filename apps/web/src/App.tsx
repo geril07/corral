@@ -4,28 +4,44 @@ import { describeError } from "@corral/client/rpc-errors";
 import { activeAfterClose, stepActive } from "@corral/client/terminal-selection";
 import {
   buildWorkspaceTree,
+  currentEntry,
+  entriesOf,
   resolveSelection,
   tasksInOrder,
-  terminalsOf,
   type Chosen,
+  type Entry,
 } from "@corral/client/workspace-tree";
-import type { CreateTaskInput, Project, Task, TerminalSize } from "@corral/protocol/rpc";
+import type {
+  AgentKind,
+  CreateTaskInput,
+  Project,
+  Session,
+  SessionKind,
+  Task,
+  TerminalSize,
+} from "@corral/protocol/rpc";
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
 // oxlint-disable-next-line import/no-unassigned-import -- stylesheet
 import "./app.css";
 import { AddProjectDialog } from "./AddProjectDialog.tsx";
+import { AgentPicker } from "./AgentPicker.tsx";
 import { ConnectionNotice } from "./ConnectionNotice.tsx";
 import { NewTaskDialog } from "./NewTaskDialog.tsx";
 import { usePrefixMode } from "./prefix-mode.ts";
+import { RemoveSessionDialog } from "./RemoveSessionDialog.tsx";
 import { RemoveTaskDialog } from "./RemoveTaskDialog.tsx";
 import { Sidebar } from "./Sidebar.tsx";
+import { StoppedSession } from "./StoppedSession.tsx";
 import { TerminalView } from "./TerminalView.tsx";
 
 type Action =
   | "new-terminal"
-  | "close-terminal"
-  | "next-terminal"
-  | "previous-terminal"
+  | "new-agent"
+  | "stop-session"
+  | "restart-session"
+  | "remove-session"
+  | "next-session"
+  | "previous-session"
   | "new-task"
   | "remove-task"
   | "archive-task"
@@ -36,9 +52,12 @@ type Action =
 // Hardcoded until the config file (MVP step 5).
 const BINDINGS: Readonly<Record<string, Action>> = {
   c: "new-terminal",
-  x: "close-terminal",
-  n: "next-terminal",
-  p: "previous-terminal",
+  s: "new-agent",
+  x: "stop-session",
+  r: "restart-session",
+  "shift+x": "remove-session",
+  n: "next-session",
+  p: "previous-session",
   t: "new-task",
   "shift+t": "remove-task",
   a: "archive-task",
@@ -52,7 +71,9 @@ const DEFAULT_SIZE: TerminalSize = { cols: 80, rows: 24 };
 type DialogState =
   | { kind: "add-project" }
   | { kind: "new-task"; project: Project; branches: Promise<string[]> }
-  | { kind: "remove-task"; task: Task };
+  | { kind: "remove-task"; task: Task }
+  | { kind: "pick-agent"; taskId: string }
+  | { kind: "remove-session"; session: Session };
 
 export function App({ client, prefix }: { client: CorralClient; prefix: string }) {
   const { api } = client.connection;
@@ -62,6 +83,7 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
   );
   const { projects } = useSyncExternalStore(client.projects.subscribe, client.projects.getSnapshot);
   const { tasks } = useSyncExternalStore(client.tasks.subscribe, client.tasks.getSnapshot);
+  const { sessions } = useSyncExternalStore(client.sessions.subscribe, client.sessions.getSnapshot);
   const { loaded, terminals } = useSyncExternalStore(
     client.terminals.subscribe,
     client.terminals.getSnapshot,
@@ -71,17 +93,18 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
   const [failure, setFailure] = useState<string>();
   const fitSize = useRef(DEFAULT_SIZE);
 
-  const tree = buildWorkspaceTree(projects, tasks, terminals);
+  const tree = buildWorkspaceTree(projects, tasks, sessions, terminals);
   const selection = resolveSelection(tree, chosen);
   const taskOrder = tasksInOrder(tree);
-  const taskTerminals = terminalsOf(tree, selection.taskId);
-  const active = taskTerminals.find((terminal) => terminal.id === selection.terminalId);
+  const entryIds = entriesOf(tree, selection.taskId).map((entry) => entry.id);
+  const current = currentEntry(tree, selection);
+  const currentSession = current?.type === "session" ? current.session : undefined;
   const currentTask = taskOrder.find((task) => task.id === selection.taskId);
   const currentProject = projects.find((project) => project.id === selection.projectId);
 
   const choose = (next: Chosen) => setChosen((previous) => ({ ...previous, ...next }));
   const showTask = (task: Task | undefined) =>
-    choose({ projectId: task?.projectId, taskId: task?.id, terminalId: undefined });
+    choose({ projectId: task?.projectId, taskId: task?.id, entryId: undefined });
 
   const attempt = async (work: () => Promise<void>) => {
     setFailure(undefined);
@@ -92,37 +115,71 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
     }
   };
 
-  const createTerminal = (taskId: string | null) =>
+  const startSession = (taskId: string, kind: SessionKind) =>
     attempt(async () => {
-      const created = await api.terminals.create({
-        size: fitSize.current,
-        ...(taskId !== null && { taskId }),
-      });
-      choose({ taskId, terminalId: created.id });
+      const started = await api.sessions.start({ taskId, kind, size: fitSize.current });
+      choose({ taskId, entryId: started.id });
     });
+
+  /** A shell session in the task; outside any task, a loose terminal. */
+  const createTerminal = (taskId: string | null) =>
+    taskId === null
+      ? attempt(async () => {
+          const created = await api.terminals.create({ size: fitSize.current });
+          choose({ taskId, entryId: created.id });
+        })
+      : startSession(taskId, "shell");
+
+  const openAgentPicker = () => {
+    if (selection.taskId === null) {
+      setFailure("Select a task to start an agent in.");
+      return;
+    }
+    setFailure(undefined);
+    setDialog({ kind: "pick-agent", taskId: selection.taskId });
+  };
+
+  const pickAgent = (taskId: string, kind: AgentKind) => {
+    setDialog(undefined);
+    void startSession(taskId, kind);
+  };
 
   const closeTerminal = (id: string) =>
     attempt(async () => {
-      if (id === selection.terminalId) {
-        choose({
-          taskId: selection.taskId,
-          terminalId: activeAfterClose(
-            taskTerminals.map((terminal) => terminal.id),
-            id,
-          ),
-        });
+      if (id === selection.entryId) {
+        choose({ taskId: selection.taskId, entryId: activeAfterClose(entryIds, id) });
       }
       await api.terminals.close({ id });
     });
 
-  const stepTerminal = (step: 1 | -1) =>
+  const stopSession = (session: Session) =>
+    attempt(async () => {
+      await api.sessions.stop({ id: session.id });
+    });
+
+  const restartSession = (session: Session) =>
+    attempt(async () => {
+      await api.sessions.restart({ id: session.id, size: fitSize.current });
+      choose({ taskId: session.taskId, entryId: session.id });
+    });
+
+  const removeSession = async (session: Session) => {
+    const next = activeAfterClose(entryIds, session.id);
+    await api.sessions.remove({ id: session.id });
+    setDialog(undefined);
+    if (session.id === selection.entryId) choose({ taskId: session.taskId, entryId: next });
+  };
+
+  const selectEntry = (entry: Entry) =>
+    choose({
+      taskId: entry.type === "session" ? entry.session.taskId : null,
+      entryId: entry.id,
+    });
+
+  const stepEntry = (step: 1 | -1) =>
     choose({
       taskId: selection.taskId,
-      terminalId: stepActive(
-        taskTerminals.map((terminal) => terminal.id),
-        selection.terminalId,
-        step,
-      ),
+      entryId: stepActive(entryIds, selection.entryId, step),
     });
 
   const stepTask = (step: 1 | -1) => {
@@ -162,14 +219,14 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
   const addProject = async (path: string) => {
     const project = await api.projects.add({ path });
     setDialog(undefined);
-    choose({ projectId: project.id, taskId: undefined, terminalId: undefined });
+    choose({ projectId: project.id, taskId: undefined, entryId: undefined });
   };
 
   const createTask = async (input: CreateTaskInput) => {
     const task = await api.tasks.create(input);
     setDialog(undefined);
     showTask(task);
-    void createTerminal(task.id);
+    void startSession(task.id, "shell");
   };
 
   const removeTask = async (task: Task, force: boolean) => {
@@ -191,10 +248,17 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
     keymap,
     (action: Action) => {
       if (action === "new-terminal") void createTerminal(selection.taskId);
-      else if (action === "close-terminal" && selection.terminalId)
-        void closeTerminal(selection.terminalId);
-      else if (action === "next-terminal") stepTerminal(1);
-      else if (action === "previous-terminal") stepTerminal(-1);
+      else if (action === "new-agent") openAgentPicker();
+      else if (action === "stop-session") {
+        if (current?.type === "terminal") void closeTerminal(current.id);
+        else if (currentSession?.state === "running") void stopSession(currentSession);
+      } else if (action === "restart-session") {
+        if (currentSession && currentSession.state !== "running")
+          void restartSession(currentSession);
+      } else if (action === "remove-session") {
+        if (currentSession) setDialog({ kind: "remove-session", session: currentSession });
+      } else if (action === "next-session") stepEntry(1);
+      else if (action === "previous-session") stepEntry(-1);
       else if (action === "new-task") openNewTask();
       else if (action === "remove-task") openRemoveTask(currentTask);
       else if (action === "archive-task" && currentTask) void toggleArchive(currentTask);
@@ -220,19 +284,21 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
           tree={tree}
           selection={selection}
           onSelectProject={(project) =>
-            choose({ projectId: project.id, taskId: undefined, terminalId: undefined })
+            choose({ projectId: project.id, taskId: undefined, entryId: undefined })
           }
           onSelectTask={showTask}
-          onSelectLoose={() => choose({ taskId: null, terminalId: undefined })}
-          onSelectTerminal={(terminal) =>
-            choose({ taskId: terminal.taskId, terminalId: terminal.id })
-          }
+          onSelectLoose={() => choose({ taskId: null, entryId: undefined })}
+          onSelectEntry={selectEntry}
           onCloseTerminal={(id) => void closeTerminal(id)}
+          onStopSession={(session) => void stopSession(session)}
+          onRestartSession={(session) => void restartSession(session)}
+          onRemoveSession={(session) => setDialog({ kind: "remove-session", session })}
           onToggleArchive={(task) => void toggleArchive(task)}
           onRemoveTask={openRemoveTask}
           onAddProject={() => setDialog({ kind: "add-project" })}
           onNewTask={openNewTask}
           onNewTerminal={() => void createTerminal(selection.taskId)}
+          onNewAgent={openAgentPicker}
         />
         <footer>
           <ConnectionNotice state={connection} />
@@ -243,22 +309,37 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
           )}
           {armed ? (
             <output aria-label="prefix mode">
-              prefix: c new terminal · x close · n/p terminal · t new task · T remove task · a
-              archive · j/k task · P add project
+              prefix: c shell · s agent · x stop · r restart · X remove session · n/p session · t
+              new task · T remove task · a archive · j/k task · P add project
             </output>
           ) : (
-            <p className="hint">{prefix} then c x n p t T a j k P</p>
+            <p className="hint">{prefix} then c s x r X n p t T a j k P</p>
           )}
         </footer>
       </aside>
       <main>
-        {active ? (
-          <TerminalView key={active.id} client={client} terminal={active} onFit={rememberFitSize} />
+        {current?.terminal ? (
+          <TerminalView
+            key={current.terminal.id}
+            client={client}
+            terminal={current.terminal}
+            onFit={rememberFitSize}
+            exitHint={currentSession ? `Press ${prefix}, then r to start it again.` : undefined}
+          />
+        ) : currentSession && currentSession.state !== "running" ? (
+          <StoppedSession
+            key={currentSession.id}
+            session={currentSession}
+            prefix={prefix}
+            onRestart={() => void restartSession(currentSession)}
+          />
         ) : (
-          loaded && (
+          loaded &&
+          !currentSession && (
             <p className="empty">
-              {selection.taskId === null ? "No terminals." : "No terminals in this task."} Press{" "}
-              {prefix}, then c.
+              {selection.taskId === null
+                ? `No terminals. Press ${prefix}, then c.`
+                : `No sessions in this task. Press ${prefix}, then c for a shell or s for an agent.`}
             </p>
           )
         )}
@@ -271,6 +352,19 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
           project={dialog.project}
           branches={dialog.branches}
           onCreate={createTask}
+          onClose={() => setDialog(undefined)}
+        />
+      )}
+      {dialog?.kind === "pick-agent" && (
+        <AgentPicker
+          onPick={(kind) => pickAgent(dialog.taskId, kind)}
+          onClose={() => setDialog(undefined)}
+        />
+      )}
+      {dialog?.kind === "remove-session" && (
+        <RemoveSessionDialog
+          session={dialog.session}
+          onRemove={() => removeSession(dialog.session)}
           onClose={() => setDialog(undefined)}
         />
       )}

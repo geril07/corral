@@ -20,10 +20,12 @@ interface TerminalViewProps {
   client: CorralClient;
   terminal: TerminalInfo;
   onFit: (size: TerminalSize) => void;
+  /** Appended to the notice shown once the process has exited. */
+  exitHint?: string | undefined;
 }
 
 /** One xterm.js bound to one server terminal. Output goes stream to xterm, never through React. */
-export function TerminalView({ client, terminal, onFit }: TerminalViewProps) {
+export function TerminalView({ client, terminal, onFit, exitHint }: TerminalViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [streamState, setStreamState] = useState<TerminalStreamState>({ status: "connecting" });
   const terminalId = terminal.id;
@@ -81,7 +83,7 @@ export function TerminalView({ client, terminal, onFit }: TerminalViewProps) {
   return (
     <section className="terminal-view" aria-label="active terminal">
       <div className="terminal-host" ref={hostRef} />
-      <TerminalNotice terminal={terminal} streamState={streamState} />
+      <TerminalNotice terminal={terminal} streamState={streamState} exitHint={exitHint} />
     </section>
   );
 }
@@ -89,15 +91,18 @@ export function TerminalView({ client, terminal, onFit }: TerminalViewProps) {
 function TerminalNotice({
   terminal,
   streamState,
+  exitHint,
 }: {
   terminal: TerminalInfo;
   streamState: TerminalStreamState;
+  exitHint: string | undefined;
 }) {
   if (terminal.exit) {
     const { exitCode, signal } = terminal.exit;
     return (
       <p className="terminal-notice" role="status" aria-label="terminal exited">
         Process exited with {signal ? `signal ${signal}` : `code ${exitCode}`}.
+        {exitHint && ` ${exitHint}`}
       </p>
     );
   }
