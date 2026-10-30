@@ -113,14 +113,15 @@ function githubParts(parts: string[]): { repository: string; number: string } {
 
 function gitlabParts(parts: string[]): { repository: string; number: string } {
   const repository = parts.slice(0, -3);
+  const kind = parts.at(-2);
   if (
     parts.length < 5 ||
     parts.at(-3) !== "-" ||
-    parts.at(-2) !== "issues" ||
+    (kind !== "issues" && kind !== "work_items") ||
     repository.includes("-")
   )
     throw new InvalidIssueUrlError(
-      "GitLab issue URLs look like https://gitlab.com/GROUP/PROJECT/-/issues/NUMBER.",
+      "GitLab issue URLs look like https://gitlab.com/GROUP/PROJECT/-/issues/NUMBER or /-/work_items/NUMBER.",
     );
   return { repository: repository.join("/"), number: parts.at(-1)! };
 }

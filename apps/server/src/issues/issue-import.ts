@@ -16,6 +16,13 @@ export const DEFAULT_ISSUE_TIMEOUT_MS = 10_000;
 const MAX_ISSUE_TIMEOUT_MS = 60_000;
 const MIN_ISSUE_TIMEOUT_MS = 50;
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
+const GITHUB_TOKEN_ENV = [
+  "GH_TOKEN",
+  "GITHUB_TOKEN",
+  "GH_ENTERPRISE_TOKEN",
+  "GITHUB_ENTERPRISE_TOKEN",
+] as const;
+const GITLAB_TOKEN_ENV = ["GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN"] as const;
 const DEBUG_ENV = [
   "GH_DEBUG",
   "GLAB_DEBUG",
@@ -51,10 +58,9 @@ export class IssueImportService {
       cwd: projectPath,
       timeoutMs: this.#timeoutMs,
       provider: ref.provider,
-      // A project remote alone does not bind the operator's global enterprise token to that
-      // vendor. Only GH_HOST-bound (or public) GitHub hosts keep it; host-scoped CLI auth still
-      // applies for other trusted GitHub hosts.
-      stripEnterpriseTokens: ref.provider === "github" && !trust.publicHost && !trust.operatorHost,
+      // A project remote alone does not bind the operator's global GitHub tokens to that vendor.
+      // Only GH_HOST-bound (or public) GitHub hosts keep them; host-scoped CLI auth still applies.
+      stripGitHubTokens: ref.provider === "github" && !trust.publicHost && !trust.operatorHost,
       signal,
     });
     return parseIssueOutput(ref.provider, stdout, ref, Date.now());
@@ -93,10 +99,10 @@ function runReadOnlyCommand(options: {
   cwd: string;
   timeoutMs: number;
   provider: IssueProvider;
-  stripEnterpriseTokens: boolean;
+  stripGitHubTokens: boolean;
   signal: AbortSignal | undefined;
 }): Promise<string> {
-  const { command, args, cwd, timeoutMs, provider, stripEnterpriseTokens, signal } = options;
+  const { command, args, cwd, timeoutMs, provider, stripGitHubTokens, signal } = options;
   return new Promise((resolve, reject) => {
     signal?.throwIfAborted();
     const controller = new AbortController();
@@ -114,7 +120,7 @@ function runReadOnlyCommand(options: {
       {
         cwd,
         // Nothing may wait for a prompt, a pager, an update check or print a token in debug output.
-        env: childEnvironment(stripEnterpriseTokens),
+        env: childEnvironment(provider, stripGitHubTokens),
         encoding: "utf8",
         maxBuffer: MAX_OUTPUT_BYTES,
         killSignal: "SIGKILL",
@@ -194,12 +200,14 @@ function failureMessage(stderr: string): string {
   return "The issue tool failed.";
 }
 
-function childEnvironment(stripEnterpriseTokens: boolean): NodeJS.ProcessEnv {
+function childEnvironment(provider: IssueProvider, stripGitHubTokens: boolean): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const name of DEBUG_ENV) delete env[name];
-  if (stripEnterpriseTokens) {
-    delete env["GH_ENTERPRISE_TOKEN"];
-    delete env["GITHUB_ENTERPRISE_TOKEN"];
+  if (provider === "gitlab" || stripGitHubTokens) {
+    for (const name of GITHUB_TOKEN_ENV) delete env[name];
+  }
+  if (provider === "github") {
+    for (const name of GITLAB_TOKEN_ENV) delete env[name];
   }
   return {
     ...env,
