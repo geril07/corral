@@ -2,7 +2,7 @@ import type { CorralClient } from "@corral/client/corral-client";
 import { expect } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
-import { App } from "../src/App.tsx";
+import { App } from "./render-app.tsx";
 import { createGitRepo } from "./git-repo.ts";
 import { prefixShifted, prefixThen } from "./real-client.ts";
 
