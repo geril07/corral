@@ -219,6 +219,68 @@ test("an arbitrary provider host is untrusted before any CLI runs, even with an 
   expect(clis.calls()).toEqual([]);
 });
 
+test("a local Windows-looking remote never authorizes host c", async () => {
+  const { project, repo } = await addProject(server);
+  runGit(repo, "remote", "add", "origin", "C:\\repo");
+  const api = await server.rpc();
+
+  await expect(
+    api.projects.resolveIssue({
+      projectId: project.id,
+      url: "https://c/acme/app/issues/1",
+      provider: "github",
+    }),
+  ).rejects.toMatchObject({
+    code: "ISSUE_HOST_UNTRUSTED",
+    data: { provider: "github", host: "c" },
+  });
+  expect(clis.calls()).toEqual([]);
+});
+
+test("a project GitLab host does not forward a global GitHub enterprise token", async () => {
+  const { project, repo } = await addProject(server);
+  runGit(repo, "remote", "add", "origin", "https://gitlab.example.com/group/project.git");
+  clis.answer({
+    number: 1,
+    title: "Vendor safe",
+    body: "",
+    url: "https://gitlab.example.com/acme/app/issues/1",
+  });
+  vi.stubEnv("GH_ENTERPRISE_TOKEN", "SENTINEL_ENTERPRISE_TOKEN");
+  vi.stubEnv("FAKE_ISSUE_FORBID_ENV", "GH_ENTERPRISE_TOKEN");
+  const api = await server.rpc();
+
+  await expect(
+    api.projects.resolveIssue({
+      projectId: project.id,
+      url: "https://gitlab.example.com/acme/app/issues/1",
+      provider: "github",
+    }),
+  ).resolves.toMatchObject({ title: "Vendor safe" });
+});
+
+test("an explicit GH_HOST binding keeps the matching enterprise token", async () => {
+  const { project } = await addProject(server);
+  clis.answer({
+    number: 2,
+    title: "Bound",
+    body: "",
+    url: "https://ghe.example.com/acme/app/issues/2",
+  });
+  vi.stubEnv("GH_HOST", "ghe.example.com");
+  vi.stubEnv("GH_ENTERPRISE_TOKEN", "SENTINEL_ENTERPRISE_TOKEN");
+  vi.stubEnv("FAKE_ISSUE_REQUIRE_ENV", "GH_ENTERPRISE_TOKEN");
+  const api = await server.rpc();
+
+  await expect(
+    api.projects.resolveIssue({
+      projectId: project.id,
+      url: "https://ghe.example.com/acme/app/issues/2",
+      provider: "github",
+    }),
+  ).resolves.toMatchObject({ title: "Bound" });
+});
+
 test("a GitHub issue on a nonstandard port is refused before any CLI runs", async () => {
   const { project, repo } = await addProject(server);
   runGit(repo, "remote", "add", "origin", "https://ghe.example.com:8443/acme/app.git");

@@ -79,6 +79,16 @@ if (process.env.GH_DEBUG || process.env.GLAB_DEBUG || process.env.GIT_TRACE || p
   process.stderr.write("native CLI debug environment leaked\\n");
   process.exit(2);
 }
+const forbidden = process.env.FAKE_ISSUE_FORBID_ENV;
+if (forbidden && process.env[forbidden]) {
+  process.stderr.write("forbidden environment was forwarded\\n");
+  process.exit(3);
+}
+const required = process.env.FAKE_ISSUE_REQUIRE_ENV;
+if (required && !process.env[required]) {
+  process.stderr.write("required environment was stripped\\n");
+  process.exit(3);
+}
 const mode = process.env.FAKE_ISSUE_MODE || "ok";
 if (mode === "fail") {
   process.stderr.write(process.env.FAKE_ISSUE_STDERR || "the issue tool failed\\n");

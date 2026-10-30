@@ -33,6 +33,25 @@ test("GitHub JSON keeps the issue text, ignores unknown fields and takes the URL
   expect(source.body).not.toContain("evil.example");
 });
 
+test("GitHub owner/repository identity is case-insensitive and keeps the requested display spelling", () => {
+  const upperRef = parseIssueUrl("https://github.com/ACME/App/issues/42");
+  const source = parseIssueOutput(
+    "github",
+    JSON.stringify({
+      number: 42,
+      title: "Case",
+      body: "",
+      url: "https://github.com/acme/app/issues/42",
+    }),
+    upperRef,
+    1,
+  );
+  expect(source).toMatchObject({
+    repository: "ACME/App",
+    url: "https://github.com/ACME/App/issues/42",
+  });
+});
+
 test("GitLab JSON reads description as the body and a null description as empty", () => {
   expect(
     parseIssueOutput(
@@ -109,6 +128,12 @@ test("malformed or mismatched output is refused as a domain error, never guessed
       title: "Wrong repo",
       description: "x",
       web_url: "https://gitlab.com/group/other/-/issues/7",
+    }),
+    JSON.stringify({
+      iid: 7,
+      title: "Different case",
+      description: "x",
+      web_url: "https://gitlab.com/Group/Project/-/issues/7",
     }),
   ];
   for (const text of gitlabCases) {

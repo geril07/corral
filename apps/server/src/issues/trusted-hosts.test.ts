@@ -10,6 +10,19 @@ test("remote hosts keep an HTTP port but drop an SSH transport port", () => {
   expect(hostOfRemote("file:///tmp/repo")).toBeUndefined();
 });
 
+test("Windows drives, UNC paths and file: URLs are paths, never scp hosts", () => {
+  for (const remote of [
+    "C:\\repo",
+    "C:/repo",
+    "C:repo",
+    "\\\\server\\share",
+    "//server/share",
+    "file:C:\\repo",
+  ]) {
+    expect(hostOfRemote(remote)).toBeUndefined();
+  }
+});
+
 test("operator hosts are read only from the provider's documented variables", () => {
   expect(
     envTrustedHosts("github", {
