@@ -14,6 +14,7 @@
     "@xterm/addon-serialize": "catalog:",
     "@xterm/headless": "catalog:",
     "node-pty": "catalog:",
+    "smol-toml": "catalog:",
     "ws": "catalog:",
     "zod": "catalog:"
   },
