@@ -6,9 +6,9 @@ Durable memo for issue import (GitHub/GitLab), PR/MR status and title generation
 
 - Import is read-only: issue title, body, URL and link-out become task fields; no writes back to the host, no state mirroring, and no bidirectional sync (it needs write scopes and conflict rules nothing in the MVP uses).
 - CLI first: run the user's authenticated `gh` / `glab` and parse their JSON. Tokens stay in the CLI's keyring/config; Corral never reads `gh auth token`, never puts a token in the server, protocol, SQLite or argv.
-- Authenticated-only. Unauthenticated, missing binary, timeout and network failure are capability states, not errors: import degrades to "paste URL, keep the typed title", and manual task creation is never blocked.
+- Authenticated-only: credentials come from the user's authenticated CLI, never from Corral. A missing binary, failed sign-in, timeout or network failure stays visible and actionable (sign in, install, retry) and never reports a successful import; the manual fallback is to paste the URL or keep the typed title, and manual task creation is never blocked.
 - Host: resolve from the project's git remote, else the CLI's own host settings (`GH_HOST`, `GITLAB_HOST`), with explicit `-R` / `--hostname` when the project path is not a repository root. Self-hosted instances are whatever the CLI is logged into; tokens and hosts are not duplicated in Corral.
-- PR/MR state by task branch is a read-only badge (`gh pr list --head`, `glab mr list --source-branch`), on demand; auto-settling on merge stays out.
+- Candidate and deferred, not in the current slice: a read-only PR/MR badge by task branch (`gh pr list --head`, `glab mr list --source-branch`), on demand. The current slice is read-only issue import only, and auto-settling on merge stays out.
 - Titles: use the issue title directly on import. Prompt-derived titles are opt-in, use an existing configured agent CLI (never a new provider dependency), run on an untitled draft only, never overwrite typed text, and fall back deterministically (first line of the request, truncated). A timeout or missing CLI yields the fallback.
 - The Deepseek staffing restriction applies to our agents, not to product providers; title generation uses whatever agent the user configured.
 
@@ -22,6 +22,6 @@ Durable memo for issue import (GitHub/GitLab), PR/MR status and title generation
 
 ## Open
 
-- `glab` anonymous mode: the earlier "no anonymous mode" claim was inferred, not documented. Treat as unresolved; the unauthenticated-fallback rule holds either way.
+- `glab` anonymous mode: the earlier "no anonymous mode" claim was inferred, not documented. Authenticated-only is the current CLI-first design policy, not a proven capability statement about `glab`; the rule holds while the capability question stays open.
 - GitHub Enterprise auto-targeting from a remote without a prior `--hostname` login is unverified, as is the nested shape of `gh auth status --json hosts`.
-- Whether the PR/MR badge is in the first slice, and title-generation latency/cost, are unmeasured.
+- Title-generation latency and cost are unmeasured; the PR/MR badge is deferred, not part of this slice.

@@ -4,22 +4,21 @@ Scope and operating rules: [roadmap.md](roadmap.md). This records outcomes and e
 
 ## Current baseline
 
-- Integrated `main`: `2a994cb` (existing workspace, UI layering and sidebar correction).
-- Pending feature: `mvp5/web`, fixed at `680ff2e` (config-driven keys, palette, config problems); independent retest pending.
-- Parent's earlier checks on that feature: 385 Node, 92 browser and 13 Electron tests passed. These do not replace independent E2E verification.
+- Integrated `main`: `680ff2e` (existing workspace, UI layering and sidebar correction, with mvp5 web fast-forwarded in).
+- MVP5 web (config-driven keys, palette, config problems): independently PASS in a real browser and in Electron, then FF-integrated as `680ff2e`.
 - UX rules: `docs/ux.md` on `roadmap/ux` (`c246245`, `018a4d6`), docs-only; integration pending.
 
 ### Test baseline (observed)
 
 - Runtime matters: `mise.toml` pins Node 26.13.0. A shell whose PATH resolves Node 22.23.4 fails four client reconnect tests (`projects/tasks/terminals-store`, `terminal-stream`) deterministically, alone and in the full suite, on both `roadmap/ux` and untouched `2a994cb`; the same files pass alone under 26.13.0. Correct invocation: `mise exec node@26.13.0 -- pnpm …`.
 - Under Node 26 the Node suite passed 379/379 twice. A third full run scored 376/379: three `apps/server/src/terminals/*` tests timed out at 5000ms while host load average was ~14.9 on 16 cores, and those files pass isolated.
-- Hypothesis, not established: the under-load timeouts are host contention on PTY/timing tests. This is a real follow-on reliability finding; later green runs do not close it.
+- Hypothesis, not established: the under-load timeouts are host contention on PTY/timing tests. This remains an open reliability finding; a dedicated worker is investigating test concurrency, readiness and artifact ignores, and later green runs do not close it.
 
 ## Requirement ledger
 
 | Requirement                                                 | Status                                                                 | Authoritative outcome / evidence                                                                                                                                                                       |
 | ----------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Finish MVP5 web and integrate                               | Fixed at `680ff2e`; independent retest pending                         | Worktree `.e2e/mvp5-client/report.md` and `verify/30-*`, `32-*`; original failure retained                                                                                                             |
+| Finish MVP5 web and integrate                               | PASS browser and Electron; FF-integrated as `680ff2e`                  | Worktree `.e2e/mvp5-client/report.md` and `verify/30-*`, `32-*`; original failure retained                                                                                                             |
 | UX rules from T3 Code / Orca                                | Docs complete on `roadmap/ux`; integration pending                     | `docs/ux.md` (`c246245`, `018a4d6`): manager decisions applied, 111 lines                                                                                                                              |
 | Apply compact graphical UI; improve workspace/project flows | Inventory complete; implementation pending                             | Implement against `docs/ux.md`; verification pending                                                                                                                                                   |
 | Search task history and continue settled work               | Search and rename UI active (`task-search`)                            | Existing all-task watch suffices; no server search API; inspecting a settled task mutates nothing, and an explicit Continue runs the existing lifecycle                                                |

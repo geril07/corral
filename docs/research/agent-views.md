@@ -1,6 +1,6 @@
 # Agent research: launch profiles and conversation views
 
-Durable memo for launch profiles and for what a "chat" view of an agent session may promise. Decisions only; the newer research result overrides earlier claims. Implementation reference for profiles: `agent-profiles.md` (separate worker); this memo does not restate the schema. Verified 2026-10-30 against installed CLIs, no user config written.
+Durable memo for launch profiles and for what a "chat" view of an agent session may promise. Decisions only; the newer research result overrides earlier claims. Implementation reference for profiles: [agent-profiles.md](../agent-profiles.md) (separate worker); this memo does not restate the schema. Verified 2026-10-30 against installed CLIs, no user config written.
 
 ## Installed-version context
 
@@ -13,7 +13,7 @@ Durable memo for launch profiles and for what a "chat" view of an agent session 
 
 ## Decisions
 
-- A launch profile is agent + optional provider/model + environment references. Env entries are references (`fromEnv`), never literal values, so a file the server watches and broadcasts cannot carry a secret. A missing reference fails visibly and does not fall back to ambient credentials.
+- A launch profile is agent + optional provider/model + environment references. Env entries are references (`fromEnv`), never literal values: the public descriptor — the watched config the server broadcasts and the session snapshot — carries names only, so Corral never resolves or seeds secret values into it. That is a ref-only public-descriptor guarantee, not a claim that an arbitrary user config file cannot contain a secret. A missing reference fails visibly and does not fall back to ambient credentials.
 - Provider and model are immutable for an existing session; a different profile means a new session (or a future fork). Store agent, provider, model, nonsecret fields and reference names; re-resolve at launch, never store resolved secrets. Old sessions stay `unknown` rather than being inferred.
 - Reserved names are rejected in profiles and filtered again at spawn (`CORRAL_*`, `PATH`, `SHELL`, `HOME`, `XDG_*`, `NODE_OPTIONS`, `LD_*`, `BASH_ENV`, `*_CONFIG*`). Adapters validate model/provider pairs per agent kind.
 - OpenCode launches env-only until a verified model path exists. Codex uses `-m`/`-c`, not `-p`, because `-p` writes or layers the user's own config file. No direct credential APIs, no credential store in Corral, no secrets in SQLite, protocol or argv.
@@ -24,7 +24,7 @@ Durable memo for launch profiles and for what a "chat" view of an agent session 
 
 ## Known gaps
 
-- Codex `-c` provider definitions are parser-verified but not request-verified; an unknown `model_provider` must fail visibly or default, and that needs a contract test.
+- Codex `-c` provider definitions are parser-verified but not request-verified. An unknown `model_provider` must fail visibly and never silently default; request-time behavior is still unverified and needs a contract test.
 - Codex and OpenCode live history need their servers started, adding process, port, health and ownership lifecycle; Claude and pi are read-only files.
 - Claude has no supported live attach between SDK and TUI; switching views stops one frontend and resumes the same id.
 - pi streams tool events over RPC but does not approve them; a chat view can display tools, not approve them.
