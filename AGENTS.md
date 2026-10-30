@@ -9,6 +9,10 @@ Keyboard-first workspace for running coding agents in terminals: a long-lived No
 
 Node and pnpm come from `mise.toml`. `pnpm check` is the gate before every commit: format, lint, type check, Node tests. Browser and Electron suites: `pnpm test:browser`, `pnpm test:e2e`.
 
+## Commits
+
+Conventional Commits: `type(scope): summary`, scope = package or app (`protocol`, `server`, `client`, `web`, `desktop`) or `docs`/`tooling`. Parallel work goes on `<milestone>/<part>` branches merged into `main` with `--no-ff`, so each merge marks a checkpoint.
+
 ## Gotchas
 
 - All code runs as erasable TypeScript straight from source: relative imports end in `.ts`, no enums, namespaces or parameter properties.
