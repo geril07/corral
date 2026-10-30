@@ -26,7 +26,7 @@ export function sh(script: string): Program {
 }
 
 /** Retries `assertion` until it stops throwing or the deadline passes. */
-export function eventually(assertion: () => void): Promise<void> {
+export function eventually(assertion: () => void | Promise<void>): Promise<void> {
   return vi.waitFor(assertion, { timeout: DEADLINE_MS, interval: 10 });
 }
 
