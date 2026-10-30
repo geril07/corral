@@ -131,6 +131,44 @@ test("a live server on another protocol version is reported and left alone", asy
   expect(existsSync(path.join(stateDir, "server.log"))).toBe(false);
 });
 
+test("a never-settling liveness probe is bounded and a later probe recovers", async () => {
+  const endpoint = {
+    pid: process.pid,
+    url: "ws://127.0.0.1:1",
+    capability: "stalled-probe",
+    protocolVersion: PROTOCOL_VERSION,
+    startedAt: 0,
+  };
+  writeFileSync(endpointFilePath(stateDir), JSON.stringify(endpoint));
+  const stalled = new net.Socket();
+  const connect = vi.spyOn(net, "connect").mockImplementation(() => stalled);
+  try {
+    const started = Date.now();
+    await expect(currentServerTarget(stateDir)).resolves.toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(3_000);
+    expect(stalled.destroyed).toBe(true);
+  } finally {
+    connect.mockRestore();
+  }
+
+  const listener = net.createServer().listen(0, "127.0.0.1");
+  listeners.push(listener);
+  await new Promise((resolve) => listener.once("listening", resolve));
+  const address = listener.address();
+  if (address === null || typeof address === "string") throw new Error("listener has no port");
+  const recovered = {
+    ...endpoint,
+    url: `ws://127.0.0.1:${address.port}`,
+    capability: "recovered-probe",
+  };
+  writeFileSync(endpointFilePath(stateDir), JSON.stringify(recovered));
+
+  await expect(currentServerTarget(stateDir)).resolves.toEqual({
+    url: recovered.url,
+    capability: recovered.capability,
+  });
+});
+
 test("the current target is read fresh and keeps a newer protocol reachable for the 4001 close", async () => {
   const listener = net.createServer().listen(0, "127.0.0.1");
   listeners.push(listener);

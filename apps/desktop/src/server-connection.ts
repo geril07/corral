@@ -11,6 +11,8 @@ import {
 } from "@corral/protocol/server-endpoint";
 
 const POLL_INTERVAL_MS = 50;
+/** A liveness probe must never gate a reconnect forever. */
+const LIVENESS_PROBE_TIMEOUT_MS = 1000;
 
 /**
  * Chromium leaves many of its file descriptors inheritable, so a plain spawn from Electron
@@ -118,12 +120,25 @@ function pidExists(pid: number): boolean {
 
 function accepts(host: string, port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const socket = net.connect({ host, port });
-    socket.once("connect", () => {
+    let socket: net.Socket;
+    try {
+      socket = net.connect({ host, port });
+    } catch {
+      resolve(false);
+      return;
+    }
+    let settled = false;
+    const finish = (alive: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       socket.destroy();
-      resolve(true);
-    });
-    socket.once("error", () => resolve(false));
+      resolve(alive);
+    };
+    const timer = setTimeout(() => finish(false), LIVENESS_PROBE_TIMEOUT_MS);
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+    socket.once("close", () => finish(false));
   });
 }
 
