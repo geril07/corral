@@ -93,6 +93,11 @@ export default defineConfig({
           include: ["{apps,packages}/*/{src,test}/**/*.test.ts"],
           // node-pty and other native modules are unsafe in worker threads.
           pool: "forks",
+          // Integration files start real servers and PTYs; half the cores leaves headroom for
+          // the host and keeps Vitest's default CPUs - 1 workers from oversubscribing it.
+          maxWorkers: "50%",
+          // Server fixtures give up at 15s; a longer framework timeout lets their readiness error report first.
+          testTimeout: 20_000,
         },
       },
       "apps/web",

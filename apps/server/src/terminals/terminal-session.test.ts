@@ -15,41 +15,45 @@ afterEach(async () => {
   session = undefined;
 });
 
-test("a PTY whose headless backlog passes the limit is paused until it drains, and no output is lost", async () => {
-  session = new TerminalSession(
-    "flood",
-    {
-      taskId: null,
-      sessionId: null,
-      command: "/bin/sh",
-      args: ["-c", `yes '${LINE}' | head -n ${LINES}`],
-      cwd: tmpdir(),
-      env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
-      size: { cols: 80, rows: 24 },
-    },
-    { onChange: () => {} },
-    LIMITS,
-  );
-  let received = 0;
-  const exited = new Promise<void>((resolve) => {
-    const attachment = session!.attach({
-      snapshot: () => {},
-      output: (bytes) => {
-        received += bytes.length;
-        attachment?.ack(bytes.length);
+test(
+  "a PTY whose headless backlog passes the limit is paused until it drains, and no output is lost",
+  async () => {
+    session = new TerminalSession(
+      "flood",
+      {
+        taskId: null,
+        sessionId: null,
+        command: "/bin/sh",
+        args: ["-c", `yes '${LINE}' | head -n ${LINES}`],
+        cwd: tmpdir(),
+        env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
+        size: { cols: 80, rows: 24 },
       },
-      resized: () => {},
-      exit: () => resolve(),
-      terminalClosed: () => {},
+      { onChange: () => {} },
+      LIMITS,
+    );
+    let received = 0;
+    const exited = new Promise<void>((resolve) => {
+      const attachment = session!.attach({
+        snapshot: () => {},
+        output: (bytes) => {
+          received += bytes.length;
+          attachment?.ack(bytes.length);
+        },
+        resized: () => {},
+        exit: () => resolve(),
+        terminalClosed: () => {},
+      });
     });
-  });
-  const deadline = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("the flood did not finish")), DEADLINE_MS).unref(),
-  );
+    const deadline = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("the flood did not finish")), DEADLINE_MS).unref(),
+    );
 
-  await Promise.race([exited, deadline]);
+    await Promise.race([exited, deadline]);
 
-  expect(received).toBe(FLOOD_BYTES);
-  // The read in flight when the pause lands (64 KiB at most) still arrives.
-  expect(session.peakBacklogBytes).toBeLessThan(LIMITS.pauseBytes + 64 * 1024 + 1);
-});
+    expect(received).toBe(FLOOD_BYTES);
+    // The read in flight when the pause lands (64 KiB at most) still arrives.
+    expect(session.peakBacklogBytes).toBeLessThan(LIMITS.pauseBytes + 64 * 1024 + 1);
+  },
+  DEADLINE_MS + 5_000,
+);
