@@ -6,7 +6,11 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vite-plus/test";
-import { ensureServer, type EnsureServerOptions } from "./server-connection.ts";
+import {
+  currentServerTarget,
+  ensureServer,
+  type EnsureServerOptions,
+} from "./server-connection.ts";
 
 const SERVER_ENTRY = path.join(import.meta.dirname, "../../server/src/main.ts");
 
@@ -125,6 +129,27 @@ test("a live server on another protocol version is reported and left alone", asy
   });
   expect(readEndpoint()).toEqual(other);
   expect(existsSync(path.join(stateDir, "server.log"))).toBe(false);
+});
+
+test("the current target is read fresh and keeps a newer protocol reachable for the 4001 close", async () => {
+  const listener = net.createServer().listen(0, "127.0.0.1");
+  listeners.push(listener);
+  await new Promise((resolve) => listener.once("listening", resolve));
+  const address = listener.address();
+  if (address === null || typeof address === "string") throw new Error("listener has no port");
+  const next = {
+    pid: process.pid,
+    url: `ws://127.0.0.1:${address.port}`,
+    capability: "next-server-capability",
+    protocolVersion: PROTOCOL_VERSION + 1,
+    startedAt: 0,
+  };
+  writeFileSync(endpointFilePath(stateDir), JSON.stringify(next));
+
+  expect(await currentServerTarget(stateDir)).toEqual({
+    url: next.url,
+    capability: next.capability,
+  });
 });
 
 test("a server that dies on start is reported with the log to read", async () => {

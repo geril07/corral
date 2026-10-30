@@ -40,13 +40,9 @@ export interface EnsureServerOptions {
  */
 export async function currentServerTarget(stateDir: string): Promise<ServerTarget | undefined> {
   const endpoint = await findLiveServer(stateDir);
-  if (
-    endpoint === undefined ||
-    endpoint.protocolVersion !== PROTOCOL_VERSION ||
-    endpoint.capability === undefined
-  ) {
-    return undefined;
-  }
+  // The version check happens after the capability is accepted, so a protocol mismatch still
+  // reaches the client as close code 4001 instead of an endless 401 retry.
+  if (endpoint === undefined || endpoint.capability === undefined) return undefined;
   return { url: endpoint.url, capability: endpoint.capability };
 }
 

@@ -189,6 +189,7 @@ test("a server restart with a new capability reconnects without quitting the app
 }) => {
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
+  await expect(window.getByText("No terminals")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Survives restart");
   const selectedTask = workspace(window).getByRole("button", { name: /^Survives restart/ });
