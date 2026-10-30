@@ -134,6 +134,7 @@ test("a refused launch keeps the picker open with the draft and the typed reason
   });
   const onClose = vi.fn<() => void>();
   await render(<AgentPicker profiles={profiles} onStart={onStart} onClose={onClose} />);
+  await expect.element(dialog().getByRole("radio", { name: "claude" })).toHaveFocus();
 
   await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}");
   await modelInput().fill("claude-opus-4-1");
