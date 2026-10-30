@@ -6,6 +6,9 @@ const IGNORED = [
   "**/out/**",
   "pnpm-lock.yaml",
   "apps/web/src/routeTree.gen.ts",
+  // Verification evidence: append-only local artifacts, never source.
+  "**/.e2e/**",
+  "**/.playwright-cli/**",
 ];
 
 const WEB_MODULES = [
