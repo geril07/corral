@@ -51,7 +51,7 @@ test("a blocked agent shows in the sidebar and on the board, and Enter jumps to 
 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyB");
-  const board = window.getByRole("dialog", { name: "Board" });
+  const board = window.getByRole("region", { name: "Board" });
   // Keys reach the board only once it has taken focus from the terminal.
   await expect(board.getByRole("listbox")).toBeFocused();
   const alphaRow = board.getByRole("option", { name: /Alpha/ });
