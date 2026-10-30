@@ -15,10 +15,20 @@ export function reconnectDelayMs(failures: number, backoff: Backoff): number {
 
 export type CreateSocket = (url: string, protocols: string[]) => WebSocket;
 
+export interface SocketEndpoint {
+  url: string;
+  protocols: string[];
+}
+
 export interface ReconnectingSocketOptions {
   url: string;
   /** Sent on every attempt, including reconnects, so a capability never needs re-provisioning. */
   protocols: string[];
+  /**
+   * Asked before every attempt when the server may have restarted with a new capability.
+   * `undefined` means the endpoint is not available yet; the socket retries with backoff.
+   */
+  refreshEndpoint?: (() => Promise<SocketEndpoint | undefined>) | undefined;
   backoff?: Backoff | undefined;
   createSocket?: CreateSocket | undefined;
   onState(state: ConnectionState): void;
@@ -35,6 +45,8 @@ export class ReconnectingSocket {
   #socket: WebSocket | undefined;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #failures = 0;
+  #stopped = false;
+  #refreshing = false;
 
   constructor(options: ReconnectingSocketOptions) {
     this.#options = options;
@@ -43,16 +55,39 @@ export class ReconnectingSocket {
   }
 
   close(): void {
+    this.#stopped = true;
     clearTimeout(this.#timer);
     this.#socket?.close();
     this.#socket = undefined;
   }
 
   #connect(): void {
+    if (this.#stopped || this.#refreshing) return;
     this.#options.onState({ status: "connecting" });
-    const socket =
-      this.#options.createSocket?.(this.#options.url, this.#options.protocols) ??
-      new WebSocket(this.#options.url, this.#options.protocols);
+    const refresh = this.#options.refreshEndpoint;
+    if (!refresh) {
+      this.#open(this.#options.url, this.#options.protocols);
+      return;
+    }
+    this.#refreshing = true;
+    void refresh().then(
+      (endpoint) => {
+        this.#refreshing = false;
+        if (this.#stopped) return;
+        this.#open(
+          endpoint?.url ?? this.#options.url,
+          endpoint?.protocols ?? this.#options.protocols,
+        );
+      },
+      () => {
+        this.#refreshing = false;
+        if (!this.#stopped) this.#scheduleRetry();
+      },
+    );
+  }
+
+  #open(url: string, protocols: string[]): void {
+    const socket = this.#options.createSocket?.(url, protocols) ?? new WebSocket(url, protocols);
     socket.binaryType = "arraybuffer";
     this.#socket = socket;
     socket.addEventListener("open", () => {
@@ -76,6 +111,10 @@ export class ReconnectingSocket {
       return;
     }
     if (this.#options.onClose(event) === "stop") return;
+    this.#scheduleRetry();
+  }
+
+  #scheduleRetry(): void {
     this.#options.onState({ status: "disconnected" });
     this.#failures += 1;
     this.#timer = setTimeout(

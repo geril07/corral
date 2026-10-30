@@ -159,6 +159,21 @@ test("a terminal that does not exist, or was closed while attached, shows as not
   );
 });
 
+test("a restarted server's new capability reconnects RPC and new terminal streams", async () => {
+  const refreshServer = async () => ({ url: server.url, capability: server.capability });
+  const client = await server.connected(undefined, refreshServer);
+  const before = await server.createTerminal(client, sh(`echo before-restart; read x`));
+  const first = await server.attachConnected(client, before.id);
+  await eventually(() => expect(first.terminal.screen).toContain("before-restart"));
+
+  await server.restart();
+  await eventually(() => expect(client.connection.state.getSnapshot().status).toBe("connected"));
+
+  const after = await server.createTerminal(client, sh(`echo after-restart; read x`));
+  const second = await server.attachConnected(client, after.id);
+  await eventually(() => expect(second.terminal.screen).toContain("after-restart"));
+});
+
 test("a server on another protocol version shows as a protocol mismatch", async () => {
   const proxy = await server.mismatchedProxy();
   const client = server.connect(proxy.url);

@@ -1,5 +1,6 @@
 import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
 import type { TerminalInfo } from "@corral/protocol/rpc";
+import type { ServerTarget } from "@corral/protocol/server-target";
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,9 +64,13 @@ export function useServer() {
     await rm(scratchDir, { recursive: true, force: true });
   });
 
-  function connect(url = server.url): CorralClient {
+  function connect(
+    url = server.url,
+    refreshServer?: () => Promise<ServerTarget | undefined>,
+  ): CorralClient {
     const client = createCorralClient({
       server: { url, capability: server.capability },
+      ...(refreshServer === undefined ? {} : { refreshServer }),
       backoff: FAST_BACKOFF,
     });
     cleanups.push(() => client.close());
@@ -80,13 +85,21 @@ export function useServer() {
       return server.capability;
     },
     connect,
+    /** Stops the server and starts a new one on a new port with a new capability. */
+    async restart(): Promise<void> {
+      await server.close();
+      server = await startServer({ host: "127.0.0.1", port: 0 });
+    },
     /** A git repository on `main` with one commit, in a directory that is deleted after the test. */
     repo(name = "repo"): string {
       return initRepo(join(scratchDir, name));
     },
     /** Opens a client and waits until it is connected. */
-    async connected(url?: string): Promise<CorralClient> {
-      const client = connect(url);
+    async connected(
+      url?: string,
+      refreshServer?: () => Promise<ServerTarget | undefined>,
+    ): Promise<CorralClient> {
+      const client = connect(url, refreshServer);
       await eventually(() => {
         if (client.connection.state.getSnapshot().status !== "connected")
           throw new Error("not yet");

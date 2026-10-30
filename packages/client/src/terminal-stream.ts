@@ -28,6 +28,8 @@ export type TerminalStreamState =
 
 export interface TerminalStreamOptions {
   server: ServerTarget;
+  /** Re-read before each attempt; a restarted server has a new capability. */
+  refreshServer?: (() => Promise<ServerTarget | undefined>) | undefined;
   terminalId: string;
   surface: TerminalSurface;
   backoff?: Backoff;
@@ -58,9 +60,23 @@ export class TerminalStream {
 
   constructor(options: TerminalStreamOptions) {
     this.#surface = options.surface;
+    const refreshServer = options.refreshServer;
     this.#connection = new ReconnectingSocket({
       url: protocolUrl(options.server.url, terminalStreamPath(options.terminalId)),
       protocols: capabilityProtocols(options.server.capability),
+      ...(refreshServer === undefined
+        ? {}
+        : {
+            refreshEndpoint: async () => {
+              const target = await refreshServer();
+              return target === undefined
+                ? undefined
+                : {
+                    url: protocolUrl(target.url, terminalStreamPath(options.terminalId)),
+                    protocols: capabilityProtocols(target.capability),
+                  };
+            },
+          }),
       backoff: options.backoff,
       createSocket: options.createSocket,
       onState: (state) => this.#state.set(state),

@@ -10,6 +10,8 @@ import { Store, type ReadableStore } from "./store.ts";
 
 export interface RpcConnectionOptions {
   server: ServerTarget;
+  /** Re-read before each attempt; a restarted server has a new capability. */
+  refreshServer?: (() => Promise<ServerTarget | undefined>) | undefined;
   backoff?: Backoff;
   createSocket?: CreateSocket;
 }
@@ -26,9 +28,23 @@ export function connectRpc(options: RpcConnectionOptions): RpcConnection {
   // oRPC's link is bound to one socket, so each socket gets its own link.
   let link: RPCLink<ClientContext> | undefined;
 
+  const refreshServer = options.refreshServer;
   const socket = new ReconnectingSocket({
     url: protocolUrl(options.server.url, RPC_PATH),
     protocols: capabilityProtocols(options.server.capability),
+    ...(refreshServer === undefined
+      ? {}
+      : {
+          refreshEndpoint: async () => {
+            const target = await refreshServer();
+            return target === undefined
+              ? undefined
+              : {
+                  url: protocolUrl(target.url, RPC_PATH),
+                  protocols: capabilityProtocols(target.capability),
+                };
+          },
+        }),
     backoff: options.backoff,
     createSocket: options.createSocket,
     onState: (next) => state.set(next),

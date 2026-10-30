@@ -5,20 +5,21 @@ import { resolveServerUrl, type PageLocation } from "./server-url.ts";
 /** Query parameter inside the hash route that carries a capability on a first load. */
 export const CAPABILITY_HASH_PARAM = "capability";
 
-/** Session storage key that keeps the capability across reloads in one browser tab. */
-export const CAPABILITY_STORAGE_KEY = "corral.capability";
+/** Session storage key that keeps the server URL and capability paired across reloads. */
+export const SERVER_TARGET_STORAGE_KEY = "corral.server-target";
 
-export interface CapabilityStorage {
-  read(): string | undefined;
-  write(capability: string): void;
+export interface ServerTargetStorage {
+  /** Untrusted JSON from session storage; `resolveServerTarget` validates it. */
+  read(): unknown;
+  write(target: ServerTarget): void;
 }
 
 export interface ResolveServerTargetOptions {
   location: PageLocation & { hash: string };
   /** Present in the desktop app; its endpoint comes from the owner-only endpoint file. */
   bridge?: DesktopBridge | undefined;
-  /** Browser/dev only: keeps the capability across reloads without putting it in a request URL. */
-  storage?: CapabilityStorage | undefined;
+  /** Browser/dev only: keeps the URL and capability paired without putting them in a request URL. */
+  storage?: ServerTargetStorage | undefined;
   /** Browser/dev only: removes the capability from the visible hash before the router starts. */
   applyHash?: ((hash: string) => void) | undefined;
 }
@@ -26,8 +27,9 @@ export interface ResolveServerTargetOptions {
 /**
  * Where this page connects and which capability it presents. Desktop mode uses the preload
  * bridge. Browser/dev mode takes an explicit capability from `#/route?capability=...`, stores
- * it for reloads and strips it from the route. A page with neither fails instead of opening an
- * unauthenticated socket.
+ * the target for reloads and strips it from the route. A stored capability is only reused for
+ * the same server URL; an explicit new capability replaces the pair. A page with neither fails
+ * instead of opening an unauthenticated socket or sending a token to another server.
  */
 export async function resolveServerTarget(
   options: ResolveServerTargetOptions,
@@ -40,22 +42,38 @@ export async function resolveServerTarget(
     return target;
   }
 
+  const url = resolveServerUrl(options.location);
   const fromHash = takeCapabilityFromHash(options.location.hash);
   if (fromHash.capability !== undefined) {
-    options.storage?.write(fromHash.capability);
+    if (fromHash.capability.length === 0) {
+      throw new Error(
+        "The server capability in the URL is empty. Open this page with the capability from endpoint.json.",
+      );
+    }
+    const target = { url, capability: fromHash.capability };
+    options.storage?.write(target);
     options.applyHash?.(fromHash.hash);
+    return target;
   }
-  const capability = fromHash.capability ?? options.storage?.read();
-  if (capability === undefined || capability.length === 0) {
+
+  const stored = options.storage?.read();
+  if (!isServerTarget(stored)) {
     throw new Error(
       "No server capability. Start Corral from the desktop app, or open this page with " +
         `#/route?${CAPABILITY_HASH_PARAM}=<capability from endpoint.json>.`,
     );
   }
-  return { url: resolveServerUrl(options.location), capability };
+  if (stored.url !== url) {
+    // Never offer a stored capability to a server the user was redirected to.
+    throw new Error(
+      `The saved capability belongs to ${stored.url}, not ${url}. Open this page with that ` +
+        `server's #/route?${CAPABILITY_HASH_PARAM}=<capability from endpoint.json>.`,
+    );
+  }
+  return stored;
 }
 
-function isServerTarget(value: unknown): value is ServerTarget {
+export function isServerTarget(value: unknown): value is ServerTarget {
   return (
     typeof value === "object" &&
     value !== null &&

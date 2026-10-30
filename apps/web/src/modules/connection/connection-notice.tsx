@@ -17,9 +17,16 @@ export function ConnectionNotice({ state }: { state: ConnectionState }) {
     );
   }
   return (
-    <p className="my-0.5 text-text-muted" role="status" aria-label="connection">
-      {LABELS[state.status]}
-    </p>
+    <>
+      <p className="my-0.5 text-text-muted" role="status" aria-label="connection">
+        {LABELS[state.status]}
+      </p>
+      {state.status === "disconnected" && window.corral === undefined ? (
+        <p className="my-0.5 text-text-muted">
+          If the server restarted, open this page with the new capability from endpoint.json.
+        </p>
+      ) : null}
+    </>
   );
 }
 

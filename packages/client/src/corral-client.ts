@@ -10,6 +10,8 @@ import { TerminalStream, type TerminalSurface } from "./terminal-stream.ts";
 
 export interface CorralClientOptions {
   server: ServerTarget;
+  /** Re-read before each reconnect, so a restarted server's new capability is picked up. */
+  refreshServer?: (() => Promise<ServerTarget | undefined>) | undefined;
   backoff?: Backoff;
   createSocket?: CreateSocket;
 }

@@ -165,6 +165,7 @@ test("an unreachable server shows as disconnected and the workspace stays up", a
   await expect
     .element(page.getByRole("status", { name: "connection" }))
     .toMatchTextContent("Disconnected. Retrying…");
+  await expect.element(page.getByText(/If the server restarted/)).toBeVisible();
   await expect.element(workspace()).toBeVisible();
 });
 

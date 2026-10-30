@@ -1,5 +1,6 @@
-import { CAPABILITY_STORAGE_KEY, resolveServerTarget } from "@corral/client/bootstrap";
+import { resolveServerTarget, SERVER_TARGET_STORAGE_KEY } from "@corral/client/bootstrap";
 import { createCorralClient } from "@corral/client/corral-client";
+import type { ServerTarget } from "@corral/protocol/server-target";
 import type { DesktopBridge } from "@corral/protocol/desktop-bridge";
 import { createRoot } from "react-dom/client";
 // oxlint-disable-next-line import/no-unassigned-import -- the Tailwind entry and design tokens
@@ -14,15 +15,25 @@ declare global {
 }
 
 const root = document.getElementById("root")!;
+const storage = {
+  read: (): unknown => {
+    const raw = window.sessionStorage.getItem(SERVER_TARGET_STORAGE_KEY);
+    if (raw === null) return undefined;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return undefined;
+    }
+  },
+  write: (target: ServerTarget) =>
+    window.sessionStorage.setItem(SERVER_TARGET_STORAGE_KEY, JSON.stringify(target)),
+};
 
-async function start() {
-  const server = await resolveServerTarget({
+function readTarget(): Promise<ServerTarget> {
+  return resolveServerTarget({
     location: window.location,
     bridge: window.corral,
-    storage: {
-      read: () => window.sessionStorage.getItem(CAPABILITY_STORAGE_KEY) ?? undefined,
-      write: (capability) => window.sessionStorage.setItem(CAPABILITY_STORAGE_KEY, capability),
-    },
+    storage,
     applyHash: (hash) =>
       window.history.replaceState(
         null,
@@ -30,7 +41,22 @@ async function start() {
         `${window.location.pathname}${window.location.search}${hash}`,
       ),
   });
-  const client = createCorralClient({ server });
+}
+
+async function start() {
+  const server = await readTarget();
+  const client = createCorralClient({
+    server,
+    // A restarted server has a new capability. Desktop re-reads the endpoint file over IPC;
+    // browser/dev re-reads the pair and a newly pasted hash bootstrap.
+    refreshServer: async () => {
+      try {
+        return await readTarget();
+      } catch {
+        return undefined;
+      }
+    },
+  });
   createRoot(root).render(<App client={client} />);
 }
 
