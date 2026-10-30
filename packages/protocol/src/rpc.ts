@@ -268,6 +268,14 @@ const issueErrors = {
   ISSUE_URL_INVALID: { data: z.object({ message: z.string() }) },
   /** The host is ambiguous and the caller did not say which provider it is. */
   ISSUE_PROVIDER_REQUIRED: { data: z.object({ host: z.string() }) },
+  /** The host is not public and not configured by the project remote or operator environment. */
+  ISSUE_HOST_UNTRUSTED: {
+    data: z.object({ provider: IssueProvider, host: z.string() }),
+  },
+  /** GitHub issue URLs with a nonstandard port are not supported by gh 2.102. */
+  ISSUE_UNSUPPORTED_PORT: {
+    data: z.object({ provider: IssueProvider, host: z.string() }),
+  },
   /** The matching CLI is not on the server's PATH. */
   ISSUE_CLI_MISSING: { data: z.object({ command: z.string() }) },
   /** The server's CLI has no usable login for the issue's host. */

@@ -1,5 +1,9 @@
 import type { IssueProvider } from "@corral/protocol/rpc";
-import { InvalidIssueUrlError, IssueProviderRequiredError } from "./errors.ts";
+import {
+  InvalidIssueUrlError,
+  IssueProviderRequiredError,
+  IssueUnsupportedPortError,
+} from "./errors.ts";
 
 /** The validated identity of an issue URL; every part that reaches a CLI comes from here. */
 export interface IssueRef {
@@ -46,6 +50,8 @@ export function parseIssueUrl(input: string, selected?: IssueProvider): IssueRef
     );
   if (selected === undefined && known === undefined) throw new IssueProviderRequiredError(url.host);
   const provider = selected ?? known!;
+  if (provider === "github" && url.port !== "")
+    throw new IssueUnsupportedPortError(provider, url.host);
 
   const parts = pathSegments(url);
   const parsed = provider === "github" ? githubParts(parts) : gitlabParts(parts);
@@ -56,6 +62,11 @@ export function parseIssueUrl(input: string, selected?: IssueProvider): IssueRef
       ? `/${parsed.repository}/issues/${number}`
       : `/${parsed.repository}/-/issues/${number}`;
   return { provider, host: url.host, repository: parsed.repository, number, url: `${base}${path}` };
+}
+
+/** The provider a public host belongs to; `undefined` means it needs an explicit, trusted choice. */
+export function publicProviderForHost(hostname: string): IssueProvider | undefined {
+  return knownProvider(hostname);
 }
 
 function knownProvider(hostname: string): IssueProvider | undefined {

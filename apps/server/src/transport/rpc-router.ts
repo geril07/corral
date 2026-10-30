@@ -8,8 +8,10 @@ import {
   IssueCliMissingError,
   IssueFetchFailedError,
   IssueFetchTimeoutError,
+  IssueHostUntrustedError,
   IssueProviderRequiredError,
   IssueResponseInvalidError,
+  IssueUnsupportedPortError,
 } from "../issues/errors.ts";
 import {
   HasLiveTerminalsError,
@@ -154,6 +156,14 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
               return errors.ISSUE_URL_INVALID({ data: { message: error.message } });
             if (error instanceof IssueProviderRequiredError)
               return errors.ISSUE_PROVIDER_REQUIRED({ data: { host: error.host } });
+            if (error instanceof IssueHostUntrustedError)
+              return errors.ISSUE_HOST_UNTRUSTED({
+                data: { provider: error.provider, host: error.host },
+              });
+            if (error instanceof IssueUnsupportedPortError)
+              return errors.ISSUE_UNSUPPORTED_PORT({
+                data: { provider: error.provider, host: error.host },
+              });
             if (error instanceof IssueCliMissingError)
               return errors.ISSUE_CLI_MISSING({ data: { command: error.command } });
             if (error instanceof IssueAuthRequiredError)

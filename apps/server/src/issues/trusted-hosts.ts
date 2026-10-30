@@ -1,0 +1,72 @@
+import type { IssueProvider } from "@corral/protocol/rpc";
+import { git } from "../git/git.ts";
+import { publicProviderForHost, type IssueRef } from "./issue-url.ts";
+
+const ENV_HOSTS: Readonly<Record<IssueProvider, readonly string[]>> = {
+  github: ["GH_HOST"],
+  gitlab: ["GITLAB_HOST", "GITLAB_URI", "GL_HOST"],
+};
+
+/** A host from an operator environment variable, with its port when one was given. */
+export function envTrustedHosts(
+  provider: IssueProvider,
+  env: NodeJS.ProcessEnv,
+): ReadonlySet<string> {
+  const hosts = new Set<string>();
+  for (const name of ENV_HOSTS[provider]) {
+    const value = env[name]?.trim();
+    if (value === undefined || value === "") continue;
+    const host = hostOfValue(value);
+    if (host !== undefined) hosts.add(host);
+  }
+  return hosts;
+}
+
+/** The host a git remote points at; SSH transport ports are not web/API ports, so they are dropped. */
+export function hostOfRemote(remote: string): string | undefined {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(remote)) {
+    let url: URL;
+    try {
+      url = new URL(remote);
+    } catch {
+      return undefined;
+    }
+    if (url.protocol === "http:" || url.protocol === "https:") return url.host.toLowerCase();
+    if (url.protocol === "ssh:" || url.protocol === "git:") return url.hostname.toLowerCase();
+    return undefined;
+  }
+  const scp = /^(?:[^@/]+@)?([^:/]+):(?!\/)/.exec(remote);
+  return scp?.[1]?.toLowerCase();
+}
+
+/** Public hosts are trusted by definition; self-hosted hosts need a project remote or operator env. */
+export async function isTrustedIssueHost(
+  projectPath: string,
+  ref: IssueRef,
+  env: NodeJS.ProcessEnv,
+): Promise<boolean> {
+  const hostname = new URL(ref.url).hostname;
+  if (publicProviderForHost(hostname) === ref.provider) return true;
+  if (envTrustedHosts(ref.provider, env).has(ref.host)) return true;
+  let remotes: string;
+  try {
+    remotes = await git(projectPath, ["remote", "-v"]);
+  } catch {
+    return false;
+  }
+  return remotes.split("\n").some((line) => {
+    const remote = line.split(/\s+/)[1];
+    return remote !== undefined && hostOfRemote(remote) === ref.host;
+  });
+}
+
+function hostOfValue(value: string): string | undefined {
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`;
+  try {
+    const url = new URL(withScheme);
+    if (url.username !== "" || url.password !== "") return undefined;
+    return url.host.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}

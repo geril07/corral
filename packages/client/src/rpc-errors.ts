@@ -61,6 +61,10 @@ export function describeError(error: unknown): string {
         return String(field(data, "message"));
       case "ISSUE_PROVIDER_REQUIRED":
         return `Choose whether ${String(field(data, "host"))} runs GitHub or GitLab.`;
+      case "ISSUE_HOST_UNTRUSTED":
+        return `${String(field(data, "host"))} is not a configured ${providerName(data)} host for this project. Add it as a git remote or set ${field(data, "provider") === "gitlab" ? "GITLAB_HOST" : "GH_HOST"} on the server, or create the task manually.`;
+      case "ISSUE_UNSUPPORTED_PORT":
+        return `GitHub issues on a nonstandard port are not supported. Use a standard host or create the task manually.`;
       case "ISSUE_CLI_MISSING":
         return `${String(field(data, "command"))} was not found on the server's PATH.`;
       case "ISSUE_AUTH_REQUIRED":

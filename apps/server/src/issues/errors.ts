@@ -12,6 +12,28 @@ export class IssueProviderRequiredError extends Error {
   }
 }
 
+/** The provider is right, but this host is not trusted by the project remote or operator env. */
+export class IssueHostUntrustedError extends Error {
+  readonly provider: IssueProvider;
+  readonly host: string;
+  constructor(provider: IssueProvider, host: string) {
+    super(`${host} is not a configured ${provider} host`);
+    this.provider = provider;
+    this.host = host;
+  }
+}
+
+/** gh 2.102 drops a URL port, so a GitHub issue on a nonstandard port cannot be read safely. */
+export class IssueUnsupportedPortError extends Error {
+  readonly provider: IssueProvider;
+  readonly host: string;
+  constructor(provider: IssueProvider, host: string) {
+    super(`${provider} issue URLs on a nonstandard port are not supported`);
+    this.provider = provider;
+    this.host = host;
+  }
+}
+
 /** The provider's CLI is not on the server's PATH. */
 export class IssueCliMissingError extends Error {
   readonly command: string;
