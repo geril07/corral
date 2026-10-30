@@ -1,0 +1,17 @@
+{
+  "name": "@corral/client",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@corral/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "fast-check": "catalog:"
+  }
+}

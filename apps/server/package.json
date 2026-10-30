@@ -1,0 +1,19 @@
+{
+  "name": "@corral/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --watch-path=src --watch-path=../../packages src/main.ts",
+    "start": "node src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@corral/protocol": "workspace:*",
+    "ws": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@corral/client": "workspace:*",
+    "@types/ws": "catalog:"
+  }
+}

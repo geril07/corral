@@ -1,0 +1,39 @@
+packages:
+  - apps/*
+  - packages/*
+
+allowBuilds:
+  electron: true
+  esbuild: true
+  node-pty: true
+
+catalog:
+  "@base-ui/react": 1.9.0
+  "@playwright/test": 1.64.1
+  "@types/node": 26.6.6
+  "@types/react": 19.3.0
+  "@types/react-dom": 19.3.0
+  "@types/ws": 8.18.2
+  "@vitejs/plugin-react": 6.1.2
+  "@vitest/browser-playwright": 5.0.5
+  "@xterm/addon-serialize": 0.14.0
+  "@xterm/addon-webgl": 0.19.0
+  "@xterm/headless": 6.0.0
+  "@xterm/xterm": 6.0.0
+  oxc-transform-react: 0.156.0
+  electron: 45.1.0
+  electron-vite: 6.0.0
+  fast-check: 4.10.2
+  node-pty: 1.1.0
+  playwright: 1.64.1
+  react: 19.3.1
+  react-dom: 19.3.1
+  typescript: 7.0.2
+  vite-plus: 1.4.0
+  ws: 8.22.0
+  zod: 4.6.7
+
+# Vite+ requires every package to resolve its own Vite and Vitest (viteplus.dev/guide/local-cli).
+overrides:
+  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
+  vitest: 5.0.5

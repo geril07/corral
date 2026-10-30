@@ -1,0 +1,17 @@
+{
+  "name": "@corral/desktop",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.mjs",
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "vp run @corral/web#build && vp pack && ../../scripts/headless.sh playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "catalog:",
+    "electron": "catalog:"
+  }
+}

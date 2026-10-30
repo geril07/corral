@@ -1,0 +1,24 @@
+{
+  "name": "corral",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "vp check && vp run -r typecheck && vp test run --project node",
+    "fmt": "vp fmt",
+    "lint": "vp lint",
+    "typecheck": "vp run -r typecheck",
+    "test": "vp test run --project node",
+    "test:browser": "vp test run --project browser",
+    "test:e2e": "vp run -r test:e2e",
+    "dev": "vp run --parallel dev"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": "26.13.0"
+  },
+  "packageManager": "pnpm@12.16.1"
+}

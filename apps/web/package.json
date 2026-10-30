@@ -1,0 +1,25 @@
+{
+  "name": "@corral/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@corral/client": "workspace:*",
+    "@corral/protocol": "workspace:*",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
+    "oxc-transform-react": "catalog:",
+    "playwright": "catalog:",
+    "vitest-browser-react": "2.3.0"
+  }
+}
