@@ -16,6 +16,7 @@ import { Badge, Button, Tooltip, TreeIndent, TreeRow } from "../../common/ui/ind
 import { StatusIndicator } from "../status/index.ts";
 
 export function terminalLabel(terminal: TerminalInfo): string {
+  if (terminal.label) return terminal.label;
   const program = terminal.command.split("/").pop() || terminal.command;
   const folder = terminal.cwd.replace(/\/+$/, "").split("/").pop() || "/";
   return `${program} · ${folder}`;
@@ -35,6 +36,7 @@ interface SidebarProps {
   onSelectTask: (task: Task) => void;
   onSelectLoose: () => void;
   onSelectEntry: (entry: Entry) => void;
+  onRenameEntry: (entry: Entry) => void;
   onCloseTerminal: (id: string) => void;
   onStopSession: (session: Session) => void;
   onRestartSession: (session: Session) => void;
@@ -75,6 +77,17 @@ export function Sidebar(props: SidebarProps) {
             <Badge className="ml-1 text-text-muted">exited ({terminal.exit.exitCode})</Badge>
           )}
         </Button>
+        {terminal.id === selection.entryId && (
+          <Button
+            variant="ghost-muted"
+            size="icon-sm"
+            className={ROW_ICON}
+            aria-label={`rename ${terminalLabel(terminal)}`}
+            onClick={() => props.onRenameEntry({ type: "terminal", id: terminal.id, terminal })}
+          >
+            ✎
+          </Button>
+        )}
         <Button
           variant="ghost-danger"
           size="icon-sm"
@@ -182,6 +195,17 @@ export function Sidebar(props: SidebarProps) {
               onClick={() => props.onRestartSession(session)}
             >
               ▶
+            </Button>
+          )}
+          {current && (
+            <Button
+              variant="ghost-muted"
+              size="icon-sm"
+              className={ROW_ICON}
+              aria-label={`rename ${label ?? session.kind}`}
+              onClick={() => props.onRenameEntry(entry)}
+            >
+              ✎
             </Button>
           )}
           <Button

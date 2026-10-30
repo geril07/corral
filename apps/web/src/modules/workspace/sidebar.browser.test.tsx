@@ -41,7 +41,12 @@ const session = (
   status: null,
   createdAt: Number(id.replace(/\D/g, "")),
 });
-const terminal = (id: string, taskId: string | null, sessionId: string | null): TerminalInfo => ({
+const terminal = (
+  id: string,
+  taskId: string | null,
+  sessionId: string | null,
+  label: string | null = null,
+): TerminalInfo => ({
   id,
   taskId,
   sessionId,
@@ -50,6 +55,7 @@ const terminal = (id: string, taskId: string | null, sessionId: string | null): 
   cwd: `/work/${taskId ?? "home"}`,
   size: { cols: 80, rows: 24 },
   exit: null,
+  label,
 });
 
 const defaultSessions = [
@@ -71,6 +77,7 @@ function renderSidebar(chosen: Chosen = {}, sessions: Session[] = defaultSession
     onSelectTask: vi.fn<(task: Task) => void>(),
     onSelectLoose: vi.fn<() => void>(),
     onSelectEntry: vi.fn<(entry: Entry) => void>(),
+    onRenameEntry: vi.fn<(entry: Entry) => void>(),
     onCloseTerminal: vi.fn<(id: string) => void>(),
     onStopSession: vi.fn<(session: Session) => void>(),
     onRestartSession: vi.fn<(session: Session) => void>(),
@@ -285,4 +292,51 @@ test("a stopped session shows only the done or error it kept, and a stale workin
 
   await expect.element(nav().getByRole("img", { name: "done" })).toHaveLength(2);
   await expect.element(nav().getByRole("img", { name: "working" })).not.toBeInTheDocument();
+});
+
+test("a loose terminal shows the name the user gave it instead of its command and folder", async () => {
+  const tree = buildWorkspaceTree(
+    [project("p1")],
+    [],
+    [],
+    [terminal("loose", null, null, "build logs")],
+  );
+  await render(
+    <Sidebar
+      tree={tree}
+      selection={resolveSelection(tree, { taskId: null, entryId: "loose" })}
+      onSelectProject={() => undefined}
+      onSelectTask={() => undefined}
+      onSelectLoose={() => undefined}
+      onSelectEntry={() => undefined}
+      onRenameEntry={() => undefined}
+      onCloseTerminal={() => undefined}
+      onStopSession={() => undefined}
+      onRestartSession={() => undefined}
+      onRemoveSession={() => undefined}
+      onToggleSettle={() => undefined}
+      onRemoveTask={() => undefined}
+      onAddProject={() => undefined}
+      onNewTask={() => undefined}
+      onNewTerminal={() => undefined}
+      onNewAgent={() => undefined}
+      onFindTask={() => undefined}
+    />,
+  );
+
+  await expect.element(nav().getByRole("button", { name: "build logs" })).toBeVisible();
+  await expect.element(nav().getByRole("button", { name: "close build logs" })).toBeVisible();
+  await expect.element(nav().getByRole("button", { name: /^sh · / })).not.toBeInTheDocument();
+});
+
+test("only the selected row offers a rename, and it names the entry", async () => {
+  const { rendered, handlers } = renderSidebar({ taskId: "a", entryId: "s2" });
+  await rendered;
+
+  await expect.element(nav().getByRole("button", { name: /^rename / })).toHaveLength(1);
+  await nav().getByRole("button", { name: "rename claude" }).click();
+
+  expect(handlers.onRenameEntry).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "session", id: "s2" }),
+  );
 });

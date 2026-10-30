@@ -12,6 +12,7 @@ import {
   ConfigProblemsNotice,
   formatBinding,
 } from "../keymap/index.ts";
+import { RenameEntryDialog } from "./rename-entry-dialog.tsx";
 import { Sidebar } from "./sidebar.tsx";
 import { FindTaskDialog } from "./find-task-dialog.tsx";
 import { useWorkspace } from "./use-workspace.ts";
@@ -58,6 +59,8 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
     stopSession,
     restartSession,
     removeSession,
+    openRenameEntry,
+    renameEntry,
     selectEntry,
     toggleSettle,
     openNewTask,
@@ -87,6 +90,7 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
           onSelectTask={showTask}
           onSelectLoose={() => choose({ taskId: null, entryId: undefined })}
           onSelectEntry={selectEntry}
+          onRenameEntry={openRenameEntry}
           onCloseTerminal={(id) => void closeTerminal(id)}
           onStopSession={(session) => void stopSession(session)}
           onRestartSession={(session) => void restartSession(session)}
@@ -171,6 +175,16 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
         <RemoveSessionDialog
           session={dialog.session}
           onRemove={() => removeSession(dialog.session)}
+          onClose={() => setDialog(undefined)}
+        />
+      )}
+      {dialog?.kind === "rename-entry" && (
+        <RenameEntryDialog
+          target={dialog.target}
+          onSave={async (label) => {
+            await renameEntry(dialog.target, label);
+            setDialog(undefined);
+          }}
           onClose={() => setDialog(undefined)}
         />
       )}

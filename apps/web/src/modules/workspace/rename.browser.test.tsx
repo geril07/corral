@@ -1,0 +1,112 @@
+import { expect, test, vi } from "vite-plus/test";
+import { page, userEvent } from "vite-plus/test/browser";
+import { render } from "vitest-browser-react";
+import {
+  prefixShifted,
+  prefixThen,
+  realServerClients,
+  screenText,
+} from "../../../test/real-client.ts";
+import { App, renderApp } from "../../../test/render-app.tsx";
+import { appWithProject, createTask, workspace } from "../../../test/task-flows.tsx";
+
+const { newClient } = realServerClients();
+const palette = () => page.getByRole("dialog", { name: "Command palette" });
+const dialog = () => page.getByRole("dialog", { name: /^Rename / });
+const nameField = () => dialog().getByRole("textbox", { name: "Name" });
+const row = (name: string) => workspace().getByRole("button", { name, exact: true });
+const naturalLooseRows = () => workspace().getByRole("button", { name: /^sh · / });
+
+/** Renames the entry that is current in the sidebar through its key, replacing whatever is there. */
+async function renameCurrent(name: string) {
+  await prefixShifted("r");
+  await expect.element(nameField()).toHaveFocus();
+  await userEvent.fill(nameField(), name);
+  await userEvent.keyboard("{Enter}");
+  await expect.element(dialog()).not.toBeInTheDocument();
+}
+
+test("a loose terminal is renamed from the palette, and every client sees the name", async () => {
+  await render(<App client={newClient()} />);
+  await prefixThen("c");
+  await expect.element(naturalLooseRows()).toHaveLength(1);
+
+  await prefixThen(" ");
+  await expect
+    .element(palette().getByRole("option", { name: /Rename session/ }))
+    .toHaveAttribute("aria-disabled", "false");
+  await userEvent.keyboard("rename session{Enter}");
+
+  await expect.element(nameField()).toHaveFocus();
+  await userEvent.fill(nameField(), "build logs");
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(dialog()).not.toBeInTheDocument();
+  await expect.element(row("build logs")).toHaveAttribute("aria-current", "true");
+  const other = newClient();
+  await vi.waitFor(() =>
+    expect(other.terminals.getSnapshot().terminals.map((terminal) => terminal.label)).toEqual([
+      "build logs",
+    ]),
+  );
+});
+
+test("Escape keeps the old name and an empty name brings the natural one back", async () => {
+  await render(<App client={newClient()} />);
+  await prefixThen("c");
+  await renameCurrent("build logs");
+
+  await prefixShifted("r");
+  await expect.element(nameField()).toHaveValue("build logs");
+  await userEvent.fill(nameField(), "cancelled");
+  await userEvent.keyboard("{Escape}");
+  await expect.element(dialog()).not.toBeInTheDocument();
+  await expect.element(row("build logs")).toBeVisible();
+
+  await renameCurrent("   ");
+  await expect.element(naturalLooseRows()).toHaveLength(1);
+});
+
+test("a renamed terminal keeps its name when the app is opened again", async () => {
+  const first = await renderApp(newClient());
+  await prefixThen("c");
+  await renameCurrent("build logs");
+  await first.unmount();
+
+  await renderApp(newClient());
+
+  await expect.element(row("build logs")).toBeVisible();
+});
+
+test("a task session is renamed without restarting it, and custom names keep the duplicate numbering intact", async () => {
+  await appWithProject(newClient());
+  await createTask("Named");
+  await prefixThen("c");
+  await expect.element(row("shell 2")).toBeVisible();
+  await userEvent.keyboard("echo before-$((6*7)){Enter}");
+  await expect.poll(screenText).toContain("before-42");
+
+  await row("shell").click();
+  await renameCurrent("build");
+
+  await expect.element(row("build")).toHaveAttribute("aria-current", "true");
+  await expect.element(row("shell 2")).toBeVisible();
+  await userEvent.keyboard("echo after-$((7*7)){Enter}");
+  await expect.poll(screenText).toContain("after-49");
+
+  await row("build").click();
+  await renameCurrent("");
+  await expect.element(row("shell")).toBeVisible();
+  await expect.element(row("shell 2")).toBeVisible();
+  await expect.element(dialog()).not.toBeInTheDocument();
+});
+
+test("the rename action is disabled while no session or terminal is selected", async () => {
+  await render(<App client={newClient()} />);
+
+  await prefixThen(" ");
+
+  await expect
+    .element(palette().getByRole("option", { name: /Rename session/ }))
+    .toHaveAttribute("aria-disabled", "true");
+});

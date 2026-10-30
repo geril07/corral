@@ -33,7 +33,7 @@ test("a config file rebinds an action and the key hint follows it", async () => 
   await applyConfig(client, '[keys.bindings]\nnew-agent = "a"\n', () =>
     expect(client.config.getSnapshot().config.keys.bindings["new-agent"]).toBe("a"),
   );
-  await expect.element(keyHint()).toMatchTextContent("alt+a then c a x");
+  await expect.element(keyHint()).toMatchTextContent("alt+a then c a x r shift+r");
 
   await prefixThen(" ");
   await expect.element(paletteItem(/New agent session/)).toMatchTextContent("alt+a a");

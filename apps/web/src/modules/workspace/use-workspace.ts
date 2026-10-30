@@ -1,6 +1,7 @@
 import { buildBoard, mostUrgentBlocked, type BoardRow } from "@corral/client/board";
 import { createConfigKeymap } from "@corral/client/prefix-keymap";
 import { describeError } from "@corral/client/rpc-errors";
+import { sessionLabels } from "@corral/client/session-labels";
 import { activeAfterClose, stepActive } from "@corral/client/terminal-selection";
 import {
   buildWorkspaceTree,
@@ -24,6 +25,8 @@ import type {
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useCorralClient, useConnection } from "../connection/index.ts";
 import { formatBinding, useConfig, usePrefixMode, type ActionTable } from "../keymap/index.ts";
+import type { RenameTarget } from "./rename-entry-dialog.tsx";
+import { terminalLabel } from "./sidebar.tsx";
 import { chosenToSearch, searchToChosen, type WorkspaceSearch } from "./workspace-search.ts";
 
 const DEFAULT_SIZE: TerminalSize = { cols: 80, rows: 24 };
@@ -35,6 +38,7 @@ export type DialogState =
   | { kind: "pick-agent"; taskId: string }
   | { kind: "remove-session"; session: Session }
   | { kind: "find-task" }
+  | { kind: "rename-entry"; target: RenameTarget }
   | { kind: "command-palette" }
   | { kind: "config-problems" };
 
@@ -155,6 +159,30 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
     await api.sessions.remove({ id: session.id });
     setDialog(undefined);
     if (session.id === selection.entryId) choose({ taskId: session.taskId, entryId: next });
+  };
+
+  /** The name the sidebar shows for the entry now; a rename dialog is titled with it. */
+  const displayedName = (entry: Entry) =>
+    entry.type === "terminal"
+      ? terminalLabel(entry.terminal)
+      : (sessionLabels(sessions.filter((each) => each.taskId === entry.session.taskId)).get(
+          entry.session.id,
+        ) ?? entry.session.kind);
+
+  const openRenameEntry = (entry: Entry) =>
+    setDialog({
+      kind: "rename-entry",
+      target: {
+        type: entry.type,
+        id: entry.type === "terminal" ? entry.terminal.id : entry.session.id,
+        name: displayedName(entry),
+        label: (entry.type === "terminal" ? entry.terminal.label : entry.session.label) ?? null,
+      },
+    });
+
+  const renameEntry = async (target: RenameTarget, label: string | null) => {
+    if (target.type === "terminal") await api.terminals.setLabel({ id: target.id, label });
+    else await api.sessions.setLabel({ id: target.id, label });
   };
 
   const selectEntry = (entry: Entry) =>
@@ -279,6 +307,14 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
       run: () => {
         if (currentSession && currentSession.state !== "running")
           void restartSession(currentSession);
+      },
+    },
+    "rename-session": {
+      label: "Rename session",
+      group: "Sessions",
+      enabled: current !== undefined,
+      run: () => {
+        if (current) openRenameEntry(current);
       },
     },
     "remove-session": {
@@ -406,6 +442,8 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
     stopSession,
     restartSession,
     removeSession,
+    openRenameEntry,
+    renameEntry,
     selectEntry,
     jumpTo,
     toggleSettle,
