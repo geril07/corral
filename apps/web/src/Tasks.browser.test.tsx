@@ -2,47 +2,24 @@ import type { CorralClient } from "@corral/client/corral-client";
 import type { Task } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
-import { render } from "vitest-browser-react";
-import { createGitRepo } from "../test/git-repo.ts";
 import { prefixShifted, prefixThen, screenText, realServerClients } from "../test/real-client.ts";
-import { App } from "./App.tsx";
+import {
+  addProjectDialog,
+  appWithProject as openProject,
+  createTask,
+  focusedIsTerminal,
+  newTaskDialog,
+  shellButtons,
+  taskButton,
+  workspace,
+} from "../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 
-const workspace = () => page.getByRole("navigation", { name: "workspace" });
-const taskButton = (title: string) =>
-  workspace().getByRole("button", { name: new RegExp(`^${title}`) });
-const shellButtons = () => workspace().getByRole("button", { name: /^shell/ });
 const looseButtons = () => workspace().getByRole("button", { name: /^sh · / });
-const focusedIsTerminal = () => document.activeElement?.classList.contains("xterm-helper-textarea");
-
-const addProjectDialog = () => page.getByRole("dialog", { name: "Add project" });
-const newTaskDialog = () => page.getByRole("dialog", { name: "New task" });
 const removeTaskDialog = () => page.getByRole("alertdialog");
 
-/** An app on the real server with one project added through the dialog. */
-async function appWithProject(branches: string[] = []) {
-  const client = newClient();
-  const repo = await createGitRepo("repo", branches);
-  await render(<App client={client} prefix="alt+a" />);
-  await prefixShifted("p");
-  await expect.element(addProjectDialog().getByRole("textbox")).toHaveFocus();
-  await userEvent.keyboard(`${repo}{Enter}`);
-  await expect.element(addProjectDialog()).not.toBeInTheDocument();
-  await expect.element(workspace().getByRole("button", { name: /^repo-/ })).toBeVisible();
-  return { client, repo };
-}
-
-/** Creates a task from the keyboard with a new branch and waits for its shell. */
-/** `shellCount` is how many shell sessions the sidebar lists afterwards, all tasks together. */
-async function createTask(title: string, shellCount = 1) {
-  await prefixThen("t");
-  await expect.element(newTaskDialog().getByRole("textbox", { name: "Title" })).toHaveFocus();
-  await userEvent.keyboard(`${title}{Enter}`);
-  await expect.element(newTaskDialog()).not.toBeInTheDocument();
-  await expect.element(taskButton(title)).toHaveAttribute("aria-current", "true");
-  await expect.element(shellButtons()).toHaveLength(shellCount);
-}
+const appWithProject = (branches: string[] = []) => openProject(newClient(), branches);
 
 /** The screen with wrapped lines joined, so a long path is found whatever the width. */
 const wrappedScreen = () => screenText().replaceAll("\n", "");

@@ -2,6 +2,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite-plus";
 import { playwright } from "vite-plus/test/browser-playwright";
 import { createGitRepo } from "./test/git-repos.ts";
+import { agentLaunches, serverEnv } from "./test/server-agents.ts";
 
 export default defineConfig({
   // Relative asset paths so Electron can load the build from a file:// URL.
@@ -17,7 +18,7 @@ export default defineConfig({
       enabled: true,
       headless: true,
       provider: playwright(),
-      commands: { createGitRepo },
+      commands: { createGitRepo, agentLaunches, serverEnv },
       instances: [{ browser: "chromium" }],
     },
   },

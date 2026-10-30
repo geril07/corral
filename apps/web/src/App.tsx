@@ -1,6 +1,7 @@
 import type { CorralClient } from "@corral/client/corral-client";
 import { createPrefixKeymap } from "@corral/client/prefix-keymap";
 import { describeError } from "@corral/client/rpc-errors";
+import { describeSessionState } from "@corral/client/session-state";
 import { activeAfterClose, stepActive } from "@corral/client/terminal-selection";
 import {
   buildWorkspaceTree,
@@ -324,7 +325,11 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
             client={client}
             terminal={current.terminal}
             onFit={rememberFitSize}
-            exitHint={currentSession ? `Press ${prefix}, then r to start it again.` : undefined}
+            exitHint={
+              currentSession
+                ? `${describeSessionState(currentSession).note ?? ""} Press ${prefix}, then r.`
+                : undefined
+            }
           />
         ) : currentSession && currentSession.state !== "running" ? (
           <StoppedSession

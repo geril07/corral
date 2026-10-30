@@ -3,11 +3,13 @@ import type { TestProject } from "vite-plus/test/node";
 import { SERVER_URL_KEY } from "./server-url-key.ts";
 import { startServer } from "../../server/src/transport/server.ts";
 import { removeGitRepos } from "./git-repos.ts";
+import { useFakeAgents } from "./server-agents.ts";
 
 /** Vitest global setup: one real server per run; tests clear its terminals between them. */
 export default async function setup(project: TestProject) {
   // Terminals created without a command run $SHELL; a plain sh keeps prompts predictable.
   process.env.SHELL = "/bin/sh";
+  const removeAgents = useFakeAgents();
   const server = await startServer({ host: "127.0.0.1", port: 0 });
   // The provided-context interface can only be augmented through the vitest package, which
   // apps/web does not depend on directly, so its keys are typed `never` here.
@@ -16,5 +18,6 @@ export default async function setup(project: TestProject) {
   return async () => {
     await server.close();
     removeGitRepos();
+    removeAgents();
   };
 }
