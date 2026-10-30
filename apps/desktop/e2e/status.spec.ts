@@ -52,6 +52,8 @@ test("a blocked agent shows in the sidebar and on the board, and Enter jumps to 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyB");
   const board = window.getByRole("dialog", { name: "Board" });
+  // Keys reach the board only once it has taken focus from the terminal.
+  await expect(board.getByRole("listbox")).toBeFocused();
   const alphaRow = board.getByRole("option", { name: /Alpha/ });
   await expect(alphaRow).toContainText("blocked · permission");
   await expect(alphaRow).toContainText("Run rm -rf build?");
@@ -72,6 +74,7 @@ test("a blocked agent shows in the sidebar and on the board, and Enter jumps to 
   await expect(blocked).toHaveCount(0);
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyB");
+  await expect(board.getByRole("listbox")).toBeFocused();
   await expect(board.getByRole("option", { name: /Alpha/ })).toContainText("done");
   await expect(board.getByRole("option", { name: /Alpha/ })).toContainText("All green");
   await window.keyboard.press("Escape");
