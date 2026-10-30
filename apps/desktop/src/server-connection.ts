@@ -34,6 +34,22 @@ export interface EnsureServerOptions {
   startTimeoutMs: number;
 }
 
+/**
+ * The endpoint file's current target, read fresh every time. A restarted server publishes a new
+ * capability under the same path; callers must not cache an older one.
+ */
+export async function currentServerTarget(stateDir: string): Promise<ServerTarget | undefined> {
+  const endpoint = await findLiveServer(stateDir);
+  if (
+    endpoint === undefined ||
+    endpoint.protocolVersion !== PROTOCOL_VERSION ||
+    endpoint.capability === undefined
+  ) {
+    return undefined;
+  }
+  return { url: endpoint.url, capability: endpoint.capability };
+}
+
 /** Reuses the live server named by the endpoint file, else starts a detached one. */
 export async function ensureServer(options: EnsureServerOptions): Promise<ServerConnection> {
   const running = await findLiveServer(options.stateDir);

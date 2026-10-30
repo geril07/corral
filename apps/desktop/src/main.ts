@@ -3,8 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DESKTOP_SERVER_CHANNEL } from "@corral/protocol/desktop-bridge";
 import { resolveStateDir } from "@corral/protocol/server-endpoint";
-import type { ServerTarget } from "@corral/protocol/server-target";
-import { ensureServer } from "./server-connection.ts";
+import { currentServerTarget, ensureServer } from "./server-connection.ts";
 import { errorPageUrl } from "./window-pages.ts";
 import { externalUrl, isAppNavigation } from "./external-links.ts";
 
@@ -17,11 +16,12 @@ const serverEntry = path.join(import.meta.dirname, "../../server/src/main.ts");
 const preload = path.join(import.meta.dirname, "preload.cjs");
 const SERVER_START_TIMEOUT_MS = 15_000;
 
-let serverTarget: ServerTarget | undefined;
+const stateDir = resolveStateDir(process.env, os.homedir());
 let mainWindow: BrowserWindow | undefined;
 // The page asks for this after it loads; the capability never enters the page URL. Only the
-// trusted top frame of our window gets an answer, never a popup or a sub-frame.
-ipcMain.handle(DESKTOP_SERVER_CHANNEL, (event) => {
+// trusted top frame of our window gets an answer, never a popup or a sub-frame. Read the
+// endpoint every time: a server restart rotates the capability.
+ipcMain.handle(DESKTOP_SERVER_CHANNEL, async (event) => {
   if (
     mainWindow === undefined ||
     event.sender !== mainWindow.webContents ||
@@ -29,7 +29,7 @@ ipcMain.handle(DESKTOP_SERVER_CHANNEL, (event) => {
   ) {
     return null;
   }
-  return serverTarget ?? null;
+  return (await currentServerTarget(stateDir)) ?? null;
 });
 
 async function openWindow() {
@@ -52,7 +52,7 @@ async function openWindow() {
     return { action: "deny" };
   });
   const connection = await ensureServer({
-    stateDir: resolveStateDir(process.env, os.homedir()),
+    stateDir,
     serverEntry,
     startTimeoutMs: SERVER_START_TIMEOUT_MS,
   });
@@ -60,8 +60,6 @@ async function openWindow() {
     await window.loadURL(errorPageUrl(connection));
     return;
   }
-  serverTarget = connection.server;
-
   const devUrl = process.env.CORRAL_WEB_URL;
   if (devUrl) {
     const url = new URL(devUrl);

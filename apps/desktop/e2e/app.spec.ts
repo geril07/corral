@@ -6,10 +6,12 @@ import {
   test as base,
   type ElectronApplication,
 } from "@playwright/test";
+import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { addProject, createRepo, createTask, workspace } from "./app-helpers.ts";
 
 interface Fixtures {
   stateDir: string;
@@ -126,11 +128,11 @@ test("a reload reconnects through the preload bridge and keeps the hash route", 
   launchApp,
 }) => {
   const window = await openedWindow(await launchApp());
-  const workspace = window.getByRole("navigation", { name: "workspace" });
+  const nav = window.getByRole("navigation", { name: "workspace" });
   await expect(window.getByText("No terminals")).toBeVisible();
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyC");
-  await expect(workspace.getByRole("button", { name: /^sh · / })).toHaveCount(1);
+  await expect(nav.getByRole("button", { name: /^sh · / })).toHaveCount(1);
 
   await window.evaluate("window.location.hash = '#/board'");
   await expect(window).toHaveURL(/#\/board$/);
@@ -140,7 +142,7 @@ test("a reload reconnects through the preload bridge and keeps the hash route", 
   await expect(window).toHaveURL(/#\/board$/);
   // Back on the workspace after the reload, the terminal list comes from the reconnected RPC.
   await window.evaluate("window.location.hash = '#/'");
-  await expect(workspace.getByRole("button", { name: /^sh · / })).toHaveCount(1);
+  await expect(nav.getByRole("button", { name: /^sh · / })).toHaveCount(1);
 });
 
 test("the server outlives the app and the next launch reuses it", async ({
@@ -160,6 +162,71 @@ test("the server outlives the app and the next launch reuses it", async ({
   const window = await openedWindow(second);
   expect(readEndpoint(stateDir)?.pid).toBe(pid);
   expect(new URL(window.url()).searchParams.get("server")).toBe(started?.url);
+});
+
+function startServer(stateDir: string): void {
+  const child = spawn(
+    process.execPath,
+    [path.join(import.meta.dirname, "../../server/src/main.ts")],
+    {
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        CORRAL_STATE_DIR: stateDir,
+        CORRAL_DATA_DIR: `${stateDir}/data`,
+        CORRAL_CONFIG_DIR: `${stateDir}/config`,
+        SHELL: "/bin/sh",
+      },
+    },
+  );
+  child.unref();
+}
+
+test("a server restart with a new capability reconnects without quitting the app", async ({
+  launchApp,
+  stateDir,
+}) => {
+  const repo = createRepo(stateDir);
+  const window = await openedWindow(await launchApp());
+  await addProject(window, repo);
+  await createTask(window, "Survives restart");
+  const selectedTask = workspace(window).getByRole("button", { name: /^Survives restart/ });
+  await expect(selectedTask).toHaveAttribute("aria-current", "true");
+
+  const before = readEndpoint(stateDir);
+  const oldPid = before?.pid ?? 0;
+  const oldCapability = before?.capability;
+  expect(oldCapability).toBeDefined();
+  process.kill(oldPid, "SIGKILL");
+  await expect.poll(() => isAlive(oldPid), { timeout: 5_000 }).toBe(false);
+
+  startServer(stateDir);
+  await expect
+    .poll(
+      () => {
+        const current = readEndpoint(stateDir);
+        return current !== undefined && current.pid !== oldPid ? current.capability : undefined;
+      },
+      { timeout: 20_000 },
+    )
+    .not.toBe(oldCapability);
+
+  await expect(window.getByRole("status", { name: "connection", exact: true })).toContainText(
+    "Connected",
+  );
+  await expect(selectedTask).toHaveAttribute("aria-current", "true");
+
+  const shells = workspace(window).getByRole("button", { name: /^shell(?: \d+)?$/ });
+  const beforeCount = await shells.count();
+  await window.keyboard.press("Alt+KeyA");
+  await window.keyboard.press("KeyC");
+  await expect(shells).toHaveCount(beforeCount + 1);
+  await window.keyboard.type("echo after-restart-$((4*5))");
+  await window.keyboard.press("Enter");
+  await expect
+    .poll(() => window.evaluate<string>('window.corralScreenText?.() ?? ""'))
+    .toContain("after-restart-20");
 });
 
 test("a live server on another protocol version is reported in the window and left running", async ({
