@@ -1,11 +1,15 @@
 import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
 import type { TerminalInfo } from "@corral/protocol/rpc";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, vi } from "vite-plus/test";
 // The one place client code reaches into the server: these tests run the real thing.
 import { startServer, type RunningServer } from "../../../apps/server/src/transport/server.ts";
 import { createCorralClient, type CorralClient } from "../src/corral-client.ts";
 import type { ReadableStore } from "../src/store.ts";
 import type { TerminalStream } from "../src/terminal-stream.ts";
+import { initRepo } from "./git-repo.ts";
 import { TcpProxy } from "./tcp-proxy.ts";
 import { TestTerminal } from "./test-terminal.ts";
 
@@ -41,9 +45,11 @@ export function useServer() {
   // Tests wait on deadlines of their own and report what they waited for.
   vi.setConfig({ testTimeout: 30_000 });
   let server: RunningServer;
+  let scratchDir: string;
   let cleanups: (() => void | Promise<void>)[] = [];
 
   beforeEach(async () => {
+    scratchDir = await realpath(await mkdtemp(join(tmpdir(), "corral-client-test-")));
     server = await startServer({ host: "127.0.0.1", port: 0 });
   });
   afterEach(async () => {
@@ -51,6 +57,7 @@ export function useServer() {
     for (const cleanup of cleanups.toReversed()) await cleanup();
     cleanups = [];
     await server.close();
+    await rm(scratchDir, { recursive: true, force: true });
   });
 
   function connect(serverUrl = server.url): CorralClient {
@@ -64,6 +71,10 @@ export function useServer() {
       return server.url;
     },
     connect,
+    /** A git repository on `main` with one commit, in a directory that is deleted after the test. */
+    repo(name = "repo"): string {
+      return initRepo(join(scratchDir, name));
+    },
     /** Opens a client and waits until it is connected. */
     async connected(serverUrl?: string): Promise<CorralClient> {
       const client = connect(serverUrl);
