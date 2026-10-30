@@ -2,6 +2,7 @@
 
 A keyboard-first workspace for running coding agents, for people who live in the terminal.
 Replaces Herdr for its author; Orca and T3 Code (`.refs/`) are references, not bases.
+Client UI rules: `ux.md`.
 
 ## Decisions
 
