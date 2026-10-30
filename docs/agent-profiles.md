@@ -106,6 +106,18 @@ env = [{ targetName = "OPENAI_API_KEY", fromEnv = "TEAM_OPENAI_KEY" }]
 Unknown model/provider ids are not discovered or guessed. Codex's provider is checked only by
 Codex itself, at request time.
 
+The same table is exported for clients, so a picker does not duplicate the rules:
+
+```ts
+import { AGENT_LAUNCH_CAPABILITY } from "@corral/protocol/config";
+
+AGENT_LAUNCH_CAPABILITY.opencode;
+// { model: false, provider: false, providerRequiresModel: false }
+```
+
+Each entry has `model`, `provider` and `providerRequiresModel` booleans. The server validates with
+it; clients may hide an unsupported input but still must handle the server's refusal.
+
 ### Environment references
 
 - Only names are stored, sent to clients, written to SQLite and logged. Values are resolved from
@@ -203,9 +215,10 @@ after a successful launch.
 ```
 
 The settings surface can therefore show effective profiles, display names, native
-model/provider, environment **reference names**, capability hints and configuration problems. It
-must not ask for or display resolved values; the server never sends them. To start a session,
-send `profileId` and optionally `model`; the server validates them and returns the snapshot.
+model/provider, environment **reference names**, capability hints from
+`AGENT_LAUNCH_CAPABILITY` (`@corral/protocol/config`) and configuration problems. It must not ask
+for or display resolved values; the server never sends them. To start a session, send `profileId`
+and optionally `model`; the server validates them and returns the snapshot.
 
 ## Security
 

@@ -1,4 +1,8 @@
-import type { AgentKind } from "@corral/protocol/config";
+import {
+  AGENT_LAUNCH_CAPABILITY,
+  type AgentKind,
+  type AgentLaunchCapability,
+} from "@corral/protocol/config";
 
 /** A native model id, passed as one argv value: no whitespace and no control characters. */
 export const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/;
@@ -34,11 +38,12 @@ export function launchChoiceProblems({
   provider,
 }: LaunchChoice): LaunchChoiceProblem[] {
   const problems: LaunchChoiceProblem[] = [];
+  const capability: AgentLaunchCapability = AGENT_LAUNCH_CAPABILITY[kind];
   if (model !== undefined && model !== null) {
-    if (kind === "opencode") {
+    if (!capability.model) {
       problems.push({
         field: "model",
-        message: "opencode has no model flag on its launch command; a profile for it is env-only",
+        message: `${kind} has no model flag on its launch command; a profile for it is env-only`,
       });
     } else if (!MODEL_ID.test(model)) {
       problems.push({
@@ -48,23 +53,20 @@ export function launchChoiceProblems({
     }
   }
   if (provider !== undefined && provider !== null) {
-    if (kind === "claude") {
-      problems.push({
-        field: "provider",
-        message: "claude has no provider flag; route it with environment references instead",
-      });
-    } else if (kind === "opencode") {
+    if (!capability.provider) {
       problems.push({
         field: "provider",
         message:
-          "opencode has no provider flag on its launch command; a profile for it is env-only",
+          kind === "claude"
+            ? "claude has no provider flag; route it with environment references instead"
+            : `${kind} has no provider flag on its launch command; a profile for it is env-only`,
       });
     } else if (!PROVIDER_ID.test(provider)) {
       problems.push({
         field: "provider",
         message: "the provider is not a valid native provider id (letters, digits, . _ -)",
       });
-    } else if (kind === "pi" && (model === undefined || model === null)) {
+    } else if (capability.providerRequiresModel && (model === undefined || model === null)) {
       problems.push({
         field: "provider",
         message: "pi needs a model together with its provider",
@@ -76,5 +78,5 @@ export function launchChoiceProblems({
 
 /** Whether the agent has a launch flag for a model at all. */
 export function supportsModel(kind: AgentKind): boolean {
-  return kind !== "opencode";
+  return AGENT_LAUNCH_CAPABILITY[kind].model;
 }

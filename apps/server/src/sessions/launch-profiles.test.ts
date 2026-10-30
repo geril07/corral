@@ -388,3 +388,56 @@ test("editing or deleting a profile and restarting keeps the snapshot and re-res
     else process.env[variable] = previous;
   }
 });
+
+test("a profile cannot move an agent's config home, and Codex discovery stays where the launch sees it", async () => {
+  vi.stubEnv("LAUNCH_OPENAI_KEY", "test-openai-key");
+  vi.stubEnv("FAKE_AGENT_LOG_ENV", "OPENAI_API_KEY");
+  const state = await writeConfig(
+    `
+[profiles.moved]
+name = "Moved Codex home"
+agent = "codex"
+env = [{ targetName = "CODEX_HOME", fromEnv = "SOME_OTHER_HOME" }]
+
+[profiles.codex]
+name = "Codex"
+agent = "codex"
+model = "gpt-5-codex"
+env = [{ targetName = "OPENAI_API_KEY", fromEnv = "LAUNCH_OPENAI_KEY" }]
+`,
+    (config) =>
+      config.profiles.some((profile) => profile.id === "codex") &&
+      config.problems.some((problem) => problem.path === "profiles.moved"),
+  );
+  expect(state.profiles.map((profile) => profile.id)).toEqual(["codex"]);
+  expect(state.problems).toEqual([
+    { severity: "error", path: "profiles.moved", message: "env may not set a reserved variable" },
+  ]);
+
+  const { api, task } = await addTask(server, "Same env");
+  const session = await api.sessions.start({
+    taskId: task.id,
+    kind: "codex",
+    size: SIZE,
+    profileId: "codex",
+  });
+  const [launch] = await launchesOf(agents, "codex", 1);
+  expect(launch!.envSentinels).toEqual({ OPENAI_API_KEY: "test-openai-key" });
+  await expect
+    .poll(
+      async () => (await sessionsOf(api)).find((entry) => entry.id === session.id)?.agentSessionId,
+      {
+        timeout: 10_000,
+      },
+    )
+    .toBe(launch!.rolloutId);
+
+  await api.sessions.stop({ id: session.id });
+  await api.sessions.restart({ id: session.id, size: SIZE });
+  expect((await launchesOf(agents, "codex", 2))[1]!.argv).toEqual([
+    "-m",
+    "gpt-5-codex",
+    "resume",
+    launch!.rolloutId,
+  ]);
+});

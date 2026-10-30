@@ -26,6 +26,20 @@ import { z } from "zod";
 export const AgentKind = z.enum(["claude", "codex", "pi", "opencode"]);
 export type AgentKind = z.infer<typeof AgentKind>;
 
+/** What a new-session picker may offer for each agent; the server validates with the same table. */
+export interface AgentLaunchCapability {
+  readonly model: boolean;
+  readonly provider: boolean;
+  readonly providerRequiresModel: boolean;
+}
+
+export const AGENT_LAUNCH_CAPABILITY = {
+  claude: { model: true, provider: false, providerRequiresModel: false },
+  codex: { model: true, provider: true, providerRequiresModel: false },
+  pi: { model: true, provider: true, providerRequiresModel: true },
+  opencode: { model: false, provider: false, providerRequiresModel: false },
+} as const satisfies Readonly<Record<AgentKind, AgentLaunchCapability>>;
+
 /** Every action a key can run, also listed in the command palette. */
 export const ActionId = z.enum([
   "new-terminal",
