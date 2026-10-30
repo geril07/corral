@@ -96,6 +96,7 @@ test("a named profile and a typed model reach the fake CLI and stay on the sessi
   await expect
     .element(workspace().getByRole("button", { name: /^claude Claude gateway/ }))
     .toBeVisible();
+  await expect.element(workspace().getByText("Claude gateway")).toBeVisible();
 
   // Stop, then change the profile in the file: the conversation keeps its snapshot.
   await prefixThen("x");
