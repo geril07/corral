@@ -22,12 +22,17 @@ import type {
   Task,
   TerminalSize,
 } from "@corral/protocol/rpc";
-import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useCorralClient, useConnection } from "../connection/index.ts";
 import { formatBinding, useConfig, usePrefixMode, type ActionTable } from "../keymap/index.ts";
 import type { RenameTarget } from "./rename-entry-dialog.tsx";
 import { terminalLabel } from "./sidebar.tsx";
-import { chosenToSearch, searchToChosen, type WorkspaceSearch } from "./workspace-search.ts";
+import {
+  chosenToSearch,
+  searchToChosen,
+  workspaceSearchEqual,
+  type WorkspaceSearch,
+} from "./workspace-search.ts";
 
 const DEFAULT_SIZE: TerminalSize = { cols: 80, rows: 24 };
 
@@ -64,9 +69,23 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
   );
   const [chosen, setChosen] = useState<Chosen>(() => searchToChosen(search));
   const chosenRef = useRef(chosen);
+  const routeSearchRef = useRef(search);
   const [dialog, setDialog] = useState<DialogState>();
   const [failure, setFailure] = useState<string>();
   const fitSize = useRef(DEFAULT_SIZE);
+
+  // The URL is the source of truth for Back/Forward and for a route search that arrives after
+  // the first render. Local choices already update the URL, so applying the echo changes nothing.
+  useEffect(() => {
+    if (workspaceSearchEqual(search, routeSearchRef.current)) return;
+    routeSearchRef.current = search;
+    const fromRoute = searchToChosen(search);
+    if (workspaceSearchEqual(chosenToSearch(fromRoute), chosenToSearch(chosenRef.current))) {
+      return;
+    }
+    chosenRef.current = fromRoute;
+    setChosen(fromRoute);
+  }, [search]);
 
   const tree = buildWorkspaceTree(projects, tasks, sessions, terminals);
   const selection = resolveSelection(tree, chosen);

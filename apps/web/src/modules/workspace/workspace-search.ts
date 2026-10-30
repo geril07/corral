@@ -12,6 +12,11 @@ export const workspaceSearchSchema = z.object({
 
 export type WorkspaceSearch = z.infer<typeof workspaceSearchSchema>;
 
+/** True when two route searches describe the same project, task and entry intent. */
+export function workspaceSearchEqual(a: WorkspaceSearch, b: WorkspaceSearch): boolean {
+  return a.project === b.project && a.task === b.task && a.entry === b.entry;
+}
+
 /** Search params that do not validate fall back to the empty selection instead of failing the route. */
 export function validateWorkspaceSearch(input: Record<string, unknown>): WorkspaceSearch {
   const parsed = workspaceSearchSchema.safeParse(input);
