@@ -77,8 +77,11 @@ export const Task = z.object({
   workspacePath: z.string(),
   /** True when the workspace is a worktree this task created and owns. */
   ownsWorktree: z.boolean(),
-  /** Set by the user; derived agent status arrives with agent sessions. */
-  state: z.enum(["active", "archived"]),
+  /**
+   * Set by the user. `settled`: the work is done; the task keeps its worktree and branch but
+   * runs nothing. Derived agent status arrives with agent sessions.
+   */
+  state: z.enum(["active", "settled"]),
   /** Epoch milliseconds. */
   createdAt: z.number(),
 });
@@ -171,6 +174,10 @@ export const contract = {
       .errors({ ...projectNotFound, ...gitFailed })
       .input(CreateTaskInput)
       .output(Task),
+    /**
+     * Settling stops the task's running sessions and remembers which ones ran; making it
+     * active again starts exactly those (agents resume). Setting the current state is a no-op.
+     */
     setState: oc
       .errors(taskNotFound)
       .input(z.object({ id: TaskId, state: Task.shape.state }))

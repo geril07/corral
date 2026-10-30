@@ -45,7 +45,7 @@ Replaces Herdr for its author; Orca and T3 Code (`.refs/`) are references, not b
 ## Domain model
 
 - **Project**: a git repository, added by path.
-- **Task**: title, state (active / archived), branch, workspace. The workspace is one of: a new worktree on a new branch (default; branch named from the title, off the project's default branch), a new worktree on an existing branch, or the project's main working tree (no worktree).
+- **Task**: title, state (active / settled), branch, workspace. Settled means the work is done (T3 Code's "settle"): the task moves to a collapsed shelf, keeps its worktree and branch, and its running sessions are stopped; making it active again resumes the sessions that were running. Automatic settling (pull request merged, inactivity) comes later. The workspace is one of: a new worktree on a new branch (default; branch named from the title, off the project's default branch), a new worktree on an existing branch, or the project's main working tree (no worktree).
   - Worktrees live in the data dir (`~/.local/share/corral/worktrees/<project>/<task>`), not next to the repository, so they never show up in the user's repository directory.
   - Removing a task closes its terminals and removes the worktree it owns, but refuses a worktree with uncommitted or untracked changes unless forced. Branches are never deleted by Corral.
   - Projects and tasks persist in SQLite (`<data dir>/corral.db`); terminals do not (decision 12).
