@@ -20,6 +20,7 @@ test("a PTY whose headless backlog passes the limit is paused until it drains, a
     "flood",
     {
       taskId: null,
+      sessionId: null,
       command: "/bin/sh",
       args: ["-c", `yes '${LINE}' | head -n ${LINES}`],
       cwd: tmpdir(),

@@ -21,6 +21,15 @@ export const MIGRATIONS: readonly string[] = [
      created_at INTEGER NOT NULL
    ) STRICT;
    CREATE INDEX tasks_by_project ON tasks(project_id);`,
+  `CREATE TABLE sessions (
+     id TEXT PRIMARY KEY,
+     task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+     kind TEXT NOT NULL,
+     agent_session_id TEXT,
+     state TEXT NOT NULL,
+     created_at INTEGER NOT NULL
+   ) STRICT;
+   CREATE INDEX sessions_by_task ON sessions(task_id);`,
 ];
 
 export const DATABASE_FILE = "corral.db";

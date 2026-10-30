@@ -8,6 +8,8 @@ import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { ProjectService } from "../projects/project-service.ts";
 import { ProjectStore } from "../projects/project-store.ts";
+import { SessionService } from "../sessions/session-service.ts";
+import { SessionStore } from "../sessions/session-store.ts";
 import { openDatabase } from "../storage/database.ts";
 import { TaskService } from "../tasks/task-service.ts";
 import { TaskStore } from "../tasks/task-store.ts";
@@ -35,14 +37,16 @@ export function startServer(options: {
   const database = openDatabase(dataDir);
   const terminals = new TerminalRegistry();
   const projectStore = new ProjectStore(database);
-  const tasks = new TaskService({
-    store: new TaskStore(database),
-    projects: projectStore,
+  const taskStore = new TaskStore(database);
+  const sessions = new SessionService({
+    store: new SessionStore(database),
+    tasks: taskStore,
     terminals,
-    dataDir,
   });
+  const tasks = new TaskService({ store: taskStore, projects: projectStore, sessions, dataDir });
   const projects = new ProjectService(projectStore, tasks);
-  const rpc = new RPCHandler(createRpcRouter({ projects, tasks, terminals }));
+  const rpc = new RPCHandler(createRpcRouter({ projects, tasks, sessions, terminals }));
+  sessions.restore();
   const http = createServer((_request, response) => response.writeHead(404).end());
   const wss = new WebSocketServer({ noServer: true });
 
@@ -69,6 +73,7 @@ export function startServer(options: {
   async function shutDown() {
     terminateAll(wss.clients);
     http.closeAllConnections();
+    await sessions.shutDown();
     await Promise.all([terminals.closeAll(), new Promise((done) => http.close(done))]);
     database.close();
     if (temporaryDataDir) rmSync(temporaryDataDir, { recursive: true, force: true });

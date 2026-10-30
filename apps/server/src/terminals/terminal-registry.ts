@@ -16,12 +16,17 @@ export class TerminalRegistry {
     return this.#sessions.get(id);
   }
 
-  create(input: CreateTerminalInput): TerminalInfo {
+  /** `owner` is the task and session the terminal runs for; a loose terminal has none. */
+  create(
+    input: CreateTerminalInput,
+    owner: { taskId: string; sessionId: string } | null = null,
+  ): TerminalInfo {
     const id = randomUUID();
     const session = new TerminalSession(
       id,
       {
-        taskId: input.taskId ?? null,
+        taskId: owner?.taskId ?? null,
+        sessionId: owner?.sessionId ?? null,
         command: input.command ?? process.env["SHELL"] ?? "/bin/sh",
         args: input.args ?? [],
         cwd: input.cwd ?? homedir(),
@@ -35,13 +40,13 @@ export class TerminalRegistry {
     return session.info;
   }
 
-  /** Kills and forgets the terminal; false when the id is unknown. */
-  close(id: string): boolean {
+  /** Forgets the terminal at once and resolves, once its process is gone, with whether the id was known. */
+  async close(id: string): Promise<boolean> {
     const session = this.#sessions.get(id);
     if (!session) return false;
     this.#sessions.delete(id);
-    void session.close();
     this.#changes.notify();
+    await session.close();
     return true;
   }
 
@@ -55,24 +60,6 @@ export class TerminalRegistry {
   /** Yields the list now and after every change; changes between two yields collapse into one. */
   watch(signal: AbortSignal | undefined): AsyncGenerator<TerminalInfo[]> {
     return this.#changes.watch(() => this.list(), signal);
-  }
-
-  /** Whether any of the tasks has a terminal whose process still runs. */
-  hasRunningIn(taskIds: ReadonlySet<string>): boolean {
-    return this.list().some(
-      (info) => info.taskId !== null && taskIds.has(info.taskId) && info.exit === null,
-    );
-  }
-
-  /** Kills and forgets every terminal of the tasks; resolves once the processes are gone. */
-  async closeAllIn(taskIds: ReadonlySet<string>): Promise<void> {
-    const doomed = [...this.#sessions.values()].filter((session) => {
-      const { taskId } = session.info;
-      return taskId !== null && taskIds.has(taskId);
-    });
-    for (const session of doomed) this.#sessions.delete(session.id);
-    if (doomed.length > 0) this.#changes.notify();
-    await Promise.all(doomed.map((session) => session.close()));
   }
 }
 

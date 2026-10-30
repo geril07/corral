@@ -27,10 +27,11 @@ import { SerialQueue } from "./serial-queue.ts";
 import type { TaskStore } from "./task-store.ts";
 import { isPlanFailure, planWorktree, type WorktreePlan } from "./worktree-plan.ts";
 
-/** What tasks need from the terminals that run in them. */
-export interface TaskTerminals {
+/** What tasks need from the sessions that run in them. */
+export interface TaskSessions {
   hasRunningIn(taskIds: ReadonlySet<string>): boolean;
-  closeAllIn(taskIds: ReadonlySet<string>): Promise<void>;
+  /** Stops and forgets every session of the tasks; resolves once the processes are gone. */
+  removeAllIn(taskIds: ReadonlySet<string>): Promise<void>;
 }
 
 const SHORT_PROJECT_ID_LENGTH = 8;
@@ -38,7 +39,7 @@ const SHORT_PROJECT_ID_LENGTH = 8;
 export class TaskService implements ProjectTasks {
   readonly #store: TaskStore;
   readonly #projects: ProjectStore;
-  readonly #terminals: TaskTerminals;
+  readonly #sessions: TaskSessions;
   readonly #worktreesDir: string;
   readonly #changes = new ChangeFeed();
   // Branch and directory names are picked, then used, with git calls in between.
@@ -47,12 +48,12 @@ export class TaskService implements ProjectTasks {
   constructor(options: {
     store: TaskStore;
     projects: ProjectStore;
-    terminals: TaskTerminals;
+    sessions: TaskSessions;
     dataDir: string;
   }) {
     this.#store = options.store;
     this.#projects = options.projects;
-    this.#terminals = options.terminals;
+    this.#sessions = options.sessions;
     this.#worktreesDir = join(options.dataDir, "worktrees");
   }
 
@@ -87,8 +88,8 @@ export class TaskService implements ProjectTasks {
 
   async closeTerminalsOf(projectId: string): Promise<void> {
     const ids = new Set(this.#store.idsOfProject(projectId));
-    if (this.#terminals.hasRunningIn(ids)) throw new HasLiveTerminalsError();
-    await this.#terminals.closeAllIn(ids);
+    if (this.#sessions.hasRunningIn(ids)) throw new HasLiveTerminalsError();
+    await this.#sessions.removeAllIn(ids);
   }
 
   tasksDropped(): void {
@@ -173,7 +174,7 @@ export class TaskService implements ProjectTasks {
       const files = await uncommittedPaths(task.workspacePath);
       if (files.length > 0) throw new WorktreeDirtyError(files);
     }
-    await this.#terminals.closeAllIn(new Set([id]));
+    await this.#sessions.removeAllIn(new Set([id]));
     if (worktreeOnDisk) {
       await removeWorktree(project.path, task.workspacePath, force);
     } else if (task.ownsWorktree) {

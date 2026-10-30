@@ -8,14 +8,20 @@ import {
   ProjectNotFoundError,
 } from "../projects/errors.ts";
 import type { ProjectService } from "../projects/project-service.ts";
+import {
+  AgentNotFoundError,
+  AlreadyRunningError,
+  SessionNotFoundError,
+} from "../sessions/errors.ts";
+import type { SessionService } from "../sessions/session-service.ts";
 import { TaskNotFoundError, WorktreeDirtyError } from "../tasks/errors.ts";
 import type { TaskService } from "../tasks/task-service.ts";
-import { createTerminal, InvalidTerminalRequestError } from "../terminals/create-terminal.ts";
 import type { TerminalRegistry } from "../terminals/terminal-registry.ts";
 
 export interface RpcServices {
   projects: ProjectService;
   tasks: TaskService;
+  sessions: SessionService;
   terminals: TerminalRegistry;
 }
 
@@ -31,7 +37,7 @@ async function translating<T>(
   }
 }
 
-export function createRpcRouter({ projects, tasks, terminals }: RpcServices) {
+export function createRpcRouter({ projects, tasks, sessions, terminals }: RpcServices) {
   const os = implement(contract);
   return os.router({
     projects: {
@@ -113,22 +119,60 @@ export function createRpcRouter({ projects, tasks, terminals }: RpcServices) {
       ),
       watch: os.tasks.watch.handler(({ signal }) => tasks.watch(signal)),
     },
-    terminals: {
-      list: os.terminals.list.handler(() => terminals.list()),
-      create: os.terminals.create.handler(({ input, errors }) =>
+    sessions: {
+      start: os.sessions.start.handler(({ input, errors }) =>
         translating(
-          () => createTerminal(terminals, (id) => tasks.get(id), input),
+          () => sessions.start(input.taskId, input.kind, input.size),
           (error) => {
             if (error instanceof TaskNotFoundError)
               return errors.TASK_NOT_FOUND({ data: { id: error.id } });
-            if (error instanceof InvalidTerminalRequestError)
-              return errors.BAD_REQUEST({ data: { message: error.message } });
+            if (error instanceof AgentNotFoundError)
+              return errors.AGENT_NOT_FOUND({ data: { command: error.command } });
             return undefined;
           },
         ),
       ),
-      close: os.terminals.close.handler(({ input, errors }) => {
-        if (!terminals.close(input.id)) throw errors.NOT_FOUND({ data: { id: input.id } });
+      restart: os.sessions.restart.handler(({ input, errors }) =>
+        translating(
+          () => sessions.restart(input.id, input.size),
+          (error) => {
+            if (error instanceof SessionNotFoundError)
+              return errors.SESSION_NOT_FOUND({ data: { id: error.id } });
+            if (error instanceof AlreadyRunningError) return errors.ALREADY_RUNNING();
+            if (error instanceof AgentNotFoundError)
+              return errors.AGENT_NOT_FOUND({ data: { command: error.command } });
+            return undefined;
+          },
+        ),
+      ),
+      stop: os.sessions.stop.handler(({ input, errors }) =>
+        translating(
+          () => sessions.stop(input.id),
+          (error) => {
+            if (error instanceof SessionNotFoundError)
+              return errors.SESSION_NOT_FOUND({ data: { id: error.id } });
+            return undefined;
+          },
+        ),
+      ),
+      remove: os.sessions.remove.handler(({ input, errors }) =>
+        translating(
+          () => sessions.remove(input.id),
+          (error) => {
+            if (error instanceof SessionNotFoundError)
+              return errors.SESSION_NOT_FOUND({ data: { id: error.id } });
+            return undefined;
+          },
+        ),
+      ),
+      watch: os.sessions.watch.handler(({ signal }) => sessions.watch(signal)),
+    },
+    terminals: {
+      list: os.terminals.list.handler(() => terminals.list()),
+      create: os.terminals.create.handler(({ input }) => terminals.create(input)),
+      close: os.terminals.close.handler(async ({ input, errors }) => {
+        if (!(await sessions.closeTerminal(input.id)))
+          throw errors.NOT_FOUND({ data: { id: input.id } });
       }),
       watch: os.terminals.watch.handler(({ signal }) => terminals.watch(signal)),
     },

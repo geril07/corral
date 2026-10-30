@@ -15,8 +15,9 @@ const DEFAULT_BACKLOG_LIMITS: BacklogLimits = { pauseBytes: 1024 * 1024, resumeB
 const KILL_GRACE_MS = 2000;
 
 export interface TerminalSpec {
-  /** The task the terminal belongs to; reported in `info`, not used to spawn. */
+  /** The task and session the terminal belongs to; reported in `info`, not used to spawn. */
   taskId: string | null;
+  sessionId: string | null;
   command: string;
   args: string[];
   cwd: string;
@@ -68,6 +69,8 @@ export class TerminalSession {
   #ptyPaused = false;
   #killTimer: NodeJS.Timeout | undefined;
   readonly #exited: Promise<void>;
+  readonly #exitRecorded: Promise<TerminalExit>;
+  #resolveExitRecorded!: (exit: TerminalExit) => void;
 
   constructor(
     id: string,
@@ -89,6 +92,7 @@ export class TerminalSession {
       env: spec.env,
       encoding: null,
     });
+    this.#exitRecorded = new Promise((resolve) => (this.#resolveExitRecorded = resolve));
     this.#exited = new Promise((resolve) => {
       this.#pty.onExit(({ exitCode, signal }) => {
         this.#processExited = true;
@@ -105,6 +109,7 @@ export class TerminalSession {
     return {
       id: this.id,
       taskId: this.#spec.taskId,
+      sessionId: this.#spec.sessionId,
       command: this.#spec.command,
       args: this.#spec.args,
       cwd: this.#spec.cwd,
@@ -116,6 +121,11 @@ export class TerminalSession {
   /** Most bytes ever queued in the headless terminal at once; stays near the pause level under a flood. */
   get peakBacklogBytes(): number {
     return this.#peakBacklogBytes;
+  }
+
+  /** Resolves once the process has exited and its last output is parsed; never, if the terminal is closed first. */
+  whenExitRecorded(): Promise<TerminalExit> {
+    return this.#exitRecorded;
   }
 
   /** The snapshot is the first thing the sink receives. */
@@ -183,6 +193,7 @@ export class TerminalSession {
     this.#exit = { exitCode, ...(signal ? { signal } : {}) };
     for (const attachment of this.#attachments) attachment.exit(this.#exit);
     this.#onChange();
+    this.#resolveExitRecorded(this.#exit);
   }
 
   resize(size: TerminalSize): void {
