@@ -50,6 +50,8 @@ export function useServer() {
 
   beforeEach(async () => {
     scratchDir = await realpath(await mkdtemp(join(tmpdir(), "corral-client-test-")));
+    // The server reads $CORRAL_CONFIG_DIR; never the developer's own ~/.config/corral.
+    vi.stubEnv("CORRAL_CONFIG_DIR", join(scratchDir, "config"));
     server = await startServer({ host: "127.0.0.1", port: 0 });
   });
   afterEach(async () => {
@@ -57,6 +59,7 @@ export function useServer() {
     for (const cleanup of cleanups.toReversed()) await cleanup();
     cleanups = [];
     await server.close();
+    vi.unstubAllEnvs();
     await rm(scratchDir, { recursive: true, force: true });
   });
 

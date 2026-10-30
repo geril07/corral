@@ -17,8 +17,9 @@ let listeners: net.Server[] = [];
 beforeEach(() => {
   stateDir = mkdtempSync(path.join(tmpdir(), "corral-desktop-"));
   options = { stateDir, serverEntry: SERVER_ENTRY, startTimeoutMs: 15_000 };
-  // The spawned server inherits our environment; keep its database out of the user's data dir.
+  // The spawned server inherits our environment; keep its database and config out of the user's dirs.
   vi.stubEnv("CORRAL_DATA_DIR", path.join(stateDir, "data"));
+  vi.stubEnv("CORRAL_CONFIG_DIR", path.join(stateDir, "config"));
 });
 
 afterEach(() => {

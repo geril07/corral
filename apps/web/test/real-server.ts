@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { TestProject } from "vite-plus/test/node";
 // The one place web code reaches into the server: browser tests run against the real thing.
 import { SERVER_URL_KEY } from "./server-url-key.ts";
@@ -9,6 +12,9 @@ import { useFakeAgents } from "./server-agents.ts";
 export default async function setup(project: TestProject) {
   // Terminals created without a command run $SHELL; a plain sh keeps prompts predictable.
   process.env.SHELL = "/bin/sh";
+  // The server reads $CORRAL_CONFIG_DIR; never the developer's own ~/.config/corral.
+  const configDir = mkdtempSync(join(tmpdir(), "corral-web-config-"));
+  process.env["CORRAL_CONFIG_DIR"] = configDir;
   const removeAgents = useFakeAgents();
   const server = await startServer({ host: "127.0.0.1", port: 0 });
   // The provided-context interface can only be augmented through the vitest package, which
@@ -17,6 +23,7 @@ export default async function setup(project: TestProject) {
   project.provide(SERVER_URL_KEY as never, server.url as never);
   return async () => {
     await server.close();
+    rmSync(configDir, { recursive: true, force: true });
     removeGitRepos();
     removeAgents();
   };

@@ -39,6 +39,7 @@ export const test = base.extend<Fixtures>({
             ...process.env,
             CORRAL_STATE_DIR: stateDir,
             CORRAL_DATA_DIR: `${stateDir}/data`,
+            CORRAL_CONFIG_DIR: `${stateDir}/config`,
             SHELL: "/bin/sh",
             PATH: `${FAKE_AGENTS_BIN}${path.delimiter}${process.env["PATH"] ?? ""}`,
             CODEX_HOME: `${stateDir}/codex`,
