@@ -49,6 +49,7 @@ function launch(): Launched {
       ...process.env,
       CORRAL_STATE_DIR: stateDir,
       CORRAL_DATA_DIR: path.join(stateDir, "data"),
+      CORRAL_CONFIG_DIR: path.join(stateDir, "config"),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

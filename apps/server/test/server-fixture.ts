@@ -2,7 +2,7 @@ import type { CreateTerminalInput, TerminalInfo } from "@corral/protocol/rpc";
 import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach } from "vite-plus/test";
+import { afterEach, beforeEach, vi } from "vite-plus/test";
 import { startServer, type RunningServer } from "../src/transport/server.ts";
 import type { Program } from "./programs.ts";
 import { connectRpc, type RpcClient } from "./rpc-client.ts";
@@ -32,11 +32,14 @@ export function useServer() {
   beforeEach(async () => {
     root = await realpath(await mkdtemp(join(tmpdir(), "corral-test-")));
     await mkdir(join(root, "scratch"));
+    // The server reads $CORRAL_CONFIG_DIR; never the developer's own ~/.config/corral.
+    vi.stubEnv("CORRAL_CONFIG_DIR", join(root, "config"));
     server = await start();
   });
   afterEach(async () => {
     disconnectClients();
     await server.close();
+    vi.unstubAllEnvs();
     await rm(root, { recursive: true, force: true });
   });
 
@@ -57,6 +60,10 @@ export function useServer() {
     /** An empty directory for the test's repositories, outside the data directory. */
     get scratchDir() {
       return join(root, "scratch");
+    },
+    /** The config directory the server reads; it does not exist until a test creates it. */
+    get configDir() {
+      return join(root, "config");
     },
     /** Stops the server (dropping all clients and terminals) and starts a new one on the same data directory. */
     async restart(): Promise<void> {

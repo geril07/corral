@@ -1,12 +1,14 @@
 import { checkProtocolVersion, PROTOCOL_MISMATCH_CLOSE_CODE } from "@corral/protocol/handshake";
 import { RPC_PATH } from "@corral/protocol/rpc";
+import { configFilePath, resolveConfigDir } from "@corral/protocol/server-endpoint";
 import { statusReportPath } from "@corral/protocol/status-report";
 import { RPCHandler } from "@orpc/server/ws";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
+import { watchConfigFile } from "../config/config-watcher.ts";
 import { ProjectService } from "../projects/project-service.ts";
 import { ProjectStore } from "../projects/project-store.ts";
 import { SessionService } from "../sessions/session-service.ts";
@@ -52,7 +54,8 @@ export function startServer(options: {
   });
   const tasks = new TaskService({ store: taskStore, projects: projectStore, sessions, dataDir });
   const projects = new ProjectService(projectStore, tasks);
-  const rpc = new RPCHandler(createRpcRouter({ projects, tasks, sessions, terminals }));
+  const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, homedir())));
+  const rpc = new RPCHandler(createRpcRouter({ config, projects, tasks, sessions, terminals }));
   const http = createServer((request, response) => {
     const sessionId = statusReportSessionId(
       new URL(request.url ?? "/", "http://localhost").pathname,
@@ -89,6 +92,7 @@ export function startServer(options: {
 
   let closing: Promise<void> | undefined;
   async function shutDown() {
+    config.close();
     terminateAll(wss.clients);
     http.closeAllConnections();
     await sessions.shutDown();

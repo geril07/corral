@@ -1,0 +1,126 @@
+import {
+  ClientConfig,
+  ConfigState,
+  DEFAULT_BINDINGS,
+  DEFAULT_PREFIX,
+} from "@corral/protocol/config";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { expect, test } from "vite-plus/test";
+import { useServer, within } from "../../test/server-fixture.ts";
+
+const server = useServer();
+const configFile = () => join(server.configDir, "config.toml");
+const defaults = { keys: { prefix: DEFAULT_PREFIX, bindings: DEFAULT_BINDINGS } };
+
+/** Subscribes and consumes the state the server yields on subscription. */
+async function openWatcher() {
+  const api = await server.rpc();
+  const updates = await api.config.watch();
+  const read = async (description: string): Promise<ConfigState> => {
+    const state = ConfigState.parse((await within(updates.next(), description)).value);
+    expect(ClientConfig.safeParse(state.config).success).toBe(true);
+    return state;
+  };
+  return { initial: await read("the initial config"), next: read };
+}
+
+test("yields the defaults when there is no file and no config directory", async () => {
+  const watcher = await openWatcher();
+
+  expect(watcher.initial).toEqual({
+    path: configFile(),
+    config: { keys: { prefix: DEFAULT_PREFIX, bindings: DEFAULT_BINDINGS } },
+    problems: [],
+  });
+});
+
+test("picks up a config file created later, together with its directory", async () => {
+  const watcher = await openWatcher();
+
+  await mkdir(server.configDir, { recursive: true });
+  await writeFile(configFile(), '[keys.bindings]\nnew-agent = "q"\n');
+
+  const state = await watcher.next("the config of the new file");
+  expect(state).toMatchObject({ path: configFile(), problems: [] });
+  expect(state.config.keys.bindings).toEqual({ ...DEFAULT_BINDINGS, "new-agent": "q" });
+});
+
+test("pushes an edit", async () => {
+  const watcher = await openWatcher();
+  await mkdir(server.configDir, { recursive: true });
+  await writeFile(configFile(), '[keys.bindings]\nboard = "q"\n');
+  expect((await watcher.next("the first config")).config.keys.bindings["board"]).toBe("q");
+
+  await writeFile(configFile(), '[keys.bindings]\nboard = "y"\n');
+
+  expect((await watcher.next("the edited config")).config.keys.bindings["board"]).toBe("y");
+});
+
+test("pushes an atomic replace: a temp file renamed over the config", async () => {
+  const watcher = await openWatcher();
+  await mkdir(server.configDir, { recursive: true });
+  await writeFile(configFile(), '[keys]\nprefix = "alt+b"\n');
+  expect((await watcher.next("the first config")).config.keys.prefix).toBe("alt+b");
+
+  const scratch = join(server.configDir, "config.toml.tmp");
+  await writeFile(scratch, '[keys]\nprefix = "alt+c"\n');
+  await rename(scratch, configFile());
+
+  expect((await watcher.next("the replaced config")).config.keys.prefix).toBe("alt+c");
+});
+
+test("an invalid edit is pushed with its problems and keeps the valid entries", async () => {
+  const watcher = await openWatcher();
+  await mkdir(server.configDir, { recursive: true });
+
+  await writeFile(configFile(), '[keys.bindings]\nnew-agent = "hyper+q"\nboard = "q"\n');
+  const partial = await watcher.next("the partly invalid config");
+  expect(partial.config.keys.bindings["board"]).toBe("q");
+  expect(partial.config.keys.bindings["new-agent"]).toBe(DEFAULT_BINDINGS["new-agent"]);
+  expect(partial.problems).toEqual([
+    {
+      severity: "error",
+      path: "keys.bindings.new-agent",
+      message: 'unknown modifier "hyper" in "hyper+q"',
+    },
+  ]);
+
+  await writeFile(configFile(), "[keys\nprefix");
+  const broken = await watcher.next("the unparsable config");
+  expect(broken.config).toEqual(defaults);
+  expect(broken.problems).toHaveLength(1);
+  expect(broken.problems[0]).toMatchObject({ severity: "error", path: "" });
+  expect(broken.problems[0]?.message).toMatch(/^invalid TOML at line 1, column \d+: /);
+});
+
+test("an unreadable config file is reported instead of crashing the server", async () => {
+  const watcher = await openWatcher();
+  await mkdir(join(server.configDir, "config.toml"), { recursive: true });
+
+  const state = await watcher.next("the unreadable config");
+  expect(state.config).toEqual(defaults);
+  expect(state.problems).toEqual([
+    { severity: "error", path: "", message: expect.stringContaining("cannot read the file") },
+  ]);
+
+  await rm(join(server.configDir, "config.toml"), { recursive: true });
+  await writeFile(configFile(), '[keys.bindings]\nnew-agent = "q"\n');
+
+  expect((await watcher.next("the readable config")).config.keys.bindings["new-agent"]).toBe("q");
+});
+
+test("deleting the file goes back to the defaults", async () => {
+  const watcher = await openWatcher();
+  await mkdir(server.configDir, { recursive: true });
+  await writeFile(configFile(), '[keys]\nprefix = "alt+b"\n');
+  expect((await watcher.next("the config")).config.keys.prefix).toBe("alt+b");
+
+  await rm(configFile());
+
+  expect(await watcher.next("the defaults after the delete")).toEqual({
+    path: configFile(),
+    config: defaults,
+    problems: [],
+  });
+});

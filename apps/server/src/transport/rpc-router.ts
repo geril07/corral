@@ -1,5 +1,6 @@
 import { contract } from "@corral/protocol/rpc";
 import { implement } from "@orpc/server";
+import type { ConfigWatcher } from "../config/config-watcher.ts";
 import { GitError } from "../git/git.ts";
 import {
   HasLiveTerminalsError,
@@ -19,6 +20,7 @@ import type { TaskService } from "../tasks/task-service.ts";
 import type { TerminalRegistry } from "../terminals/terminal-registry.ts";
 
 export interface RpcServices {
+  config: ConfigWatcher;
   projects: ProjectService;
   tasks: TaskService;
   sessions: SessionService;
@@ -37,9 +39,12 @@ async function translating<T>(
   }
 }
 
-export function createRpcRouter({ projects, tasks, sessions, terminals }: RpcServices) {
+export function createRpcRouter({ config, projects, tasks, sessions, terminals }: RpcServices) {
   const os = implement(contract);
   return os.router({
+    config: {
+      watch: os.config.watch.handler(({ signal }) => config.watch(signal)),
+    },
     projects: {
       add: os.projects.add.handler(({ input, errors }) =>
         translating(

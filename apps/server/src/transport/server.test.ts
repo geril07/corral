@@ -6,17 +6,25 @@ import {
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, test } from "vite-plus/test";
+import { afterEach, beforeEach, expect, test, vi } from "vite-plus/test";
 import { sh } from "../../test/programs.ts";
 import { connectRpc } from "../../test/rpc-client.ts";
 import { StreamClient } from "../../test/stream-client.ts";
 import { startServer, type RunningServer } from "./server.ts";
 
 let server: RunningServer;
+let configDir: string;
 beforeEach(async () => {
+  // The server reads $CORRAL_CONFIG_DIR; never the developer's own ~/.config/corral.
+  configDir = await mkdtemp(join(tmpdir(), "corral-config-"));
+  vi.stubEnv("CORRAL_CONFIG_DIR", configDir);
   server = await startServer({ host: "127.0.0.1", port: 0 });
 });
-afterEach(() => server.close());
+afterEach(async () => {
+  await server.close();
+  vi.unstubAllEnvs();
+  await rm(configDir, { recursive: true, force: true });
+});
 
 test("a client on another protocol version is told the server's version and disconnected", async () => {
   const socket = new WebSocket(`${server.url}/rpc?protocol=${PROTOCOL_VERSION + 1}`);
