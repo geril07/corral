@@ -19,6 +19,10 @@ export function dirtyWorktreeFiles(error: unknown): string[] | undefined {
   return Array.isArray(files) ? files.map(String) : [];
 }
 
+function providerName(data: unknown): string {
+  return field(data, "provider") === "gitlab" ? "GitLab" : "GitHub";
+}
+
 /** A sentence for the user. Git's own message is shown as it is: it is written for people. */
 export function describeError(error: unknown): string {
   const defined = definedError(error);
@@ -53,6 +57,20 @@ export function describeError(error: unknown): string {
         return String(field(data, "message"));
       case "WORKTREE_DIRTY":
         return "The worktree has uncommitted changes.";
+      case "ISSUE_URL_INVALID":
+        return String(field(data, "message"));
+      case "ISSUE_PROVIDER_REQUIRED":
+        return `Choose whether ${String(field(data, "host"))} runs GitHub or GitLab.`;
+      case "ISSUE_CLI_MISSING":
+        return `${String(field(data, "command"))} was not found on the server's PATH.`;
+      case "ISSUE_AUTH_REQUIRED":
+        return `The server's ${providerName(data)} CLI is not logged in for this host.`;
+      case "ISSUE_FETCH_TIMEOUT":
+        return "Reading the issue timed out. You can create the task without its metadata.";
+      case "ISSUE_RESPONSE_INVALID":
+        return "The issue tool returned something Corral could not read.";
+      case "ISSUE_FETCH_FAILED":
+        return String(field(data, "message"));
     }
   }
   return error instanceof Error ? error.message : String(error);

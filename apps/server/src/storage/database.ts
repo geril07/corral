@@ -36,6 +36,7 @@ export const MIGRATIONS: readonly string[] = [
   // Nonsecret launch choices (model/provider/profile revision/env reference names) as JSON.
   // Stored once at start; a later config edit never rewrites it.
   `ALTER TABLE sessions ADD COLUMN launch_spec TEXT;`,
+  `ALTER TABLE tasks ADD COLUMN source TEXT;`,
 ];
 
 export const DATABASE_FILE = "corral.db";

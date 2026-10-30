@@ -485,6 +485,34 @@ test("watch yields all tasks now and after create, state change and remove", asy
   await updates.return?.();
 });
 
+test("a task created with an issue source defaults its title and keeps the snapshot across a restart", async () => {
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+  const source = {
+    provider: "github" as const,
+    host: "github.com",
+    repository: "acme/app",
+    number: 5,
+    url: "https://github.com/acme/app/issues/5",
+    title: "Issue wording",
+    body: "Issue body",
+    fetchedAt: 1_700_000_000_000,
+  };
+
+  const task = await api.tasks.create({
+    projectId: project.id,
+    source,
+    workspace: { type: "main-worktree" },
+  });
+  expect(task).toMatchObject({ title: "Issue wording", source });
+
+  await server.restart();
+  const restarted = await server.rpc();
+  const updates = await restarted.tasks.watch();
+  expect((await within(updates.next(), "the task after a restart")).value).toEqual([task]);
+  await updates.return?.();
+});
+
 test("tasks and their worktrees survive a server restart on the same data directory", async () => {
   const { project, repo } = await addProject(server);
   const created = await (

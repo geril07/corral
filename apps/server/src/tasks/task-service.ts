@@ -100,10 +100,15 @@ export class TaskService implements ProjectTasks {
   async #create(input: CreateTaskInput): Promise<Task> {
     const project = this.#project(input.projectId);
     const { workspace } = input;
+    const title = input.title ?? input.source?.title;
+    // The contract requires one of the two; this guard keeps direct callers honest too.
+    if (title === undefined)
+      throw new Error("a title is required unless the task comes from an issue source");
     const task: Task = {
       id: newId(),
       projectId: project.id,
-      title: input.title,
+      title,
+      ...(input.source === undefined ? {} : { source: input.source }),
       branch: "",
       workspacePath: project.path,
       ownsWorktree: false,
@@ -117,7 +122,7 @@ export class TaskService implements ProjectTasks {
     }
 
     const plan = planWorktree(workspace, {
-      title: input.title,
+      title,
       defaultBaseBranch: project.defaultBaseBranch,
       branches: await listBranches(project.path),
     });

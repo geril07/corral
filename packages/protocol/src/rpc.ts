@@ -71,6 +71,32 @@ export const Project = z.object({
 });
 export type Project = z.infer<typeof Project>;
 
+/** Where a task's issue came from. */
+export const IssueProvider = z.enum(["github", "gitlab"]);
+export type IssueProvider = z.infer<typeof IssueProvider>;
+
+/**
+ * A snapshot of the GitHub or GitLab issue a task was imported from. The local task title may
+ * change; this record keeps the issue's title, text and URL as they were fetched.
+ */
+export const TaskSource = z.object({
+  provider: IssueProvider,
+  /** Host the issue lives on, including its port when the URL had one. */
+  host: z.string().min(1).max(300),
+  /** `OWNER/REPO` for GitHub, `GROUP/PROJECT` (nested groups included) for GitLab. */
+  repository: z.string().min(1).max(512),
+  number: z.number().int().positive(),
+  /** The canonical issue URL; the only URL the server hands to a CLI. */
+  url: z.string().min(1).max(2048),
+  /** The issue's title as fetched, which is the default task title. */
+  title: z.string().min(1).max(1024),
+  /** The issue's text as fetched. Task context, never a shell argument. */
+  body: z.string().max(1024 * 1024),
+  /** Epoch milliseconds of the read-only fetch. */
+  fetchedAt: z.number().int(),
+});
+export type TaskSource = z.infer<typeof TaskSource>;
+
 /**
  * A unit of work in a project. Its workspace is either its own git worktree on its own branch
  * (the default), or the project's main working tree.
@@ -79,6 +105,8 @@ export const Task = z.object({
   id: TaskId,
   projectId: ProjectId,
   title: z.string().min(1),
+  /** Set when the task was created from an issue URL; absent for tasks made by hand. */
+  source: TaskSource.optional(),
   /** Branch checked out in the workspace; for a task in the main working tree, whatever is checked out there at creation. */
   branch: z.string(),
   /** Absolute path the task's terminals start in. */
@@ -95,23 +123,39 @@ export const Task = z.object({
 });
 export type Task = z.infer<typeof Task>;
 
-export const CreateTaskInput = z.object({
-  projectId: ProjectId,
-  title: z.string().trim().min(1),
-  workspace: z.discriminatedUnion("type", [
-    /** New branch (named from the title unless given) off `baseBranch` (default: the project's), in a new worktree. */
-    z.object({
-      type: z.literal("new-branch"),
-      branch: z.string().min(1).optional(),
-      baseBranch: z.string().min(1).optional(),
-    }),
-    /** An existing local or remote-tracking branch, checked out in a new worktree. */
-    z.object({ type: z.literal("existing-branch"), branch: z.string().min(1) }),
-    /** No worktree: the task works in the project's main working tree. */
-    z.object({ type: z.literal("main-worktree") }),
-  ]),
-});
+export const CreateTaskInput = z
+  .object({
+    projectId: ProjectId,
+    /** Defaults to `source.title` when the task comes from an issue. */
+    title: z.string().trim().min(1).optional(),
+    source: TaskSource.optional(),
+    workspace: z.discriminatedUnion("type", [
+      /** New branch (named from the title unless given) off `baseBranch` (default: the project's), in a new worktree. */
+      z.object({
+        type: z.literal("new-branch"),
+        branch: z.string().min(1).optional(),
+        baseBranch: z.string().min(1).optional(),
+      }),
+      /** An existing local or remote-tracking branch, checked out in a new worktree. */
+      z.object({ type: z.literal("existing-branch"), branch: z.string().min(1) }),
+      /** No worktree: the task works in the project's main working tree. */
+      z.object({ type: z.literal("main-worktree") }),
+    ]),
+  })
+  .refine((input) => input.title !== undefined || input.source !== undefined, {
+    message: "a title is required unless the task comes from an issue source",
+    path: ["title"],
+  });
 export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
+
+/** A URL the server may resolve through its own `gh` or `glab` login for an existing project. */
+export const ResolveIssueInput = z.object({
+  projectId: ProjectId,
+  url: z.string().trim().min(1).max(2048),
+  /** Required when the URL's host is neither github.com, gitlab.com nor a ghe.com host. */
+  provider: IssueProvider.optional(),
+});
+export type ResolveIssueInput = z.infer<typeof ResolveIssueInput>;
 
 export { AgentKind } from "./config.ts";
 export const SessionKind = z.enum(["shell", ...AgentKind.options]);
@@ -219,6 +263,24 @@ const launchRefused = {
 };
 /** Git refused or failed; `message` is git's own stderr, meant for the user. */
 const gitFailed = { GIT_FAILED: { data: z.object({ message: z.string() }) } };
+const issueErrors = {
+  /** The URL is not a GitHub or GitLab issue URL, or carries credentials or unsafe parts. */
+  ISSUE_URL_INVALID: { data: z.object({ message: z.string() }) },
+  /** The host is ambiguous and the caller did not say which provider it is. */
+  ISSUE_PROVIDER_REQUIRED: { data: z.object({ host: z.string() }) },
+  /** The matching CLI is not on the server's PATH. */
+  ISSUE_CLI_MISSING: { data: z.object({ command: z.string() }) },
+  /** The server's CLI has no usable login for the issue's host. */
+  ISSUE_AUTH_REQUIRED: { data: z.object({ provider: IssueProvider }) },
+  /** The CLI did not answer within the bounded import timeout. */
+  ISSUE_FETCH_TIMEOUT: { data: z.object({ provider: IssueProvider }) },
+  /** The CLI's output was not the documented JSON shape, or named another issue. */
+  ISSUE_RESPONSE_INVALID: { data: z.object({ provider: IssueProvider }) },
+  /** The CLI failed: no network, no such issue, or another error from the host. */
+  ISSUE_FETCH_FAILED: {
+    data: z.object({ provider: IssueProvider, message: z.string() }),
+  },
+};
 
 export const contract = {
   config: configContract,
@@ -242,6 +304,15 @@ export const contract = {
       .errors({ ...projectNotFound, ...gitFailed })
       .input(z.object({ id: ProjectId }))
       .output(z.array(z.string())),
+    /**
+     * Reads one GitHub or GitLab issue through the server host's own `gh`/`glab` login. Read-only:
+     * the CLI gets a validated issue URL and a read command, nothing else. The result is a
+     * snapshot for `tasks.create`; a failure leaves the draft for hand editing or a plain task.
+     */
+    resolveIssue: oc
+      .errors({ ...projectNotFound, ...issueErrors })
+      .input(ResolveIssueInput)
+      .output(TaskSource),
     /** Yields all projects now and after every change. */
     watch: oc.output(eventIterator(z.array(Project))),
   },

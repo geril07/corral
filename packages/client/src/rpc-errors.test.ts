@@ -40,6 +40,30 @@ test("a launch profile pinned to a changed revision is explained", () => {
   );
 });
 
+test("issue import failures name the missing tool, host or provider", () => {
+  expect(
+    describeError(defined("ISSUE_URL_INVALID", { message: "This is not an issue URL." })),
+  ).toBe("This is not an issue URL.");
+  expect(describeError(defined("ISSUE_PROVIDER_REQUIRED", { host: "gitlab.example.com" }))).toBe(
+    "Choose whether gitlab.example.com runs GitHub or GitLab.",
+  );
+  expect(describeError(defined("ISSUE_CLI_MISSING", { command: "glab" }))).toBe(
+    "glab was not found on the server's PATH.",
+  );
+  expect(describeError(defined("ISSUE_AUTH_REQUIRED", { provider: "gitlab" }))).toBe(
+    "The server's GitLab CLI is not logged in for this host.",
+  );
+  expect(describeError(defined("ISSUE_FETCH_TIMEOUT", { provider: "github" }))).toBe(
+    "Reading the issue timed out. You can create the task without its metadata.",
+  );
+  expect(describeError(defined("ISSUE_RESPONSE_INVALID", { provider: "github" }))).toBe(
+    "The issue tool returned something Corral could not read.",
+  );
+  expect(describeError(defined("ISSUE_FETCH_FAILED", { message: "HTTP 404: Not Found" }))).toBe(
+    "HTTP 404: Not Found",
+  );
+});
+
 test("an error outside the contract falls back to its message", () => {
   expect(describeError(new Error("not connected to the server"))).toBe(
     "not connected to the server",

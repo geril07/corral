@@ -1,10 +1,13 @@
-import { Task } from "@corral/protocol/rpc";
+import { Task, TaskSource } from "@corral/protocol/rpc";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 
-const Row = Task.extend({ ownsWorktree: z.number().transform((value) => value === 1) });
+const Row = Task.extend({
+  ownsWorktree: z.number().transform((value) => value === 1),
+  source: z.string().nullable().transform(parseSource),
+});
 
-const COLUMNS = `id, project_id AS projectId, title, branch, workspace_path AS workspacePath,
+const COLUMNS = `id, project_id AS projectId, title, source, branch, workspace_path AS workspacePath,
   owns_worktree AS ownsWorktree, state, created_at AS createdAt`;
 
 export class TaskStore {
@@ -36,13 +39,14 @@ export class TaskStore {
   insert(task: Task): void {
     this.#db
       .prepare(
-        `INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, title, source, branch, workspace_path, owns_worktree, state, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         task.id,
         task.projectId,
         task.title,
+        task.source === undefined ? null : JSON.stringify(task.source),
         task.branch,
         task.workspacePath,
         task.ownsWorktree ? 1 : 0,
@@ -58,4 +62,8 @@ export class TaskStore {
   delete(id: string): void {
     this.#db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
   }
+}
+
+function parseSource(value: string | null): TaskSource | undefined {
+  return value === null ? undefined : TaskSource.parse(JSON.parse(value));
 }
