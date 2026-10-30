@@ -103,6 +103,9 @@ test("an unterminated sequence is dropped once something else follows it", async
   expect(seen.status()).toMatchObject({ state: "done" });
 });
 
+// Each property replays up to 300 generated cases through xterm; no readiness wait.
+const PROPERTY_TIMEOUT_MS = 20_000;
+
 const STREAM_PIECES = [
   report({ state: "working", msg: "Thinking ✓" }),
   report({ state: "blocked", kind: "question", id: "sub/1", msg: "Which?" }),
@@ -119,59 +122,67 @@ const STREAM_PIECES = [
   "é✓",
 ];
 
-test("what the terminal makes of a stream does not depend on where its chunks end", async () => {
-  await fc.assert(
-    fc.asyncProperty(
-      fc.array(fc.constantFrom(...STREAM_PIECES), { maxLength: 12 }),
-      fc.array(fc.nat({ max: 400 }), { maxLength: 8 }),
-      async (pieces, cuts) => {
-        const bytes = Buffer.from(pieces.join(""), "utf8");
-        const points = [...new Set(cuts.map((cut) => cut % (bytes.length + 1)))].toSorted(
-          (a, b) => a - b,
-        );
-        const chunks = [];
-        let from = 0;
-        for (const point of [...points, bytes.length]) {
-          chunks.push(bytes.subarray(from, point));
-          from = point;
-        }
-        const whole = observe();
-        await whole.feed(bytes);
-        const split = observe();
-        await split.feed(...chunks);
-        expect(split.status()).toEqual(whole.status());
-        expect(split.replies).toEqual(whole.replies);
-        expect(split.terminal.snapshot()).toEqual(whole.terminal.snapshot());
-        whole.terminal.dispose();
-        split.terminal.dispose();
-      },
-    ),
-    { numRuns: 300 },
-  );
-});
-
-test("arbitrary bytes never throw or hang the terminal", async () => {
-  await fc.assert(
-    fc.asyncProperty(
-      fc.array(
-        fc.oneof(
-          fc.constantFrom(...STREAM_PIECES),
-          fc.string({ unit: "binary", maxLength: 200 }),
-          fc.uint8Array({ maxLength: 200 }),
-        ),
-        { maxLength: 20 },
+test(
+  "what the terminal makes of a stream does not depend on where its chunks end",
+  async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(fc.constantFrom(...STREAM_PIECES), { maxLength: 12 }),
+        fc.array(fc.nat({ max: 400 }), { maxLength: 8 }),
+        async (pieces, cuts) => {
+          const bytes = Buffer.from(pieces.join(""), "utf8");
+          const points = [...new Set(cuts.map((cut) => cut % (bytes.length + 1)))].toSorted(
+            (a, b) => a - b,
+          );
+          const chunks = [];
+          let from = 0;
+          for (const point of [...points, bytes.length]) {
+            chunks.push(bytes.subarray(from, point));
+            from = point;
+          }
+          const whole = observe();
+          await whole.feed(bytes);
+          const split = observe();
+          await split.feed(...chunks);
+          expect(split.status()).toEqual(whole.status());
+          expect(split.replies).toEqual(whole.replies);
+          expect(split.terminal.snapshot()).toEqual(whole.terminal.snapshot());
+          whole.terminal.dispose();
+          split.terminal.dispose();
+        },
       ),
-      async (pieces) => {
-        const seen = observe();
-        await seen.feed(
-          ...pieces.map((piece) =>
-            typeof piece === "string" ? Buffer.from(piece, "utf8") : piece,
+      { numRuns: 300 },
+    );
+  },
+  PROPERTY_TIMEOUT_MS,
+);
+
+test(
+  "arbitrary bytes never throw or hang the terminal",
+  async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(
+          fc.oneof(
+            fc.constantFrom(...STREAM_PIECES),
+            fc.string({ unit: "binary", maxLength: 200 }),
+            fc.uint8Array({ maxLength: 200 }),
           ),
-        );
-        expect(AgentStatus.nullable().safeParse(seen.status()).success).toBe(true);
-        seen.terminal.dispose();
-      },
-    ),
-    { numRuns: 300 },
-  );
-});
+          { maxLength: 20 },
+        ),
+        async (pieces) => {
+          const seen = observe();
+          await seen.feed(
+            ...pieces.map((piece) =>
+              typeof piece === "string" ? Buffer.from(piece, "utf8") : piece,
+            ),
+          );
+          expect(AgentStatus.nullable().safeParse(seen.status()).success).toBe(true);
+          seen.terminal.dispose();
+        },
+      ),
+      { numRuns: 300 },
+    );
+  },
+  PROPERTY_TIMEOUT_MS,
+);

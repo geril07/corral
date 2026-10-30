@@ -10,72 +10,81 @@ import { launchesOf, sessionsOf } from "../../test/session-helpers.ts";
 const server = useServer();
 const agents = useFakeAgents();
 const SIZE = { cols: 80, rows: 24 };
+// Restarts a real server and resumes five agents; the fixture readiness deadline is 15s.
+const RESTART_TIMEOUT_MS = 20_000;
 
 afterEach(() => vi.restoreAllMocks());
 
-test("after a server restart, running sessions start again — agents resumed by id, a shell fresh — and stopped ones stay stopped", async () => {
-  vi.stubEnv("SHELL", "/bin/sh");
-  const { api, task } = await addTask(server, "Survivors");
-  const start = (kind: "shell" | "claude" | "codex" | "pi" | "opencode") =>
-    api.sessions.start({ taskId: task.id, kind, size: SIZE });
-  const shell = await start("shell");
-  const claude = await start("claude");
-  // Resuming needs a conversation, which Claude Code only has after the first prompt.
-  const claudeClient = await server.attach(claude.terminalId!);
-  await claudeClient.waitForScreen("fake claude ready");
-  claudeClient.type("hello\n");
-  await claudeClient.waitForScreen("fake claude got: hello");
-  const pi = await start("pi");
-  const opencode = await start("opencode");
-  const codex = await start("codex");
-  const stopped = await start("claude");
-  await launchesOf(agents, "claude", 2);
-  await api.sessions.stop({ id: stopped.id });
-  const [codexLaunch] = await launchesOf(agents, "codex", 1);
-  await expect
-    .poll(async () => (await sessionsOf(api)).find((s) => s.id === codex.id)?.agentSessionId, {
-      timeout: 10_000,
-    })
-    .toBe(codexLaunch!.rolloutId);
-  const before = await sessionsOf(api);
+test(
+  "after a server restart, running sessions start again — agents resumed by id, a shell fresh — and stopped ones stay stopped",
+  async () => {
+    vi.stubEnv("SHELL", "/bin/sh");
+    const { api, task } = await addTask(server, "Survivors");
+    const start = (kind: "shell" | "claude" | "codex" | "pi" | "opencode") =>
+      api.sessions.start({ taskId: task.id, kind, size: SIZE });
+    const shell = await start("shell");
+    const claude = await start("claude");
+    // Resuming needs a conversation, which Claude Code only has after the first prompt.
+    const claudeClient = await server.attach(claude.terminalId!);
+    await claudeClient.waitForScreen("fake claude ready");
+    claudeClient.type("hello\n");
+    await claudeClient.waitForScreen("fake claude got: hello");
+    const pi = await start("pi");
+    const opencode = await start("opencode");
+    const codex = await start("codex");
+    const stopped = await start("claude");
+    await launchesOf(agents, "claude", 2);
+    await api.sessions.stop({ id: stopped.id });
+    const [codexLaunch] = await launchesOf(agents, "codex", 1);
+    await expect
+      .poll(async () => (await sessionsOf(api)).find((s) => s.id === codex.id)?.agentSessionId, {
+        timeout: 10_000,
+      })
+      .toBe(codexLaunch!.rolloutId);
+    const before = await sessionsOf(api);
 
-  await server.restart();
-  const restored = await sessionsOf(await server.rpc());
+    await server.restart();
+    const restored = await sessionsOf(await server.rpc());
 
-  expect(restored.map((session) => [session.id, session.state, session.agentSessionId])).toEqual(
-    before.map((session) => [
-      session.id,
-      session.id === stopped.id ? "stopped" : "running",
-      session.agentSessionId,
-    ]),
-  );
-  const running = restored.filter((session) => session.state === "running");
-  expect(running.map((session) => session.id)).toEqual(
-    [shell, claude, pi, opencode, codex].map((s) => s.id),
-  );
-  const terminals = await (await server.rpc()).terminals.list();
-  expect(
-    terminals.map((terminal) => [terminal.id, terminal.sessionId, terminal.taskId, terminal.cwd]),
-  ).toEqual(
-    running.map((session) => [session.terminalId, session.id, task.id, task.workspacePath]),
-  );
-  expect(restored.find((session) => session.id === stopped.id)?.terminalId).toBeNull();
-  expect(terminals[0]!.command).toBe("/bin/sh");
-  expect(terminals[0]!.args).toEqual([]);
+    expect(restored.map((session) => [session.id, session.state, session.agentSessionId])).toEqual(
+      before.map((session) => [
+        session.id,
+        session.id === stopped.id ? "stopped" : "running",
+        session.agentSessionId,
+      ]),
+    );
+    const running = restored.filter((session) => session.state === "running");
+    expect(running.map((session) => session.id)).toEqual(
+      [shell, claude, pi, opencode, codex].map((s) => s.id),
+    );
+    const terminals = await (await server.rpc()).terminals.list();
+    expect(
+      terminals.map((terminal) => [terminal.id, terminal.sessionId, terminal.taskId, terminal.cwd]),
+    ).toEqual(
+      running.map((session) => [session.terminalId, session.id, task.id, task.workspacePath]),
+    );
+    expect(restored.find((session) => session.id === stopped.id)?.terminalId).toBeNull();
+    expect(terminals[0]!.command).toBe("/bin/sh");
+    expect(terminals[0]!.args).toEqual([]);
 
-  const claudeLaunches = await launchesOf(agents, "claude", 3);
-  expect(claudeLaunches[2]!.argv).toEqual(["--resume", claude.agentSessionId]);
-  expect((await launchesOf(agents, "pi", 2))[1]!.argv).toEqual(["--session-id", pi.agentSessionId]);
-  expect((await launchesOf(agents, "opencode", 2))[1]!.argv).toEqual([
-    "--standalone",
-    "--session",
-    opencode.agentSessionId,
-  ]);
-  expect((await launchesOf(agents, "codex", 2))[1]!.argv).toEqual([
-    "resume",
-    codexLaunch!.rolloutId,
-  ]);
-});
+    const claudeLaunches = await launchesOf(agents, "claude", 3);
+    expect(claudeLaunches[2]!.argv).toEqual(["--resume", claude.agentSessionId]);
+    expect((await launchesOf(agents, "pi", 2))[1]!.argv).toEqual([
+      "--session-id",
+      pi.agentSessionId,
+    ]);
+    expect((await launchesOf(agents, "opencode", 2))[1]!.argv).toEqual([
+      "--standalone",
+      "--session",
+      opencode.agentSessionId,
+    ]);
+    expect((await launchesOf(agents, "codex", 2))[1]!.argv).toEqual([
+      "resume",
+      codexLaunch!.rolloutId,
+    ]);
+  },
+  RESTART_TIMEOUT_MS,
+);
 
 test("a Claude session that never got a prompt is restored under the same id, as a new conversation", async () => {
   const { api, task } = await addTask(server, "Silent");

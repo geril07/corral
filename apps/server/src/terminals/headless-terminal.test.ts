@@ -9,6 +9,8 @@ import { PendingInputTail } from "./pending-input-tail.ts";
 
 const SIZE = { cols: 24, rows: 8 };
 const ESC = "\x1b";
+// Every byte split replays a whole stream through xterm; CPU-heavy, with no readiness wait.
+const REPLAY_TIMEOUT_MS = 20_000;
 
 const history = Array.from({ length: 12 }, (_, i) => `history ${i} héllo ✓\r\n`).join("");
 
@@ -45,17 +47,21 @@ async function replayAcross(stream: Uint8Array, split: number) {
 }
 
 for (const [name, text] of Object.entries(streams)) {
-  test(`a snapshot taken at any byte of a stream continues like the original: ${name}`, async () => {
-    const stream = new TextEncoder().encode(text);
-    const reference = createClientTerminal(SIZE);
-    await writeAndWait(reference, stream);
-    const expected = describeTerminal(reference);
+  test(
+    `a snapshot taken at any byte of a stream continues like the original: ${name}`,
+    async () => {
+      const stream = new TextEncoder().encode(text);
+      const reference = createClientTerminal(SIZE);
+      await writeAndWait(reference, stream);
+      const expected = describeTerminal(reference);
 
-    for (let split = 0; split <= stream.length; split++) {
-      // oxlint-disable-next-line no-await-in-loop -- each split builds its own terminals
-      expect(await replayAcross(stream, split), `split at byte ${split}`).toEqual(expected);
-    }
-  });
+      for (let split = 0; split <= stream.length; split++) {
+        // oxlint-disable-next-line no-await-in-loop -- each split builds its own terminals
+        expect(await replayAcross(stream, split), `split at byte ${split}`).toEqual(expected);
+      }
+    },
+    REPLAY_TIMEOUT_MS,
+  );
 }
 
 test("a snapshot of the alternate screen keeps the normal screen's scrollback behind it", async () => {

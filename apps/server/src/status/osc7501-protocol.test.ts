@@ -4,6 +4,9 @@ import { expect, test } from "vite-plus/test";
 import { reportBody } from "../../test/osc7501.ts";
 import { QUERY_REPLY, parseBody } from "./osc7501-protocol.ts";
 
+// The malformed-input property runs 2000 cases; no readiness wait.
+const PROPERTY_TIMEOUT_MS = 20_000;
+
 // oxlint-disable-next-line no-control-regex -- the spec refuses these in text
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
@@ -106,41 +109,45 @@ test("a body over the sequence cap is ignored whole", () => {
   expect(parseBody(`${fits}a`)).toBeNull();
 });
 
-test("malformed input of any shape never throws and stays bounded", () => {
-  const piece = fc.oneof(
-    fc.constantFrom(
-      "state",
-      "id",
-      "kind",
-      "msg",
-      "title",
-      "app",
-      "=",
-      ":",
-      "/",
-      "?",
-      "working",
-      "blocked",
-      "clear",
-    ),
-    fc.string({ maxLength: 40 }),
-    fc.string({ unit: "binary", maxLength: 40 }),
-    fc.base64String({ maxLength: 60 }),
-  );
-  fc.assert(
-    fc.property(fc.array(piece, { maxLength: 30 }), (pieces) => {
-      const parsed = parseBody(pieces.join(""));
-      const msg = parsed?.type === "report" ? parsed.report.msg : undefined;
-      expect((msg?.length ?? 0) <= 2048).toBe(true);
-    }),
-    { numRuns: 2000 },
-  );
-  fc.assert(
-    fc.property(fc.string({ maxLength: 20_000 }), (body) => {
-      expect(() => parseBody(body)).not.toThrow();
-    }),
-  );
-});
+test(
+  "malformed input of any shape never throws and stays bounded",
+  () => {
+    const piece = fc.oneof(
+      fc.constantFrom(
+        "state",
+        "id",
+        "kind",
+        "msg",
+        "title",
+        "app",
+        "=",
+        ":",
+        "/",
+        "?",
+        "working",
+        "blocked",
+        "clear",
+      ),
+      fc.string({ maxLength: 40 }),
+      fc.string({ unit: "binary", maxLength: 40 }),
+      fc.base64String({ maxLength: 60 }),
+    );
+    fc.assert(
+      fc.property(fc.array(piece, { maxLength: 30 }), (pieces) => {
+        const parsed = parseBody(pieces.join(""));
+        const msg = parsed?.type === "report" ? parsed.report.msg : undefined;
+        expect((msg?.length ?? 0) <= 2048).toBe(true);
+      }),
+      { numRuns: 2000 },
+    );
+    fc.assert(
+      fc.property(fc.string({ maxLength: 20_000 }), (body) => {
+        expect(() => parseBody(body)).not.toThrow();
+      }),
+    );
+  },
+  PROPERTY_TIMEOUT_MS,
+);
 
 test("a report built by the encoder round-trips", () => {
   fc.assert(

@@ -14,6 +14,7 @@ import { identityOf, sameFile } from "./owned-file.ts";
 
 const MAIN = path.join(import.meta.dirname, "../main.ts");
 const DEADLINE_MS = 15_000;
+const SERVER_TEST_TIMEOUT_MS = DEADLINE_MS + 5_000;
 
 interface Launched {
   readonly proc: ChildProcess;
@@ -121,25 +122,29 @@ describe("endpoint file", () => {
 });
 
 describe("single instance", () => {
-  test("a second server refuses and leaves the first one's files and process alone", async () => {
-    const first = await start();
-    const files = [lockFilePath(stateDir), endpointFilePath(stateDir)];
-    const before = files.map((file) => ({
-      identity: identityOf(file),
-      text: readFileSync(file, "utf8"),
-    }));
+  test(
+    "a second server refuses and leaves the first one's files and process alone",
+    async () => {
+      const first = await start();
+      const files = [lockFilePath(stateDir), endpointFilePath(stateDir)];
+      const before = files.map((file) => ({
+        identity: identityOf(file),
+        text: readFileSync(file, "utf8"),
+      }));
 
-    const second = launch();
-    const result = await within(second.exited, "the second server to exit");
+      const second = launch();
+      const result = await within(second.exited, "the second server to exit");
 
-    expect(result.code).toBe(SERVER_LOCK_REFUSED_EXIT_CODE);
-    expect(result.stderr).toContain(`pid ${first.pid}`);
-    files.forEach((file, index) => {
-      expect(sameFile(identityOf(file), before[index]!.identity)).toBe(true);
-      expect(readFileSync(file, "utf8")).toBe(before[index]!.text);
-    });
-    expect(first.proc.exitCode).toBeNull();
-  });
+      expect(result.code).toBe(SERVER_LOCK_REFUSED_EXIT_CODE);
+      expect(result.stderr).toContain(`pid ${first.pid}`);
+      files.forEach((file, index) => {
+        expect(sameFile(identityOf(file), before[index]!.identity)).toBe(true);
+        expect(readFileSync(file, "utf8")).toBe(before[index]!.text);
+      });
+      expect(first.proc.exitCode).toBeNull();
+    },
+    SERVER_TEST_TIMEOUT_MS,
+  );
 
   test("a lock with a live pid and a recent start is refused untouched", async () => {
     const text = JSON.stringify({ pid: process.pid, startedAt: Date.now() });
