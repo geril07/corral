@@ -188,3 +188,28 @@ test("prefix t without a project says so instead of opening the task dialog", as
   await expect.element(page.getByText(/Add a project first/)).toBeVisible();
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
 });
+
+test("prefix b opens the board, which Escape closes and returns the keyboard from", async () => {
+  await render(<App client={newClient()} prefix="alt+a" />);
+  await prefixThen("c");
+  await expect.element(terminalButtons()).toHaveLength(1);
+
+  await prefixThen("b");
+  await expect.element(page.getByRole("dialog", { name: "Board" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+});
+
+test("prefix g with no blocked session says so and leaves the selection alone", async () => {
+  await render(<App client={newClient()} prefix="alt+a" />);
+  await prefixThen("c");
+  await expect.element(selectButton(0)).toHaveAttribute("aria-current", "true");
+
+  await prefixThen("g");
+
+  await expect.element(page.getByText("No blocked sessions.")).toBeVisible();
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+  await expect.element(selectButton(0)).toHaveAttribute("aria-current", "true");
+});

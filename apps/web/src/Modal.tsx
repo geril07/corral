@@ -11,13 +11,25 @@ interface ModalProps {
   children: ReactNode;
 }
 
-/** A dialog that is open while it is rendered; the caller stops rendering it to close it. */
-export function Modal({ title, description, onClose, children }: ModalProps) {
+/**
+ * A dialog that is open while it is rendered; the caller stops rendering it to close it.
+ * `className` is added to the popup's, to size it differently from a small dialog.
+ */
+export function Modal({
+  title,
+  className,
+  description,
+  onClose,
+  children,
+}: ModalProps & { className?: string }) {
   return (
     <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Backdrop className="backdrop" />
-        <Dialog.Popup className="modal" finalFocus={terminalInput}>
+        <Dialog.Popup
+          className={className ? `modal ${className}` : "modal"}
+          finalFocus={terminalInput}
+        >
           <Dialog.Title className="modal-title">{title}</Dialog.Title>
           {description && (
             <Dialog.Description className="modal-description">{description}</Dialog.Description>

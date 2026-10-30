@@ -448,3 +448,55 @@ main {
 .status[data-state="idle"] {
   color: var(--dim);
 }
+
+.modal.board {
+  top: 5vh;
+  width: calc(100vw - 64px);
+  max-width: none;
+  height: 90vh;
+  max-height: none;
+}
+
+.board-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.board-rows:focus-visible {
+  outline: none;
+}
+
+.board-rows li {
+  display: grid;
+  grid-template-columns: 18px 150px minmax(0, 2fr) minmax(0, 3fr) 48px;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.board-rows li[aria-selected="true"] {
+  background: #1f2937;
+  box-shadow: inset 2px 0 var(--accent);
+}
+
+.board-rows .status {
+  text-align: center;
+}
+
+.board-rows span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board-project,
+.board-message,
+.board-age {
+  color: var(--dim);
+}
+
+.board-age {
+  text-align: right;
+}

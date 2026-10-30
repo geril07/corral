@@ -1,3 +1,4 @@
+import { buildBoard, mostUrgentBlocked, type BoardRow } from "@corral/client/board";
 import type { CorralClient } from "@corral/client/corral-client";
 import { createPrefixKeymap } from "@corral/client/prefix-keymap";
 import { describeError } from "@corral/client/rpc-errors";
@@ -26,6 +27,7 @@ import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "re
 import "./app.css";
 import { AddProjectDialog } from "./AddProjectDialog.tsx";
 import { AgentPicker } from "./AgentPicker.tsx";
+import { Board } from "./Board.tsx";
 import { ConnectionNotice } from "./ConnectionNotice.tsx";
 import { NewTaskDialog } from "./NewTaskDialog.tsx";
 import { usePrefixMode } from "./prefix-mode.ts";
@@ -48,7 +50,9 @@ type Action =
   | "settle-task"
   | "next-task"
   | "previous-task"
-  | "add-project";
+  | "add-project"
+  | "board"
+  | "jump-blocked";
 
 // Hardcoded until the config file (MVP step 5).
 const BINDINGS: Readonly<Record<string, Action>> = {
@@ -65,6 +69,8 @@ const BINDINGS: Readonly<Record<string, Action>> = {
   j: "next-task",
   k: "previous-task",
   "shift+p": "add-project",
+  b: "board",
+  g: "jump-blocked",
 };
 
 const DEFAULT_SIZE: TerminalSize = { cols: 80, rows: 24 };
@@ -74,7 +80,8 @@ type DialogState =
   | { kind: "new-task"; project: Project; branches: Promise<string[]> }
   | { kind: "remove-task"; task: Task }
   | { kind: "pick-agent"; taskId: string }
-  | { kind: "remove-session"; session: Session };
+  | { kind: "remove-session"; session: Session }
+  | { kind: "board" };
 
 export function App({ client, prefix }: { client: CorralClient; prefix: string }) {
   const { api } = client.connection;
@@ -192,6 +199,21 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
     showTask(taskOrder.find((task) => task.id === id));
   };
 
+  const board = buildBoard(tree);
+
+  const jumpTo = (row: BoardRow) => {
+    setDialog(undefined);
+    choose({ projectId: row.project.id, taskId: row.task.id, entryId: row.sessionId });
+  };
+
+  const jumpToBlocked = () => {
+    const row = mostUrgentBlocked(board);
+    if (row) {
+      setFailure(undefined);
+      jumpTo(row);
+    } else setFailure("No blocked sessions.");
+  };
+
   const toggleSettle = (task: Task) =>
     attempt(async () => {
       await api.tasks.setState({
@@ -266,6 +288,8 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
       else if (action === "next-task") stepTask(1);
       else if (action === "previous-task") stepTask(-1);
       else if (action === "add-project") setDialog({ kind: "add-project" });
+      else if (action === "board") setDialog({ kind: "board" });
+      else if (action === "jump-blocked") jumpToBlocked();
     },
     dialog === undefined,
   );
@@ -311,10 +335,10 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
           {armed ? (
             <output aria-label="prefix mode">
               prefix: c shell · s agent · x stop · r restart · X remove session · n/p session · t
-              new task · T remove task · d settle · j/k task · P add project
+              new task · T remove task · d settle · j/k task · P add project · b board · g blocked
             </output>
           ) : (
-            <p className="hint">{prefix} then c s x r X n p t T d j k P</p>
+            <p className="hint">{prefix} then c s x r X n p t T d j k P b g</p>
           )}
         </footer>
       </aside>
@@ -372,6 +396,9 @@ export function App({ client, prefix }: { client: CorralClient; prefix: string }
           onRemove={() => removeSession(dialog.session)}
           onClose={() => setDialog(undefined)}
         />
+      )}
+      {dialog?.kind === "board" && (
+        <Board rows={board} onJump={jumpTo} onClose={() => setDialog(undefined)} />
       )}
       {dialog?.kind === "remove-task" && (
         <RemoveTaskDialog
