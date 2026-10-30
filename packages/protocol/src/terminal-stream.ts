@@ -12,7 +12,8 @@ import { TerminalExit, TerminalSize } from "./rpc.ts";
  * Flow control is per client. The client acks output bytes once its terminal has processed
  * them (xterm.js `write` callback). A client with more than `ACK_WINDOW_BYTES` unacked stops
  * receiving output; once its unacked count falls to `ACK_RESUME_BYTES` it gets a fresh
- * `snapshot` instead of the bytes it missed. A slow client therefore never stalls the PTY or
+ * `snapshot` instead of the bytes it missed; if the process exits first, that snapshot comes
+ * right before `exit`. A slow client therefore never stalls the PTY or
  * the other clients, and the server never buffers unbounded output for it.
  */
 

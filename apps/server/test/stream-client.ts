@@ -41,9 +41,12 @@ export class StreamClient {
       if (isBinary) this.#onOutput(data);
       else this.#onMessage(ServerTerminalMessage.parse(JSON.parse(data.toString("utf8"))));
     });
+    // Closed only once the terminal has parsed everything received before the close.
     socket.on("close", (code, reason) => {
-      this.closed = { code, reason: reason.toString("utf8") };
-      this.#changed();
+      this.terminal.write("", () => {
+        this.closed = { code, reason: reason.toString("utf8") };
+        this.#changed();
+      });
     });
   }
 

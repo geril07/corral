@@ -167,6 +167,24 @@ test("a client that never acks stalls alone, then gets a snapshot once it acks",
   expect(stalledValues.at(-1)).toBe(fastValues.at(-1));
 });
 
+test("a stalled client that sees the process exit gets the final screen first", async () => {
+  const info = await server.createTerminal(counter);
+  const fast = await server.attach(info.id);
+  const stalled = await server.attach(info.id, { ack: false });
+  await fast.waitFor(
+    () => fast.outputBytes > 2 * ACK_WINDOW_BYTES,
+    "output past the stalled client's window",
+  );
+
+  fast.type("stop\n");
+  await fast.waitForClose();
+  await stalled.waitForClose();
+
+  expect(stalled.snapshots).toHaveLength(2);
+  const finalLine = fast.screen.find((line) => line.startsWith("final n="));
+  expect(stalled.screen).toContain(finalLine);
+});
+
 test("attaching to an unknown terminal closes with the not-found code", async () => {
   const client = await server.attach("missing");
 

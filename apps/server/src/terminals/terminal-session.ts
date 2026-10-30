@@ -178,7 +178,7 @@ export class TerminalSession {
 
   #recordExit(exitCode: number, signal: number | undefined): void {
     this.#exit = { exitCode, ...(signal ? { signal } : {}) };
-    for (const attachment of this.#attachments) attachment.sink.exit(this.#exit);
+    for (const attachment of this.#attachments) attachment.exit(this.#exit);
     this.#onChange();
   }
 
@@ -232,6 +232,12 @@ class ClientAttachment implements TerminalAttachment {
   output(bytes: Uint8Array): void {
     this.sink.output(bytes);
     this.#credit.sent(bytes.length);
+  }
+
+  /** A client that missed output would never see the end of it, so it gets the final screen. */
+  exit(exit: TerminalExit): void {
+    if (this.#credit.missedOutput) this.sendSnapshot();
+    this.sink.exit(exit);
   }
 
   input(bytes: Uint8Array): void {

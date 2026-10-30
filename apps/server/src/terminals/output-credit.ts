@@ -14,6 +14,11 @@ export class OutputCredit {
     return this.#unacked;
   }
 
+  /** True while the client has missed output that no snapshot has replaced yet. */
+  get missedOutput(): boolean {
+    return this.#skippedOutput;
+  }
+
   /** True when the client may receive these bytes; otherwise they count as skipped. */
   admit(): boolean {
     if (this.#stalled) this.#skippedOutput = true;
