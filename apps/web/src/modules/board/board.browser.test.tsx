@@ -99,6 +99,14 @@ test("clicking a row jumps to it", async () => {
   expect(onJump.mock.calls[0]?.[0].task.id).toBe("c");
 });
 
+test("the back control closes the board and is reachable by pointer", async () => {
+  const { onClose } = await opened();
+
+  await dialog().getByRole("button", { name: "Back to workspace" }).click();
+
+  expect(onClose).toHaveBeenCalledOnce();
+});
+
 test("Escape closes the board without jumping", async () => {
   const { onJump, onClose } = await opened();
 

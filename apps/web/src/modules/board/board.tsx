@@ -2,7 +2,14 @@ import { describeStatus, formatAge } from "@corral/client/agent-status";
 import type { BoardRow as Row } from "@corral/client/board";
 import { stepActive } from "@corral/client/terminal-selection";
 import { useEffect, useRef, useState } from "react";
-import { BoardList, BoardRow } from "../../common/ui/index.ts";
+import {
+  BoardList,
+  BoardRow,
+  Button,
+  Icon,
+  Tooltip,
+  useTruncatedText,
+} from "../../common/ui/index.ts";
 import { useNow } from "../../common/hooks/use-now.ts";
 import { StatusIndicator } from "../status/index.ts";
 
@@ -47,8 +54,17 @@ export function Board({ rows, onJump, onClose }: BoardProps) {
     );
 
   return (
-    <section className="flex h-full min-h-0 flex-col p-4" aria-label="Board">
-      <h1 className="mb-2 text-lg">Board</h1>
+    <section className="flex h-full min-h-0 flex-col p-3" aria-label="Board">
+      <div className="mb-2 flex h-8 items-center gap-2 border-b border-border pb-1.5">
+        <Button variant="ghost" size="sm" aria-label="Back to workspace" onClick={onClose}>
+          <Icon name="back" />
+          Back
+        </Button>
+        <h1 className="m-0 text-base font-semibold">Board</h1>
+        <span className="ml-auto text-xs text-text-muted">
+          {rows.length} active {rows.length === 1 ? "task" : "tasks"}
+        </span>
+      </div>
       {rows.length === 0 ? (
         <p className="text-text-muted">No active tasks.</p>
       ) : (
@@ -85,9 +101,7 @@ export function Board({ rows, onJump, onClose }: BoardProps) {
                 <span className="truncate">
                   <span className="text-text-muted">{row.project.name}</span> {row.task.title}
                 </span>
-                <span className="truncate text-text-muted" title={status?.message}>
-                  {status?.message}
-                </span>
+                <BoardMessage message={status?.message} />
                 <span className="truncate text-right text-text-muted">
                   {status ? formatAge(now, status.updatedAt) : ""}
                 </span>
@@ -98,4 +112,18 @@ export function Board({ rows, onJump, onClose }: BoardProps) {
       )}
     </section>
   );
+}
+
+function BoardMessage({ message }: { message: string | undefined }) {
+  const { observe, clipped } = useTruncatedText(message ?? "");
+  const content = (
+    <span
+      ref={observe}
+      className="block truncate text-text-muted"
+      title={clipped ? message : undefined}
+    >
+      {message}
+    </span>
+  );
+  return clipped && message ? <Tooltip content={message}>{content}</Tooltip> : content;
 }
