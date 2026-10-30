@@ -30,7 +30,16 @@ const session = (
   terminalId: string | null,
   createdAt = 0,
   state: Session["state"] = terminalId === null ? "stopped" : "running",
-): Session => ({ id, taskId, kind: "shell", agentSessionId: null, terminalId, state, createdAt });
+): Session => ({
+  id,
+  taskId,
+  kind: "shell",
+  agentSessionId: null,
+  terminalId,
+  state,
+  status: null,
+  createdAt,
+});
 const terminal = (id: string, taskId: string | null, sessionId: string | null): TerminalInfo => ({
   id,
   taskId,
