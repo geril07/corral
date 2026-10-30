@@ -57,14 +57,14 @@ test("each row shows project, task, status with what it waits for, the agent's m
   await opened();
 
   const blocked = option("task a");
-  await expect.poll(() => blocked.element().textContent).toMatch(/repo-p1/);
-  await expect.poll(() => blocked.element().textContent).toMatch(/blocked · permission/);
-  await expect.poll(() => blocked.element().textContent).toMatch(/Run rm -rf build\?/);
-  await expect.poll(() => blocked.element().textContent).toMatch(/5m/);
-  await expect.poll(() => option("task b").element().textContent).toMatch(/error/);
-  await expect.poll(() => option("task b").element().textContent).toMatch(/2h/);
-  await expect.poll(() => option("task c").element().textContent).toMatch(/working/);
-  await expect.poll(() => option("task d").element().textContent).toMatch(/no status/);
+  await expect.element(blocked).toMatchTextContent(/repo-p1/);
+  await expect.element(blocked).toMatchTextContent(/blocked · permission/);
+  await expect.element(blocked).toMatchTextContent(/Run rm -rf build\?/);
+  await expect.element(blocked).toMatchTextContent(/5m/);
+  await expect.element(option("task b")).toMatchTextContent(/error/);
+  await expect.element(option("task b")).toMatchTextContent(/2h/);
+  await expect.element(option("task c")).toMatchTextContent(/working/);
+  await expect.element(option("task d")).toMatchTextContent(/no status/);
   await expect
     .element(blocked.getByRole("img", { name: "blocked · permission" }))
     .toHaveAttribute("title", "blocked · permission: Run rm -rf build?");
