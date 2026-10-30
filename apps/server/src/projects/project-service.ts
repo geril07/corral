@@ -1,8 +1,9 @@
-import type { Project } from "@corral/protocol/rpc";
+import type { IssueProvider, Project, TaskSource } from "@corral/protocol/rpc";
 import { basename } from "node:path";
 import { ChangeFeed } from "../changes/change-feed.ts";
 import { GitError } from "../git/git.ts";
 import { defaultBaseBranch, findMainWorkingTree, listBranches } from "../git/repository.ts";
+import type { IssueImportService } from "../issues/issue-import.ts";
 import { newId } from "../storage/ids.ts";
 import { NotAGitRepositoryError, ProjectExistsError, ProjectNotFoundError } from "./errors.ts";
 import type { ProjectStore } from "./project-store.ts";
@@ -18,11 +19,13 @@ export interface ProjectTasks {
 export class ProjectService {
   readonly #store: ProjectStore;
   readonly #tasks: ProjectTasks;
+  readonly #issues: IssueImportService;
   readonly #changes = new ChangeFeed();
 
-  constructor(store: ProjectStore, tasks: ProjectTasks) {
+  constructor(store: ProjectStore, tasks: ProjectTasks, issues: IssueImportService) {
     this.#store = store;
     this.#tasks = tasks;
+    this.#issues = issues;
   }
 
   list(): Project[] {
@@ -76,5 +79,14 @@ export class ProjectService {
   async branches(id: string): Promise<string[]> {
     const { local, remote } = await listBranches(this.get(id).path);
     return [...local, ...remote];
+  }
+
+  /** Reads one issue through the server's CLI inside the project, with no remote changes. */
+  resolveIssue(
+    id: string,
+    input: { url: string; provider?: IssueProvider | undefined },
+    signal?: AbortSignal,
+  ): Promise<TaskSource> {
+    return this.#issues.resolve(this.get(id).path, input, signal);
   }
 }

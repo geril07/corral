@@ -14,6 +14,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { watchConfigFile } from "../config/config-watcher.ts";
+import { IssueImportService, issueImportTimeoutMs } from "../issues/issue-import.ts";
 import { ProjectService } from "../projects/project-service.ts";
 import { ProjectStore } from "../projects/project-store.ts";
 import { SessionService } from "../sessions/session-service.ts";
@@ -64,7 +65,8 @@ export function startServer(options: {
     config,
   });
   const tasks = new TaskService({ store: taskStore, projects: projectStore, sessions, dataDir });
-  const projects = new ProjectService(projectStore, tasks);
+  const issues = new IssueImportService({ timeoutMs: issueImportTimeoutMs(process.env) });
+  const projects = new ProjectService(projectStore, tasks, issues);
   const rpc = new RPCHandler(createRpcRouter({ config, projects, tasks, sessions, terminals }));
   const http = createServer((request, response) => {
     const sessionId = statusReportSessionId(

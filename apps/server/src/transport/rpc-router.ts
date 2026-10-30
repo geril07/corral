@@ -3,6 +3,15 @@ import { implement } from "@orpc/server";
 import type { ConfigWatcher } from "../config/config-watcher.ts";
 import { GitError } from "../git/git.ts";
 import {
+  InvalidIssueUrlError,
+  IssueAuthRequiredError,
+  IssueCliMissingError,
+  IssueFetchFailedError,
+  IssueFetchTimeoutError,
+  IssueProviderRequiredError,
+  IssueResponseInvalidError,
+} from "../issues/errors.ts";
+import {
   HasLiveTerminalsError,
   NotAGitRepositoryError,
   ProjectExistsError,
@@ -126,6 +135,37 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
               return errors.PROJECT_NOT_FOUND({ data: { id: error.id } });
             if (error instanceof GitError)
               return errors.GIT_FAILED({ data: { message: error.message } });
+            return undefined;
+          },
+        ),
+      ),
+      resolveIssue: os.projects.resolveIssue.handler(({ input, errors, signal }) =>
+        translating(
+          () =>
+            projects.resolveIssue(
+              input.projectId,
+              { url: input.url, provider: input.provider },
+              signal,
+            ),
+          (error) => {
+            if (error instanceof ProjectNotFoundError)
+              return errors.PROJECT_NOT_FOUND({ data: { id: error.id } });
+            if (error instanceof InvalidIssueUrlError)
+              return errors.ISSUE_URL_INVALID({ data: { message: error.message } });
+            if (error instanceof IssueProviderRequiredError)
+              return errors.ISSUE_PROVIDER_REQUIRED({ data: { host: error.host } });
+            if (error instanceof IssueCliMissingError)
+              return errors.ISSUE_CLI_MISSING({ data: { command: error.command } });
+            if (error instanceof IssueAuthRequiredError)
+              return errors.ISSUE_AUTH_REQUIRED({ data: { provider: error.provider } });
+            if (error instanceof IssueFetchTimeoutError)
+              return errors.ISSUE_FETCH_TIMEOUT({ data: { provider: error.provider } });
+            if (error instanceof IssueResponseInvalidError)
+              return errors.ISSUE_RESPONSE_INVALID({ data: { provider: error.provider } });
+            if (error instanceof IssueFetchFailedError)
+              return errors.ISSUE_FETCH_FAILED({
+                data: { provider: error.provider, message: error.message },
+              });
             return undefined;
           },
         ),
