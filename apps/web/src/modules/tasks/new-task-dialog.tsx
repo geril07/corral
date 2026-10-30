@@ -33,7 +33,7 @@ type BranchState =
 
 type Branches = BranchState & { projectId: string };
 
-interface NewTaskDialogProps {
+export interface NewTaskDialogProps {
   /** Every project that can take the task; the selected task's project comes first in the field. */
   projects: readonly Project[];
   /** The project to start on. */
@@ -60,6 +60,7 @@ export function NewTaskDialog({
   const [existing, setExisting] = useState<string | null>(null);
   const [branches, setBranches] = useState<Branches>({ projectId, status: "loading" });
   const attempt = useAttempt();
+  /** What the form creates in now; `project` is only the project it opened on. */
   const selectedProject = projects.find((each) => each.id === projectId) ?? project;
 
   useEffect(() => {
