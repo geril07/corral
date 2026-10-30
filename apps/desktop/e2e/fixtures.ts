@@ -3,6 +3,7 @@ import { _electron as electron, test as base, type ElectronApplication } from "@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createFakeIssueCliBin } from "../../web/test/issue-clis.ts";
 
 const FAKE_AGENTS_BIN = path.join(import.meta.dirname, "../../server/test/fake-agents/bin");
 
@@ -26,6 +27,8 @@ export const test = base.extend<Fixtures>({
   },
   launchApp: async ({ stateDir }, use) => {
     const apps: ElectronApplication[] = [];
+    const issueBin = path.join(stateDir, "issue-clis");
+    createFakeIssueCliBin(issueBin);
     try {
       await use(async () => {
         const app = await electron.launch({
@@ -41,12 +44,15 @@ export const test = base.extend<Fixtures>({
             CORRAL_DATA_DIR: `${stateDir}/data`,
             CORRAL_CONFIG_DIR: `${stateDir}/config`,
             SHELL: "/bin/sh",
-            PATH: `${FAKE_AGENTS_BIN}${path.delimiter}${process.env["PATH"] ?? ""}`,
+            PATH: `${issueBin}${path.delimiter}${FAKE_AGENTS_BIN}${path.delimiter}${process.env["PATH"] ?? ""}`,
             CODEX_HOME: `${stateDir}/codex`,
             CLAUDE_CONFIG_DIR: `${stateDir}/claude`,
             OPENCODE_CONFIG_DIR: `${stateDir}/opencode`,
             OPENCODE_CONFIG_CONTENT: "",
             FAKE_AGENT_LOG: launchLog(stateDir),
+            FAKE_ISSUE_LOG: issueLaunchLog(stateDir),
+            FAKE_ISSUE_RESPONSE_FILE: issueResponseFile(stateDir),
+            FAKE_ISSUE_MODE: "ok",
           },
         });
         apps.push(app);
@@ -60,6 +66,12 @@ export const test = base.extend<Fixtures>({
 
 /** Where the fake agents append one JSON line per launch (apps/server/test/fake-agents). */
 export const launchLog = (stateDir: string) => path.join(stateDir, "launches.jsonl");
+
+/** Where the fake gh/glab append one JSON line per launch (apps/web/test/issue-clis.ts). */
+export const issueLaunchLog = (stateDir: string) => path.join(stateDir, "issue-launches.jsonl");
+
+/** The JSON the fake gh/glab answer with; the test writes it before Import. */
+export const issueResponseFile = (stateDir: string) => path.join(stateDir, "issue-response.json");
 
 export interface AgentLaunch {
   agent: string;
