@@ -1,15 +1,7 @@
 import { ActionId } from "@corral/protocol/config";
 import { CommandPalette, Dialog, Kbd } from "../../common/ui/index.ts";
-import { formatBinding, type ActionGroup, type ActionTable } from "./actions.ts";
+import { ACTION_GROUPS, formatBinding, type ActionTable } from "./actions.ts";
 import { useConfig } from "./config-context.tsx";
-
-const GROUP_ORDER: readonly ActionGroup[] = [
-  "Sessions",
-  "Tasks",
-  "Projects",
-  "Navigation",
-  "General",
-];
 
 interface CommandPaletteDialogProps {
   actions: ActionTable;
@@ -20,7 +12,7 @@ interface CommandPaletteDialogProps {
 /** Every action with its current key; typing filters, Enter runs the highlighted one. */
 export function CommandPaletteDialog({ actions, onRun, onClose }: CommandPaletteDialogProps) {
   const { config } = useConfig();
-  const groups = GROUP_ORDER.map((group) => ({
+  const groups = ACTION_GROUPS.map((group) => ({
     group,
     actions: ActionId.options.filter((action) => actions[action].group === group),
   }));

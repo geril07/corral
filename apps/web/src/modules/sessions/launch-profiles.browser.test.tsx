@@ -1,0 +1,234 @@
+import type { CorralClient } from "@corral/client/corral-client";
+import type { Session } from "@corral/protocol/rpc";
+import { afterEach, expect, test, vi } from "vite-plus/test";
+import { page } from "vite-plus/test/browser";
+import { render } from "vitest-browser-react";
+import { agentLaunches, setServerEnv } from "../../../test/fake-agents.ts";
+import { createGitRepo } from "../../../test/git-repo.ts";
+import { writeConfig } from "../../../test/config-command.ts";
+import { prefixThen, realServerClients, screenText } from "../../../test/real-client.ts";
+import { App } from "../../../test/render-app.tsx";
+import { appWithProject, createTask, workspace } from "../../../test/task-flows.tsx";
+import { describeLaunchError } from "./launch-error.ts";
+
+const { newClient } = realServerClients();
+
+const picker = () => page.getByRole("dialog", { name: "New agent session" });
+const stoppedPane = () => page.getByRole("region", { name: "stopped session" });
+
+const PROFILES = `
+[profiles.claude-gateway]
+name = "Claude gateway"
+agent = "claude"
+model = "claude-sonnet-4-5"
+
+[profiles.opencode-team]
+name = "OpenCode team"
+agent = "opencode"
+`;
+
+const ENV_PROFILE = `
+[profiles.claude-env]
+name = "Claude env"
+agent = "claude"
+model = "claude-sonnet-4-5"
+env = [{ targetName = "ANTHROPIC_AUTH_TOKEN", fromEnv = "PROFILE_MISSING_TOKEN" }]
+`;
+
+const restoredEnv: [string, string | null][] = [];
+async function withServerEnv(name: string, value: string | null) {
+  restoredEnv.push([name, await setServerEnv(name, value)]);
+}
+afterEach(async () => {
+  for (const [name, value] of restoredEnv.splice(0).toReversed()) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- restored in reverse order
+    await setServerEnv(name, value);
+  }
+});
+
+async function applyConfig(client: CorralClient, text: string, profiles: number) {
+  await writeConfig(text);
+  await vi.waitFor(() => expect(client.config.getSnapshot().profiles).toHaveLength(profiles));
+}
+
+function sessionOf(client: CorralClient, kind: Session["kind"]): Session {
+  const session = client.sessions.getSnapshot().sessions.find((each) => each.kind === kind);
+  if (!session) throw new Error(`no ${kind} session`);
+  return session;
+}
+
+async function argvOf(sessionId: string) {
+  return (await agentLaunches())
+    .filter((launch) => launch.env.CORRAL_SESSION_ID === sessionId)
+    .map((launch) => launch.argv);
+}
+
+async function startedAgent(client: CorralClient, kind: Session["kind"]): Promise<Session> {
+  await vi.waitFor(() => expect(sessionOf(client, kind).state).toBe("running"));
+  return sessionOf(client, kind);
+}
+
+test("a named profile and a typed model reach the fake CLI and stay on the session", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Profiled");
+  await applyConfig(client, PROFILES, 2);
+
+  await prefixThen("s");
+  await expect.element(picker()).toBeVisible();
+  await picker().getByRole("radio", { name: "Claude gateway" }).click();
+  await picker().getByRole("textbox", { name: "Model override" }).fill("claude-opus-4-1");
+  await picker().getByRole("button", { name: "Start session" }).click();
+
+  await expect.element(picker()).not.toBeInTheDocument();
+  const session = await startedAgent(client, "claude");
+  expect(session.launch).toMatchObject({
+    kind: "claude",
+    profile: { id: "claude-gateway", name: "Claude gateway" },
+    model: "claude-opus-4-1",
+    provider: null,
+  });
+  await expect
+    .poll(() => argvOf(session.id))
+    .toEqual([["--model", "claude-opus-4-1", "--session-id", session.agentSessionId]]);
+  await expect.poll(screenText).toContain("fake claude ready");
+
+  // The sidebar shows the profile it was actually started with.
+  await expect
+    .element(workspace().getByRole("button", { name: /^claude Claude gateway/ }))
+    .toBeVisible();
+
+  // Stop, then change the profile in the file: the conversation keeps its snapshot.
+  await prefixThen("x");
+  await expect.element(stoppedPane()).toMatchTextContent("Claude gateway · claude-opus-4-1");
+
+  await applyConfig(
+    client,
+    `
+[profiles.claude-gateway]
+name = "Renamed gateway"
+agent = "claude"
+model = "claude-haiku-4"
+`,
+    1,
+  );
+  await expect.element(stoppedPane()).toMatchTextContent("Claude gateway · claude-opus-4-1");
+  await expect.element(stoppedPane()).not.toMatchTextContent("claude-haiku-4");
+  expect(sessionOf(client, "claude").launch).toMatchObject({
+    profile: { name: "Claude gateway" },
+    model: "claude-opus-4-1",
+  });
+});
+
+test("a native-default start carries no profile or model and never borrows the file's model", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Native");
+  await applyConfig(client, PROFILES, 2);
+
+  await prefixThen("s");
+  await picker().getByRole("radio", { name: "claude" }).click();
+  await picker().getByRole("button", { name: "Start session" }).click();
+
+  const session = await startedAgent(client, "claude");
+  expect(session.launch).toBeNull();
+  await expect.poll(() => argvOf(session.id)).toEqual([["--session-id", session.agentSessionId]]);
+
+  await prefixThen("x");
+  await expect.element(stoppedPane()).toMatchTextContent("agent default model");
+  await expect.element(stoppedPane()).not.toMatchTextContent("claude-sonnet-4-5");
+});
+
+test("a missing environment reference keeps the picker draft and says which variable is missing", async () => {
+  await withServerEnv("PROFILE_MISSING_TOKEN", null);
+  const { client } = await appWithProject(newClient());
+  await createTask("Env");
+  await applyConfig(client, ENV_PROFILE, 1);
+  const shells = client.sessions.getSnapshot().sessions.length;
+
+  await prefixThen("s");
+  await picker().getByRole("radio", { name: "Claude env" }).click();
+  await picker().getByRole("button", { name: "Start session" }).click();
+
+  await expect
+    .element(picker().getByRole("alert"))
+    .toMatchTextContent("no environment variable PROFILE_MISSING_TOKEN");
+  await expect.element(picker().getByRole("radio", { name: "Claude env" })).toBeChecked();
+  expect(client.sessions.getSnapshot().sessions).toHaveLength(shells);
+
+  // With the reference present, the same open picker completes the launch.
+  await withServerEnv("PROFILE_MISSING_TOKEN", "not-a-real-token");
+  await picker().getByRole("button", { name: "Start session" }).click();
+  await expect.element(picker()).not.toBeInTheDocument();
+  const session = await startedAgent(client, "claude");
+  expect(session.launch).toMatchObject({ profile: { id: "claude-env" } });
+});
+
+test("a client that connects after a failed restart sees the safe launchError on the stopped session", async () => {
+  await withServerEnv("PROFILE_MISSING_TOKEN", "not-a-real-token");
+  const first = newClient();
+  const firstApp = await render(<App client={first} />);
+  await vi.waitFor(() => expect(first.projects.getSnapshot().loaded).toBe(true));
+
+  const repo = await createGitRepo("late-profile");
+  const project = await first.connection.api.projects.add({ path: repo });
+  const task = await first.connection.api.tasks.create({
+    projectId: project.id,
+    title: "Late",
+    workspace: { type: "main-worktree" },
+  });
+  await applyConfig(first, ENV_PROFILE, 1);
+  const session = await first.connection.api.sessions.start({
+    taskId: task.id,
+    kind: "claude",
+    size: { cols: 80, rows: 24 },
+    profileId: "claude-env",
+  });
+  await vi.waitFor(() => expect(sessionOf(first, "claude").state).toBe("running"));
+
+  await first.connection.api.sessions.stop({ id: session.id });
+  await withServerEnv("PROFILE_MISSING_TOKEN", null);
+  const error: unknown = await first.connection.api.sessions
+    .restart({ id: session.id, size: { cols: 80, rows: 24 } })
+    .catch((thrown: unknown) => thrown);
+  expect(error).toMatchObject({ code: "LAUNCH_ENV_MISSING" });
+  expect(describeLaunchError(error)).toContain("no environment variable PROFILE_MISSING_TOKEN");
+  await firstApp.unmount();
+
+  const late = newClient();
+  await render(
+    <App
+      client={late}
+      initialEntries={[`/?project=${project.id}&task=${task.id}&entry=${session.id}`]}
+    />,
+  );
+  await expect.element(stoppedPane()).toBeVisible();
+  await expect
+    .element(stoppedPane().getByRole("alert"))
+    .toMatchTextContent("no environment variable PROFILE_MISSING_TOKEN");
+  await expect.element(stoppedPane().getByRole("alert")).toMatchTextContent("Last start failed");
+  expect(sessionOf(late, "claude").launchError).toContain("PROFILE_MISSING_TOKEN");
+});
+
+test("OpenCode's missing model capability is refused by the server, not simulated in the UI", async () => {
+  const client = newClient();
+  await render(<App client={client} />);
+  await vi.waitFor(() => expect(client.projects.getSnapshot().loaded).toBe(true));
+
+  const repo = await createGitRepo("opencode-model");
+  const project = await client.connection.api.projects.add({ path: repo });
+  const task = await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "No model",
+    workspace: { type: "main-worktree" },
+  });
+  const error: unknown = await client.connection.api.sessions
+    .start({
+      taskId: task.id,
+      kind: "opencode",
+      size: { cols: 80, rows: 24 },
+      model: "gpt-5-codex",
+    })
+    .catch((thrown: unknown) => thrown);
+
+  expect(error).toMatchObject({ code: "LAUNCH_MODEL_UNSUPPORTED" });
+  expect(describeLaunchError(error)).toBe("opencode has no model choice at launch.");
+});

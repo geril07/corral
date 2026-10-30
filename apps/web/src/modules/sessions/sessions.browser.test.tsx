@@ -186,8 +186,8 @@ test("a Codex session whose conversation was never identified is unresumable and
   await expect.element(exitedNotice()).toMatchTextContent("will start a new conversation");
 });
 
-test("an agent missing from the server's PATH is named in the message and nothing is added", async () => {
-  await appWithProject(newClient());
+test("an agent missing from the server's PATH keeps the picker open with the reason", async () => {
+  const { client } = await appWithProject(newClient());
   await createTask("Agents");
   await withServerEnv("PATH", "/nonexistent");
 
@@ -196,9 +196,15 @@ test("an agent missing from the server's PATH is named in the message and nothin
   await userEvent.keyboard("1");
 
   await expect
-    .element(page.getByRole("alert"))
+    .element(picker().getByRole("alert"))
     .toMatchTextContent("claude was not found on the server's PATH.");
-  await expect.element(sessionButton("claude")).not.toBeInTheDocument();
+  await expect.element(picker()).toBeVisible();
+  expect(client.sessions.getSnapshot().sessions.filter((each) => each.kind === "claude")).toEqual(
+    [],
+  );
+
+  await userEvent.keyboard("{Escape}");
+  await expect.element(picker()).not.toBeInTheDocument();
   await expect.element(shellButtons()).toHaveLength(1);
 });
 

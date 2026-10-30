@@ -47,3 +47,68 @@ test("an unresumable session says it will start a new conversation", async () =>
     .element(pane().getByRole("button", { name: "Start a new conversation" }))
     .toHaveFocus();
 });
+
+test("a profiled session shows its snapshot profile, model and provider", async () => {
+  await render(
+    <StoppedSession
+      session={{
+        ...session("stopped"),
+        launch: {
+          kind: "claude",
+          profile: { id: "claude-gateway", name: "Claude gateway", revision: "0123456789ab" },
+          model: "claude-sonnet-4-5",
+          provider: null,
+          env: [{ targetName: "ANTHROPIC_AUTH_TOKEN", fromEnv: "CLAUDE_TOKEN" }],
+        },
+      }}
+      restartHint="alt+a r"
+      onRestart={() => undefined}
+    />,
+  );
+
+  await expect.element(pane()).toMatchTextContent("Claude gateway · claude-sonnet-4-5");
+});
+
+test("a native-default launch shows no model from today's config", async () => {
+  await render(
+    <StoppedSession
+      session={{ ...session("stopped"), launch: null }}
+      restartHint="alt+a r"
+      onRestart={() => undefined}
+    />,
+  );
+
+  await expect.element(pane()).not.toMatchTextContent("claude-sonnet-4-5");
+  await expect.element(pane()).toMatchTextContent("agent default model");
+});
+
+test("an old session says its launch choices are unknown, without guessing a model", async () => {
+  await render(
+    <StoppedSession
+      session={{ ...session("stopped"), launch: undefined }}
+      restartHint="alt+a r"
+      onRestart={() => undefined}
+    />,
+  );
+
+  await expect.element(pane()).toMatchTextContent("launch choices");
+  await expect.element(pane()).toMatchTextContent("its model is unknown");
+});
+
+test("a safe launch error stays visible next to the restart button", async () => {
+  await render(
+    <StoppedSession
+      session={{
+        ...session("stopped"),
+        launchError:
+          "the server has no environment variable CLAUDE_TOKEN for profile claude-gateway",
+      }}
+      restartHint="alt+a r"
+      onRestart={() => undefined}
+    />,
+  );
+
+  await expect
+    .element(pane().getByRole("alert"))
+    .toMatchTextContent("no environment variable CLAUDE_TOKEN");
+});

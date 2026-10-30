@@ -60,6 +60,7 @@ export const ActionId = z.enum([
   "board",
   "jump-blocked",
   "command-palette",
+  "settings",
 ]);
 export type ActionId = z.infer<typeof ActionId>;
 
@@ -84,6 +85,7 @@ export const DEFAULT_BINDINGS: Readonly<Record<ActionId, string>> = {
   board: "b",
   "jump-blocked": "g",
   "command-palette": "space",
+  settings: "o",
 };
 
 /**

@@ -14,7 +14,6 @@ import {
 } from "@corral/client/workspace-tree";
 import type { ActionId } from "@corral/protocol/config";
 import type {
-  AgentKind,
   CreateTaskInput,
   Project,
   Session,
@@ -26,6 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { useDialogFocus } from "../../common/ui/index.ts";
 import { useCorralClient, useConnection } from "../connection/index.ts";
 import { formatBinding, useConfig, usePrefixMode, type ActionTable } from "../keymap/index.ts";
+import { describeLaunchError, type AgentLaunchChoice } from "../sessions/index.ts";
 import type { RenameTarget } from "./rename-entry-dialog.tsx";
 import { terminalLabel } from "./sidebar.tsx";
 import {
@@ -52,13 +52,19 @@ interface UseWorkspaceOptions {
   search: WorkspaceSearch;
   onChange: (search: WorkspaceSearch) => void;
   onOpenBoard: (search: WorkspaceSearch) => void;
+  onOpenSettings: (search: WorkspaceSearch) => void;
 }
 
 /** The workspace's state and actions, wired to the client stores and the route's search params. */
-export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOptions) {
+export function useWorkspace({
+  search,
+  onChange,
+  onOpenBoard,
+  onOpenSettings,
+}: UseWorkspaceOptions) {
   const client = useCorralClient();
   const dialogFocus = useDialogFocus();
-  const { config } = useConfig();
+  const { config, profiles } = useConfig();
   const prefix = config.keys.prefix;
   const { api } = client.connection;
   const connection = useConnection();
@@ -127,7 +133,7 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
     try {
       await work();
     } catch (error) {
-      setFailure(describeError(error));
+      setFailure(describeLaunchError(error) ?? describeError(error));
     }
   };
 
@@ -155,9 +161,24 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
     openDialog({ kind: "pick-agent", taskId: selection.taskId }, opener);
   };
 
-  const pickAgent = (taskId: string, kind: AgentKind) => {
+  /** Starts the picked agent or profile; the picker keeps its draft when the server refuses it. */
+  const startAgent = async (taskId: string, choice: AgentLaunchChoice) => {
+    setFailure(undefined);
+    const started = await api.sessions.start({
+      taskId,
+      kind: choice.kind,
+      size: fitSize.current,
+      ...(choice.profileId === undefined ? {} : { profileId: choice.profileId }),
+      ...(choice.model === undefined ? {} : { model: choice.model }),
+    });
     setDialog(undefined);
-    void startSession(taskId, kind);
+    choose({ taskId, entryId: started.id });
+  };
+
+  /** Settings is a route; remember the opener for focus, then leave the workspace. */
+  const openSettings = (opener?: HTMLElement) => {
+    dialogFocus?.remember(opener);
+    onOpenSettings(chosenToSearch(chosenRef.current));
   };
 
   const closeTerminal = (id: string) =>
@@ -430,6 +451,12 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
       enabled: true,
       run: () => openPalette(),
     },
+    settings: {
+      label: "Settings",
+      group: "General",
+      enabled: true,
+      run: () => openSettings(),
+    },
   };
 
   const keymap = useMemo(() => createConfigKeymap(config), [config]);
@@ -446,6 +473,7 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
   return {
     client,
     config,
+    profiles,
     prefix,
     connection,
     projects,
@@ -468,7 +496,8 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
     continueTask,
     createTerminal,
     openAgentPicker,
-    pickAgent,
+    startAgent,
+    openSettings,
     closeTerminal,
     stopSession,
     restartSession,

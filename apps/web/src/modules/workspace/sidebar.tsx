@@ -32,6 +32,7 @@ import {
   useTruncatedText,
 } from "../../common/ui/index.ts";
 import { formatBinding } from "../keymap/index.ts";
+import { compactLaunchLabel, launchLine } from "../sessions/index.ts";
 import { StatusIndicator } from "../status/index.ts";
 
 export function terminalLabel(terminal: TerminalInfo): string {
@@ -312,7 +313,9 @@ function SessionRow({
   const { badge, note } = describeSessionState(session);
   const status = sessionStatus(session);
   const name = label ?? session.kind;
-  const title = [status?.message, note].filter(Boolean).join("\n") || undefined;
+  const launch = compactLaunchLabel(session);
+  const launchDetails = session.launch ? launchLine(session)?.details : undefined;
+  const title = [launchDetails, status?.message, note].filter(Boolean).join("\n") || undefined;
   const { observe, clipped, display } = useTruncatedText(name);
   const select = (
     <Button
@@ -335,6 +338,11 @@ function SessionRow({
       >
         {display}
       </span>
+      {launch && running && (
+        <Badge className="min-w-0 max-w-1/3 justify-start overflow-hidden" title={launchDetails}>
+          <span className="truncate">{launch}</span>
+        </Badge>
+      )}
       {badge && <span className="text-text-muted"> {badge}</span>}
     </Button>
   );

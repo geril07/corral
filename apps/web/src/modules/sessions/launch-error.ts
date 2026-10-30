@@ -1,0 +1,48 @@
+interface DefinedError {
+  code: string;
+  data: unknown;
+}
+
+/**
+ * The typed launch errors of `sessions.start` and `restart`, in the user's words. Matched by
+ * shape, like `@corral/client/rpc-errors`, so a web module needs no dependency on the RPC client.
+ * `undefined` means another error: the caller falls back to `describeError`.
+ */
+export function describeLaunchError(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || Reflect.get(error, "defined") !== true) {
+    return undefined;
+  }
+  const code = Reflect.get(error, "code");
+  if (typeof code !== "string") return undefined;
+  const defined: DefinedError = { code, data: Reflect.get(error, "data") };
+
+  switch (defined.code) {
+    case "LAUNCH_PROFILE_UNKNOWN":
+      return `The profile "${String(field(defined.data, "id"))}" is no longer in the config file.`;
+    case "LAUNCH_PROFILE_KIND_MISMATCH":
+      return `The profile "${String(field(defined.data, "id"))}" does not start a ${String(field(defined.data, "kind"))} session.`;
+    case "LAUNCH_MODEL_UNSUPPORTED":
+      return `${String(field(defined.data, "kind"))} has no model choice at launch.`;
+    case "LAUNCH_MODEL_INVALID":
+      return `That is not a valid model id for ${String(field(defined.data, "kind"))}.`;
+    case "LAUNCH_ENV_MISSING": {
+      const profileId = field(defined.data, "profileId");
+      const name = String(field(defined.data, "name"));
+      return typeof profileId === "string"
+        ? `The server has no environment variable ${name} for profile "${profileId}".`
+        : `The server has no environment variable ${name}.`;
+    }
+    case "LAUNCH_ENV_RESERVED":
+      return `A profile may not set ${String(field(defined.data, "name"))}.`;
+    case "LAUNCH_FAILED": {
+      const message = String(field(defined.data, "message")).replace(/\.$/, "");
+      return `The ${String(field(defined.data, "kind"))} session could not be launched: ${message}.`;
+    }
+    default:
+      return undefined;
+  }
+}
+
+function field(data: unknown, key: string): unknown {
+  return typeof data === "object" && data !== null ? Reflect.get(data, key) : undefined;
+}

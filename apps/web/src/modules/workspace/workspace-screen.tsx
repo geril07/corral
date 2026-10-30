@@ -1,6 +1,6 @@
 import { describeSessionState } from "@corral/client/session-state";
 import { ActionId, type ClientConfig } from "@corral/protocol/config";
-import { AppShell, Button, Kbd, MainPanel, SidebarPanel } from "../../common/ui/index.ts";
+import { AppShell, Button, Kbd, MainPanel, SidebarPanel, Tooltip } from "../../common/ui/index.ts";
 import { AddProjectDialog } from "../projects/index.ts";
 import { AgentPicker, RemoveSessionDialog, StoppedSession } from "../sessions/index.ts";
 import { NewTaskDialog, RemoveTaskDialog } from "../tasks/index.ts";
@@ -12,6 +12,7 @@ import {
   ConfigProblemsNotice,
   formatBinding,
 } from "../keymap/index.ts";
+import { SETTINGS_BUTTON_ID, useRestoreSettingsFocus } from "../settings/index.ts";
 import { FindTaskDialog } from "./find-task-dialog.tsx";
 import { RenameEntryDialog } from "./rename-entry-dialog.tsx";
 import { Sidebar } from "./sidebar.tsx";
@@ -31,12 +32,20 @@ export interface WorkspaceScreenProps {
   search: WorkspaceSearch;
   onChange: (search: WorkspaceSearch) => void;
   onOpenBoard: (search: WorkspaceSearch) => void;
+  onOpenSettings: (search: WorkspaceSearch) => void;
 }
 
-export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScreenProps) {
+export function WorkspaceScreen({
+  search,
+  onChange,
+  onOpenBoard,
+  onOpenSettings,
+}: WorkspaceScreenProps) {
+  useRestoreSettingsFocus();
   const {
     client,
     config,
+    profiles,
     prefix,
     connection,
     projects,
@@ -57,7 +66,8 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
     continueTask,
     createTerminal,
     openAgentPicker,
-    pickAgent,
+    startAgent,
+    openSettings,
     closeTerminal,
     stopSession,
     restartSession,
@@ -78,8 +88,9 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
     createTask,
     removeTask,
     setDialog,
-  } = useWorkspace({ search, onChange, onOpenBoard });
+  } = useWorkspace({ search, onChange, onOpenBoard, onOpenSettings });
   const restartKey = keyHint(config, "restart-session");
+  const settingsBinding = formatBinding(config, "settings");
   const terminalHint = pressHint(config, "new-terminal");
   const agentHint = pressHint(config, "new-agent");
 
@@ -130,6 +141,16 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
               <Kbd>{prefix}</Kbd>
             </span>
             <ConfigProblemsNotice onOpen={openConfigProblems} />
+            <Tooltip content={`Settings · ${settingsBinding}`}>
+              <Button
+                id={SETTINGS_BUTTON_ID}
+                variant="ghost"
+                size="sm"
+                onClick={(event) => openSettings(event.currentTarget)}
+              >
+                Settings
+              </Button>
+            </Tooltip>
           </div>
         </footer>
       </SidebarPanel>
@@ -184,7 +205,8 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
       )}
       {dialog?.kind === "pick-agent" && (
         <AgentPicker
-          onPick={(kind) => pickAgent(dialog.taskId, kind)}
+          profiles={profiles}
+          onStart={(choice) => startAgent(dialog.taskId, choice)}
           onClose={() => setDialog(undefined)}
         />
       )}

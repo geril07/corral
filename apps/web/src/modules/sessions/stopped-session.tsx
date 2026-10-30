@@ -1,6 +1,7 @@
 import { describeSessionState } from "@corral/client/session-state";
 import type { Session } from "@corral/protocol/rpc";
-import { Button } from "../../common/ui/index.ts";
+import { Button, Tooltip } from "../../common/ui/index.ts";
+import { launchLine } from "./launch-summary.ts";
 
 interface StoppedSessionProps {
   session: Session;
@@ -12,12 +13,25 @@ interface StoppedSessionProps {
 /** Shown in place of a terminal while the selected session is not running. */
 export function StoppedSession({ session, restartHint, onRestart }: StoppedSessionProps) {
   const { badge, note } = describeSessionState(session);
+  const launch = launchLine(session);
   return (
     <section className="max-w-md px-4 py-6" aria-label="stopped session">
       <h2 className="mb-2 text-base">
         {session.kind} · {badge}
       </h2>
       <p className="mb-3">{note}</p>
+      {launch && (
+        <p className="mb-3 text-text-muted" aria-label="launch choices">
+          <Tooltip content={launch.details}>
+            <span tabIndex={0}>{launch.text}</span>
+          </Tooltip>
+        </p>
+      )}
+      {session.launchError && (
+        <p className="mb-3 break-words text-danger" role="alert">
+          Last start failed: {session.launchError}
+        </p>
+      )}
       <Button variant="primary" autoFocus onClick={onRestart}>
         {session.state === "unresumable" ? "Start a new conversation" : "Start again"}
       </Button>

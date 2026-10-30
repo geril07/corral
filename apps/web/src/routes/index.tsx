@@ -14,6 +14,7 @@ function WorkspaceRoute() {
       search={search}
       onChange={(next) => void navigate({ to: "/", search: next, replace: true })}
       onOpenBoard={(next) => void navigate({ to: "/board", search: next })}
+      onOpenSettings={(next) => void navigate({ to: "/settings", search: next })}
     />
   );
 }

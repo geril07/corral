@@ -17,6 +17,7 @@ const WEB_MODULES = [
   "keymap",
   "projects",
   "sessions",
+  "settings",
   "status",
   "tasks",
   "terminal",

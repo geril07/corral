@@ -28,15 +28,22 @@ export function ConfigProblemsDialog({ onClose }: { onClose: () => void }) {
       onClose={onClose}
     >
       <p className="mb-3 break-all font-mono text-xs text-text-muted">{path}</p>
-      <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
-        {problems.map((problem) => (
-          <ProblemRow
-            key={`${problem.severity}:${problem.path}:${problem.message}`}
-            problem={problem}
-          />
-        ))}
-      </ul>
+      <ConfigProblemsList problems={problems} />
     </Dialog>
+  );
+}
+
+/** Each rejected entry; the settings surface and the dialog show the same rows. */
+export function ConfigProblemsList({ problems }: { problems: readonly ConfigProblem[] }) {
+  return (
+    <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
+      {problems.map((problem) => (
+        <ProblemRow
+          key={`${problem.severity}:${problem.path}:${problem.message}`}
+          problem={problem}
+        />
+      ))}
+    </ul>
   );
 }
 
