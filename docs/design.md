@@ -43,6 +43,14 @@ Client UI rules: `ux.md`.
 - **Mobile** (roadmap): another client of the same API. The UI framework choice must leave a realistic mobile path (open question).
 - **Remote**: a client connects to a server on another machine. This needs auth and a transport beyond loopback; out of MVP, but the protocol must not assume localhost.
 
+### Local trust boundary
+
+The server executes commands for its clients (`terminals.create` takes command, args and env), so a web page on another origin that can reach loopback must not become a client. Each server run generates a random capability (32 bytes, base64url) and publishes it only in `endpoint.json` in its state directory (`0700` directory, `0600` file). Every WebSocket presents it as a subprotocol (a `corral.capability` marker followed by the token), and the single upgrade handler checks it before choosing `/rpc` or a terminal path; a missing or wrong capability gets HTTP 401 and never reaches routing. The token is never put in a URL, so request logs, `Referer` and diagnostics stay clean. `Origin` is not the gate: desktop loads `file://`, browser dev loads another origin, and `Origin: null` is common, while any holder of the capability is trusted.
+
+Delivery: the desktop main process reads the endpoint file and hands `{url, capability}` to the page over a narrow preload IPC bridge, only to the trusted top frame; other frames and popups get nothing. The page URL keeps only the tokenless `?server=`, unexpected navigation is blocked, and ordinary http(s) links are passed to the OS browser instead of loading in the capability-bearing window. Browser/dev mode takes an explicit capability from `#/route?capability=...`, keeps it in `sessionStorage` and removes it from the hash before routing, so reloads and hash navigation work. A page with no capability shows a startup error instead of opening an unauthenticated socket.
+
+What this stops: a hostile page that can reach loopback calling RPC (including `terminals.create`) or attaching terminal streams. What it does not stop: code already running as the same OS user, which can read `endpoint.json`; that code is trusted like the config file. Status reports keep their separate per-session bearer token, and remote authentication/RBAC stays out of MVP (see **Remote** above).
+
 ## Domain model
 
 - **Project**: a git repository, added by path.

@@ -50,6 +50,7 @@ Internal packages export TypeScript source (no build step). The server runs that
 - **Stores in `packages/client` are framework-agnostic** (subscribe/getSnapshot); React reads them with `useSyncExternalStore`. Mobile reuses them as is.
 - **Terminals stay imperative.** Output goes from the stream client straight into `terminal.write()`, never through React state.
 - **Names are concrete.** No `utils`, `helpers`, `common`, `misc` (Orca's rule): a module is named after what it does.
+- **The local capability is part of the transport contract.** `ServerEndpoint` carries the per-run capability; clients take a `ServerTarget` and present it as a WebSocket subprotocol (`packages/protocol/src/handshake.ts`). Desktop delivers it over the preload IPC bridge, browser/dev over the hash bootstrap (`packages/client/src/bootstrap.ts`). Never append it to a URL or log it.
 - **Protocol changes are versioned.** Client and server exchange `PROTOCOL_VERSION` on connect and refuse a mismatch; new fields are optional.
 
 ## Testing
