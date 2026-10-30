@@ -25,7 +25,7 @@ interface IssueImportSectionProps {
   /** Called only when the user presses Import, never on paste. */
   onResolveIssue: ResolveIssue;
   source: TaskSource | undefined;
-  /** The imported snapshot replaces the draft's source. */
+  /** The imported snapshot replaces the draft source. */
   onImported: (source: TaskSource) => void;
   /** The draft no longer matches its source (URL/provider edited, or a new import started). */
   onCleared: () => void;
@@ -141,7 +141,7 @@ export function IssueImportSection({
           onChange={(event) => changeUrl(event.target.value)}
           onKeyDown={(event) => {
             if (event.key !== "Enter") return;
-            // Enter in the URL imports; the form's Create action would otherwise create a task
+            // Enter in the URL imports; the form Create action would otherwise create a task
             // with no source while the user expected the URL to be read.
             event.preventDefault();
             void importIssue();
