@@ -1,12 +1,16 @@
-import { Session } from "@corral/protocol/rpc";
+import type { Session } from "@corral/protocol/rpc";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vite-plus/test";
-import { z } from "zod";
 import { useFakeAgents, type Launch } from "../../test/fake-agents.ts";
 import { writeFiles } from "../../test/git-repo.ts";
 import { addTask } from "../../test/project-fixture.ts";
+import {
+  launchesOf as launchesOfAgent,
+  processExists,
+  sessionsOf,
+} from "../../test/session-helpers.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
 
 const server = useServer();
@@ -15,33 +19,8 @@ const SIZE = { cols: 80, rows: 24 };
 // Wide enough that a worktree path does not wrap on screen.
 const WIDE = { cols: 300, rows: 24 };
 
-type Api = Awaited<ReturnType<typeof server.rpc>>;
-
-/** The sessions as `sessions.watch` first reports them. */
-async function sessionsOf(api: Api): Promise<Session[]> {
-  const updates = await api.sessions.watch();
-  const first = await within(updates.next(), "the sessions");
-  await updates.return?.();
-  return z.array(Session).parse(first.value);
-}
-
-function processExists(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function launchesOf(agent: Launch["agent"], count: number): Promise<Launch[]> {
-  await expect
-    .poll(async () => (await agents.launches()).filter((launch) => launch.agent === agent).length, {
-      timeout: 10_000,
-      message: `${count} launches of ${agent}`,
-    })
-    .toBe(count);
-  return (await agents.launches()).filter((launch) => launch.agent === agent);
+function launchesOf(agent: Launch["agent"], count: number) {
+  return launchesOfAgent(agents, agent, count);
 }
 
 async function launchOf(agent: Launch["agent"]): Promise<Launch> {

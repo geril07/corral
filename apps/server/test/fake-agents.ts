@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, vi } from "vite-plus/test";
 
-const FAKE_BIN = join(import.meta.dirname, "fake-agents", "bin");
+export const FAKE_BIN = join(import.meta.dirname, "fake-agents", "bin");
 
 export interface Launch {
   agent: "claude" | "codex" | "pi" | "opencode";
