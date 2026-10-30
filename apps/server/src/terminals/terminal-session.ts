@@ -5,8 +5,11 @@ import { OutputCredit } from "./output-credit.ts";
 import { PendingInputTail } from "./pending-input-tail.ts";
 
 /** Unprocessed bytes queued in the headless terminal before the PTY is paused, and where it resumes. */
-export const HEADLESS_BACKLOG_PAUSE_BYTES = 1024 * 1024;
-export const HEADLESS_BACKLOG_RESUME_BYTES = 256 * 1024;
+export interface BacklogLimits {
+  pauseBytes: number;
+  resumeBytes: number;
+}
+const DEFAULT_BACKLOG_LIMITS: BacklogLimits = { pauseBytes: 1024 * 1024, resumeBytes: 256 * 1024 };
 
 /** How long a PTY gets to exit after SIGHUP before it is killed outright. */
 const KILL_GRACE_MS = 2000;
@@ -53,17 +56,25 @@ export class TerminalSession {
   readonly #tail = new PendingInputTail();
   readonly #onChange: () => void;
   readonly #spec: TerminalSpec;
+  readonly #backlogLimits: BacklogLimits;
   #size: TerminalSize;
   #exit: TerminalExit | null = null;
   #processExited = false;
   #closed = false;
   #backlogBytes = 0;
+  #peakBacklogBytes = 0;
   #ptyPaused = false;
   #killTimer: NodeJS.Timeout | undefined;
   readonly #exited: Promise<void>;
 
-  constructor(id: string, spec: TerminalSpec, onChange: () => void) {
+  constructor(
+    id: string,
+    spec: TerminalSpec,
+    onChange: () => void,
+    backlogLimits: BacklogLimits = DEFAULT_BACKLOG_LIMITS,
+  ) {
     this.id = id;
+    this.#backlogLimits = backlogLimits;
     this.#spec = spec;
     this.#size = spec.size;
     this.#onChange = onChange;
@@ -97,6 +108,11 @@ export class TerminalSession {
       size: this.#size,
       exit: this.#exit,
     };
+  }
+
+  /** Most bytes ever queued in the headless terminal at once; stays near the pause level under a flood. */
+  get peakBacklogBytes(): number {
+    return this.#peakBacklogBytes;
   }
 
   /** The snapshot is the first thing the sink receives. */
@@ -143,13 +159,14 @@ export class TerminalSession {
   #receive(chunk: Uint8Array): void {
     if (this.#closed) return;
     this.#backlogBytes += chunk.length;
-    if (!this.#ptyPaused && this.#backlogBytes > HEADLESS_BACKLOG_PAUSE_BYTES) {
+    this.#peakBacklogBytes = Math.max(this.#peakBacklogBytes, this.#backlogBytes);
+    if (!this.#ptyPaused && this.#backlogBytes > this.#backlogLimits.pauseBytes) {
       this.#ptyPaused = true;
       this.#pty.pause();
     }
     this.#headless.write(chunk, () => {
       this.#backlogBytes -= chunk.length;
-      if (this.#ptyPaused && this.#backlogBytes <= HEADLESS_BACKLOG_RESUME_BYTES) {
+      if (this.#ptyPaused && this.#backlogBytes <= this.#backlogLimits.resumeBytes) {
         this.#ptyPaused = false;
         if (!this.#closed) this.#pty.resume();
       }

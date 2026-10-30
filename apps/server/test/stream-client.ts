@@ -169,7 +169,10 @@ export class StreamClient {
       });
       void writeAndWait(this.terminal, message.data).then(() => this.#changed());
     } else if (message.type === "resized") {
-      this.terminal.write("", () => this.terminal.resize(message.size.cols, message.size.rows));
+      this.terminal.write("", () => {
+        this.terminal.resize(message.size.cols, message.size.rows);
+        this.#changed();
+      });
     }
     this.#changed();
   }
