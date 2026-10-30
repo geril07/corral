@@ -1,5 +1,5 @@
 import type { CorralClient } from "@corral/client/corral-client";
-import type { Task } from "@corral/protocol/rpc";
+import type { Project, Task } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
@@ -7,6 +7,7 @@ import { writeConfig } from "../../../test/config-command.ts";
 import { createGitRepo } from "../../../test/git-repo.ts";
 import { prefixShifted, prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { App, renderApp } from "../../../test/render-app.tsx";
+import { FindTaskDialog } from "./find-task-dialog.tsx";
 import {
   appWithProject,
   createTask,
@@ -30,6 +31,72 @@ function taskNamed(client: CorralClient, title: string): Task {
 function taskState(client: CorralClient, id: string): Task["state"] | undefined {
   return client.tasks.getSnapshot().tasks.find((task) => task.id === id)?.state;
 }
+
+const repoProject: Project = {
+  id: "p1",
+  name: "repo",
+  path: "/repos/repo",
+  defaultBaseBranch: "main",
+};
+
+const settledTask = (id: string, title: string, createdAt: number): Task => ({
+  id,
+  projectId: repoProject.id,
+  title,
+  branch: `branch-${id}`,
+  workspacePath: `/work/${id}`,
+  ownsWorktree: true,
+  state: "settled",
+  createdAt,
+});
+
+test("a failed continue keeps the dialog and its error, and a retry can still continue", async () => {
+  const onContinue = vi
+    .fn<(task: Task) => Promise<void>>()
+    .mockRejectedValueOnce(new Error("This task no longer exists."))
+    .mockResolvedValueOnce(undefined);
+  const onClose = vi.fn<() => void>();
+  await render(
+    <FindTaskDialog
+      projects={[repoProject]}
+      tasks={[settledTask("t1", "Archived work", 1)]}
+      onOpen={vi.fn<(task: Task) => void>()}
+      onContinue={onContinue}
+      onClose={onClose}
+    />,
+  );
+
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  await expect.element(page.getByRole("alert")).toMatchTextContent("This task no longer exists.");
+  expect(onClose).not.toHaveBeenCalled();
+
+  await page.getByRole("button", { name: "Continue settled task" }).click();
+  await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+  expect(onContinue).toHaveBeenCalledTimes(2);
+});
+
+test("removing the selected task while the search is open falls back to the first remaining one", async () => {
+  const beta = settledTask("t2", "Archived beta", 2);
+  const alpha = settledTask("t1", "Archived alpha", 1);
+  const onContinue = vi.fn<(task: Task) => Promise<void>>().mockResolvedValue(undefined);
+  const props = {
+    projects: [repoProject],
+    onOpen: vi.fn<(task: Task) => void>(),
+    onContinue,
+    onClose: vi.fn<() => void>(),
+  };
+  const screen = await render(<FindTaskDialog {...props} tasks={[beta, alpha]} />);
+
+  await userEvent.keyboard("{ArrowDown}");
+  await expect.element(findOption(/Archived alpha/)).toHaveAttribute("aria-selected", "true");
+
+  await screen.rerender(<FindTaskDialog {...props} tasks={[beta]} />);
+  await expect.element(findOption(/Archived alpha/)).not.toBeInTheDocument();
+  await expect.element(findOption(/Archived beta/)).toHaveAttribute("aria-selected", "true");
+
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  await vi.waitFor(() => expect(onContinue).toHaveBeenCalledExactlyOnceWith(beta));
+});
 
 test("prefix f opens the search, filters, Enter opens the task and Escape returns to the terminal", async () => {
   await appWithProject(newClient());
