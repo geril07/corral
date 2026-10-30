@@ -441,3 +441,37 @@ env = [{ targetName = "OPENAI_API_KEY", fromEnv = "LAUNCH_OPENAI_KEY" }]
     launch!.rolloutId,
   ]);
 });
+
+test("a failed manual restart returns the typed error and leaves a visible reason", async () => {
+  const variable = "LAUNCH_MANUAL_TOKEN";
+  const previous = process.env[variable];
+  process.env[variable] = SENTINEL_TOKEN;
+  try {
+    await writeConfig(claudeProfile("claude-sonnet-4-5", variable), (config) =>
+      config.profiles.some((profile) => profile.id === "claude-gateway"),
+    );
+    const { api, task } = await addTask(server, "Manual restart");
+    const session = await api.sessions.start({
+      taskId: task.id,
+      kind: "claude",
+      size: SIZE,
+      profileId: "claude-gateway",
+    });
+    await launchesOf(agents, "claude", 1);
+    await api.sessions.stop({ id: session.id });
+    delete process.env[variable];
+
+    await expect(api.sessions.restart({ id: session.id, size: SIZE })).rejects.toMatchObject({
+      code: "LAUNCH_ENV_MISSING",
+      data: { profileId: "claude-gateway", name: variable },
+    });
+    const stopped = (await sessionsOf(api))[0]!;
+    expect(stopped).toMatchObject({ id: session.id, state: "stopped", terminalId: null });
+    expect(stopped.launchError).toContain(variable);
+    expect(stopped.launchError).not.toContain(SENTINEL_TOKEN);
+    expect(await launchesOf(agents, "claude", 1)).toHaveLength(1);
+  } finally {
+    if (previous === undefined) delete process.env[variable];
+    else process.env[variable] = previous;
+  }
+});

@@ -136,6 +136,7 @@ export class SessionService {
         this.#launch(stored, this.#task(stored.taskId), size, "resume");
       } catch (error) {
         this.#launchErrors.set(id, launchFailureReason(error));
+        this.#changes.notify();
         throw error;
       }
       if (previous) await this.#terminals.close(previous.terminalId);

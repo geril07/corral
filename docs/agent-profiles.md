@@ -33,7 +33,8 @@ env = [
   `targetName` is set in the agent's environment, `fromEnv` is read from the server's
   environment. Literal values are not supported.
 - The profile id (the table key) is letters, digits, `.`, `_` or `-`, starting with a letter or
-  digit, at most 64 characters.
+  digit, at most 64 characters. Quote an id that contains a dot
+  (`[profiles."team.claude"]`); an unquoted dot makes TOML nested tables.
 
 A profile is **all-or-nothing**: an unknown key, wrong type, reserved variable, invalid id or an
 unsupported model/provider drops the whole profile. Other profiles and `[keys]` still apply.
