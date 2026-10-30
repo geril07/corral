@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, vi } from "vite-plus/test";
 import { useFakeIssueClis } from "../../test/issue-clis.ts";
+import { runGit } from "../../test/git-repo.ts";
 import { addProject } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
 
@@ -21,6 +22,7 @@ test("a GitHub issue resolves with only a read command; its title becomes the ta
     number: 42,
     title: "Fix the login bug",
     body: "Steps:\n$(touch pwned)\n",
+    url: "https://github.com/acme/app/issues/42",
   });
   const api = await server.rpc();
 
@@ -47,7 +49,7 @@ test("a GitHub issue resolves with only a read command; its title becomes the ta
         "view",
         "https://github.com/acme/app/issues/42",
         "--repo=github.com/acme/app",
-        "--json=number,title,body",
+        "--json=number,title,body,url",
       ],
       cwd: project.path,
     },
@@ -74,7 +76,12 @@ test("a GitHub issue resolves with only a read command; its title becomes the ta
 
 test("a GitLab issue reads description as text, and a locally edited title keeps the original issue snapshot", async () => {
   const { project } = await addProject(server);
-  clis.answer({ iid: 7, title: "Issue title", description: "Original issue body" });
+  clis.answer({
+    iid: 7,
+    title: "Issue title",
+    description: "Original issue body",
+    web_url: "https://gitlab.com/group/sub/project/-/issues/7",
+  });
   const api = await server.rpc();
 
   const source = await api.projects.resolveIssue({
@@ -111,8 +118,9 @@ test("a GitLab issue reads description as text, and a locally edited title keeps
   expect(await firstTaskList(await server.rpc())).toEqual([task]);
 });
 
-test("a self-hosted host needs its provider named; then GitLab and GitHub Enterprise are read on that host", async () => {
-  const { project } = await addProject(server);
+test("a self-hosted host needs its provider named and a trusted source; then GitLab and GitHub Enterprise are read on that host", async () => {
+  const { project, repo } = await addProject(server);
+  runGit(repo, "remote", "add", "origin", "https://gitlab.example.com/group/project.git");
   const api = await server.rpc();
   const gitlabUrl = "https://gitlab.example.com/group/project/-/issues/3";
 
@@ -124,12 +132,23 @@ test("a self-hosted host needs its provider named; then GitLab and GitHub Enterp
   });
   expect(clis.calls()).toEqual([]);
 
-  clis.answer({ iid: 3, title: "Self hosted", description: "body" });
+  clis.answer({
+    iid: 3,
+    title: "Self hosted",
+    description: "body",
+    web_url: gitlabUrl,
+  });
   expect(
     await api.projects.resolveIssue({ projectId: project.id, url: gitlabUrl, provider: "gitlab" }),
   ).toMatchObject({ provider: "gitlab", host: "gitlab.example.com", url: gitlabUrl });
 
-  clis.answer({ number: 9, title: "Enterprise", body: "" });
+  clis.answer({
+    number: 9,
+    title: "Enterprise",
+    body: "",
+    url: "https://ghe.example.com/acme/app/issues/9",
+  });
+  vi.stubEnv("GH_HOST", "ghe.example.com");
   const enterprise = await api.projects.resolveIssue({
     projectId: project.id,
     url: "https://ghe.example.com/acme/app/issues/9",
@@ -141,6 +160,31 @@ test("a self-hosted host needs its provider named; then GitLab and GitHub Enterp
     repository: "acme/app",
     url: "https://ghe.example.com/acme/app/issues/9",
   });
+  const portedUrl = "https://gitlab.example.com:8443/group/project/-/issues/4";
+  runGit(repo, "remote", "add", "secure", "https://gitlab.example.com:8443/group/project.git");
+  clis.answer({
+    iid: 4,
+    title: "Ported",
+    description: "body",
+    web_url: portedUrl,
+  });
+  expect(
+    await api.projects.resolveIssue({
+      projectId: project.id,
+      url: portedUrl,
+      provider: "gitlab",
+    }),
+  ).toMatchObject({ host: "gitlab.example.com:8443", number: 4 });
+  await expect(
+    api.projects.resolveIssue({
+      projectId: project.id,
+      url: "https://gitlab.example.com:9443/group/project/-/issues/4",
+      provider: "gitlab",
+    }),
+  ).rejects.toMatchObject({
+    code: "ISSUE_HOST_UNTRUSTED",
+    data: { provider: "gitlab", host: "gitlab.example.com:9443" },
+  });
   expect(clis.calls().map((call) => [call.command, call.argv])).toEqual([
     ["glab", ["issue", "view", gitlabUrl, "--output=json"]],
     [
@@ -150,10 +194,47 @@ test("a self-hosted host needs its provider named; then GitLab and GitHub Enterp
         "view",
         "https://ghe.example.com/acme/app/issues/9",
         "--repo=ghe.example.com/acme/app",
-        "--json=number,title,body",
+        "--json=number,title,body,url",
       ],
     ],
+    ["glab", ["issue", "view", portedUrl, "--output=json"]],
   ]);
+});
+
+test("an arbitrary provider host is untrusted before any CLI runs, even with an enterprise token", async () => {
+  const { project } = await addProject(server);
+  vi.stubEnv("GH_ENTERPRISE_TOKEN", "SENTINEL_ENTERPRISE_TOKEN");
+  const api = await server.rpc();
+
+  await expect(
+    api.projects.resolveIssue({
+      projectId: project.id,
+      url: "https://attacker.example/acme/app/issues/1",
+      provider: "github",
+    }),
+  ).rejects.toMatchObject({
+    code: "ISSUE_HOST_UNTRUSTED",
+    data: { provider: "github", host: "attacker.example" },
+  });
+  expect(clis.calls()).toEqual([]);
+});
+
+test("a GitHub issue on a nonstandard port is refused before any CLI runs", async () => {
+  const { project, repo } = await addProject(server);
+  runGit(repo, "remote", "add", "origin", "https://ghe.example.com:8443/acme/app.git");
+  const api = await server.rpc();
+
+  await expect(
+    api.projects.resolveIssue({
+      projectId: project.id,
+      url: "https://ghe.example.com:8443/acme/app/issues/9",
+      provider: "github",
+    }),
+  ).rejects.toMatchObject({
+    code: "ISSUE_UNSUPPORTED_PORT",
+    data: { provider: "github", host: "ghe.example.com:8443" },
+  });
+  expect(clis.calls()).toEqual([]);
 });
 
 test("untrusted URLs fail before any CLI runs", async () => {
@@ -189,7 +270,12 @@ test("malformed or mismatched CLI output is a domain error, and no task is inven
     }),
   ).rejects.toMatchObject({ code: "ISSUE_RESPONSE_INVALID", data: { provider: "github" } });
 
-  clis.answer({ number: 2, title: "Wrong issue", body: "" });
+  clis.answer({
+    number: 2,
+    title: "Wrong issue",
+    body: "",
+    url: "https://github.com/acme/app/issues/2",
+  });
   await expect(
     api.projects.resolveIssue({
       projectId: project.id,
@@ -211,38 +297,63 @@ test("auth, network and output-size failures stay bounded and typed", async () =
     data: { provider: "github" },
   });
 
-  clis.fail(1, "401 Unauthorized: run glab auth login --hostname gitlab.example.com");
+  clis.fail(1, "401 Unauthorized: run glab auth login --hostname gitlab.com");
   await expect(
     api.projects.resolveIssue({
       projectId: project.id,
-      url: "https://gitlab.example.com/group/project/-/issues/1",
-      provider: "gitlab",
+      url: "https://gitlab.com/group/project/-/issues/1",
     }),
   ).rejects.toMatchObject({ code: "ISSUE_AUTH_REQUIRED", data: { provider: "gitlab" } });
 
   clis.fail(1, "dial tcp: lookup github.com: no such host");
   await expect(api.projects.resolveIssue({ projectId: project.id, url })).rejects.toMatchObject({
     code: "ISSUE_FETCH_FAILED",
-    data: { provider: "github", message: expect.stringContaining("no such host") },
+    data: { provider: "github", message: "Could not reach the issue host." },
   });
 
-  clis.fail(1, "x".repeat(5000));
+  clis.fail(1, "Could not resolve to a Repository with the number of 401");
+  await expect(api.projects.resolveIssue({ projectId: project.id, url })).rejects.toMatchObject({
+    code: "ISSUE_FETCH_FAILED",
+    data: { provider: "github", message: "The issue was not found." },
+  });
+
+  clis.fail(1, "Authorization: Bearer SENTINEL_SECRET_42");
   const error = await api.projects.resolveIssue({ projectId: project.id, url }).then(
     () => undefined,
     (reason: unknown) => reason,
   );
-  expect(error).toMatchObject({ code: "ISSUE_FETCH_FAILED" });
-  const data = typeof error === "object" && error !== null ? Reflect.get(error, "data") : undefined;
-  const message =
-    typeof data === "object" && data !== null ? Reflect.get(data, "message") : undefined;
-  expect(typeof message).toBe("string");
-  expect(String(message).length).toBeLessThanOrEqual(400);
+  expect(error).toMatchObject({
+    code: "ISSUE_FETCH_FAILED",
+    data: { provider: "github", message: "The issue tool failed." },
+  });
+  expect(JSON.stringify(error)).not.toContain("SENTINEL_SECRET_42");
 
   clis.hugeOutput();
   await expect(api.projects.resolveIssue({ projectId: project.id, url })).rejects.toMatchObject({
     code: "ISSUE_FETCH_FAILED",
     data: { provider: "github", message: expect.stringContaining("too much output") },
   });
+});
+
+test("inherited native CLI debug variables never reach the child", async () => {
+  const { project } = await addProject(server);
+  clis.answer({
+    number: 1,
+    title: "Debug safe",
+    body: "",
+    url: "https://github.com/acme/app/issues/1",
+  });
+  vi.stubEnv("GH_DEBUG", "api");
+  vi.stubEnv("GLAB_DEBUG", "true");
+  vi.stubEnv("GIT_TRACE", "1");
+  const api = await server.rpc();
+
+  await expect(
+    api.projects.resolveIssue({
+      projectId: project.id,
+      url: "https://github.com/acme/app/issues/1",
+    }),
+  ).resolves.toMatchObject({ title: "Debug safe" });
 });
 
 test("without gh or glab, resolving says which command is missing and manual creation still works", async () => {

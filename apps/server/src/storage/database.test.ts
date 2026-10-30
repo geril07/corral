@@ -122,3 +122,24 @@ test("a session from before launch profiles keeps its old launch behavior", () =
   });
   db.close();
 });
+
+test("migrating a labelled database adds the task source without touching labels", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db, MIGRATIONS.slice(0, 4));
+  db.exec(`
+    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
+    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
+      VALUES ('t', 'p', 'task', 'b', '/n', 0, 'active', 1);
+    INSERT INTO sessions (id, task_id, kind, agent_session_id, state, label, created_at)
+      VALUES ('s', 't', 'shell', NULL, 'running', 'my shell', 2);
+  `);
+
+  migrate(db, MIGRATIONS);
+
+  expect(schemaVersion(db)).toBe(MIGRATIONS.length);
+  expect(db.prepare("SELECT id, label FROM sessions").all()).toEqual([
+    { id: "s", label: "my shell" },
+  ]);
+  expect(db.prepare("SELECT id, source FROM tasks").all()).toEqual([{ id: "t", source: null }]);
+});

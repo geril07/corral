@@ -1,6 +1,10 @@
 import * as fc from "fast-check";
 import { expect, test } from "vite-plus/test";
-import { InvalidIssueUrlError, IssueProviderRequiredError } from "./errors.ts";
+import {
+  InvalidIssueUrlError,
+  IssueProviderRequiredError,
+  IssueUnsupportedPortError,
+} from "./errors.ts";
 import { parseIssueUrl } from "./issue-url.ts";
 
 test("GitHub, ghe.com and GitLab URLs become a canonical issue identity", () => {
@@ -42,6 +46,15 @@ test("a self-hosted host needs its provider named and keeps its port", () => {
     host: "ghe.example.com",
     url: "http://ghe.example.com/acme/app/issues/9",
   });
+});
+
+test("GitHub issue URLs on a nonstandard port are refused, while GitLab keeps its exact port", () => {
+  expect(() => parseIssueUrl("https://ghe.example.com:8443/acme/app/issues/9", "github")).toThrow(
+    IssueUnsupportedPortError,
+  );
+  expect(
+    parseIssueUrl("https://gitlab.example.com:8443/group/project/-/issues/3", "gitlab"),
+  ).toMatchObject({ host: "gitlab.example.com:8443" });
 });
 
 test("a known host rejects the other provider", () => {
@@ -86,7 +99,8 @@ test("arbitrary text either fails with our domain errors or yields a safe, stabl
       } catch (error) {
         if (
           !(error instanceof InvalidIssueUrlError) &&
-          !(error instanceof IssueProviderRequiredError)
+          !(error instanceof IssueProviderRequiredError) &&
+          !(error instanceof IssueUnsupportedPortError)
         )
           throw error;
         return;

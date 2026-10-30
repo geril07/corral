@@ -8,6 +8,22 @@ import { IssueImportService } from "./issue-import.ts";
 
 const clis = useFakeIssueClis();
 
+test("a pre-aborted signal rejects before any CLI starts", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "corral-issue-cwd-"));
+  try {
+    const service = new IssueImportService({ timeoutMs: 10_000 });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      service.resolve(cwd, { url: "https://github.com/acme/app/issues/1" }, controller.signal),
+    ).rejects.toThrow(/abort/i);
+    expect(clis.calls()).toEqual([]);
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
+
 test("cancelling an import kills the CLI instead of leaving it running", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "corral-issue-cwd-"));
   try {

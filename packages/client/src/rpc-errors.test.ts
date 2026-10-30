@@ -50,6 +50,20 @@ test("issue import failures name the missing tool, host or provider", () => {
   expect(describeError(defined("ISSUE_CLI_MISSING", { command: "glab" }))).toBe(
     "glab was not found on the server's PATH.",
   );
+  expect(
+    describeError(
+      defined("ISSUE_HOST_UNTRUSTED", { provider: "github", host: "attacker.example" }),
+    ),
+  ).toBe(
+    "attacker.example is not a configured GitHub host for this project. Add it as a git remote or set GH_HOST on the server, or create the task manually.",
+  );
+  expect(
+    describeError(
+      defined("ISSUE_UNSUPPORTED_PORT", { provider: "github", host: "ghe.example.com:8443" }),
+    ),
+  ).toBe(
+    "GitHub issues on a nonstandard port are not supported. Use a standard host or create the task manually.",
+  );
   expect(describeError(defined("ISSUE_AUTH_REQUIRED", { provider: "gitlab" }))).toBe(
     "The server's GitLab CLI is not logged in for this host.",
   );
