@@ -2,7 +2,11 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
 import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
-import { resolveStateDir, SERVER_LOCK_REFUSED_EXIT_CODE } from "@corral/protocol/server-endpoint";
+import {
+  resolveDataDir,
+  resolveStateDir,
+  SERVER_LOCK_REFUSED_EXIT_CODE,
+} from "@corral/protocol/server-endpoint";
 import { publishEndpoint, type PublishedEndpoint } from "./lifecycle/endpoint.ts";
 import { acquireLock } from "./lifecycle/lock.ts";
 import { startServer, type RunningServer } from "./transport/server.ts";
@@ -42,7 +46,11 @@ function shutdown(exitCode: number) {
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => shutdown(0));
 
-server = await startServer({ host: values.host, port: Number(values.port) });
+server = await startServer({
+  host: values.host,
+  port: Number(values.port),
+  dataDir: resolveDataDir(process.env, homedir()),
+});
 
 // Two starters that both proved a dead lock dead can replace each other's file; the one whose
 // file is gone stands down, and no server keeps running without the lock.

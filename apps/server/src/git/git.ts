@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 
 /** git exited non-zero; `message` is its stderr, meant for the user. */
 export class GitError extends Error {}
@@ -26,6 +27,9 @@ export function git(cwd: string, args: string[]): Promise<string> {
           reject(
             new GitError(stderr.trim() || `git ${args[0]} failed with exit code ${error.code}`),
           );
+        } else if (error.code === "ENOENT" && !existsSync(cwd)) {
+          // spawn reports a missing working directory like a missing executable.
+          reject(new GitError(`no such directory: ${cwd}`));
         } else {
           reject(error);
         }
