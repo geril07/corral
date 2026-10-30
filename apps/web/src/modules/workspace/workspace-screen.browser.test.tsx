@@ -47,7 +47,7 @@ const selectButton = (index: number) => terminalButtons().nth(index);
 
 test("prefix then c opens a terminal that takes the keyboard straight away", async () => {
   await render(<App client={newClient()} />);
-  await expect.element(page.getByText(/No terminals/)).toBeVisible();
+  await expect.element(page.getByText(/No projects yet/)).toBeVisible();
 
   await prefixThen("c");
   await expect.element(terminalButtons()).toHaveLength(1);
@@ -115,7 +115,7 @@ test("prefix x closes the active terminal and the neighbour takes over", async (
   await expect.element(selectButton(0)).toHaveAttribute("aria-current", "true");
 
   await prefixThen("x");
-  await expect.element(page.getByText(/No terminals/)).toBeVisible();
+  await expect.element(page.getByText(/No projects yet/)).toBeVisible();
 });
 
 test("clicking a terminal in the list shows it and keeps typing going to the terminal", async () => {
@@ -146,7 +146,7 @@ test("a terminal whose process ended stays listed as exited until it is closed",
   await expect.poll(screenText).toContain("bye");
 
   await prefixThen("x");
-  await expect.element(page.getByText(/No terminals/)).toBeVisible();
+  await expect.element(page.getByText(/No projects yet/)).toBeVisible();
 });
 
 test("a server on another protocol version gets a clear message instead of the workspace", async () => {
@@ -163,7 +163,7 @@ test("an unreachable server shows as disconnected and the workspace stays up", a
   await render(<App client={newClient({ url: "ws://127.0.0.1:1", capability: "unreachable" })} />);
 
   await expect
-    .element(page.getByRole("status", { name: "connection" }))
+    .element(page.getByRole("status", { name: /^connection:/ }))
     .toMatchTextContent("Disconnected. Retrying…");
   await expect.element(page.getByText(/If the server restarted/)).toBeVisible();
   await expect.element(workspace()).toBeVisible();
@@ -211,7 +211,7 @@ test("Escape closes a dialog and returns the keyboard to the terminal", async ()
 
 test("prefix t without a project says so instead of opening the task dialog", async () => {
   await render(<App client={newClient()} />);
-  await expect.element(page.getByText(/No terminals/)).toBeVisible();
+  await expect.element(page.getByText(/No projects yet/)).toBeVisible();
 
   await prefixThen("t");
   await expect.element(page.getByText(/Add a project first/)).toBeVisible();

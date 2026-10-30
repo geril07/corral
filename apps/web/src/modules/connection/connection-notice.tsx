@@ -1,5 +1,6 @@
 import type { ConnectionState } from "@corral/client/connection-state";
 import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
+import { cn } from "../../common/lib/cn.ts";
 
 export function ConnectionNotice({ state }: { state: ConnectionState }) {
   if (state.status === "protocol-mismatch") {
@@ -18,9 +19,14 @@ export function ConnectionNotice({ state }: { state: ConnectionState }) {
   }
   return (
     <>
-      <p className="my-0.5 text-text-muted" role="status" aria-label="connection">
+      <span
+        className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-text-muted"
+        role="status"
+        aria-label={`connection: ${LABELS[state.status]}`}
+      >
+        <span className={cn("size-1.5 rounded-full", DOT[state.status])} aria-hidden />
         {LABELS[state.status]}
-      </p>
+      </span>
       {state.status === "disconnected" && window.corral === undefined ? (
         <p className="my-0.5 text-text-muted">
           If the server restarted, open this page with the new capability from endpoint.json.
@@ -34,4 +40,10 @@ const LABELS: Record<Exclude<ConnectionState["status"], "protocol-mismatch">, st
   connecting: "Connecting…",
   connected: "Connected",
   disconnected: "Disconnected. Retrying…",
+};
+
+const DOT: Record<Exclude<ConnectionState["status"], "protocol-mismatch">, string> = {
+  connecting: "bg-status-working",
+  connected: "bg-status-done",
+  disconnected: "bg-status-error",
 };

@@ -4,6 +4,7 @@ import {
   type Chosen,
   type Entry,
 } from "@corral/client/workspace-tree";
+import { DEFAULT_BINDINGS, DEFAULT_PREFIX, type ClientConfig } from "@corral/protocol/config";
 import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -65,33 +66,50 @@ const defaultSessions = [
   session("s4", "b", "pi", "unresumable"),
 ];
 
-function renderSidebar(chosen: Chosen = {}, sessions: Session[] = defaultSessions) {
-  const tree = buildWorkspaceTree(
-    [project("p1"), project("p2")],
-    [task("a"), task("b"), task("old", "settled")],
-    sessions,
-    [terminal("term-s1", "a", "s1"), terminal("term-s2", "a", "s2"), terminal("loose", null, null)],
-  );
+const config: ClientConfig = {
+  keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } },
+};
+
+function renderSidebar(
+  chosen: Chosen = {},
+  sessions: Session[] = defaultSessions,
+  tasks: Task[] = [task("a"), task("b"), task("old", "settled")],
+  narrow = false,
+) {
+  const tree = buildWorkspaceTree([project("p1"), project("p2")], tasks, sessions, [
+    terminal("term-s1", "a", "s1"),
+    terminal("term-s2", "a", "s2"),
+    terminal("loose", null, null),
+  ]);
   const handlers = {
     onSelectProject: vi.fn<(project: Project) => void>(),
     onSelectTask: vi.fn<(task: Task) => void>(),
     onSelectLoose: vi.fn<() => void>(),
     onSelectEntry: vi.fn<(entry: Entry) => void>(),
-    onRenameEntry: vi.fn<(entry: Entry) => void>(),
     onCloseTerminal: vi.fn<(id: string) => void>(),
     onStopSession: vi.fn<(session: Session) => void>(),
     onRestartSession: vi.fn<(session: Session) => void>(),
     onRemoveSession: vi.fn<(session: Session) => void>(),
+    onRenameEntry: vi.fn<(entry: Entry) => void>(),
     onToggleSettle: vi.fn<(task: Task) => void>(),
     onRemoveTask: vi.fn<(task: Task) => void>(),
     onAddProject: vi.fn<() => void>(),
     onNewTask: vi.fn<() => void>(),
     onNewTerminal: vi.fn<() => void>(),
     onNewAgent: vi.fn<() => void>(),
+    onOpenPalette: vi.fn<() => void>(),
+    onOpenBoard: vi.fn<() => void>(),
     onFindTask: vi.fn<() => void>(),
   };
   const rendered = render(
-    <Sidebar tree={tree} selection={resolveSelection(tree, chosen)} {...handlers} />,
+    <div className={narrow ? "w-60" : undefined}>
+      <Sidebar
+        tree={tree}
+        selection={resolveSelection(tree, chosen)}
+        config={config}
+        {...handlers}
+      />
+    </div>,
   );
   return { rendered, handlers };
 }
@@ -123,6 +141,7 @@ test("two sessions of one kind in a task are numbered after the first", async ()
 
 test("a session that is not running says so, and an unresumable one says why on hover", async () => {
   await renderSidebar().rendered;
+  await nav().getByRole("button", { name: "Expand sessions for task b" }).click();
 
   await expect.element(sessionButton("codex", "stopped")).toBeVisible();
   await expect
@@ -188,10 +207,12 @@ test("clicking reports what was picked", async () => {
   await nav().getByRole("button", { name: "repo-p2" }).click();
   expect(handlers.onSelectProject).toHaveBeenCalledWith(expect.objectContaining({ id: "p2" }));
 
-  await nav().getByRole("button", { name: "settle task a" }).click();
+  await nav().getByRole("button", { name: "Task actions for task a" }).click();
+  await page.getByRole("menuitem", { name: "Settle task" }).click();
   expect(handlers.onToggleSettle).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
 
-  await nav().getByRole("button", { name: "remove task task b" }).click();
+  await nav().getByRole("button", { name: "Task actions for task b" }).click();
+  await page.getByRole("menuitem", { name: "Remove task…" }).click();
   expect(handlers.onRemoveTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
 
   await nav().getByRole("button", { name: "stop claude" }).click();
@@ -200,24 +221,31 @@ test("clicking reports what was picked", async () => {
   await nav().getByRole("button", { name: "restart codex" }).click();
   expect(handlers.onRestartSession).toHaveBeenCalledWith(expect.objectContaining({ id: "s3" }));
 
-  await nav().getByRole("button", { name: "remove shell" }).click();
+  await nav().getByRole("button", { name: "Session actions for shell" }).click();
+  await page.getByRole("menuitem", { name: "Remove session…" }).click();
   expect(handlers.onRemoveSession).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
 
   await nav()
-    .getByRole("button", { name: /^close sh · / })
+    .getByRole("button", { name: /^Terminal actions for sh · / })
     .click();
+  await page.getByRole("menuitem", { name: "Close terminal…" }).click();
   expect(handlers.onCloseTerminal).toHaveBeenCalledWith("loose");
 
-  await nav().getByRole("button", { name: "Add project" }).click();
-  await nav().getByRole("button", { name: "New task" }).click();
-  await nav().getByRole("button", { name: "New terminal" }).click();
-  await nav().getByRole("button", { name: "New agent" }).click();
-  await nav().getByRole("button", { name: "Find task" }).click();
+  const toolbar = nav().getByRole("toolbar", { name: "Workspace actions" });
+  await toolbar.getByRole("button", { name: "Add project" }).click();
+  await toolbar.getByRole("button", { name: "New task" }).click();
+  await toolbar.getByRole("button", { name: "New terminal" }).click();
+  await toolbar.getByRole("button", { name: "New agent session" }).click();
+  await toolbar.getByRole("button", { name: "Find task" }).click();
+  await toolbar.getByRole("button", { name: "Command palette" }).click();
+  await toolbar.getByRole("button", { name: "Open board" }).click();
   expect(handlers.onAddProject).toHaveBeenCalledOnce();
   expect(handlers.onNewTask).toHaveBeenCalledOnce();
   expect(handlers.onNewTerminal).toHaveBeenCalledOnce();
   expect(handlers.onNewAgent).toHaveBeenCalledOnce();
   expect(handlers.onFindTask).toHaveBeenCalledOnce();
+  expect(handlers.onOpenPalette).toHaveBeenCalledOnce();
+  expect(handlers.onOpenBoard).toHaveBeenCalledOnce();
 });
 
 test("Enter on the selected session that is not running starts it again; on a running one it does not", async () => {
@@ -271,6 +299,7 @@ test("sessions and tasks show their agent status with a text alternative and the
     reporting(session("s3", "a", "codex"), { state: "working", updatedAt: 2 }),
     reporting(session("s4", "b", "pi"), { state: "idle", updatedAt: 3 }),
   ]).rendered;
+  await nav().getByRole("button", { name: "Expand sessions for task b" }).click();
 
   // The task takes the most urgent of its sessions' statuses; the sessions show their own.
   const status = (name: string) => nav().getByRole("img", { name });
@@ -294,6 +323,86 @@ test("a stopped session shows only the done or error it kept, and a stale workin
   await expect.element(nav().getByRole("img", { name: "working" })).not.toBeInTheDocument();
 });
 
+test("a collapsed project shows its count and expands again from its header", async () => {
+  const tasks = [task("a"), { ...task("b"), projectId: "p2" }, task("old", "settled")];
+  await renderSidebar({}, defaultSessions, tasks).rendered;
+  await nav().getByRole("button", { name: "Collapse repo-p2" }).click();
+  await expect
+    .element(nav().getByRole("button", { name: "Expand repo-p2" }))
+    .toHaveAttribute("aria-expanded", "false");
+  await expect.element(nav().getByRole("button", { name: /^task b/ })).not.toBeInTheDocument();
+  await expect.element(nav().getByRole("button", { name: "repo-p2" })).toMatchTextContent("1");
+
+  await nav().getByRole("button", { name: "repo-p2" }).click();
+  await expect.element(nav().getByRole("button", { name: /^task b/ })).toBeVisible();
+});
+
+test("the current task's sessions stay open and another task's expand on demand", async () => {
+  await renderSidebar({ taskId: "a", entryId: "s1" }).rendered;
+  await expect.element(sessionButton("shell")).toBeVisible();
+  await expect.element(sessionButton("pi", "unresumable")).not.toBeInTheDocument();
+
+  await nav().getByRole("button", { name: "Expand sessions for task b" }).click();
+  await expect.element(sessionButton("pi", "unresumable")).toBeVisible();
+  await nav().getByRole("button", { name: "Collapse sessions for task b" }).click();
+  await expect.element(sessionButton("pi", "unresumable")).not.toBeInTheDocument();
+
+  // The selected task's disclosure stays open and cannot be collapsed under the selection.
+  await expect
+    .element(nav().getByRole("button", { name: "Collapse sessions for task a" }))
+    .toBeDisabled();
+});
+
+test("every icon action is named and its tooltip carries the effective binding", async () => {
+  await renderSidebar().rendered;
+  const toolbar = nav().getByRole("toolbar", { name: "Workspace actions" });
+  const terminalButton = toolbar.getByRole("button", { name: "New terminal" });
+  terminalButton.element().focus();
+
+  await expect.element(page.getByRole("tooltip")).toMatchTextContent("New terminal · alt+a c");
+  await expect
+    .element(toolbar.getByRole("button", { name: "Command palette" }))
+    .toHaveAttribute("aria-label", "Command palette");
+
+  const text = nav().element().textContent ?? "";
+  for (const glyph of ["▾", "▴", "×", "■", "▶"]) expect(text).not.toContain(glyph);
+});
+
+test("a long task title end-truncates and a long branch middle-truncates, with the full value on focus", async () => {
+  const longTitle =
+    "Investigate the very long running login regression across every environment and browser " +
+    "while keeping every previous task title, branch and session readable in a narrow sidebar";
+  const longBranch = "feature/a-very-long-shared-prefix-that-eats-the-row/login";
+  await renderSidebar(
+    { taskId: "a", entryId: "s1" },
+    [session("s1", "a", "shell")],
+    [{ ...task("a"), title: longTitle, branch: longBranch }],
+  ).rendered;
+
+  const button = nav().getByRole("button", { name: longTitle });
+  await expect.element(button).toMatchTextContent(/…/);
+  await expect.element(button).toMatchTextContent(/….*login/);
+
+  button.element().focus();
+  await expect.element(page.getByRole("tooltip")).toMatchTextContent(longTitle);
+  await expect.element(page.getByRole("tooltip")).toMatchTextContent(longBranch);
+});
+
+test("only the selected entry offers rename, in its overflow, and it names the entry", async () => {
+  const { rendered, handlers } = renderSidebar({ taskId: "a", entryId: "s2" });
+  await rendered;
+
+  await nav().getByRole("button", { name: "Session actions for shell" }).click();
+  await expect.element(page.getByRole("menuitem", { name: "Rename…" })).not.toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
+
+  await nav().getByRole("button", { name: "Session actions for claude" }).click();
+  await page.getByRole("menuitem", { name: "Rename…" }).click();
+  expect(handlers.onRenameEntry).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "session", id: "s2" }),
+  );
+});
+
 test("a loose terminal shows the name the user gave it instead of its command and folder", async () => {
   const tree = buildWorkspaceTree(
     [project("p1")],
@@ -301,42 +410,38 @@ test("a loose terminal shows the name the user gave it instead of its command an
     [],
     [terminal("loose", null, null, "build logs")],
   );
+  const handlers = {
+    onSelectProject: vi.fn<(project: Project) => void>(),
+    onSelectTask: vi.fn<(task: Task) => void>(),
+    onSelectLoose: vi.fn<() => void>(),
+    onSelectEntry: vi.fn<(entry: Entry) => void>(),
+    onCloseTerminal: vi.fn<(id: string) => void>(),
+    onStopSession: vi.fn<(session: Session) => void>(),
+    onRestartSession: vi.fn<(session: Session) => void>(),
+    onRemoveSession: vi.fn<(session: Session) => void>(),
+    onRenameEntry: vi.fn<(entry: Entry) => void>(),
+    onToggleSettle: vi.fn<(task: Task) => void>(),
+    onRemoveTask: vi.fn<(task: Task) => void>(),
+    onAddProject: vi.fn<() => void>(),
+    onNewTask: vi.fn<() => void>(),
+    onNewTerminal: vi.fn<() => void>(),
+    onNewAgent: vi.fn<() => void>(),
+    onOpenPalette: vi.fn<() => void>(),
+    onOpenBoard: vi.fn<() => void>(),
+    onFindTask: vi.fn<() => void>(),
+  };
   await render(
     <Sidebar
       tree={tree}
       selection={resolveSelection(tree, { taskId: null, entryId: "loose" })}
-      onSelectProject={() => undefined}
-      onSelectTask={() => undefined}
-      onSelectLoose={() => undefined}
-      onSelectEntry={() => undefined}
-      onRenameEntry={() => undefined}
-      onCloseTerminal={() => undefined}
-      onStopSession={() => undefined}
-      onRestartSession={() => undefined}
-      onRemoveSession={() => undefined}
-      onToggleSettle={() => undefined}
-      onRemoveTask={() => undefined}
-      onAddProject={() => undefined}
-      onNewTask={() => undefined}
-      onNewTerminal={() => undefined}
-      onNewAgent={() => undefined}
-      onFindTask={() => undefined}
+      config={config}
+      {...handlers}
     />,
   );
 
   await expect.element(nav().getByRole("button", { name: "build logs" })).toBeVisible();
-  await expect.element(nav().getByRole("button", { name: "close build logs" })).toBeVisible();
+  await expect
+    .element(nav().getByRole("button", { name: "Terminal actions for build logs" }))
+    .toBeVisible();
   await expect.element(nav().getByRole("button", { name: /^sh · / })).not.toBeInTheDocument();
-});
-
-test("only the selected row offers a rename, and it names the entry", async () => {
-  const { rendered, handlers } = renderSidebar({ taskId: "a", entryId: "s2" });
-  await rendered;
-
-  await expect.element(nav().getByRole("button", { name: /^rename / })).toHaveLength(1);
-  await nav().getByRole("button", { name: "rename claude" }).click();
-
-  expect(handlers.onRenameEntry).toHaveBeenCalledWith(
-    expect.objectContaining({ type: "session", id: "s2" }),
-  );
 });

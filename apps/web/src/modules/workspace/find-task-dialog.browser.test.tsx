@@ -101,7 +101,7 @@ test("removing the selected task while the search is open falls back to the firs
 test("prefix f opens the search, filters, Enter opens the task and Escape returns to the terminal", async () => {
   await appWithProject(newClient());
   await createTask("Fix login");
-  await createTask("Write docs", 2);
+  await createTask("Write docs");
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 
   await prefixThen("f");
@@ -227,7 +227,7 @@ test("a task opened from the search survives a reload through the route's search
   await userEvent.keyboard(`${repo}{Enter}`);
   await expect.element(workspace().getByRole("button", { name: /^repo-/ })).toBeVisible();
   await createTask("Reload me");
-  await createTask("Other", 2);
+  await createTask("Other");
 
   await prefixThen("f");
   await userEvent.keyboard("reload");

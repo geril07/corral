@@ -1,15 +1,20 @@
 import type { ConfigProblem } from "@corral/protocol/config";
-import { Button, Dialog } from "../../common/ui/index.ts";
+import { Dialog, IconButton } from "../../common/ui/index.ts";
 import { useConfig } from "./config-context.tsx";
 
 /** The non-blocking hint in the sidebar footer; nothing when the file has no problems. */
-export function ConfigProblemsNotice({ onOpen }: { onOpen: () => void }) {
+export function ConfigProblemsNotice({ onOpen }: { onOpen: (opener?: HTMLElement) => void }) {
   const { problems } = useConfig();
   if (problems.length === 0) return null;
+  const count = `${problems.length} ${problems.length === 1 ? "problem" : "problems"}`;
   return (
-    <Button variant="link" size="sm" className="my-0.5 text-danger" onClick={onOpen}>
-      config: {problems.length} {problems.length === 1 ? "problem" : "problems"}
-    </Button>
+    <IconButton
+      label={`config: ${count}`}
+      tooltip={`Config problems · ${count}`}
+      icon="warn"
+      className="text-danger"
+      onClick={(event) => onOpen(event.currentTarget)}
+    />
   );
 }
 

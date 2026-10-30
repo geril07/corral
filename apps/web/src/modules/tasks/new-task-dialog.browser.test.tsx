@@ -11,6 +11,13 @@ const project: Project = {
   defaultBaseBranch: "main",
 };
 
+const otherProject: Project = {
+  id: "p2",
+  name: "other",
+  path: "/repos/other",
+  defaultBaseBranch: "trunk",
+};
+
 const dialog = () => page.getByRole("dialog", { name: "New task" });
 // Keys typed before the dialog has taken the focus would go to the page behind it.
 const opened = async () => {
@@ -19,13 +26,21 @@ const opened = async () => {
 
 function renderDialog(
   branches: Promise<string[]> = Promise.resolve(["main", "feature/x", "origin/dev"]),
+  projects: Project[] = [project],
 ) {
   const onCreate = vi.fn<(input: CreateTaskInput) => Promise<void>>(() => Promise.resolve());
   const onClose = vi.fn<() => void>();
+  const loadBranches = vi.fn<(projectId: string) => Promise<string[]>>(() => branches);
   const rendered = render(
-    <NewTaskDialog project={project} branches={branches} onCreate={onCreate} onClose={onClose} />,
+    <NewTaskDialog
+      projects={projects}
+      project={project}
+      loadBranches={loadBranches}
+      onCreate={onCreate}
+      onClose={onClose}
+    />,
   );
-  return { rendered, onCreate, onClose };
+  return { rendered, onCreate, onClose, loadBranches };
 }
 
 test("a title and Enter create a task on a new branch with the project's defaults", async () => {
@@ -101,8 +116,7 @@ test("an existing branch is picked from the list with the keyboard", async () =>
   await opened();
 
   await userEvent.keyboard("Continue work");
-  // Tab to the radios, then arrows move the choice: new branch → existing branch.
-  await userEvent.keyboard("{Tab}{ArrowDown}");
+  await dialog().getByRole("radio", { name: "Existing branch" }).click();
   await expect.element(dialog().getByRole("radio", { name: "Existing branch" })).toBeChecked();
   const branch = dialog().getByRole("combobox", { name: "Branch" });
   await expect.element(dialog().getByRole("button", { name: "Create task" })).toBeDisabled();
@@ -124,6 +138,36 @@ test("an existing branch is picked from the list with the keyboard", async () =>
   );
 });
 
+test("the project field starts on the selected project and another project can take the task", async () => {
+  const { rendered, onCreate, loadBranches } = renderDialog(
+    Promise.resolve(["main", "feature/x"]),
+    [project, otherProject],
+  );
+  await rendered;
+  await opened();
+
+  const picker = dialog().getByRole("combobox", { name: "Project" });
+  await expect.element(picker).toHaveValue("repo");
+  expect(loadBranches).toHaveBeenLastCalledWith("p1");
+
+  await userEvent.keyboard("Elsewhere");
+  await userEvent.fill(picker, "other");
+  await expect.element(page.getByRole("option", { name: /other/ })).toBeVisible();
+  await userEvent.keyboard("{ArrowDown}{Enter}");
+  await expect.element(picker).toHaveValue("other");
+  await expect.element(dialog().getByRole("textbox", { name: "Title" })).toHaveValue("Elsewhere");
+  expect(loadBranches).toHaveBeenLastCalledWith("p2");
+
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() =>
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith({
+      projectId: "p2",
+      title: "Elsewhere",
+      workspace: { type: "new-branch" },
+    }),
+  );
+});
+
 test("a failure to list branches is shown instead of the picker", async () => {
   const { rendered } = renderDialog(Promise.reject(new Error("git exploded")));
   await rendered;
@@ -140,8 +184,9 @@ test("a failure to create stays in the dialog", async () => {
   );
   await render(
     <NewTaskDialog
+      projects={[project]}
       project={project}
-      branches={Promise.resolve([])}
+      loadBranches={() => Promise.resolve([])}
       onCreate={onCreate}
       onClose={() => undefined}
     />,

@@ -18,7 +18,6 @@ const terminalButtons = () => workspace().getByRole("button", { name: /^sh · / 
 const picker = () => page.getByRole("dialog", { name: "New agent session" });
 const palette = () => page.getByRole("dialog", { name: "Command palette" });
 const paletteItem = (name: RegExp) => palette().getByRole("option", { name });
-const keyHint = () => page.getByLabelText("key hint");
 
 /** Writes the file and waits until the client has the config the server derived from it. */
 async function applyConfig(client: CorralClient, text: string, applied: () => void) {
@@ -33,8 +32,6 @@ test("a config file rebinds an action and the key hint follows it", async () => 
   await applyConfig(client, '[keys.bindings]\nnew-agent = "a"\n', () =>
     expect(client.config.getSnapshot().config.keys.bindings["new-agent"]).toBe("a"),
   );
-  await expect.element(keyHint()).toMatchTextContent("alt+a then c a x r shift+r");
-
   await prefixThen(" ");
   await expect.element(paletteItem(/New agent session/)).toMatchTextContent("alt+a a");
   await userEvent.keyboard("{Escape}");
@@ -54,8 +51,6 @@ test("a config file unbinds an action, whose key then does nothing", async () =>
   await applyConfig(client, '[keys.bindings]\nnew-terminal = ""\n', () =>
     expect(client.config.getSnapshot().config.keys.bindings["new-terminal"]).toBeNull(),
   );
-  await expect.element(keyHint()).not.toMatchTextContent("alt+a then c");
-
   await prefixThen("c");
 
   await expect.element(terminalButtons()).toHaveLength(0);
@@ -67,7 +62,7 @@ test("a config file changes the prefix and every action follows it", async () =>
   await applyConfig(client, '[keys]\nprefix = "ctrl+b"\n', () =>
     expect(client.config.getSnapshot().config.keys.prefix).toBe("ctrl+b"),
   );
-  await expect.element(keyHint()).toMatchTextContent("ctrl+b then c");
+  await expect.element(page.getByText("ctrl+b", { exact: true })).toBeVisible();
 
   await userEvent.keyboard("{Control>}b{/Control}c");
   await expect.element(terminalButtons()).toHaveLength(1);
@@ -118,6 +113,20 @@ test("config problems show as a notice whose dialog lists each one with the file
   await expect.element(dialog).toMatchTextContent("keys.bindings.board");
   await userEvent.keyboard("{Escape}");
   await expect.element(dialog).not.toBeInTheDocument();
+});
+
+test("the palette opened from a sidebar button returns focus there, not to the terminal", async () => {
+  await appWithProject(newClient());
+  await createTask("Focus");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  const opener = workspace().getByRole("button", { name: "Command palette" });
+
+  await opener.click();
+  await expect.element(palette()).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+
+  await expect.element(palette()).not.toBeInTheDocument();
+  await expect.element(opener).toHaveFocus();
 });
 
 test("the palette opens from its key, shows bindings, filters, runs an action and Escape returns to the terminal", async () => {

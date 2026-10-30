@@ -41,7 +41,8 @@ test("a blocked agent shows on its session and task; the board and prefix g jump
   await expect.element(taskButton("Alpha")).toHaveAttribute("title", "Run rm -rf build?");
 
   // A second task, which becomes current and has nothing to report.
-  await createTask("Beta", 2);
+  await createTask("Beta");
+  await workspace().getByRole("button", { name: "Expand sessions for Alpha" }).click();
   await expect.element(claudeButton()).not.toHaveAttribute("aria-current");
 
   await prefixThen("g");

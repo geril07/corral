@@ -30,7 +30,7 @@ export async function appWithProject(client: CorralClient, branches: string[] = 
 
 /**
  * Creates a task from the keyboard with a new branch and waits for its shell. `shellCount` is
- * how many shell sessions the sidebar lists afterwards, all tasks together.
+ * how many shell sessions the current task shows afterwards.
  */
 export async function createTask(title: string, shellCount = 1) {
   await prefixThen("t");

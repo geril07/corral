@@ -23,6 +23,7 @@ import type {
   TerminalSize,
 } from "@corral/protocol/rpc";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useDialogFocus } from "../../common/ui/index.ts";
 import { useCorralClient, useConnection } from "../connection/index.ts";
 import { formatBinding, useConfig, usePrefixMode, type ActionTable } from "../keymap/index.ts";
 import type { RenameTarget } from "./rename-entry-dialog.tsx";
@@ -38,7 +39,7 @@ const DEFAULT_SIZE: TerminalSize = { cols: 80, rows: 24 };
 
 export type DialogState =
   | { kind: "add-project" }
-  | { kind: "new-task"; project: Project; branches: Promise<string[]> }
+  | { kind: "new-task"; project: Project }
   | { kind: "remove-task"; task: Task }
   | { kind: "pick-agent"; taskId: string }
   | { kind: "remove-session"; session: Session }
@@ -56,6 +57,7 @@ interface UseWorkspaceOptions {
 /** The workspace's state and actions, wired to the client stores and the route's search params. */
 export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOptions) {
   const client = useCorralClient();
+  const dialogFocus = useDialogFocus();
   const { config } = useConfig();
   const prefix = config.keys.prefix;
   const { api } = client.connection;
@@ -71,6 +73,10 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
   const chosenRef = useRef(chosen);
   const routeSearchRef = useRef(search);
   const [dialog, setDialog] = useState<DialogState>();
+  const openDialog = (next: DialogState, opener?: HTMLElement) => {
+    dialogFocus?.remember(opener);
+    setDialog(next);
+  };
   const [failure, setFailure] = useState<string>();
   const fitSize = useRef(DEFAULT_SIZE);
 
@@ -140,13 +146,13 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
         })
       : startSession(taskId, "shell");
 
-  const openAgentPicker = () => {
+  const openAgentPicker = (opener?: HTMLElement) => {
     if (selection.taskId === null) {
       setFailure("Select a task to start an agent in.");
       return;
     }
     setFailure(undefined);
-    setDialog({ kind: "pick-agent", taskId: selection.taskId });
+    openDialog({ kind: "pick-agent", taskId: selection.taskId }, opener);
   };
 
   const pickAgent = (taskId: string, kind: AgentKind) => {
@@ -250,7 +256,7 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
       });
     });
 
-  const openNewTask = () => {
+  const openNewTask = (opener?: HTMLElement) => {
     if (!currentProject) {
       const addProject = formatBinding(config, "add-project");
       setFailure(
@@ -259,15 +265,20 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
       return;
     }
     setFailure(undefined);
-    setDialog({
-      kind: "new-task",
-      project: currentProject,
-      branches: api.projects.branches({ id: currentProject.id }),
-    });
+    openDialog({ kind: "new-task", project: currentProject }, opener);
   };
+  const loadBranches = useCallback(
+    (projectId: string) => api.projects.branches({ id: projectId }),
+    [api],
+  );
+  const openAddProject = (opener?: HTMLElement) => openDialog({ kind: "add-project" }, opener);
+  const openPalette = (opener?: HTMLElement) => openDialog({ kind: "command-palette" }, opener);
+  const openFindTask = (opener?: HTMLElement) => openDialog({ kind: "find-task" }, opener);
+  const openConfigProblems = (opener?: HTMLElement) =>
+    openDialog({ kind: "config-problems" }, opener);
 
   const openRemoveTask = (task: Task | undefined) => {
-    if (task) setDialog({ kind: "remove-task", task });
+    if (task) openDialog({ kind: "remove-task", task });
   };
 
   const addProject = async (path: string) => {
@@ -341,7 +352,7 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
       group: "Sessions",
       enabled: currentSession !== undefined,
       run: () => {
-        if (currentSession) setDialog({ kind: "remove-session", session: currentSession });
+        if (currentSession) openDialog({ kind: "remove-session", session: currentSession });
       },
     },
     "next-session": {
@@ -380,7 +391,7 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
       label: "Find task",
       group: "Tasks",
       enabled: true,
-      run: () => setDialog({ kind: "find-task" }),
+      run: () => openFindTask(),
     },
     "next-task": {
       label: "Next task",
@@ -398,7 +409,7 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
       label: "Add project",
       group: "Projects",
       enabled: true,
-      run: () => setDialog({ kind: "add-project" }),
+      run: () => openAddProject(),
     },
     board: {
       label: "Open board",
@@ -416,7 +427,7 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
       label: "Command palette",
       group: "General",
       enabled: true,
-      run: () => setDialog({ kind: "command-palette" }),
+      run: () => openPalette(),
     },
   };
 
@@ -467,7 +478,12 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
     jumpTo,
     toggleSettle,
     openNewTask,
+    loadBranches,
     openRemoveTask,
+    openAddProject,
+    openPalette,
+    openFindTask,
+    openConfigProblems,
     addProject,
     createTask,
     removeTask,

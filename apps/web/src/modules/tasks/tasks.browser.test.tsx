@@ -1,5 +1,6 @@
 import type { CorralClient } from "@corral/client/corral-client";
 import type { Task } from "@corral/protocol/rpc";
+import { createGitRepo } from "../../../test/git-repo.ts";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import {
@@ -75,12 +76,12 @@ test("a new task gets its own worktree and a terminal opens in it", async () => 
 test("prefix c adds a shell session to the current task, j and k move between tasks, n and p between its sessions", async () => {
   const { client } = await appWithProject();
   await createTask("First");
-  await createTask("Second", 2);
+  await createTask("Second");
   const first = taskNamed(client, "First");
   const second = taskNamed(client, "Second");
 
   await prefixThen("c");
-  await expect.element(shellButtons()).toHaveLength(3);
+  await expect.element(shellButtons()).toHaveLength(2);
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
   await userEvent.keyboard("pwd{Enter}");
   await expect.poll(wrappedScreen).toContain(second.workspacePath);
@@ -109,9 +110,9 @@ test("prefix d settles the current task, which stops its shell, and again unsett
   const toggle = workspace().getByRole("button", { name: "Settled (1)" });
   await expect.element(toggle).toBeVisible();
   await expect.element(taskButton("Old news")).toHaveAttribute("aria-current", "true");
-  await expect
-    .element(workspace().getByRole("button", { name: "unsettle Old news" }))
-    .toBeVisible();
+  await workspace().getByRole("button", { name: "Task actions for Old news" }).click();
+  await expect.element(page.getByRole("menuitem", { name: "Unsettle task" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
   await vi.waitFor(() =>
     expect(client.sessions.getSnapshot().sessions).toEqual([
       { ...shell, state: "stopped", terminalId: null },
@@ -120,7 +121,9 @@ test("prefix d settles the current task, which stops its shell, and again unsett
 
   await prefixThen("d");
   await expect.element(toggle).not.toBeInTheDocument();
-  await expect.element(workspace().getByRole("button", { name: "settle Old news" })).toBeVisible();
+  await workspace().getByRole("button", { name: "Task actions for Old news" }).click();
+  await expect.element(page.getByRole("menuitem", { name: "Settle task" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
   await vi.waitFor(() =>
     expect(client.sessions.getSnapshot().sessions).toEqual([
       { ...shell, state: "running", terminalId: expect.any(String) },
@@ -128,13 +131,46 @@ test("prefix d settles the current task, which stops its shell, and again unsett
   );
 });
 
+test("New task starts on the selected project and can create the task in another project", async () => {
+  const { client } = await appWithProject();
+  await createTask("Here");
+  const first = client.projects.getSnapshot().projects[0]!;
+  const otherRepo = await createGitRepo("second");
+  await prefixShifted("p");
+  await userEvent.fill(addProjectDialog().getByRole("textbox"), otherRepo);
+  await userEvent.keyboard("{Enter}");
+  await expect.element(addProjectDialog()).not.toBeInTheDocument();
+  const other = client.projects
+    .getSnapshot()
+    .projects.find((project) => project.path === otherRepo)!;
+  expect(other.id).not.toBe(first.id);
+
+  await workspace().getByRole("button", { name: first.name }).click();
+  await expect.element(taskButton("Here")).toHaveAttribute("aria-current", "true");
+  await prefixThen("t");
+  await expect.element(newTaskDialog().getByRole("textbox", { name: "Title" })).toHaveFocus();
+  await userEvent.keyboard("There");
+  const project = newTaskDialog().getByRole("combobox", { name: /Project/ });
+  await expect.element(project).toHaveValue(first.name);
+  await userEvent.click(project);
+  await userEvent.fill(project, other.name);
+  await page.getByRole("option", { name: new RegExp(other.name) }).click();
+  await expect.element(project).toHaveValue(other.name);
+  await newTaskDialog().getByRole("button", { name: "Create task" }).click();
+
+  await expect.element(taskButton("There")).toBeVisible();
+  expect(taskNamed(client, "There").projectId).toBe(other.id);
+});
+
 test("an existing branch is picked in the dialog with the keyboard", async () => {
   const { client } = await appWithProject(["feature/x", "other"]);
 
   await prefixThen("t");
   await expect.element(newTaskDialog().getByRole("textbox", { name: "Title" })).toHaveFocus();
-  await userEvent.keyboard("Continue{Tab}{ArrowDown}{Tab}");
-  await expect.element(newTaskDialog().getByRole("combobox", { name: "Branch" })).toHaveFocus();
+  await userEvent.keyboard("Continue");
+  await newTaskDialog().getByRole("radio", { name: "Existing branch" }).click();
+  const branch = newTaskDialog().getByRole("combobox", { name: "Branch" });
+  await userEvent.click(branch);
   await userEvent.keyboard("feat");
   await userEvent.keyboard("{ArrowDown}{Enter}{Enter}");
 
@@ -218,6 +254,7 @@ test("terminals outside any task are listed under No task, apart from the tasks"
 
   await prefixThen("c");
   await expect.element(looseButtons()).toHaveLength(2);
+  await workspace().getByRole("button", { name: "Expand sessions for Work" }).click();
   await expect.element(shellButtons()).toHaveLength(1);
   await prefixThen("k");
   await expect.element(taskButton("Work")).toHaveAttribute("aria-current", "true");

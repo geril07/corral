@@ -26,44 +26,59 @@ const KINDS: readonly { kind: WorkspaceKind; label: string }[] = [
 
 const RADIO_ROW = "flex cursor-pointer items-center gap-2";
 
-type Branches =
+type BranchState =
   | { status: "loading" }
   | { status: "loaded"; names: string[] }
   | { status: "failed"; error: unknown };
 
+type Branches = BranchState & { projectId: string };
+
 interface NewTaskDialogProps {
+  /** Every project that can take the task; the selected task's project comes first in the field. */
+  projects: readonly Project[];
+  /** The project to start on. */
   project: Project;
-  /** The branches to pick from for "Existing branch"; started when the dialog opens. */
-  branches: Promise<string[]>;
+  /** The branches to pick from for "Existing branch", fetched again when the project changes. */
+  loadBranches: (projectId: string) => Promise<string[]>;
   /** Resolves once the task is created; a rejection is shown in the dialog. */
   onCreate: (input: CreateTaskInput) => Promise<void>;
   onClose: () => void;
 }
 
 export function NewTaskDialog({
+  projects,
   project,
-  branches: loading,
+  loadBranches,
   onCreate,
   onClose,
 }: NewTaskDialogProps) {
+  const [projectId, setProjectId] = useState(project.id);
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<WorkspaceKind>("new-branch");
   const [branchName, setBranchName] = useState("");
   const [baseBranch, setBaseBranch] = useState("");
   const [existing, setExisting] = useState<string | null>(null);
-  const [branches, setBranches] = useState<Branches>({ status: "loading" });
+  const [branches, setBranches] = useState<Branches>({ projectId, status: "loading" });
   const attempt = useAttempt();
+  const selectedProject = projects.find((each) => each.id === projectId) ?? project;
 
   useEffect(() => {
     let current = true;
-    loading.then(
-      (names) => current && setBranches({ status: "loaded", names }),
-      (error: unknown) => current && setBranches({ status: "failed", error }),
+    loadBranches(projectId).then(
+      (names) => current && setBranches({ projectId, status: "loaded", names }),
+      (error: unknown) => current && setBranches({ projectId, status: "failed", error }),
     );
     return () => {
       current = false;
     };
-  }, [loading]);
+  }, [projectId, loadBranches]);
+
+  const chooseProject = (next: string | null) => {
+    if (next === null || next === projectId) return;
+    setProjectId(next);
+    setExisting(null);
+    setBaseBranch("");
+  };
 
   const workspace = (): CreateTaskInput["workspace"] | undefined => {
     if (kind === "main-worktree") return { type: kind };
@@ -78,13 +93,17 @@ export function NewTaskDialog({
   const ready = title.trim() !== "" && chosenWorkspace !== undefined && !attempt.pending;
 
   return (
-    <Dialog title="New task" description={`In project ${project.name}.`} onClose={onClose}>
+    <Dialog title="New task" description={`In project ${selectedProject.name}.`} onClose={onClose}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
           if (!ready || !chosenWorkspace) return;
           void attempt.run(() =>
-            onCreate({ projectId: project.id, title: title.trim(), workspace: chosenWorkspace }),
+            onCreate({
+              projectId,
+              title: title.trim(),
+              workspace: chosenWorkspace,
+            }),
           );
         }}
       >
@@ -93,8 +112,10 @@ export function NewTaskDialog({
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             autoComplete="off"
+            autoFocus
           />
         </Field>
+        <ProjectPicker projects={projects} value={projectId} onChange={chooseProject} />
         <fieldset className="mb-2.5 border-0 p-0">
           <legend className="mb-1 p-0 text-text-muted">Workspace</legend>
           <RadioGroup
@@ -132,7 +153,7 @@ export function NewTaskDialog({
               <Input
                 value={baseBranch}
                 onChange={(event) => setBaseBranch(event.target.value)}
-                placeholder={project.defaultBaseBranch}
+                placeholder={selectedProject.defaultBaseBranch}
                 spellCheck={false}
                 autoComplete="off"
               />
@@ -140,11 +161,15 @@ export function NewTaskDialog({
           </>
         )}
         {kind === "existing-branch" && (
-          <BranchPicker branches={branches} value={existing} onChange={setExisting} />
+          <BranchPicker
+            branches={branches.projectId === projectId ? branches : { status: "loading" }}
+            value={existing}
+            onChange={setExisting}
+          />
         )}
         {kind === "main-worktree" && (
           <p className="mb-2.5 text-text-muted">
-            Works directly in {project.path}, without a worktree.
+            Works directly in {selectedProject.path}, without a worktree.
           </p>
         )}
         {attempt.failed && <FormError>{describeError(attempt.error)}</FormError>}
@@ -159,12 +184,50 @@ export function NewTaskDialog({
   );
 }
 
+function ProjectPicker({
+  projects,
+  value,
+  onChange,
+}: {
+  projects: readonly Project[];
+  value: string;
+  onChange: (projectId: string | null) => void;
+}) {
+  const ids = projects.map((project) => project.id);
+  const label = (id: string) => projects.find((project) => project.id === id)?.name ?? id;
+  return (
+    <Combobox.Root items={ids} value={value} onValueChange={onChange} itemToStringLabel={label}>
+      <Field label="Project">
+        <Combobox.Input placeholder="Search projects…" spellCheck={false} autoComplete="off" />
+      </Field>
+      <Combobox.Popup>
+        <ComboboxList>
+          {(id: string) => {
+            const project = projects.find((each) => each.id === id);
+            if (!project) return null;
+            return (
+              <ComboboxItem
+                key={id}
+                value={id}
+                className="flex cursor-default items-center gap-2 px-2 py-1 data-highlighted:bg-surface-active"
+              >
+                <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                <span className="max-w-1/2 truncate text-xs text-text-muted">{project.path}</span>
+              </ComboboxItem>
+            );
+          }}
+        </ComboboxList>
+      </Combobox.Popup>
+    </Combobox.Root>
+  );
+}
+
 function BranchPicker({
   branches,
   value,
   onChange,
 }: {
-  branches: Branches;
+  branches: BranchState;
   value: string | null;
   onChange: (branch: string | null) => void;
 }) {
