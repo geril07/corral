@@ -1,0 +1,73 @@
+import { expect, type ElectronApplication, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+
+export async function openedWindow(app: ElectronApplication) {
+  const window = await app.firstWindow();
+  await window.waitForURL(/[?&]server=/);
+  return window;
+}
+
+// The test hook of apps/web/src/screen-text-hook.ts: the WebGL renderer leaves no text in the DOM.
+export const screenText = (page: Page) =>
+  page.evaluate<string>("window.corralScreenText?.() ?? ''");
+export const workspace = (page: Page) => page.getByRole("navigation", { name: "workspace" });
+
+export function git(cwd: string, ...args: string[]): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_AUTHOR_NAME: "Test",
+      GIT_AUTHOR_EMAIL: "test@example.com",
+      GIT_COMMITTER_NAME: "Test",
+      GIT_COMMITTER_EMAIL: "test@example.com",
+    },
+  });
+}
+
+/** A repository on `main` with one commit under the test's state directory. */
+export function createRepo(stateDir: string): string {
+  const repo = path.join(stateDir, "repo");
+  mkdirSync(repo);
+  git(repo, "init", "-b", "main");
+  writeFileSync(path.join(repo, "README.md"), "hello\n");
+  git(repo, "add", "README.md");
+  git(repo, "commit", "-m", "initial commit");
+  return repo;
+}
+
+/** Adds `repo` as a project from the keyboard and waits for it in the sidebar. */
+export async function addProject(window: Page, repo: string) {
+  await window.keyboard.press("Alt+KeyA");
+  await window.keyboard.press("Shift+KeyP");
+  await expect(
+    window.getByRole("dialog", { name: "Add project" }).getByRole("textbox"),
+  ).toBeFocused();
+  await window.keyboard.type(repo);
+  await window.keyboard.press("Enter");
+  await expect(
+    workspace(window).getByRole("button", { name: path.basename(repo), exact: true }),
+  ).toBeVisible();
+}
+
+/** Creates a task with a new branch from the keyboard; its shell session starts with it. */
+export async function createTask(window: Page, title: string) {
+  await window.keyboard.press("Alt+KeyA");
+  await window.keyboard.press("KeyT");
+  await expect(
+    window.getByRole("dialog", { name: "New task" }).getByRole("textbox", { name: "Title" }),
+  ).toBeFocused();
+  await window.keyboard.type(title);
+  await window.keyboard.press("Enter");
+  await expect(
+    workspace(window).getByRole("button", { name: new RegExp(`^${title}`) }),
+  ).toHaveAttribute("aria-current", "true");
+  await expect(workspace(window).getByRole("button", { name: "shell", exact: true })).toHaveCount(
+    1,
+  );
+}

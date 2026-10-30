@@ -1,45 +1,8 @@
-import { expect, type ElectronApplication, type Page } from "@playwright/test";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { expect } from "@playwright/test";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { createRepo, git, openedWindow, screenText, workspace } from "./app-helpers.ts";
 import { test } from "./fixtures.ts";
-
-async function openedWindow(app: ElectronApplication) {
-  const window = await app.firstWindow();
-  await window.waitForURL(/[?&]server=/);
-  return window;
-}
-
-// The test hook of apps/web/src/screen-text-hook.ts: the WebGL renderer leaves no text in the DOM.
-const screenText = (page: Page) => page.evaluate<string>("window.corralScreenText?.() ?? ''");
-const workspace = (page: Page) => page.getByRole("navigation", { name: "workspace" });
-
-function git(cwd: string, ...args: string[]): string {
-  return execFileSync("git", args, {
-    cwd,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_SYSTEM: "/dev/null",
-      GIT_AUTHOR_NAME: "Test",
-      GIT_AUTHOR_EMAIL: "test@example.com",
-      GIT_COMMITTER_NAME: "Test",
-      GIT_COMMITTER_EMAIL: "test@example.com",
-    },
-  });
-}
-
-/** A repository on `main` with one commit under the test's state directory. */
-function createRepo(stateDir: string): string {
-  const repo = path.join(stateDir, "repo");
-  mkdirSync(repo);
-  git(repo, "init", "-b", "main");
-  writeFileSync(path.join(repo, "README.md"), "hello\n");
-  git(repo, "add", "README.md");
-  git(repo, "commit", "-m", "initial commit");
-  return repo;
-}
 
 const branchesOf = (repo: string) =>
   git(repo, "branch", "--format=%(refname:short)").split("\n").filter(Boolean);
@@ -71,7 +34,9 @@ test("a task gets a worktree and a terminal in it, and removing it leaves the br
   await expect(newTask).toBeHidden();
   const task = workspace(window).getByRole("button", { name: /^Fix login/ });
   await expect(task).toHaveAttribute("aria-current", "true");
-  await expect(workspace(window).getByRole("button", { name: /^sh · / })).toHaveCount(1);
+  await expect(workspace(window).getByRole("button", { name: "shell", exact: true })).toHaveCount(
+    1,
+  );
 
   // The terminal started inside the task's worktree, which lives in the data dir.
   const worktreesRoot = path.join(stateDir, "data", "worktrees");
@@ -84,7 +49,7 @@ test("a task gets a worktree and a terminal in it, and removing it leaves the br
   await expect
     .poll(async () => (await screenText(window)).replaceAll("\n", ""))
     .toContain(worktree);
-  const [taskBranch] = branchesOf(repo).filter((branch) => branch !== "main");
+  const taskBranch = branchesOf(repo).find((branch) => branch !== "main");
   expect(taskBranch).toBeDefined();
 
   await window.keyboard.press("Alt+KeyA");
@@ -137,5 +102,7 @@ test("projects and tasks are still there when the app is opened again", async ({
     workspace(secondWindow).getByRole("button", { name: "repo", exact: true }),
   ).toBeVisible();
   // The task's shell kept running on the server, so it is listed too.
-  await expect(workspace(secondWindow).getByRole("button", { name: /^sh · / })).toHaveCount(1);
+  await expect(
+    workspace(secondWindow).getByRole("button", { name: "shell", exact: true }),
+  ).toHaveCount(1);
 });

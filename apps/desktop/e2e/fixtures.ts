@@ -41,6 +41,7 @@ export const test = base.extend<Fixtures>({
             PATH: `${FAKE_AGENTS_BIN}${path.delimiter}${process.env["PATH"] ?? ""}`,
             CODEX_HOME: `${stateDir}/codex`,
             CLAUDE_CONFIG_DIR: `${stateDir}/claude`,
+            FAKE_AGENT_LOG: launchLog(stateDir),
           },
         });
         apps.push(app);
@@ -51,6 +52,27 @@ export const test = base.extend<Fixtures>({
     }
   },
 });
+
+/** Where the fake agents append one JSON line per launch (apps/server/test/fake-agents). */
+export const launchLog = (stateDir: string) => path.join(stateDir, "launches.jsonl");
+
+export interface AgentLaunch {
+  agent: string;
+  argv: string[];
+  pid: number;
+  env: { CORRAL_SESSION_ID?: string };
+}
+
+export function readLaunches(stateDir: string): AgentLaunch[] {
+  try {
+    return readFileSync(launchLog(stateDir), "utf8")
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line): AgentLaunch => JSON.parse(line));
+  } catch {
+    return [];
+  }
+}
 
 export function readEndpoint(stateDir: string): ServerEndpoint | undefined {
   try {
