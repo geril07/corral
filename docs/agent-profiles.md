@@ -168,8 +168,11 @@ Model override rules:
 Other start/restart errors: `LAUNCH_PROFILE_UNKNOWN { id }` (unknown or dropped profile),
 `LAUNCH_PROFILE_KIND_MISMATCH { id, kind }`, `AGENT_NOT_FOUND { command }`, and
 `LAUNCH_FAILED { kind, message }` for an unexpected spawn failure (a missing workspace,
-resource limits). `LAUNCH_FAILED.message` is a redacted first diagnostic line: every value
-referenced by the profile is replaced with `[redacted]` before it enters the error or the log.
+resource limits). `LAUNCH_FAILED.message` is the first diagnostic line, prefixed with the OS
+error code when there is one (for example `E2BIG`). Every non-empty value referenced by the
+profile is replaced with `[redacted]` before the line is taken, so short and multiline values
+are covered too. The log gets the full diagnostic, redacted the same way; a raw error object is
+never logged.
 
 ## Snapshot and resume
 

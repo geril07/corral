@@ -135,8 +135,13 @@ export class SessionService {
       try {
         this.#launch(stored, this.#task(stored.taskId), size, "resume");
       } catch (error) {
-        this.#launchErrors.set(id, launchFailureReason(error));
+        const reason = launchFailureReason(error);
+        this.#launchErrors.set(id, reason);
         this.#changes.notify();
+        console.error(
+          `corral-server: could not restart session ${stored.id} (${stored.kind}): ${reason}`,
+          launchDiagnostic(error),
+        );
         throw error;
       }
       if (previous) await this.#terminals.close(previous.terminalId);

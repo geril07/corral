@@ -7,22 +7,30 @@ import {
   LaunchSpawnError,
 } from "./errors.ts";
 
+const SAFE_CODE = /^[A-Z][A-Z0-9_]{0,31}$/;
+const SAFE_NAME = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
+
 /**
  * A diagnostic for an unexpected launch failure. Error messages and stacks may have captured a
- * value the profile injected, so every referenced value is replaced before the text leaves this
- * function. The result goes to the server log and, as a first line, to the safe launch error.
+ * value the profile injected, so every non-empty referenced value is replaced before the text
+ * leaves this function. Redaction happens before the first line is taken for `LAUNCH_FAILED`.
  */
 export function redactLaunchError(error: unknown, values: Iterable<string>): string {
   const text =
     error instanceof Error
       ? `${error.name}: ${error.message}${error.stack ? `\n${error.stack}` : ""}`
-      : String(error);
+      : "unexpected launch failure";
   const secrets = [...new Set(values)]
-    .filter((value) => value.length >= 4)
+    .filter((value) => value !== "")
     .toSorted((left, right) => right.length - left.length);
-  let redacted = text;
-  for (const secret of secrets) redacted = redacted.split(secret).join("[redacted]");
-  return redacted.length > 4000 ? `${redacted.slice(0, 4000)}…` : redacted;
+  const redacted =
+    secrets.length === 0
+      ? text
+      : text.replace(new RegExp(secrets.map(escapeRegExp).join("|"), "g"), "[redacted]");
+  const bounded = redacted.length > 4000 ? `${redacted.slice(0, 4000)}…` : redacted;
+  // The OS code is safe and stays outside the redacted text, so a short token cannot erase it.
+  const code = errorCode(error);
+  return code === undefined ? bounded : `${code}: ${bounded}`;
 }
 
 /** What a later client sees: a known choice/reference error, or the redacted first diagnostic line. */
@@ -44,7 +52,7 @@ export function launchFailureReason(error: unknown): string {
   ) {
     return error.message;
   }
-  return "the session could not be launched; see the server log";
+  return `the session could not be launched (${classification(error)})`;
 }
 
 /** The redacted text for the log; only a wrapped spawn error or a known choice error is quoted. */
@@ -60,5 +68,21 @@ export function launchDiagnostic(error: unknown): string {
   ) {
     return `${error.name}: ${error.message}`;
   }
-  return "the session could not be launched";
+  return `the session could not be launched (${classification(error)}); native message not quoted`;
+}
+
+function classification(error: unknown): string {
+  const name = error instanceof Error && SAFE_NAME.test(error.name) ? error.name : "Error";
+  const code = errorCode(error);
+  return code === undefined ? name : `${name} ${code}`;
+}
+
+function errorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  const code: unknown = error.code;
+  return typeof code === "string" && SAFE_CODE.test(code) ? code : undefined;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
