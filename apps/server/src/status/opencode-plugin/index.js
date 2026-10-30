@@ -42,8 +42,10 @@ export function createActivity() {
       if (blocker.sessionID === sessionID) blockers.delete(key);
   }
 
+  // Only the first ending of a run counts: OpenCode follows a failure with an interruption, and
+  // interrupts sessions that never ran when it starts, neither of which is news.
   function ended(sessionID, result) {
-    running.delete(sessionID);
+    if (!running.delete(sessionID)) return;
     if (!parents.has(sessionID)) outcome = result;
   }
 

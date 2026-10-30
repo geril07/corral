@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, test } from "vite-plus/test";
+import { afterEach, beforeEach, expect, test, vi } from "vite-plus/test";
 import { OpenCodeIntegration } from "./opencode-integration.ts";
 
 let dataDir: string;
@@ -56,4 +56,15 @@ test("the user's own OPENCODE_CONFIG_DIR and OPENCODE_CONFIG are left alone and 
 
   expect(launch?.env).not.toHaveProperty("OPENCODE_CONFIG_DIR");
   expect(launch?.env).not.toHaveProperty("OPENCODE_CONFIG");
+});
+
+test("a plugin that cannot be written is not fatal: OpenCode just starts without it", async () => {
+  await writeFile(join(dataDir, "agent-integrations"), "in the way");
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+  const integration = OpenCodeIntegration.install(dataDir);
+
+  expect(integration.launch({})).toBeUndefined();
+  expect(error).toHaveBeenCalledOnce();
+  error.mockRestore();
 });

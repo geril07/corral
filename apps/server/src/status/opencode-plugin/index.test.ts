@@ -55,6 +55,24 @@ test("a turn is working until it ends: done when it succeeds, idle when interrup
   ]);
 });
 
+test("only the first ending of a run counts, and an ending without a start is ignored", () => {
+  expect(
+    reportsFor(
+      event("session.execution.interrupted", { sessionID: ROOT, reason: "shutdown" }),
+      started(ROOT),
+      event("session.execution.failed", { sessionID: ROOT, error: { message: "rate limited" } }),
+      event("session.execution.interrupted", { sessionID: ROOT, reason: "superseded" }),
+      succeeded(ROOT),
+    ),
+  ).toEqual([
+    undefined,
+    { state: "working" },
+    { state: "error", message: "rate limited" },
+    { state: "error", message: "rate limited" },
+    { state: "error", message: "rate limited" },
+  ]);
+});
+
 test("nothing is reported before OpenCode does something", () => {
   expect(
     reportsFor(event("session.viewed", { sessionID: ROOT }), event("model.updated", {})),
@@ -157,6 +175,7 @@ test("the longest-waiting request is the one reported", () => {
 test("every report the plugin can make is one the server accepts", () => {
   const long = "x".repeat(5000);
   const reports = reportsFor(
+    started(ROOT),
     event("session.execution.failed", { sessionID: ROOT, error: { message: long } }),
     event("permission.asked", { id: "per_1", sessionID: ROOT, action: long, resources: [long] }),
     event("form.created", { form: { id: "frm_1", sessionID: ROOT, title: long } }),

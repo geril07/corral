@@ -9,36 +9,49 @@ const PLUGIN_SOURCE = new URL("./opencode-plugin/index.js", import.meta.url);
  * configuration is neither touched nor replaced.
  */
 export class OpenCodeIntegration {
-  readonly #pluginDir: string;
+  readonly #pluginDir: string | undefined;
   #warned = false;
 
-  /** Writes the plugin to `<dataDir>/agent-integrations/opencode/corral-status/index.js`, unless it is already there. */
+  /**
+   * Writes the plugin to `<dataDir>/agent-integrations/opencode/corral-status/index.js`, unless
+   * it is already there. A plugin that cannot be written costs OpenCode its status, not the
+   * server its start.
+   */
   static install(dataDir: string): OpenCodeIntegration {
     const directory = join(dataDir, "agent-integrations", "opencode", "corral-status");
     const target = join(directory, "index.js");
-    const source = readFileSync(PLUGIN_SOURCE);
-    let current: Buffer | undefined;
     try {
-      current = readFileSync(target);
-    } catch {
-      current = undefined;
+      const source = readFileSync(PLUGIN_SOURCE);
+      let current: Buffer | undefined;
+      try {
+        current = readFileSync(target);
+      } catch {
+        current = undefined;
+      }
+      if (!current?.equals(source)) {
+        mkdirSync(directory, { recursive: true });
+        const staging = `${target}.${process.pid}`;
+        writeFileSync(staging, source);
+        renameSync(staging, target);
+      }
+      return new OpenCodeIntegration(directory);
+    } catch (error) {
+      console.error(
+        `corral-server: could not install the OpenCode plugin into ${directory}`,
+        error,
+      );
+      return new OpenCodeIntegration(undefined);
     }
-    if (!current?.equals(source)) {
-      mkdirSync(directory, { recursive: true });
-      const staging = `${target}.${process.pid}`;
-      writeFileSync(staging, source);
-      renameSync(staging, target);
-    }
-    return new OpenCodeIntegration(directory);
   }
 
-  constructor(pluginDir: string) {
+  constructor(pluginDir: string | undefined) {
     this.#pluginDir = pluginDir;
   }
 
   /**
    * Arguments and environment that load the plugin into an OpenCode launched with `env`, or
-   * undefined when the user configures OpenCode inline themselves (logged once).
+   * undefined when the plugin could not be installed or the user configures OpenCode inline
+   * themselves (logged once).
    *
    * `--standalone` runs OpenCode's server inside the process. Without it the TUI is a client of
    * a shared background service, whose plugins live in that service: they would see its
@@ -47,6 +60,7 @@ export class OpenCodeIntegration {
    * replace the global one.
    */
   launch(env: NodeJS.ProcessEnv): { args: string[]; env: Record<string, string> } | undefined {
+    if (this.#pluginDir === undefined) return undefined;
     if (env["OPENCODE_CONFIG_CONTENT"]) {
       if (!this.#warned) {
         this.#warned = true;
