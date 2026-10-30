@@ -1,4 +1,5 @@
 import type { Backoff, CreateSocket } from "./reconnecting-socket.ts";
+import { createConfigStore, type ConfigStore } from "./config-store.ts";
 import { createProjectsStore, type ProjectsStore } from "./projects-store.ts";
 import { connectRpc, type RpcConnection } from "./rpc-connection.ts";
 import { createSessionsStore, type SessionsStore } from "./sessions-store.ts";
@@ -14,6 +15,7 @@ export interface CorralClientOptions {
 
 export interface CorralClient {
   readonly connection: RpcConnection;
+  readonly config: ConfigStore;
   readonly projects: ProjectsStore;
   readonly tasks: TasksStore;
   readonly sessions: SessionsStore;
@@ -25,18 +27,21 @@ export interface CorralClient {
 
 export function createCorralClient(options: CorralClientOptions): CorralClient {
   const connection = connectRpc(options);
+  const config = createConfigStore(connection);
   const projects = createProjectsStore(connection);
   const tasks = createTasksStore(connection);
   const sessions = createSessionsStore(connection);
   const terminals = createTerminalsStore(connection);
   return {
     connection,
+    config,
     projects,
     tasks,
     sessions,
     terminals,
     attach: (terminalId, surface) => new TerminalStream({ ...options, terminalId, surface }),
     close: () => {
+      config.close();
       projects.close();
       tasks.close();
       sessions.close();

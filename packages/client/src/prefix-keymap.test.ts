@@ -1,5 +1,12 @@
+import { DEFAULT_BINDINGS, type ClientConfig } from "@corral/protocol/config";
+import { parseChord } from "@corral/protocol/keymap";
 import { expect, test } from "vite-plus/test";
-import { createPrefixKeymap, resolvePrefixKey, type KeyInput } from "./prefix-keymap.ts";
+import {
+  createConfigKeymap,
+  createPrefixKeymap,
+  resolvePrefixKey,
+  type KeyInput,
+} from "./prefix-keymap.ts";
 
 const keymap = createPrefixKeymap("alt+a", { c: "create", x: "close", "shift+n": "next-shifted" });
 
@@ -55,4 +62,36 @@ test("modifier presses and IME composition never change state", () => {
     armed: true,
     handled: false,
   });
+});
+
+test("the config builds the keymap and leaves an unbound action without a key", () => {
+  const config: ClientConfig = {
+    keys: {
+      prefix: "ctrl+b",
+      bindings: { ...DEFAULT_BINDINGS, "new-agent": null, board: "q" },
+    },
+  };
+  const fromConfig = createConfigKeymap(config);
+
+  expect(fromConfig.prefix).toEqual(parseChord("ctrl+b"));
+  expect(fromConfig.bindings).toContainEqual({
+    chord: parseChord("c"),
+    action: "new-terminal",
+  });
+  expect(fromConfig.bindings).toContainEqual({ chord: parseChord("q"), action: "board" });
+  expect(fromConfig.bindings.some(({ action }) => action === "new-agent")).toBe(false);
+});
+
+test("a keymap from config dispatches the action bound in the file", () => {
+  const config: ClientConfig = {
+    keys: { prefix: "alt+a", bindings: { ...DEFAULT_BINDINGS, "new-agent": "a" } },
+  };
+  const fromConfig = createConfigKeymap(config);
+
+  expect(resolvePrefixKey(fromConfig, true, key("KeyA"))).toEqual({
+    armed: false,
+    handled: true,
+    action: "new-agent",
+  });
+  expect(resolvePrefixKey(fromConfig, true, key("KeyS"))).toEqual({ armed: false, handled: true });
 });

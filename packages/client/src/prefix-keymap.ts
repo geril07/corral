@@ -1,3 +1,4 @@
+import { ActionId, type ClientConfig } from "@corral/protocol/config";
 import { matchesChord, parseChord, type Chord } from "@corral/protocol/keymap";
 
 export interface KeyInput {
@@ -28,6 +29,16 @@ export function createPrefixKeymap<Action>(
       action,
     })),
   };
+}
+
+/** The effective config as a keymap; an action the user unbound has no key. */
+export function createConfigKeymap(config: ClientConfig): PrefixKeymap<ActionId> {
+  const bindings: Record<string, ActionId> = {};
+  for (const action of ActionId.options) {
+    const chord = config.keys.bindings[action];
+    if (chord !== null) bindings[chord] = action;
+  }
+  return createPrefixKeymap(config.keys.prefix, bindings);
 }
 
 export interface PrefixOutcome<Action> {
