@@ -1,7 +1,10 @@
 import { expect, test, vi } from "vite-plus/test";
+import { taskStatus } from "./agent-status.ts";
+import { buildBoard } from "./board.ts";
 import { describeError } from "./rpc-errors.ts";
 import { buildWorkspaceTree, currentEntry, resolveSelection } from "./workspace-tree.ts";
 import { useFakeAgents } from "../../../apps/server/test/fake-agents.ts";
+import { reportBody } from "../../../apps/server/test/osc7501.ts";
 import { eventually, useServer } from "../test/server-fixture.ts";
 
 const server = useServer();
@@ -124,4 +127,48 @@ test("a missing agent and a stale session are explained", async () => {
     (error: unknown) => error,
   );
   expect(describeError(stale)).toBe("This session no longer exists.");
+});
+
+test("what an agent reports reaches the session, the task's status and the board, and done outlives the agent", async () => {
+  const { client, api, task } = await clientWithTask();
+  const shell = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
+  const agent = await api.sessions.start({ taskId: task.id, kind: "codex", size: SIZE });
+  const { stream } = await server.attachConnected(client, agent.terminalId!);
+  const statusOf = (id: string) =>
+    client.sessions.getSnapshot().sessions.find((session) => session.id === id)?.status;
+  expect(shell.status).toBeNull();
+
+  const blocked = reportBody({ state: "blocked", kind: "permission", msg: "Run rm -rf build?" });
+  stream.input(`osc ${blocked}\n`);
+  await eventually(() =>
+    expect(statusOf(agent.id)).toMatchObject({
+      state: "blocked",
+      kind: "permission",
+      message: "Run rm -rf build?",
+    }),
+  );
+  expect(statusOf(shell.id)).toBeNull();
+  const tree = treeOf(client);
+  const sessions = tree.projects[0]?.active[0]?.sessions.map((entry) => entry.session) ?? [];
+  expect(taskStatus(sessions)).toMatchObject({
+    sessionId: agent.id,
+    status: { state: "blocked", message: "Run rm -rf build?" },
+  });
+  expect(buildBoard(tree)).toMatchObject([{ task: { id: task.id }, sessionId: agent.id }]);
+
+  stream.input(`osc ${reportBody({ state: "done", msg: "All green" })}\n`);
+  await eventually(() => expect(statusOf(agent.id)).toMatchObject({ state: "done" }));
+  expect(buildBoard(treeOf(client))[0]?.status).toMatchObject({
+    state: "done",
+    message: "All green",
+  });
+
+  stream.input("exit 0\n");
+  await eventually(() =>
+    expect(
+      client.sessions.getSnapshot().sessions.find((session) => session.id === agent.id)?.state,
+    ).toBe("stopped"),
+  );
+  expect(statusOf(agent.id)).toMatchObject({ state: "done", message: "All green" });
+  expect(buildBoard(treeOf(client))[0]?.status?.state).toBe("done");
 });
