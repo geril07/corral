@@ -1,3 +1,5 @@
-export { BINDINGS, type Action } from "./bindings.ts";
-export { KeymapProvider, usePrefix } from "./prefix-context.tsx";
+export { formatBinding, type ActionEntry, type ActionGroup, type ActionTable } from "./actions.ts";
+export { ConfigProblemsDialog, ConfigProblemsNotice } from "./config-problems.tsx";
+export { KeymapProvider, useConfig, usePrefix } from "./config-context.tsx";
+export { CommandPaletteDialog } from "./command-palette.tsx";
 export { usePrefixMode } from "./prefix-mode.ts";

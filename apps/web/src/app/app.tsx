@@ -6,18 +6,10 @@ import { AppProviders } from "./providers.tsx";
 import { createAppRouter } from "./router.tsx";
 
 /** The whole client: providers plus the file-based router. Tests pass a memory history. */
-export function App({
-  client,
-  prefix,
-  history,
-}: {
-  client: CorralClient;
-  prefix: string;
-  history?: RouterHistory;
-}) {
+export function App({ client, history }: { client: CorralClient; history?: RouterHistory }) {
   const [router] = useState(() => createAppRouter(history));
   return (
-    <AppProviders client={client} prefix={prefix}>
+    <AppProviders client={client}>
       <RouterProvider router={router} />
     </AppProviders>
   );

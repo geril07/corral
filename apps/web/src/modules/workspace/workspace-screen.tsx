@@ -1,13 +1,26 @@
 import { describeSessionState } from "@corral/client/session-state";
+import { ActionId, type ClientConfig } from "@corral/protocol/config";
 import { AppShell, MainPanel, SidebarPanel } from "../../common/ui/index.ts";
 import { AddProjectDialog } from "../projects/index.ts";
 import { AgentPicker, RemoveSessionDialog, StoppedSession } from "../sessions/index.ts";
 import { NewTaskDialog, RemoveTaskDialog } from "../tasks/index.ts";
 import { TerminalView } from "../terminal/index.ts";
 import { ConnectionNotice } from "../connection/index.ts";
+import {
+  CommandPaletteDialog,
+  ConfigProblemsDialog,
+  ConfigProblemsNotice,
+  formatBinding,
+} from "../keymap/index.ts";
 import { Sidebar } from "./sidebar.tsx";
 import { useWorkspace } from "./use-workspace.ts";
 import type { WorkspaceSearch } from "./workspace-search.ts";
+
+function pressHint(config: ClientConfig, action: ActionId): string | undefined {
+  return config.keys.bindings[action] === null
+    ? undefined
+    : `Press ${formatBinding(config, action)}.`;
+}
 
 export interface WorkspaceScreenProps {
   search: WorkspaceSearch;
@@ -18,6 +31,7 @@ export interface WorkspaceScreenProps {
 export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScreenProps) {
   const {
     client,
+    config,
     prefix,
     connection,
     tree,
@@ -28,6 +42,7 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
     dialog,
     failure,
     armed,
+    actions,
     rememberFitSize,
     choose,
     showTask,
@@ -47,6 +62,13 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
     removeTask,
     setDialog,
   } = useWorkspace({ search, onChange, onOpenBoard });
+  const hints = ActionId.options.flatMap((action) => {
+    const binding = config.keys.bindings[action];
+    return binding === null ? [] : [{ action, binding, label: actions[action].label }];
+  });
+  const restartHint = pressHint(config, "restart-session");
+  const terminalHint = pressHint(config, "new-terminal");
+  const agentHint = pressHint(config, "new-agent");
 
   return (
     <AppShell>
@@ -73,6 +95,7 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
         />
         <footer className="border-t border-border px-2.5 py-2 text-text-muted">
           <ConnectionNotice state={connection} />
+          <ConfigProblemsNotice onOpen={() => setDialog({ kind: "config-problems" })} />
           {failure && (
             <p className="my-0.5 text-danger" role="alert">
               {failure}
@@ -80,11 +103,13 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
           )}
           {armed ? (
             <output className="my-0.5 block text-accent" aria-label="prefix mode">
-              prefix: c shell · s agent · x stop · r restart · X remove session · n/p session · t
-              new task · T remove task · d settle · j/k task · P add project · b board · g blocked
+              prefix:{" "}
+              {hints.map(({ binding, label }) => `${binding} ${label.toLowerCase()}`).join(" · ")}
             </output>
           ) : (
-            <p className="my-0.5">{prefix} then c s x r X n p t T d j k P b g</p>
+            <p className="my-0.5" aria-label="key hint">
+              {prefix} then {hints.map(({ binding }) => binding).join(" ")}
+            </p>
           )}
         </footer>
       </SidebarPanel>
@@ -97,7 +122,7 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
             onFit={rememberFitSize}
             exitHint={
               currentSession
-                ? `${describeSessionState(currentSession).note ?? ""} Press ${prefix}, then r.`
+                ? `${describeSessionState(currentSession).note ?? ""} ${restartHint ?? ""}`.trim()
                 : undefined
             }
           />
@@ -105,7 +130,7 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
           <StoppedSession
             key={currentSession.id}
             session={currentSession}
-            prefix={prefix}
+            restartHint={restartHint}
             onRestart={() => void restartSession(currentSession)}
           />
         ) : (
@@ -113,8 +138,8 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
           !currentSession && (
             <p className="p-4 text-text-muted">
               {selection.taskId === null
-                ? `No terminals. Press ${prefix}, then c.`
-                : `No sessions in this task. Press ${prefix}, then c for a shell or s for an agent.`}
+                ? ["No terminals.", terminalHint].filter(Boolean).join(" ")
+                : ["No sessions in this task.", terminalHint, agentHint].filter(Boolean).join(" ")}
             </p>
           )
         )}
@@ -149,6 +174,19 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
           onRemove={(force) => removeTask(dialog.task, force)}
           onClose={() => setDialog(undefined)}
         />
+      )}
+      {dialog?.kind === "command-palette" && (
+        <CommandPaletteDialog
+          actions={actions}
+          onRun={(action) => {
+            setDialog(undefined);
+            actions[action].run();
+          }}
+          onClose={() => setDialog(undefined)}
+        />
+      )}
+      {dialog?.kind === "config-problems" && (
+        <ConfigProblemsDialog onClose={() => setDialog(undefined)} />
       )}
     </AppShell>
   );

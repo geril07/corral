@@ -4,12 +4,13 @@ import { Button } from "../../common/ui/index.ts";
 
 interface StoppedSessionProps {
   session: Session;
-  prefix: string;
+  /** The whole key press that also restarts, e.g. `alt+a r`; absent when the action is unbound. */
+  restartHint: string | undefined;
   onRestart: () => void;
 }
 
 /** Shown in place of a terminal while the selected session is not running. */
-export function StoppedSession({ session, prefix, onRestart }: StoppedSessionProps) {
+export function StoppedSession({ session, restartHint, onRestart }: StoppedSessionProps) {
   const { badge, note } = describeSessionState(session);
   return (
     <section className="max-w-md px-4 py-6" aria-label="stopped session">
@@ -20,7 +21,7 @@ export function StoppedSession({ session, prefix, onRestart }: StoppedSessionPro
       <Button variant="primary" autoFocus onClick={onRestart}>
         {session.state === "unresumable" ? "Start a new conversation" : "Start again"}
       </Button>
-      <p className="mt-3 text-text-muted">Enter, or {prefix} then r.</p>
+      {restartHint && <p className="mt-3 text-text-muted">Enter, or {restartHint}.</p>}
     </section>
   );
 }

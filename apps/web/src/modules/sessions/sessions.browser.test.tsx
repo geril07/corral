@@ -165,7 +165,7 @@ test("an agent that ends by itself shows its last screen and is stopped until pr
   await userEvent.keyboard("exit{Enter}");
 
   await expect.element(sessionButton("opencode", "stopped")).toBeVisible();
-  await expect.element(exitedNotice()).toMatchTextContent("then r");
+  await expect.element(exitedNotice()).toMatchTextContent("alt+a r");
   expect(screenText()).toContain("fake opencode ready");
 
   await prefixThen("r");
@@ -202,7 +202,7 @@ test("an agent missing from the server's PATH is named in the message and nothin
 });
 
 test("prefix s without a task says so instead of opening the picker", async () => {
-  await render(<App client={newClient()} prefix="alt+a" />);
+  await render(<App client={newClient()} />);
 
   await prefixThen("s");
 
@@ -250,7 +250,7 @@ test("prefix shift+x asks first, starts on Cancel, and removes the session for g
 
 test("prefix x on a loose terminal closes it; r and shift+x leave it alone", async () => {
   const client = newClient();
-  await render(<App client={client} prefix="alt+a" />);
+  await render(<App client={client} />);
   await prefixThen("c");
   await expect.element(workspace().getByRole("button", { name: /^sh · / })).toBeVisible();
 

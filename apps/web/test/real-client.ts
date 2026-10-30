@@ -1,6 +1,7 @@
 import { createCorralClient, type CorralClient } from "@corral/client/corral-client";
 import { afterEach, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
+import { writeConfig } from "./config-command.ts";
 import { serverUrl } from "./server-url.ts";
 
 /** What the active terminal shows; see `screen-text-hook.ts`. */
@@ -22,6 +23,7 @@ export function realServerClients() {
   const clients: CorralClient[] = [];
 
   afterEach(async () => {
+    await writeConfig(null);
     const cleaner = newClient();
     const { api } = cleaner.connection;
     await vi.waitFor(() => {

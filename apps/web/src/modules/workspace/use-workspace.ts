@@ -1,5 +1,5 @@
 import { buildBoard, mostUrgentBlocked, type BoardRow } from "@corral/client/board";
-import { createPrefixKeymap } from "@corral/client/prefix-keymap";
+import { createConfigKeymap } from "@corral/client/prefix-keymap";
 import { describeError } from "@corral/client/rpc-errors";
 import { activeAfterClose, stepActive } from "@corral/client/terminal-selection";
 import {
@@ -11,6 +11,7 @@ import {
   type Chosen,
   type Entry,
 } from "@corral/client/workspace-tree";
+import type { ActionId } from "@corral/protocol/config";
 import type {
   AgentKind,
   CreateTaskInput,
@@ -22,7 +23,7 @@ import type {
 } from "@corral/protocol/rpc";
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useCorralClient, useConnection } from "../connection/index.ts";
-import { BINDINGS, usePrefix, usePrefixMode, type Action } from "../keymap/index.ts";
+import { formatBinding, useConfig, usePrefixMode, type ActionTable } from "../keymap/index.ts";
 import { chosenToSearch, searchToChosen, type WorkspaceSearch } from "./workspace-search.ts";
 
 const DEFAULT_SIZE: TerminalSize = { cols: 80, rows: 24 };
@@ -32,7 +33,9 @@ export type DialogState =
   | { kind: "new-task"; project: Project; branches: Promise<string[]> }
   | { kind: "remove-task"; task: Task }
   | { kind: "pick-agent"; taskId: string }
-  | { kind: "remove-session"; session: Session };
+  | { kind: "remove-session"; session: Session }
+  | { kind: "command-palette" }
+  | { kind: "config-problems" };
 
 interface UseWorkspaceOptions {
   search: WorkspaceSearch;
@@ -43,7 +46,8 @@ interface UseWorkspaceOptions {
 /** The workspace's state and actions, wired to the client stores and the route's search params. */
 export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOptions) {
   const client = useCorralClient();
-  const prefix = usePrefix();
+  const { config } = useConfig();
+  const prefix = config.keys.prefix;
   const { api } = client.connection;
   const connection = useConnection();
   const { projects } = useSyncExternalStore(client.projects.subscribe, client.projects.getSnapshot);
@@ -186,7 +190,10 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
 
   const openNewTask = () => {
     if (!currentProject) {
-      setFailure(`Add a project first: ${prefix}, then shift+p.`);
+      const addProject = formatBinding(config, "add-project");
+      setFailure(
+        addProject === "unbound" ? "Add a project first." : `Add a project first: ${addProject}.`,
+      );
       return;
     }
     setFailure(undefined);
@@ -228,31 +235,119 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
     if (task.id === selection.taskId) showTask(next);
   };
 
-  const keymap = useMemo(() => createPrefixKeymap(prefix, BINDINGS), [prefix]);
-  const armed = usePrefixMode(
-    keymap,
-    (action: Action) => {
-      if (action === "new-terminal") void createTerminal(selection.taskId);
-      else if (action === "new-agent") openAgentPicker();
-      else if (action === "stop-session") {
+  const actions: ActionTable = {
+    "new-terminal": {
+      label: "New terminal",
+      group: "Sessions",
+      enabled: true,
+      run: () => void createTerminal(selection.taskId),
+    },
+    "new-agent": {
+      label: "New agent session",
+      group: "Sessions",
+      enabled: selection.taskId !== null,
+      run: openAgentPicker,
+    },
+    "stop-session": {
+      label: "Stop session",
+      group: "Sessions",
+      enabled: current?.type === "terminal" || currentSession?.state === "running",
+      run: () => {
         if (current?.type === "terminal") void closeTerminal(current.id);
         else if (currentSession?.state === "running") void stopSession(currentSession);
-      } else if (action === "restart-session") {
+      },
+    },
+    "restart-session": {
+      label: "Restart session",
+      group: "Sessions",
+      enabled: currentSession !== undefined && currentSession.state !== "running",
+      run: () => {
         if (currentSession && currentSession.state !== "running")
           void restartSession(currentSession);
-      } else if (action === "remove-session") {
-        if (currentSession) setDialog({ kind: "remove-session", session: currentSession });
-      } else if (action === "next-session") stepEntry(1);
-      else if (action === "previous-session") stepEntry(-1);
-      else if (action === "new-task") openNewTask();
-      else if (action === "remove-task") openRemoveTask(currentTask);
-      else if (action === "settle-task" && currentTask) void toggleSettle(currentTask);
-      else if (action === "next-task") stepTask(1);
-      else if (action === "previous-task") stepTask(-1);
-      else if (action === "add-project") setDialog({ kind: "add-project" });
-      else if (action === "board") onOpenBoard(chosenToSearch(chosenRef.current));
-      else if (action === "jump-blocked") jumpToBlocked();
+      },
     },
+    "remove-session": {
+      label: "Remove session",
+      group: "Sessions",
+      enabled: currentSession !== undefined,
+      run: () => {
+        if (currentSession) setDialog({ kind: "remove-session", session: currentSession });
+      },
+    },
+    "next-session": {
+      label: "Next session",
+      group: "Sessions",
+      enabled: entryIds.length > 1,
+      run: () => stepEntry(1),
+    },
+    "previous-session": {
+      label: "Previous session",
+      group: "Sessions",
+      enabled: entryIds.length > 1,
+      run: () => stepEntry(-1),
+    },
+    "new-task": {
+      label: "New task",
+      group: "Tasks",
+      enabled: currentProject !== undefined,
+      run: openNewTask,
+    },
+    "remove-task": {
+      label: "Remove task",
+      group: "Tasks",
+      enabled: currentTask !== undefined,
+      run: () => openRemoveTask(currentTask),
+    },
+    "settle-task": {
+      label: "Settle or unsettle task",
+      group: "Tasks",
+      enabled: currentTask !== undefined,
+      run: () => {
+        if (currentTask) void toggleSettle(currentTask);
+      },
+    },
+    "next-task": {
+      label: "Next task",
+      group: "Tasks",
+      enabled: taskOrder.length > 1,
+      run: () => stepTask(1),
+    },
+    "previous-task": {
+      label: "Previous task",
+      group: "Tasks",
+      enabled: taskOrder.length > 1,
+      run: () => stepTask(-1),
+    },
+    "add-project": {
+      label: "Add project",
+      group: "Projects",
+      enabled: true,
+      run: () => setDialog({ kind: "add-project" }),
+    },
+    board: {
+      label: "Open board",
+      group: "Navigation",
+      enabled: true,
+      run: () => onOpenBoard(chosenToSearch(chosenRef.current)),
+    },
+    "jump-blocked": {
+      label: "Jump to blocked session",
+      group: "Navigation",
+      enabled: mostUrgentBlocked(board) !== undefined,
+      run: jumpToBlocked,
+    },
+    "command-palette": {
+      label: "Command palette",
+      group: "General",
+      enabled: true,
+      run: () => setDialog({ kind: "command-palette" }),
+    },
+  };
+
+  const keymap = useMemo(() => createConfigKeymap(config), [config]);
+  const armed = usePrefixMode(
+    keymap,
+    (action: ActionId) => actions[action].run(),
     dialog === undefined,
   );
 
@@ -262,6 +357,7 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
 
   return {
     client,
+    config,
     prefix,
     connection,
     tree,
@@ -274,6 +370,7 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
     dialog,
     failure,
     armed,
+    actions,
     rememberFitSize,
     choose,
     showTask,

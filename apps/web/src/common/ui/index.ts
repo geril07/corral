@@ -2,6 +2,7 @@ export { Badge } from "./badge.tsx";
 export { BoardList, BoardRow } from "./board.tsx";
 export { Button } from "./button.tsx";
 export { Combobox, ComboboxItem, ComboboxList } from "./combobox.tsx";
+export { CommandPalette } from "./command-palette.tsx";
 export { ConfirmDialog, Dialog, DialogActions, FormError } from "./dialog.tsx";
 export { Field } from "./field.tsx";
 export { Input } from "./input.tsx";

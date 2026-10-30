@@ -19,6 +19,7 @@
     "@xterm/xterm": "catalog:",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cmdk": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "tailwind-merge": "^3.7.0",

@@ -19,7 +19,7 @@ export const newTaskDialog = () => page.getByRole("dialog", { name: "New task" }
 /** An app on the real server with one project added through the dialog. */
 export async function appWithProject(client: CorralClient, branches: string[] = []) {
   const repo = await createGitRepo("repo", branches);
-  await render(<App client={client} prefix="alt+a" />);
+  await render(<App client={client} />);
   await prefixShifted("p");
   await expect.element(addProjectDialog().getByRole("textbox")).toHaveFocus();
   await userEvent.keyboard(`${repo}{Enter}`);

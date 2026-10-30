@@ -4,6 +4,7 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite-plus";
 import { playwright } from "vite-plus/test/browser-playwright";
 import { createGitRepo } from "./test/git-repos.ts";
+import { writeConfigFile } from "./test/config-file.ts";
 import { agentLaunches, serverEnv } from "./test/server-agents.ts";
 
 export default defineConfig({
@@ -30,7 +31,7 @@ export default defineConfig({
       enabled: true,
       headless: true,
       provider: playwright(),
-      commands: { createGitRepo, agentLaunches, serverEnv },
+      commands: { createGitRepo, agentLaunches, serverEnv, writeConfig: writeConfigFile },
       instances: [{ browser: "chromium" }],
     },
   },

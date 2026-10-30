@@ -20,7 +20,7 @@ const pane = () => page.getByRole("region", { name: "stopped session" });
 test("a stopped agent says it resumes, and Enter starts it, as the button has the focus", async () => {
   const onRestart = vi.fn<() => void>();
   await render(
-    <StoppedSession session={session("stopped")} prefix="alt+a" onRestart={onRestart} />,
+    <StoppedSession session={session("stopped")} restartHint="alt+a r" onRestart={onRestart} />,
   );
 
   await expect.element(pane()).toMatchTextContent("claude · stopped");
@@ -35,7 +35,7 @@ test("an unresumable session says it will start a new conversation", async () =>
   await render(
     <StoppedSession
       session={session("unresumable", "codex")}
-      prefix="alt+a"
+      restartHint="alt+a r"
       onRestart={() => undefined}
     />,
   );

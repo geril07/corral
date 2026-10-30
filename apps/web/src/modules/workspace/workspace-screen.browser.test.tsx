@@ -18,7 +18,7 @@ const SIZE = { cols: 80, rows: 24 };
 const { newClient } = realServerClients();
 
 test("the prefix chord arms prefix mode and the next key disarms it", async () => {
-  await render(<App client={newClient()} prefix="alt+a" />);
+  await render(<App client={newClient()} />);
   const indicator = page.getByRole("status", { name: "prefix mode" });
 
   await userEvent.keyboard("{Alt>}a{/Alt}");
@@ -29,7 +29,7 @@ test("the prefix chord arms prefix mode and the next key disarms it", async () =
 });
 
 test("the same key without the prefix's modifier does not arm prefix mode", async () => {
-  await render(<App client={newClient()} prefix="alt+a" />);
+  await render(<App client={newClient()} />);
   await userEvent.keyboard("a");
   await expect.element(page.getByRole("status", { name: "prefix mode" })).not.toBeInTheDocument();
 });
@@ -40,7 +40,7 @@ const terminalButtons = () => workspace().getByRole("button", { name: /^sh · / 
 const selectButton = (index: number) => terminalButtons().nth(index);
 
 test("prefix then c opens a terminal that takes the keyboard straight away", async () => {
-  await render(<App client={newClient()} prefix="alt+a" />);
+  await render(<App client={newClient()} />);
   await expect.element(page.getByText(/No terminals/)).toBeVisible();
 
   await prefixThen("c");
@@ -67,7 +67,7 @@ test("the selected terminal survives a reload through the search params", async 
 });
 
 test("the prefix and its action key are not typed into the terminal", async () => {
-  await render(<App client={newClient()} prefix="alt+a" />);
+  await render(<App client={newClient()} />);
   await prefixThen("c");
   await expect.element(terminalButtons()).toHaveLength(1);
 
@@ -81,7 +81,7 @@ test("the prefix and its action key are not typed into the terminal", async () =
 
 test("prefix n and p switch between terminals, wrapping around", async () => {
   const client = newClient();
-  await render(<App client={client} prefix="alt+a" />);
+  await render(<App client={client} />);
   await prefixThen("c");
   await prefixThen("c");
   await expect.element(terminalButtons()).toHaveLength(2);
@@ -99,7 +99,7 @@ test("prefix n and p switch between terminals, wrapping around", async () => {
 });
 
 test("prefix x closes the active terminal and the neighbour takes over", async () => {
-  await render(<App client={newClient()} prefix="alt+a" />);
+  await render(<App client={newClient()} />);
   await prefixThen("c");
   await prefixThen("c");
   await expect.element(terminalButtons()).toHaveLength(2);
@@ -113,7 +113,7 @@ test("prefix x closes the active terminal and the neighbour takes over", async (
 });
 
 test("clicking a terminal in the list shows it and keeps typing going to the terminal", async () => {
-  await render(<App client={newClient()} prefix="alt+a" />);
+  await render(<App client={newClient()} />);
   await prefixThen("c");
   await prefixThen("c");
   await expect.element(terminalButtons()).toHaveLength(2);
@@ -133,7 +133,7 @@ test("a terminal whose process ended stays listed as exited until it is closed",
     args: ["-c", "echo bye; exit 3"],
     size: SIZE,
   });
-  await render(<App client={client} prefix="alt+a" />);
+  await render(<App client={client} />);
 
   await expect.element(page.getByText("exited (3)")).toBeVisible();
   await expect.element(page.getByRole("status", { name: "terminal exited" })).toBeVisible();
@@ -144,7 +144,7 @@ test("a terminal whose process ended stays listed as exited until it is closed",
 });
 
 test("a server on another protocol version gets a clear message instead of the workspace", async () => {
-  await render(<App client={newClient(serverUrl(), claimNextProtocolVersion)} prefix="alt+a" />);
+  await render(<App client={newClient(serverUrl(), claimNextProtocolVersion)} />);
 
   await expect.element(page.getByRole("alert")).toBeVisible();
   await expect.element(page.getByText(/The server speaks protocol version 1;/)).toBeVisible();
@@ -152,7 +152,7 @@ test("a server on another protocol version gets a clear message instead of the w
 });
 
 test("an unreachable server shows as disconnected and the workspace stays up", async () => {
-  await render(<App client={newClient("ws://127.0.0.1:1")} prefix="alt+a" />);
+  await render(<App client={newClient("ws://127.0.0.1:1")} />);
 
   await expect
     .element(page.getByRole("status", { name: "connection" }))
@@ -163,7 +163,7 @@ test("an unreachable server shows as disconnected and the workspace stays up", a
 const focusedIsTerminal = () => document.activeElement?.classList.contains("xterm-helper-textarea");
 
 test("prefix shift+p opens the add-project dialog, where the prefix and its keys are inert", async () => {
-  await render(<App client={newClient()} prefix="alt+a" />);
+  await render(<App client={newClient()} />);
   await prefixThen("c");
   await expect.element(terminalButtons()).toHaveLength(1);
 
@@ -185,7 +185,7 @@ test("prefix shift+p opens the add-project dialog, where the prefix and its keys
 });
 
 test("Escape closes a dialog and returns the keyboard to the terminal", async () => {
-  await render(<App client={newClient()} prefix="alt+a" />);
+  await render(<App client={newClient()} />);
   await prefixThen("c");
   await expect.element(terminalButtons()).toHaveLength(1);
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
@@ -201,7 +201,7 @@ test("Escape closes a dialog and returns the keyboard to the terminal", async ()
 });
 
 test("prefix t without a project says so instead of opening the task dialog", async () => {
-  await render(<App client={newClient()} prefix="alt+a" />);
+  await render(<App client={newClient()} />);
   await expect.element(page.getByText(/No terminals/)).toBeVisible();
 
   await prefixThen("t");
@@ -210,7 +210,7 @@ test("prefix t without a project says so instead of opening the task dialog", as
 });
 
 test("prefix b opens the board, which Escape closes and returns the keyboard from", async () => {
-  await render(<App client={newClient()} prefix="alt+a" />);
+  await render(<App client={newClient()} />);
   await prefixThen("c");
   await expect.element(terminalButtons()).toHaveLength(1);
 
@@ -224,7 +224,7 @@ test("prefix b opens the board, which Escape closes and returns the keyboard fro
 
 test("Escape on the board returns to the workspace with the previous selection", async () => {
   const client = newClient();
-  await render(<App client={client} prefix="alt+a" />);
+  await render(<App client={client} />);
   await prefixThen("c");
   await prefixThen("c");
   await expect.element(terminalButtons()).toHaveLength(2);
@@ -240,7 +240,7 @@ test("Escape on the board returns to the workspace with the previous selection",
 });
 
 test("prefix g with no blocked session says so and leaves the selection alone", async () => {
-  await render(<App client={newClient()} prefix="alt+a" />);
+  await render(<App client={newClient()} />);
   await prefixThen("c");
   await expect.element(selectButton(0)).toHaveAttribute("aria-current", "true");
 
