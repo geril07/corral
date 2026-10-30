@@ -55,6 +55,15 @@ Replaces Herdr for its author; Orca and T3 Code (`.refs/`) are references, not b
 
 A task's status comes from its agent sessions (working / blocked / done / error / idle).
 
+### Sessions
+
+- Everything that runs in a task is a session: a shell or an agent (Claude Code, Codex, pi, OpenCode). Sessions persist; terminals do not. A loose terminal outside any task is the only kind that is not a session.
+- After a server restart, sessions that were running start again: a shell fresh in the workspace, an agent resumed by its own session id. A session the user stopped, or an agent that exited by itself, stays stopped until started again.
+- Agent session ids, checked against `--help` of the versions in the table below:
+  - Claude Code: `--session-id <uuid>` at start, `--resume <uuid>` to resume. pi: `--session-id <id>` both ways (creates it if missing). OpenCode: `--session <id>` both ways (creates it if missing).
+  - Codex cannot be given an id. Herdr and Orca learn it from a `SessionStart` hook they install in the user's global `~/.codex/hooks.json`. Corral does not touch global agent config in MVP; instead the server finds the new rollout file in `$CODEX_HOME/sessions` whose `session_meta.cwd` is the task's workspace and that started after the spawn (workaround: two Codex sessions started at once in one workspace are ambiguous). Resume: `codex resume <id>`.
+- Agents get `CORRAL_SESSION_ID` and `CORRAL_TASK_ID` in their environment, for hooks and plugins later.
+
 ## Agent status
 
 - **OSC 7501** (Program Status Protocol): parse via `term.parser.registerOscHandler(7501, …)` and answer the `?` probe. Port from Orca, MIT: `.refs/orca/src/shared/program-status/` (`protocol.ts`, `osc-scanner.ts`, `query-responder.ts`, `records.ts`, ~500 lines). Support matrix: `.refs/orca/src/main/agent-hooks/README.md`.

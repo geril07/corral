@@ -21,10 +21,14 @@ export type TerminalExit = z.infer<typeof TerminalExit>;
 export const ProjectId = z.string().min(1);
 export const TaskId = z.string().min(1);
 
+export const SessionId = z.string().min(1);
+
 export const TerminalInfo = z.object({
   id: TerminalId,
   /** The task the terminal works in; `null` for a terminal outside any task. */
   taskId: TaskId.nullable(),
+  /** The session this terminal runs; `null` for a loose terminal. Every terminal in a task belongs to a session. */
+  sessionId: SessionId.nullable(),
   /** Executable and arguments the PTY runs. */
   command: z.string(),
   args: z.array(z.string()),
@@ -35,13 +39,12 @@ export const TerminalInfo = z.object({
 });
 export type TerminalInfo = z.infer<typeof TerminalInfo>;
 
+/** A loose terminal outside any task; terminals in a task are started as sessions. */
 export const CreateTerminalInput = z.object({
-  /** Runs in the task's working directory; `cwd` must then be omitted. */
-  taskId: TaskId.optional(),
   /** Defaults to the user's login shell (`$SHELL`). */
   command: z.string().optional(),
   args: z.array(z.string()).optional(),
-  /** Defaults to the task's working directory, else the user's home directory. */
+  /** Defaults to the user's home directory. */
   cwd: z.string().optional(),
   env: z.record(z.string(), z.string()).optional(),
   size: TerminalSize,
@@ -99,9 +102,43 @@ export const CreateTaskInput = z.object({
 });
 export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
 
+export const AgentKind = z.enum(["claude", "codex", "pi", "opencode"]);
+export type AgentKind = z.infer<typeof AgentKind>;
+export const SessionKind = z.enum(["shell", ...AgentKind.options]);
+export type SessionKind = z.infer<typeof SessionKind>;
+
+/**
+ * Something running in a task: a shell or an agent. Persisted, unlike terminals: after a
+ * server restart every session that was running is started again, a shell fresh and an agent
+ * resumed by `agentSessionId` (decision 12).
+ */
+export const Session = z.object({
+  id: SessionId,
+  taskId: TaskId,
+  kind: SessionKind,
+  /**
+   * The agent's own session id, used to resume it. Set at start for agents that accept one
+   * (Claude Code, pi, OpenCode); discovered after start for Codex, so `null` until then.
+   * Always `null` for a shell.
+   */
+  agentSessionId: z.string().nullable(),
+  /** The live or exited terminal running it; `null` when stopped. */
+  terminalId: TerminalId.nullable(),
+  /**
+   * `running`: its terminal's process is alive. `stopped`: not running and can be started
+   * again (an agent then resumes). `unresumable`: an agent whose id was never learned, so
+   * starting it again would open a new conversation.
+   */
+  state: z.enum(["running", "stopped", "unresumable"]),
+  /** Epoch milliseconds. */
+  createdAt: z.number(),
+});
+export type Session = z.infer<typeof Session>;
+
 const terminalNotFound = { NOT_FOUND: { data: z.object({ id: TerminalId }) } };
 const projectNotFound = { PROJECT_NOT_FOUND: { data: z.object({ id: ProjectId }) } };
 const taskNotFound = { TASK_NOT_FOUND: { data: z.object({ id: TaskId }) } };
+const sessionNotFound = { SESSION_NOT_FOUND: { data: z.object({ id: SessionId }) } };
 /** Git refused or failed; `message` is git's own stderr, meant for the user. */
 const gitFailed = { GIT_FAILED: { data: z.object({ message: z.string() }) } };
 
@@ -139,7 +176,7 @@ export const contract = {
       .input(z.object({ id: TaskId, state: Task.shape.state }))
       .output(Task),
     /**
-     * Closes the task's terminals, removes a worktree the task owns and forgets the task. The
+     * Removes the task's sessions (stopping them), removes a worktree the task owns and forgets the task. The
      * branch always stays. A worktree with uncommitted or untracked changes is kept and the
      * call fails with `WORKTREE_DIRTY`, unless `force` is set.
      */
@@ -154,13 +191,44 @@ export const contract = {
     /** Yields all tasks of every project now and after every change. */
     watch: oc.output(eventIterator(z.array(Task))),
   },
+  sessions: {
+    /**
+     * Starts a shell or an agent in the task's workspace, in a new terminal. The agent CLI is
+     * looked up on the server's `PATH`; a missing one fails with `AGENT_NOT_FOUND`.
+     */
+    start: oc
+      .errors({ ...taskNotFound, AGENT_NOT_FOUND: { data: z.object({ command: z.string() }) } })
+      .input(z.object({ taskId: TaskId, kind: SessionKind, size: TerminalSize }))
+      .output(Session),
+    /** Starts a `stopped` (or `unresumable`, as a new conversation) session again in a new terminal. */
+    restart: oc
+      .errors({
+        ...sessionNotFound,
+        ALREADY_RUNNING: {},
+        AGENT_NOT_FOUND: { data: z.object({ command: z.string() }) },
+      })
+      .input(z.object({ id: SessionId, size: TerminalSize }))
+      .output(Session),
+    /** Kills its process and closes its terminal; the session stays, `stopped`. */
+    stop: oc
+      .errors(sessionNotFound)
+      .input(z.object({ id: SessionId }))
+      .output(Session),
+    /** Stops it if running and forgets it. The agent's own history is left alone. */
+    remove: oc
+      .errors(sessionNotFound)
+      .input(z.object({ id: SessionId }))
+      .output(z.void()),
+    /** Yields all sessions now and after every change. */
+    watch: oc.output(eventIterator(z.array(Session))),
+  },
   terminals: {
     list: oc.output(z.array(TerminalInfo)),
     create: oc
-      .errors({ ...taskNotFound, BAD_REQUEST: { data: z.object({ message: z.string() }) } })
+      .errors({ BAD_REQUEST: { data: z.object({ message: z.string() }) } })
       .input(CreateTerminalInput)
       .output(TerminalInfo),
-    /** Kills the process if it still runs and forgets the terminal. */
+    /** Kills the process if it still runs and forgets the terminal. On a session's terminal this is `sessions.stop`. */
     close: oc
       .errors(terminalNotFound)
       .input(z.object({ id: TerminalId }))
