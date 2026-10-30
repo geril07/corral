@@ -19,6 +19,7 @@ test("a PTY whose headless backlog passes the limit is paused until it drains, a
   session = new TerminalSession(
     "flood",
     {
+      taskId: null,
       command: "/bin/sh",
       args: ["-c", `yes '${LINE}' | head -n ${LINES}`],
       cwd: tmpdir(),

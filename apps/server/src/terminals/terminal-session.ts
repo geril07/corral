@@ -15,6 +15,8 @@ const DEFAULT_BACKLOG_LIMITS: BacklogLimits = { pauseBytes: 1024 * 1024, resumeB
 const KILL_GRACE_MS = 2000;
 
 export interface TerminalSpec {
+  /** The task the terminal belongs to; reported in `info`, not used to spawn. */
+  taskId: string | null;
   command: string;
   args: string[];
   cwd: string;
@@ -102,6 +104,7 @@ export class TerminalSession {
   get info(): TerminalInfo {
     return {
       id: this.id,
+      taskId: this.#spec.taskId,
       command: this.#spec.command,
       args: this.#spec.args,
       cwd: this.#spec.cwd,
