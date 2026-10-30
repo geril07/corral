@@ -70,6 +70,7 @@ export class TerminalSession {
   readonly #spec: TerminalSpec;
   readonly #backlogLimits: BacklogLimits;
   #size: TerminalSize;
+  #label: string | null = null;
   #exit: TerminalExit | null = null;
   #processExited = false;
   #closed = false;
@@ -136,7 +137,15 @@ export class TerminalSession {
       cwd: this.#spec.cwd,
       size: this.#size,
       exit: this.#exit,
+      label: this.#label,
     };
+  }
+
+  /** The user's name for the terminal, or `null` for none. Says nothing to the process. */
+  setLabel(label: string | null): void {
+    if (this.#label === label) return;
+    this.#label = label;
+    this.#hooks.onChange();
   }
 
   /** Most bytes ever queued in the headless terminal at once; stays near the pause level under a flood. */

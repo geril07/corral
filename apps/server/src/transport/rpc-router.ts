@@ -170,6 +170,16 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
           },
         ),
       ),
+      setLabel: os.sessions.setLabel.handler(({ input, errors }) =>
+        translating(
+          () => sessions.setLabel(input.id, input.label),
+          (error) => {
+            if (error instanceof SessionNotFoundError)
+              return errors.SESSION_NOT_FOUND({ data: { id: error.id } });
+            return undefined;
+          },
+        ),
+      ),
       watch: os.sessions.watch.handler(({ signal }) => sessions.watch(signal)),
     },
     terminals: {
@@ -178,6 +188,12 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
       close: os.terminals.close.handler(async ({ input, errors }) => {
         if (!(await sessions.closeTerminal(input.id)))
           throw errors.NOT_FOUND({ data: { id: input.id } });
+      }),
+      setLabel: os.terminals.setLabel.handler(({ input, errors }) => {
+        if (terminals.get(input.id)?.info.sessionId) throw errors.NOT_A_LOOSE_TERMINAL();
+        const renamed = terminals.setLabel(input.id, input.label);
+        if (!renamed) throw errors.NOT_FOUND({ data: { id: input.id } });
+        return renamed;
       }),
       watch: os.terminals.watch.handler(({ signal }) => terminals.watch(signal)),
     },

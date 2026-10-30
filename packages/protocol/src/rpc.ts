@@ -1,6 +1,7 @@
 import { eventIterator, oc } from "@orpc/contract";
 import { z } from "zod";
 import { configContract } from "./config.ts";
+import { Label } from "./label.ts";
 
 /** Control channel, served at `RPC_PATH` over WebSocket with oRPC. Terminal bytes go elsewhere. */
 export const RPC_PATH = "/rpc";
@@ -37,6 +38,12 @@ export const TerminalInfo = z.object({
   size: TerminalSize,
   /** Set once the process exits. An exited terminal stays listed until it is closed. */
   exit: TerminalExit.nullable(),
+  /**
+   * The user's name for a loose terminal, shown instead of the one derived from the command;
+   * `null` means none. Kept for as long as the terminal lives: terminals do not survive a
+   * server restart (decision 12). Absent from a server that predates labels.
+   */
+  label: Label.nullable().optional(),
 });
 export type TerminalInfo = z.infer<typeof TerminalInfo>;
 
@@ -157,6 +164,12 @@ export const Session = z.object({
    * persisted across a server restart.
    */
   status: AgentStatus.nullable(),
+  /**
+   * The user's name for the session, shown instead of the natural label (`shell 2`); `null`
+   * means none. Persisted, so it survives stop, restart, settling and a server restart. Absent
+   * from a server that predates labels.
+   */
+  label: Label.nullable().optional(),
   /** Epoch milliseconds. */
   createdAt: z.number(),
 });
@@ -251,6 +264,14 @@ export const contract = {
       .errors(sessionNotFound)
       .input(z.object({ id: SessionId }))
       .output(z.void()),
+    /**
+     * Names the session for the user, or with a blank label takes the name away again. Changes
+     * nothing else: same session, same agent conversation, same running process.
+     */
+    setLabel: oc
+      .errors(sessionNotFound)
+      .input(z.object({ id: SessionId, label: Label.nullable() }))
+      .output(Session),
     /** Yields all sessions now and after every change. */
     watch: oc.output(eventIterator(z.array(Session))),
   },
@@ -265,6 +286,14 @@ export const contract = {
       .errors(terminalNotFound)
       .input(z.object({ id: TerminalId }))
       .output(z.void()),
+    /**
+     * Names a loose terminal for the user, or with a blank label takes the name away again; the
+     * process keeps running. A terminal in a task is named through `sessions.setLabel`.
+     */
+    setLabel: oc
+      .errors({ ...terminalNotFound, NOT_A_LOOSE_TERMINAL: {} })
+      .input(z.object({ id: TerminalId, label: Label.nullable() }))
+      .output(TerminalInfo),
     /** Yields the full list now and again after every change (create, exit, resize, close). */
     watch: oc.output(eventIterator(z.array(TerminalInfo))),
   },

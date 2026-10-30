@@ -6,6 +6,7 @@ import type {
   Task,
   TerminalSize,
 } from "@corral/protocol/rpc";
+import { normalizeLabel } from "@corral/protocol/label";
 import type { StatusReport } from "@corral/protocol/status-report";
 import { AGENTS } from "../agents/agents.ts";
 import {
@@ -89,6 +90,7 @@ export class SessionService {
         kind,
         agentSessionId: kind === "shell" ? null : AGENTS[kind].newSessionId(),
         state: "running",
+        label: null,
         createdAt: Date.now(),
       };
       this.#launch(stored, task, size, "start");
@@ -131,6 +133,17 @@ export class SessionService {
       this.#statuses.delete(id);
       this.#changes.notify();
     });
+  }
+
+  /**
+   * Names the session for the user; a blank label takes the name away again. Only the stored
+   * name changes, so the process, the agent conversation and the terminal stay as they are.
+   */
+  setLabel(id: string, label: string | null): Session {
+    this.#stored(id);
+    this.#store.setLabel(id, normalizeLabel(label));
+    this.#changes.notify();
+    return this.#withTerminal(this.#stored(id));
   }
 
   /** An agent's HTTP status report. Only the launch that got the token can report, and only while its process runs. */

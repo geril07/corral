@@ -111,6 +111,46 @@ test("watch yields the list at once and again after create, resize, exit and clo
   await updates.return?.();
 });
 
+test("a loose terminal keeps its label on every client and through a client reconnect, without restarting", async () => {
+  const pidFile = join(workDir, "pid");
+  const info = await server.createTerminal(sh(`echo $$ > ${pidFile}; echo started; read x`));
+  const stream = await server.attach(info.id);
+  await stream.waitForScreen("started");
+  const pid = Number(await readFile(pidFile, "utf8"));
+  const api = await server.rpc();
+  const otherApi = await server.rpc();
+  const updates = await api.terminals.watch();
+  const otherUpdates = await otherApi.terminals.watch();
+  await within(updates.next(), "the terminals");
+  await within(otherUpdates.next(), "the terminals on the second client");
+
+  const renamed = await api.terminals.setLabel({ id: info.id, label: "  api logs  " });
+
+  expect(renamed).toMatchObject({ id: info.id, label: "api logs", command: info.command });
+  const labeled = [{ ...info, label: "api logs" }];
+  expect((await within(updates.next(), "the label")).value).toEqual(labeled);
+  expect((await within(otherUpdates.next(), "the label")).value).toEqual(labeled);
+  expect(await otherApi.terminals.list()).toEqual(labeled);
+  expect(processExists(pid)).toBe(true);
+
+  // A client that connects again sees the same terminal, label and all; only a server restart
+  // ends a loose terminal (decision 12) and with it the label.
+  const reconnected = await server.rpc();
+  expect(await reconnected.terminals.list()).toEqual(labeled);
+  expect(processExists(pid)).toBe(true);
+
+  expect(await reconnected.terminals.setLabel({ id: info.id, label: "   " })).toMatchObject({
+    label: null,
+  });
+  expect((await reconnected.terminals.list())[0]!.label).toBeNull();
+
+  await expect(reconnected.terminals.setLabel({ id: "missing", label: "x" })).rejects.toMatchObject(
+    { code: "NOT_FOUND", data: { id: "missing" } },
+  );
+  await updates.return?.();
+  await otherUpdates.return?.();
+});
+
 function processExists(pid: number): boolean {
   try {
     process.kill(pid, 0);

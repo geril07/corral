@@ -77,3 +77,20 @@ test("migrating a database from before settling turns archived tasks into settle
     { id: "s", state: "running", resume_on_unsettle: 0 },
   ]);
 });
+
+test("migrating a database from before labels keeps its sessions, unlabelled", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db, MIGRATIONS.slice(0, 3));
+  db.exec(`
+    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
+    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
+      VALUES ('t', 'p', 'task', 'b', '/n', 0, 'active', 1);
+    INSERT INTO sessions (id, task_id, kind, agent_session_id, state, created_at)
+      VALUES ('s', 't', 'shell', NULL, 'running', 2);
+  `);
+
+  migrate(db, MIGRATIONS);
+
+  expect(db.prepare("SELECT id, label FROM sessions").all()).toEqual([{ id: "s", label: null }]);
+});

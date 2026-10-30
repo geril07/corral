@@ -1,8 +1,9 @@
-import type { Session } from "@corral/protocol/rpc";
+import { Session } from "@corral/protocol/rpc";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vite-plus/test";
+import { z } from "zod";
 import { useFakeAgents, type Launch } from "../../test/fake-agents.ts";
 import { writeFiles } from "../../test/git-repo.ts";
 import { addTask } from "../../test/project-fixture.ts";
@@ -57,6 +58,7 @@ test("a shell session runs the user's shell in the task's workspace and is liste
       cwd: task.workspacePath,
       size: WIDE,
       exit: null,
+      label: null,
     },
   ]);
   const client = await server.attach(session.terminalId!);
@@ -354,4 +356,134 @@ test("a project with a running session cannot be removed; once the session is st
 
   expect(await sessionsOf(api)).toEqual([]);
   expect(await api.terminals.list()).toEqual([]);
+});
+
+const labelsOf = (value: unknown) =>
+  z
+    .array(Session)
+    .parse(value)
+    .map((session) => [session.id, session.label ?? null]);
+
+test("a label names a session on every client, and clearing it brings the natural label back", async () => {
+  const { api, task } = await addTask(server, "Named");
+  const first = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
+  const second = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
+  const other = await server.rpc();
+  const updates = await api.sessions.watch();
+  const otherUpdates = await other.sessions.watch();
+  await within(updates.next(), "the sessions");
+  await within(otherUpdates.next(), "the sessions on the second client");
+
+  const renamed = await api.sessions.setLabel({ id: second.id, label: "  build  " });
+
+  expect(renamed).toMatchObject({
+    id: second.id,
+    taskId: task.id,
+    kind: "shell",
+    terminalId: second.terminalId,
+    state: "running",
+    label: "build",
+  });
+  const named = [
+    [first.id, null],
+    [second.id, "build"],
+  ];
+  expect(labelsOf((await within(updates.next(), "the label")).value)).toEqual(named);
+  expect(labelsOf((await within(otherUpdates.next(), "the label")).value)).toEqual(named);
+
+  await api.sessions.setLabel({ id: second.id, label: "   " });
+
+  const unlabelled = [
+    [first.id, null],
+    [second.id, null],
+  ];
+  expect(labelsOf((await within(updates.next(), "the reset")).value)).toEqual(unlabelled);
+  expect(labelsOf((await within(otherUpdates.next(), "the reset")).value)).toEqual(unlabelled);
+  await updates.return?.();
+  await otherUpdates.return?.();
+});
+
+test("renaming a session restarts neither its process nor its agent conversation", async () => {
+  const { api, task } = await addTask(server, "Stay");
+  const session = await api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE });
+  const client = await ready(session, "fake claude ready");
+  const [launch] = await launchesOf("claude", 1);
+
+  await api.sessions.setLabel({ id: session.id, label: "reviewer" });
+
+  expect(await launchesOf("claude", 1)).toHaveLength(1);
+  expect((await launchesOf("claude", 1))[0]!.pid).toBe(launch!.pid);
+  expect(processExists(launch!.pid)).toBe(true);
+  expect(launch!.argv).toEqual(["--session-id", session.agentSessionId]);
+  expect((await api.terminals.list())[0]).toMatchObject({
+    id: session.terminalId,
+    command: "claude",
+    args: launch!.argv,
+    cwd: task.workspacePath,
+  });
+  client.type("still here\n");
+  await client.waitForScreen("fake claude got: still here");
+});
+
+test("a label survives stop, restart, settling and a server restart", async () => {
+  const { api, task } = await addTask(server, "Through");
+  const session = await api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE });
+  await ready(session, "fake claude ready");
+  await api.sessions.setLabel({ id: session.id, label: "reviewer" });
+
+  expect(await api.sessions.stop({ id: session.id })).toMatchObject({
+    label: "reviewer",
+    state: "stopped",
+  });
+  expect(await api.sessions.restart({ id: session.id, size: SIZE })).toMatchObject({
+    label: "reviewer",
+    state: "running",
+  });
+
+  await api.tasks.setState({ id: task.id, state: "settled" });
+  expect((await sessionsOf(api))[0]!.label).toBe("reviewer");
+  await api.tasks.setState({ id: task.id, state: "active" });
+  expect((await sessionsOf(api))[0]!.label).toBe("reviewer");
+
+  await server.restart();
+
+  expect(await sessionsOf(await server.rpc())).toMatchObject([
+    { id: session.id, label: "reviewer", state: "running" },
+  ]);
+});
+
+test("labels are validated: control characters and over-long text are refused, and an unknown session is SESSION_NOT_FOUND", async () => {
+  const { api, task } = await addTask(server, "Valid");
+  const session = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
+
+  await expect(api.sessions.setLabel({ id: "nope", label: "x" })).rejects.toMatchObject({
+    code: "SESSION_NOT_FOUND",
+    data: { id: "nope" },
+  });
+  const badRequest = { code: "BAD_REQUEST" };
+  await expect(
+    api.sessions.setLabel({ id: session.id, label: "two\nlines" }),
+  ).rejects.toMatchObject(badRequest);
+  await expect(
+    api.sessions.setLabel({ id: session.id, label: "bell\u0007" }),
+  ).rejects.toMatchObject(badRequest);
+  await expect(
+    api.sessions.setLabel({ id: session.id, label: "x".repeat(81) }),
+  ).rejects.toMatchObject(badRequest);
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the wire refuses a label that is not a string
+  const notAString = api.sessions.setLabel({ id: session.id, label: 7 as unknown as string });
+  await expect(notAString).rejects.toMatchObject(badRequest);
+
+  expect((await sessionsOf(api))[0]!.label ?? null).toBeNull();
+});
+
+test("a session's terminal is named through its session, not as a loose terminal", async () => {
+  const { api, task } = await addTask(server, "Owned");
+  const session = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
+
+  await expect(
+    api.terminals.setLabel({ id: session.terminalId!, label: "x" }),
+  ).rejects.toMatchObject({ code: "NOT_A_LOOSE_TERMINAL" });
+
+  expect((await api.terminals.list())[0]!.label).toBeNull();
 });

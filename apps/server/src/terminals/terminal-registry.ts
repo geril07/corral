@@ -1,3 +1,4 @@
+import { normalizeLabel } from "@corral/protocol/label";
 import type { AgentStatus, CreateTerminalInput, TerminalInfo } from "@corral/protocol/rpc";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
@@ -41,6 +42,17 @@ export class TerminalRegistry {
     );
     this.#sessions.set(id, session);
     this.#changes.notify();
+    return session.info;
+  }
+
+  /**
+   * Names the terminal for the user; a blank label takes the name away again. The process is
+   * untouched. Undefined when the id is unknown; a terminal in a task is named through its session.
+   */
+  setLabel(id: string, label: string | null): TerminalInfo | undefined {
+    const session = this.#sessions.get(id);
+    if (!session) return undefined;
+    session.setLabel(normalizeLabel(label));
     return session.info;
   }
 

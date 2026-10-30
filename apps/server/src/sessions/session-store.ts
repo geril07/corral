@@ -6,7 +6,7 @@ import { z } from "zod";
 export const StoredSession = Session.omit({ terminalId: true, status: true });
 export type StoredSession = z.infer<typeof StoredSession>;
 
-const COLUMNS = `id, task_id AS taskId, kind, agent_session_id AS agentSessionId, state,
+const COLUMNS = `id, task_id AS taskId, kind, agent_session_id AS agentSessionId, state, label,
   created_at AS createdAt`;
 
 export class SessionStore {
@@ -53,8 +53,8 @@ export class SessionStore {
   insert(session: StoredSession): void {
     this.#db
       .prepare(
-        `INSERT INTO sessions (id, task_id, kind, agent_session_id, state, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO sessions (id, task_id, kind, agent_session_id, state, label, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         session.id,
@@ -62,12 +62,18 @@ export class SessionStore {
         session.kind,
         session.agentSessionId,
         session.state,
+        session.label ?? null,
         session.createdAt,
       );
   }
 
   setState(id: string, state: StoredSession["state"]): void {
     this.#db.prepare("UPDATE sessions SET state = ? WHERE id = ?").run(state, id);
+  }
+
+  /** `null` takes the user's name away, restoring the natural label. */
+  setLabel(id: string, label: string | null): void {
+    this.#db.prepare("UPDATE sessions SET label = ? WHERE id = ?").run(label, id);
   }
 
   setResumeOnUnsettle(id: string, resume: boolean): void {
