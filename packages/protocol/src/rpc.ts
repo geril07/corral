@@ -1,5 +1,6 @@
 import { eventIterator, oc } from "@orpc/contract";
 import { z } from "zod";
+import { configContract } from "./config.ts";
 
 /** Control channel, served at `RPC_PATH` over WebSocket with oRPC. Terminal bytes go elsewhere. */
 export const RPC_PATH = "/rpc";
@@ -169,6 +170,7 @@ const sessionNotFound = { SESSION_NOT_FOUND: { data: z.object({ id: SessionId })
 const gitFailed = { GIT_FAILED: { data: z.object({ message: z.string() }) } };
 
 export const contract = {
+  config: configContract,
   projects: {
     /** Registers the git repository containing `path` (any directory inside it works). */
     add: oc

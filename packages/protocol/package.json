@@ -11,5 +11,8 @@
   "dependencies": {
     "@orpc/contract": "catalog:",
     "zod": "catalog:"
+  },
+  "devDependencies": {
+    "fast-check": "catalog:"
   }
 }

@@ -1,4 +1,4 @@
-import { matchesChord, parseChord, type Chord } from "./keymap.ts";
+import { matchesChord, parseChord, type Chord } from "@corral/protocol/keymap";
 
 export interface KeyInput {
   code: string;
