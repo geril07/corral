@@ -15,17 +15,23 @@ export const focusedIsTerminal = () =>
 
 export const addProjectDialog = () => page.getByRole("dialog", { name: "Add project" });
 export const newTaskDialog = () => page.getByRole("dialog", { name: "New task" });
+export const issueUrlField = () => newTaskDialog().getByRole("textbox", { name: "Issue URL" });
+export const importIssueButton = () =>
+  newTaskDialog().getByRole("button", { name: "Import issue" });
+export const taskSourceButton = (title: string) =>
+  workspace().getByRole("button", { name: `view issue source for ${title}` });
+export const taskSourceDialog = () => page.getByRole("dialog", { name: "Issue source" });
 
 /** An app on the real server with one project added through the dialog. */
 export async function appWithProject(client: CorralClient, branches: string[] = []) {
   const repo = await createGitRepo("repo", branches);
-  await render(<App client={client} />);
+  const rendered = await render(<App client={client} />);
   await prefixShifted("p");
   await expect.element(addProjectDialog().getByRole("textbox")).toHaveFocus();
   await userEvent.keyboard(`${repo}{Enter}`);
   await expect.element(addProjectDialog()).not.toBeInTheDocument();
   await expect.element(workspace().getByRole("button", { name: /^repo-/ })).toBeVisible();
-  return { client, repo };
+  return { client, repo, rendered };
 }
 
 /**
