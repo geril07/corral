@@ -29,7 +29,12 @@ export const test = base.extend<Fixtures>({
         const app = await electron.launch({
           args: [path.join(import.meta.dirname, ".."), `--user-data-dir=${stateDir}/electron`],
           // A plain sh keeps the prompt of terminals created without a command predictable.
-          env: { ...process.env, CORRAL_STATE_DIR: stateDir, SHELL: "/bin/sh" },
+          env: {
+            ...process.env,
+            CORRAL_STATE_DIR: stateDir,
+            CORRAL_DATA_DIR: `${stateDir}/data`,
+            SHELL: "/bin/sh",
+          },
         });
         apps.push(app);
         return app;

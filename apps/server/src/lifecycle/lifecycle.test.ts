@@ -45,7 +45,11 @@ afterEach(async () => {
 
 function launch(): Launched {
   const proc = spawn(process.execPath, [MAIN], {
-    env: { ...process.env, CORRAL_STATE_DIR: stateDir },
+    env: {
+      ...process.env,
+      CORRAL_STATE_DIR: stateDir,
+      CORRAL_DATA_DIR: path.join(stateDir, "data"),
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   spawned.push(proc);
