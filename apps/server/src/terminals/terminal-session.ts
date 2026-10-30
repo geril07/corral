@@ -1,8 +1,10 @@
-import type { TerminalExit, TerminalInfo, TerminalSize } from "@corral/protocol/rpc";
+import type { AgentStatus, TerminalExit, TerminalInfo, TerminalSize } from "@corral/protocol/rpc";
 import { spawn, type IPty } from "node-pty";
 import { HeadlessTerminal } from "./headless-terminal.ts";
 import { OutputCredit } from "./output-credit.ts";
 import { PendingInputTail } from "./pending-input-tail.ts";
+import { sameStatus } from "../status/agent-status.ts";
+import { Osc7501Records } from "../status/osc7501-records.ts";
 
 /** Unprocessed bytes queued in the headless terminal before the PTY is paused, and where it resumes. */
 export interface BacklogLimits {
@@ -23,6 +25,13 @@ export interface TerminalSpec {
   cwd: string;
   env: Record<string, string>;
   size: TerminalSize;
+}
+
+export interface TerminalHooks {
+  /** The terminal's `info` changed (created, resized, exited). */
+  onChange: () => void;
+  /** What the program in the terminal reports about itself over OSC 7501 changed; null when it reports nothing. */
+  onStatus?: (status: AgentStatus | null) => void;
 }
 
 /** Where one attached client's messages go. All calls are synchronous and ordered. */
@@ -57,7 +66,7 @@ export class TerminalSession {
   readonly #headless: HeadlessTerminal;
   readonly #attachments = new Set<ClientAttachment>();
   readonly #tail = new PendingInputTail();
-  readonly #onChange: () => void;
+  readonly #hooks: TerminalHooks;
   readonly #spec: TerminalSpec;
   readonly #backlogLimits: BacklogLimits;
   #size: TerminalSize;
@@ -75,15 +84,27 @@ export class TerminalSession {
   constructor(
     id: string,
     spec: TerminalSpec,
-    onChange: () => void,
+    hooks: TerminalHooks,
     backlogLimits: BacklogLimits = DEFAULT_BACKLOG_LIMITS,
   ) {
     this.id = id;
     this.#backlogLimits = backlogLimits;
     this.#spec = spec;
     this.#size = spec.size;
-    this.#onChange = onChange;
-    this.#headless = new HeadlessTerminal(spec.size);
+    this.#hooks = hooks;
+    const records = new Osc7501Records();
+    let reported: AgentStatus | null = null;
+    this.#headless = new HeadlessTerminal(spec.size, {
+      records,
+      reply: (data) => this.#reply(data),
+      changed: () => {
+        const status = records.status();
+        if (sameStatus(status, reported)) return;
+        reported = status;
+        hooks.onStatus?.(status);
+      },
+      now: Date.now,
+    });
     this.#pty = spawn(spec.command, spec.args, {
       name: "xterm-256color",
       cols: spec.size.cols,
@@ -161,6 +182,11 @@ export class TerminalSession {
     });
   }
 
+  /** Answers a probe the program printed; a program that is gone cannot read it. */
+  #reply(data: string): void {
+    if (!this.#processExited && !this.#closed) this.#pty.write(data);
+  }
+
   #signal(signal: NodeJS.Signals): void {
     try {
       process.kill(this.#pty.pid, signal);
@@ -192,7 +218,7 @@ export class TerminalSession {
   #recordExit(exitCode: number, signal: number | undefined): void {
     this.#exit = { exitCode, ...(signal ? { signal } : {}) };
     for (const attachment of this.#attachments) attachment.exit(this.#exit);
-    this.#onChange();
+    this.#hooks.onChange();
     this.#resolveExitRecorded(this.#exit);
   }
 
@@ -206,7 +232,7 @@ export class TerminalSession {
       this.#headless.resize(size);
       for (const attachment of this.#attachments) attachment.sink.resized(size);
     });
-    this.#onChange();
+    this.#hooks.onChange();
   }
 
   write(bytes: Uint8Array): void {

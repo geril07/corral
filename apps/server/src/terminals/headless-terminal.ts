@@ -2,6 +2,7 @@ import type { TerminalSize } from "@corral/protocol/rpc";
 import type { SerializeAddon as SerializeAddonType } from "@xterm/addon-serialize";
 import type { Terminal } from "@xterm/headless";
 import { createRequire } from "node:module";
+import { installOsc7501Handlers, type Osc7501Hooks } from "../status/osc7501-handlers.ts";
 
 // The xterm packages are CommonJS: Node's ESM loader exposes only a default export for them.
 const require = createRequire(import.meta.url);
@@ -36,7 +37,7 @@ export class HeadlessTerminal {
   readonly #terminal: Terminal;
   readonly #serializer: SerializeAddonType;
 
-  constructor(size: TerminalSize) {
+  constructor(size: TerminalSize, osc7501?: Osc7501Hooks) {
     this.#terminal = new XtermTerminal({
       cols: size.cols,
       rows: size.rows,
@@ -46,6 +47,7 @@ export class HeadlessTerminal {
     });
     this.#serializer = new SerializeAddon();
     this.#terminal.loadAddon(this.#serializer);
+    if (osc7501) installOsc7501Handlers(this.#terminal, osc7501);
   }
 
   get size(): TerminalSize {

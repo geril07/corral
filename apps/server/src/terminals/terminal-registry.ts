@@ -1,4 +1,4 @@
-import type { CreateTerminalInput, TerminalInfo } from "@corral/protocol/rpc";
+import type { AgentStatus, CreateTerminalInput, TerminalInfo } from "@corral/protocol/rpc";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { ChangeFeed } from "../changes/change-feed.ts";
@@ -16,10 +16,14 @@ export class TerminalRegistry {
     return this.#sessions.get(id);
   }
 
-  /** `owner` is the task and session the terminal runs for; a loose terminal has none. */
+  /**
+   * `owner` is the task and session the terminal runs for; a loose terminal has none.
+   * `onStatus` hears what the program reports about itself over OSC 7501.
+   */
   create(
     input: CreateTerminalInput,
     owner: { taskId: string; sessionId: string } | null = null,
+    onStatus?: (status: AgentStatus | null) => void,
   ): TerminalInfo {
     const id = randomUUID();
     const session = new TerminalSession(
@@ -33,7 +37,7 @@ export class TerminalRegistry {
         env: stringEnv({ ...process.env, ...input.env, TERM: "xterm-256color" }),
         size: input.size,
       },
-      () => this.#changes.notify(),
+      { onChange: () => this.#changes.notify(), ...(onStatus ? { onStatus } : {}) },
     );
     this.#sessions.set(id, session);
     this.#changes.notify();

@@ -27,7 +27,7 @@ test("a PTY whose headless backlog passes the limit is paused until it drains, a
       env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
       size: { cols: 80, rows: 24 },
     },
-    () => {},
+    { onChange: () => {} },
     LIMITS,
   );
   let received = 0;
