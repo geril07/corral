@@ -48,6 +48,12 @@ test.skipIf(!installed("claude"))(
   },
 );
 
+test.skipIf(!installed("claude"))("claude takes --model and has no provider flag", async () => {
+  const text = await help("claude");
+  expect(text).toMatch(/--model <model>/);
+  expect(text).not.toMatch(/--provider\b/);
+});
+
 test.skipIf(!installed("claude"))(
   "claude --resume of an id with no conversation exits 1 with 'No conversation found', without a network call",
   async () => {
@@ -91,6 +97,35 @@ test.skipIf(!installed("codex"))(
   async () => {
     expect(await help("codex")).not.toMatch(/--session-id/);
     expect(await help("codex", "resume")).toMatch(/Usage: codex resume \[OPTIONS\] \[SESSION_ID\]/);
+  },
+);
+
+test.skipIf(!installed("codex"))(
+  "codex takes -m and -c model_provider=… both at start and on resume",
+  async () => {
+    for (const text of [await help("codex"), await help("codex", "resume")]) {
+      expect(text).toMatch(/-m, --model <MODEL>/);
+      expect(text).toMatch(/-c, --config <key=value>/);
+    }
+  },
+);
+
+test.skipIf(!installed("pi"))(
+  "pi takes --provider with --model, and provider needs a model",
+  async () => {
+    const text = await help("pi");
+    expect(text).toMatch(/--provider <name>\s+Provider to search for --model \(requires --model\)/);
+    expect(text).toMatch(/--model <pattern>/);
+  },
+);
+
+test.skipIf(!installed("opencode"))(
+  "opencode 2.1.4 has --session but no root model or provider flag",
+  async () => {
+    const text = await help("opencode");
+    expect(text).toMatch(/--session, -s string/);
+    expect(text).not.toMatch(/--model\b/);
+    expect(text).not.toMatch(/--provider\b/);
   },
 );
 

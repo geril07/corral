@@ -122,4 +122,3 @@ test("a session from before launch profiles keeps its old launch behavior", () =
   });
   db.close();
 });
-});

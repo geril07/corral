@@ -38,9 +38,10 @@ env = [
 
 A profile is **all-or-nothing**: an unknown key, wrong type, reserved variable, invalid id or an
 unsupported model/provider drops the whole profile. Other profiles and `[keys]` still apply.
-Each issue is a `ConfigProblem` at path `profiles.<id>`; messages never quote values from the
-file. A profile that is dropped is not selectable, so the UI cannot claim a launch that will not
-happen.
+Each issue is a `ConfigProblem` at path `profiles.<id>` when the id is valid. An invalid id is
+reported at `profiles`, because echoing the key could echo a secret. Messages never quote values
+from the file. A profile that is dropped is not selectable, so the UI cannot claim a launch that
+will not happen.
 
 Every valid profile has a content `revision` (12 hex characters) over its id, name, agent,
 model, provider and environment reference names. It lets a session say which definition it used.
@@ -128,10 +129,11 @@ it; clients may hide an unsupported input but still must handle the server's ref
 - An existing variable whose value is an empty string counts as present.
 - `CORRAL_*` and process/loader/config-location names are reserved as `targetName`:
   `TERM`, `PATH`, `SHELL`, `HOME`, `BASH_ENV`, `ENV`, `NODE_OPTIONS`, `NODE_PATH`, `XDG_*`,
-  `LD_*`, `DYLD_*`, anything ending in `_HOME`, anything containing `CONFIG`, and
-  `PI_CODING_AGENT_DIR`. This keeps executable lookup, transcript/rollout discovery and the
-  agent's history in the same place as the launch. A snapshot that somehow holds a reserved
-  target fails with `LAUNCH_ENV_RESERVED` instead of applying it.
+  `LD_*`, `DYLD_*`, anything ending in `_HOME`, anything containing `CONFIG`,
+  `PI_CODING_AGENT_*` (pi config, session-store and package paths) and `PI_PACKAGE_DIR` (pi
+  loader path). This keeps executable lookup, transcript/rollout discovery and the agent's
+  history in the same place as the launch. A snapshot that somehow holds a reserved target fails
+  with `LAUNCH_ENV_RESERVED` instead of applying it.
 - Server-owned `CORRAL_SESSION_ID`, `CORRAL_TASK_ID`, `CORRAL_STATUS_URL` and
   `CORRAL_STATUS_TOKEN` are applied after profile references and win.
 - The same resolved environment is used for the spawn, the executable check, Claude transcript
@@ -164,7 +166,10 @@ Model override rules:
 - The provider cannot be overridden per start; it comes from the profile.
 
 Other start/restart errors: `LAUNCH_PROFILE_UNKNOWN { id }` (unknown or dropped profile),
-`LAUNCH_PROFILE_KIND_MISMATCH { id, kind }`, `AGENT_NOT_FOUND { command }`.
+`LAUNCH_PROFILE_KIND_MISMATCH { id, kind }`, `AGENT_NOT_FOUND { command }`, and
+`LAUNCH_FAILED { kind, message }` for an unexpected spawn failure (a missing workspace,
+resource limits). `LAUNCH_FAILED.message` is a redacted first diagnostic line: every value
+referenced by the profile is replaced with `[redacted]` before it enters the error or the log.
 
 ## Snapshot and resume
 
@@ -186,9 +191,10 @@ existing conversation. Referenced values are re-resolved from the server environ
 launch. Sessions created before this feature have no snapshot and keep their old launch behavior;
 Corral never infers a profile or model for them.
 
-If a restore cannot launch (missing reference, missing executable), the session becomes
-`stopped` and carries `launchError`, a safe sentence naming the reference or command and never a
-value. It is visible to clients that connect after the server started, and a manual
+If a restore cannot launch (missing reference, missing executable, reserved snapshot target,
+unexpected spawn failure), the session becomes `stopped` and carries `launchError`, a safe
+sentence naming the reference or command and never a value; an unexpected spawn failure is
+redacted first. It is visible to clients that connect after the server started, and a manual
 `sessions.restart` returns the typed error again. `launchError` is not persisted; it is null
 after a successful launch.
 

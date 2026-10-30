@@ -5,6 +5,7 @@ import type {
   Session,
   SessionKind,
   Task,
+  TerminalInfo,
   TerminalSize,
 } from "@corral/protocol/rpc";
 import { normalizeLabel } from "@corral/protocol/label";
@@ -16,7 +17,7 @@ import {
   type CodexSessionWatch,
 } from "../agents/codex-sessions.ts";
 import { isExecutable } from "../agents/executable-lookup.ts";
-import { MissingEnvRefError, resolveEnvRefs, ReservedEnvRefError } from "../agents/launch-env.ts";
+import { resolveEnvRefs } from "../agents/launch-env.ts";
 import { ChangeFeed } from "../changes/change-feed.ts";
 import type { ConfigWatcher } from "../config/config-watcher.ts";
 import { newId } from "../storage/ids.ts";
@@ -30,12 +31,11 @@ import type { TerminalRegistry } from "../terminals/terminal-registry.ts";
 import {
   AgentNotFoundError,
   AlreadyRunningError,
-  LaunchModelInvalidError,
-  LaunchModelUnsupportedError,
-  LaunchProfileKindMismatchError,
   LaunchProfileUnknownError,
+  LaunchSpawnError,
   SessionNotFoundError,
 } from "./errors.ts";
+import { launchDiagnostic, launchFailureReason, redactLaunchError } from "./launch-diagnostics.ts";
 import { launchSnapshotFor } from "./launch-snapshot.ts";
 import type { SessionStore, StoredSession } from "./session-store.ts";
 
@@ -316,11 +316,15 @@ export class SessionService {
     // One effective environment for the spawn, the executable check, transcript/rollout discovery
     // and the OpenCode plugin. A missing reference fails here, before anything is spawned.
     const env = stringEnv({ ...process.env });
+    let referencedValues: string[] = [];
     if (stored.launch !== null) {
-      Object.assign(
-        env,
-        resolveEnvRefs(stored.launch.env, process.env, stored.launch.profile?.id ?? null),
+      const resolved = resolveEnvRefs(
+        stored.launch.env,
+        process.env,
+        stored.launch.profile?.id ?? null,
       );
+      referencedValues = Object.values(resolved);
+      Object.assign(env, resolved);
     }
     // Server-owned variables win over profile references.
     env["CORRAL_SESSION_ID"] = stored.id;
@@ -350,17 +354,22 @@ export class SessionService {
     }
     input.env = env;
     const spawnedAt = Date.now();
-    const info = this.#terminals.create(
-      input,
-      { taskId: stored.taskId, sessionId: stored.id },
-      // The token names this launch: a terminal being replaced must not write over the new one's status.
-      // OSC 7501 fills in only until the launch's first accepted HTTP report (Orca's rule: the plugin wins).
-      (status) => {
-        const live = this.#live.get(stored.id);
-        if (live?.statusToken === statusToken && !live.reportedOverHttp)
-          this.#setStatus(stored.id, status);
-      },
-    );
+    let info: TerminalInfo;
+    try {
+      info = this.#terminals.create(
+        input,
+        { taskId: stored.taskId, sessionId: stored.id },
+        // The token names this launch: a terminal being replaced must not write over the new one's status.
+        // OSC 7501 fills in only until the launch's first accepted HTTP report (Orca's rule: the plugin wins).
+        (status) => {
+          const live = this.#live.get(stored.id);
+          if (live?.statusToken === statusToken && !live.reportedOverHttp)
+            this.#setStatus(stored.id, status);
+        },
+      );
+    } catch (error) {
+      throw new LaunchSpawnError(stored.kind, redactLaunchError(error, referencedValues));
+    }
     this.#statuses.delete(stored.id);
     const discovery =
       stored.kind === "codex" && stored.agentSessionId === null
@@ -412,16 +421,10 @@ export class SessionService {
     } catch (error) {
       const reason = launchFailureReason(error);
       this.#launchErrors.set(stored.id, reason);
-      if (safeLaunchError(error)) {
-        console.error(
-          `corral-server: could not restore session ${stored.id} (${stored.kind}): ${reason}`,
-          error,
-        );
-      } else {
-        console.error(
-          `corral-server: could not restore session ${stored.id} (${stored.kind}): ${reason}`,
-        );
-      }
+      console.error(
+        `corral-server: could not restore session ${stored.id} (${stored.kind}): ${reason}`,
+        launchDiagnostic(error),
+      );
       this.#store.setState(stored.id, "stopped");
     }
   }
@@ -456,37 +459,4 @@ function stringEnv(env: Record<string, string | undefined>): Record<string, stri
   return Object.fromEntries(
     Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
   );
-}
-
-/** Known launch errors carry only choices and reference names, so their object is safe in a log. */
-function safeLaunchError(error: unknown): boolean {
-  return (
-    error instanceof MissingEnvRefError ||
-    error instanceof ReservedEnvRefError ||
-    error instanceof AgentNotFoundError ||
-    error instanceof LaunchProfileKindMismatchError ||
-    error instanceof LaunchModelUnsupportedError ||
-    error instanceof LaunchModelInvalidError
-  );
-}
-
-/** A reason a later client can show. Known errors name choices or references, never values. */
-function launchFailureReason(error: unknown): string {
-  if (error instanceof MissingEnvRefError) {
-    return `the server has no environment variable ${error.variable}${
-      error.profileId === null ? "" : ` for profile ${error.profileId}`
-    }`;
-  }
-  if (error instanceof ReservedEnvRefError) {
-    return "the saved launch sets a reserved environment variable";
-  }
-  if (
-    error instanceof AgentNotFoundError ||
-    error instanceof LaunchProfileKindMismatchError ||
-    error instanceof LaunchModelUnsupportedError ||
-    error instanceof LaunchModelInvalidError
-  ) {
-    return error.message;
-  }
-  return "the session could not be launched; see the server log";
 }

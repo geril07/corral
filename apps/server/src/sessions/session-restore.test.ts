@@ -169,6 +169,6 @@ test("a session that cannot start on restore becomes stopped, the others still s
     [claude.id, "stopped"],
     [pi.id, "running"],
   ]);
-  expect(log).toHaveBeenCalledWith(expect.stringContaining(claude.id), expect.any(Error));
+  expect(log).toHaveBeenCalledWith(expect.stringContaining(claude.id), expect.any(String));
   await rm(bin, { recursive: true, force: true });
 });

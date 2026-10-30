@@ -475,3 +475,89 @@ test("a failed manual restart returns the typed error and leaves a visible reaso
     else process.env[variable] = previous;
   }
 });
+
+test("profileId plus a model override keeps the profile identity, provider and environment", async () => {
+  vi.stubEnv("FAKE_AGENT_LOG_ENV", "OPENAI_API_KEY");
+  vi.stubEnv("LAUNCH_OPENAI_KEY", "test-openai-key");
+  const state = await writeConfig(
+    `
+[profiles.codex-work]
+name = "Codex work"
+agent = "codex"
+model = "gpt-5-codex"
+provider = "work"
+env = [{ targetName = "OPENAI_API_KEY", fromEnv = "LAUNCH_OPENAI_KEY" }]
+`,
+    (config) => config.profiles.some((profile) => profile.id === "codex-work"),
+  );
+  const profile = state.profiles[0]!;
+  const { api, task } = await addTask(server, "Override");
+  const session = await api.sessions.start({
+    taskId: task.id,
+    kind: "codex",
+    size: SIZE,
+    profileId: "codex-work",
+    model: "gpt-5-codex-mini",
+  });
+  const [launch] = await launchesOf(agents, "codex", 1);
+
+  expect(launch!.argv).toEqual(["-m", "gpt-5-codex-mini", "-c", "model_provider=work"]);
+  expect(launch!.envSentinels).toEqual({ OPENAI_API_KEY: "test-openai-key" });
+  expect(session.launch).toEqual({
+    kind: "codex",
+    profile: { id: "codex-work", name: "Codex work", revision: profile.revision },
+    model: "gpt-5-codex-mini",
+    provider: "work",
+    env: [{ targetName: "OPENAI_API_KEY", fromEnv: "LAUNCH_OPENAI_KEY" }],
+  });
+});
+
+test("a reserved target in a saved snapshot is refused at spawn, not trusted", async () => {
+  const variable = "LAUNCH_PI_SESSION_DIR";
+  process.env[variable] = "/tmp/corral-pi-sessions";
+  try {
+    await writeConfig(
+      '[profiles.claude]\nname = "Claude"\nagent = "claude"\nmodel = "claude-sonnet-4-5"\n',
+      (config) => config.profiles.some((profile) => profile.id === "claude"),
+    );
+    const { api, task } = await addTask(server, "Reserved snapshot");
+    const session = await api.sessions.start({
+      taskId: task.id,
+      kind: "claude",
+      size: SIZE,
+      profileId: "claude",
+    });
+    await launchesOf(agents, "claude", 1);
+
+    const tampered = {
+      ...session.launch!,
+      env: [{ targetName: "PI_CODING_AGENT_SESSION_DIR", fromEnv: variable }],
+    };
+    const db = new DatabaseSync(join(server.dataDir, "corral.db"));
+    try {
+      db.prepare("UPDATE sessions SET launch_spec = ? WHERE id = ?").run(
+        JSON.stringify(tampered),
+        session.id,
+      );
+    } finally {
+      db.close();
+    }
+    await server.restart();
+
+    const restored = (await sessionsOf(await server.rpc()))[0]!;
+    expect(restored).toMatchObject({ id: session.id, state: "stopped", terminalId: null });
+    expect(restored.launchError).toBe("the saved launch sets a reserved environment variable");
+    expect(await launchesOf(agents, "claude", 1)).toHaveLength(1);
+
+    const after = await server.rpc();
+    await expect(after.sessions.restart({ id: session.id, size: SIZE })).rejects.toMatchObject({
+      code: "LAUNCH_ENV_RESERVED",
+      data: { name: "PI_CODING_AGENT_SESSION_DIR" },
+    });
+    expect((await sessionsOf(after))[0]!.launchError).toBe(
+      "the saved launch sets a reserved environment variable",
+    );
+  } finally {
+    delete process.env[variable];
+  }
+});

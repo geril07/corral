@@ -212,6 +212,8 @@ const launchRefused = {
   LAUNCH_MODEL_INVALID: { data: z.object({ kind: SessionKind }) },
   LAUNCH_ENV_MISSING: { data: z.object({ profileId: z.string().nullable(), name: z.string() }) },
   LAUNCH_ENV_RESERVED: { data: z.object({ name: z.string() }) },
+  /** An unexpected spawn failure; `message` is redacted against referenced environment values. */
+  LAUNCH_FAILED: { data: z.object({ kind: SessionKind, message: z.string() }) },
 };
 /** Git refused or failed; `message` is git's own stderr, meant for the user. */
 const gitFailed = { GIT_FAILED: { data: z.object({ message: z.string() }) } };

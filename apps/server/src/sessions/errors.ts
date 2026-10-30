@@ -55,3 +55,20 @@ export class LaunchModelInvalidError extends Error {
     this.kind = kind;
   }
 }
+
+/**
+ * A failure outside the launch contract (node-pty could not spawn, a resource limit). The
+ * diagnostic is already redacted against the launch's referenced values; the message shown to
+ * clients is its first line.
+ */
+export class LaunchSpawnError extends Error {
+  readonly kind: SessionKind;
+  readonly diagnostic: string;
+  readonly summary: string;
+  constructor(kind: SessionKind, diagnostic: string) {
+    super("the session could not be launched");
+    this.kind = kind;
+    this.diagnostic = diagnostic;
+    this.summary = diagnostic.split("\n", 1)[0] ?? "the session could not be launched";
+  }
+}

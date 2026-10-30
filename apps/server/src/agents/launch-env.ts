@@ -12,18 +12,19 @@ const RESERVED_EXACT: ReadonlySet<string> = new Set([
   "ENV",
   "NODE_OPTIONS",
   "NODE_PATH",
-  "PI_CODING_AGENT_DIR",
+  "PI_PACKAGE_DIR",
 ]);
 
-const RESERVED_PREFIXES = ["CORRAL_", "XDG_", "LD_", "DYLD_"];
+const RESERVED_PREFIXES = ["CORRAL_", "XDG_", "LD_", "DYLD_", "PI_CODING_AGENT_"];
 
 /**
  * A profile may add credentials to the agent's environment, not redirect the agent to another
  * config directory or home: restart discovery reads the same variables, and a launch that wrote
  * history elsewhere would be orphaned. `*_HOME` and `*CONFIG*` cover the agents' documented
- * overrides (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `OPENCODE_CONFIG*`). Comparisons are
- * case-insensitive, as on Windows; on POSIX names are case-sensitive but reserving both cases is
- * the smaller promise.
+ * overrides (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `OPENCODE_CONFIG*`); `PI_CODING_AGENT_*` covers
+ * pi's config, session-store and package paths, and `PI_PACKAGE_DIR` its loader path. Comparisons
+ * are case-insensitive, as on Windows; on POSIX names are case-sensitive but reserving both cases
+ * is the smaller promise.
  */
 export function isReservedEnvName(name: string): boolean {
   const upper = name.toUpperCase();

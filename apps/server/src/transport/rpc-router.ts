@@ -16,6 +16,7 @@ import {
   LaunchModelUnsupportedError,
   LaunchProfileKindMismatchError,
   LaunchProfileUnknownError,
+  LaunchSpawnError,
   SessionNotFoundError,
 } from "../sessions/errors.ts";
 import { MissingEnvRefError, ReservedEnvRefError } from "../agents/launch-env.ts";
@@ -55,6 +56,7 @@ function launchError(
     LAUNCH_MODEL_INVALID: (options: { data: { kind: SessionKind } }) => Error;
     LAUNCH_ENV_MISSING: (options: { data: { profileId: string | null; name: string } }) => Error;
     LAUNCH_ENV_RESERVED: (options: { data: { name: string } }) => Error;
+    LAUNCH_FAILED: (options: { data: { kind: SessionKind; message: string } }) => Error;
   },
 ): Error | undefined {
   if (error instanceof LaunchProfileUnknownError)
@@ -71,6 +73,8 @@ function launchError(
     });
   if (error instanceof ReservedEnvRefError)
     return errors.LAUNCH_ENV_RESERVED({ data: { name: error.variable } });
+  if (error instanceof LaunchSpawnError)
+    return errors.LAUNCH_FAILED({ data: { kind: error.kind, message: error.summary } });
   return undefined;
 }
 
