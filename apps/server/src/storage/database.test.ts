@@ -54,3 +54,26 @@ test("a database from a newer server is refused", () => {
 
   expect(() => migrate(db, MIGRATIONS)).toThrow(/newer/);
 });
+
+test("migrating a database from before settling turns archived tasks into settled ones and keeps their sessions", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db, MIGRATIONS.slice(0, 2));
+  db.exec(`
+    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
+    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
+      VALUES ('old', 'p', 'old', 'b', '/n', 0, 'archived', 1), ('new', 'p', 'new', 'b', '/n', 0, 'active', 2);
+    INSERT INTO sessions (id, task_id, kind, agent_session_id, state, created_at)
+      VALUES ('s', 'old', 'shell', NULL, 'running', 3);
+  `);
+
+  migrate(db, MIGRATIONS);
+
+  expect(db.prepare("SELECT id, state FROM tasks ORDER BY created_at").all()).toEqual([
+    { id: "old", state: "settled" },
+    { id: "new", state: "active" },
+  ]);
+  expect(db.prepare("SELECT id, state, resume_on_unsettle FROM sessions").all()).toEqual([
+    { id: "s", state: "running", resume_on_unsettle: 0 },
+  ]);
+});

@@ -274,7 +274,7 @@ test("removing a main-worktree task leaves the repository and its uncommitted ch
   expect(await api.tasks.watch().then((updates) => updates.next())).toMatchObject({ value: [] });
 });
 
-test("setState archives and reactivates a task; an unknown task fails with TASK_NOT_FOUND", async () => {
+test("setState settles and reactivates a task; an unknown task fails with TASK_NOT_FOUND", async () => {
   const { project } = await addProject(server);
   const api = await server.rpc();
   const task = await api.tasks.create({
@@ -283,12 +283,12 @@ test("setState archives and reactivates a task; an unknown task fails with TASK_
     workspace: { type: "main-worktree" },
   });
 
-  expect((await api.tasks.setState({ id: task.id, state: "archived" })).state).toBe("archived");
+  expect((await api.tasks.setState({ id: task.id, state: "settled" })).state).toBe("settled");
   expect((await api.tasks.watch().then((updates) => updates.next())).value).toEqual([
-    { ...task, state: "archived" },
+    { ...task, state: "settled" },
   ]);
   expect((await api.tasks.setState({ id: task.id, state: "active" })).state).toBe("active");
-  await expect(api.tasks.setState({ id: "nope", state: "archived" })).rejects.toMatchObject({
+  await expect(api.tasks.setState({ id: "nope", state: "settled" })).rejects.toMatchObject({
     code: "TASK_NOT_FOUND",
     data: { id: "nope" },
   });
@@ -478,8 +478,8 @@ test("watch yields all tasks now and after create, state change and remove", asy
     workspace: { type: "main-worktree" },
   });
   expect(await next()).toEqual([task]);
-  await api.tasks.setState({ id: task.id, state: "archived" });
-  expect(await next()).toEqual([{ ...task, state: "archived" }]);
+  await api.tasks.setState({ id: task.id, state: "settled" });
+  expect(await next()).toEqual([{ ...task, state: "settled" }]);
   await api.tasks.remove({ id: task.id });
   expect(await next()).toEqual([]);
   await updates.return?.();

@@ -30,6 +30,8 @@ export const MIGRATIONS: readonly string[] = [
      created_at INTEGER NOT NULL
    ) STRICT;
    CREATE INDEX sessions_by_task ON sessions(task_id);`,
+  `UPDATE tasks SET state = 'settled' WHERE state = 'archived';
+   ALTER TABLE sessions ADD COLUMN resume_on_unsettle INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export const DATABASE_FILE = "corral.db";

@@ -81,6 +81,7 @@ export class SessionService {
       this.#launch(stored, this.#task(stored.taskId), size, "resume");
       if (previous) await this.#terminals.close(previous.terminalId);
       this.#store.setState(id, "running");
+      this.#store.setResumeOnUnsettle(id, false);
       this.#changes.notify();
       return this.#withTerminal({ ...stored, state: "running" });
     });
@@ -138,26 +139,50 @@ export class SessionService {
   }
 
   /**
+   * Stops the running sessions of a task that is being settled and remembers them, so that
+   * `resumeAllIn` starts them again.
+   */
+  suspendAllIn(taskId: string): Promise<void> {
+    return this.#queue.run(async () => {
+      const running = this.#store
+        .list()
+        .filter((stored) => stored.taskId === taskId && stored.state === "running");
+      for (const stored of running) {
+        // oxlint-disable-next-line no-await-in-loop -- processes are stopped one after the other
+        await this.#halt(stored.id);
+        this.#settle(stored.id);
+        this.#store.setResumeOnUnsettle(stored.id, true);
+      }
+      if (running.length > 0) this.#changes.notify();
+    });
+  }
+
+  /** Starts the sessions `suspendAllIn` remembered, with the launch rules of a server restart. */
+  resumeAllIn(taskId: string): Promise<void> {
+    return this.#queue.run(async () => {
+      const remembered = this.#store.listResumableOnUnsettle(taskId);
+      for (const stored of remembered) {
+        this.#store.setResumeOnUnsettle(stored.id, false);
+        if (stored.state !== "running") this.#relaunch(stored);
+      }
+      if (remembered.length > 0) this.#changes.notify();
+    });
+  }
+
+  /**
    * Starts again every session that was running when the server last went down: a shell fresh,
    * an agent resumed. One that cannot start becomes `stopped`; nothing here may keep the server
-   * from starting.
+   * from starting. The sessions of a settled task stay stopped and are remembered for when the
+   * task is active again.
    */
   restore(): void {
     for (const stored of this.#store.list()) {
       if (stored.state !== "running") continue;
-      try {
-        // Starting it again would open a new conversation, which the user did not ask for.
-        if (stored.kind === "codex" && stored.agentSessionId === null) {
-          this.#store.setState(stored.id, "unresumable");
-          continue;
-        }
-        this.#launch(stored, this.#task(stored.taskId), RESTORED_SIZE, "resume");
-      } catch (error) {
-        console.error(
-          `corral-server: could not restore session ${stored.id} (${stored.kind})`,
-          error,
-        );
-        this.#store.setState(stored.id, "stopped");
+      if (this.#tasks.get(stored.taskId)?.state === "settled") {
+        this.#settle(stored.id);
+        this.#store.setResumeOnUnsettle(stored.id, true);
+      } else {
+        this.#relaunch(stored);
       }
     }
   }
@@ -235,6 +260,25 @@ export class SessionService {
       this.#settle(sessionId);
       this.#changes.notify();
     });
+  }
+
+  /** Starts a stopped session again, an agent resumed; one that cannot start becomes `stopped`. */
+  #relaunch(stored: StoredSession): void {
+    try {
+      // Starting it again would open a new conversation, which the user did not ask for.
+      if (stored.kind === "codex" && stored.agentSessionId === null) {
+        this.#store.setState(stored.id, "unresumable");
+        return;
+      }
+      this.#launch(stored, this.#task(stored.taskId), RESTORED_SIZE, "resume");
+      this.#store.setState(stored.id, "running");
+    } catch (error) {
+      console.error(
+        `corral-server: could not restore session ${stored.id} (${stored.kind})`,
+        error,
+      );
+      this.#store.setState(stored.id, "stopped");
+    }
   }
 
   /** Kills the session's process, closes its terminal and ends the search for its id. */

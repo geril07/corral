@@ -32,6 +32,10 @@ export interface TaskSessions {
   hasRunningIn(taskIds: ReadonlySet<string>): boolean;
   /** Stops and forgets every session of the tasks; resolves once the processes are gone. */
   removeAllIn(taskIds: ReadonlySet<string>): Promise<void>;
+  /** Stops the task's running sessions and remembers them for `resumeAllIn`. */
+  suspendAllIn(taskId: string): Promise<void>;
+  /** Starts the sessions `suspendAllIn` remembered. */
+  resumeAllIn(taskId: string): Promise<void>;
 }
 
 const SHORT_PROJECT_ID_LENGTH = 8;
@@ -75,11 +79,8 @@ export class TaskService implements ProjectTasks {
     return this.#mutations.run(() => this.#create(input));
   }
 
-  setState(id: string, state: Task["state"]): Task {
-    this.get(id);
-    this.#store.setState(id, state);
-    this.#changes.notify();
-    return this.get(id);
+  setState(id: string, state: Task["state"]): Promise<Task> {
+    return this.#mutations.run(() => this.#setState(id, state));
   }
 
   remove(id: string, force: boolean): Promise<void> {
@@ -163,6 +164,22 @@ export class TaskService implements ProjectTasks {
       projectDir,
       uniqueName(directoryName(branch), (name) => existsSync(join(projectDir, name))),
     );
+  }
+
+  async #setState(id: string, state: Task["state"]): Promise<Task> {
+    const task = this.get(id);
+    if (task.state === state) return task;
+    // A crash between the two steps leaves sessions running in a settled task, which the next
+    // start stops and remembers.
+    if (state === "settled") {
+      this.#store.setState(id, state);
+      await this.#sessions.suspendAllIn(id);
+    } else {
+      await this.#sessions.resumeAllIn(id);
+      this.#store.setState(id, state);
+    }
+    this.#changes.notify();
+    return this.get(id);
   }
 
   async #remove(id: string, force: boolean): Promise<void> {
