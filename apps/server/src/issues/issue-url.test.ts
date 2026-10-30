@@ -46,6 +46,15 @@ test("a self-hosted host needs its provider named and keeps its port", () => {
     host: "ghe.example.com",
     url: "http://ghe.example.com/acme/app/issues/9",
   });
+  expect(
+    parseIssueUrl("https://gitlab.example.com:8443/group/project/-/work_items/3", "gitlab"),
+  ).toMatchObject({
+    provider: "gitlab",
+    host: "gitlab.example.com:8443",
+    repository: "group/project",
+    number: 3,
+    url: "https://gitlab.example.com:8443/group/project/-/issues/3",
+  });
 });
 
 test("GitHub issue URLs on a nonstandard port are refused, while GitLab keeps its exact port", () => {

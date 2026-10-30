@@ -112,13 +112,12 @@ if (process.env.GH_DEBUG || process.env.GLAB_DEBUG || process.env.GIT_TRACE || p
   process.stderr.write("native CLI debug environment leaked\\n");
   process.exit(2);
 }
-const forbidden = process.env.FAKE_ISSUE_FORBID_ENV;
-if (forbidden && process.env[forbidden]) {
+const envNames = (value) => (value || "").split(",").filter(Boolean);
+if (envNames(process.env.FAKE_ISSUE_FORBID_ENV).some((name) => process.env[name])) {
   process.stderr.write("forbidden environment was forwarded\\n");
   process.exit(3);
 }
-const required = process.env.FAKE_ISSUE_REQUIRE_ENV;
-if (required && !process.env[required]) {
+if (envNames(process.env.FAKE_ISSUE_REQUIRE_ENV).some((name) => !process.env[name])) {
   process.stderr.write("required environment was stripped\\n");
   process.exit(3);
 }

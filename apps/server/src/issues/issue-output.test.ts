@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "vite-plus/test";
 import { IssueResponseInvalidError } from "./errors.ts";
 import { parseIssueOutput } from "./issue-output.ts";
@@ -49,6 +50,23 @@ test("GitHub owner/repository identity is case-insensitive and keeps the request
   expect(source).toMatchObject({
     repository: "ACME/App",
     url: "https://github.com/ACME/App/issues/42",
+  });
+});
+
+test("a captured real glab 1.124 work_items response keeps GitLab's canonical URL alias", () => {
+  const text = readFileSync(new URL("./fixtures/gitlab-issue-1.json", import.meta.url), "utf8");
+  const runnerRef = parseIssueUrl("https://gitlab.com/gitlab-org/gitlab-runner/-/issues/1");
+  const source = parseIssueOutput("gitlab", text, runnerRef, 1);
+
+  expect(source).toEqual({
+    provider: "gitlab",
+    host: "gitlab.com",
+    repository: "gitlab-org/gitlab-runner",
+    number: 1,
+    url: "https://gitlab.com/gitlab-org/gitlab-runner/-/issues/1",
+    title: '"x509: certificate signed by unknown authority" error when running job',
+    body: "",
+    fetchedAt: 1,
   });
 });
 
@@ -134,6 +152,12 @@ test("malformed or mismatched output is refused as a domain error, never guessed
       title: "Different case",
       description: "x",
       web_url: "https://gitlab.com/Group/Project/-/issues/7",
+    }),
+    JSON.stringify({
+      iid: 7,
+      title: "Wrong work item",
+      description: "x",
+      web_url: "https://gitlab.com/group/project/-/work_items/8",
     }),
   ];
   for (const text of gitlabCases) {

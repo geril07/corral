@@ -118,6 +118,34 @@ test("a GitLab issue reads description as text, and a locally edited title keeps
   expect(await firstTaskList(await server.rpc())).toEqual([task]);
 });
 
+test("a direct GitLab work_items URL is accepted and converted to the proven issue-view form", async () => {
+  const { project } = await addProject(server);
+  const workItemUrl = "https://gitlab.com/group/project/-/work_items/5";
+  const issueUrl = "https://gitlab.com/group/project/-/issues/5";
+  clis.answer({
+    iid: 5,
+    title: "Work item alias",
+    description: "body",
+    web_url: workItemUrl,
+  });
+  const api = await server.rpc();
+
+  const source = await api.projects.resolveIssue({ projectId: project.id, url: workItemUrl });
+  expect(source).toMatchObject({
+    provider: "gitlab",
+    repository: "group/project",
+    number: 5,
+    url: issueUrl,
+  });
+  expect(clis.calls()).toEqual([
+    {
+      command: "glab",
+      argv: ["issue", "view", issueUrl, "--output=json"],
+      cwd: project.path,
+    },
+  ]);
+});
+
 test("a self-hosted host needs its provider named and a trusted source; then GitLab and GitHub Enterprise are read on that host", async () => {
   const { project, repo } = await addProject(server);
   runGit(repo, "remote", "add", "origin", "https://gitlab.example.com/group/project.git");
@@ -246,8 +274,10 @@ test("a project GitLab host does not forward a global GitHub enterprise token", 
     body: "",
     url: "https://gitlab.example.com/acme/app/issues/1",
   });
+  vi.stubEnv("GH_TOKEN", "SENTINEL_GH_TOKEN");
   vi.stubEnv("GH_ENTERPRISE_TOKEN", "SENTINEL_ENTERPRISE_TOKEN");
-  vi.stubEnv("FAKE_ISSUE_FORBID_ENV", "GH_ENTERPRISE_TOKEN");
+  vi.stubEnv("GITHUB_ENTERPRISE_TOKEN", "SENTINEL_GITHUB_ENTERPRISE_TOKEN");
+  vi.stubEnv("FAKE_ISSUE_FORBID_ENV", "GH_TOKEN,GH_ENTERPRISE_TOKEN,GITHUB_ENTERPRISE_TOKEN");
   const api = await server.rpc();
 
   await expect(
@@ -268,8 +298,9 @@ test("an explicit GH_HOST binding keeps the matching enterprise token", async ()
     url: "https://ghe.example.com/acme/app/issues/2",
   });
   vi.stubEnv("GH_HOST", "ghe.example.com");
+  vi.stubEnv("GH_TOKEN", "SENTINEL_GH_TOKEN");
   vi.stubEnv("GH_ENTERPRISE_TOKEN", "SENTINEL_ENTERPRISE_TOKEN");
-  vi.stubEnv("FAKE_ISSUE_REQUIRE_ENV", "GH_ENTERPRISE_TOKEN");
+  vi.stubEnv("FAKE_ISSUE_REQUIRE_ENV", "GH_TOKEN,GH_ENTERPRISE_TOKEN");
   const api = await server.rpc();
 
   await expect(
@@ -279,6 +310,40 @@ test("an explicit GH_HOST binding keeps the matching enterprise token", async ()
       provider: "github",
     }),
   ).resolves.toMatchObject({ title: "Bound" });
+});
+
+test("a remote-only github.localhost host strips GH_TOKEN too", async () => {
+  const { project, repo } = await addProject(server);
+  runGit(repo, "remote", "add", "origin", "git@github.localhost:acme/app.git");
+  const url = "https://github.localhost/acme/app/issues/1";
+  clis.answer({ number: 1, title: "Local host safe", body: "", url });
+  vi.stubEnv("GH_TOKEN", "SENTINEL_GH_TOKEN");
+  vi.stubEnv("GH_ENTERPRISE_TOKEN", "SENTINEL_GH_ENTERPRISE_TOKEN");
+  vi.stubEnv("FAKE_ISSUE_FORBID_ENV", "GH_TOKEN,GH_ENTERPRISE_TOKEN");
+  const api = await server.rpc();
+
+  await expect(
+    api.projects.resolveIssue({ projectId: project.id, url, provider: "github" }),
+  ).resolves.toMatchObject({ title: "Local host safe" });
+});
+
+test("a GitLab CLI never receives GitHub token variables", async () => {
+  const { project } = await addProject(server);
+  const url = "https://gitlab.com/group/project/-/issues/6";
+  clis.answer({
+    iid: 6,
+    title: "No cross provider tokens",
+    description: "",
+    web_url: url,
+  });
+  vi.stubEnv("GH_TOKEN", "SENTINEL_GH_TOKEN");
+  vi.stubEnv("GH_ENTERPRISE_TOKEN", "SENTINEL_ENTERPRISE_TOKEN");
+  vi.stubEnv("FAKE_ISSUE_FORBID_ENV", "GH_TOKEN,GH_ENTERPRISE_TOKEN");
+  const api = await server.rpc();
+
+  await expect(api.projects.resolveIssue({ projectId: project.id, url })).resolves.toMatchObject({
+    title: "No cross provider tokens",
+  });
 });
 
 test("a GitHub issue on a nonstandard port is refused before any CLI runs", async () => {
