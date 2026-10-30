@@ -83,6 +83,18 @@ test("the settings surface shows effective keys, profiles with reference names, 
   await expect.element(page.getByRole("button", { name: /create/i })).not.toBeInTheDocument();
 });
 
+test("a problem at the profiles table itself is shown, not only per-profile paths", async () => {
+  const client = newClient();
+  await writeConfig('[profiles."bad id"]\nname = "P"\nagent = "claude"\n');
+  await renderSettings(client);
+  await vi.waitFor(() => expect(client.config.getSnapshot().problems).toHaveLength(1));
+
+  const config = section("Config file");
+  await expect.element(config).toMatchTextContent("Problems (1)");
+  await expect.element(config.getByText("profiles", { exact: true })).toBeVisible();
+  await expect.element(config).toMatchTextContent("profile id");
+});
+
 test("config changes update the surface while it stays open", async () => {
   const client = newClient();
   await writeConfig(CONFIG);
