@@ -37,6 +37,12 @@ export function describeError(error: unknown): string {
         return "This task no longer exists.";
       case "NOT_FOUND":
         return "This terminal no longer exists.";
+      case "SESSION_NOT_FOUND":
+        return "This session no longer exists.";
+      case "ALREADY_RUNNING":
+        return "This session is already running.";
+      case "AGENT_NOT_FOUND":
+        return `${String(field(data, "command"))} was not found on the server's PATH.`;
       case "HAS_LIVE_TERMINALS":
         return "The project has tasks with running terminals. Close them first.";
       case "BAD_REQUEST":

@@ -1,7 +1,6 @@
 import { expect, test } from "vite-plus/test";
 import { describeError, dirtyWorktreeFiles } from "./rpc-errors.ts";
-import { buildWorkspaceTree, resolveSelection } from "./workspace-tree.ts";
-import { eventually, recordStatuses, sh, useServer } from "../test/server-fixture.ts";
+import { eventually, recordStatuses, useServer } from "../test/server-fixture.ts";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { runGit } from "../test/git-repo.ts";
@@ -70,48 +69,6 @@ test("after the connection drops, the list catches up with what changed meanwhil
   proxy.refuse(false);
 
   await eventually(() => expect(client.tasks.getSnapshot().tasks).toEqual([during]));
-});
-
-test("a terminal started in a task shows under it in the tree, and a task removed takes it along", async () => {
-  const { client, project, api } = await clientWithProject();
-  const task = await api.tasks.create({
-    projectId: project.id,
-    title: "Work",
-    workspace: { type: "new-branch" },
-  });
-  const inTask = await api.terminals.create({
-    taskId: task.id,
-    size: { cols: 80, rows: 24 },
-    ...sh("pwd; read x"),
-  });
-  const loose = await api.terminals.create({ size: { cols: 80, rows: 24 }, ...sh("read x") });
-  expect(inTask).toMatchObject({ taskId: task.id, cwd: task.workspacePath });
-
-  const treeOf = () =>
-    buildWorkspaceTree(
-      client.projects.getSnapshot().projects,
-      client.tasks.getSnapshot().tasks,
-      client.terminals.getSnapshot().terminals,
-    );
-  await eventually(() => {
-    const tree = treeOf();
-    expect(tree.projects[0]?.active[0]?.terminals.map((t) => t.id)).toEqual([inTask.id]);
-    expect(tree.loose.map((t) => t.id)).toEqual([loose.id]);
-  });
-  expect(resolveSelection(treeOf(), {})).toMatchObject({
-    taskId: task.id,
-    terminalId: inTask.id,
-  });
-
-  await api.tasks.remove({ id: task.id });
-  await eventually(() => {
-    expect(client.terminals.getSnapshot().terminals.map((t) => t.id)).toEqual([loose.id]);
-    expect(client.tasks.getSnapshot().tasks).toEqual([]);
-  });
-  expect(resolveSelection(treeOf(), { taskId: task.id })).toMatchObject({
-    taskId: null,
-    terminalId: loose.id,
-  });
 });
 
 test("the server's refusals read as sentences, and a dirty worktree names its files", async () => {

@@ -1,9 +1,28 @@
-import type { Project, Task, TerminalInfo } from "@corral/protocol/rpc";
+import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
 import { effectiveActive } from "./terminal-selection.ts";
+
+/** What can be current in a group: a session of a task, or a terminal outside any task. */
+export type Entry = SessionEntry | TerminalEntry;
+
+export interface SessionEntry {
+  type: "session";
+  /** The session's id. */
+  id: string;
+  session: Session;
+  /** Absent while the session is stopped, and while the terminal list has not caught up yet. */
+  terminal: TerminalInfo | undefined;
+}
+
+export interface TerminalEntry {
+  type: "terminal";
+  /** The terminal's id. */
+  id: string;
+  terminal: TerminalInfo;
+}
 
 export interface TaskNode {
   task: Task;
-  terminals: readonly TerminalInfo[];
+  sessions: readonly SessionEntry[];
 }
 
 export interface ProjectNode {
@@ -12,25 +31,37 @@ export interface ProjectNode {
   archived: readonly TaskNode[];
 }
 
-/** What the sidebar shows: project → tasks → terminals, plus the terminals outside any task. */
+/** What the sidebar shows: project → tasks → sessions, plus the terminals outside any task. */
 export interface WorkspaceTree {
   projects: readonly ProjectNode[];
   /** Terminals with `taskId: null`. */
-  loose: readonly TerminalInfo[];
+  loose: readonly TerminalEntry[];
 }
 
 /**
- * Terminals or tasks whose parent is not in the lists yet (the watches are separate streams)
- * are left out until it arrives.
+ * Sessions or tasks whose parent is not in the lists yet (the watches are separate streams)
+ * are left out until it arrives. Sessions are listed in the order they were created.
  */
 export function buildWorkspaceTree(
   projects: readonly Project[],
   tasks: readonly Task[],
+  sessions: readonly Session[],
   terminals: readonly TerminalInfo[],
 ): WorkspaceTree {
   const node = (task: Task): TaskNode => ({
     task,
-    terminals: terminals.filter((terminal) => terminal.taskId === task.id),
+    sessions: sessions
+      .filter((session) => session.taskId === task.id)
+      .toSorted((a, b) => a.createdAt - b.createdAt)
+      .map((session): SessionEntry => ({
+        type: "session",
+        id: session.id,
+        session,
+        terminal:
+          session.terminalId === null
+            ? undefined
+            : terminals.find((terminal) => terminal.id === session.terminalId),
+      })),
   });
   return {
     projects: projects.map((project) => {
@@ -41,7 +72,9 @@ export function buildWorkspaceTree(
         archived: own.filter((task) => task.state === "archived").map(node),
       };
     }),
-    loose: terminals.filter((terminal) => terminal.taskId === null),
+    loose: terminals
+      .filter((terminal) => terminal.taskId === null)
+      .map((terminal): TerminalEntry => ({ type: "terminal", id: terminal.id, terminal })),
   };
 }
 
@@ -57,21 +90,22 @@ export interface Chosen {
   projectId?: string | undefined;
   /** `null`: the group of terminals outside any task. */
   taskId?: string | null | undefined;
-  terminalId?: string | undefined;
+  /** A session of the chosen task, or a terminal of the no-task group. */
+  entryId?: string | undefined;
 }
 
 export interface Selection {
   projectId: string | undefined;
   /** `null`: no task, so new terminals start outside any task. */
   taskId: string | null;
-  /** The terminal shown, one of the current task's. */
-  terminalId: string | undefined;
+  /** The entry shown, one of the current group's. */
+  entryId: string | undefined;
 }
 
 /**
  * Settles what is current from the choice and the data. A choice that no longer exists falls back:
  * a missing task to the first task of the chosen (else first) project, or to no task when that
- * project has none; a missing terminal to the first one of the task.
+ * project has none; a missing entry to the first one of the group.
  */
 export function resolveSelection(tree: WorkspaceTree, chosen: Chosen): Selection {
   const tasks = tasksInOrder(tree);
@@ -86,26 +120,31 @@ export function resolveSelection(tree: WorkspaceTree, chosen: Chosen): Selection
     task = [...(chosenProject?.active ?? []), ...(chosenProject?.archived ?? [])][0]?.task;
   }
 
-  const terminals = terminalsOf(tree, task?.id ?? null);
+  const entries = entriesOf(tree, task?.id ?? null);
   return {
     projectId: task?.projectId ?? chosenProject?.project.id,
     taskId: task?.id ?? null,
-    terminalId: effectiveActive(
-      terminals.map((terminal) => terminal.id),
-      chosen.terminalId,
+    entryId: effectiveActive(
+      entries.map((entry) => entry.id),
+      chosen.entryId,
     ),
   };
 }
 
-/** The terminals of the task `taskId`, or the loose ones for `null`. */
-export function terminalsOf(tree: WorkspaceTree, taskId: string | null): readonly TerminalInfo[] {
-  return taskId === null ? tree.loose : taskTerminals(tree, taskId);
+/** The entries of the task `taskId`, or the loose terminals for `null`. */
+export function entriesOf(tree: WorkspaceTree, taskId: string | null): readonly Entry[] {
+  return taskId === null ? tree.loose : taskSessions(tree, taskId);
 }
 
-function taskTerminals(tree: WorkspaceTree, taskId: string): readonly TerminalInfo[] {
+/** The entry `selection` points at. */
+export function currentEntry(tree: WorkspaceTree, selection: Selection): Entry | undefined {
+  return entriesOf(tree, selection.taskId).find((entry) => entry.id === selection.entryId);
+}
+
+function taskSessions(tree: WorkspaceTree, taskId: string): readonly SessionEntry[] {
   for (const { active, archived } of tree.projects) {
     const found = [...active, ...archived].find((node) => node.task.id === taskId);
-    if (found) return found.terminals;
+    if (found) return found.sessions;
   }
   return [];
 }

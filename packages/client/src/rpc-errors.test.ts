@@ -19,6 +19,18 @@ test("typed errors become sentences, git's own message stays as it is", () => {
   ).toBe("fatal: 'x' is already checked out");
 });
 
+test("a missing agent names the command, and session errors are explained", () => {
+  expect(describeError(defined("AGENT_NOT_FOUND", { command: "claude" }))).toBe(
+    "claude was not found on the server's PATH.",
+  );
+  expect(describeError(defined("SESSION_NOT_FOUND", { id: "s1" }))).toBe(
+    "This session no longer exists.",
+  );
+  expect(describeError(defined("ALREADY_RUNNING", undefined))).toBe(
+    "This session is already running.",
+  );
+});
+
 test("an error outside the contract falls back to its message", () => {
   expect(describeError(new Error("not connected to the server"))).toBe(
     "not connected to the server",
