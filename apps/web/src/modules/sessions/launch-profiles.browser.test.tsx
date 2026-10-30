@@ -1,7 +1,7 @@
 import type { CorralClient } from "@corral/client/corral-client";
 import type { Session } from "@corral/protocol/rpc";
 import { afterEach, expect, test, vi } from "vite-plus/test";
-import { page } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { agentLaunches, setServerEnv } from "../../../test/fake-agents.ts";
 import { createGitRepo } from "../../../test/git-repo.ts";
@@ -161,6 +161,95 @@ test("a missing environment reference keeps the picker draft and says which vari
   await expect.element(picker()).not.toBeInTheDocument();
   const session = await startedAgent(client, "claude");
   expect(session.launch).toMatchObject({ profile: { id: "claude-env" } });
+});
+
+test("a profile removed from the live config cannot fall back to a native launch", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Live config");
+  await applyConfig(client, PROFILES, 2);
+
+  await prefixThen("s");
+  await picker().getByRole("radio", { name: "Claude gateway" }).click();
+  await picker().getByRole("textbox", { name: "Model override" }).fill("claude-opus-4-1");
+  await applyConfig(
+    client,
+    '[profiles.codex-work]\nname = "Codex work"\nagent = "codex"\nmodel = "gpt-5-codex"\n',
+    1,
+  );
+
+  await expect
+    .element(picker().getByRole("alert"))
+    .toMatchTextContent("no longer in the config file");
+  await expect
+    .element(picker().getByRole("textbox", { name: "Model override" }))
+    .toHaveValue("claude-opus-4-1");
+  const start = picker().getByRole("button", { name: "Start session" });
+  await expect.element(start).toBeDisabled();
+  const before = client.sessions.getSnapshot().sessions.length;
+
+  // Enter from the stale selection must not submit the first native choice.
+  picker().getByRole("radio", { name: "claude" }).element().focus();
+  await userEvent.keyboard("{Enter}");
+  expect(client.sessions.getSnapshot().sessions).toHaveLength(before);
+  expect(
+    client.sessions.getSnapshot().sessions.filter((session) => session.kind === "claude"),
+  ).toHaveLength(0);
+
+  // Recovery needs an explicit reselect; the stale draft is not silently replaced.
+  await picker().getByRole("radio", { name: "Codex work" }).click();
+  await picker().getByRole("textbox", { name: "Model override" }).fill("");
+  await expect.element(start).toBeEnabled();
+  await start.click();
+  await expect.element(picker()).not.toBeInTheDocument();
+  const session = await startedAgent(client, "codex");
+  expect(session.launch).toMatchObject({ profile: { id: "codex-work" } });
+});
+
+test("a profile revision change requires explicit reselect and launches the new choice", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Revision");
+  await applyConfig(client, PROFILES, 2);
+
+  await prefixThen("s");
+  await picker().getByRole("radio", { name: "Claude gateway" }).click();
+  const before = client.config
+    .getSnapshot()
+    .profiles.find((profile) => profile.id === "claude-gateway")?.revision;
+
+  await applyConfig(
+    client,
+    '[profiles.claude-gateway]\nname = "Claude gateway"\nagent = "claude"\nmodel = "claude-haiku-4"\n',
+    1,
+  );
+  await vi.waitFor(() =>
+    expect(
+      client.config.getSnapshot().profiles.find((profile) => profile.id === "claude-gateway")
+        ?.revision,
+    ).not.toBe(before),
+  );
+
+  await expect
+    .element(picker().getByRole("alert"))
+    .toMatchTextContent("changed in the config file");
+  const start = picker().getByRole("button", { name: "Start session" });
+  await expect.element(start).toBeDisabled();
+  const beforeCount = client.sessions.getSnapshot().sessions.length;
+  picker().getByRole("radio", { name: "claude" }).element().focus();
+  await userEvent.keyboard("{Enter}");
+  expect(client.sessions.getSnapshot().sessions).toHaveLength(beforeCount);
+
+  await picker().getByRole("radio", { name: "Claude gateway" }).click();
+  await expect.element(start).toBeEnabled();
+  await start.click();
+
+  const session = await startedAgent(client, "claude");
+  expect(session.launch).toMatchObject({
+    profile: { id: "claude-gateway" },
+    model: "claude-haiku-4",
+  });
+  await expect
+    .poll(() => argvOf(session.id))
+    .toEqual([["--model", "claude-haiku-4", "--session-id", session.agentSessionId]]);
 });
 
 test("a client that connects after a failed restart sees the safe launchError on the stopped session", async () => {
