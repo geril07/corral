@@ -36,7 +36,7 @@ const test = base.extend<Fixtures>({
       await use(async () => {
         const app = await electron.launch({
           args: [path.join(import.meta.dirname, ".."), `--user-data-dir=${stateDir}/electron`],
-          env: { ...process.env, CORRAL_STATE_DIR: stateDir },
+          env: { ...process.env, CORRAL_STATE_DIR: stateDir, CORRAL_DATA_DIR: `${stateDir}/data` },
         });
         apps.push(app);
         return app;
