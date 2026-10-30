@@ -116,9 +116,13 @@ test("a client that falls behind gets a snapshot instead of the output it missed
   await eventually(() => expect(terminal.parsedOutputBytes).toBeGreaterThan(ACK_WINDOW_BYTES));
   terminal.release();
 
-  await eventually(() => expect(terminal.screen).toContain("flood-done"));
-  expect(terminal.resets).toBe(2);
-  expect(terminal.screen).toContain("120000");
+  // The fresh snapshot and its screen data are separate writes: wait for the observable end
+  // state instead of assuming the reset lands before the flood text.
+  await eventually(() => {
+    expect(terminal.resets).toBe(2);
+    expect(terminal.screen).toContain("flood-done");
+    expect(terminal.screen).toContain("120000");
+  });
 });
 
 test("when the process exits the stream reports it, keeps the screen and does not reconnect", async () => {
