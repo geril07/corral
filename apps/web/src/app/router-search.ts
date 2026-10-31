@@ -1,3 +1,5 @@
+import { stringifySearchWith } from "@tanstack/react-router";
+
 /**
  * Hash history appends the document query to the hash search, so the desktop shell's
  * `?server=<ws url>` would otherwise become part of the route's last search value. The document
@@ -27,3 +29,5 @@ export function parseRouteSearch(search: string, documentSearch: string): Record
   }
   return parsed;
 }
+
+export const stringifyRouteSearch = stringifySearchWith(String);

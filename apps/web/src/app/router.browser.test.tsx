@@ -1,4 +1,4 @@
-import { createHashHistory } from "@tanstack/react-router";
+import { createHashHistory, createMemoryHistory } from "@tanstack/react-router";
 import { createAppRouter } from "./router.tsx";
 import { expect, test } from "vite-plus/test";
 
@@ -59,4 +59,41 @@ test("id-looking values stay strings in the route search", async () => {
   } finally {
     window.history.replaceState({}, "", original);
   }
+});
+
+async function roundTrip(search: { project: string; task: string; entry: string }) {
+  const history = createMemoryHistory({ initialEntries: ["/"] });
+  const router = createAppRouter(history);
+  await router.load();
+  await router.navigate({ to: "/", search });
+
+  const href = history.location.href;
+  router.history.destroy();
+
+  const freshHistory = createMemoryHistory({ initialEntries: [href] });
+  const fresh = createAppRouter(freshHistory);
+  await fresh.load();
+  const parsed = fresh.state.location.search;
+  fresh.history.destroy();
+  return { href, parsed };
+}
+
+test("navigate-generated URLs keep numeric and scientific-looking ids unquoted", async () => {
+  const search = { project: "123456789012", task: "123e4567", entry: "abc?x=1" };
+  const { href, parsed } = await roundTrip(search);
+
+  expect(href).toContain("project=123456789012");
+  expect(href).toContain("task=123e4567");
+  expect(href).toContain("entry=abc%3Fx%3D1");
+  expect(parsed).toEqual(search);
+});
+
+test("navigate-generated URLs keep normal string ids unquoted", async () => {
+  const search = { project: "abcdef123456", task: "0123456789ab", entry: "plain-id" };
+  const { href, parsed } = await roundTrip(search);
+
+  expect(href).toContain("project=abcdef123456");
+  expect(href).toContain("task=0123456789ab");
+  expect(href).toContain("entry=plain-id");
+  expect(parsed).toEqual(search);
 });
