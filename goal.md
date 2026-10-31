@@ -6,7 +6,7 @@ Deliver stage A of Corral: a task starts from a prompt, its agent starts working
 
 1. `AGENTS.md`: commands, commit rules, gotchas.
 2. `docs/design.md`: decisions 3, 5, 13–17, **Domain model**, **Stages**. Product truth.
-3. `docs/ux.md`: **Target flow** and the rules that stay.
+3. `docs/ux.md`: **Target flow** and the rules that stay. `docs/layout.md`: placement and sizes every UI slice follows; its **Review later** list is for the user, do not reopen those choices.
 4. `docs/plans/stage-a.md`: the slices, their order, briefs and gates. Your work queue.
 5. `docs/roadmap.md` (**Working mode**, **Decision boundaries**) and `docs/progress.md` (baseline, test notes).
 
@@ -34,7 +34,7 @@ A failing gate is not a blocker: find the cause. Do not raise timeouts or retry 
 
 ## Done when
 
-- Slices A0–A7 are integrated on `main`, each with its ledger row in `docs/progress.md`.
+- Slices A0–A8 are integrated on `main`, each with its ledger row in `docs/progress.md`.
 - On final `main`: `pnpm check`, `pnpm test:browser` and `pnpm test:e2e` pass under the pinned Node; counts and logs recorded.
 - A-verify (plan, **A-verify**) is PASS by an independent verifier, report at `.e2e/stage-a/verify/report.md` with screenshots at 1920×1080 and 1024×640.
 - `docs/ux.md` no longer describes the replaced form-first flow as current; `docs/design.md` reflects any decision the run had to make; `docs/roadmap.md` marks stage A done.

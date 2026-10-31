@@ -1,6 +1,6 @@
 # Stage A: task model on the terminal
 
-Implementation plan for stage A (`design.md`, **Stages**). Product rules live in `design.md` (decisions 3, 5, 16, 17, **Domain model**) and `ux.md` (**Target flow**); this file splits them into slices an implementation agent can take one at a time. Where a brief and `design.md` disagree, `design.md` wins and the brief is corrected.
+Implementation plan for stage A (`design.md`, **Stages**). Product rules live in `design.md` (decisions 3, 5, 16, 17, **Domain model**), `ux.md` (**Target flow**) and `layout.md` (where things sit and how big; every UI slice follows it); this file splits them into slices an implementation agent can take one at a time. Where a brief and `design.md` disagree, `design.md` wins and the brief is corrected.
 
 Each brief: goal, where the code is, rules, done criteria, dependencies. File references were checked on `main` at `f1074eb`; line numbers drift, names do not.
 
@@ -9,7 +9,8 @@ Each brief: goal, where the code is, rules, done criteria, dependencies. File re
 ```
 wave 1:  A0  A1  A2  A6  A7     independent, may run in parallel
 wave 2:  A3                     needs A2, A6
-wave 3:  A4  A5                 A4 needs A0, A1, A3, A6; A5 needs A0, A3
+wave 3:  A4  A8                 A4 needs A0, A1, A3, A6; A8 needs A6, A7
+wave 4:  A5                     needs A0, A3, A8
 final:   A-verify               needs every slice integrated
 ```
 
@@ -117,23 +118,24 @@ Conflicts are expected and mechanical: most slices touch `packages/protocol/src/
 
 **Depends on.** A0, A1, A3, A6.
 
-## A5. New-task composer
+## A5. New-task view
 
-**Goal.** `prefix t` opens a prompt-first composer that replaces the new-task form (`ux.md`, **Target flow** 1–2).
+**Goal.** `prefix t` shows a prompt-first new-task view in the main area that replaces the new-task form dialog (`ux.md`, **Target flow** 1–2; `layout.md`, **New task view** and **Empty states**).
 
-**Where.** `apps/web/src/modules/tasks/new-task-dialog.tsx` (replaced), `issue-import.tsx`, `apps/web/src/modules/sessions/agent-picker.tsx` and `launch-choice.ts` (reuse the agent/profile/model choice), `apps/web/src/modules/workspace/use-workspace.ts`.
+**Where.** `apps/web/src/modules/tasks/new-task-dialog.tsx` (replaced by a main-area view), `issue-import.tsx`, `apps/web/src/modules/sessions/agent-picker.tsx` and `launch-choice.ts` (reuse the agent/profile/model choice), `apps/web/src/modules/workspace/use-workspace.ts`, the A8 shell.
 
 **Rules.**
 
-- Prompt field first and focused; Enter submits, Shift+Enter inserts a newline. Project (current), agent or profile, model and workspace are prefilled from A0's effective settings for the chosen project and reachable from the keyboard; changing the project re-applies that project's defaults to fields the user has not touched.
-- Optional explicit title, collapsed by default. Branch choices of today's form (new branch, existing branch, main working tree) stay available under the workspace control.
+- Layout, sizes, placeholder and picker row exactly as `layout.md` **New task view**; it is also what the main area shows when no task is selected.
+- Prompt focused on open; Enter submits, Shift+Enter inserts a newline; Escape returns to the previously selected task. Project, agent or profile, model and workspace are prefilled from A0's effective settings for the chosen project; changing the project re-applies that project's defaults to fields the user has not touched.
+- Optional title and "From issue…" expand in place. Branch choices of today's form (new branch, existing branch, main working tree) live in the workspace picker.
 - Issue import fills the prompt with the issue's title and URL and keeps the source snapshot; the existing guards (pending, cancel, project switch) carry over.
-- While `create` waits (worktree mode, A4), the composer shows that it is creating and keeps the input; errors stay in the composer with `role="alert"`, input preserved (`ux.md`, **Focus, keyboard and errors**).
+- While `create` waits (worktree mode, A4), the button reads "Creating…" and the input stays; errors stay in the view with `role="alert"`, input preserved (`ux.md`, **Focus, keyboard and errors**).
 - Stock kit components only (`ux.md`, `ui-kit.md`); the UI-boundary gates must stay green.
 
-**Done when.** Browser tests cover keyboard-only creation, defaults per project, issue import into the prompt and error preservation; an Electron e2e creates a task from a prompt and sees the fake agent receive it.
+**Done when.** Browser tests cover keyboard-only creation, defaults per project, issue import into the prompt, Escape back to the previous task and error preservation; an Electron e2e creates a task from a prompt and sees the fake agent receive it.
 
-**Depends on.** A0, A3 (A4 optional: without it the seed title shows).
+**Depends on.** A0, A3, A8 (A4 optional: without it the seed title shows).
 
 ## A6. Rename a task; number keys for sessions
 
@@ -164,21 +166,42 @@ Conflicts are expected and mechanical: most slices touch `packages/protocol/src/
 - Toggle action `sidebar-mode`, default `prefix l`; the mode is a device preference kept in client storage.
 - "Completed and unseen": the task's status is `done` with an update newer than the task's `seenAt`. `seenAt` is stored on the server (`tasks.markSeen`) so every client agrees (decision 14's reasoning applies). The client marks a task seen when it becomes the selected task and when a status changes while it is selected.
 - Status stays a named state plus a distinct glyph (`ux.md`); unseen gets its own glyph or label, not color alone.
+- Rows, sections and their content follow `layout.md` **Sidebar** (two-line rows, Needs you / Working / Done / Settled in flat mode). Until A8 removes them, sessions keep rendering under the selected task.
 - The board stays as is.
 
 **Done when.** Client tests for flat ordering and unseen derivation; browser test toggles the mode and clears unseen by opening the task; `seenAt` survives a server restart.
 
 **Depends on.** Nothing.
 
+## A8. Workspace shell
+
+**Goal.** The main area shows one task with a header and its sessions as tabs, the sidebar lists tasks only, and the shell matches `layout.md` (**Shell**, **Sidebar** header and footer, **Task header**, **Session tabs**, **Terminal**, **Empty states**, **Status visuals**). This was stage B's B2; it moved here because the revised layout needs it before chat.
+
+**Where.** `apps/web/src/modules/workspace/` (`workspace-screen.tsx`, `sidebar.tsx`, `use-workspace.ts`), `apps/web/src/modules/terminal/terminal-view.tsx`, `apps/web/src/modules/status/`, `apps/web/src/common/ui/` (stock Tabs; new named variants only where `ui-kit.md` allows), the theme CSS for the three status tokens, `packages/protocol/src/config.ts` (action `toggle-sidebar`, default `prefix \`).
+
+**Rules.**
+
+- Sidebar: replace the icon toolbar with the search button and new-task button; footer with the prefix indicator (armed state visible), connection state when not connected, settings. Resizable 208–420 px, default 264, kept per device; `prefix \` hides it.
+- Sessions leave the sidebar and become tabs in the main area; loose terminals move to the Scratch section. Tab content, sizes and overflow as in `layout.md`; `prefix 1`–`9`, `prefix n`/`p` and clicks select tabs; "+" offers shell and agent.
+- Task header with title, `project › branch`, status, agent/model badge, settle and overflow actions.
+- Terminal gets 8 px padding with the main-area background; xterm resizes to the padded box.
+- Empty states: no project, task without sessions. (No-task-selected becomes the new-task view in A5; until then it keeps today's behavior.)
+- Status colors: add `--status-working`, `--status-attention`, `--status-done` for dark and light; record the change as a permitted adaptation in `ui-kit.md`. Glyph and word stay.
+- Focus rules stay (`ux.md`): clicking navigation and tabs does not steal terminal focus; dialogs return focus.
+- Update `ux.md` **Layout and navigation** to describe the shell as current and drop the "until stage A" wording there.
+
+**Done when.** Browser tests: tabs switch by key and click with terminal focus kept, sidebar resize/hide persists, prefix pill shows while armed, header shows task facts, empty states render; the UI-boundary and class gates pass; Electron e2e with two sessions in one task; screenshots at 1920×1080 and 1024×640 under `.e2e/stage-a/a8/` compared against `layout.md`.
+
+**Depends on.** A6, A7.
+
 ## A-verify. Whole flow
 
 Independent real-interface verification after every slice is integrated: rebuilt web in a browser and built Electron, real server, SQLite, PTY and git, fake agents and a fake naming CLI.
 
-Scenario: `prefix t` → prompt → task appears with the seed title, then the generated one → the fake agent received the prompt → `prefix c` adds a shell → `prefix 1`/`2` switch → `prefix e` renames → worktree mode yields a readable branch and path with no random part → flat sidebar shows the task by status and clears unseen on open → settle and continue → server restart resumes the agent without resending the prompt. Screenshots at 1920×1080 and 1024×640. Report under `.e2e/stage-a/verify/`.
+Scenario: empty main area shows the new-task view → `prefix t` → prompt → task appears with the seed title, then the generated one → the fake agent received the prompt → `prefix c` adds a shell → `prefix 1`/`2` switch → `prefix e` renames → worktree mode yields a readable branch and path with no random part → flat sidebar shows the task by status and clears unseen on open → settle and continue → server restart resumes the agent without resending the prompt. Screenshots at 1920×1080 and 1024×640, checked against `layout.md`. Report under `.e2e/stage-a/verify/`.
 
 ## Not in stage A
 
-- A tab strip in the main area: sessions stay in the sidebar plus number keys; the strip comes with the chat tab (stage B) and the appearance discussion.
 - Naming a task created without a prompt from the agent's first message: needs reading agent history, which the stage B drivers do anyway.
 - Pinned tasks; any change to the board.
 - A repository-committed settings file (decision 17).

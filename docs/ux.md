@@ -1,7 +1,7 @@
 # UX
 
 Corral is a graphical, keyboard-first workspace for people who live in terminals.
-Product behavior: `design.md`. Kit provenance, defaults and boundaries: `ui-kit.md`.
+Product behavior: `design.md`. Placement, sizes and surfaces: `layout.md`. Kit provenance, defaults and boundaries: `ui-kit.md`.
 Actual code/tests remain authoritative where older research described proposals.
 
 ## Stock shadcn appearance
@@ -23,9 +23,9 @@ Stock primitive appearance remains identifiable; the permitted adaptations (no p
 
 What a user does; replaces the form-first flow below as each stage lands. New keys are proposals until implemented; existing ones are unchanged.
 
-1. `prefix t` opens the new-task composer: a prompt field, plus project (current), agent or profile, model/reasoning, view and workspace, all prefilled from settings and changeable from the keyboard. Enter submits.
+1. `prefix t` opens the new-task view in the main area (`layout.md`, **New task view**): a prompt field, plus project (current), agent or profile, model/reasoning, view and workspace, all prefilled from settings and changeable from the keyboard. Enter submits.
 2. The task appears in the sidebar at once under the prompt-derived seed title, which the generated title replaces. Its primary agent opens in the chosen view, already working on the prompt. No shell opens on its own.
-3. Inside a task, sessions are equal tabs: agents (terminal or chat) and shells. `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel.
+3. Inside a task (header and tab strip: `layout.md`), sessions are equal tabs: agents (terminal or chat) and shells. `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel.
 4. `prefix v` hands the current agent session over between chat and terminal (stop one frontend, resume the same conversation in the other). OpenCode can keep both live; Codex's terminal is view-only while chat writes.
 5. The sidebar lists tasks either flat by status (pinned, needs attention, working, idle, settled shelf) or grouped by project; one key toggles the mode. A task's status is the most urgent of its sessions', ordered: needs approval or input, error, working, completed and unseen, idle. "Completed and unseen" clears when the task is opened.
 6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles.

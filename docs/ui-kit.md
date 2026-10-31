@@ -102,7 +102,8 @@ product scope. The fixed pane/tree therefore compose stock Buttons instead of
 introducing that provider. No custom sidebar control skin is maintained.
 
 Status names plus distinct Lucide glyphs distinguish agent states; colors are
-stock `muted-foreground` / `destructive`, not a second palette. xterm resolves the
+stock `muted-foreground` / `destructive`, not a second palette. Planned change (`layout.md`, **Status visuals**; stage A slice A8): three
+status tokens (working, attention, done) join the theme; until A8 lands this paragraph is current. xterm resolves the
 stock body's foreground/background to sRGB via canvas because its parser does not
 support OKLCH; no terminal theme tokens or UI font-size changes are introduced.
 
