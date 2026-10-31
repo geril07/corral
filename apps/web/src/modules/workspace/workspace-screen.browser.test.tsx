@@ -225,6 +225,22 @@ test("Escape closes a dialog and returns the keyboard to the terminal", async ()
   await expect.poll(screenText).toContain("back-8");
 });
 
+test("the first character typed after Escape reaches the terminal", async () => {
+  await render(<App client={newClient()} />);
+  await prefixThen("c");
+  await expect.element(terminalButtons()).toHaveLength(1);
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  await prefixShifted("p");
+  await expect.element(page.getByRole("dialog", { name: "Add project" })).toBeVisible();
+
+  // One keyboard call: Escape closes the dialog and the next character is already the
+  // terminal's. The dialog is not awaited out of the document in between.
+  await userEvent.keyboard("{Escape}echo first-$((2+2)){Enter}");
+  await expect.poll(screenText).toContain("first-4");
+  expect(screenText()).not.toContain("not found");
+});
+
 test("prefix t without a project says so instead of opening the task dialog", async () => {
   await render(<App client={newClient()} />);
   await expect.element(page.getByText(/No projects yet/)).toBeVisible();

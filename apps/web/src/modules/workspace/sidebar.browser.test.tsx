@@ -209,12 +209,12 @@ test("clicking reports what was picked", async () => {
 
   await nav().getByRole("button", { name: "Task actions for task a" }).click();
   await page.getByRole("menuitem", { name: "Settle task" }).click();
-  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
   expect(handlers.onToggleSettle).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
 
+  // Opening the next row's menu must leave exactly one: the settled task's popup is gone by then.
   await nav().getByRole("button", { name: "Task actions for task b" }).click();
+  expect(page.getByRole("menu").elements()).toHaveLength(1);
   await page.getByRole("menuitem", { name: "Remove task…" }).click();
-  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
   expect(handlers.onRemoveTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
 
   await nav().getByRole("button", { name: "stop claude" }).click();
@@ -248,6 +248,21 @@ test("clicking reports what was picked", async () => {
   expect(handlers.onFindTask).toHaveBeenCalledOnce();
   expect(handlers.onOpenPalette).toHaveBeenCalledOnce();
   expect(handlers.onOpenBoard).toHaveBeenCalledOnce();
+});
+
+test("a row's menu is gone before the next row opens its own", async () => {
+  const { rendered, handlers } = renderSidebar();
+  await rendered;
+
+  await nav().getByRole("button", { name: "Task actions for task a" }).click();
+  await page.getByRole("menuitem", { name: "Settle task" }).click();
+  expect(handlers.onToggleSettle).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
+
+  // Deliberately no wait for the first popup to leave the document before the next one opens.
+  await nav().getByRole("button", { name: "Task actions for task b" }).click();
+  expect(page.getByRole("menu").elements()).toHaveLength(1);
+  await page.getByRole("menuitem", { name: "Remove task…" }).click();
+  expect(handlers.onRemoveTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
 });
 
 test("Enter on the selected session that is not running starts it again; on a running one it does not", async () => {
@@ -361,7 +376,8 @@ test("every icon action is named and its tooltip carries the effective binding",
   const terminalButton = toolbar.getByRole("button", { name: "New terminal" });
   terminalButton.element().focus();
 
-  await expect.element(page.getByRole("tooltip", { name: "New terminal · alt+a c" })).toBeVisible();
+  await expect.element(page.getByRole("tooltip")).toHaveLength(1);
+  await expect.element(page.getByRole("tooltip")).toMatchTextContent("New terminal · alt+a c");
   await expect
     .element(toolbar.getByRole("button", { name: "Command palette" }))
     .toHaveAttribute("aria-label", "Command palette");
