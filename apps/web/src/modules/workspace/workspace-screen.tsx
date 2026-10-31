@@ -14,7 +14,7 @@ import {
 } from "../keymap/index.ts";
 import { SETTINGS_BUTTON_ID, useRestoreSettingsFocus } from "../settings/index.ts";
 import { FindTaskDialog } from "./find-task-dialog.tsx";
-import { RenameEntryDialog } from "./rename-entry-dialog.tsx";
+import { RenameDialog } from "./rename-dialog.tsx";
 import { Sidebar } from "./sidebar.tsx";
 import { useWorkspace } from "./use-workspace.ts";
 import type { WorkspaceSearch } from "./workspace-search.ts";
@@ -73,6 +73,7 @@ export function WorkspaceScreen({
     restartSession,
     removeSession,
     openRenameEntry,
+    openRenameTask,
     renameEntry,
     selectEntry,
     toggleSettle,
@@ -110,6 +111,7 @@ export function WorkspaceScreen({
           onSelectLoose={() => choose({ taskId: null, entryId: undefined })}
           onSelectEntry={selectEntry}
           onRenameEntry={openRenameEntry}
+          onRenameTask={openRenameTask}
           onCloseTerminal={(id) => void closeTerminal(id)}
           onStopSession={(session) => void stopSession(session)}
           onRestartSession={(session) => void restartSession(session)}
@@ -220,11 +222,11 @@ export function WorkspaceScreen({
           onClose={() => setDialog(undefined)}
         />
       )}
-      {dialog?.kind === "rename-entry" && (
-        <RenameEntryDialog
+      {dialog?.kind === "rename" && (
+        <RenameDialog
           target={dialog.target}
-          onSave={async (label) => {
-            await renameEntry(dialog.target, label);
+          onSave={async (name) => {
+            await renameEntry(dialog.target, name);
             setDialog(undefined);
           }}
           onClose={() => setDialog(undefined)}

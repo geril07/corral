@@ -17,6 +17,7 @@ import {
 
 const { newClient } = realServerClients();
 const palette = () => page.getByRole("dialog", { name: "Command palette" });
+const paletteItem = (name: RegExp) => palette().getByRole("option", { name });
 const dialog = () => page.getByRole("dialog", { name: /^Rename / });
 const nameField = () => dialog().getByRole("textbox", { name: "Name" });
 const row = (name: string) => workspace().getByRole("button", { name, exact: true });
@@ -114,6 +115,42 @@ test("the rename action is disabled while no session or terminal is selected", a
   await expect
     .element(palette().getByRole("option", { name: /Rename session/ }))
     .toHaveAttribute("aria-disabled", "true");
+});
+
+test("a task is renamed from its key, and its branch and worktree stay as they were", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Old name");
+  const before = client.tasks.getSnapshot().tasks[0]!;
+
+  await prefixThen("e");
+  const title = dialog().getByRole("textbox", { name: "Title" });
+  await expect.element(title).toHaveFocus();
+  await expect.element(title).toHaveValue("Old name");
+  await userEvent.fill(title, "  Login fails on Safari  ");
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(dialog()).not.toBeInTheDocument();
+  await expect.element(row("Login fails on Safari")).toHaveAttribute("aria-current", "true");
+  expect(client.tasks.getSnapshot().tasks[0]).toEqual({
+    ...before,
+    title: "Login fails on Safari",
+    titleSource: "user",
+  });
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+});
+
+test("the palette lists the task rename and the session numbers with their keys", async () => {
+  await appWithProject(newClient());
+  await createTask("Palette");
+
+  await prefixThen(" ");
+
+  await expect.element(paletteItem(/Rename task/)).toMatchTextContent("alt+a e");
+  await expect.element(paletteItem(/Rename session/)).toMatchTextContent("alt+a shift+r");
+  await expect.element(paletteItem(/Go to session 1/)).toMatchTextContent("alt+a 1");
+  await expect.element(paletteItem(/Go to session 1/)).toHaveAttribute("aria-disabled", "false");
+  await expect.element(paletteItem(/Go to session 2/)).toHaveAttribute("aria-disabled", "true");
+  await expect.element(paletteItem(/Go to session 9/)).toMatchTextContent("alt+a 9");
 });
 
 test("a keyboard rename after a button-opened dialog returns focus to the terminal", async () => {

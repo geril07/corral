@@ -16,6 +16,7 @@ import {
 
 const { newClient } = realServerClients();
 const terminalButtons = () => workspace().getByRole("button", { name: /^sh · / });
+const shell = (name: string) => workspace().getByRole("button", { name });
 const picker = () => page.getByRole("dialog", { name: "New agent session" });
 const palette = () => page.getByRole("dialog", { name: "Command palette" });
 const paletteItem = (name: RegExp) => palette().getByRole("option", { name });
@@ -26,6 +27,25 @@ async function applyConfig(client: CorralClient, text: string, applied: () => vo
   await vi.waitFor(applied);
   await expect.poll(() => client.config.getSnapshot().loaded).toBe(true);
 }
+
+test("number keys select the n-th session of the current task in sidebar order", async () => {
+  await appWithProject(newClient());
+  await createTask("Numbers");
+  await prefixThen("c");
+  await prefixThen("c");
+  await expect.element(shell("shell 3")).toHaveAttribute("aria-current", "true");
+
+  await prefixThen("2");
+  await expect.element(shell("shell 2")).toHaveAttribute("aria-current", "true");
+  await expect.element(shell("shell 3")).not.toHaveAttribute("aria-current");
+
+  await prefixThen("1");
+  await expect.element(shell("shell")).toHaveAttribute("aria-current", "true");
+
+  // A number past the task's sessions keeps the current one.
+  await prefixThen("9");
+  await expect.element(shell("shell")).toHaveAttribute("aria-current", "true");
+});
 
 test("a config file rebinds an action and the key hint follows it", async () => {
   const { client } = await appWithProject(newClient());

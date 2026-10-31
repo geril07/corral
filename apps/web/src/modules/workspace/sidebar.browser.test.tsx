@@ -94,6 +94,7 @@ function renderSidebar(
     onRenameEntry: vi.fn<(entry: Entry) => void>(),
     onToggleSettle: vi.fn<(task: Task) => void>(),
     onRemoveTask: vi.fn<(task: Task) => void>(),
+    onRenameTask: vi.fn<(task: Task) => void>(),
     onAddProject: vi.fn<() => void>(),
     onNewTask: vi.fn<() => void>(),
     onNewTerminal: vi.fn<() => void>(),
@@ -257,6 +258,20 @@ test("clicking reports what was picked", async () => {
   expect(handlers.onFindTask).toHaveBeenCalledOnce();
   expect(handlers.onOpenPalette).toHaveBeenCalledOnce();
   expect(handlers.onOpenBoard).toHaveBeenCalledOnce();
+});
+
+test("a task's menu offers rename with the menu button as the dialog's opener", async () => {
+  const { rendered, handlers } = renderSidebar();
+  await rendered;
+  const menu = nav().getByRole("button", { name: "Task actions for task a" });
+
+  await menu.click();
+  await page.getByRole("menuitem", { name: "Rename task…" }).click();
+
+  expect(handlers.onRenameTask).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ id: "a" }),
+    menu.element(),
+  );
 });
 
 test("a row's menu is gone before the next row opens its own", async () => {
@@ -458,6 +473,7 @@ test("a loose terminal shows the name the user gave it instead of its command an
     onRenameEntry: vi.fn<(entry: Entry) => void>(),
     onToggleSettle: vi.fn<(task: Task) => void>(),
     onRemoveTask: vi.fn<(task: Task) => void>(),
+    onRenameTask: vi.fn<(task: Task) => void>(),
     onAddProject: vi.fn<() => void>(),
     onNewTask: vi.fn<() => void>(),
     onNewTerminal: vi.fn<() => void>(),

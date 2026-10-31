@@ -141,17 +141,17 @@ test("the sidebar entry opens settings; Escape and Back return to the same task 
 test("the settings action is a configurable key and a palette entry, never a hardcoded chord", async () => {
   const client = newClient();
   await render(<App client={client} />);
-  await writeConfig('[keys.bindings]\nsettings = "e"\n');
+  await writeConfig('[keys.bindings]\nsettings = "q"\n');
   await vi.waitFor(() =>
-    expect(client.config.getSnapshot().config.keys.bindings["settings"]).toBe("e"),
+    expect(client.config.getSnapshot().config.keys.bindings["settings"]).toBe("q"),
   );
 
   await prefixThen("o");
   await expect.element(settingsHeading()).not.toBeInTheDocument();
 
-  await prefixThen("e");
+  await prefixThen("q");
   await expect.element(settingsHeading()).toBeVisible();
-  await expect.element(section("Effective keys")).toMatchTextContent(/Settings\s*alt\+a e/);
+  await expect.element(section("Effective keys")).toMatchTextContent(/Settings\s*alt\+a q/);
 
   await userEvent.keyboard("{Escape}");
   await expect.element(settingsHeading()).not.toBeInTheDocument();
@@ -160,7 +160,7 @@ test("the settings action is a configurable key and a palette entry, never a har
   const palette = page.getByRole("dialog", { name: "Command palette" });
   await expect
     .element(palette.getByRole("option", { name: /Settings/ }))
-    .toMatchTextContent("alt+a e");
+    .toMatchTextContent("alt+a q");
   await userEvent.keyboard("settings{Enter}");
   await expect.element(palette).not.toBeInTheDocument();
   await expect.element(settingsHeading()).toBeVisible();

@@ -25,9 +25,15 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useDialogFocus } from "../../common/ui/index.ts";
 import { useCorralClient, useConnection } from "../connection/index.ts";
-import { formatBinding, useConfig, usePrefixMode, type ActionTable } from "../keymap/index.ts";
+import {
+  formatBinding,
+  useConfig,
+  usePrefixMode,
+  type ActionEntry,
+  type ActionTable,
+} from "../keymap/index.ts";
 import { describeLaunchError, type AgentLaunchChoice } from "../sessions/index.ts";
-import type { RenameTarget } from "./rename-entry-dialog.tsx";
+import type { RenameTarget } from "./rename-dialog.tsx";
 import { terminalLabel } from "./sidebar.tsx";
 import {
   chosenToSearch,
@@ -46,7 +52,7 @@ export type DialogState =
   | { kind: "pick-agent"; taskId: string }
   | { kind: "remove-session"; session: Session }
   | { kind: "find-task" }
-  | { kind: "rename-entry"; target: RenameTarget }
+  | { kind: "rename"; target: RenameTarget }
   | { kind: "command-palette" }
   | { kind: "config-problems" };
 
@@ -105,6 +111,8 @@ export function useWorkspace({
   const selection = resolveSelection(tree, chosen);
   const taskOrder = tasksInOrder(tree);
   const entryIds = entriesOf(tree, selection.taskId).map((entry) => entry.id);
+  // Number keys name sessions of the current task; a group of loose terminals has none.
+  const sessionEntries = selection.taskId === null ? [] : entriesOf(tree, selection.taskId);
   const current = currentEntry(tree, selection);
   const currentSession = current?.type === "session" ? current.session : undefined;
   const currentTask = taskOrder.find((task) => task.id === selection.taskId);
@@ -226,18 +234,33 @@ export function useWorkspace({
 
   const openRenameEntry = (entry: Entry) =>
     openDialog({
-      kind: "rename-entry",
+      kind: "rename",
       target: {
         type: entry.type,
         id: entry.type === "terminal" ? entry.terminal.id : entry.session.id,
         name: displayedName(entry),
-        label: (entry.type === "terminal" ? entry.terminal.label : entry.session.label) ?? null,
+        value: (entry.type === "terminal" ? entry.terminal.label : entry.session.label) ?? "",
       },
     });
 
-  const renameEntry = async (target: RenameTarget, label: string | null) => {
-    if (target.type === "terminal") await api.terminals.setLabel({ id: target.id, label });
-    else await api.sessions.setLabel({ id: target.id, label });
+  const openRenameTask = (task: Task | undefined, opener?: HTMLElement) => {
+    if (task) {
+      openDialog(
+        {
+          kind: "rename",
+          target: { type: "task", id: task.id, name: task.title, value: task.title },
+        },
+        opener,
+      );
+    }
+  };
+
+  const renameEntry = async (target: RenameTarget, name: string | null) => {
+    if (target.type === "task") {
+      if (name !== null) await api.tasks.rename({ id: target.id, title: name });
+    } else if (target.type === "terminal")
+      await api.terminals.setLabel({ id: target.id, label: name });
+    else await api.sessions.setLabel({ id: target.id, label: name });
   };
 
   const selectEntry = (entry: Entry) =>
@@ -251,6 +274,19 @@ export function useWorkspace({
       taskId: selection.taskId,
       entryId: stepActive(entryIds, selection.entryId, step),
     });
+
+  /** The n-th session of the current task in sidebar order; disabled when the task has fewer. */
+  const goToSession = (number: number): ActionEntry => {
+    const entry = sessionEntries[number - 1];
+    return {
+      label: `Go to session ${number}`,
+      group: "Sessions",
+      enabled: entry !== undefined,
+      run: () => {
+        if (entry) selectEntry(entry);
+      },
+    };
+  };
 
   const stepTask = (step: 1 | -1) => {
     const id = stepActive(
@@ -414,6 +450,15 @@ export function useWorkspace({
       enabled: entryIds.length > 1,
       run: () => stepEntry(-1),
     },
+    "session-1": goToSession(1),
+    "session-2": goToSession(2),
+    "session-3": goToSession(3),
+    "session-4": goToSession(4),
+    "session-5": goToSession(5),
+    "session-6": goToSession(6),
+    "session-7": goToSession(7),
+    "session-8": goToSession(8),
+    "session-9": goToSession(9),
     "new-task": {
       label: "New task",
       group: "Tasks",
@@ -425,6 +470,12 @@ export function useWorkspace({
       group: "Tasks",
       enabled: currentTask !== undefined,
       run: () => openRemoveTask(currentTask),
+    },
+    "rename-task": {
+      label: "Rename task",
+      group: "Tasks",
+      enabled: currentTask !== undefined,
+      run: () => openRenameTask(currentTask),
     },
     "settle-task": {
       label: "Settle or unsettle task",
@@ -528,6 +579,7 @@ export function useWorkspace({
     restartSession,
     removeSession,
     openRenameEntry,
+    openRenameTask,
     renameEntry,
     selectEntry,
     jumpTo,

@@ -57,7 +57,7 @@ What a user does; replaces the form-first flow below as each stage lands. New ke
   use stock fields and labels, not custom selectable cards or row skins.
 - Remove task retains the dirty-worktree second confirmation; keyed buttons prevent
   a single Enter from confirming both stages. No branches are deleted implicitly.
-- Rename is a focused dialog. Session labels persist; loose terminal labels survive
+- Rename is a focused dialog, the same one for a task's title, a session label and a loose terminal label. Session labels persist; loose terminal labels survive
   only for their terminal's lifetime. The historical first-character risk remains
   unexplained; changing kits is not evidence of a fix.
 - Imported source is immutable original title/body/link context, displayed as escaped

@@ -51,8 +51,9 @@ interface SidebarProps {
   onSelectTask: (task: Task) => void;
   onSelectLoose: () => void;
   onSelectEntry: (entry: Entry) => void;
-  /** The rename dialog's opener; the row offers it in its overflow. */
+  /** The rename dialog's opener; the rows offer it in their overflow. */
   onRenameEntry: (entry: Entry) => void;
+  onRenameTask: (task: Task, opener?: HTMLElement) => void;
   onCloseTerminal: (id: string) => void;
   onStopSession: (session: Session) => void;
   onRestartSession: (session: Session) => void;
@@ -112,6 +113,7 @@ export function Sidebar(props: SidebarProps) {
       }}
       onToggleSettle={() => props.onToggleSettle(node.task)}
       onRemove={() => props.onRemoveTask(node.task)}
+      onRename={(opener) => props.onRenameTask(node.task, opener)}
       onSelectEntry={props.onSelectEntry}
       onStop={props.onStopSession}
       onRestart={props.onRestartSession}
@@ -386,6 +388,7 @@ function TaskRow({
   onSelect,
   onToggleSettle,
   onRemove,
+  onRename,
   onSelectEntry,
   onStop,
   onRestart,
@@ -401,6 +404,7 @@ function TaskRow({
   onSelect: () => void;
   onToggleSettle: () => void;
   onRemove: () => void;
+  onRename: (opener?: HTMLElement) => void;
   onSelectEntry: (entry: Entry) => void;
   onStop: (session: Session) => void;
   onRestart: (session: Session) => void;
@@ -424,7 +428,7 @@ function TaskRow({
     display: branchDisplay,
   } = useTruncatedText(task.branch, "middle");
   const clipped = titleClipped || branchClipped;
-  const sourceTrigger = useRef<HTMLButtonElement>(null);
+  const menuTrigger = useRef<HTMLButtonElement>(null);
   const select = (
     <Button
       variant={current ? "secondary" : "ghost"}
@@ -479,14 +483,19 @@ function TaskRow({
         ) : (
           select
         )}
-        <OverflowMenu label={`Task actions for ${task.title}`} triggerRef={sourceTrigger}>
+        <OverflowMenu label={`Task actions for ${task.title}`} triggerRef={menuTrigger}>
           {onViewSource && (
             <DropdownMenuItem
-              onClick={(event) => onViewSource(sourceTrigger.current ?? event.currentTarget)}
+              onClick={(event) => onViewSource(menuTrigger.current ?? event.currentTarget)}
             >
               View issue source…
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem
+            onClick={(event) => onRename(menuTrigger.current ?? event.currentTarget)}
+          >
+            Rename task…
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={onToggleSettle}>
             {task.state === "active" ? "Settle task" : "Unsettle task"}
           </DropdownMenuItem>
