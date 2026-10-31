@@ -1,6 +1,6 @@
 # Goal: stage A — task model on the terminal
 
-Deliver stage A of Corral: a task starts from a prompt, its agent starts working on that prompt, the task gets a generated name and a readable worktree, and the sidebar shows tasks by status or by project. You are the orchestrator of this run; the user is not available for routine questions.
+Deliver stage A of Corral: a task starts from a prompt, its agent starts working on that prompt, the task gets a generated name and a readable worktree, and the sidebar shows tasks by status or by project. You are the orchestrator of this run; the user is not available, so you make the calls (see **Decisions and blockers**).
 
 ## Read first
 
@@ -46,11 +46,14 @@ You write no feature code yourself beyond conflict resolution and one-line fixes
 - Leave existing branches and worktrees from earlier runs untouched.
 - Out of scope: everything under "Not in stage A" in the plan, stage B/C work, appearance changes beyond what `layout.md` asks of a slice. The roadmap's "when the queue runs out, pick the next improvement" rule does not apply to this run: it ends when stage A is done.
 
-## When blocked
+## Decisions and blockers
 
-A decision only the user can make (product behavior not settled by `design.md`, a new paid dependency, an external write): record it in `docs/progress.md` under **Open decisions** with the options and your recommendation, then continue with slices that do not depend on it. If every remaining slice depends on open decisions, stop and report.
+The run is autonomous: it never stops to wait for the user and does not end with work left that it could have decided.
 
-A failing gate is not a blocker: find the cause. Do not raise timeouts or retry into green without evidence (`docs/progress.md`, test baseline).
+- **Product or UX question** not settled by `design.md`, `ux.md` or `layout.md`: decide it yourself, choosing the option that fits those docs and is easiest to reverse, implement it, and record it in `docs/progress.md` under **Decided for review** (question, options, choice, why, where in the code). The user reviews these afterwards; they are not blockers.
+- **Something that would cost money or write outside this machine** (a paid call, a new paid dependency, a push or remote write): do not do it; take the free, local alternative (fake, stub, deferred hook), record it under **Decided for review**, and continue.
+- **Technical failure** (a failing gate, a broken tool, a brief that contradicts the code): find the cause and fix it. Do not raise timeouts or retry into green without evidence (`docs/progress.md`, test baseline). If one approach is a dead end, try another; correct the brief and say why in the slice report.
+- The only reason to end before **Done when**: an obstacle no agent action can remove (e.g. the machine lacks a required tool and cannot install it). Record the evidence in `docs/progress.md` and report what remains.
 
 ## Done when
 
@@ -58,4 +61,4 @@ A failing gate is not a blocker: find the cause. Do not raise timeouts or retry 
 - On final `main`: `pnpm check`, `pnpm test:browser` and `pnpm test:e2e` pass under the pinned Node; counts and logs recorded.
 - A-verify (plan, **A-verify**) is PASS by an independent verifier, report at `.e2e/stage-a/verify/report.md` with screenshots at 1920×1080 and 1024×640.
 - `docs/ux.md` no longer describes the replaced form-first flow as current; `docs/design.md` reflects any decision the run had to make; `docs/roadmap.md` marks stage A done.
-- The final report to the user lists what changed for them, open decisions, and anything verified only with fakes (for example: real agents' handling of the initial prompt beyond `--help`, real naming output quality).
+- The final report to the user lists what changed for them, every entry under **Decided for review**, and anything verified only with fakes (for example: real agents' handling of the initial prompt beyond `--help`, real naming output quality).
