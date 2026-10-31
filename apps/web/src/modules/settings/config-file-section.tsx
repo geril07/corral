@@ -27,11 +27,7 @@ export function ConfigFileSection() {
           {loaded ? path : "waiting for the server's config…"}
         </code>
         {loaded && path !== "" && (
-          <Button
-            variant="outline"
-            aria-label="Copy config path"
-            onClick={() => void copyPath()}
-          >
+          <Button variant="outline" aria-label="Copy config path" onClick={() => void copyPath()}>
             Copy path
           </Button>
         )}
