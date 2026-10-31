@@ -241,3 +241,25 @@ test("a task opened from the search survives a reload through the route's search
   await expect.element(taskButton("Reload me")).toHaveAttribute("aria-current", "true");
   await expect.element(findDialog()).not.toBeInTheDocument();
 });
+
+test("the find-task footer stays inside the dialog instead of being clipped", async () => {
+  await render(
+    <FindTaskDialog
+      projects={[repoProject]}
+      tasks={[settledTask("t1", "Archived work", 1)]}
+      onOpen={vi.fn<(task: Task) => void>()}
+      onContinue={vi.fn<(task: Task) => Promise<void>>().mockResolvedValue(undefined)}
+      onClose={vi.fn<() => void>()}
+    />,
+  );
+  await expect.element(findDialog()).toBeVisible();
+
+  const dialog = findDialog().element();
+  const content = dialog.getBoundingClientRect();
+  const footer = dialog.querySelector<HTMLElement>('[data-slot="dialog-footer"]');
+  if (!footer) throw new Error("the find-task footer is missing");
+  const box = footer.getBoundingClientRect();
+  expect(box.left).toBeGreaterThanOrEqual(content.left);
+  expect(box.right).toBeLessThanOrEqual(content.right);
+  expect(box.bottom).toBeLessThanOrEqual(content.bottom);
+});

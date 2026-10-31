@@ -34,13 +34,19 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
   );
 }
 
+/** Stock footers cancel the content box padding with negative margins; `none` has none to cancel. */
+const DialogContentPadding = React.createContext<"default" | "none">("default");
+
 function DialogContent({
   className,
   children,
   showCloseButton = true,
+  padding = "default",
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean;
+  /** `none` leaves the padding to the content, as the Command composition does. */
+  padding?: "default" | "none";
 }) {
   return (
     <DialogPortal>
@@ -48,12 +54,13 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 animation-duration-100",
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover text-sm text-popover-foreground ring-1 ring-foreground/10 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 animation-duration-100",
+          padding === "default" && "p-4",
           className,
         )}
         {...props}
       >
-        {children}
+        <DialogContentPadding value={padding}>{children}</DialogContentPadding>
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
@@ -82,11 +89,13 @@ function DialogFooter({
 }: React.ComponentProps<"div"> & {
   showCloseButton?: boolean;
 }) {
+  const padding = React.useContext(DialogContentPadding);
   return (
     <div
       data-slot="dialog-footer"
       className={cn(
-        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
+        "flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
+        padding === "default" && "-mx-4 -mb-4",
         className,
       )}
       {...props}
