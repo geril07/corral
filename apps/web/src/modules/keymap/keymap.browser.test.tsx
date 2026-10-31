@@ -3,6 +3,7 @@ import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { writeConfig } from "../../../test/config-command.ts";
+import { createGitRepo } from "../../../test/git-repo.ts";
 import { prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
 import {
@@ -158,4 +159,23 @@ test("the palette opens from its key, shows bindings, filters, runs an action an
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
   await userEvent.keyboard("echo back-$((7+7)){Enter}");
   await expect.poll(() => window.corralScreenText?.() ?? "").toContain("back-14");
+});
+
+test("a focus tooltip does not block the sidebar row underneath it", async () => {
+  await render(<App client={newClient()} />);
+  const repo = await createGitRepo("tooltip");
+  const add = workspace().getByRole("button", { name: "Add project" });
+
+  await add.click();
+  await expect
+    .element(page.getByRole("dialog", { name: "Add project" }).getByRole("textbox"))
+    .toHaveFocus();
+  await userEvent.keyboard(`${repo}{Enter}`);
+  await expect.element(page.getByRole("dialog", { name: "Add project" })).not.toBeInTheDocument();
+  await expect.element(add).toHaveFocus();
+  await expect.element(page.getByRole("tooltip")).toBeVisible();
+
+  const project = workspace().getByRole("button", { name: /^tooltip-/ });
+  await project.click();
+  await expect.element(project).toHaveAttribute("aria-current", "true");
 });

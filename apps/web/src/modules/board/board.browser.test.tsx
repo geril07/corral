@@ -137,3 +137,21 @@ test("with no active tasks it says so", async () => {
   await userEvent.keyboard("{Enter}");
   expect(onJump).not.toHaveBeenCalled();
 });
+
+test("a clipped board task title keeps its full value in a tooltip", async () => {
+  const longTitle =
+    "A very long task title that does not fit the board's task column at the small desktop width";
+  const base = row("long");
+  const longRow = { ...base, task: { ...base.task, title: longTitle } };
+  await render(
+    <div className="w-96">
+      <Board rows={[longRow]} onJump={() => {}} onClose={() => {}} />
+    </div>,
+  );
+
+  const longOption = page.getByRole("option", { name: new RegExp(longTitle) });
+  const title = longOption.element().querySelector("span[title]");
+  expect(title?.getAttribute("title")).toBe(`repo-p1 ${longTitle}`);
+  if (title) await userEvent.hover(title);
+  await expect.element(page.getByRole("tooltip")).toMatchTextContent(longTitle);
+});

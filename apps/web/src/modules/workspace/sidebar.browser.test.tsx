@@ -377,11 +377,20 @@ test("a long task title end-truncates and a long branch middle-truncates, with t
     { taskId: "a", entryId: "s1" },
     [session("s1", "a", "shell")],
     [{ ...task("a"), title: longTitle, branch: longBranch }],
+    true,
   ).rendered;
 
   const button = nav().getByRole("button", { name: longTitle });
   await expect.element(button).toMatchTextContent(/…/);
-  await expect.element(button).toMatchTextContent(/….*login/);
+  const spans = button.element().querySelectorAll("span");
+  const titleSpan = spans[0];
+  const branchSpan = spans[1];
+  if (!titleSpan || !branchSpan) throw new Error("task row spans are missing");
+  expect(branchSpan.textContent?.length).toBeGreaterThan(2);
+  expect(branchSpan.getBoundingClientRect().width).toBeGreaterThan(20);
+  expect(titleSpan.getBoundingClientRect().width).toBeGreaterThan(
+    branchSpan.getBoundingClientRect().width,
+  );
 
   button.element().focus();
   await expect.element(page.getByRole("tooltip")).toMatchTextContent(longTitle);

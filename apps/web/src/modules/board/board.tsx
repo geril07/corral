@@ -98,9 +98,7 @@ export function Board({ rows, onJump, onClose }: BoardProps) {
               >
                 <StatusIndicator status={status} />
                 <span className="truncate">{status ? describeStatus(status) : "no status"}</span>
-                <span className="truncate">
-                  <span className="text-text-muted">{row.project.name}</span> {row.task.title}
-                </span>
+                <BoardTask project={row.project.name} title={row.task.title} />
                 <BoardMessage message={status?.message} />
                 <span className="truncate text-right text-text-muted">
                   {status ? formatAge(now, status.updatedAt) : ""}
@@ -126,4 +124,15 @@ function BoardMessage({ message }: { message: string | undefined }) {
     </span>
   );
   return clipped && message ? <Tooltip content={message}>{content}</Tooltip> : content;
+}
+
+function BoardTask({ project, title }: { project: string; title: string }) {
+  const full = `${project} ${title}`;
+  const { observe, clipped } = useTruncatedText(full);
+  const content = (
+    <span ref={observe} className="block truncate" title={clipped ? full : undefined}>
+      <span className="text-text-muted">{project}</span> {title}
+    </span>
+  );
+  return clipped ? <Tooltip content={full}>{content}</Tooltip> : content;
 }

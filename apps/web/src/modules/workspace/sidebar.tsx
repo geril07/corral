@@ -429,7 +429,7 @@ function TaskRow({
         {titleDisplay}
       </span>
       {task.branch && (
-        <span ref={observeBranch} className="max-w-1/4 shrink-0 truncate text-xs text-text-muted">
+        <span ref={observeBranch} className="w-1/4 shrink-0 truncate text-xs text-text-muted">
           {branchDisplay}
         </span>
       )}

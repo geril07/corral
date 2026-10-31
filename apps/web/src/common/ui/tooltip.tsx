@@ -3,7 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 import { cn } from "../lib/cn.ts";
 
 const tooltipPopupClass =
-  "z-[60] max-w-80 rounded-control border border-border bg-surface-raised px-2 py-1 text-text shadow-lg";
+  "pointer-events-none z-[60] max-w-80 rounded-control border border-border bg-surface-raised px-2 py-1 text-text shadow-lg";
 
 /** A tooltip around one trigger element; the trigger keeps its own role and keyboard behaviour. */
 export function Tooltip({
@@ -23,7 +23,7 @@ export function Tooltip({
       <BaseTooltip.Root>
         <BaseTooltip.Trigger render={children} />
         <BaseTooltip.Portal container={document.body}>
-          <BaseTooltip.Positioner side={side} sideOffset={4} className="z-[60]">
+          <BaseTooltip.Positioner side={side} sideOffset={4} className="pointer-events-none z-[60]">
             <BaseTooltip.Popup role="tooltip" className={cn(tooltipPopupClass, className)}>
               {content}
             </BaseTooltip.Popup>
