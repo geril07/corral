@@ -1,8 +1,16 @@
 import { ConfigState } from "@corral/protocol/config";
+import {
+  capabilityProtocols,
+  PROTOCOL_MISMATCH_CLOSE_CODE,
+  PROTOCOL_VERSION,
+  ProtocolMismatchReason,
+  protocolUrl,
+} from "@corral/protocol/handshake";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, test, vi } from "vite-plus/test";
+import { WebSocket as WsWebSocket } from "ws";
 import { useFakeAgents } from "../../test/fake-agents.ts";
 import { claudeTranscriptExists } from "../../test/claude-transcripts.ts";
 import { addTask } from "../../test/project-fixture.ts";
@@ -643,4 +651,46 @@ env = [{ targetName = "OPENAI_API_KEY", fromEnv = "LAUNCH_OPENAI_KEY_B" }]
     }),
   ).rejects.toMatchObject({ code: "LAUNCH_PROFILE_REVISION_UNSUPPORTED" });
   expect(await launchesOf(agents, "codex", 1)).toHaveLength(1);
+});
+
+test("an old protocol 2 client is refused before any profiled session or spawn", async () => {
+  await writeConfig(claudeProfile(), (config) =>
+    config.profiles.some((profile) => profile.id === "claude-gateway"),
+  );
+  const { api, task } = await addTask(server, "Old client");
+  void task;
+
+  const old = new WsWebSocket(
+    `${server.url}/rpc?protocol=2`,
+    capabilityProtocols(server.capability),
+  );
+  const closed = await within(
+    new Promise<{ code: number; reason: string }>((resolve) =>
+      old.once("close", (code, reason) => resolve({ code, reason: reason.toString("utf8") })),
+    ),
+    "the protocol 2 close",
+  );
+  expect(closed.code).toBe(PROTOCOL_MISMATCH_CLOSE_CODE);
+  expect(ProtocolMismatchReason.parse(JSON.parse(closed.reason))).toEqual({
+    serverProtocolVersion: PROTOCOL_VERSION,
+  });
+  expect(PROTOCOL_VERSION).toBe(3);
+  expect(await agents.launches()).toEqual([]);
+  expect(await sessionsOf(api)).toEqual([]);
+
+  const current = new WsWebSocket(
+    protocolUrl(server.url, "/rpc"),
+    capabilityProtocols(server.capability),
+  );
+  try {
+    await within(
+      new Promise<void>((resolve, reject) => {
+        current.once("open", () => resolve());
+        current.once("error", reject);
+      }),
+      "the current protocol handshake",
+    );
+  } finally {
+    current.close();
+  }
 });

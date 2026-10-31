@@ -1,7 +1,11 @@
 import { z } from "zod";
 
-/** Bumped on any wire change a peer of the other version would misread. */
-export const PROTOCOL_VERSION = 2;
+/**
+ * Bumped on any wire change a peer of the other version would misread. Version 2 introduced
+ * the transport capability; version 3 the launch profile/model session fields. A version 2
+ * daemon would strip those fields and start a native agent, so it must be replaced, not reused.
+ */
+export const PROTOCOL_VERSION = 3;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in
