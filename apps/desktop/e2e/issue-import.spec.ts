@@ -20,7 +20,7 @@ test("an imported issue keeps its source when the app is opened again", async ({
 
   const first = await launchApp();
   const window = await openedWindow(first);
-  await expect(window.getByText("No terminals")).toBeVisible();
+  await expect(window.getByText("No projects yet")).toBeVisible();
   await addProject(window, repo);
 
   await window.keyboard.press("Alt+KeyA");
@@ -36,13 +36,17 @@ test("an imported issue keeps its source when the app is opened again", async ({
   await newTask.getByRole("button", { name: "Create task" }).click();
   await expect(newTask).toBeHidden();
 
-  const sourceButton = () =>
-    workspace(window).getByRole("button", { name: "view issue source for Imported issue" });
+  const openSource = async () => {
+    await workspace(window)
+      .getByRole("button", { name: "Task actions for Imported issue" })
+      .click();
+    await window.getByRole("menuitem", { name: "View issue source…" }).click();
+  };
   await expect(workspace(window).getByRole("button", { name: /^Imported issue/ })).toHaveAttribute(
     "aria-current",
     "true",
   );
-  await sourceButton().click();
+  await openSource();
   const source = window.getByRole("dialog", { name: "Issue source" });
   await expect(source.getByText("Original issue title")).toBeVisible();
   await expect(source.getByText("Imported issue", { exact: true })).toBeVisible();
@@ -55,14 +59,13 @@ test("an imported issue keeps its source when the app is opened again", async ({
   await first.close();
 
   const secondWindow = await openedWindow(await launchApp());
-  const reopenedSourceButton = () =>
-    workspace(secondWindow).getByRole("button", {
-      name: "view issue source for Imported issue",
-    });
   await expect(
     workspace(secondWindow).getByRole("button", { name: /^Imported issue/ }),
   ).toBeVisible();
-  await reopenedSourceButton().click();
+  await workspace(secondWindow)
+    .getByRole("button", { name: "Task actions for Imported issue" })
+    .click();
+  await secondWindow.getByRole("menuitem", { name: "View issue source…" }).click();
   const reopenedSource = secondWindow.getByRole("dialog", { name: "Issue source" });
   await expect(reopenedSource.getByText("Original issue title")).toBeVisible();
   await expect(reopenedSource.getByText("Imported issue", { exact: true })).toBeVisible();
