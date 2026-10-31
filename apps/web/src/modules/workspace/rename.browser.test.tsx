@@ -8,7 +8,12 @@ import {
   screenText,
 } from "../../../test/real-client.ts";
 import { App, renderApp } from "../../../test/render-app.tsx";
-import { appWithProject, createTask, workspace } from "../../../test/task-flows.tsx";
+import {
+  appWithProject,
+  createTask,
+  focusedIsTerminal,
+  workspace,
+} from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 const palette = () => page.getByRole("dialog", { name: "Command palette" });
@@ -109,4 +114,30 @@ test("the rename action is disabled while no session or terminal is selected", a
   await expect
     .element(palette().getByRole("option", { name: /Rename session/ }))
     .toHaveAttribute("aria-disabled", "true");
+});
+
+test("a keyboard rename after a button-opened dialog returns focus to the terminal", async () => {
+  await appWithProject(newClient());
+  await createTask("Rename focus");
+  const find = workspace().getByRole("button", { name: "Find task" });
+
+  await find.click();
+  await expect.element(page.getByRole("dialog", { name: "Find task" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(find).toHaveFocus();
+  await expect.element(page.getByRole("dialog", { name: "Find task" })).not.toBeInTheDocument();
+
+  // Move the keyboard deliberately back to the terminal before the keyboard-opened dialog.
+  await userEvent.click(page.getByRole("region", { name: "active terminal" }));
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  await prefixShifted("r");
+  await expect.element(nameField()).toHaveFocus();
+  await userEvent.fill(nameField(), "focused");
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(dialog()).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  await userEvent.keyboard("echo stale-$((4+4)){Enter}");
+  await expect.poll(screenText).toContain("stale-8");
 });

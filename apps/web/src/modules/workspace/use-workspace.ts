@@ -195,7 +195,7 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
         ) ?? entry.session.kind);
 
   const openRenameEntry = (entry: Entry) =>
-    setDialog({
+    openDialog({
       kind: "rename-entry",
       target: {
         type: entry.type,
@@ -280,6 +280,7 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
   const openRemoveTask = (task: Task | undefined) => {
     if (task) openDialog({ kind: "remove-task", task });
   };
+  const openRemoveSession = (session: Session) => openDialog({ kind: "remove-session", session });
 
   const addProject = async (path: string) => {
     const project = await api.projects.add({ path });
@@ -480,6 +481,7 @@ export function useWorkspace({ search, onChange, onOpenBoard }: UseWorkspaceOpti
     openNewTask,
     loadBranches,
     openRemoveTask,
+    openRemoveSession,
     openAddProject,
     openPalette,
     openFindTask,
