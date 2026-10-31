@@ -23,10 +23,10 @@ The client is a compact, graphical desktop app for people who live in terminals;
 
 - Adding a project stays a path dialog with an inline error (`apps/web/src/modules/projects/add-project-dialog.tsx`).
 - New task carries a project combobox defaulted to the selected project, with "Add project…" as the last item (`apps/web/src/common/ui/combobox.tsx`). The project is a field, not a mode.
-- Task actions live in the row overflow: settle/unsettle, rename, remove. Remove keeps the confirm with the dirty-worktree second step (`apps/web/src/modules/tasks/remove-task-dialog.tsx:44-75`), whose keyed buttons stop one Enter from confirming twice.
-- Session actions: stop/restart is the only inline icon because it changes state and is frequent; remove is in the overflow. Enter on the current stopped session restarts it (`sidebar.tsx:156-159`).
+- Task actions live in the row overflow: settle/unsettle, view an imported issue source when present, remove. Remove keeps the confirm with the dirty-worktree second step (`apps/web/src/modules/tasks/remove-task-dialog.tsx`), whose keyed buttons stop one Enter from confirming twice.
+- Session actions: stop/restart is the only inline icon because it changes state and is frequent; rename and remove are in the overflow. Enter on the current stopped session restarts it.
 - Rename is a dialog, not inline row editing: the row overflow and task search open it, and `Dialog` + `Field` builds it with no row-editing state or new kit part (inline alternative, not adopted: `.refs/orca/src/renderer/src/components/sidebar/WorktreeTitleInlineRename.tsx`; modal prompt shape: `.refs/herdr/src/client/shell/overlay_input.rs:410-430`).
-- A session label outlives a server restart, which needs a new `label` on `Session` (`packages/protocol/src/rpc.ts:136-163` has none today). A loose terminal keeps its label only for that terminal's lifetime, and the dialog says so.
+- A session label survives a server restart with the same session identity. A loose terminal keeps its label only for that terminal's lifetime, and the dialog says so.
 
 ## Icons, tooltips, accessible names
 
@@ -40,7 +40,7 @@ The client is a compact, graphical desktop app for people who live in terminals;
 ## Dialogs, focus, errors
 
 - A dialog is a task, not a page: open while rendered, Escape and backdrop close, `ConfirmDialog` for anything destructive with no backdrop close (`apps/web/src/common/ui/dialog.tsx:28-65`).
-- Focus returns to the element that opened the dialog, falling back to the xterm helper textarea when that element is gone (`.refs/orca/src/renderer/src/components/cmd-j/palette-focus-restore-target.ts:1-15`). Today every close goes to the terminal (`dialog.tsx:6-9`); fix this before adding dialogs.
+- Workspace dialogs open through `openDialog` (`modules/workspace/use-workspace.ts`), which captures the current opener and suspends the prefix keymap. `DialogFocusProvider` / `useDialogFocus` in the kit restore that opener, with the xterm helper textarea as fallback when it is gone. Keyboard-opened dialogs capture their own current target rather than reusing a previous button's target.
 - The first field takes focus on open, and a destructive confirm starts on Cancel (`remove-task-dialog.tsx:44-57`).
 - A failed submit keeps the dialog open with its input intact and the message at `role="alert"` (`dialog.tsx:71-73`); no toast. Connection loss and protocol mismatch are the only app-level banners (`apps/web/src/modules/connection/connection-notice.tsx:6-19`).
 - Clicking the sidebar must not take focus from the terminal (`sidebar.tsx:205`); the prefix keymap is suspended while a dialog is open.
@@ -60,9 +60,9 @@ The client is a compact, graphical desktop app for people who live in terminals;
 
 ## Settings and profiles
 
-- The settings surface is a proposal until implementation is designed: sections, nav and write behavior are open, not adopted.
-- Until a write path exists, settings is read-only: effective bindings and the config problems dialog (`mvp5/web`: `apps/web/src/modules/keymap/config-problems.tsx`), with `config.toml` as the source of truth, and the surface says so once.
-- Profiles and models are a proposal only. A launch carries `AgentKind` (`packages/protocol/src/rpc.ts:109`), so no model UI, default-profile behavior or provider surface before the contract carries a profile.
+- Settings is a read-only route (`apps/web/src/modules/settings/settings-screen.tsx`): show the actual config path, effective bindings, config problems and launch-profile descriptors. `config.toml` remains the source of truth; no write controls are offered.
+- The agent picker offers native defaults, named profiles and model overrides where the installed agent supports them. A changed or deleted selected profile requires explicit reselection; never silently fall back to another launch.
+- Running and stopped sessions describe their saved launch snapshot, not the current profile definition. Show environment reference names only, never resolved values. Supported agent capabilities and limits: `agent-profiles.md`.
 
 ## Visual hierarchy and tokens
 
@@ -94,8 +94,8 @@ The client is a compact, graphical desktop app for people who live in terminals;
 ## Unresolved
 
 - Hover-revealed row actions on touch and low-precision pointers; a proposal to settle with the implementation.
-- Settings sections and any write path, which needs a server write RPC and its own design.
-- Provider and model surface, blocked on the launch contract carrying a profile.
+- A settings write path, which needs a server write RPC and its own design.
+- Model discovery, mid-session model switching, direct provider APIs and account isolation; none is implied by launch profiles.
 - Layouts below the desktop minimum (overlay, icon rail, resizable sidebar): candidates only after a measured need.
 - The board as a route (`apps/web/src/routes/board.tsx`) or an overlay on the workspace.
 

@@ -58,6 +58,7 @@ What this stops: a hostile page that can reach loopback calling RPC (including `
   - Worktrees live in the data dir (`~/.local/share/corral/worktrees/<project>/<task>`), not next to the repository, so they never show up in the user's repository directory.
   - Removing a task closes its terminals and removes the worktree it owns, but refuses a worktree with uncommitted or untracked changes unless forced. Branches are never deleted by Corral.
   - Projects and tasks persist in SQLite (`<data dir>/corral.db`); terminals do not (decision 12).
+  - A task can keep an immutable GitHub/GitLab issue-source snapshot: original title, body and link. Import reads through the user's CLI in the chosen project; editing the draft task title does not rewrite the source. No remote writes or synchronization are implied. Scope and trust rules: `research/integrations.md`.
 - **Session**: lives in a task. Either a shell, or an agent session `{ agent, agentSessionId, view: terminal | chat }`.
 - **Space**: an optional saved grouping or filter over tasks, not a container.
 - **Board**: all tasks with their status, navigable from the keyboard.
