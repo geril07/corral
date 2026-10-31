@@ -19,15 +19,27 @@ export function parseRouteSearch(search: string, documentSearch: string): Record
   );
   const parsed: Record<string, string | string[]> = {};
   for (const [key, value] of params) {
+    const unwrapped = unwrapLegacyString(value);
     const previous = parsed[key];
     parsed[key] =
       previous === undefined
-        ? value
+        ? unwrapped
         : Array.isArray(previous)
-          ? [...previous, value]
-          : [previous, value];
+          ? [...previous, unwrapped]
+          : [previous, unwrapped];
   }
   return parsed;
+}
+
+/** The default stringifier quoted numeric-looking strings; old links still carry that form. */
+function unwrapLegacyString(value: string): string {
+  if (!value.startsWith('"') || !value.endsWith('"')) return value;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return typeof parsed === "string" ? parsed : value;
+  } catch {
+    return value;
+  }
 }
 
 export const stringifyRouteSearch = stringifySearchWith(String);

@@ -97,3 +97,17 @@ test("navigate-generated URLs keep normal string ids unquoted", async () => {
   expect(href).toContain("entry=plain-id");
   expect(parsed).toEqual(search);
 });
+
+test("legacy quoted string ids load through a fresh router", async () => {
+  const href = "/?project=%22123456789012%22&task=%22123e4567%22&entry=%22abc%3Fx%3D1%22";
+  const history = createMemoryHistory({ initialEntries: [href] });
+  const router = createAppRouter(history);
+  await router.load();
+
+  expect(router.state.location.search).toEqual({
+    project: "123456789012",
+    task: "123e4567",
+    entry: "abc?x=1",
+  });
+  router.history.destroy();
+});

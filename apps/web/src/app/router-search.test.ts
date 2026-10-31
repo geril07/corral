@@ -32,3 +32,21 @@ test("ids that look like JSON numbers stay strings", () => {
     entry: "123456789012",
   });
 });
+
+test("legacy JSON-quoted string ids are unwrapped", () => {
+  expect(
+    parseRouteSearch("?project=%22123456789012%22&task=%22123e4567%22&entry=%22abc%3Fx%3D1%22", ""),
+  ).toEqual({
+    project: "123456789012",
+    task: "123e4567",
+    entry: "abc?x=1",
+  });
+});
+
+test("non-string JSON-looking route values stay raw strings", () => {
+  expect(parseRouteSearch("?project=true&task=123&entry=%5B%5D", "")).toEqual({
+    project: "true",
+    task: "123",
+    entry: "[]",
+  });
+});
