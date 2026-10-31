@@ -211,6 +211,13 @@ test("arbitrary text never throws and always yields a valid state", () => {
   );
 });
 
+test("the defaults give every action its own chord", () => {
+  // `conflictsOf` only drops entries written in the file, so two colliding defaults would
+  // resolve silently to whichever action is listed last. The shipped keyboard must not have one.
+  const chords = ActionId.options.map((action) => DEFAULT_BINDINGS[action]);
+  expect(new Set(chords).size).toBe(ActionId.options.length);
+});
+
 test("a binding on a chord no default uses is applied", () => {
   const freeChord = fc.constantFrom("f5", "f6", "shift+f8", "ctrl+f9", "alt+f10", "y");
   fc.assert(
