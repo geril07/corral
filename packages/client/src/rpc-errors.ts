@@ -43,6 +43,10 @@ export function describeError(error: unknown): string {
         return "This session is already running.";
       case "AGENT_NOT_FOUND":
         return `${String(field(data, "command"))} was not found on the server's PATH.`;
+      case "LAUNCH_PROFILE_CHANGED":
+        return "The launch profile changed since you chose it. Reload and choose it again.";
+      case "LAUNCH_PROFILE_REVISION_UNSUPPORTED":
+        return "A pinned profile revision requires a selected profile.";
       case "HAS_LIVE_TERMINALS":
         return "The project has tasks with running terminals. Close them first.";
       case "BAD_REQUEST":

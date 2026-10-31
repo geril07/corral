@@ -31,6 +31,8 @@ import type { TerminalRegistry } from "../terminals/terminal-registry.ts";
 import {
   AgentNotFoundError,
   AlreadyRunningError,
+  LaunchProfileChangedError,
+  LaunchProfileRevisionWithoutProfileError,
   LaunchProfileUnknownError,
   LaunchSpawnError,
   SessionNotFoundError,
@@ -103,11 +105,20 @@ export class SessionService {
     taskId: string,
     kind: SessionKind,
     size: TerminalSize,
-    choice: { profileId?: string | undefined; model?: string | undefined } = {},
+    choice: {
+      profileId?: string | undefined;
+      expectedProfileRevision?: string | undefined;
+      model?: string | undefined;
+    } = {},
   ): Promise<Session> {
     return this.#queue.run(async () => {
       const task = this.#task(taskId);
       const profile = choice.profileId === undefined ? undefined : this.#profile(choice.profileId);
+      if (choice.expectedProfileRevision !== undefined) {
+        if (profile === undefined) throw new LaunchProfileRevisionWithoutProfileError();
+        if (profile.revision !== choice.expectedProfileRevision)
+          throw new LaunchProfileChangedError(profile.id);
+      }
       const launch = launchSnapshotFor({ kind, profile, modelOverride: choice.model });
       const stored: StoredSession = {
         id: newId(),

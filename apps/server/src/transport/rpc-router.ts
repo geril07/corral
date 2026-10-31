@@ -14,7 +14,9 @@ import {
   AlreadyRunningError,
   LaunchModelInvalidError,
   LaunchModelUnsupportedError,
+  LaunchProfileChangedError,
   LaunchProfileKindMismatchError,
+  LaunchProfileRevisionWithoutProfileError,
   LaunchProfileUnknownError,
   LaunchSpawnError,
   SessionNotFoundError,
@@ -51,6 +53,8 @@ function launchError(
   error: unknown,
   errors: {
     LAUNCH_PROFILE_UNKNOWN: (options: { data: { id: string } }) => Error;
+    LAUNCH_PROFILE_CHANGED: (options: { data: { id: string } }) => Error;
+    LAUNCH_PROFILE_REVISION_UNSUPPORTED: (options?: Record<string, never>) => Error;
     LAUNCH_PROFILE_KIND_MISMATCH: (options: { data: { id: string; kind: SessionKind } }) => Error;
     LAUNCH_MODEL_UNSUPPORTED: (options: { data: { kind: SessionKind } }) => Error;
     LAUNCH_MODEL_INVALID: (options: { data: { kind: SessionKind } }) => Error;
@@ -61,6 +65,10 @@ function launchError(
 ): Error | undefined {
   if (error instanceof LaunchProfileUnknownError)
     return errors.LAUNCH_PROFILE_UNKNOWN({ data: { id: error.id } });
+  if (error instanceof LaunchProfileChangedError)
+    return errors.LAUNCH_PROFILE_CHANGED({ data: { id: error.id } });
+  if (error instanceof LaunchProfileRevisionWithoutProfileError)
+    return errors.LAUNCH_PROFILE_REVISION_UNSUPPORTED();
   if (error instanceof LaunchProfileKindMismatchError)
     return errors.LAUNCH_PROFILE_KIND_MISMATCH({ data: { id: error.id, kind: error.kind } });
   if (error instanceof LaunchModelUnsupportedError)
@@ -169,6 +177,7 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
           () =>
             sessions.start(input.taskId, input.kind, input.size, {
               profileId: input.profileId,
+              expectedProfileRevision: input.expectedProfileRevision,
               model: input.model,
             }),
           (error) => {

@@ -31,6 +31,15 @@ test("a missing agent names the command, and session errors are explained", () =
   );
 });
 
+test("a launch profile pinned to a changed revision is explained", () => {
+  expect(describeError(defined("LAUNCH_PROFILE_CHANGED", { id: "p1" }))).toBe(
+    "The launch profile changed since you chose it. Reload and choose it again.",
+  );
+  expect(describeError(defined("LAUNCH_PROFILE_REVISION_UNSUPPORTED", undefined))).toBe(
+    "A pinned profile revision requires a selected profile.",
+  );
+});
+
 test("an error outside the contract falls back to its message", () => {
   expect(describeError(new Error("not connected to the server"))).toBe(
     "not connected to the server",

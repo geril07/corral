@@ -3,7 +3,9 @@ import {
   AgentNotFoundError,
   LaunchModelInvalidError,
   LaunchModelUnsupportedError,
+  LaunchProfileChangedError,
   LaunchProfileKindMismatchError,
+  LaunchProfileRevisionWithoutProfileError,
   LaunchSpawnError,
 } from "./errors.ts";
 
@@ -46,6 +48,8 @@ export function launchFailureReason(error: unknown): string {
   if (error instanceof LaunchSpawnError) return error.summary;
   if (
     error instanceof AgentNotFoundError ||
+    error instanceof LaunchProfileChangedError ||
+    error instanceof LaunchProfileRevisionWithoutProfileError ||
     error instanceof LaunchProfileKindMismatchError ||
     error instanceof LaunchModelUnsupportedError ||
     error instanceof LaunchModelInvalidError
@@ -62,6 +66,8 @@ export function launchDiagnostic(error: unknown): string {
     error instanceof MissingEnvRefError ||
     error instanceof ReservedEnvRefError ||
     error instanceof AgentNotFoundError ||
+    error instanceof LaunchProfileChangedError ||
+    error instanceof LaunchProfileRevisionWithoutProfileError ||
     error instanceof LaunchProfileKindMismatchError ||
     error instanceof LaunchModelUnsupportedError ||
     error instanceof LaunchModelInvalidError

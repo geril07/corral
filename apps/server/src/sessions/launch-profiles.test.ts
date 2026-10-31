@@ -561,3 +561,86 @@ test("a reserved target in a saved snapshot is refused at spawn, not trusted", a
     delete process.env[variable];
   }
 });
+
+test("a profile revision pins the definition the caller saw; a changed profile spawns nothing", async () => {
+  vi.stubEnv("FAKE_AGENT_LOG_ENV", "OPENAI_API_KEY");
+  vi.stubEnv("LAUNCH_OPENAI_KEY_A", "key-a");
+  vi.stubEnv("LAUNCH_OPENAI_KEY_B", "key-b");
+  const before = await writeConfig(
+    `
+[profiles.codex-work]
+name = "Codex work"
+agent = "codex"
+model = "gpt-5-codex"
+provider = "work-a"
+env = [{ targetName = "OPENAI_API_KEY", fromEnv = "LAUNCH_OPENAI_KEY_A" }]
+`,
+    (config) => config.profiles.some((profile) => profile.id === "codex-work"),
+  );
+  const revisionA = before.profiles[0]!.revision;
+  const changed = await writeConfig(
+    `
+[profiles.codex-work]
+name = "Codex work"
+agent = "codex"
+model = "gpt-5-codex-mini"
+provider = "work-b"
+env = [{ targetName = "OPENAI_API_KEY", fromEnv = "LAUNCH_OPENAI_KEY_B" }]
+`,
+    (config) => config.profiles.some((profile) => profile.revision !== revisionA),
+  );
+  const profileB = changed.profiles[0]!;
+  const { api, task } = await addTask(server, "Pinned revision");
+
+  await expect(
+    api.sessions.start({
+      taskId: task.id,
+      kind: "codex",
+      size: SIZE,
+      profileId: "codex-work",
+      expectedProfileRevision: revisionA,
+    }),
+  ).rejects.toMatchObject({
+    code: "LAUNCH_PROFILE_CHANGED",
+    data: { id: "codex-work" },
+  });
+  expect(await agents.launches()).toEqual([]);
+  expect(await sessionsOf(api)).toEqual([]);
+
+  const session = await api.sessions.start({
+    taskId: task.id,
+    kind: "codex",
+    size: SIZE,
+    profileId: "codex-work",
+    expectedProfileRevision: profileB.revision,
+  });
+  const [launch] = await launchesOf(agents, "codex", 1);
+  expect(launch!.argv).toEqual(["-m", "gpt-5-codex-mini", "-c", "model_provider=work-b"]);
+  expect(launch!.envSentinels).toEqual({ OPENAI_API_KEY: "key-b" });
+  expect(session.launch).toEqual({
+    kind: "codex",
+    profile: { id: "codex-work", name: "Codex work", revision: profileB.revision },
+    model: "gpt-5-codex-mini",
+    provider: "work-b",
+    env: [{ targetName: "OPENAI_API_KEY", fromEnv: "LAUNCH_OPENAI_KEY_B" }],
+  });
+
+  await expect(
+    api.sessions.start({
+      taskId: task.id,
+      kind: "codex",
+      size: SIZE,
+      profileId: "gone",
+      expectedProfileRevision: profileB.revision,
+    }),
+  ).rejects.toMatchObject({ code: "LAUNCH_PROFILE_UNKNOWN", data: { id: "gone" } });
+  await expect(
+    api.sessions.start({
+      taskId: task.id,
+      kind: "claude",
+      size: SIZE,
+      expectedProfileRevision: profileB.revision,
+    }),
+  ).rejects.toMatchObject({ code: "LAUNCH_PROFILE_REVISION_UNSUPPORTED" });
+  expect(await launchesOf(agents, "codex", 1)).toHaveLength(1);
+});

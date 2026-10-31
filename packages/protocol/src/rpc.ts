@@ -207,6 +207,8 @@ const sessionNotFound = { SESSION_NOT_FOUND: { data: z.object({ id: SessionId })
 /** A launch was refused before anything was spawned; `name` is a profile id or an env variable name, never a value. */
 const launchRefused = {
   LAUNCH_PROFILE_UNKNOWN: { data: z.object({ id: z.string() }) },
+  LAUNCH_PROFILE_CHANGED: { data: z.object({ id: z.string() }) },
+  LAUNCH_PROFILE_REVISION_UNSUPPORTED: {},
   LAUNCH_PROFILE_KIND_MISMATCH: { data: z.object({ id: z.string(), kind: SessionKind }) },
   LAUNCH_MODEL_UNSUPPORTED: { data: z.object({ kind: SessionKind }) },
   LAUNCH_MODEL_INVALID: { data: z.object({ kind: SessionKind }) },
@@ -277,9 +279,11 @@ export const contract = {
      * Starts a shell or an agent in the task's workspace, in a new terminal. The agent CLI is
      * looked up on the server's `PATH`; a missing one fails with `AGENT_NOT_FOUND`.
      *
-     * `profileId` selects a profile from the server's config file. `model` chooses a native model
-     * for this conversation; it overrides the profile's model and needs no profile. A model the
-     * agent kind cannot take is refused, never ignored. The choices are snapshotted on the session.
+     * `profileId` selects a profile from the server's config file. `expectedProfileRevision`
+     * pins the definition the caller showed; a profile that changed since then is refused with
+     * `LAUNCH_PROFILE_CHANGED` before anything is spawned. Omitting it means latest by id.
+     * `model` chooses a native model; it overrides the profile's model and needs no profile. A
+     * model the agent kind cannot take is refused, never ignored. Choices are snapshotted.
      */
     start: oc
       .errors({
@@ -293,6 +297,8 @@ export const contract = {
           kind: SessionKind,
           size: TerminalSize,
           profileId: z.string().min(1).optional(),
+          /** Only with `profileId`: the profile revision the caller last saw. */
+          expectedProfileRevision: z.string().min(1).optional(),
           model: z.string().min(1).optional(),
         }),
       )

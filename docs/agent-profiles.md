@@ -154,6 +154,14 @@ At most 32 references per profile. A target may appear once.
 | `profileId` + `model` | The profile, with `model` overriding its model.                        |
 | `model` alone         | A bare native model choice; snapshot has `profile: null`, no env refs. |
 
+`expectedProfileRevision` may accompany `profileId`. Send the `revision` that
+`config.watch` showed when the user chose the profile: the server compares it with the same
+captured profile it uses for the snapshot, before anything is spawned. A profile that changed in
+between is refused with `LAUNCH_PROFILE_CHANGED { id }` and creates no session or process.
+Omitting the revision keeps latest-by-id behavior. Supplying it without `profileId` is refused
+with `LAUNCH_PROFILE_REVISION_UNSUPPORTED`. A missing or dropped profile is still
+`LAUNCH_PROFILE_UNKNOWN { id }`, with or without a revision.
+
 Model override rules:
 
 - `model` must match `^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$` (native ids such as
@@ -166,6 +174,7 @@ Model override rules:
 - The provider cannot be overridden per start; it comes from the profile.
 
 Other start/restart errors: `LAUNCH_PROFILE_UNKNOWN { id }` (unknown or dropped profile),
+`LAUNCH_PROFILE_CHANGED { id }`, `LAUNCH_PROFILE_REVISION_UNSUPPORTED`,
 `LAUNCH_PROFILE_KIND_MISMATCH { id, kind }`, `AGENT_NOT_FOUND { command }`, and
 `LAUNCH_FAILED { kind, message }` for an unexpected spawn failure (a missing workspace,
 resource limits). `LAUNCH_FAILED.message` is the first diagnostic line, prefixed with the OS

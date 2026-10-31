@@ -30,6 +30,20 @@ export class LaunchProfileUnknownError extends Error {
   }
 }
 
+export class LaunchProfileRevisionWithoutProfileError extends Error {
+  constructor() {
+    super("a profile revision needs a selected profile");
+  }
+}
+
+export class LaunchProfileChangedError extends Error {
+  readonly id: string;
+  constructor(id: string) {
+    super(`launch profile ${id} changed since it was selected`);
+    this.id = id;
+  }
+}
+
 export class LaunchProfileKindMismatchError extends Error {
   readonly id: string;
   readonly kind: SessionKind;
