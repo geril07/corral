@@ -18,9 +18,15 @@ export const newTaskDialog = () => page.getByRole("dialog", { name: "New task" }
 export const issueUrlField = () => newTaskDialog().getByRole("textbox", { name: "Issue URL" });
 export const importIssueButton = () =>
   newTaskDialog().getByRole("button", { name: "Import issue" });
-export const taskSourceButton = (title: string) =>
-  workspace().getByRole("button", { name: `view issue source for ${title}` });
+export const taskActionsButton = (title: string) =>
+  workspace().getByRole("button", { name: `Task actions for ${title}` });
+export const viewIssueSourceAction = () =>
+  page.getByRole("menuitem", { name: "View issue source…" });
 export const taskSourceDialog = () => page.getByRole("dialog", { name: "Issue source" });
+export async function openTaskSource(title: string) {
+  await taskActionsButton(title).click();
+  await viewIssueSourceAction().click();
+}
 
 /** An app on the real server with one project added through the dialog. */
 export async function appWithProject(client: CorralClient, branches: string[] = []) {

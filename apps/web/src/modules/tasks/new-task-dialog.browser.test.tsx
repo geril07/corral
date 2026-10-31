@@ -3,7 +3,6 @@ import { ORPCError } from "@orpc/client";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
-import type { ResolveIssue } from "./issue-import.tsx";
 import { NewTaskDialog } from "./new-task-dialog.tsx";
 
 const issue: TaskSource = {
@@ -225,7 +224,7 @@ test("a failure to create stays in the dialog", async () => {
 });
 
 test("an issue is read only from the explicit Import action, then its title becomes the default", async () => {
-  const onResolveIssue = vi.fn<ResolveIssue>(async () => issue);
+  const onResolveIssue = vi.fn<ResolveProjectIssue>(async () => issue);
   const { rendered, onCreate } = renderDialog(undefined, undefined, onResolveIssue);
   await rendered;
   await opened();
@@ -241,7 +240,7 @@ test("an issue is read only from the explicit Import action, then its title beco
     .element(dialog().getByRole("status"))
     .toMatchTextContent("Imported GitHub issue acme/app#7");
   await expect.element(dialog().getByRole("textbox", { name: "Title" })).toHaveValue("Issue title");
-  expect(onResolveIssue.mock.calls[0]?.[0]).toEqual({
+  expect(onResolveIssue.mock.calls[0]?.[1]).toEqual({
     url: "https://github.com/acme/app/issues/7",
   });
 
@@ -282,7 +281,7 @@ test("a title typed by the user is not overwritten by the issue, and the source 
 });
 
 test("an import failure leaves the form usable and creates a plain task without a source", async () => {
-  const failing = vi.fn<ResolveIssue>(async () => {
+  const failing = vi.fn<ResolveProjectIssue>(async () => {
     throw new Error("issue tool unavailable");
   });
   const { rendered, onCreate } = renderDialog(undefined, undefined, failing);
@@ -320,7 +319,7 @@ test("a self-hosted host asks for its provider before the second Import", async 
     title: "Self hosted issue",
   };
   const onResolveIssue = vi
-    .fn<ResolveIssue>()
+    .fn<ResolveProjectIssue>()
     .mockRejectedValueOnce(
       new ORPCError("ISSUE_PROVIDER_REQUIRED", {
         defined: true,
@@ -345,7 +344,7 @@ test("a self-hosted host asks for its provider before the second Import", async 
   await dialog().getByRole("radio", { name: "GitLab" }).click();
   await dialog().getByRole("button", { name: "Import issue" }).click();
   await expect.element(dialog().getByRole("status")).toMatchTextContent("Imported GitLab issue");
-  expect(onResolveIssue.mock.calls[1]?.[0]).toEqual({
+  expect(onResolveIssue.mock.calls[1]?.[1]).toEqual({
     url: "https://gitlab.example.com/group/project/-/issues/3",
     provider: "gitlab",
   });
@@ -353,8 +352,8 @@ test("a self-hosted host asks for its provider before the second Import", async 
 
 test("Cancel import aborts the request and keeps the form ready to import again", async () => {
   let firstSignal: AbortSignal | undefined;
-  const onResolveIssue = vi.fn<ResolveIssue>();
-  onResolveIssue.mockImplementationOnce((_input, signal) => {
+  const onResolveIssue = vi.fn<ResolveProjectIssue>();
+  onResolveIssue.mockImplementationOnce((_projectId, _input, signal) => {
     firstSignal = signal;
     return new Promise<TaskSource>((_resolve, reject) => {
       signal.addEventListener("abort", () => reject(new Error("aborted")));
@@ -379,6 +378,33 @@ test("Cancel import aborts the request and keeps the form ready to import again"
 
   await dialog().getByRole("button", { name: "Import issue" }).click();
   await expect.element(dialog().getByRole("textbox", { name: "Title" })).toHaveValue("Issue title");
+});
+
+test("a result that arrives after switching projects is ignored", async () => {
+  const deferred = Promise.withResolvers<TaskSource>();
+  const onResolveIssue = vi.fn<ResolveProjectIssue>(() => deferred.promise);
+  const { rendered } = renderDialog(undefined, [project, otherProject], onResolveIssue);
+  await rendered;
+  await opened();
+
+  await userEvent.fill(
+    dialog().getByRole("textbox", { name: "Issue URL" }),
+    "https://github.com/acme/app/issues/7",
+  );
+  await dialog().getByRole("button", { name: "Import issue" }).click();
+  await expect.element(dialog().getByRole("button", { name: "Importing…" })).toBeVisible();
+
+  const picker = dialog().getByRole("combobox", { name: /Project/ });
+  await userEvent.click(picker);
+  await userEvent.fill(picker, otherProject.name);
+  await page.getByRole("option", { name: new RegExp(otherProject.name) }).click();
+  await expect.element(dialog().getByRole("textbox", { name: "Title" })).toHaveValue("");
+
+  deferred.resolve(issue);
+  await Promise.resolve();
+  await expect.element(dialog().getByRole("status")).not.toBeInTheDocument();
+  await expect.element(dialog().getByRole("textbox", { name: "Title" })).toHaveValue("");
+  expect(onResolveIssue.mock.calls[0]?.[0]).toBe("p1");
 });
 
 test("editing the URL after an import drops the stale source", async () => {
