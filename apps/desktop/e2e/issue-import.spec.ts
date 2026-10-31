@@ -55,7 +55,7 @@ test("an imported issue keeps its source when the app is opened again", async ({
     "href",
     "https://github.com/acme/app/issues/7",
   );
-  await source.getByRole("button", { name: "Close" }).first().click();
+  await source.getByRole("button", { name: "Close" }).click();
   await first.close();
 
   const secondWindow = await openedWindow(await launchApp());

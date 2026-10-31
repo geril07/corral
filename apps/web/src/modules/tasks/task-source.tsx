@@ -16,6 +16,7 @@ export function TaskSourceDialog({
       title="Issue source"
       description={`${providerName(source.provider)} ${source.repository} #${source.number}`}
       onClose={onClose}
+      showCloseButton={false}
     >
       <p className="mb-2.5 break-words">
         <span className="block text-muted-foreground">Original issue title</span>

@@ -99,13 +99,23 @@ export function TaskCommandDialog({
   );
 }
 
-export function TaskDialog({ title, description, onClose, children }: DialogProps) {
+export function TaskDialog({
+  title,
+  description,
+  onClose,
+  showCloseButton = true,
+  children,
+}: DialogProps & { showCloseButton?: boolean }) {
   const focus = useDialogFocus();
   const fallback = useRef(currentOpener());
   const finalFocus = () => finalFocusTarget(focus?.target() ?? null, fallback.current);
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto" finalFocus={finalFocus}>
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        finalFocus={finalFocus}
+        showCloseButton={showCloseButton}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}
