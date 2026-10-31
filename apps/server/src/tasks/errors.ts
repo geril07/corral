@@ -6,6 +6,13 @@ export class TaskNotFoundError extends Error {
   }
 }
 
+/** A title with nothing in it. The wire schema refuses it before the handler; a direct caller gets the same refusal. */
+export class BlankTaskTitleError extends Error {
+  constructor() {
+    super("a task needs a title");
+  }
+}
+
 export class WorktreeDirtyError extends Error {
   readonly files: string[];
   constructor(files: string[]) {

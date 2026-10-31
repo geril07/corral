@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vite-plus/test";
 import { ProjectStore } from "../projects/project-store.ts";
 import { openDatabase } from "../storage/database.ts";
-import { TaskNotFoundError } from "./errors.ts";
+import { BlankTaskTitleError, TaskNotFoundError } from "./errors.ts";
 import { TaskService, type TaskSessions } from "./task-service.ts";
 import { TaskStore } from "./task-store.ts";
 
@@ -64,6 +64,22 @@ test("a rename queued behind a removal waits for it and fails without writing th
 
   await expect(rename).rejects.toBeInstanceOf(TaskNotFoundError);
   expect(store.get("t")).toBeUndefined();
+  db.close();
+});
+
+test("a blank title is refused before anything is written, so the task list still reads", async () => {
+  const sessions: TaskSessions = {
+    hasRunningIn: () => false,
+    removeAllIn: () => Promise.resolve(),
+    suspendAllIn: () => Promise.resolve(),
+    resumeAllIn: () => Promise.resolve(),
+  };
+  const { tasks, store, db } = serviceWith(sessions);
+
+  await expect(tasks.rename("t", "   ")).rejects.toBeInstanceOf(BlankTaskTitleError);
+
+  // An empty title written to the row would make every later read fail the task schema.
+  expect(store.list()).toEqual([storedTask("t")]);
   db.close();
 });
 

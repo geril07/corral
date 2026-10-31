@@ -22,7 +22,7 @@ import { HasLiveTerminalsError, ProjectNotFoundError } from "../projects/errors.
 import type { ProjectTasks } from "../projects/project-service.ts";
 import type { ProjectStore } from "../projects/project-store.ts";
 import { newId } from "../storage/ids.ts";
-import { TaskNotFoundError, WorktreeDirtyError } from "./errors.ts";
+import { BlankTaskTitleError, TaskNotFoundError, WorktreeDirtyError } from "./errors.ts";
 import { SerialQueue } from "./serial-queue.ts";
 import type { TaskSettings } from "./task-settings.ts";
 import type { TaskStore } from "./task-store.ts";
@@ -87,9 +87,12 @@ export class TaskService implements ProjectTasks {
     // first, so a rename never writes into a task that is going away. A4's generated title has to
     // write through this queue too, and only when `title_source <> 'user'`.
     return this.#mutations.run(async () => {
+      // The wire schema refuses a blank title before the handler; a direct caller gets the same
+      // refusal instead of a row whose title cannot be parsed back.
+      const trimmed = title.trim();
+      if (trimmed === "") throw new BlankTaskTitleError();
       this.get(id);
-      // The contract trims as well; a direct caller gets the same title the wire would store.
-      this.#store.rename(id, title.trim());
+      this.#store.rename(id, trimmed);
       this.#changes.notify();
       return this.get(id);
     });

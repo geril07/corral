@@ -5,7 +5,7 @@ import {
   DEFAULT_BINDINGS,
   DEFAULT_PREFIX,
 } from "@corral/protocol/config";
-import { parseChord } from "@corral/protocol/keymap";
+import { formatChord, parseChord } from "@corral/protocol/keymap";
 import * as fc from "fast-check";
 import { expect, test } from "vite-plus/test";
 import { defaultConfig, parseConfigFile } from "./config-file.ts";
@@ -214,7 +214,10 @@ test("arbitrary text never throws and always yields a valid state", () => {
 test("the defaults give every action its own chord", () => {
   // `conflictsOf` only drops entries written in the file, so two colliding defaults would
   // resolve silently to whichever action is listed last. The shipped keyboard must not have one.
-  const chords = ActionId.options.map((action) => DEFAULT_BINDINGS[action]);
+  // Chords are compared as parsed chords, because two spellings of one chord still collide.
+  const chords = ActionId.options.map((action) =>
+    formatChord(parseChord(DEFAULT_BINDINGS[action])),
+  );
   expect(new Set(chords).size).toBe(ActionId.options.length);
 });
 

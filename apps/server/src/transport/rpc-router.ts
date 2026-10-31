@@ -35,7 +35,7 @@ import {
 import { MissingEnvRefError, ReservedEnvRefError } from "../agents/launch-env.ts";
 import type { SessionKind } from "@corral/protocol/rpc";
 import type { SessionService } from "../sessions/session-service.ts";
-import { TaskNotFoundError, WorktreeDirtyError } from "../tasks/errors.ts";
+import { BlankTaskTitleError, TaskNotFoundError, WorktreeDirtyError } from "../tasks/errors.ts";
 import type { TaskService } from "../tasks/task-service.ts";
 import type { TerminalRegistry } from "../terminals/terminal-registry.ts";
 
@@ -211,6 +211,8 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
           (error) => {
             if (error instanceof TaskNotFoundError)
               return errors.TASK_NOT_FOUND({ data: { id: error.id } });
+            if (error instanceof BlankTaskTitleError)
+              return errors.BAD_REQUEST({ data: { message: error.message } });
             return undefined;
           },
         ),

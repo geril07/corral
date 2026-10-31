@@ -257,6 +257,8 @@ const terminalNotFound = { NOT_FOUND: { data: z.object({ id: TerminalId }) } };
 const projectNotFound = { PROJECT_NOT_FOUND: { data: z.object({ id: ProjectId }) } };
 const taskNotFound = { TASK_NOT_FOUND: { data: z.object({ id: TaskId }) } };
 const sessionNotFound = { SESSION_NOT_FOUND: { data: z.object({ id: SessionId }) } };
+/** Input the wire schema accepts but a handler still refuses; `message` is shown to the user. */
+const badRequest = { BAD_REQUEST: { data: z.object({ message: z.string() }) } };
 /** A launch was refused before anything was spawned; `name` is a profile id or an env variable name, never a value. */
 const launchRefused = {
   LAUNCH_PROFILE_UNKNOWN: { data: z.object({ id: z.string() }) },
@@ -351,7 +353,7 @@ export const contract = {
      * branch keeps its name, the worktree its path, and the task its sessions.
      */
     rename: oc
-      .errors(taskNotFound)
+      .errors({ ...taskNotFound, ...badRequest })
       .input(z.object({ id: TaskId, title: z.string().trim().min(1) }))
       .output(Task),
     /**
@@ -432,10 +434,7 @@ export const contract = {
   },
   terminals: {
     list: oc.output(z.array(TerminalInfo)),
-    create: oc
-      .errors({ BAD_REQUEST: { data: z.object({ message: z.string() }) } })
-      .input(CreateTerminalInput)
-      .output(TerminalInfo),
+    create: oc.errors(badRequest).input(CreateTerminalInput).output(TerminalInfo),
     /** Kills the process if it still runs and forgets the terminal. On a session's terminal this is `sessions.stop`. */
     close: oc
       .errors(terminalNotFound)
