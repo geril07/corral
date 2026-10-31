@@ -92,12 +92,11 @@ export function NewTaskDialog({
     setExisting(null);
     setBaseBranch("");
     setImporting(false);
-    if (source !== undefined) {
-      setSource(undefined);
-      if (!titleTouched.current) {
-        titleRef.current = "";
-        setTitle("");
-      }
+    setSource(undefined);
+    // An auto title belongs to the old project; a manual title is the user's own text.
+    if (!titleTouched.current) {
+      titleRef.current = "";
+      setTitle("");
     }
   };
 
@@ -120,8 +119,9 @@ export function NewTaskDialog({
     setTitle(next);
   };
   const defaultTitle = (issueTitle: string) => {
-    // A title the user typed stays; an empty or untouched title follows the issue.
+    // A title the user typed stays; an empty, untouched or already-auto title follows the issue.
     if (titleTouched.current && titleRef.current.trim() !== "") return;
+    titleTouched.current = false;
     titleRef.current = issueTitle;
     setTitle(issueTitle);
   };

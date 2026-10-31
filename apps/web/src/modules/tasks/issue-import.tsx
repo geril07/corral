@@ -51,7 +51,9 @@ export function IssueImportSection({
   useEffect(
     () => () => {
       mounted.current = false;
-      controller.current?.abort();
+      const pending = controller.current;
+      controller.current = undefined;
+      pending?.abort();
     },
     [],
   );

@@ -36,6 +36,14 @@ const opened = async () => {
   await expect.element(dialog().getByRole("textbox", { name: "Title" })).toHaveFocus();
 };
 
+async function chooseProject(name: string) {
+  const picker = dialog().getByRole("combobox", { name: /Project/ });
+  await userEvent.click(picker);
+  await userEvent.fill(picker, name);
+  await page.getByRole("option", { name: new RegExp(name) }).click();
+  await expect.element(picker).toHaveValue(name);
+}
+
 type ResolveProjectIssue = (
   projectId: string,
   input: { url: string; provider?: "github" | "gitlab" | undefined },
@@ -378,6 +386,101 @@ test("Cancel import aborts the request and keeps the form ready to import again"
 
   await dialog().getByRole("button", { name: "Import issue" }).click();
   await expect.element(dialog().getByRole("textbox", { name: "Title" })).toHaveValue("Issue title");
+});
+
+test("an auto title does not survive a project switch after a cleared manual title", async () => {
+  const { rendered } = renderDialog(undefined, [project, otherProject]);
+  await rendered;
+  await opened();
+
+  await userEvent.fill(dialog().getByRole("textbox", { name: "Title" }), "Manual");
+  await userEvent.fill(dialog().getByRole("textbox", { name: "Title" }), "");
+  await userEvent.fill(
+    dialog().getByRole("textbox", { name: "Issue URL" }),
+    "https://github.com/acme/app/issues/7",
+  );
+  await dialog().getByRole("button", { name: "Import issue" }).click();
+  await expect.element(dialog().getByRole("textbox", { name: "Title" })).toHaveValue("Issue title");
+
+  await chooseProject(otherProject.name);
+  await expect.element(dialog().getByRole("textbox", { name: "Title" })).toHaveValue("");
+});
+
+test("an auto title does not survive a project switch after the source URL was edited away", async () => {
+  const { rendered } = renderDialog(undefined, [project, otherProject]);
+  await rendered;
+  await opened();
+
+  await userEvent.fill(
+    dialog().getByRole("textbox", { name: "Issue URL" }),
+    "https://github.com/acme/app/issues/7",
+  );
+  await dialog().getByRole("button", { name: "Import issue" }).click();
+  await expect.element(dialog().getByRole("textbox", { name: "Title" })).toHaveValue("Issue title");
+  await userEvent.fill(
+    dialog().getByRole("textbox", { name: "Issue URL" }),
+    "https://github.com/acme/app/issues/8",
+  );
+  await expect.element(dialog().getByRole("status")).not.toBeInTheDocument();
+
+  await chooseProject(otherProject.name);
+  await expect.element(dialog().getByRole("textbox", { name: "Title" })).toHaveValue("");
+});
+
+test("an unmounted import cannot clear the next project's pending state", async () => {
+  const first = Promise.withResolvers<TaskSource>();
+  const second = Promise.withResolvers<TaskSource>();
+  const onResolveIssue = vi.fn<ResolveProjectIssue>((projectId) =>
+    projectId === project.id ? first.promise : second.promise,
+  );
+  const { rendered, onCreate } = renderDialog(undefined, [project, otherProject], onResolveIssue);
+  await rendered;
+  await opened();
+
+  await userEvent.fill(
+    dialog().getByRole("textbox", { name: "Issue URL" }),
+    "https://github.com/acme/app/issues/7",
+  );
+  await dialog().getByRole("button", { name: "Import issue" }).click();
+  await expect.element(dialog().getByRole("button", { name: "Importing…" })).toBeVisible();
+
+  await chooseProject(otherProject.name);
+  await userEvent.fill(dialog().getByRole("textbox", { name: "Title" }), "Manual B");
+  await expect.element(dialog().getByRole("textbox", { name: "Title" })).toHaveValue("Manual B");
+  await userEvent.fill(
+    dialog().getByRole("textbox", { name: "Issue URL" }),
+    "https://github.com/acme/app/issues/8",
+  );
+  await dialog().getByRole("button", { name: "Import issue" }).click();
+  await expect.element(dialog().getByRole("button", { name: "Importing…" })).toBeVisible();
+
+  const secondIssue: TaskSource = {
+    ...issue,
+    number: 8,
+    url: "https://github.com/acme/app/issues/8",
+    title: "B issue",
+  };
+  expect(onResolveIssue.mock.calls.map((call) => call[0])).toEqual(["p1", "p2"]);
+  first.resolve(issue);
+  await first.promise;
+  // Let the unmounted A continuation run before checking B is still busy.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await expect.element(dialog().getByRole("button", { name: "Importing…" })).toBeVisible();
+  await expect.element(dialog().getByRole("button", { name: "Create task" })).toBeDisabled();
+
+  second.resolve(secondIssue);
+  await expect
+    .element(dialog().getByRole("status"))
+    .toMatchTextContent("Imported GitHub issue acme/app#8");
+  await dialog().getByRole("button", { name: "Create task" }).click();
+  await vi.waitFor(() =>
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith({
+      projectId: otherProject.id,
+      title: "Manual B",
+      source: secondIssue,
+      workspace: { type: "new-branch" },
+    }),
+  );
 });
 
 test("a result that arrives after switching projects is ignored", async () => {
