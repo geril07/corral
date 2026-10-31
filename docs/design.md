@@ -103,7 +103,7 @@ A task's status comes from its agent sessions (working / blocked / done / error 
 
 ## Terminal and chat
 
-Verified by research for Claude Code 2.1.316, Codex 0.166.0, pi 1.4.0, OpenCode 2.2.5 (docs and source; nothing run). All four store sessions by id and resume them from both the TUI and the programmatic mode, so switching view = stop one frontend, resume the same id in the other. What survives is the stored history; in-flight turns, pending approvals and streaming state do not.
+Verified by research for Claude Code 2.1.316, Codex 0.166.0, pi 1.4.0 and OpenCode 2.1.4 (docs and source; nothing run); 2.2.5 is the installed OpenCode, but the chat claims below were not researched again against it. All four store sessions by id and resume them from both the TUI and the programmatic mode, so switching view = stop one frontend, resume the same id in the other. What survives is the stored history; in-flight turns, pending approvals and streaming state do not.
 
 | Agent       | Session id                                                       | Chat via                     | History for the chat view                                 | Two frontends live at once                                                     |
 | ----------- | ---------------------------------------------------------------- | ---------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------ |

@@ -26,22 +26,58 @@ test("the ids we choose have the shape each agent accepts; Codex gets none", () 
 test("each agent passes the initial prompt as one argument that reads as a prompt, not as a flag or a subcommand", () => {
   const plain = "fix the failing test";
   const awkward = `-restore the "old" table\nand say why`;
-  // A first word that names one of the agent's own subcommands (`claude mcp`, `codex review`).
-  const subcommands = ["review the diff", "mcp", " -- update"];
+  // The word the prompt starts with decides: a flag-shaped word, or the name of one of the agent's
+  // own subcommands (`claude mcp`, `codex review`). `-- update` is the literal the review probed.
+  const cases: [prompt: string, argv: Record<AgentKind, string[]>][] = [
+    [
+      plain,
+      { claude: [` ${plain}`], codex: ["--", plain], pi: [plain], opencode: ["--prompt", plain] },
+    ],
+    [
+      awkward,
+      {
+        claude: [` ${awkward}`],
+        codex: ["--", awkward],
+        pi: ["--", awkward],
+        opencode: [`--prompt=${awkward}`],
+      },
+    ],
+    [
+      "review the diff",
+      {
+        claude: [" review the diff"],
+        codex: ["--", "review the diff"],
+        pi: ["review the diff"],
+        opencode: ["--prompt", "review the diff"],
+      },
+    ],
+    ["mcp", { claude: [" mcp"], codex: ["--", "mcp"], pi: ["mcp"], opencode: ["--prompt", "mcp"] }],
+    [
+      " -- update",
+      {
+        claude: ["  -- update"],
+        codex: ["--", " -- update"],
+        pi: [" -- update"],
+        opencode: ["--prompt", " -- update"],
+      },
+    ],
+    [
+      "-- update",
+      {
+        claude: [" -- update"],
+        codex: ["--", "-- update"],
+        pi: ["--", "-- update"],
+        opencode: ["--prompt=-- update"],
+      },
+    ],
+  ];
 
-  for (const prompt of [plain, awkward, ...subcommands]) {
-    // Both positionals would dispatch this word as a subcommand, so Claude Code gets a leading
-    // space (its `--` still leaves the word as the first operand) and Codex always gets `--`.
-    expect(AGENTS.claude.promptArgs(prompt)).toEqual([` ${prompt}`]);
-    expect(AGENTS.codex.promptArgs(prompt)).toEqual(["--", prompt]);
+  // Codex always gets `--`, where clap reads every later word as the positional. Claude Code always
+  // gets a leading space: its `--` still leaves the word as the first operand, which it dispatches.
+  for (const [prompt, argv] of cases) {
+    for (const kind of AgentKind.options)
+      expect(AGENTS[kind].promptArgs(prompt)).toEqual(argv[kind]);
   }
-
-  for (const prompt of [plain, ...subcommands]) {
-    expect(AGENTS.pi.promptArgs(prompt)).toEqual([prompt]);
-    expect(AGENTS.opencode.promptArgs(prompt)).toEqual(["--prompt", prompt]);
-  }
-  expect(AGENTS.pi.promptArgs(awkward)).toEqual(["--", awkward]);
-  expect(AGENTS.opencode.promptArgs(awkward)).toEqual([`--prompt=${awkward}`]);
 });
 
 test("a pi prompt starting with @ stays a message instead of a file to include", () => {
