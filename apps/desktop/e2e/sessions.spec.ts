@@ -5,6 +5,7 @@ import {
   createTask,
   openedWindow,
   screenText,
+  unwrappedScreenText,
   workspace,
 } from "./app-helpers.ts";
 import { isAlive, readEndpoint, readLaunches, test } from "./fixtures.ts";
@@ -34,7 +35,7 @@ test("an agent session is started, stopped and restarted, and a running one come
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
   await window.keyboard.type("first-prompt");
   await window.keyboard.press("Enter");
-  await expect.poll(() => screenText(window)).toContain("fake claude got: first-prompt");
+  await expect.poll(() => unwrappedScreenText(window)).toContain("fake claude got: first-prompt");
 
   const started = readLaunches(stateDir).find((launch) => launch.agent === "claude");
   const claudeId = started?.argv[1];
@@ -104,5 +105,7 @@ test("an agent session is started, stopped and restarted, and a running one come
   // The restored agent is live: it answers.
   await secondWindow.keyboard.type("after-restart");
   await secondWindow.keyboard.press("Enter");
-  await expect.poll(() => screenText(secondWindow)).toContain("fake claude got: after-restart");
+  await expect
+    .poll(() => unwrappedScreenText(secondWindow))
+    .toContain("fake claude got: after-restart");
 });

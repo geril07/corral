@@ -12,6 +12,14 @@ export async function openedWindow(app: ElectronApplication) {
 // The test hook of apps/web/src/screen-text-hook.ts: the WebGL renderer leaves no text in the DOM.
 export const screenText = (page: Page) =>
   page.evaluate<string>("window.corralScreenText?.() ?? ''");
+
+/**
+ * The visible text without the line breaks a terminal inserts when a line wraps. The first fit can
+ * be narrow before the pane is laid out, so an echo of a known line may arrive wrapped; the text
+ * itself is what a test asserts.
+ */
+export const unwrappedScreenText = (page: Page) =>
+  screenText(page).then((text) => text.replaceAll("\n", ""));
 export const workspace = (page: Page) => page.getByRole("navigation", { name: "workspace" });
 
 export function git(cwd: string, ...args: string[]): string {

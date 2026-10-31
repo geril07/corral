@@ -5,6 +5,7 @@ import {
   createTask,
   openedWindow,
   screenText,
+  unwrappedScreenText,
   workspace,
 } from "./app-helpers.ts";
 import { isAlive, readLaunches, test } from "./fixtures.ts";
@@ -33,7 +34,7 @@ test("settling a task stops its agent and unsettling resumes the conversation", 
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
   await window.keyboard.type("first-prompt");
   await window.keyboard.press("Enter");
-  await expect.poll(() => screenText(window)).toContain("fake claude got: first-prompt");
+  await expect.poll(() => unwrappedScreenText(window)).toContain("fake claude got: first-prompt");
   const claudeLaunches = () => readLaunches(stateDir).filter((launch) => launch.agent === "claude");
   const [started] = claudeLaunches();
   const claudeId = started?.argv[1];

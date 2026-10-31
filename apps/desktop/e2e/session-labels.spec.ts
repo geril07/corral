@@ -7,6 +7,7 @@ import {
   createTask,
   openedWindow,
   screenText,
+  unwrappedScreenText,
   workspace,
 } from "./app-helpers.ts";
 import { isAlive, readEndpoint, readLaunches, test } from "./fixtures.ts";
@@ -46,7 +47,7 @@ test("a renamed task session keeps its name, its process and its conversation ac
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
   await window.keyboard.type("first-prompt");
   await window.keyboard.press("Enter");
-  await expect.poll(() => screenText(window)).toContain("fake claude got: first-prompt");
+  await expect.poll(() => unwrappedScreenText(window)).toContain("fake claude got: first-prompt");
   const started = readLaunches(stateDir).find((launch) => launch.agent === "claude");
 
   // Renaming changes the name only: the same process, still on the same conversation.
@@ -54,7 +55,7 @@ test("a renamed task session keeps its name, its process and its conversation ac
   await expect(row(window, "reviewer")).toHaveAttribute("aria-current", "true");
   await expect(row(window, "shell")).toBeVisible();
   expect(readLaunches(stateDir).filter((launch) => launch.agent === "claude")).toHaveLength(1);
-  await expect.poll(() => screenText(window)).toContain("fake claude got: first-prompt");
+  await expect.poll(() => unwrappedScreenText(window)).toContain("fake claude got: first-prompt");
 
   mkdirSync(EVIDENCE, { recursive: true });
   await window.screenshot({ path: path.join(EVIDENCE, "task-session-rename.png") });
