@@ -6,10 +6,12 @@ import type { AgentAdapter } from "./agent-adapter.ts";
  * call. Ids are letters, digits, `.`, `_` and `-`, starting and ending with a letter or digit;
  * a UUID is pi's own default.
  *
- * pi 1.4.0 prompts with `[--] [messages...]`. A positional that starts with `@` is a file to
- * include (`@path`, resolved from the cwd) even after `--`, and a file that is not there ends the
- * run, so such a prompt gets one leading space: the words are unchanged and pi reads them as a
- * message. A prompt that starts with `-` needs `--`, which pi documents for exactly that.
+ * pi 1.4.0 prompts with `[--] [messages...]`. Our first argument is always a flag (`--session-id`,
+ * or `--provider`/`--model`), so a prompt can never be read as one of pi's subcommands, and only
+ * its first character matters: a positional that starts with `@` is a file to include (`@path`,
+ * resolved from the cwd) even after `--`, and a file that is not there ends the run, so such a
+ * prompt gets one leading space: the words are unchanged and pi reads them as a message. A prompt
+ * that starts with `-` needs `--`, which pi documents for exactly that.
  */
 export const pi: AgentAdapter = {
   command: "pi",

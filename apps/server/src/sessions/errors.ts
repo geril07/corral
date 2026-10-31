@@ -70,6 +70,13 @@ export class LaunchModelInvalidError extends Error {
   }
 }
 
+/** A shell runs no agent, so there is nothing to put a prompt into. */
+export class ShellPromptError extends Error {
+  constructor() {
+    super("a shell session takes no prompt");
+  }
+}
+
 /**
  * A failure outside the launch contract (node-pty could not spawn, a resource limit). The
  * diagnostic is already redacted against the launch's referenced values; the message shown to

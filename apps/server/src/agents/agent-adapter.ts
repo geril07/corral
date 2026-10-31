@@ -10,8 +10,9 @@ export interface AgentAdapter {
   startArgs(agentSessionId: string | null): string[];
   resumeArgs(agentSessionId: string): string[];
   /**
-   * The prompt a first start hands to the agent's TUI, as argv words: one word, never a shell.
-   * Only the first start passes it, so a resumed session never repeats the work.
+   * The prompt a first start hands to the agent's TUI, as argv words: one word, never a shell, and
+   * shaped so the agent reads it as a prompt and not as a flag or one of its own subcommands.
+   * A launch that resumes a conversation drops it.
    */
   promptArgs(prompt: string): string[];
   /**

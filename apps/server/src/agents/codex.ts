@@ -3,8 +3,10 @@ import type { AgentAdapter } from "./agent-adapter.ts";
 /**
  * Codex cannot be given an id; the server learns it afterwards (`codex-sessions.ts`).
  *
- * codex 0.166.0 prompts with the top-level `[PROMPT]` positional; its option parser (clap) ends
- * options at `--`, so a prompt that starts with `-` follows it.
+ * codex 0.166.0 prompts with the top-level `[PROMPT]` positional, but its parser (clap) dispatches
+ * the first operand as a subcommand (`codex review …` runs `codex review`), so the prompt always
+ * follows `--`: clap then reads every later word as a positional. That also covers a prompt whose
+ * first word looks like a flag.
  */
 export const codex: AgentAdapter = {
   command: "codex",
@@ -16,5 +18,5 @@ export const codex: AgentAdapter = {
   ],
   startArgs: () => [],
   resumeArgs: (id) => ["resume", id],
-  promptArgs: (prompt) => (prompt.startsWith("-") ? ["--", prompt] : [prompt]),
+  promptArgs: (prompt) => ["--", prompt],
 };

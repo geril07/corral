@@ -36,6 +36,7 @@ import {
   LaunchProfileUnknownError,
   LaunchSpawnError,
   SessionNotFoundError,
+  ShellPromptError,
 } from "./errors.ts";
 import { launchDiagnostic, launchFailureReason, redactLaunchError } from "./launch-diagnostics.ts";
 import { launchSnapshotFor } from "./launch-snapshot.ts";
@@ -132,8 +133,7 @@ export class SessionService {
         createdAt: Date.now(),
         launch,
       };
-      const prompt =
-        choice.prompt === undefined || choice.prompt.trim() === "" ? null : choice.prompt;
+      const prompt = this.#promptFor(kind, choice.prompt);
       this.#launch(stored, task, size, "start", prompt);
       this.#store.insert(stored);
       this.#changes.notify();
@@ -141,14 +141,24 @@ export class SessionService {
     });
   }
 
-  restart(id: string, size: TerminalSize): Promise<Session> {
+  /**
+   * Starts a stopped session again. `prompt` is used only when the agent has no conversation to
+   * resume and starts one instead — Claude Code that failed before writing its transcript — so the
+   * caller decides whether to hand it over again; a real resume drops it.
+   */
+  restart(
+    id: string,
+    size: TerminalSize,
+    choice: { prompt?: string | undefined } = {},
+  ): Promise<Session> {
     return this.#queue.run(async () => {
       const stored = this.#stored(id);
       if (stored.state === "running") throw new AlreadyRunningError(id);
+      const prompt = this.#promptFor(stored.kind, choice.prompt);
       // The exited terminal of a session that stopped by itself stays listed until now.
       const previous = this.#live.get(id);
       try {
-        this.#launch(stored, this.#task(stored.taskId), size, "resume");
+        this.#launch(stored, this.#task(stored.taskId), size, "resume", prompt);
       } catch (error) {
         const reason = launchFailureReason(error);
         this.#launchErrors.set(id, reason);
@@ -330,9 +340,22 @@ export class SessionService {
   }
 
   /**
+   * The prompt a caller asked for, or `null`. A shell runs no agent, so it takes none: dropping
+   * one silently would lose the user's words without a trace.
+   */
+  #promptFor(kind: SessionKind, prompt: string | undefined): string | null {
+    if (prompt === undefined || prompt.trim() === "") return null;
+    if (kind === "shell") throw new ShellPromptError();
+    return prompt;
+  }
+
+  /**
    * Spawns the session's process in a new terminal; throws, changing nothing, when it cannot.
-   * `prompt` is set only for the first start of an agent session; every later launch resumes the
-   * conversation without it, or the agent would redo work it has already done.
+   * `prompt` is a candidate initial prompt, used only when this launch starts a conversation: the
+   * first start, or a start under the same id that falls back here because the conversation was
+   * never written (Claude Code that failed before its transcript). A resume of an existing
+   * conversation drops it, or the agent would redo the work. Nothing stores the prompt text, so
+   * whether to pass it again after such a fallback is the caller's decision.
    */
   #launch(
     stored: StoredSession,
@@ -372,9 +395,8 @@ export class SessionService {
       let args = [
         ...adapter.launchArgs(stored.launch?.model ?? null, stored.launch?.provider ?? null),
         ...(resumable ? adapter.resumeArgs(id) : adapter.startArgs(id)),
-        // A start under the same id that falls back here (Claude Code without a transcript) had
-        // no prompt either: a start that got one has a transcript.
-        ...(how === "start" && prompt !== null ? adapter.promptArgs(prompt) : []),
+        // A fallback start is a new conversation under the same id; only it may carry the prompt.
+        ...(prompt !== null && !resumable ? adapter.promptArgs(prompt) : []),
       ];
       if (stored.kind === "opencode") {
         const plugin = this.#openCode.launch(env);

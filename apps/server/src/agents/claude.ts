@@ -32,8 +32,11 @@ function hasTranscript(agentSessionId: string, env: NodeJS.ProcessEnv): boolean 
 /**
  * `--session-id` takes a UUID and starts the conversation under it; `--resume` continues it.
  *
- * claude 2.1.316 prompts with the `[prompt]` positional. Its option parser (commander) ends
- * options at `--`, so a prompt that starts with `-` follows it.
+ * claude 2.1.316 prompts with the `[prompt]` positional. Its option parser (commander) dispatches
+ * the first operand as a subcommand (`claude mcp --help` runs `claude mcp`), so a prompt whose
+ * first word is one would run that subcommand, and `--` does not help: commander keeps the words
+ * after `--` as operands and dispatches on those too. One leading space keeps the word out of both
+ * roles — it is no option, and it matches no subcommand name — for `-x` and `mcp` alike.
  */
 export const claude: AgentAdapter = {
   command: "claude",
@@ -42,6 +45,6 @@ export const claude: AgentAdapter = {
   launchArgs: (model) => (model === null ? [] : ["--model", model]),
   startArgs: (id) => (id === null ? [] : ["--session-id", id]),
   resumeArgs: (id) => ["--resume", id],
-  promptArgs: (prompt) => (prompt.startsWith("-") ? ["--", prompt] : [prompt]),
+  promptArgs: (prompt) => [` ${prompt}`],
   hasConversation: hasTranscript,
 };

@@ -88,12 +88,12 @@ test("the prompt is the first start's argument, and a restart, a settle-and-cont
   expect((await launchesOf(agents, "claude", 1))[0]!.argv).toEqual([
     "--session-id",
     id,
-    "--",
-    PROMPT,
+    ` ${PROMPT}`,
   ]);
 
+  // The caller may offer the prompt again; a resume has a conversation, so it is dropped.
   await sessions.stop(session.id);
-  await sessions.restart(session.id, SIZE);
+  await sessions.restart(session.id, SIZE, { prompt: PROMPT });
   expect((await launchesOf(agents, "claude", 2))[1]!.argv).toEqual(["--resume", id]);
 
   await sessions.suspendAllIn(TASK_ID);
@@ -109,21 +109,42 @@ test("the prompt is the first start's argument, and a restart, a settle-and-cont
   expect((await launchesOf(agents, "claude", 4))[3]!.argv).toEqual(["--resume", id]);
 });
 
-test("a Claude start without a transcript falls back to a new conversation under the same id, without the prompt", async () => {
+test("a Claude session that never wrote its transcript starts a new conversation on restart, with the prompt the caller offers", async () => {
   const session = await sessions.start(TASK_ID, "claude", SIZE, { prompt: PROMPT });
+  const id = session.agentSessionId;
   expect((await launchesOf(agents, "claude", 1))[0]!.argv).toEqual([
     "--session-id",
-    session.agentSessionId,
-    "--",
-    PROMPT,
+    id,
+    ` ${PROMPT}`,
   ]);
-
-  await sessions.stop(session.id);
-  await sessions.restart(session.id, SIZE);
 
   // The fake never wrote a transcript, so `hasConversation` is false and the start flags come back.
-  expect((await launchesOf(agents, "claude", 2))[1]!.argv).toEqual([
+  await sessions.stop(session.id);
+  await sessions.restart(session.id, SIZE);
+  expect((await launchesOf(agents, "claude", 2))[1]!.argv).toEqual(["--session-id", id]);
+
+  // Nothing stored the prompt: a fallback start carries it only when the caller brings it.
+  await sessions.stop(session.id);
+  await sessions.restart(session.id, SIZE, { prompt: "-run the tests first" });
+  expect((await launchesOf(agents, "claude", 3))[2]!.argv).toEqual([
     "--session-id",
-    session.agentSessionId,
+    id,
+    " -run the tests first",
   ]);
+});
+
+test("a shell session rejects a prompt instead of dropping it", async () => {
+  vi.stubEnv("SHELL", "/bin/sh");
+  await expect(sessions.start(TASK_ID, "shell", SIZE, { prompt: PROMPT })).rejects.toThrow(
+    "a shell session takes no prompt",
+  );
+  expect(sessions.list()).toEqual([]);
+
+  const shell = await sessions.start(TASK_ID, "shell", SIZE);
+  await sessions.stop(shell.id);
+  await expect(sessions.restart(shell.id, SIZE, { prompt: PROMPT })).rejects.toThrow(
+    "a shell session takes no prompt",
+  );
+  expect(sessions.list().map((stored) => stored.state)).toEqual(["stopped"]);
+  expect(await agents.launches()).toEqual([]);
 });

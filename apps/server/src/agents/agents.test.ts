@@ -23,16 +23,23 @@ test("the ids we choose have the shape each agent accepts; Codex gets none", () 
   expect(AGENTS.codex.newSessionId()).toBeNull();
 });
 
-test("each agent passes the initial prompt as one argument, never as a flag", () => {
+test("each agent passes the initial prompt as one argument that reads as a prompt, not as a flag or a subcommand", () => {
   const plain = "fix the failing test";
   const awkward = `-restore the "old" table\nand say why`;
-  expect(AGENTS.claude.promptArgs(plain)).toEqual([plain]);
-  expect(AGENTS.codex.promptArgs(plain)).toEqual([plain]);
-  expect(AGENTS.pi.promptArgs(plain)).toEqual([plain]);
-  expect(AGENTS.opencode.promptArgs(plain)).toEqual(["--prompt", plain]);
+  // A first word that names one of the agent's own subcommands (`claude mcp`, `codex review`).
+  const subcommands = ["review the diff", "mcp", " -- update"];
 
-  expect(AGENTS.claude.promptArgs(awkward)).toEqual(["--", awkward]);
-  expect(AGENTS.codex.promptArgs(awkward)).toEqual(["--", awkward]);
+  for (const prompt of [plain, awkward, ...subcommands]) {
+    // Both positionals would dispatch this word as a subcommand, so Claude Code gets a leading
+    // space (its `--` still leaves the word as the first operand) and Codex always gets `--`.
+    expect(AGENTS.claude.promptArgs(prompt)).toEqual([` ${prompt}`]);
+    expect(AGENTS.codex.promptArgs(prompt)).toEqual(["--", prompt]);
+  }
+
+  for (const prompt of [plain, ...subcommands]) {
+    expect(AGENTS.pi.promptArgs(prompt)).toEqual([prompt]);
+    expect(AGENTS.opencode.promptArgs(prompt)).toEqual(["--prompt", prompt]);
+  }
   expect(AGENTS.pi.promptArgs(awkward)).toEqual(["--", awkward]);
   expect(AGENTS.opencode.promptArgs(awkward)).toEqual([`--prompt=${awkward}`]);
 });
