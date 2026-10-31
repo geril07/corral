@@ -49,7 +49,7 @@ Conflicts are expected and mechanical: most slices touch `packages/protocol/src/
 
 **Goal.** New worktrees live at `<worktree root>/<repo>/<slug>` and new branches are `<branch prefix><slug>` (`design.md`, **Domain model → Task**).
 
-**Where.** `apps/server/src/tasks/task-service.ts` (`#freeWorktreePath`, `#worktreesDir`), `apps/server/src/tasks/worktree-plan.ts`, `apps/server/src/git/names.ts`.
+**Where.** `apps/server/src/tasks/task-service.ts` (`#freeWorktreePath`), `apps/server/src/tasks/task-settings.ts` (the settings source), `apps/server/src/tasks/worktree-plan.ts`, `apps/server/src/git/names.ts`.
 
 **Rules.**
 
