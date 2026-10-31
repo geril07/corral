@@ -10,6 +10,11 @@ export interface AgentAdapter {
   startArgs(agentSessionId: string | null): string[];
   resumeArgs(agentSessionId: string): string[];
   /**
+   * The prompt a first start hands to the agent's TUI, as argv words: one word, never a shell.
+   * Only the first start passes it, so a resumed session never repeats the work.
+   */
+  promptArgs(prompt: string): string[];
+  /**
    * For an agent whose resume fails on an id that has no history yet, which is what a session
    * that never got a prompt is: whether `agentSessionId` can be resumed. When it cannot, the
    * session starts again under the same id. Absent for agents that create a missing session.

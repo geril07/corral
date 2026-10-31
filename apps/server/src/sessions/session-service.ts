@@ -109,6 +109,8 @@ export class SessionService {
       profileId?: string | undefined;
       expectedProfileRevision?: string | undefined;
       model?: string | undefined;
+      /** What the agent's TUI starts working on; this first launch is the only one that gets it. */
+      prompt?: string | undefined;
     } = {},
   ): Promise<Session> {
     return this.#queue.run(async () => {
@@ -130,7 +132,9 @@ export class SessionService {
         createdAt: Date.now(),
         launch,
       };
-      this.#launch(stored, task, size, "start");
+      const prompt =
+        choice.prompt === undefined || choice.prompt.trim() === "" ? null : choice.prompt;
+      this.#launch(stored, task, size, "start", prompt);
       this.#store.insert(stored);
       this.#changes.notify();
       return this.#withTerminal(stored);
@@ -325,8 +329,18 @@ export class SessionService {
     return profile;
   }
 
-  /** Spawns the session's process in a new terminal; throws, changing nothing, when it cannot. */
-  #launch(stored: StoredSession, task: Task, size: TerminalSize, how: "start" | "resume"): void {
+  /**
+   * Spawns the session's process in a new terminal; throws, changing nothing, when it cannot.
+   * `prompt` is set only for the first start of an agent session; every later launch resumes the
+   * conversation without it, or the agent would redo work it has already done.
+   */
+  #launch(
+    stored: StoredSession,
+    task: Task,
+    size: TerminalSize,
+    how: "start" | "resume",
+    prompt: string | null = null,
+  ): void {
     const adapter = stored.kind === "shell" ? undefined : AGENTS[stored.kind];
     const statusToken = newStatusToken();
     // One effective environment for the spawn, the executable check, transcript/rollout discovery
@@ -358,6 +372,9 @@ export class SessionService {
       let args = [
         ...adapter.launchArgs(stored.launch?.model ?? null, stored.launch?.provider ?? null),
         ...(resumable ? adapter.resumeArgs(id) : adapter.startArgs(id)),
+        // A start under the same id that falls back here (Claude Code without a transcript) had
+        // no prompt either: a start that got one has a transcript.
+        ...(how === "start" && prompt !== null ? adapter.promptArgs(prompt) : []),
       ];
       if (stored.kind === "opencode") {
         const plugin = this.#openCode.launch(env);

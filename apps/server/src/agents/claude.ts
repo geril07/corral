@@ -29,7 +29,12 @@ function hasTranscript(agentSessionId: string, env: NodeJS.ProcessEnv): boolean 
   );
 }
 
-/** `--session-id` takes a UUID and starts the conversation under it; `--resume` continues it. */
+/**
+ * `--session-id` takes a UUID and starts the conversation under it; `--resume` continues it.
+ *
+ * claude 2.1.316 prompts with the `[prompt]` positional. Its option parser (commander) ends
+ * options at `--`, so a prompt that starts with `-` follows it.
+ */
 export const claude: AgentAdapter = {
   command: "claude",
   newSessionId: randomUUID,
@@ -37,5 +42,6 @@ export const claude: AgentAdapter = {
   launchArgs: (model) => (model === null ? [] : ["--model", model]),
   startArgs: (id) => (id === null ? [] : ["--session-id", id]),
   resumeArgs: (id) => ["--resume", id],
+  promptArgs: (prompt) => (prompt.startsWith("-") ? ["--", prompt] : [prompt]),
   hasConversation: hasTranscript,
 };

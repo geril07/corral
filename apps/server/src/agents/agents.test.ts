@@ -23,6 +23,26 @@ test("the ids we choose have the shape each agent accepts; Codex gets none", () 
   expect(AGENTS.codex.newSessionId()).toBeNull();
 });
 
+test("each agent passes the initial prompt as one argument, never as a flag", () => {
+  const plain = "fix the failing test";
+  const awkward = `-restore the "old" table\nand say why`;
+  expect(AGENTS.claude.promptArgs(plain)).toEqual([plain]);
+  expect(AGENTS.codex.promptArgs(plain)).toEqual([plain]);
+  expect(AGENTS.pi.promptArgs(plain)).toEqual([plain]);
+  expect(AGENTS.opencode.promptArgs(plain)).toEqual(["--prompt", plain]);
+
+  expect(AGENTS.claude.promptArgs(awkward)).toEqual(["--", awkward]);
+  expect(AGENTS.codex.promptArgs(awkward)).toEqual(["--", awkward]);
+  expect(AGENTS.pi.promptArgs(awkward)).toEqual(["--", awkward]);
+  expect(AGENTS.opencode.promptArgs(awkward)).toEqual([`--prompt=${awkward}`]);
+});
+
+test("a pi prompt starting with @ stays a message instead of a file to include", () => {
+  const prompt = "@README.md is stale\nupdate it";
+  // One leading space is what keeps pi from reading the first word as `@path`.
+  expect(AGENTS.pi.promptArgs(prompt)).toEqual([` ${prompt}`]);
+});
+
 test("every agent kind has an adapter that runs the command named after it", () => {
   for (const kind of AgentKind.options) expect(AGENTS[kind].command).toBe(kind);
 });

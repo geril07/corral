@@ -13,12 +13,18 @@ export function newOpenCodeSessionId(): string {
   return `ses_${random}`;
 }
 
-/** `--session` continues the session, or creates it when missing, so start and resume are the same call. */
+/**
+ * `--session` continues the session, or creates it when missing, so start and resume are the same call.
+ *
+ * Opencode 2.2.5 has no model or provider flag on this command; a profile is env-only. A prompt is
+ * `--prompt <text>`, and its parser reads a following word that starts with `-` as an option, so
+ * such a prompt is attached to the flag instead (`--prompt=<text>`, one argv word either way).
+ */
 export const opencode: AgentAdapter = {
   command: "opencode",
   newSessionId: newOpenCodeSessionId,
-  // OpenCode 2.1.4 has no model or provider flag on this command; a profile is env-only.
   launchArgs: () => [],
   startArgs: (id) => (id === null ? [] : ["--session", id]),
   resumeArgs: (id) => ["--session", id],
+  promptArgs: (prompt) => (prompt.startsWith("-") ? [`--prompt=${prompt}`] : ["--prompt", prompt]),
 };
