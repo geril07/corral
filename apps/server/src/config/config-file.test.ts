@@ -10,14 +10,16 @@ import * as fc from "fast-check";
 import { expect, test } from "vite-plus/test";
 import { defaultConfig, parseConfigFile } from "./config-file.ts";
 
-const defaults = defaultConfig();
+const DATA_DIR = "/data";
+const defaults = defaultConfig(DATA_DIR);
+const parseText = (text: string) => parseConfigFile(text, DATA_DIR);
 
 test("an empty file is the defaults, without problems", () => {
-  expect(parseConfigFile("")).toEqual({ config: defaults, profiles: [], problems: [] });
+  expect(parseText("")).toEqual({ config: defaults, profiles: [], problems: [] });
 });
 
 test("a file with no [keys] section is the defaults too", () => {
-  expect(parseConfigFile("# nothing here yet\n")).toEqual({
+  expect(parseText("# nothing here yet\n")).toEqual({
     config: defaults,
     profiles: [],
     problems: [],
@@ -25,28 +27,28 @@ test("a file with no [keys] section is the defaults too", () => {
 });
 
 test("a prefix entry applies over the default", () => {
-  const { config, problems } = parseConfigFile('[keys]\nprefix = "ctrl+a"\n');
+  const { config, problems } = parseText('[keys]\nprefix = "ctrl+a"\n');
 
   expect(problems).toEqual([]);
-  expect(config).toEqual({ keys: { prefix: "ctrl+a", bindings: DEFAULT_BINDINGS } });
+  expect(config).toEqual({ ...defaults, keys: { prefix: "ctrl+a", bindings: DEFAULT_BINDINGS } });
 });
 
 test("a binding applies over the default", () => {
-  const { config, problems } = parseConfigFile('[keys.bindings]\nnew-agent = "a"\n');
+  const { config, problems } = parseText('[keys.bindings]\nnew-agent = "a"\n');
 
   expect(problems).toEqual([]);
   expect(config.keys.bindings).toEqual({ ...DEFAULT_BINDINGS, "new-agent": "a" });
 });
 
 test("an empty string unbinds the action", () => {
-  const { config, problems } = parseConfigFile('[keys.bindings]\nboard = ""\n');
+  const { config, problems } = parseText('[keys.bindings]\nboard = ""\n');
 
   expect(problems).toEqual([]);
   expect(config.keys.bindings).toEqual({ ...DEFAULT_BINDINGS, board: null });
 });
 
 test("every action can be rebound; the untouched ones keep their default", () => {
-  const { config, problems } = parseConfigFile(
+  const { config, problems } = parseText(
     '[keys.bindings]\nnew-terminal = "shift+n"\ncommand-palette = "y"\n',
   );
 
@@ -59,7 +61,7 @@ test("every action can be rebound; the untouched ones keep their default", () =>
 });
 
 test("a syntax error drops the whole file but reports where it broke", () => {
-  const { config, problems } = parseConfigFile('[keys]\nprefix = \n"alt+b"\n');
+  const { config, problems } = parseText('[keys]\nprefix = \n"alt+b"\n');
 
   expect(config).toEqual(defaults);
   expect(problems).toHaveLength(1);
@@ -85,7 +87,7 @@ const rejected: [file: string, path: string, message: string][] = [
   ['[keys]\nprefix = ""\n', "keys.prefix", "empty chord"],
 ];
 test.for(rejected)("%s is rejected at %s", ([file, path, message]) => {
-  const parsed = parseConfigFile(file);
+  const parsed = parseText(file);
 
   expect(parsed.config).toEqual(defaults);
   expect(parsed.problems).toHaveLength(1);
@@ -94,7 +96,7 @@ test.for(rejected)("%s is rejected at %s", ([file, path, message]) => {
 });
 
 test("an invalid entry is dropped while its neighbours still apply", () => {
-  const { config, problems } = parseConfigFile(
+  const { config, problems } = parseText(
     '[keys]\nprefix = "alt+b"\n[keys.bindings]\nnew-agent = "not a chord"\nboard = "q"\n',
   );
 
@@ -105,7 +107,7 @@ test("an invalid entry is dropped while its neighbours still apply", () => {
 });
 
 test("a binding on the prefix chord is dropped, so the prefix keeps working", () => {
-  const { config, problems } = parseConfigFile('[keys.bindings]\nnew-agent = "alt+a"\n');
+  const { config, problems } = parseText('[keys.bindings]\nnew-agent = "alt+a"\n');
 
   expect(config.keys.prefix).toBe(DEFAULT_PREFIX);
   expect(config.keys.bindings["new-agent"]).toBe(DEFAULT_BINDINGS["new-agent"]);
@@ -119,7 +121,7 @@ test("a binding on the prefix chord is dropped, so the prefix keeps working", ()
 });
 
 test("a prefix on another action's chord falls back to the default prefix", () => {
-  const { config, problems } = parseConfigFile('[keys]\nprefix = "c"\n');
+  const { config, problems } = parseText('[keys]\nprefix = "c"\n');
 
   expect(config.keys.prefix).toBe(DEFAULT_PREFIX);
   expect(problems).toEqual([
@@ -132,7 +134,7 @@ test("a prefix on another action's chord falls back to the default prefix", () =
 });
 
 test("unbinding the action that holds the chord frees it for the prefix", () => {
-  const { config, problems } = parseConfigFile(
+  const { config, problems } = parseText(
     '[keys]\nprefix = "c"\n[keys.bindings]\nnew-terminal = ""\n',
   );
 
@@ -142,7 +144,7 @@ test("unbinding the action that holds the chord frees it for the prefix", () => 
 });
 
 test("two bindings on one chord are both dropped back to their defaults", () => {
-  const { config, problems } = parseConfigFile('[keys.bindings]\nnew-agent = "q"\nboard = "q"\n');
+  const { config, problems } = parseText('[keys.bindings]\nnew-agent = "q"\nboard = "q"\n');
 
   expect(config.keys.bindings["new-agent"]).toBe(DEFAULT_BINDINGS["new-agent"]);
   expect(config.keys.bindings["board"]).toBe(DEFAULT_BINDINGS["board"]);
@@ -161,7 +163,7 @@ test("two bindings on one chord are both dropped back to their defaults", () => 
 });
 
 test("a binding on another action's default chord is dropped", () => {
-  const { config, problems } = parseConfigFile('[keys.bindings]\nnew-agent = "c"\n');
+  const { config, problems } = parseText('[keys.bindings]\nnew-agent = "c"\n');
 
   expect(config.keys.bindings["new-agent"]).toBe(DEFAULT_BINDINGS["new-agent"]);
   expect(config.keys.bindings["new-terminal"]).toBe(DEFAULT_BINDINGS["new-terminal"]);
@@ -169,7 +171,7 @@ test("a binding on another action's default chord is dropped", () => {
 });
 
 test("a chord freed by one drop can conflict again, and that conflict drops too", () => {
-  const { config, problems } = parseConfigFile('[keys.bindings]\nnew-agent = "c"\nboard = "s"\n');
+  const { config, problems } = parseText('[keys.bindings]\nnew-agent = "c"\nboard = "s"\n');
 
   expect(config).toEqual(defaults);
   expect(problems.map((problem) => problem.path)).toEqual([
@@ -191,7 +193,7 @@ const browserChords: [file: string, path: string, warns: boolean][] = [
   ['[keys.bindings]\nnew-agent = "alt+ctrl+w"\n', "keys.bindings.new-agent", false],
 ];
 test.for(browserChords)("%s warns only about browser-owned chords", ([file, path, warns]) => {
-  const { config, problems } = parseConfigFile(file);
+  const { config, problems } = parseText(file);
 
   expect({
     warnings: problems.filter((problem) => problem.severity === "warning").map((p) => p.path),
@@ -204,7 +206,7 @@ test.for(browserChords)("%s warns only about browser-owned chords", ([file, path
 test("arbitrary text never throws and always yields a valid state", () => {
   fc.assert(
     fc.property(fc.string(), (text) => {
-      const { config, problems } = parseConfigFile(text);
+      const { config, problems } = parseText(text);
       expect(ClientConfig.safeParse(config).success).toBe(true);
       for (const problem of problems) ConfigProblem.parse(problem);
     }),
@@ -225,7 +227,7 @@ test("a binding on a chord no default uses is applied", () => {
   const freeChord = fc.constantFrom("f5", "f6", "shift+f8", "ctrl+f9", "alt+f10", "y");
   fc.assert(
     fc.property(fc.constantFrom(...ActionId.options), freeChord, (action, chord) => {
-      const { config, problems } = parseConfigFile(`[keys.bindings]\n${action} = "${chord}"\n`);
+      const { config, problems } = parseText(`[keys.bindings]\n${action} = "${chord}"\n`);
       expect(problems).toEqual([]);
       expect(config.keys.bindings[action]).toBe(chord);
       expect(parseChord(config.keys.bindings[action] ?? "")).toEqual(parseChord(chord));

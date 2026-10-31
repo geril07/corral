@@ -3,25 +3,75 @@ import {
   AgentKind,
   DEFAULT_BINDINGS,
   DEFAULT_PREFIX,
+  TaskView,
+  WorkspaceMode,
+  SlugMode,
+  defaultClientConfig,
+  defaultNamingSettings,
   type ClientConfig,
   type ConfigProblem,
   type EnvRef,
   type LaunchProfile,
+  type NamingSettings,
+  type ResolvedTaskSettings,
+  type SettingSource,
 } from "@corral/protocol/config";
 import { formatChord, parseChord, type Chord } from "@corral/protocol/keymap";
 import { createHash } from "node:crypto";
+import { isAbsolute, join, normalize, sep } from "node:path";
 import { parse as parseToml, TomlError } from "smol-toml";
-import { launchChoiceProblems } from "../agents/launch-capabilities.ts";
+import { MODEL_ID, launchChoiceProblems, supportsModel } from "../agents/launch-capabilities.ts";
 import { ENV_NAME, isReservedEnvName } from "../agents/launch-env.ts";
 
 const PREFIX_PATH = "keys.prefix";
 const BINDINGS_PATH = "keys.bindings";
 const PROFILES_PATH = "profiles";
+const TASKS_PATH = "tasks";
+const NAMING_PATH = "naming";
+const PROJECTS_PATH = "projects";
+const SECTIONS = new Set(["keys", PROFILES_PATH, TASKS_PATH, NAMING_PATH, PROJECTS_PATH]);
 const PROFILE_KEYS = new Set(["name", "agent", "model", "provider", "env"]);
 const ENV_KEYS = new Set(["targetName", "fromEnv"]);
 const PROFILE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MAX_PROFILE_NAME = 80;
 const MAX_ENV_REFS = 32;
+
+/** The keys `[tasks]` and `[projects."<path>"]` share. */
+const TASK_KEYS: ReadonlySet<string> = new Set([
+  "agent",
+  "profile",
+  "model",
+  "workspace",
+  "worktree-root",
+  "branch-prefix",
+  "slug-mode",
+  "view",
+]);
+const NAMING_KEYS: ReadonlySet<string> = new Set(["profile", "agent", "model", "timeout-seconds"]);
+
+/** One full set of task settings, before or after a layer is applied. */
+interface TaskValues {
+  agent: AgentKind | null;
+  profile: string | null;
+  model: string | null;
+  workspace: WorkspaceMode;
+  worktreeRoot: string;
+  branchPrefix: string;
+  slugMode: SlugMode;
+  view: TaskView;
+}
+
+/** The entries one table (`[tasks]` or a project's) sets; a missing key falls through. */
+type TaskLayer = { [K in keyof TaskValues]?: TaskValues[K] };
+
+interface NamingValues {
+  profile: string | null;
+  agent: AgentKind | null;
+  model: string | null;
+  timeoutSeconds: number;
+}
+
+type NamingLayer = { [K in keyof NamingValues]?: NamingValues[K] };
 
 export interface ParsedConfigFile {
   config: ClientConfig;
@@ -29,8 +79,9 @@ export interface ParsedConfigFile {
   problems: ConfigProblem[];
 }
 
-export function defaultConfig(): ClientConfig {
-  return { keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } } };
+/** The configuration before the file; the worktree root default is below the server's data dir. */
+export function defaultConfig(dataDir: string): ClientConfig {
+  return defaultClientConfig(join(dataDir, "worktrees"));
 }
 
 /** A binding the file set: a chord, or no chord (`""` unbinds the action). */
@@ -38,11 +89,12 @@ type FileBinding = { text: string; chord: Chord } | { text: null };
 
 /**
  * File text to the effective config: the defaults with every valid entry applied, and one
- * problem per rejected entry. Pure: no file access, the caller reads the text.
+ * problem per rejected entry. Pure: no file access, the caller reads the text. `dataDir` only
+ * supplies the default worktree root (`<data dir>/worktrees`).
  */
-export function parseConfigFile(text: string): ParsedConfigFile {
+export function parseConfigFile(text: string, dataDir: string): ParsedConfigFile {
   const problems: ConfigProblem[] = [];
-  const config = defaultConfig();
+  const config = defaultConfig(dataDir);
   let document: unknown;
   try {
     document = parseToml(text);
@@ -54,10 +106,15 @@ export function parseConfigFile(text: string): ParsedConfigFile {
 
   const keys = document["keys"];
   for (const key of Object.keys(document)) {
-    if (key !== "keys" && key !== "profiles")
-      problems.push(errorAt(key, `unknown section "${key}"`));
+    if (!SECTIONS.has(key)) problems.push(errorAt(key, `unknown section "${key}"`));
   }
   const profiles = validProfiles(document["profiles"], problems);
+  const profileIds = new Set(profiles.map((profile) => profile.id));
+  const tasks = taskLayer(document[TASKS_PATH], TASKS_PATH, problems, profileIds);
+  const naming = namingLayer(document[NAMING_PATH], problems, profileIds);
+  config.tasks = resolveTaskSettings(tasks, undefined, dataDir);
+  config.naming = resolvedNaming(naming);
+  config.projects = resolvedProjects(document[PROJECTS_PATH], tasks, dataDir, problems, profileIds);
   if (keys !== undefined && !isTable(keys)) {
     problems.push(errorAt("keys", `expected a table, got ${describe(keys)}`));
   } else if (keys !== undefined) {
@@ -301,6 +358,307 @@ function profileEnv(value: unknown, issues: string[]): EnvRef[] {
     refs.push({ targetName, fromEnv });
   }
   return refs;
+}
+
+/**
+ * A `[tasks]` or `[projects."<path>"]` table: every valid entry, and one problem per rejected
+ * one. A rejected entry is dropped alone, so the rest of the table still applies.
+ */
+function taskLayer(
+  value: unknown,
+  base: string,
+  problems: ConfigProblem[],
+  profileIds: ReadonlySet<string>,
+): TaskLayer {
+  if (value === undefined) return {};
+  if (!isTable(value)) {
+    problems.push(errorAt(base, `expected a table, got ${describe(value)}`));
+    return {};
+  }
+  for (const key of Object.keys(value)) {
+    if (!TASK_KEYS.has(key)) problems.push(errorAt(`${base}.${key}`, `unknown key "${key}"`));
+  }
+  const layer: TaskLayer = {};
+  const agent = choiceField(AgentKind.options, value["agent"], `${base}.agent`, problems);
+  if (agent !== undefined) layer.agent = agent;
+  const profile = profileRef(value["profile"], `${base}.profile`, problems, profileIds);
+  if (profile !== undefined) layer.profile = profile;
+  const model = modelField(value["model"], `${base}.model`, agent, problems);
+  if (model !== undefined) layer.model = model;
+  const workspace = choiceField(
+    WorkspaceMode.options,
+    value["workspace"],
+    `${base}.workspace`,
+    problems,
+  );
+  if (workspace !== undefined) layer.workspace = workspace;
+  const root = worktreeRoot(value["worktree-root"], `${base}.worktree-root`, problems);
+  if (root !== undefined) layer.worktreeRoot = root;
+  const prefix = branchPrefix(value["branch-prefix"], `${base}.branch-prefix`, problems);
+  if (prefix !== undefined) layer.branchPrefix = prefix;
+  const slugMode = choiceField(SlugMode.options, value["slug-mode"], `${base}.slug-mode`, problems);
+  if (slugMode !== undefined) layer.slugMode = slugMode;
+  const view = taskView(value["view"], `${base}.view`, problems);
+  if (view !== undefined) layer.view = view;
+  return layer;
+}
+
+/** `[naming]`: a profile or an agent and model, and how long to wait for it. */
+function namingLayer(
+  value: unknown,
+  problems: ConfigProblem[],
+  profileIds: ReadonlySet<string>,
+): NamingLayer {
+  if (value === undefined) return {};
+  if (!isTable(value)) {
+    problems.push(errorAt(NAMING_PATH, `expected a table, got ${describe(value)}`));
+    return {};
+  }
+  for (const key of Object.keys(value)) {
+    if (!NAMING_KEYS.has(key))
+      problems.push(errorAt(`${NAMING_PATH}.${key}`, `unknown key "${key}"`));
+  }
+  const layer: NamingLayer = {};
+  const profile = profileRef(value["profile"], `${NAMING_PATH}.profile`, problems, profileIds);
+  if (profile !== undefined) layer.profile = profile;
+  const agent = choiceField(AgentKind.options, value["agent"], `${NAMING_PATH}.agent`, problems);
+  if (agent !== undefined) layer.agent = agent;
+  const model = modelField(value["model"], `${NAMING_PATH}.model`, agent, problems);
+  if (model !== undefined) {
+    // Unlike `[tasks]`, naming runs unattended: a model nobody names an agent or profile for
+    // would never be used, so it is a problem of its own.
+    if (agent === undefined && profile === undefined) {
+      problems.push(
+        errorAt(`${NAMING_PATH}.model`, "naming needs a profile or an agent to use that model"),
+      );
+    } else {
+      layer.model = model;
+    }
+  }
+  const timeout = timeoutSeconds(
+    value["timeout-seconds"],
+    `${NAMING_PATH}.timeout-seconds`,
+    problems,
+  );
+  if (timeout !== undefined) layer.timeoutSeconds = timeout;
+  return layer;
+}
+
+/** Each configured project's table, resolved against `[tasks]`. Keys match `Project.path`. */
+function resolvedProjects(
+  value: unknown,
+  global: TaskLayer,
+  dataDir: string,
+  problems: ConfigProblem[],
+  profileIds: ReadonlySet<string>,
+): Record<string, ResolvedTaskSettings> {
+  if (value === undefined) return {};
+  if (!isTable(value)) {
+    problems.push(errorAt(PROJECTS_PATH, `expected a table, got ${describe(value)}`));
+    return {};
+  }
+  const projects: Record<string, ResolvedTaskSettings> = {};
+  for (const [path, entry] of Object.entries(value)) {
+    const base = `${PROJECTS_PATH}."${path}"`;
+    const pathProblem = projectPathProblem(path);
+    if (pathProblem !== undefined) {
+      problems.push(errorAt(base, pathProblem));
+      continue;
+    }
+    if (!isTable(entry)) {
+      problems.push(errorAt(base, `expected a table, got ${describe(entry)}`));
+      continue;
+    }
+    projects[path] = resolveTaskSettings(
+      global,
+      taskLayer(entry, base, problems, profileIds),
+      dataDir,
+    );
+  }
+  return projects;
+}
+
+/**
+ * Decision 17's resolution for one project: built-in default, then `[tasks]`, then the
+ * project's own table. The result says which layer each value came from, so no client has to
+ * look it up.
+ */
+export function resolveTaskSettings(
+  global: TaskLayer,
+  project: TaskLayer | undefined,
+  dataDir: string,
+): ResolvedTaskSettings {
+  const builtin: TaskValues = {
+    agent: null,
+    profile: null,
+    model: null,
+    workspace: "main-worktree",
+    worktreeRoot: join(dataDir, "worktrees"),
+    branchPrefix: "",
+    slugMode: "title",
+    view: "terminal",
+  };
+  const resolved = <K extends keyof TaskValues>(key: K) => {
+    const source: SettingSource =
+      project?.[key] !== undefined ? "project" : global[key] !== undefined ? "global" : "default";
+    return { value: project?.[key] ?? global[key] ?? builtin[key], source };
+  };
+  return {
+    agent: resolved("agent"),
+    profile: resolved("profile"),
+    model: resolved("model"),
+    workspace: resolved("workspace"),
+    worktreeRoot: resolved("worktreeRoot"),
+    branchPrefix: resolved("branchPrefix"),
+    slugMode: resolved("slugMode"),
+    view: resolved("view"),
+  };
+}
+
+/** `[naming]` has no per-project layer, so a value is either the built-in default or the file's. */
+function resolvedNaming(layer: NamingLayer): NamingSettings {
+  const defaults = defaultNamingSettings();
+  const resolved = <K extends keyof NamingValues>(key: K) => {
+    const applied = layer[key];
+    if (applied === undefined) return defaults[key];
+    const source: SettingSource = "global";
+    return { value: applied, source };
+  };
+  return {
+    profile: resolved("profile"),
+    agent: resolved("agent"),
+    model: resolved("model"),
+    timeoutSeconds: resolved("timeoutSeconds"),
+  };
+}
+
+function choiceField<T extends string>(
+  options: readonly T[],
+  value: unknown,
+  path: string,
+  problems: ConfigProblem[],
+): T | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    problems.push(errorAt(path, `expected a string, got ${describe(value)}`));
+    return undefined;
+  }
+  const match = options.find((option) => option === value);
+  if (match === undefined) {
+    problems.push(errorAt(path, `must be one of ${options.join(", ")}`));
+    return undefined;
+  }
+  return match;
+}
+
+/** Only the terminal view exists in stage A; `chat` is named here so its problem reads as such. */
+function taskView(value: unknown, path: string, problems: ConfigProblem[]): TaskView | undefined {
+  const view = choiceField(TaskView.options, value, path, problems);
+  if (view === "chat") {
+    problems.push(
+      errorAt(path, "the chat view arrives with stage B; a task opens in the terminal"),
+    );
+    return undefined;
+  }
+  return view;
+}
+
+/** A profile a setting may name: a profile that is in the file and valid, so a launch can use it. */
+function profileRef(
+  value: unknown,
+  path: string,
+  problems: ConfigProblem[],
+  profileIds: ReadonlySet<string>,
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    problems.push(errorAt(path, `expected a string, got ${describe(value)}`));
+    return undefined;
+  }
+  if (!profileIds.has(value)) {
+    problems.push(errorAt(path, `there is no valid profile with id "${value}"`));
+    return undefined;
+  }
+  return value;
+}
+
+/** A model is validated against the agent of its own table; alone it only has to be a model id. */
+function modelField(
+  value: unknown,
+  path: string,
+  agent: AgentKind | undefined,
+  problems: ConfigProblem[],
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    problems.push(errorAt(path, `expected a string, got ${describe(value)}`));
+    return undefined;
+  }
+  const issues =
+    agent === undefined || supportsModel(agent)
+      ? MODEL_ID.test(value)
+        ? []
+        : ["the model is not a valid native model id (letters, digits, . _ : / @ + -)"]
+      : [`${agent} has no model flag on its launch command`];
+  for (const issue of issues) problems.push(errorAt(path, issue));
+  return issues.length === 0 ? value : undefined;
+}
+
+/** An absolute path, or one under `~`; the server expands `~` when it creates a worktree there. */
+function worktreeRoot(value: unknown, path: string, problems: ConfigProblem[]): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    problems.push(errorAt(path, `expected a string, got ${describe(value)}`));
+    return undefined;
+  }
+  if (value.startsWith("~/") || isAbsolute(value)) return value;
+  problems.push(errorAt(path, "the worktree root must be an absolute path or start with ~/"));
+  return undefined;
+}
+
+/** A prefix `<branch-prefix><slug>` has to stay usable as a branch name. */
+function branchPrefix(value: unknown, path: string, problems: ConfigProblem[]): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    problems.push(errorAt(path, `expected a string, got ${describe(value)}`));
+    return undefined;
+  }
+  const problem = branchPrefixProblem(value);
+  if (problem !== undefined) {
+    problems.push(errorAt(path, problem));
+    return undefined;
+  }
+  return value;
+}
+
+function branchPrefixProblem(prefix: string): string | undefined {
+  // oxlint-disable-next-line no-control-regex -- rejecting control characters is the point
+  if (/[\s\u0000-\u001f\u007f~^:?*[\\]/.test(prefix))
+    return "a branch prefix may not hold whitespace or any of ~ ^ : ? * [ \\";
+  if (prefix.includes("..") || prefix.includes("//") || prefix.includes("@{"))
+    return 'a branch prefix may not hold "..", "//" or "@{"';
+  if (/^[/.-]/.test(prefix)) return "a branch prefix may not start with /, . or -";
+  return undefined;
+}
+
+function timeoutSeconds(
+  value: unknown,
+  path: string,
+  problems: ConfigProblem[],
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    problems.push(errorAt(path, "the timeout must be a whole number of seconds, at least 1"));
+    return undefined;
+  }
+  return value;
+}
+
+function projectPathProblem(path: string): string | undefined {
+  if (!isAbsolute(path)) return "a project key must be an absolute repository path";
+  if (path.endsWith(sep) || normalize(path) !== path)
+    return "a project key must match the added path exactly, without a trailing separator or . and .. segments";
+  return undefined;
 }
 
 function profileRevision(profile: Omit<LaunchProfile, "revision">): string {

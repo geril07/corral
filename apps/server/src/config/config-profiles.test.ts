@@ -2,10 +2,12 @@ import { DEFAULT_BINDINGS, DEFAULT_PREFIX } from "@corral/protocol/config";
 import { expect, test } from "vite-plus/test";
 import { defaultConfig, parseConfigFile } from "./config-file.ts";
 
-const defaults = defaultConfig();
+const DATA_DIR = "/data";
+const defaults = defaultConfig(DATA_DIR);
+const parseText = (text: string) => parseConfigFile(text, DATA_DIR);
 
 function onlyProfile(text: string) {
-  const parsed = parseConfigFile(text);
+  const parsed = parseText(text);
   expect(parsed.problems).toEqual([]);
   expect(parsed.profiles).toHaveLength(1);
   return parsed.profiles[0]!;
@@ -72,7 +74,7 @@ test("a revision follows the launch-relevant content", () => {
 });
 
 test("profiles sit beside keys; an invalid key entry still drops only itself", () => {
-  const parsed = parseConfigFile(`
+  const parsed = parseText(`
 [keys]
 prefix = "ctrl+b"
 [keys.bindings]
@@ -87,7 +89,7 @@ agent = "pi"
   expect(parsed.config.keys.bindings["board"]).toBe("q");
   expect(parsed.profiles).toHaveLength(1);
 
-  const broken = parseConfigFile(
+  const broken = parseText(
     '[keys.bindings]\nboard = "hyper+q"\n[profiles.p]\nname = "P"\nagent = "pi"\n',
   );
   expect(broken.profiles).toHaveLength(1);
@@ -150,7 +152,7 @@ const wholeProfileFailures: [name: string, body: string, message: string][] = [
 ];
 
 test.for(wholeProfileFailures)("%s drops the whole profile", ([, body, message]) => {
-  const parsed = parseConfigFile(`[profiles.p]\n${body}`);
+  const parsed = parseText(`[profiles.p]\n${body}`);
   expect(parsed.profiles).toEqual([]);
   expect(parsed.problems).toHaveLength(1);
   expect(parsed.problems[0]).toMatchObject({ severity: "error", path: "profiles.p" });
@@ -182,7 +184,7 @@ const reserved: string[] = [
   "SOME_CONFIG_THING",
 ];
 test.for(reserved)("a profile may not set %s", (name) => {
-  const parsed = parseConfigFile(
+  const parsed = parseText(
     `[profiles.p]\nname = "P"\nagent = "claude"\nenv = [{ targetName = "${name}", fromEnv = "SERVER_VALUE" }]\n`,
   );
   expect(parsed.profiles).toEqual([]);
@@ -191,7 +193,7 @@ test.for(reserved)("a profile may not set %s", (name) => {
 
 test("config problems never echo values or keys from the file", () => {
   const secret = "sk-live-should-never-appear";
-  const parsed = parseConfigFile(`
+  const parsed = parseText(`
 [profiles.${"x".repeat(70)}]
 name = "${secret}"
 agent = "claude"
@@ -203,16 +205,14 @@ env = [{ targetName = "TOKEN", fromEnv = "${secret}" }]
     expect.objectContaining({ path: "profiles", message: expect.not.stringContaining(secret) }),
   ]);
 
-  const literal = parseConfigFile(
+  const literal = parseText(
     `[profiles.p]\nname = "P"\nagent = "claude"\nenv = [{ targetName = "TOKEN", fromEnv = "SERVER", value = "${secret}" }]\n`,
   );
   expect(JSON.stringify(literal)).not.toContain(secret);
 });
 
 test("an invalid profile id is reported at the section, not by echoing the key", () => {
-  const parsed = parseConfigFile(
-    `[profiles."profile with spaces"]\nname = "P"\nagent = "claude"\n`,
-  );
+  const parsed = parseText(`[profiles."profile with spaces"]\nname = "P"\nagent = "claude"\n`);
   expect(parsed.profiles).toEqual([]);
   expect(parsed.problems).toEqual([
     {
@@ -225,13 +225,13 @@ test("an invalid profile id is reported at the section, not by echoing the key",
 });
 
 test("an empty or missing profiles table leaves the defaults and the keys untouched", () => {
-  expect(parseConfigFile("[profiles]\n")).toEqual({
+  expect(parseText("[profiles]\n")).toEqual({
     config: defaults,
     profiles: [],
     problems: [],
   });
-  expect(parseConfigFile("[profiles]\np = 3\n").profiles).toEqual([]);
-  expect(parseConfigFile("[profiles]\np = 3\n").problems[0]).toMatchObject({
+  expect(parseText("[profiles]\np = 3\n").profiles).toEqual([]);
+  expect(parseText("[profiles]\np = 3\n").problems[0]).toMatchObject({
     path: "profiles.p",
     message: "expected a table, got a number",
   });

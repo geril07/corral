@@ -2,7 +2,7 @@ import {
   ClientConfig,
   ConfigState,
   DEFAULT_BINDINGS,
-  DEFAULT_PREFIX,
+  defaultClientConfig,
 } from "@corral/protocol/config";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -11,7 +11,8 @@ import { useServer, within } from "../../test/server-fixture.ts";
 
 const server = useServer();
 const configFile = () => join(server.configDir, "config.toml");
-const defaults = { keys: { prefix: DEFAULT_PREFIX, bindings: DEFAULT_BINDINGS } };
+/** The defaults of this server's data directory, including its worktree root. */
+const defaults = () => defaultClientConfig(join(server.dataDir, "worktrees"));
 
 /** Subscribes and consumes the state the server yields on subscription. */
 async function openWatcher() {
@@ -30,7 +31,7 @@ test("yields the defaults when there is no file and no config directory", async 
 
   expect(watcher.initial).toEqual({
     path: configFile(),
-    config: { keys: { prefix: DEFAULT_PREFIX, bindings: DEFAULT_BINDINGS } },
+    config: defaults(),
     profiles: [],
     problems: [],
   });
@@ -89,7 +90,7 @@ test("an invalid edit is pushed with its problems and keeps the valid entries", 
 
   await writeFile(configFile(), "[keys\nprefix");
   const broken = await watcher.next("the unparsable config");
-  expect(broken.config).toEqual(defaults);
+  expect(broken.config).toEqual(defaults());
   expect(broken.problems).toHaveLength(1);
   expect(broken.problems[0]).toMatchObject({ severity: "error", path: "" });
   expect(broken.problems[0]?.message).toMatch(/^invalid TOML at line 1, column \d+: /);
@@ -100,7 +101,7 @@ test("an unreadable config file is reported instead of crashing the server", asy
   await mkdir(join(server.configDir, "config.toml"), { recursive: true });
 
   const state = await watcher.next("the unreadable config");
-  expect(state.config).toEqual(defaults);
+  expect(state.config).toEqual(defaults());
   expect(state.problems).toEqual([
     { severity: "error", path: "", message: expect.stringContaining("cannot read the file") },
   ]);
@@ -121,7 +122,7 @@ test("deleting the file goes back to the defaults", async () => {
 
   expect(await watcher.next("the defaults after the delete")).toEqual({
     path: configFile(),
-    config: defaults,
+    config: defaults(),
     profiles: [],
     problems: [],
   });

@@ -22,10 +22,11 @@ export interface ConfigWatcher {
  * directory event covers a file created later, an editor's atomic rename over it and an
  * in-place write alike. While that directory does not exist, the nearest existing ancestor is
  * watched instead, so a config file created together with its directory is not missed.
+ * `dataDir` only supplies the default worktree root.
  */
-export function watchConfigFile(filePath: string): ConfigWatcher {
+export function watchConfigFile(filePath: string, options: { dataDir: string }): ConfigWatcher {
   const changes = new ChangeFeed();
-  let state = readConfigFile(filePath);
+  let state = readConfigFile(filePath, options.dataDir);
   let watcher: FSWatcher | undefined;
   let watchedDir: string | undefined;
   let refreshTimer: NodeJS.Timeout | undefined;
@@ -33,7 +34,7 @@ export function watchConfigFile(filePath: string): ConfigWatcher {
   let closed = false;
 
   function refresh() {
-    const next = readConfigFile(filePath);
+    const next = readConfigFile(filePath, options.dataDir);
     if (sameState(next, state)) return;
     state = next;
     changes.notify();
@@ -122,18 +123,18 @@ export function watchConfigFile(filePath: string): ConfigWatcher {
   };
 }
 
-function readConfigFile(filePath: string): ConfigState {
+function readConfigFile(filePath: string, dataDir: string): ConfigState {
   let text: string;
   try {
     text = readFileSync(filePath, "utf8");
   } catch (error) {
     const code = errnoCode(error);
     if (code === "ENOENT" || code === "ENOTDIR") {
-      return { path: filePath, config: defaultConfig(), profiles: [], problems: [] };
+      return { path: filePath, config: defaultConfig(dataDir), profiles: [], problems: [] };
     }
     return {
       path: filePath,
-      config: defaultConfig(),
+      config: defaultConfig(dataDir),
       profiles: [],
       problems: [
         {
@@ -144,7 +145,7 @@ function readConfigFile(filePath: string): ConfigState {
       ],
     };
   }
-  return { path: filePath, ...parseConfigFile(text) };
+  return { path: filePath, ...parseConfigFile(text, dataDir) };
 }
 
 /** Both states come from the same code, so key order is stable and JSON equality is state equality. */

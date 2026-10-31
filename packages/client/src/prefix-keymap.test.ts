@@ -1,4 +1,4 @@
-import { DEFAULT_BINDINGS, type ClientConfig } from "@corral/protocol/config";
+import { DEFAULT_BINDINGS, defaultClientConfig, type ClientConfig } from "@corral/protocol/config";
 import { parseChord } from "@corral/protocol/keymap";
 import { expect, test } from "vite-plus/test";
 import {
@@ -66,6 +66,7 @@ test("modifier presses and IME composition never change state", () => {
 
 test("the config builds the keymap and leaves an unbound action without a key", () => {
   const config: ClientConfig = {
+    ...defaultClientConfig(""),
     keys: {
       prefix: "ctrl+b",
       bindings: { ...DEFAULT_BINDINGS, "new-agent": null, board: "q" },
@@ -84,6 +85,7 @@ test("the config builds the keymap and leaves an unbound action without a key", 
 
 test("a keymap from config dispatches the action bound in the file", () => {
   const config: ClientConfig = {
+    ...defaultClientConfig(""),
     keys: { prefix: "alt+a", bindings: { ...DEFAULT_BINDINGS, "new-agent": "a" } },
   };
   const fromConfig = createConfigKeymap(config);

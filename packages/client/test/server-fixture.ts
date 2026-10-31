@@ -87,6 +87,10 @@ export function useServer() {
     get capability() {
       return server.capability;
     },
+    /** The server's data directory, which holds its database and worktrees. */
+    get dataDir() {
+      return dataDir;
+    },
     connect,
     /** Stops the server and starts a new one on the same data directory, a new port and capability. */
     async restart(): Promise<void> {

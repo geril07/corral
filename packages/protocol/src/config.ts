@@ -19,6 +19,17 @@ import { z } from "zod";
  * agent = "claude"
  * model = "claude-sonnet-4-5"
  * env = [{ targetName = "ANTHROPIC_AUTH_TOKEN", fromEnv = "GATEWAY_TOKEN" }]
+ *
+ * [tasks]             # what a new task starts with
+ * workspace = "new-worktree"
+ * branch-prefix = "corral/"
+ *
+ * [naming]            # title generation; absent means seed titles
+ * agent = "claude"
+ * model = "claude-haiku-4-5"
+ *
+ * [projects."/home/me/code/app"]  # the same keys, for that project only
+ * workspace = "main-worktree"
  * ```
  */
 
@@ -139,6 +150,101 @@ export const LaunchProfile = z.object({
 });
 export type LaunchProfile = z.infer<typeof LaunchProfile>;
 
+/** Where an effective value came from: decision 17's layers. */
+export const SettingSource = z.enum(["default", "global", "project"]);
+export type SettingSource = z.infer<typeof SettingSource>;
+
+/** How a new task gets its workspace (`design.md`, **Domain model → Task → Workspace**). */
+export const WorkspaceMode = z.enum(["main-worktree", "new-worktree"]);
+export type WorkspaceMode = z.infer<typeof WorkspaceMode>;
+
+/** Whether branch and worktree names come from the title or from the naming request (decision 16). */
+export const SlugMode = z.enum(["title", "generated"]);
+export type SlugMode = z.infer<typeof SlugMode>;
+
+/** The view a task's primary agent opens in; `chat` arrives with stage B (decision 5). */
+export const TaskView = z.enum(["terminal", "chat"]);
+export type TaskView = z.infer<typeof TaskView>;
+
+function sourced<T extends z.ZodType>(value: T) {
+  return z.object({ value, source: SettingSource });
+}
+
+/**
+ * What task creation and the new-task composer use for one project, with the layer each value
+ * came from. The server resolves it (built-in default → `[tasks]` → `[projects."<path>"]`), so
+ * clients render it instead of looking layers up themselves. `profile` wins over `agent` when
+ * both are set; `model` overrides the profile's model, as it does on `sessions.start`.
+ */
+export const ResolvedTaskSettings = z.object({
+  agent: sourced(AgentKind.nullable()),
+  profile: sourced(z.string().nullable()),
+  model: sourced(z.string().nullable()),
+  workspace: sourced(WorkspaceMode),
+  /** An absolute path, or `~`-relative as written; the server expands `~` when it uses it. */
+  worktreeRoot: sourced(z.string()),
+  branchPrefix: sourced(z.string()),
+  slugMode: sourced(SlugMode),
+  view: sourced(TaskView),
+});
+export type ResolvedTaskSettings = z.infer<typeof ResolvedTaskSettings>;
+
+/**
+ * `[naming]`: the launch profile or agent and model that generates task titles (decision 16),
+ * and how long Corral waits for it. Naming has no per-project layer: one setting for the server.
+ */
+export const NamingSettings = z.object({
+  profile: sourced(z.string().nullable()),
+  agent: sourced(AgentKind.nullable()),
+  model: sourced(z.string().nullable()),
+  timeoutSeconds: sourced(z.number()),
+});
+export type NamingSettings = z.infer<typeof NamingSettings>;
+
+/** The default wait for a naming request, in seconds. */
+export const DEFAULT_NAMING_TIMEOUT_SECONDS = 8;
+
+/** Whether `[naming]` names something to run; empty means seed titles only (decision 16). */
+export function namingConfigured(naming: NamingSettings): boolean {
+  return naming.profile.value !== null || naming.agent.value !== null;
+}
+
+function builtin<T>(value: T): { value: T; source: SettingSource } {
+  return { value, source: "default" };
+}
+
+/** The naming defaults before the file: nothing to run, the standard timeout. */
+export function defaultNamingSettings(): NamingSettings {
+  return {
+    profile: builtin<string | null>(null),
+    agent: builtin<AgentKind | null>(null),
+    model: builtin<string | null>(null),
+    timeoutSeconds: builtin(DEFAULT_NAMING_TIMEOUT_SECONDS),
+  };
+}
+
+/**
+ * The configuration before the file: keys, and the built-in layer of every task and naming
+ * value. `worktreeRoot` is `<data dir>/worktrees`, which only the server knows.
+ */
+export function defaultClientConfig(worktreeRoot: string): ClientConfig {
+  return {
+    keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } },
+    tasks: {
+      agent: builtin<AgentKind | null>(null),
+      profile: builtin<string | null>(null),
+      model: builtin<string | null>(null),
+      workspace: builtin<WorkspaceMode>("main-worktree"),
+      worktreeRoot: builtin(worktreeRoot),
+      branchPrefix: builtin(""),
+      slugMode: builtin<SlugMode>("title"),
+      view: builtin<TaskView>("terminal"),
+    },
+    naming: defaultNamingSettings(),
+    projects: {},
+  };
+}
+
 /** The effective configuration: defaults with the file's valid entries applied. */
 export const ClientConfig = z.object({
   keys: z.object({
@@ -146,8 +252,21 @@ export const ClientConfig = z.object({
     /** Every action; `null` when the user unbound it. */
     bindings: z.record(ActionId, z.string().nullable()),
   }),
+  /** The `[tasks]` values every project without an override gets. */
+  tasks: ResolvedTaskSettings,
+  naming: NamingSettings,
+  /**
+   * `[projects."<absolute repository path>"]` resolved against `[tasks]`, keyed by the path as
+   * written; it matches `Project.path` exactly. A project without an entry uses `tasks`.
+   */
+  projects: z.record(z.string(), ResolvedTaskSettings),
 });
 export type ClientConfig = z.infer<typeof ClientConfig>;
+
+/** The effective task settings for `path`: its own table, else the global `[tasks]` values. */
+export function taskSettingsFor(config: ClientConfig, path: string): ResolvedTaskSettings {
+  return config.projects[path] ?? config.tasks;
+}
 
 /**
  * Something wrong in the file. Each problem drops only the entry it names; the rest of the

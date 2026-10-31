@@ -14,6 +14,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { watchConfigFile } from "../config/config-watcher.ts";
+import { configTaskSettings } from "../config/task-settings.ts";
 import { IssueImportService, issueImportTimeoutMs } from "../issues/issue-import.ts";
 import { ProjectService } from "../projects/project-service.ts";
 import { ProjectStore } from "../projects/project-store.ts";
@@ -23,7 +24,7 @@ import { OpenCodeIntegration } from "../status/opencode-integration.ts";
 import { handleStatusReport, statusReportSessionId } from "../status/status-report-http.ts";
 import { openDatabase } from "../storage/database.ts";
 import { TaskService } from "../tasks/task-service.ts";
-import { defaultTaskSettings, type TaskSettings } from "../tasks/task-settings.ts";
+import type { TaskSettings } from "../tasks/task-settings.ts";
 import { TaskStore } from "../tasks/task-store.ts";
 import { TerminalRegistry } from "../terminals/terminal-registry.ts";
 import { capabilityMatches, newCapability } from "./capability.ts";
@@ -56,7 +57,9 @@ export function startServer(options: {
   const terminals = new TerminalRegistry();
   const projectStore = new ProjectStore(database);
   const taskStore = new TaskStore(database);
-  const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, homedir())));
+  const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, homedir())), {
+    dataDir,
+  });
   // Known once the server listens, which is before any session starts.
   let httpOrigin = "";
   const sessions = new SessionService({
@@ -71,7 +74,8 @@ export function startServer(options: {
     store: taskStore,
     projects: projectStore,
     sessions,
-    settings: options.settings ?? defaultTaskSettings({ dataDir }),
+    // A0's config supplies the worktree root and branch prefix; tests may pass their own.
+    settings: options.settings ?? configTaskSettings(config, { home: homedir() }),
   });
   const issues = new IssueImportService({ timeoutMs: issueImportTimeoutMs(process.env) });
   const projects = new ProjectService(projectStore, tasks, issues);

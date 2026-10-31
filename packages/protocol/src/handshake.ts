@@ -6,9 +6,10 @@ import { z } from "zod";
  * settings action and its binding; version 5 the optional task source in create and watch. A
  * version 4 server strips `source` as an unknown field, so a client must not reuse it. Version 4
  * clients are likewise refused instead of silently losing the new settings binding. Version 6
- * adds the task title source and `tasks.rename` plus the rename-task and session-number actions:
- * a version 5 server's tasks have no title source and its config lacks those bindings, so a
- * version 5 client and a version 6 client each misread the other's replies. Version 7 adds the
+ * adds the task title source and `tasks.rename` plus the rename-task and session-number actions,
+ * and the required task, naming and project settings in the config state: a version 5 server's
+ * tasks have no title source, its config lacks those bindings and it never sends the settings, so
+ * a version 5 client and a version 6 client each misread the other's replies. Version 7 adds the
  * sidebar-mode action and the server-owned task `seenAt`: a version 6 server strips the binding,
  * has no `seen_at` column and answers `tasks.markSeen` with an unknown procedure.
  */

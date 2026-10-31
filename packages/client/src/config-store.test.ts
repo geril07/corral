@@ -1,4 +1,4 @@
-import { DEFAULT_BINDINGS, DEFAULT_PREFIX } from "@corral/protocol/config";
+import { DEFAULT_BINDINGS, defaultClientConfig } from "@corral/protocol/config";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
@@ -28,9 +28,7 @@ test("starts with the defaults, before the server has sent the config and withou
   expect(client.config.getSnapshot()).toEqual({
     loaded: true,
     path: configFile(),
-    config: {
-      keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } },
-    },
+    config: defaultClientConfig(join(server.dataDir, "worktrees")),
     profiles: [],
     problems: [],
   });
@@ -80,7 +78,7 @@ test("deleting the file goes back to the defaults", async () => {
 
   await eventually(() => {
     const state = client.config.getSnapshot();
-    expect(state.config).toEqual(defaultConfig());
+    expect(state.config).toEqual(defaultClientConfig(join(server.dataDir, "worktrees")));
     expect(state.problems).toEqual([]);
   });
 });

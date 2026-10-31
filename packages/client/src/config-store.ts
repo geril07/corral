@@ -1,6 +1,5 @@
 import {
-  DEFAULT_BINDINGS,
-  DEFAULT_PREFIX,
+  defaultClientConfig,
   type ClientConfig,
   type ConfigProblem,
   type ConfigState,
@@ -9,9 +8,12 @@ import {
 import type { RpcConnection } from "./rpc-connection.ts";
 import { createWatchStore, type WatchStore } from "./watch-store.ts";
 
-/** The config the client uses before the server has sent one, and when it has no file. */
+/**
+ * The config the client uses before the server has sent one. The data directory, and with it
+ * the default worktree root, is only known to the server, so that root starts empty here.
+ */
 export function defaultConfig(): ClientConfig {
-  return { keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } } };
+  return defaultClientConfig("");
 }
 
 export interface ConfigSnapshot {

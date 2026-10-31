@@ -6,7 +6,12 @@ import {
   type Entry,
   type SidebarMode,
 } from "@corral/client/workspace-tree";
-import { DEFAULT_BINDINGS, DEFAULT_PREFIX, type ClientConfig } from "@corral/protocol/config";
+import {
+  DEFAULT_BINDINGS,
+  DEFAULT_PREFIX,
+  defaultClientConfig,
+  type ClientConfig,
+} from "@corral/protocol/config";
 import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -71,6 +76,7 @@ const defaultSessions = [
 ];
 
 const config: ClientConfig = {
+  ...defaultClientConfig(""),
   keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } },
 };
 

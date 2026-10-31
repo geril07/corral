@@ -1,5 +1,5 @@
+import { defaultWorktreeRoot } from "@corral/protocol/config";
 import type { Project } from "@corral/protocol/rpc";
-import { join } from "node:path";
 
 /**
  * What task creation needs from settings, per project (design.md decision 17). A0 replaces the
@@ -18,6 +18,6 @@ export interface TaskSettings {
 
 /** Today's defaults: `<data dir>/worktrees` and no branch prefix. */
 export function defaultTaskSettings(options: { dataDir: string }): TaskSettings {
-  const worktreeRoot = join(options.dataDir, "worktrees");
+  const worktreeRoot = defaultWorktreeRoot(options.dataDir);
   return { worktreeRoot: () => worktreeRoot, branchPrefix: () => "" };
 }
