@@ -27,9 +27,9 @@ function readTerminalTheme() {
   const color = (name: string, fallback: string) =>
     styles.getPropertyValue(name).trim() || fallback;
   return {
-    background: color("--color-terminal-background", "#000000"),
-    foreground: color("--color-terminal-foreground", "#ffffff"),
-    cursor: color("--color-terminal-cursor", "#ffffff"),
+    background: color("--terminal-background", "#000000"),
+    foreground: color("--terminal-foreground", "#ffffff"),
+    cursor: color("--terminal-cursor", "#ffffff"),
   };
 }
 
@@ -112,7 +112,7 @@ function TerminalNotice({
     const { exitCode, signal } = terminal.exit;
     return (
       <p
-        className="m-0 border-t border-border bg-surface-raised px-2.5 py-1.5 text-text-muted"
+        className="m-0 border-t border-border bg-card px-2.5 py-1.5 text-muted-foreground"
         role="status"
         aria-label="terminal exited"
       >
@@ -124,7 +124,7 @@ function TerminalNotice({
   if (streamState.status === "disconnected") {
     return (
       <p
-        className="m-0 border-t border-border bg-surface-raised px-2.5 py-1.5 text-text-muted"
+        className="m-0 border-t border-border bg-card px-2.5 py-1.5 text-muted-foreground"
         role="status"
         aria-label="terminal connection"
       >
@@ -135,7 +135,7 @@ function TerminalNotice({
   if (streamState.status === "not-found") {
     return (
       <p
-        className="m-0 border-t border-border bg-surface-raised px-2.5 py-1.5 text-text-muted"
+        className="m-0 border-t border-border bg-card px-2.5 py-1.5 text-muted-foreground"
         role="status"
         aria-label="terminal connection"
       >

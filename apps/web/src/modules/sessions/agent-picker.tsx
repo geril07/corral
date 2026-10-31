@@ -5,9 +5,9 @@ import type { AgentKind } from "@corral/protocol/rpc";
 import { useState } from "react";
 import {
   Button,
-  Dialog,
+  TaskDialog,
   DialogActions,
-  Field,
+  FieldLabel,
   FormError,
   Input,
   Kbd,
@@ -54,7 +54,7 @@ type Selection =
     };
 
 const AGENT_ROW =
-  "flex cursor-pointer items-center gap-2.5 rounded-control px-2 py-1.5 hover:bg-surface-active has-data-checked:bg-surface-active";
+  "flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent has-data-checked:bg-accent";
 
 function choiceKey(selection: Selection): string {
   return selection.kind === "native"
@@ -198,7 +198,7 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
   };
 
   return (
-    <Dialog title="New agent session" onClose={onClose}>
+    <TaskDialog title="New agent session" onClose={onClose}>
       {error && <FormError>{error}</FormError>}
       <RadioGroup
         className="mb-1"
@@ -240,17 +240,19 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
               <>
                 <Kbd aria-hidden>{index + 1}</Kbd>
                 {candidate.kind}
-                <span className="text-text-muted">native default</span>
+                <span className="text-muted-foreground">native default</span>
               </>
             ) : (
               <>
                 <span className="min-w-0 truncate">{candidate.profile?.name}</span>
-                <span className="text-text-muted">{candidate.kind}</span>
-                <span className="min-w-0 truncate text-text-muted">
+                <span className="text-muted-foreground">{candidate.kind}</span>
+                <span className="min-w-0 truncate text-muted-foreground">
                   {profileModelText(candidate.kind, candidate.profile?.model ?? null)}
                 </span>
                 {candidate.profile?.provider && (
-                  <span className="text-text-muted">provider {candidate.profile.provider}</span>
+                  <span className="text-muted-foreground">
+                    provider {candidate.profile.provider}
+                  </span>
                 )}
               </>
             )}
@@ -258,7 +260,8 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
         ))}
       </RadioGroup>
       {offeredModel && (
-        <Field label="Model override (optional)">
+        <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
+          Model override (optional)
           <Input
             aria-label="Model override"
             value={model}
@@ -278,9 +281,9 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
               submit();
             }}
           />
-        </Field>
+        </FieldLabel>
       )}
-      <p className="mb-2 text-text-muted" aria-label="launch choice">
+      <p className="mb-2 text-muted-foreground" aria-label="launch choice">
         {selection.kind === "native"
           ? typedModel === undefined
             ? `${kind} with the agent's native defaults.`
@@ -290,15 +293,17 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
             }.`}
       </p>
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
         <Button
-          variant="primary"
+          variant="default"
           disabled={submitting || stale !== undefined || conflict}
           onClick={() => submit()}
         >
           Start session
         </Button>
       </DialogActions>
-    </Dialog>
+    </TaskDialog>
   );
 }

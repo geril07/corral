@@ -1,7 +1,7 @@
 import { describeError, dirtyWorktreeFiles } from "@corral/client/rpc-errors";
 import type { Task } from "@corral/protocol/rpc";
 import { useAttempt } from "../../common/hooks/use-attempt.ts";
-import { Button, ConfirmDialog, DialogActions, FormError } from "../../common/ui/index.ts";
+import { Button, DestructiveTaskDialog, DialogActions, FormError } from "../../common/ui/index.ts";
 
 interface RemoveTaskDialogProps {
   task: Task;
@@ -15,7 +15,7 @@ export function RemoveTaskDialog({ task, onRemove, onClose }: RemoveTaskDialogPr
   const dirtyFiles = attempt.failed ? dirtyWorktreeFiles(attempt.error) : undefined;
 
   return (
-    <ConfirmDialog
+    <DestructiveTaskDialog
       title={`Remove task "${task.title}"?`}
       description={
         task.ownsWorktree
@@ -26,11 +26,11 @@ export function RemoveTaskDialog({ task, onRemove, onClose }: RemoveTaskDialogPr
     >
       {dirtyFiles && (
         <div className="mb-3">
-          <p className="mb-2.5 text-danger" role="alert">
+          <p className="mb-2.5 text-destructive" role="alert">
             The worktree has uncommitted changes that removing it would lose:
           </p>
           <ul
-            className="max-h-40 overflow-y-auto rounded-control bg-surface px-2.5 py-1.5 font-mono"
+            className="max-h-40 overflow-y-auto rounded-md bg-background px-2.5 py-1.5 font-mono"
             aria-label="uncommitted files"
           >
             {dirtyFiles.map((file) => (
@@ -45,12 +45,12 @@ export function RemoveTaskDialog({ task, onRemove, onClose }: RemoveTaskDialogPr
             step cannot also confirm "Remove anyway": focus starts on Cancel again. */}
         {dirtyFiles ? (
           <>
-            <Button key="cancel-dirty" autoFocus onClick={onClose}>
+            <Button variant="outline" key="cancel-dirty" autoFocus onClick={onClose}>
               Cancel
             </Button>
             <Button
               key="force"
-              variant="danger"
+              variant="destructive"
               disabled={attempt.pending}
               onClick={() => void attempt.run(() => onRemove(true))}
             >
@@ -59,12 +59,12 @@ export function RemoveTaskDialog({ task, onRemove, onClose }: RemoveTaskDialogPr
           </>
         ) : (
           <>
-            <Button key="cancel" onClick={onClose}>
+            <Button variant="outline" key="cancel" onClick={onClose}>
               Cancel
             </Button>
             <Button
               key="remove"
-              variant="danger"
+              variant="destructive"
               disabled={attempt.pending}
               onClick={() => void attempt.run(() => onRemove(false))}
             >
@@ -73,6 +73,6 @@ export function RemoveTaskDialog({ task, onRemove, onClose }: RemoveTaskDialogPr
           </>
         )}
       </DialogActions>
-    </ConfirmDialog>
+    </DestructiveTaskDialog>
   );
 }

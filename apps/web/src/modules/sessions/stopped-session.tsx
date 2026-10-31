@@ -1,6 +1,6 @@
 import { describeSessionState } from "@corral/client/session-state";
 import type { Session } from "@corral/protocol/rpc";
-import { Button, Tooltip } from "../../common/ui/index.ts";
+import { Button, Hint } from "../../common/ui/index.ts";
 import { launchLine } from "./launch-summary.ts";
 
 interface StoppedSessionProps {
@@ -21,21 +21,21 @@ export function StoppedSession({ session, restartHint, onRestart }: StoppedSessi
       </h2>
       <p className="mb-3">{note}</p>
       {launch && (
-        <p className="mb-3 text-text-muted" aria-label="launch choices">
-          <Tooltip content={launch.details}>
+        <p className="mb-3 text-muted-foreground" aria-label="launch choices">
+          <Hint content={launch.details}>
             <span tabIndex={0}>{launch.text}</span>
-          </Tooltip>
+          </Hint>
         </p>
       )}
       {session.launchError && (
-        <p className="mb-3 break-words text-danger" role="alert">
+        <p className="mb-3 break-words text-destructive" role="alert">
           Last start failed: {session.launchError}
         </p>
       )}
-      <Button variant="primary" autoFocus onClick={onRestart}>
+      <Button variant="default" autoFocus onClick={onRestart}>
         {session.state === "unresumable" ? "Start a new conversation" : "Start again"}
       </Button>
-      {restartHint && <p className="mt-3 text-text-muted">Enter, or {restartHint}.</p>}
+      {restartHint && <p className="mt-3 text-muted-foreground">Enter, or {restartHint}.</p>}
     </section>
   );
 }

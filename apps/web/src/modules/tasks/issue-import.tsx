@@ -3,7 +3,7 @@ import type { IssueProvider, TaskSource } from "@corral/protocol/rpc";
 import { useEffect, useRef, useState } from "react";
 import {
   Button,
-  Field,
+  FieldLabel,
   FormError,
   Input,
   RadioGroup,
@@ -122,8 +122,9 @@ export function IssueImportSection({
 
   return (
     <fieldset className="mb-2.5 border-0 p-0" aria-busy={importing}>
-      <legend className="mb-1 p-0 text-text-muted">Import from an issue (optional)</legend>
-      <Field label="Issue URL">
+      <legend className="mb-1 p-0 text-muted-foreground">Import from an issue (optional)</legend>
+      <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
+        Issue URL
         <Input
           value={issueUrl}
           onChange={(event) => changeUrl(event.target.value)}
@@ -138,10 +139,10 @@ export function IssueImportSection({
           spellCheck={false}
           autoComplete="off"
         />
-      </Field>
+      </FieldLabel>
       {providerHost !== undefined && (
         <fieldset className="mb-2.5 border-0 p-0">
-          <legend className="mb-1 p-0 text-text-muted">
+          <legend className="mb-1 p-0 text-muted-foreground">
             {providerHost} could be GitHub or GitLab
           </legend>
           <RadioGroup
@@ -163,13 +164,17 @@ export function IssueImportSection({
         </fieldset>
       )}
       <div className="mb-2.5 flex gap-2">
-        <Button onClick={() => void importIssue()} disabled={importDisabled}>
+        <Button variant="outline" onClick={() => void importIssue()} disabled={importDisabled}>
           {importing ? "Importing…" : "Import issue"}
         </Button>
-        {importing && <Button onClick={cancel}>Cancel import</Button>}
+        {importing && (
+          <Button variant="outline" onClick={cancel}>
+            Cancel import
+          </Button>
+        )}
       </div>
       {source !== undefined && !importing && (
-        <p className="mb-2.5 text-text-muted" role="status">
+        <p className="mb-2.5 text-muted-foreground" role="status">
           Imported {providerName(source.provider)} issue {source.repository}#{source.number}. Its
           original title and text will be kept with the task.
         </p>

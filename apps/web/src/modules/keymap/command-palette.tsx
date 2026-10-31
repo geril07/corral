@@ -1,5 +1,14 @@
 import { ActionId } from "@corral/protocol/config";
-import { CommandPalette, Dialog, Kbd } from "../../common/ui/index.ts";
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandGroup,
+  CommandItem,
+  CommandEmpty,
+  TaskDialog,
+  Kbd,
+} from "../../common/ui/index.ts";
 import { ACTION_GROUPS, formatBinding, type ActionTable } from "./actions.ts";
 import { useConfig } from "./config-context.tsx";
 
@@ -18,18 +27,18 @@ export function CommandPaletteDialog({ actions, onRun, onClose }: CommandPalette
   }));
 
   return (
-    <Dialog title="Command palette" onClose={onClose}>
-      <CommandPalette.Root label="Commands" loop>
-        <CommandPalette.Input aria-label="Search actions" placeholder="Type an action…" autoFocus />
-        <CommandPalette.List>
+    <TaskDialog title="Command palette" onClose={onClose}>
+      <Command label="Commands" loop>
+        <CommandInput aria-label="Search actions" placeholder="Type an action…" autoFocus />
+        <CommandList>
           {groups.map(({ group, actions: groupActions }) => {
             if (groupActions.length === 0) return null;
             return (
-              <CommandPalette.Group key={group} heading={group}>
+              <CommandGroup key={group} heading={group}>
                 {groupActions.map((action) => {
                   const { label, enabled } = actions[action];
                   return (
-                    <CommandPalette.Item
+                    <CommandItem
                       key={action}
                       value={`${action} ${label}`}
                       disabled={!enabled}
@@ -37,15 +46,15 @@ export function CommandPaletteDialog({ actions, onRun, onClose }: CommandPalette
                     >
                       <span className="flex-1 truncate">{label}</span>
                       <Kbd className="shrink-0">{formatBinding(config, action)}</Kbd>
-                    </CommandPalette.Item>
+                    </CommandItem>
                   );
                 })}
-              </CommandPalette.Group>
+              </CommandGroup>
             );
           })}
-          <CommandPalette.Empty>No action matches.</CommandPalette.Empty>
-        </CommandPalette.List>
-      </CommandPalette.Root>
-    </Dialog>
+          <CommandEmpty>No action matches.</CommandEmpty>
+        </CommandList>
+      </Command>
+    </TaskDialog>
   );
 }

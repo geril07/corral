@@ -1,129 +1,135 @@
-import { AlertDialog as BaseAlertDialog } from "@base-ui/react/alert-dialog";
-import { Dialog as BaseDialog } from "@base-ui/react/dialog";
-import { createContext, useContext, useMemo, useRef, type ReactNode } from "react";
+"use client";
+
+import * as React from "react";
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { cn } from "../lib/cn.ts";
 
-const FINAL_FOCUS_SELECTOR = ".terminal-host .xterm-helper-textarea";
+import { Button } from "./button.tsx";
+import { XIcon } from "lucide-react";
 
-/** Returns the keyboard to the terminal when a dialog closes, where the user was before it. */
-function focusTerminal(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(FINAL_FOCUS_SELECTOR);
+function Dialog({ ...props }: DialogPrimitive.Root.Props) {
+  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
 }
 
-/** The focused element if it still means something, else the terminal. */
-function currentOpener(): HTMLElement | null {
-  const active = document.activeElement;
-  if (active instanceof HTMLElement && active !== document.body && active.isConnected)
-    return active;
-  return focusTerminal();
+function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
+  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
 }
 
-interface DialogFocus {
-  remember: (opener?: HTMLElement | null) => void;
-  target: () => HTMLElement | null;
+function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
+  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
 }
 
-const DialogFocusContext = createContext<DialogFocus | undefined>(undefined);
-
-/**
- * Remembers what opened a dialog, before the dialog takes the focus. Keyboard flows remember the
- * terminal; a pointer flow can pass the button it started from.
- */
-export function DialogFocusProvider({ children }: { children: ReactNode }) {
-  const target = useRef<HTMLElement | null>(null);
-  const value = useMemo<DialogFocus>(
-    () => ({
-      remember: (opener) => {
-        target.current = opener ?? currentOpener();
-      },
-      target: () => target.current,
-    }),
-    [],
-  );
-  return <DialogFocusContext value={value}>{children}</DialogFocusContext>;
+function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
+  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
-export function useDialogFocus(): DialogFocus | undefined {
-  return useContext(DialogFocusContext);
-}
-
-/** Returns where the keyboard should go when this dialog closes. */
-function finalFocusTarget(remembered: HTMLElement | null, fallback: HTMLElement | null) {
-  if (remembered?.isConnected) return remembered;
-  if (fallback?.isConnected) return fallback;
-  return focusTerminal();
-}
-
-const backdropClass = "fixed inset-0 z-40 bg-overlay";
-
-const popupClass =
-  "fixed top-[20vh] left-1/2 z-50 max-h-[70vh] w-[440px] max-w-[calc(100vw-2rem)] -translate-x-1/2 overflow-y-auto rounded-panel border border-border bg-surface-raised p-4 text-text outline-none";
-
-export interface DialogProps {
-  title: string;
-  description?: ReactNode;
-  /** Escape or a click outside asked to close. */
-  onClose: () => void;
-  children: ReactNode;
-  className?: string;
-}
-
-/** A dialog that is open while it is rendered; the caller stops rendering it to close it. */
-export function Dialog({ title, description, onClose, children, className }: DialogProps) {
-  const focus = useDialogFocus();
-  const fallback = useRef<HTMLElement | null | undefined>(undefined);
-  if (fallback.current === undefined) fallback.current = currentOpener();
-  const finalFocus = () => finalFocusTarget(focus?.target() ?? null, fallback.current ?? null);
+function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) {
   return (
-    <BaseDialog.Root open onOpenChange={(open) => !open && onClose()}>
-      <BaseDialog.Portal>
-        <BaseDialog.Backdrop className={backdropClass} />
-        <BaseDialog.Popup className={cn(popupClass, className)} finalFocus={finalFocus}>
-          <BaseDialog.Title className="mb-1 text-base">{title}</BaseDialog.Title>
-          {description && (
-            <BaseDialog.Description className="mb-3 text-text-muted">
-              {description}
-            </BaseDialog.Description>
-          )}
-          {children}
-        </BaseDialog.Popup>
-      </BaseDialog.Portal>
-    </BaseDialog.Root>
+    <DialogPrimitive.Backdrop
+      data-slot="dialog-overlay"
+      className={cn("fixed inset-0 isolate z-50 bg-black/55", className)}
+      {...props}
+    />
   );
 }
 
-/** Like `Dialog`, for a destructive question: a click outside does not dismiss it. */
-export function ConfirmDialog({ title, description, onClose, children }: DialogProps) {
-  const focus = useDialogFocus();
-  const fallback = useRef<HTMLElement | null | undefined>(undefined);
-  if (fallback.current === undefined) fallback.current = currentOpener();
-  const finalFocus = () => finalFocusTarget(focus?.target() ?? null, fallback.current ?? null);
+function DialogContent({
+  className,
+  children,
+  showCloseButton = true,
+  ...props
+}: DialogPrimitive.Popup.Props & {
+  showCloseButton?: boolean;
+}) {
   return (
-    <BaseAlertDialog.Root open onOpenChange={(open) => !open && onClose()}>
-      <BaseAlertDialog.Portal>
-        <BaseAlertDialog.Backdrop className={backdropClass} />
-        <BaseAlertDialog.Popup className={popupClass} finalFocus={finalFocus}>
-          <BaseAlertDialog.Title className="mb-1 text-base">{title}</BaseAlertDialog.Title>
-          {description && (
-            <BaseAlertDialog.Description className="mb-3 text-text-muted">
-              {description}
-            </BaseAlertDialog.Description>
-          )}
-          {children}
-        </BaseAlertDialog.Popup>
-      </BaseAlertDialog.Portal>
-    </BaseAlertDialog.Root>
+    <DialogPortal>
+      <DialogOverlay />
+      <DialogPrimitive.Popup
+        data-slot="dialog-content"
+        className={cn(
+          "fixed top-[20vh] left-1/2 z-50 flex max-h-[70vh] w-[440px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col overflow-y-auto rounded-lg border border-border bg-popover p-4 text-sm text-popover-foreground outline-none",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        {showCloseButton && (
+          <DialogPrimitive.Close
+            data-slot="dialog-close"
+            render={<Button variant="ghost" className="absolute top-2 right-2" size="icon-sm" />}
+          >
+            <XIcon />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        )}
+      </DialogPrimitive.Popup>
+    </DialogPortal>
   );
 }
 
-export function DialogActions({ children }: { children: ReactNode }) {
-  return <div className="mt-1 flex justify-end gap-2">{children}</div>;
+function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div data-slot="dialog-header" className={cn("flex flex-col gap-2", className)} {...props} />
+  );
 }
 
-export function FormError({ children }: { children: ReactNode }) {
+function DialogFooter({
+  className,
+  showCloseButton = false,
+  children,
+  ...props
+}: React.ComponentProps<"div"> & {
+  showCloseButton?: boolean;
+}) {
   return (
-    <p className="mb-2.5 break-words text-danger" role="alert">
+    <div
+      data-slot="dialog-footer"
+      className={cn(
+        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
+        className,
+      )}
+      {...props}
+    >
       {children}
-    </p>
+      {showCloseButton && (
+        <DialogPrimitive.Close render={<Button variant="outline" />}>Close</DialogPrimitive.Close>
+      )}
+    </div>
   );
 }
+
+function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
+  return (
+    <DialogPrimitive.Title
+      data-slot="dialog-title"
+      className={cn("text-base font-semibold", className)}
+      {...props}
+    />
+  );
+}
+
+function DialogDescription({ className, ...props }: DialogPrimitive.Description.Props) {
+  return (
+    <DialogPrimitive.Description
+      data-slot="dialog-description"
+      className={cn(
+        "text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+  DialogTrigger,
+};

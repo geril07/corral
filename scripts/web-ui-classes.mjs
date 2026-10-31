@@ -8,6 +8,8 @@ const PALETTE =
 const CLASS_LIKE =
   /(?:^|[\s:])(?:flex|grid|block|inline|hidden|absolute|relative|fixed|sticky|w-|h-|min-|max-|p-|px-|py-|m-|mx-|my-|gap-|items-|justify-|text-|bg-|border|rounded|font-|leading-|tracking-|overflow-|truncate|whitespace-|cursor-|select-|shadow|ring-|outline-|opacity-|transition|duration-|ease-|z-|top-|left-|right-|bottom-|inset-|col-|row-|self-|place-|content-|list-|object-|align-|order-|basis-|grow|shrink|space-|divide-|fill-|stroke-|from-|via-|to-)/;
 const ARBITRARY = /\[[^\]]+\]/;
+const OBSOLETE_TOKEN =
+  /(?:^|[\s:])(?:bg-surface(?:-raised|-active)?|text-text(?:-muted)?|(?:bg|text|border)-danger(?:-strong|-foreground)?|(?:bg|text|border)-accent-strong|outline-focus-ring|rounded-(?:control|panel))(?=\/|\s|$)/;
 const RAW_COLOUR = /\b(?:rgb|hsl)a?\(|#[0-9a-fA-F]{3,8}\b/;
 
 /** Maps a source offset to a 1-based line, counting every JavaScript line terminator. */
@@ -72,6 +74,7 @@ export function classViolations(source, filename) {
       for (const [rule, label] of [
         [ARBITRARY, "arbitrary value"],
         [RAW_COLOUR, "raw colour"],
+        [OBSOLETE_TOKEN, "obsolete theme token"],
       ]) {
         const match = rule.exec(value);
         if (match === null) continue;

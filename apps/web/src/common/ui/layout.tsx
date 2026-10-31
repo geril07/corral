@@ -12,7 +12,7 @@ export function SidebarPanel({ children, className }: { children: ReactNode; cla
   return (
     <aside
       className={cn(
-        "flex min-h-0 flex-col justify-between border-r border-border bg-surface-raised",
+        "flex min-h-0 flex-col justify-between border-r border-border bg-card",
         className,
       )}
     >
@@ -28,7 +28,7 @@ export function MainPanel({ children, className }: { children: ReactNode; classN
 /** A screen that fills the window, for routes without the workspace sidebar. */
 export function Screen({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <section className={cn("flex h-screen min-h-0 flex-col bg-surface", className)}>
+    <section className={cn("flex h-screen min-h-0 flex-col bg-background", className)}>
       {children}
     </section>
   );

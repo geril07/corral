@@ -15,7 +15,7 @@ The client is a compact, graphical desktop app for people who live in terminals;
 - Hierarchy is project → task → session. A project reads as a shelf header, with a count and status dot only while collapsed (proposal from `.refs/t3code/apps/web/src/components/sidebar/SidebarProjectFolderHeader.tsx:33-37`), never a boxed folder icon.
 - Task order is stable: creation order, as today (`apps/server/src/tasks/task-store.ts:19`). A status update never moves a row under the pointer. An explicit status sort is a later option, not a default.
 - Sessions sit under their task as compact disclosure: the current task's sessions open, other tasks' sessions expand on demand, so no session becomes unreachable (today every task lists its sessions inline: `apps/web/src/modules/workspace/sidebar.tsx:130-134`).
-- Selection is one project, task or entry at a time, marked by an accent left bar plus `bg-surface-active` and `aria-current`, so it never relies on accent color alone (`apps/web/src/common/ui/tree-row.tsx:4-20`).
+- Selection is one project, task or entry at a time, marked by a primary left bar plus `bg-accent` and `aria-current`, so it never relies on accent color alone (`apps/web/src/common/ui/tree-row.tsx:4-20`).
 - Titles end-truncate; branches middle-truncate so a shared prefix does not eat the row (proposal: `.refs/t3code/apps/web/src/components/ui/middle-truncate.tsx:32-48`). Show a tooltip only when the text is clipped (proposal: `.refs/orca/src/renderer/src/components/sidebar/truncated-sidebar-label.tsx:76-77`), and keep the accessible name the full title.
 - One scroll container per pane. Nothing scrolls inside a row or a group.
 
@@ -35,7 +35,7 @@ The client is a compact, graphical desktop app for people who live in terminals;
 - Tooltip delay is 300ms (`apps/web/src/common/ui/tooltip.tsx:22`), one popup per trigger, and a tooltip never holds the only copy of a fact.
 - Keyboard: tab order matches visual order, focus opens the tooltip, and every icon action also exists in the palette or task search, so nothing depends on hover or on a tooltip alone.
 - Status is shape plus color, named by `role="img"` and the tooltip (`apps/web/src/modules/status/status-indicator.tsx:6-20`).
-- Focus is always visible: 2px `focus-ring` outline with 1px offset (`button.tsx:6`). Never drop an outline without an in-place replacement.
+- Focus is always visible: upstream shadcn `ring`/border focus treatment replaces the former outline. Never drop an outline without an in-place replacement.
 
 ## Dialogs, focus, errors
 
@@ -66,10 +66,10 @@ The client is a compact, graphical desktop app for people who live in terminals;
 
 ## Visual hierarchy and tokens
 
-- Hierarchy comes from surfaces and weight: `surface` for the app, `surface-raised` for the sidebar and dialogs, `surface-active` for hover and selection. Borders only between panes, at dialog edges and under the sidebar toolbar.
+- The kit is official shadcn/ui Base UI / Nova, adapted for this compact composition, not a page redesign. Provenance and adaptations: `ui-kit.md`.
+- Hierarchy comes from surfaces and weight: `background` for the app, `sidebar`/`card` for supporting surfaces, `popover` for overlays and `accent` for hover/selection. Borders only between panes, at dialog edges and under the sidebar toolbar.
 - Type stays at 13px/1.4 body, 12px secondary and `Kbd`, 15px dialog title, weight 600 for project rows and dialog titles. No new sizes.
-- Color comes from the theme block (`apps/web/src/app/global.css:9-19`). Palette classes and arbitrary values outside `common/ui` fail the gate (`scripts/web-ui-classes.mjs`), so a new metric is either an existing token or a kit class.
-- Token delta allowed here: at most one `--color-text-subtle` for a third text level, and only once a second component needs it. No spacing, elevation or motion scale.
+- Color comes from shadcn semantic CSS-variable pairs in `apps/web/src/app/global.css`, with dark overrides and a derived radius scale. Palette classes, arbitrary values and retired theme utilities outside `common/ui` fail the gate (`scripts/web-ui-classes.mjs`). New metrics belong to the kit; status and terminal colors remain domain extensions. No additional spacing, elevation or motion scale is introduced.
 - Motion is color and opacity only, about 120ms. A status update may change a glyph, never a row's position.
 
 ## Desktop minimums
@@ -89,7 +89,7 @@ The client is a compact, graphical desktop app for people who live in terminals;
 | 5   | Palette binding and focused task search        | The configured chord (default `alt+a`, `Space`) opens the palette with current bindings; typing a title finds active and settled tasks; Enter inspects without mutation, and Continue is the only search action that resumes |
 | 6   | Rename dialog for sessions and loose terminals | A renamed session keeps its label after a server restart; a renamed loose terminal's label disappears with the terminal, as the dialog warned                                                                                |
 | 7   | Read-only settings surface                     | A bad config entry shows its path and message while the app keeps working; no write attempt is offered                                                                                                                       |
-| 8   | Visual pass: glyphs to icons, weight, borders  | `pnpm check` under Node 26.13.0 and `pnpm test:browser` pass; `global.css` holds no token beyond the allowed delta                                                                                                           |
+| 8   | Visual pass: glyphs to icons, weight, borders  | `pnpm check` under Node 26.13.0 and `pnpm test:browser` pass; `global.css` uses the documented shadcn token convention and domain extensions                                                                                 |
 
 ## Unresolved
 

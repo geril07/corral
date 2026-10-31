@@ -1,35 +1,52 @@
-import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
-import type { ReactElement, ReactNode } from "react";
+import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
 import { cn } from "../lib/cn.ts";
 
-const tooltipPopupClass =
-  "pointer-events-none z-[60] max-w-80 rounded-control border border-border bg-surface-raised px-2 py-1 text-text shadow-lg";
+function TooltipProvider({ delay = 0, ...props }: TooltipPrimitive.Provider.Props) {
+  return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />;
+}
 
-/** A tooltip around one trigger element; the trigger keeps its own role and keyboard behaviour. */
-export function Tooltip({
-  content,
-  children,
-  side = "top",
+function Tooltip({ ...props }: TooltipPrimitive.Root.Props) {
+  return <TooltipPrimitive.Root data-slot="tooltip" {...props} />;
+}
+
+function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
+  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+}
+
+function TooltipContent({
   className,
-}: {
-  content: ReactNode;
-  children: ReactElement;
-  side?: "top" | "right" | "bottom" | "left";
-  className?: string;
-}) {
-  if (content === undefined || content === null || content === "") return children;
+  side = "top",
+  sideOffset = 4,
+  align = "center",
+  alignOffset = 0,
+  children,
+  ...props
+}: TooltipPrimitive.Popup.Props &
+  Pick<TooltipPrimitive.Positioner.Props, "align" | "alignOffset" | "side" | "sideOffset">) {
   return (
-    <BaseTooltip.Provider delay={300}>
-      <BaseTooltip.Root>
-        <BaseTooltip.Trigger render={children} />
-        <BaseTooltip.Portal container={document.body}>
-          <BaseTooltip.Positioner side={side} sideOffset={4} className="pointer-events-none z-[60]">
-            <BaseTooltip.Popup role="tooltip" className={cn(tooltipPopupClass, className)}>
-              {content}
-            </BaseTooltip.Popup>
-          </BaseTooltip.Positioner>
-        </BaseTooltip.Portal>
-      </BaseTooltip.Root>
-    </BaseTooltip.Provider>
+    <TooltipPrimitive.Portal>
+      <TooltipPrimitive.Positioner
+        align={align}
+        alignOffset={alignOffset}
+        side={side}
+        sideOffset={sideOffset}
+        className="pointer-events-none isolate z-[60]"
+      >
+        <TooltipPrimitive.Popup
+          data-slot="tooltip-content"
+          role="tooltip"
+          className={cn(
+            "pointer-events-none z-[60] inline-flex w-fit max-w-xs origin-(--transform-origin) items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs text-background has-data-[slot=kbd]:pr-1.5       **:data-[slot=kbd]:relative **:data-[slot=kbd]:isolate **:data-[slot=kbd]:z-50 **:data-[slot=kbd]:rounded-sm",
+            className,
+          )}
+          {...props}
+        >
+          {children}
+          <TooltipPrimitive.Arrow className="z-50 size-2.5 translate-y-[calc(-50%-2px)] rotate-45 rounded-[2px] bg-foreground fill-foreground data-[side=bottom]:top-1 data-[side=inline-end]:top-1/2! data-[side=inline-end]:-left-1 data-[side=inline-end]:-translate-y-1/2 data-[side=inline-start]:top-1/2! data-[side=inline-start]:-right-1 data-[side=inline-start]:-translate-y-1/2 data-[side=left]:top-1/2! data-[side=left]:-right-1 data-[side=left]:-translate-y-1/2 data-[side=right]:top-1/2! data-[side=right]:-left-1 data-[side=right]:-translate-y-1/2 data-[side=top]:-bottom-2.5" />
+        </TooltipPrimitive.Popup>
+      </TooltipPrimitive.Positioner>
+    </TooltipPrimitive.Portal>
   );
 }
+
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };

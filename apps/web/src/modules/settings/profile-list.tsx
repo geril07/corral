@@ -17,7 +17,7 @@ function capabilityText(kind: AgentKind): string {
 export function ProfileList({ profiles }: { profiles: readonly LaunchProfile[] }) {
   if (profiles.length === 0) {
     return (
-      <p className="m-0 text-text-muted">
+      <p className="m-0 text-muted-foreground">
         No profiles. Add a <span className="font-mono text-xs">[profiles.&lt;id&gt;]</span> table to
         the config file.
       </p>
@@ -38,12 +38,14 @@ function ProfileRow({ profile }: { profile: LaunchProfile }) {
     <li className="py-1">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">{profile.name}</span>
-        <span className="font-mono text-xs text-text-muted">{profile.id}</span>
-        <span className="text-text-muted">
+        <span className="font-mono text-xs text-muted-foreground">{profile.id}</span>
+        <span className="text-muted-foreground">
           {profile.agent} · {capabilityText(profile.agent)}
         </span>
-        <span className="text-text-muted">model {profile.model ?? "agent default"}</span>
-        {profile.provider && <span className="text-text-muted">provider {profile.provider}</span>}
+        <span className="text-muted-foreground">model {profile.model ?? "agent default"}</span>
+        {profile.provider && (
+          <span className="text-muted-foreground">provider {profile.provider}</span>
+        )}
         {profile.env.length > 0 && (
           <Button
             variant="link"
@@ -57,7 +59,7 @@ function ProfileRow({ profile }: { profile: LaunchProfile }) {
         )}
       </div>
       {envOpen && (
-        <ul className="m-0 mt-0.5 list-none p-0 pl-3 text-text-muted">
+        <ul className="m-0 mt-0.5 list-none p-0 pl-3 text-muted-foreground">
           {profile.env.map((ref) => (
             <li key={ref.targetName}>
               <span className="font-mono text-xs">{ref.targetName}</span> from server variable{" "}

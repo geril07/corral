@@ -53,6 +53,13 @@ Internal packages export TypeScript source (no build step). The server runs that
 - **The local capability is part of the transport contract.** `ServerEndpoint` carries the per-run capability; clients take a `ServerTarget` and present it as a WebSocket subprotocol (`packages/protocol/src/handshake.ts`). Desktop re-reads the endpoint file for every preload IPC request and clients ask for the current `ServerTarget` before each reconnect, so a restarted server is picked up without an app restart. Browser/dev stores the URL and capability together and only reuses the pair for the same server URL (`packages/client/src/bootstrap.ts`). Never append the capability to a URL or log it.
 - **Protocol changes are versioned.** Client and server exchange `PROTOCOL_VERSION` on connect and refuse a mismatch; new fields are optional within a version, but a release barrier bumps the version when an older daemon would silently ignore them (version 3 adds launch profiles/model fields; version 4 adds the settings action and its exhaustive bindings key; version 5 prevents older daemons stripping task-source inputs).
 
+## Web UI kit
+
+Official shadcn/ui Base UI / Nova components live in `apps/web/src/common/ui`.
+Generation commands, provenance, token mapping and intentional adaptations:
+[`ui-kit.md`](ui-kit.md). Modules compose the kit; they do not import Base UI,
+cmdk or icons directly. Keep the UI-boundary lint and class/token gates active.
+
 ## Testing
 
 Philosophy: test observable behavior through real dependencies. Fakes only where the real thing is expensive or nondeterministic.

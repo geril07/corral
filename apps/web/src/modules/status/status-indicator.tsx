@@ -1,6 +1,6 @@
 import { describeStatus } from "@corral/client/agent-status";
 import type { AgentStatus } from "@corral/protocol/rpc";
-import { StatusGlyph, Tooltip } from "../../common/ui/index.ts";
+import { StatusGlyph, Hint } from "../../common/ui/index.ts";
 
 /** The agent's state: a fixed-size glyph, with the words as its text alternative and tooltip. */
 export function StatusIndicator({ status }: { status: AgentStatus | undefined }) {
@@ -8,7 +8,7 @@ export function StatusIndicator({ status }: { status: AgentStatus | undefined })
   const text = describeStatus(status);
   const message = status.message ? `${text}: ${status.message}` : text;
   return (
-    <Tooltip content={message}>
+    <Hint content={message}>
       <span
         className="flex w-5 shrink-0 items-center justify-center"
         role="img"
@@ -17,6 +17,6 @@ export function StatusIndicator({ status }: { status: AgentStatus | undefined })
       >
         <StatusGlyph state={status.state} />
       </span>
-    </Tooltip>
+    </Hint>
   );
 }

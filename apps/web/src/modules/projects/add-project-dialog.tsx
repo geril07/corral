@@ -1,7 +1,14 @@
 import { describeError } from "@corral/client/rpc-errors";
 import { useState } from "react";
 import { useAttempt } from "../../common/hooks/use-attempt.ts";
-import { Button, Dialog, DialogActions, Field, FormError, Input } from "../../common/ui/index.ts";
+import {
+  Button,
+  TaskDialog,
+  DialogActions,
+  FieldLabel,
+  FormError,
+  Input,
+} from "../../common/ui/index.ts";
 
 interface AddProjectDialogProps {
   /** Resolves once the project is added; a rejection is shown in the dialog. */
@@ -14,7 +21,7 @@ export function AddProjectDialog({ onAdd, onClose }: AddProjectDialogProps) {
   const attempt = useAttempt();
 
   return (
-    <Dialog
+    <TaskDialog
       title="Add project"
       description="Any directory inside a git repository works."
       onClose={onClose}
@@ -25,7 +32,8 @@ export function AddProjectDialog({ onAdd, onClose }: AddProjectDialogProps) {
           void attempt.run(() => onAdd(path.trim()));
         }}
       >
-        <Field label="Repository path">
+        <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
+          Repository path
           <Input
             value={path}
             onChange={(event) => setPath(event.target.value)}
@@ -33,15 +41,17 @@ export function AddProjectDialog({ onAdd, onClose }: AddProjectDialogProps) {
             spellCheck={false}
             autoComplete="off"
           />
-        </Field>
+        </FieldLabel>
         {attempt.failed && <FormError>{describeError(attempt.error)}</FormError>}
         <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="primary" disabled={!path.trim() || attempt.pending}>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="default" disabled={!path.trim() || attempt.pending}>
             Add project
           </Button>
         </DialogActions>
       </form>
-    </Dialog>
+    </TaskDialog>
   );
 }

@@ -51,6 +51,11 @@ Scope and operating rules: [roadmap.md](roadmap.md). This records outcomes and e
 - Final sentinel scan saved its result and exported rows/logs, but not the raw 11 RPC frames or temporary SQLite files. See the evidence caveat in `.e2e/final-combined/report.md`.
 - Client-state inspection found that a failed watch can leave `watching` set while the control socket stays connected; per-watch error/retry is not exposed. This is a source-level risk, not a reproduced incident or a completed fix. Architecture changes remain a separate user decision (`research/client-state.md`).
 
+## UI kit migration branch
+
+- `feature/shadcn-base-ui` migrates the existing compact composition to official shadcn/ui Base UI / Nova; generation, token mapping and vendor adaptations are in `ui-kit.md`. No domain/store/protocol changes or dependency upgrades.
+- Fresh verification: Node567/567 (one added retired-token gate test), browser179/179, Electron19/19; built browser/Electron smoke at 1920×1080 and 1024×640. Local provenance, screenshots, original failures and qualifications: `.e2e/shadcn/report.md`. Main integration/review remains separate. The historical Rename input risk is not declared fixed; font +/-/reset controls were not found in this baseline and were not added.
+
 ## Delivery state
 
 Detailed reports are saved in their named agent's `result-N.md`; promote durable findings into repo docs when they arrive.

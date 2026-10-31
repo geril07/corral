@@ -1,5 +1,5 @@
 import type { ConfigProblem } from "@corral/protocol/config";
-import { Dialog, IconButton } from "../../common/ui/index.ts";
+import { TaskDialog, IconButton } from "../../common/ui/index.ts";
 import { useConfig } from "./config-context.tsx";
 
 /** The non-blocking hint in the sidebar footer; nothing when the file has no problems. */
@@ -12,7 +12,7 @@ export function ConfigProblemsNotice({ onOpen }: { onOpen: (opener?: HTMLElement
       label={`config: ${count}`}
       tooltip={`Config problems · ${count}`}
       icon="warn"
-      className="text-danger"
+      className="text-destructive"
       onClick={(event) => onOpen(event.currentTarget)}
     />
   );
@@ -22,18 +22,18 @@ export function ConfigProblemsNotice({ onOpen }: { onOpen: (opener?: HTMLElement
 export function ConfigProblemsDialog({ onClose }: { onClose: () => void }) {
   const { path, problems } = useConfig();
   return (
-    <Dialog
+    <TaskDialog
       title="Config problems"
       description="The valid entries still apply; fix the file and save."
       onClose={onClose}
     >
-      <p className="mb-3 break-all font-mono text-xs text-text-muted">{path}</p>
+      <p className="mb-3 break-all font-mono text-xs text-muted-foreground">{path}</p>
       <ConfigProblemsList problems={problems} />
-    </Dialog>
+    </TaskDialog>
   );
 }
 
-/** Each rejected entry; the settings surface and the dialog show the same rows. */
+/** Each rejected entry; the settings background and the dialog show the same rows. */
 export function ConfigProblemsList({ problems }: { problems: readonly ConfigProblem[] }) {
   return (
     <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
@@ -51,10 +51,10 @@ function ProblemRow({ problem }: { problem: ConfigProblem }) {
   return (
     <li>
       <div className="flex items-baseline gap-2">
-        <span className={problem.severity === "error" ? "text-danger" : "text-status-blocked"}>
+        <span className={problem.severity === "error" ? "text-destructive" : "text-status-blocked"}>
           {problem.severity}
         </span>
-        <span className="break-all font-mono text-xs text-text-muted">
+        <span className="break-all font-mono text-xs text-muted-foreground">
           {problem.path || "(whole file)"}
         </span>
       </div>

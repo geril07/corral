@@ -3,7 +3,14 @@ import { Label, MAX_LABEL_LENGTH } from "@corral/protocol/label";
 import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useAttempt } from "../../common/hooks/use-attempt.ts";
-import { Button, Dialog, DialogActions, Field, FormError, Input } from "../../common/ui/index.ts";
+import {
+  Button,
+  TaskDialog,
+  DialogActions,
+  FieldLabel,
+  FormError,
+  Input,
+} from "../../common/ui/index.ts";
 
 /** What a rename names: a session of a task or a loose terminal, both by their stable id. */
 export interface RenameTarget {
@@ -56,21 +63,24 @@ export function RenameEntryDialog({ target, onSave, onClose }: RenameEntryDialog
   };
 
   return (
-    <Dialog title={`Rename ${target.name}`} description={HELP[target.type]} onClose={onClose}>
+    <TaskDialog title={`Rename ${target.name}`} description={HELP[target.type]} onClose={onClose}>
       <form onSubmit={save}>
-        <Field label="Name">
+        <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
+          Name
           <Input ref={input} defaultValue={target.label ?? ""} />
-        </Field>
+        </FieldLabel>
         {(problem ?? (attempt.failed ? describeError(attempt.error) : undefined)) && (
           <FormError>{problem ?? describeError(attempt.error)}</FormError>
         )}
         <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={attempt.pending}>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="outline" type="submit" disabled={attempt.pending}>
             Save
           </Button>
         </DialogActions>
       </form>
-    </Dialog>
+    </TaskDialog>
   );
 }

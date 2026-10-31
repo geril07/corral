@@ -94,8 +94,23 @@ describe("class literals", () => {
 
   it("accepts semantic tokens and standard layout utilities", () => {
     const source =
-      'const cls = "flex items-center gap-2 p-4 text-text-muted border-border rounded-md hover:bg-surface-active md:grid-cols-2 w-full truncate";';
+      'const cls = "flex items-center gap-2 p-4 text-muted-foreground border-border rounded-md hover:bg-accent md:grid-cols-2 w-full truncate";';
     expect(classViolations(source, "sample.tsx")).toEqual([]);
+  });
+
+  it("rejects retired kit tokens instead of silently rendering unstyled controls", () => {
+    for (const token of [
+      "bg-surface",
+      "hover:bg-surface-active",
+      "text-text-muted",
+      "bg-danger-strong",
+      "rounded-control",
+      "focus-visible:outline-focus-ring",
+    ]) {
+      expect(messages(`const cls = "${token}";`)).toEqual([
+        `1:obsolete theme token in class name: ${token}`,
+      ]);
+    }
   });
 
   it("reports malformed source at its position instead of skipping the file", () => {
@@ -137,7 +152,7 @@ describe("guard CLI", () => {
     const root = fixture({
       "apps/web/src/modules/tasks/import-card.tsx": [
         "/** The form's Create action keeps [draft] state. */",
-        'export const className = "flex p-4 text-text-muted";',
+        'export const className = "flex p-4 text-muted-foreground";',
         "// The user's draft stays.",
       ].join("\n"),
     });

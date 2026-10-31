@@ -5,8 +5,13 @@ import { useState } from "react";
 import {
   Badge,
   Button,
-  CommandPalette,
-  Dialog,
+  Command,
+  CommandInput,
+  CommandList,
+  CommandGroup,
+  CommandItem,
+  CommandEmpty,
+  TaskDialog,
   DialogActions,
   FormError,
 } from "../../common/ui/index.ts";
@@ -60,12 +65,12 @@ export function FindTaskDialog({
   };
 
   return (
-    <Dialog
+    <TaskDialog
       title="Find task"
       description="Every task in every project, active and settled. Enter opens one; a settled task keeps its state until you continue it."
       onClose={onClose}
     >
-      <CommandPalette.Root
+      <Command
         label="Tasks"
         loop
         shouldFilter={false}
@@ -75,7 +80,7 @@ export function FindTaskDialog({
           setFailure(undefined);
         }}
       >
-        <CommandPalette.Input
+        <CommandInput
           aria-label="Search tasks"
           placeholder="Search title, branch or project…"
           autoFocus
@@ -97,36 +102,40 @@ export function FindTaskDialog({
             }
           }}
         />
-        <CommandPalette.List>
-          <CommandPalette.Group heading="Tasks">
+        <CommandList>
+          <CommandGroup heading="Tasks">
             {results.map(({ task, project }) => (
-              <CommandPalette.Item key={task.id} value={task.id} onSelect={() => open(task)}>
+              <CommandItem key={task.id} value={task.id} onSelect={() => open(task)}>
                 <span className="flex-1 truncate">{task.title}</span>
-                <span className="max-w-1/3 truncate text-text-muted">{task.branch}</span>
-                <Badge size="sm">{project.name}</Badge>
-                {task.state === "settled" && <Badge size="sm">settled</Badge>}
-              </CommandPalette.Item>
+                <span className="max-w-1/3 truncate text-muted-foreground">{task.branch}</span>
+                <Badge variant="secondary">{project.name}</Badge>
+                {task.state === "settled" && <Badge variant="secondary">settled</Badge>}
+              </CommandItem>
             ))}
-          </CommandPalette.Group>
-          <CommandPalette.Empty>
+          </CommandGroup>
+          <CommandEmpty>
             {query.trim() === "" ? "No tasks to find." : "No task matches."}
-          </CommandPalette.Empty>
-        </CommandPalette.List>
-      </CommandPalette.Root>
+          </CommandEmpty>
+        </CommandList>
+      </Command>
       {failure && <FormError>{failure}</FormError>}
       <DialogActions>
         <Button variant="ghost" onClick={onClose}>
           Cancel
         </Button>
-        <Button onClick={() => selected && open(selected.task)} disabled={!selected}>
+        <Button
+          variant="outline"
+          onClick={() => selected && open(selected.task)}
+          disabled={!selected}
+        >
           Open task
         </Button>
         {selected?.task.state === "settled" && (
-          <Button variant="primary" onClick={() => void continueSelected()} disabled={continuing}>
+          <Button variant="default" onClick={() => void continueSelected()} disabled={continuing}>
             Continue settled task
           </Button>
         )}
       </DialogActions>
-    </Dialog>
+    </TaskDialog>
   );
 }

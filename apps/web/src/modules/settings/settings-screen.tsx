@@ -32,7 +32,7 @@ export function SettingsScreen({ onClose }: { onClose: () => void }) {
           Back
         </Button>
         <h1 className="m-0 text-base font-semibold">Settings</h1>
-        <Badge>read-only</Badge>
+        <Badge variant="secondary">read-only</Badge>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <section aria-labelledby="settings-keys" className="mb-5">

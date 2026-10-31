@@ -7,7 +7,7 @@ import {
   BoardRow,
   Button,
   Icon,
-  Tooltip,
+  Hint,
   useTruncatedText,
 } from "../../common/ui/index.ts";
 import { useNow } from "../../common/hooks/use-now.ts";
@@ -61,12 +61,12 @@ export function Board({ rows, onJump, onClose }: BoardProps) {
           Back
         </Button>
         <h1 className="m-0 text-base font-semibold">Board</h1>
-        <span className="ml-auto text-xs text-text-muted">
+        <span className="ml-auto text-xs text-muted-foreground">
           {rows.length} active {rows.length === 1 ? "task" : "tasks"}
         </span>
       </div>
       {rows.length === 0 ? (
-        <p className="text-text-muted">No active tasks.</p>
+        <p className="text-muted-foreground">No active tasks.</p>
       ) : (
         <BoardList
           ref={listRef}
@@ -100,7 +100,7 @@ export function Board({ rows, onJump, onClose }: BoardProps) {
                 <span className="truncate">{status ? describeStatus(status) : "no status"}</span>
                 <BoardTask project={row.project.name} title={row.task.title} />
                 <BoardMessage message={status?.message} />
-                <span className="truncate text-right text-text-muted">
+                <span className="truncate text-right text-muted-foreground">
                   {status ? formatAge(now, status.updatedAt) : ""}
                 </span>
               </BoardRow>
@@ -117,13 +117,13 @@ function BoardMessage({ message }: { message: string | undefined }) {
   const content = (
     <span
       ref={observe}
-      className="block truncate text-text-muted"
+      className="block truncate text-muted-foreground"
       title={clipped ? message : undefined}
     >
       {message}
     </span>
   );
-  return clipped && message ? <Tooltip content={message}>{content}</Tooltip> : content;
+  return clipped && message ? <Hint content={message}>{content}</Hint> : content;
 }
 
 function BoardTask({ project, title }: { project: string; title: string }) {
@@ -131,8 +131,8 @@ function BoardTask({ project, title }: { project: string; title: string }) {
   const { observe, clipped } = useTruncatedText(full);
   const content = (
     <span ref={observe} className="block truncate" title={clipped ? full : undefined}>
-      <span className="text-text-muted">{project}</span> {title}
+      <span className="text-muted-foreground">{project}</span> {title}
     </span>
   );
-  return clipped ? <Tooltip content={full}>{content}</Tooltip> : content;
+  return clipped ? <Hint content={full}>{content}</Hint> : content;
 }

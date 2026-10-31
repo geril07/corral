@@ -24,9 +24,9 @@ import {
   Button,
   Icon,
   IconButton,
-  MenuItem,
+  DropdownMenuItem,
   OverflowMenu,
-  Tooltip,
+  Hint,
   TreeIndent,
   TreeRow,
   useTruncatedText,
@@ -211,7 +211,7 @@ export function Sidebar(props: SidebarProps) {
                   onClick={props.onSelectLoose}
                 >
                   <span className="min-w-0 flex-1 truncate">No task</span>
-                  <span className="text-xs text-text-muted">{tree.loose.length}</span>
+                  <span className="text-xs text-muted-foreground">{tree.loose.length}</span>
                 </Button>
               </TreeRow>
               <TreeIndent>
@@ -270,24 +270,26 @@ function TerminalRow({
     >
       <span
         ref={observeTerminal}
-        className={cn("min-w-0 flex-1 truncate", terminal.exit && "text-text-muted")}
+        className={cn("min-w-0 flex-1 truncate", terminal.exit && "text-muted-foreground")}
       >
         {terminalDisplay}
       </span>
       {terminal.exit && (
-        <Badge className="ml-1 text-text-muted">exited ({terminal.exit.exitCode})</Badge>
+        <Badge variant="secondary" className="ml-1 text-muted-foreground">
+          exited ({terminal.exit.exitCode})
+        </Badge>
       )}
     </Button>
   );
   return (
     <li>
       <TreeRow current={current}>
-        {terminalClipped ? <Tooltip content={label}>{select}</Tooltip> : select}
+        {terminalClipped ? <Hint content={label}>{select}</Hint> : select}
         <OverflowMenu label={`Terminal actions for ${label}`}>
-          {onRename && <MenuItem onClick={onRename}>Rename…</MenuItem>}
-          <MenuItem danger onClick={onClose}>
+          {onRename && <DropdownMenuItem onClick={onRename}>Rename…</DropdownMenuItem>}
+          <DropdownMenuItem variant="destructive" onClick={onClose}>
             Close terminal…
-          </MenuItem>
+          </DropdownMenuItem>
         </OverflowMenu>
       </TreeRow>
     </li>
@@ -341,23 +343,27 @@ function SessionRow({
     >
       <span
         ref={observe}
-        className={cn("min-w-0 flex-1 truncate", running ? undefined : "text-text-muted")}
+        className={cn("min-w-0 flex-1 truncate", running ? undefined : "text-muted-foreground")}
       >
         {display}
       </span>
       {launch && running && (
-        <Badge className="min-w-0 max-w-1/3 justify-start overflow-hidden" title={launchDetails}>
+        <Badge
+          variant="secondary"
+          className="min-w-0 max-w-1/3 justify-start overflow-hidden"
+          title={launchDetails}
+        >
           <span className="truncate">{launch}</span>
         </Badge>
       )}
-      {badge && <span className="text-text-muted"> {badge}</span>}
+      {badge && <span className="text-muted-foreground"> {badge}</span>}
     </Button>
   );
   return (
     <li>
       <TreeRow current={current}>
         <StatusIndicator status={status} />
-        {clipped ? <Tooltip content={name}>{select}</Tooltip> : select}
+        {clipped ? <Hint content={name}>{select}</Hint> : select}
         {running ? (
           <IconButton
             label={`stop ${name}`}
@@ -374,10 +380,10 @@ function SessionRow({
           />
         )}
         <OverflowMenu label={`Session actions for ${name}`}>
-          {onRename && <MenuItem onClick={onRename}>Rename…</MenuItem>}
-          <MenuItem danger onClick={onRemove}>
+          {onRename && <DropdownMenuItem onClick={onRename}>Rename…</DropdownMenuItem>}
+          <DropdownMenuItem variant="destructive" onClick={onRemove}>
             Remove session…
-          </MenuItem>
+          </DropdownMenuItem>
         </OverflowMenu>
       </TreeRow>
     </li>
@@ -442,12 +448,15 @@ function TaskRow({
     >
       <span
         ref={observeTitle}
-        className={cn("min-w-0 flex-1 truncate", task.state === "settled" && "text-text-muted")}
+        className={cn(
+          "min-w-0 flex-1 truncate",
+          task.state === "settled" && "text-muted-foreground",
+        )}
       >
         {titleDisplay}
       </span>
       {task.branch && (
-        <span ref={observeBranch} className="w-1/4 shrink-0 truncate text-xs text-text-muted">
+        <span ref={observeBranch} className="w-1/4 shrink-0 truncate text-xs text-muted-foreground">
           {branchDisplay}
         </span>
       )}
@@ -469,33 +478,33 @@ function TaskRow({
         )}
         <StatusIndicator status={status} />
         {clipped ? (
-          <Tooltip
+          <Hint
             content={
               <span className="block">
                 <span className="block">{task.title}</span>
-                {task.branch && <span className="block text-text-muted">{task.branch}</span>}
+                {task.branch && <span className="block text-muted-foreground">{task.branch}</span>}
               </span>
             }
           >
             {select}
-          </Tooltip>
+          </Hint>
         ) : (
           select
         )}
         <OverflowMenu label={`Task actions for ${task.title}`} triggerRef={sourceTrigger}>
           {onViewSource && (
-            <MenuItem
+            <DropdownMenuItem
               onClick={(event) => onViewSource(sourceTrigger.current ?? event.currentTarget)}
             >
               View issue source…
-            </MenuItem>
+            </DropdownMenuItem>
           )}
-          <MenuItem onClick={onToggleSettle}>
+          <DropdownMenuItem onClick={onToggleSettle}>
             {task.state === "active" ? "Settle task" : "Unsettle task"}
-          </MenuItem>
-          <MenuItem danger onClick={onRemove}>
+          </DropdownMenuItem>
+          <DropdownMenuItem variant="destructive" onClick={onRemove}>
             Remove task…
-          </MenuItem>
+          </DropdownMenuItem>
         </OverflowMenu>
       </TreeRow>
       {open && sessions.length > 0 && (
@@ -564,12 +573,14 @@ function ProjectGroup({
         ref={observeProject}
         className={cn(
           "min-w-0 flex-1 truncate",
-          project.id === selection.projectId && "text-accent",
+          project.id === selection.projectId && "text-primary",
         )}
       >
         {projectDisplay}
       </span>
-      {!open && <span className="text-xs text-text-muted">{active.length + settled.length}</span>}
+      {!open && (
+        <span className="text-xs text-muted-foreground">{active.length + settled.length}</span>
+      )}
     </Button>
   );
   return (
@@ -583,7 +594,7 @@ function ProjectGroup({
           onClick={() => onToggle(project.id)}
         />
         {!open && status && <StatusIndicator status={status} />}
-        {projectClipped ? <Tooltip content={project.name}>{select}</Tooltip> : select}
+        {projectClipped ? <Hint content={project.name}>{select}</Hint> : select}
       </TreeRow>
       {open && (
         <TreeIndent>
@@ -614,7 +625,7 @@ function SettledGroup({
     <li>
       <Button
         variant="ghost"
-        className="h-7 w-full justify-start px-2 text-text-muted disabled:cursor-default"
+        className="h-7 w-full justify-start px-2 text-muted-foreground disabled:cursor-default"
         aria-expanded={open}
         disabled={holdsCurrent}
         onClick={() => setExpanded((each) => !each)}

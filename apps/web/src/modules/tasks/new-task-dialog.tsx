@@ -5,11 +5,14 @@ import { useAttempt } from "../../common/hooks/use-attempt.ts";
 import {
   Button,
   Combobox,
+  ComboboxInput,
+  ComboboxContent,
+  ComboboxEmpty,
   ComboboxItem,
   ComboboxList,
-  Dialog,
+  TaskDialog,
   DialogActions,
-  Field,
+  FieldLabel,
   FormError,
   Input,
   RadioGroup,
@@ -127,7 +130,11 @@ export function NewTaskDialog({
   };
 
   return (
-    <Dialog title="New task" description={`In project ${selectedProject.name}.`} onClose={onClose}>
+    <TaskDialog
+      title="New task"
+      description={`In project ${selectedProject.name}.`}
+      onClose={onClose}
+    >
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -142,14 +149,15 @@ export function NewTaskDialog({
           );
         }}
       >
-        <Field label="Title">
+        <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
+          Title
           <Input
             value={title}
             onChange={(event) => changeTitle(event.target.value)}
             autoComplete="off"
             autoFocus
           />
-        </Field>
+        </FieldLabel>
         <ProjectPicker projects={projects} value={projectId} onChange={chooseProject} />
         <IssueImportSection
           key={projectId}
@@ -161,7 +169,7 @@ export function NewTaskDialog({
           onImportingChange={setImporting}
         />
         <fieldset className="mb-2.5 border-0 p-0">
-          <legend className="mb-1 p-0 text-text-muted">Workspace</legend>
+          <legend className="mb-1 p-0 text-muted-foreground">Workspace</legend>
           <RadioGroup
             className="flex-row gap-3.5"
             value={kind}
@@ -184,7 +192,8 @@ export function NewTaskDialog({
         </fieldset>
         {kind === "new-branch" && (
           <>
-            <Field label="Branch name (optional)">
+            <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
+              Branch name (optional)
               <Input
                 value={branchName}
                 onChange={(event) => setBranchName(event.target.value)}
@@ -192,8 +201,9 @@ export function NewTaskDialog({
                 spellCheck={false}
                 autoComplete="off"
               />
-            </Field>
-            <Field label="Base branch (optional)">
+            </FieldLabel>
+            <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
+              Base branch (optional)
               <Input
                 value={baseBranch}
                 onChange={(event) => setBaseBranch(event.target.value)}
@@ -201,7 +211,7 @@ export function NewTaskDialog({
                 spellCheck={false}
                 autoComplete="off"
               />
-            </Field>
+            </FieldLabel>
           </>
         )}
         {kind === "existing-branch" && (
@@ -212,19 +222,21 @@ export function NewTaskDialog({
           />
         )}
         {kind === "main-worktree" && (
-          <p className="mb-2.5 text-text-muted">
+          <p className="mb-2.5 text-muted-foreground">
             Works directly in {selectedProject.path}, without a worktree.
           </p>
         )}
         {attempt.failed && <FormError>{describeError(attempt.error)}</FormError>}
         <DialogActions>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="primary" disabled={!ready}>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="default" disabled={!ready}>
             Create task
           </Button>
         </DialogActions>
       </form>
-    </Dialog>
+    </TaskDialog>
   );
 }
 
@@ -240,34 +252,35 @@ function ProjectPicker({
   const ids = projects.map((project) => project.id);
   const label = (id: string) => projects.find((project) => project.id === id)?.name ?? id;
   return (
-    <Combobox.Root items={ids} value={value} onValueChange={onChange} itemToStringLabel={label}>
-      <Field label="Project">
-        <Combobox.Input
+    <Combobox items={ids} value={value} onValueChange={onChange} itemToStringLabel={label}>
+      <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
+        Project
+        <ComboboxInput
+          className="w-full"
           aria-label="Project"
           placeholder="Search projects…"
           spellCheck={false}
           autoComplete="off"
         />
-      </Field>
-      <Combobox.Popup>
+      </FieldLabel>
+      <ComboboxContent>
+        <ComboboxEmpty>No matching project.</ComboboxEmpty>
         <ComboboxList>
           {(id: string) => {
             const project = projects.find((each) => each.id === id);
             if (!project) return null;
             return (
-              <ComboboxItem
-                key={id}
-                value={id}
-                className="flex cursor-default items-center gap-2 px-2 py-1 data-highlighted:bg-surface-active"
-              >
+              <ComboboxItem key={id} value={id}>
                 <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                <span className="max-w-1/2 truncate text-xs text-text-muted">{project.path}</span>
+                <span className="max-w-1/2 truncate text-xs text-muted-foreground">
+                  {project.path}
+                </span>
               </ComboboxItem>
             );
           }}
         </ComboboxList>
-      </Combobox.Popup>
-    </Combobox.Root>
+      </ComboboxContent>
+    </Combobox>
   );
 }
 
@@ -285,28 +298,27 @@ function BranchPicker({
   }
   const names = branches.status === "loaded" ? branches.names : [];
   return (
-    <Combobox.Root items={names} value={value} onValueChange={onChange}>
-      <Field label="Branch">
-        <Combobox.Input
+    <Combobox items={names} value={value} onValueChange={onChange}>
+      <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
+        Branch
+        <ComboboxInput
+          className="w-full"
           aria-label="Branch"
           placeholder={branches.status === "loading" ? "Loading branches…" : "Type to filter"}
           spellCheck={false}
           autoComplete="off"
         />
-      </Field>
-      <Combobox.Popup>
+      </FieldLabel>
+      <ComboboxContent>
+        <ComboboxEmpty>No such branch.</ComboboxEmpty>
         <ComboboxList>
           {(name: string) => (
-            <ComboboxItem
-              key={name}
-              value={name}
-              className="cursor-default px-2 py-1 data-highlighted:bg-surface-active"
-            >
+            <ComboboxItem key={name} value={name}>
               {name}
             </ComboboxItem>
           )}
         </ComboboxList>
-      </Combobox.Popup>
-    </Combobox.Root>
+      </ComboboxContent>
+    </Combobox>
   );
 }

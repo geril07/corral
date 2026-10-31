@@ -1,6 +1,6 @@
 import { describeSessionState } from "@corral/client/session-state";
 import { ActionId, type ClientConfig } from "@corral/protocol/config";
-import { AppShell, Button, Kbd, MainPanel, SidebarPanel, Tooltip } from "../../common/ui/index.ts";
+import { AppShell, Button, Kbd, MainPanel, SidebarPanel, Hint } from "../../common/ui/index.ts";
 import { AddProjectDialog } from "../projects/index.ts";
 import { AgentPicker, RemoveSessionDialog, StoppedSession } from "../sessions/index.ts";
 import { NewTaskDialog, RemoveTaskDialog, TaskSourceDialog } from "../tasks/index.ts";
@@ -127,24 +127,24 @@ export function WorkspaceScreen({
         />
         <footer className="border-t border-border">
           {failure && (
-            <p className="m-0 border-b border-border px-2.5 py-1 text-danger" role="alert">
+            <p className="m-0 border-b border-border px-2.5 py-1 text-destructive" role="alert">
               {failure}
             </p>
           )}
           <div className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 px-2.5 py-1">
             <ConnectionNotice state={connection} />
             <span
-              className="ml-auto inline-flex items-center gap-1 text-xs text-text-muted"
+              className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground"
               role={armed ? "status" : undefined}
               aria-label={armed ? "prefix mode" : undefined}
             >
-              <span className={armed ? "text-accent" : undefined}>
+              <span className={armed ? "text-primary" : undefined}>
                 {armed ? "prefix armed" : "prefix"}
               </span>
               <Kbd>{prefix}</Kbd>
             </span>
             <ConfigProblemsNotice onOpen={openConfigProblems} />
-            <Tooltip content={`Settings · ${settingsBinding}`}>
+            <Hint content={`Settings · ${settingsBinding}`}>
               <Button
                 id={SETTINGS_BUTTON_ID}
                 variant="ghost"
@@ -153,7 +153,7 @@ export function WorkspaceScreen({
               >
                 Settings
               </Button>
-            </Tooltip>
+            </Hint>
           </div>
         </footer>
       </SidebarPanel>
@@ -292,10 +292,10 @@ function EmptyWorkspace({
     return (
       <div className="px-4 py-6">
         <p className="mb-3">No projects yet.</p>
-        <Button variant="primary" onClick={(event) => onAddProject(event.currentTarget)}>
+        <Button variant="default" onClick={(event) => onAddProject(event.currentTarget)}>
           Add project
         </Button>
-        <p className="mt-3 text-text-muted">{terminalHint}</p>
+        <p className="mt-3 text-muted-foreground">{terminalHint}</p>
       </div>
     );
   }
@@ -303,12 +303,16 @@ function EmptyWorkspace({
     <div className="px-4 py-6">
       <p className="mb-3">{hasTask ? "No sessions in this task." : "No terminals."}</p>
       <div className="flex gap-2">
-        <Button variant="primary" onClick={onNewTerminal}>
+        <Button variant="default" onClick={onNewTerminal}>
           New terminal
         </Button>
-        {hasTask && <Button onClick={(event) => onNewAgent(event.currentTarget)}>New agent</Button>}
+        {hasTask && (
+          <Button variant="outline" onClick={(event) => onNewAgent(event.currentTarget)}>
+            New agent
+          </Button>
+        )}
       </div>
-      <p className="mt-3 text-text-muted">
+      <p className="mt-3 text-muted-foreground">
         {[terminalHint, hasTask ? agentHint : undefined].filter(Boolean).join(" ")}
       </p>
     </div>

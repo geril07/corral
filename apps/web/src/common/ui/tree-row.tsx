@@ -17,7 +17,7 @@ export function TreeRow({
     <div
       className={cn(
         "flex items-center",
-        current && "border-l-2 border-accent bg-surface-active",
+        current && "border-l-2 border-primary bg-accent",
         !current && "border-l-2 border-transparent",
         className,
       )}

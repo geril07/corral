@@ -1,7 +1,7 @@
 import { describeError } from "@corral/client/rpc-errors";
 import type { Session } from "@corral/protocol/rpc";
 import { useAttempt } from "../../common/hooks/use-attempt.ts";
-import { Button, ConfirmDialog, DialogActions, FormError } from "../../common/ui/index.ts";
+import { Button, DestructiveTaskDialog, DialogActions, FormError } from "../../common/ui/index.ts";
 
 interface RemoveSessionDialogProps {
   session: Session;
@@ -15,7 +15,7 @@ export function RemoveSessionDialog({ session, onRemove, onClose }: RemoveSessio
   const agent = session.kind !== "shell";
 
   return (
-    <ConfirmDialog
+    <DestructiveTaskDialog
       title={`Remove the ${session.kind} session?`}
       description={
         agent
@@ -26,15 +26,17 @@ export function RemoveSessionDialog({ session, onRemove, onClose }: RemoveSessio
     >
       {attempt.failed && <FormError>{describeError(attempt.error)}</FormError>}
       <DialogActions>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
         <Button
-          variant="danger"
+          variant="destructive"
           disabled={attempt.pending}
           onClick={() => void attempt.run(onRemove)}
         >
           Remove session
         </Button>
       </DialogActions>
-    </ConfirmDialog>
+    </DestructiveTaskDialog>
   );
 }

@@ -1,9 +1,12 @@
-import type { ReactNode } from "react";
-import { Button, type ButtonProps } from "./button.tsx";
+import type { ComponentProps, ReactNode } from "react";
+import { Button } from "./button.tsx";
 import { Icon, type IconName } from "./icon.tsx";
-import { Tooltip } from "./tooltip.tsx";
+import { Hint } from "./hint.tsx";
 
-export interface IconButtonProps extends Omit<ButtonProps, "aria-label" | "children"> {
+export interface IconButtonProps extends Omit<
+  ComponentProps<typeof Button>,
+  "aria-label" | "children"
+> {
   /** The accessible name, and the tooltip's words unless `tooltip` gives more. */
   label: string;
   tooltip?: ReactNode;
@@ -16,14 +19,14 @@ export function IconButton({
   tooltip,
   icon,
   size = "icon-sm",
-  variant = "ghost-muted",
+  variant = "ghost",
   ...props
 }: IconButtonProps) {
   return (
-    <Tooltip content={tooltip ?? label}>
+    <Hint content={tooltip ?? label}>
       <Button aria-label={label} size={size} variant={variant} {...props}>
         <Icon name={icon} />
       </Button>
-    </Tooltip>
+    </Hint>
   );
 }

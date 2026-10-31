@@ -17,7 +17,7 @@ export function EffectiveKeys() {
           <li key={action} className="flex items-center gap-2 py-0.5">
             <span className="flex-1 truncate">{ACTION_LABELS[action]}</span>
             {binding === "unbound" ? (
-              <span className="text-text-muted">unbound</span>
+              <span className="text-muted-foreground">unbound</span>
             ) : (
               <Kbd>{binding}</Kbd>
             )}
