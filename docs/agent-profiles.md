@@ -241,12 +241,13 @@ and optionally `model`; the server validates them and returns the snapshot.
 
 ## Protocol and old daemons
 
-Launch profiles and the session launch fields are protocol version 3. A long-lived protocol 2
-daemon (the version that introduced the transport capability) would silently strip the new
-fields and start the agent natively. Clients must therefore refuse it: the endpoint check
-reports a protocol mismatch, and a WebSocket handshake on version 2 closes with `4001` and the
-server's version before any route or session exists. The old daemon is left running with its
-sessions; nothing bypasses the version barrier.
+Launch profiles, their revision pin, and the settings action are protocol version 4. A
+long-lived protocol 3 daemon sends an exhaustive bindings record without `settings`; a client
+would silently run an incomplete keymap. A protocol 2 daemon would also strip the launch
+fields and start the agent natively. Clients must therefore refuse both: the endpoint check
+reports a protocol mismatch, and a WebSocket handshake on an older version closes with `4001`
+and the server's version before any route, keymap or session mutation. The old daemon is left
+running with its sessions; nothing bypasses the version barrier.
 
 ## Security
 

@@ -2,10 +2,12 @@ import { z } from "zod";
 
 /**
  * Bumped on any wire change a peer of the other version would misread. Version 2 introduced
- * the transport capability; version 3 the launch profile/model session fields. A version 2
- * daemon would strip those fields and start a native agent, so it must be replaced, not reused.
+ * the transport capability; version 3 the launch profile/model session fields; version 4 the
+ * settings action and its binding. A version 3 daemon sends an exhaustive bindings record
+ * without `settings`, so a client would silently run an incomplete keymap; it must be replaced,
+ * not reused.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in

@@ -653,7 +653,7 @@ env = [{ targetName = "OPENAI_API_KEY", fromEnv = "LAUNCH_OPENAI_KEY_B" }]
   expect(await launchesOf(agents, "codex", 1)).toHaveLength(1);
 });
 
-test("an old protocol 2 client is refused before any profiled session or spawn", async () => {
+test("an old protocol 3 client is refused before any profiled session or spawn", async () => {
   await writeConfig(claudeProfile(), (config) =>
     config.profiles.some((profile) => profile.id === "claude-gateway"),
   );
@@ -661,20 +661,20 @@ test("an old protocol 2 client is refused before any profiled session or spawn",
   void task;
 
   const old = new WsWebSocket(
-    `${server.url}/rpc?protocol=2`,
+    `${server.url}/rpc?protocol=3`,
     capabilityProtocols(server.capability),
   );
   const closed = await within(
     new Promise<{ code: number; reason: string }>((resolve) =>
       old.once("close", (code, reason) => resolve({ code, reason: reason.toString("utf8") })),
     ),
-    "the protocol 2 close",
+    "the protocol 3 close",
   );
   expect(closed.code).toBe(PROTOCOL_MISMATCH_CLOSE_CODE);
   expect(ProtocolMismatchReason.parse(JSON.parse(closed.reason))).toEqual({
     serverProtocolVersion: PROTOCOL_VERSION,
   });
-  expect(PROTOCOL_VERSION).toBe(3);
+  expect(PROTOCOL_VERSION).toBe(4);
   expect(await agents.launches()).toEqual([]);
   expect(await sessionsOf(api)).toEqual([]);
 

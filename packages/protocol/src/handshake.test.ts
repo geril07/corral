@@ -15,6 +15,13 @@ describe("protocol version in the URL", () => {
     expect(checkProtocolVersion(url)).toBeNull();
   });
 
+  test("the release barrier is version 4 and version 3 is rejected", () => {
+    expect(PROTOCOL_VERSION).toBe(4);
+    expect(checkProtocolVersion(new URL("ws://h/rpc?protocol=3"))).toEqual({
+      serverProtocolVersion: 4,
+    });
+  });
+
   test("another or missing version is rejected with the server's version", () => {
     for (const query of [`?protocol=${PROTOCOL_VERSION + 1}`, ""]) {
       expect(checkProtocolVersion(new URL(`ws://h/rpc${query}`))).toEqual({

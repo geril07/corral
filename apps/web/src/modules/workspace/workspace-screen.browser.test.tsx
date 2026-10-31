@@ -20,6 +20,9 @@ const claimNextProtocolVersion: (url: string, protocols: string[]) => WebSocket 
     protocols,
   );
 
+const claimOldProtocolVersion: (url: string, protocols: string[]) => WebSocket = (url, protocols) =>
+  new WebSocket(url.replace(`protocol=${PROTOCOL_VERSION}`, "protocol=3"), protocols);
+
 const SIZE = { cols: 80, rows: 24 };
 const { newClient } = realServerClients();
 
@@ -157,6 +160,19 @@ test("a server on another protocol version gets a clear message instead of the w
     .element(page.getByText(new RegExp(`The server speaks protocol version ${PROTOCOL_VERSION};`)))
     .toBeVisible();
   await expect.element(workspace()).not.toBeInTheDocument();
+});
+
+test("an old protocol 3 server is refused before the keymap or any mutation", async () => {
+  await render(<App client={newClient(serverTarget(), claimOldProtocolVersion)} />);
+
+  await expect.element(page.getByRole("alert")).toBeVisible();
+  await expect
+    .element(page.getByText(new RegExp(`The server speaks protocol version ${PROTOCOL_VERSION};`)))
+    .toBeVisible();
+  await expect.element(workspace()).not.toBeInTheDocument();
+  await prefixThen("c");
+  await expect.element(page.getByRole("status", { name: "prefix mode" })).not.toBeInTheDocument();
+  await expect.element(terminalButtons()).toHaveLength(0);
 });
 
 test("an unreachable server shows as disconnected and the workspace stays up", async () => {
