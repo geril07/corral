@@ -1,6 +1,34 @@
 import * as fc from "fast-check";
 import { describe, expect, test } from "vite-plus/test";
-import { branchNameTaken, directoryName, slugifyTitle, uniqueName } from "./names.ts";
+import {
+  branchNameTaken,
+  directoryName,
+  sanitizeSlug,
+  slugifyTitle,
+  takenAncestor,
+  uniqueName,
+} from "./names.ts";
+
+describe("sanitizeSlug", () => {
+  test("anything becomes one lowercase ref segment, or nothing at all", () => {
+    expect(sanitizeSlug("OAuth SSO")).toBe("oauth-sso");
+    expect(sanitizeSlug("  ../Release 1.2!  ")).toBe("release-1-2");
+    expect(sanitizeSlug("")).toBe("");
+    expect(sanitizeSlug("---")).toBe("");
+    expect(sanitizeSlug("日本語 ✨")).toBe("");
+  });
+
+  test("the result is never a path, never longer than the limit, and is its own slug", () => {
+    fc.assert(
+      fc.property(fc.string({ unit: "binary" }), (text) => {
+        const slug = sanitizeSlug(text);
+        expect(slug).toMatch(/^$|^[a-z0-9]+(-[a-z0-9]+)*$/);
+        expect(slug.length).toBeLessThanOrEqual(50);
+        expect(sanitizeSlug(slug)).toBe(slug);
+      }),
+    );
+  });
+});
 
 describe("slugifyTitle", () => {
   test.each([
@@ -67,12 +95,25 @@ describe("uniqueName", () => {
 });
 
 describe("branchNameTaken", () => {
-  test("a name is taken by the same branch or by a branch below it, not by a longer sibling", () => {
-    const existing = new Set(["main", "feature/login", "fix-2"]);
+  test("a name is taken by the same branch, by a branch below it, or by a branch above it", () => {
+    const existing = new Set(["main", "feature/login", "fix-2", "corral"]);
     expect(branchNameTaken("main", existing)).toBe(true);
     expect(branchNameTaken("feature", existing)).toBe(true);
     expect(branchNameTaken("feat", existing)).toBe(false);
     expect(branchNameTaken("fix", existing)).toBe(false);
+    expect(branchNameTaken("corral/fix-login", existing)).toBe(true);
+    expect(branchNameTaken("corral/fix-login-2", existing)).toBe(true);
+    expect(branchNameTaken("corralx/fix-login", existing)).toBe(false);
+  });
+});
+
+describe("takenAncestor", () => {
+  test("names the first existing ref the name would sit under, if any", () => {
+    const existing = new Set(["corral", "team/corral"]);
+    expect(takenAncestor("corral/fix-login", existing)).toBe("corral");
+    expect(takenAncestor("team/corral/fix-login", existing)).toBe("team/corral");
+    expect(takenAncestor("team/other/fix-login", existing)).toBeUndefined();
+    expect(takenAncestor("fix-login", existing)).toBeUndefined();
   });
 });
 

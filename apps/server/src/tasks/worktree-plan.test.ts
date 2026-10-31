@@ -56,6 +56,45 @@ test("a generated slug wins over the title, so A4 can name the branch and worktr
   expect(taskSlug({ title: "Fix login", generatedSlug: "oauth-sso" })).toBe("oauth-sso");
 });
 
+test("a generated slug is sanitized, and one with nothing usable falls back to the title", () => {
+  expect(taskSlug({ title: "Fix login", generatedSlug: "OAuth SSO" })).toBe("oauth-sso");
+  expect(taskSlug({ title: "Fix login", generatedSlug: "../Release 1.2!" })).toBe("release-1-2");
+  expect(taskSlug({ title: "Fix login", generatedSlug: "" })).toBe("fix-login");
+  expect(taskSlug({ title: "Fix login", generatedSlug: "---" })).toBe("fix-login");
+  expect(
+    planWorktree(
+      { type: "new-branch" },
+      context(["main"], [], { branchPrefix: "corral/", generatedSlug: "OAuth SSO" }),
+    ),
+  ).toMatchObject({ branch: "corral/oauth-sso", slug: "oauth-sso" });
+});
+
+test("a prefix without its separator, or with too many, still joins the slug once", () => {
+  for (const branchPrefix of ["corral", "corral/", "corral//", "/corral/"]) {
+    expect(
+      planWorktree({ type: "new-branch" }, context(["main"], [], { branchPrefix })),
+    ).toMatchObject({ branch: "corral/fix-login", slug: "fix-login" });
+  }
+  expect(
+    planWorktree({ type: "new-branch" }, context(["main"], [], { branchPrefix: "/" })),
+  ).toMatchObject({ branch: "fix-login" });
+});
+
+test("a local branch the prefix would sit under fails with that conflict, not with raw git", () => {
+  expect(
+    planWorktree(
+      { type: "new-branch" },
+      context(["main", "corral"], [], { branchPrefix: "corral/" }),
+    ),
+  ).toEqual({ problem: "a branch named 'corral' blocks every branch under the prefix 'corral/'" });
+  expect(
+    planWorktree(
+      { type: "new-branch" },
+      context(["main", "corral"], [], { branchPrefix: "corral" }),
+    ),
+  ).toEqual({ problem: "a branch named 'corral' blocks every branch under the prefix 'corral/'" });
+});
+
 test("a branch name given by the user is used as is, and refused when it exists", () => {
   expect(
     planWorktree({ type: "new-branch", branch: "Feature/X" }, context(["main"])),

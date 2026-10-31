@@ -8,7 +8,10 @@ import { join } from "node:path";
 export interface TaskSettings {
   /** Absolute directory whose `<repo>/<slug>` children are the tasks' worktrees. */
   worktreeRoot(project: Project): string;
-  /** In front of every branch name derived from a task slug; empty when unset. */
+  /**
+   * In front of every branch name derived from a task slug: empty when unset, else a ref prefix
+   * ending in the separator (`corral/`). `planWorktree` normalizes a missing or doubled separator.
+   */
   branchPrefix(project: Project): string;
 }
 

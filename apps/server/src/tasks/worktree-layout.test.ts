@@ -53,3 +53,26 @@ test("two projects with the same directory name share <root>/<repo> and stay apa
     join(projectDir, "same-name-2"),
   ]);
 });
+
+test("a local branch the prefix would sit under fails with that conflict and leaves nothing behind", async () => {
+  const repo = initRepo(join(server.scratchDir, "blocked"));
+  runGit(repo, "branch", "corral");
+  const api = await server.rpc();
+  const project = await api.projects.add({ path: repo });
+
+  await expect(
+    api.tasks.create({
+      projectId: project.id,
+      title: "Fix login",
+      workspace: { type: "new-branch" },
+    }),
+  ).rejects.toMatchObject({
+    code: "GIT_FAILED",
+    data: { message: "a branch named 'corral' blocks every branch under the prefix 'corral/'" },
+  });
+
+  const worktrees = runGit(repo, "worktree", "list", "--porcelain")
+    .split("\n")
+    .filter((line) => line.startsWith("worktree "));
+  expect(worktrees).toEqual([`worktree ${repo}`]);
+});
