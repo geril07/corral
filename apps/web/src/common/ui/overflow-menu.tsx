@@ -15,7 +15,9 @@ export function OverflowMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<IconButton ref={triggerRef} label={label} icon="more" />} />
-      <DropdownMenuContent align="end">{children}</DropdownMenuContent>
+      <DropdownMenuContent align="end" className="min-w-44">
+        {children}
+      </DropdownMenuContent>
     </DropdownMenu>
   );
 }
