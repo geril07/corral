@@ -213,9 +213,7 @@ test("a server restart with a new capability reconnects without quitting the app
     )
     .not.toBe(oldCapability);
 
-  await expect(window.getByRole("status", { name: "connection", exact: true })).toContainText(
-    "Connected",
-  );
+  await expect(window.getByRole("status", { name: /^connection:/ })).toContainText("Connected");
   await expect(selectedTask).toHaveAttribute("aria-current", "true");
 
   const shells = workspace(window).getByRole("button", { name: /^shell(?: \d+)?$/ });
