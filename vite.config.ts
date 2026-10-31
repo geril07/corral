@@ -95,7 +95,7 @@ export default defineConfig({
         test: {
           name: "node",
           environment: "node",
-          include: ["{apps,packages}/*/{src,test}/**/*.test.ts"],
+          include: ["{apps,packages}/*/{src,test}/**/*.test.ts", "scripts/**/*.test.ts"],
           // node-pty and other native modules are unsafe in worker threads.
           pool: "forks",
           // Resource-budget policy: integration files each start a real server or PTY, so half

@@ -68,7 +68,7 @@ The client is a compact, graphical desktop app for people who live in terminals;
 
 - Hierarchy comes from surfaces and weight: `surface` for the app, `surface-raised` for the sidebar and dialogs, `surface-active` for hover and selection. Borders only between panes, at dialog edges and under the sidebar toolbar.
 - Type stays at 13px/1.4 body, 12px secondary and `Kbd`, 15px dialog title, weight 600 for project rows and dialog titles. No new sizes.
-- Color comes from the theme block (`apps/web/src/app/global.css:9-19`). Palette classes and arbitrary values outside `common/ui` fail the gate (`scripts/check-web-ui.mjs:16`), so a new metric is either an existing token or a kit class.
+- Color comes from the theme block (`apps/web/src/app/global.css:9-19`). Palette classes and arbitrary values outside `common/ui` fail the gate (`scripts/web-ui-classes.mjs`), so a new metric is either an existing token or a kit class.
 - Token delta allowed here: at most one `--color-text-subtle` for a third text level, and only once a second component needs it. No spacing, elevation or motion scale.
 - Motion is color and opacity only, about 120ms. A status update may change a glyph, never a row's position.
 
