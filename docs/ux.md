@@ -55,9 +55,11 @@ Stock primitive defaults remain identifiable and unchanged; see `ui-kit.md`.
   capture the current target rather than reusing a previous pointer opener.
 - First input receives focus; destructive confirmation starts on Cancel. Escape and
   outside interaction use Base UI behavior; destructive outside clicks do not close.
-- Menus, dialogs, popups and the palette use their stock focus/transition treatment.
-  Tests distinguish active/closed state or wait for transition completion instead of
-  stripping animations. The prefix never handles keys while a task dialog is open.
+- Menus, dialogs, popups and the palette keep their stock focus treatment and enter
+  transitions, but close immediately: a closing popup must not hold the keyboard, so
+  no exit animation delays its unmount. Tests then assert one live popup or the
+  terminal's first character instead of waiting for a transition. The prefix never
+  handles keys while a task dialog is open.
 - Errors stay with the form at `role="alert"`; failed submissions preserve input.
   Connection/protocol mismatch notices remain app-level, not transient success toasts.
 - Clicking navigation must not steal terminal focus. Tooltip content is optional;

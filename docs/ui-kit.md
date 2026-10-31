@@ -44,11 +44,23 @@ For updates, use the same config (`apps/web/components.json`) and pinned CLI's
 
 ## Permitted adaptations
 
-Canonical primitive **defaults and visual classes are unchanged**, including
-animations/transitions, button translation, badge shape, dialog placement/width,
-focus rings and tooltip treatment. Repository adaptations are relative imports,
-Oxfmt formatting, reuse of the existing clsx/tailwind-merge helper instead of the
-redundant `cn` package, FieldError's message key and InputGroup's event type guard.
+Canonical primitive **static classes, tokens and enter animations are unchanged**,
+including button translation, badge shape, dialog placement/width, focus rings and
+tooltip treatment. Repository adaptations are relative imports, Oxfmt formatting,
+reuse of the existing clsx/tailwind-merge helper instead of the redundant `cn`
+package, FieldError's message key and InputGroup's event type guard.
+
+**Exit animations are removed on purpose** in `dialog.tsx`, `alert-dialog.tsx`
+(overlay and content), `dropdown-menu.tsx` (content and sub-content),
+`combobox.tsx` and `tooltip.tsx`: no `data-closed:animate-out`/`fade-out`/`zoom-out`
+classes, no `duration-*` transition duration and no menu `data-closed:overflow-hidden`
+that paired with its zoom-out. Base UI keeps a closing popup
+mounted, and returns focus only when it unmounts, until that animation ends; the
+~100 ms window swallowed the first character typed after Escape and left two live
+menus when the next row's menu opened. Enter animations stay stock, including their
+100 ms via tw-animate-css's `animation-duration-100` (it sets an animation duration,
+not a transition duration). Closing during a running enter animation still waits for
+that animation, which is the remaining bound on teardown.
 
 Current structural needs have named kit variants, not module class overrides:
 
@@ -57,6 +69,13 @@ Current structural needs have named kit variants, not module class overrides:
   stock `ghost`; no replacement hover, ring, color, height, padding or font rules.
 - Badge `layout="truncate"`: bounded flex allocation for a saved launch summary;
   the badge's stock variant, shape and sizing are unchanged.
+- DialogContent `padding="none"`: the content box keeps no stock `p-4`, so
+  DialogFooter drops its `-mx-4 -mb-4` cancellation and pads itself. Without it the
+  stock footer overflows an unpadded content box by 16 px on three sides and is
+  clipped. `CommandDialog` (and therefore `TaskCommandDialog`) selects it; the footer
+  learns about the padding through kit context, not from the module.
+- OverflowMenu keeps `min-w-44`: stock menu content is as narrow as its icon-only
+  trigger (`min-w-32`) and "Remove session…" wrapped in the row overflow menu.
 - BoardRow uses exported official Item variants for its appearance and focus,
   retaining only the board's five-column grid as structural layout. Issue text
   and dirty-file lists use stock outlined Item containers; terminal notices use
@@ -68,10 +87,14 @@ Current structural needs have named kit variants, not module class overrides:
   forwards `finalFocus` to DialogContent; no visual default changes.
 - FormField connects a generated id to stock Field/FieldLabel. RadioChoice composes
   stock horizontal Field, RadioGroupItem and FieldLabel; RadioGroup itself retains
-  its default stacked layout. Hint adds optional content, accessible tooltip role
-  and Base UI's non-hoverable-popup behavior without changing stock visual classes.
-  IconButton uses stock icon size/ghost variant; links use stock button link classes
-  on native anchors to preserve link semantics.
+  its default stacked layout. Hint adds optional content, accessible tooltip role,
+  Base UI's non-hoverable-popup behavior and a 300 ms hover delay without changing
+  stock visual classes. The delay is behavioural: every Hint owns its provider inside
+  a row-dense sidebar, so the stock 0 ms opens a tooltip the moment the pointer
+  crosses a row. IconButton uses stock icon size/ghost variant; links use stock button
+  link classes on native anchors to preserve link semantics.
+- TaskDialog forwards `showCloseButton` to DialogContent. The issue-source dialog
+  keeps one "Close" (its footer action) instead of adding the stock X.
 
 Official Sidebar was inspected. Its provider owns a new Ctrl/Cmd+B shortcut,
 mobile/collapse state and cookies, so installing that behavior would expand the
@@ -85,15 +108,24 @@ support OKLCH; no terminal theme tokens or UI font-size changes are introduced.
 
 ## Boundary and tests
 
-Modules may use structural layout and semantic content typography. They must not
-set `className`, `style`, color/dimensions or `render` on kit controls, including
-field labels, command items and wrappers. Opaque prop spreads are rejected too;
-pass behavior props explicitly. Put a demonstrated structural need in a named kit
-variant; do not disguise the old skin as a variant. Existing raw-control, import,
-palette/arbitrary-value and retired-token gates remain enabled.
+`scripts/web-ui-classes.mjs` enforces one rule on kit **controls**: no `className`,
+`style`, color/dimensions, `render` or opaque prop spread on a component imported
+from `common/ui`, whether it arrives directly, aliased, through a namespace, through
+namespace destructuring or through `createElement`/`cloneElement`. That covers field
+labels, command items and wrappers; pass behavior props explicitly, and put a
+demonstrated control need in a named kit variant rather than disguising the old skin
+as one.
 
-Tests wait for completed menu transitions or identify the intended tooltip/action,
-not immediate DOM removal. Minimum-viewport form tests assert visible/non-overlapping
-stock options and reachable actions; the previous forced-horizontal test was
-superseded with the compact-skin requirement. No fix is claimed for the historical
-unexplained Rename first-character drop or the baseline font-control gap.
+Modules still own plain elements. Structural layout (flex/grid, sizing, overflow),
+borders, spacing and semantic content typography (`text-muted-foreground`,
+`font-semibold`, heading sizes) are allowed there and used by `board.tsx`,
+`settings-screen.tsx`, `config-problems.tsx` and the sidebar's row spans. Existing
+raw-control, import, palette/arbitrary-value and retired-token gates remain enabled.
+
+Tests assert the DOM without waiting for exit transitions: the row-menu probe asserts
+exactly one open menu after the next row's trigger is used, the icon test asserts a
+single tooltip, and the Escape probe types the terminal's first character into the
+same keyboard call. Minimum-viewport form tests assert visible/non-overlapping stock
+options and reachable actions; the previous forced-horizontal test was superseded
+with the compact-skin requirement. No fix is claimed for the historical unexplained
+Rename first-character drop or the baseline font-control gap.
