@@ -127,6 +127,12 @@ export const Task = z.object({
    * runs nothing. Derived agent status arrives with agent sessions.
    */
   state: z.enum(["active", "settled"]),
+  /**
+   * Epoch milliseconds when the user last looked at this task's agent updates, `null` until then.
+   * The server owns it so every client agrees on which completions are unseen: a `done` status
+   * newer than this is completed and unseen (`tasks.markSeen`).
+   */
+  seenAt: z.number().nullable(),
   /** Epoch milliseconds. */
   createdAt: z.number(),
 });
@@ -369,6 +375,14 @@ export const contract = {
       })
       .input(z.object({ id: TaskId, force: z.boolean().optional() }))
       .output(z.void()),
+    /**
+     * Records that the user has seen the task's current agent update. The server stamps the time,
+     * so every client derives the same "completed and unseen" state from the watched task.
+     */
+    markSeen: oc
+      .errors(taskNotFound)
+      .input(z.object({ id: TaskId }))
+      .output(Task),
     /** Yields all tasks of every project now and after every change. */
     watch: oc.output(eventIterator(z.array(Task))),
   },

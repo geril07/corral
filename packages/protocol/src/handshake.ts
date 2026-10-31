@@ -8,9 +8,11 @@ import { z } from "zod";
  * clients are likewise refused instead of silently losing the new settings binding. Version 6
  * adds the task title source and `tasks.rename` plus the rename-task and session-number actions:
  * a version 5 server's tasks have no title source and its config lacks those bindings, so a
- * version 5 client and a version 6 client each misread the other's replies.
+ * version 5 client and a version 6 client each misread the other's replies. Version 7 adds the
+ * sidebar-mode action and the server-owned task `seenAt`: a version 6 server strips the binding,
+ * has no `seen_at` column and answers `tasks.markSeen` with an unknown procedure.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in
