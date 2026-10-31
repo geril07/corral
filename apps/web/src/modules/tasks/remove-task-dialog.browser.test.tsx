@@ -14,6 +14,7 @@ const task: Task = {
   workspacePath: "/data/worktrees/repo/fix-login",
   ownsWorktree: true,
   state: "active",
+  seenAt: null,
   createdAt: 0,
 };
 

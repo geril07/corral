@@ -36,7 +36,9 @@ export async function appWithProject(client: CorralClient, branches: string[] = 
   await expect.element(addProjectDialog().getByRole("textbox")).toHaveFocus();
   await userEvent.keyboard(`${repo}{Enter}`);
   await expect.element(addProjectDialog()).not.toBeInTheDocument();
-  await expect.element(workspace().getByRole("button", { name: /^repo-/ })).toBeVisible();
+  // The project has no task yet, so flat mode lists none: the enabled New task button says the
+  // selection is on the new project.
+  await expect.element(workspace().getByRole("button", { name: "New task" })).toBeEnabled();
   return { client, repo, rendered };
 }
 

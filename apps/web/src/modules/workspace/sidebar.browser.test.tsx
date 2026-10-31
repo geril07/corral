@@ -3,6 +3,7 @@ import {
   resolveSelection,
   type Chosen,
   type Entry,
+  type SidebarMode,
 } from "@corral/client/workspace-tree";
 import { DEFAULT_BINDINGS, DEFAULT_PREFIX, type ClientConfig } from "@corral/protocol/config";
 import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
@@ -26,6 +27,7 @@ const task = (id: string, state: Task["state"] = "active"): Task => ({
   workspacePath: `/work/${id}`,
   ownsWorktree: true,
   state,
+  seenAt: null,
   createdAt: 0,
 });
 const session = (
@@ -76,6 +78,7 @@ function renderSidebar(
   sessions: Session[] = defaultSessions,
   tasks: Task[] = [task("a"), task("b"), task("old", "settled")],
   narrow = false,
+  mode: SidebarMode = "project",
 ) {
   const tree = buildWorkspaceTree([project("p1"), project("p2")], tasks, sessions, [
     terminal("term-s1", "a", "s1"),
@@ -108,6 +111,7 @@ function renderSidebar(
       <Sidebar
         tree={tree}
         selection={resolveSelection(tree, chosen)}
+        mode={mode}
         config={config}
         {...handlers}
       />
@@ -486,6 +490,7 @@ test("a loose terminal shows the name the user gave it instead of its command an
     <Sidebar
       tree={tree}
       selection={resolveSelection(tree, { taskId: null, entryId: "loose" })}
+      mode="project"
       config={config}
       {...handlers}
     />,
@@ -496,4 +501,109 @@ test("a loose terminal shows the name the user gave it instead of its command an
     .element(nav().getByRole("button", { name: "Terminal actions for build logs" }))
     .toBeVisible();
   await expect.element(nav().getByRole("button", { name: /^sh · / })).not.toBeInTheDocument();
+});
+
+const taskWithStatus = (id: string, projectId: string, seenAt: number | null = null): Task => ({
+  ...task(id),
+  projectId,
+  seenAt,
+});
+
+const flatSessions = [
+  reporting(session("s1", "blocked", "claude"), {
+    state: "blocked",
+    kind: "permission",
+    message: "Run rm -rf build?",
+    updatedAt: 1,
+  }),
+  reporting(session("s2", "error", "codex"), { state: "error", updatedAt: 2 }),
+  reporting(session("s3", "working", "pi"), { state: "working", updatedAt: 3 }),
+  reporting(session("s4", "unseen", "claude"), { state: "done", updatedAt: 4 }),
+  reporting(session("s5", "seen", "claude"), { state: "done", updatedAt: 5 }),
+  reporting(session("s6", "idle", "pi"), { state: "idle", updatedAt: 6 }),
+];
+
+const flatTasks = [
+  taskWithStatus("blocked", "p1"),
+  taskWithStatus("error", "p1"),
+  taskWithStatus("working", "p2"),
+  taskWithStatus("unseen", "p2"),
+  taskWithStatus("seen", "p1", 5),
+  taskWithStatus("idle", "p2"),
+];
+
+test("flat mode lists every project's tasks by status, each row naming its project", async () => {
+  await renderSidebar({}, flatSessions, flatTasks, false, "flat").rendered;
+
+  // No project tree any more: sections carry the list.
+  await expect.element(nav().getByRole("button", { name: "repo-p1" })).not.toBeInTheDocument();
+  const headings = nav().getByRole("heading");
+  await expect.element(headings).toHaveLength(3);
+  await expect.element(headings.nth(0)).toMatchTextContent(/Needs you/);
+  await expect.element(headings.nth(1)).toMatchTextContent(/Working/);
+  await expect.element(headings.nth(2)).toMatchTextContent(/Done/);
+
+  const text = nav().element().textContent ?? "";
+  const at = (id: string) => text.indexOf(`task ${id}`);
+  // Needs approval or input, error, working, completed and unseen; then the Done section's
+  // newest-first order puts the idle task before the done task the user has already seen.
+  expect(at("blocked")).toBeLessThan(at("error"));
+  expect(at("error")).toBeLessThan(at("working"));
+  expect(at("working")).toBeLessThan(at("unseen"));
+  expect(at("unseen")).toBeLessThan(at("idle"));
+  expect(at("idle")).toBeLessThan(at("seen"));
+
+  // Each row's second line names its project; the right slot says what the task needs.
+  await expect
+    .element(nav().getByRole("button", { name: /^task unseen/ }))
+    .toMatchTextContent(/repo-p2/);
+  await expect
+    .element(nav().getByRole("button", { name: /^task blocked/ }))
+    .toMatchTextContent(/needs approval/);
+  await expect
+    .element(nav().getByRole("button", { name: /^task error/ }))
+    .toMatchTextContent(/error/);
+
+  // A done task is marked unseen until its status is older than what the user saw.
+  await expect.element(nav().getByRole("img", { name: "unseen" })).toHaveLength(1);
+  await expect
+    .element(nav().getByRole("button", { name: /^task unseen/ }))
+    .toMatchTextContent(/claude/);
+});
+
+test("a flat row is the two-line 52 px task row, with its sessions under the selected task only", async () => {
+  await renderSidebar({ taskId: "a", entryId: "s1" }, defaultSessions, undefined, false, "flat")
+    .rendered;
+
+  const row = nav()
+    .getByRole("button", { name: /^task a/ })
+    .element();
+  expect(row.getBoundingClientRect().height).toBeGreaterThanOrEqual(52);
+
+  await expect.element(sessionButton("shell")).toBeVisible();
+  await expect
+    .element(nav().getByRole("button", { name: /Expand sessions/ }))
+    .not.toBeInTheDocument();
+  await expect.element(sessionButton("pi", "unresumable")).not.toBeInTheDocument();
+});
+
+test("flat mode keeps settled tasks on a collapsed shelf that opens itself for the current one", async () => {
+  await renderSidebar({}, defaultSessions, undefined, false, "flat").rendered;
+
+  const toggle = nav().getByRole("button", { name: "Settled (1)" });
+  await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect.element(nav().getByRole("button", { name: /^task old/ })).not.toBeInTheDocument();
+
+  await toggle.click();
+  await expect.element(nav().getByRole("button", { name: /^task old/ })).toBeVisible();
+});
+
+test("clicking a flat row reports the task it names", async () => {
+  const { rendered, handlers } = renderSidebar({}, defaultSessions, undefined, false, "flat");
+  await rendered;
+
+  await nav()
+    .getByRole("button", { name: /^task b/ })
+    .click();
+  expect(handlers.onSelectTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
 });

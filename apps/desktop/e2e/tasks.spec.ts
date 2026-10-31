@@ -23,7 +23,8 @@ test("a task gets a worktree and a terminal in it, and removing it leaves the br
   await window.keyboard.type(repo);
   await window.keyboard.press("Enter");
   await expect(addProject).toBeHidden();
-  await expect(workspace(window).getByRole("button", { name: "repo", exact: true })).toBeVisible();
+  // Flat mode lists tasks, not projects: the enabled New task button shows the project is current.
+  await expect(workspace(window).getByRole("button", { name: "New task" })).toBeEnabled();
 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyT");
@@ -80,9 +81,7 @@ test("projects and tasks are still there when the app is opened again", async ({
   ).toBeFocused();
   await firstWindow.keyboard.type(repo);
   await firstWindow.keyboard.press("Enter");
-  await expect(
-    workspace(firstWindow).getByRole("button", { name: "repo", exact: true }),
-  ).toBeVisible();
+  await expect(workspace(firstWindow).getByRole("button", { name: "New task" })).toBeEnabled();
   await firstWindow.keyboard.press("Alt+KeyA");
   await firstWindow.keyboard.press("KeyT");
   await expect(
@@ -98,9 +97,7 @@ test("projects and tasks are still there when the app is opened again", async ({
 
   const secondWindow = await openedWindow(await launchApp());
   await expect(workspace(secondWindow).getByRole("button", { name: /^Keep me/ })).toBeVisible();
-  await expect(
-    workspace(secondWindow).getByRole("button", { name: "repo", exact: true }),
-  ).toBeVisible();
+  await expect(workspace(secondWindow).getByRole("button", { name: "New task" })).toBeEnabled();
   // The task's shell kept running on the server, so it is listed too.
   await expect(
     workspace(secondWindow).getByRole("button", { name: "shell", exact: true }),

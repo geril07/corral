@@ -58,9 +58,8 @@ export async function addProject(window: Page, repo: string) {
   ).toBeFocused();
   await window.keyboard.type(repo);
   await window.keyboard.press("Enter");
-  await expect(
-    workspace(window).getByRole("button", { name: path.basename(repo), exact: true }),
-  ).toBeVisible();
+  // Flat mode lists tasks, not projects: the enabled New task button shows the project is current.
+  await expect(workspace(window).getByRole("button", { name: "New task" })).toBeEnabled();
 }
 
 /**

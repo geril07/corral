@@ -47,8 +47,8 @@ test("a blocked agent shows in the sidebar and on the board, and Enter jumps to 
   );
 
   await createTask(window, "Beta");
-  await sidebar.getByRole("button", { name: "Expand sessions for Alpha" }).click();
-  await expect(claude).not.toHaveAttribute("aria-current", "true");
+  // The flat list shows the selected task's sessions; Alpha's are with Alpha.
+  await expect(claude).toBeHidden();
 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyB");

@@ -48,6 +48,7 @@ const settledTask = (id: string, title: string, createdAt: number): Task => ({
   workspacePath: `/work/${id}`,
   ownsWorktree: true,
   state: "settled",
+  seenAt: null,
   createdAt,
 });
 
@@ -226,7 +227,7 @@ test("a task opened from the search survives a reload through the route's search
     .element(page.getByRole("dialog", { name: "Add project" }).getByRole("textbox"))
     .toHaveFocus();
   await userEvent.keyboard(`${repo}{Enter}`);
-  await expect.element(workspace().getByRole("button", { name: /^repo-/ })).toBeVisible();
+  await expect.element(workspace().getByRole("button", { name: "New task" })).toBeEnabled();
   await createTask("Reload me");
   await createTask("Other");
 

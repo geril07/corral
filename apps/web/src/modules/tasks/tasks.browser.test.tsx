@@ -145,7 +145,7 @@ test("New task starts on the selected project and can create the task in another
     .projects.find((project) => project.path === otherRepo)!;
   expect(other.id).not.toBe(first.id);
 
-  await workspace().getByRole("button", { name: first.name }).click();
+  await taskButton("Here").click();
   await expect.element(taskButton("Here")).toHaveAttribute("aria-current", "true");
   await prefixThen("t");
   await expect.element(newTaskDialog().getByRole("textbox", { name: "Title" })).toHaveFocus();
@@ -254,8 +254,7 @@ test("terminals outside any task are listed under No task, apart from the tasks"
 
   await prefixThen("c");
   await expect.element(looseButtons()).toHaveLength(2);
-  await workspace().getByRole("button", { name: "Expand sessions for Work" }).click();
-  await expect.element(shellButtons()).toHaveLength(1);
-  await prefixThen("k");
+  await taskButton("Work").click();
   await expect.element(taskButton("Work")).toHaveAttribute("aria-current", "true");
+  await expect.element(shellButtons()).toHaveLength(1);
 });

@@ -1,23 +1,30 @@
 import {
+  attentionWord,
   compareStatuses,
+  formatAge,
   sessionStatus,
   taskStatus,
   type TaskStatus,
 } from "@corral/client/agent-status";
 import { sessionLabels } from "@corral/client/session-labels";
 import { describeSessionState } from "@corral/client/session-state";
-import type {
-  Entry,
-  ProjectNode,
-  SessionEntry,
-  Selection,
-  TaskNode,
-  TerminalEntry,
-  WorkspaceTree,
+import {
+  buildFlatSidebar,
+  type Entry,
+  type FlatSection,
+  type FlatTaskNode,
+  type ProjectNode,
+  type SessionEntry,
+  type Selection,
+  type SidebarMode,
+  type TaskNode,
+  type TerminalEntry,
+  type WorkspaceTree,
 } from "@corral/client/workspace-tree";
 import type { ActionId, ClientConfig } from "@corral/protocol/config";
-import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
+import type { AgentStatus, Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
 import { useRef, useState, type ReactNode } from "react";
+import { useNow } from "../../common/hooks/use-now.ts";
 import { cn } from "../../common/lib/cn.ts";
 import {
   Badge,
@@ -42,9 +49,73 @@ export function terminalLabel(terminal: TerminalInfo): string {
   return `${program} · ${folder}`;
 }
 
+/** Time labels in flat rows are read at a glance and must not go stale while the window sits open. */
+const AGE_REFRESH_MS = 30_000;
+
+/** "Needs you 2": a flat section's header, with how many tasks it holds. */
+function FlatSectionHeader({ section }: { section: FlatSection }) {
+  return (
+    <div className="flex w-full items-center justify-between px-2 py-1">
+      <h2 className="m-0 text-xs font-medium text-muted-foreground">{section.label}</h2>
+      <span className="text-xs text-muted-foreground">{section.tasks.length}</span>
+    </div>
+  );
+}
+
+/** Loose terminals, listed apart from the tasks in both modes, and only while some exist. */
+function LooseTerminals({
+  entries,
+  selection,
+  onSelectLoose,
+  onSelectEntry,
+  onCloseTerminal,
+  onRenameEntry,
+}: {
+  entries: readonly TerminalEntry[];
+  selection: Selection;
+  onSelectLoose: () => void;
+  onSelectEntry: (entry: Entry) => void;
+  onCloseTerminal: (id: string) => void;
+  onRenameEntry: (entry: Entry) => void;
+}) {
+  if (entries.length === 0) return undefined;
+  return (
+    <li>
+      <TreeRow project current={selection.taskId === null}>
+        <span className="w-8 shrink-0" aria-hidden />
+        <Button
+          variant={selection.taskId === null ? "secondary" : "ghost"}
+          layout="tree"
+          aria-label="No task"
+          onClick={onSelectLoose}
+        >
+          <span className="min-w-0 flex-1 truncate">No task</span>
+          <span className="text-xs text-muted-foreground">{entries.length}</span>
+        </Button>
+      </TreeRow>
+      <TreeIndent>
+        <ul>
+          {entries.map((entry) => (
+            <TerminalRow
+              key={entry.terminal.id}
+              entry={entry}
+              current={entry.id === selection.entryId}
+              onSelect={() => onSelectEntry(entry)}
+              onClose={() => onCloseTerminal(entry.terminal.id)}
+              onRename={entry.id === selection.entryId ? () => onRenameEntry(entry) : undefined}
+            />
+          ))}
+        </ul>
+      </TreeIndent>
+    </li>
+  );
+}
+
 interface SidebarProps {
   tree: WorkspaceTree;
   selection: Selection;
+  /** Flat by status or grouped by project (`layout.md`, **Sidebar**). */
+  mode: SidebarMode;
   /** Effective bindings for the tooltips; absent in a bare sidebar test. */
   config?: ClientConfig;
   onSelectProject: (project: Project) => void;
@@ -72,9 +143,11 @@ interface SidebarProps {
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { tree, selection, config } = props;
+  const { tree, selection, config, mode } = props;
   const [closedProjects, setClosedProjects] = useState<ReadonlySet<string>>(new Set());
   const [openTasks, setOpenTasks] = useState<ReadonlySet<string>>(new Set());
+  const now = useNow(AGE_REFRESH_MS);
+  const flat = buildFlatSidebar(tree);
 
   const hint = (label: string, action: ActionId) =>
     config ? `${label} · ${formatBinding(config, action)}` : label;
@@ -125,6 +198,43 @@ export function Sidebar(props: SidebarProps) {
           : undefined
       }
       hint={hint}
+    />
+  );
+
+  const renderFlatTask = (row: FlatTaskNode) => (
+    <TaskRow
+      key={row.task.id}
+      node={row}
+      selection={selection}
+      open={row.task.id === selection.taskId}
+      onToggle={() => toggleTask(row.task.id)}
+      onSelect={() => props.onSelectTask(row.task)}
+      onToggleSettle={() => props.onToggleSettle(row.task)}
+      onRemove={() => props.onRemoveTask(row.task)}
+      onRename={(opener) => props.onRenameTask(row.task, opener)}
+      onSelectEntry={props.onSelectEntry}
+      onStop={props.onStopSession}
+      onRestart={props.onRestartSession}
+      onRemoveSession={props.onRemoveSession}
+      onRenameEntry={props.onRenameEntry}
+      onViewSource={
+        row.task.source && props.onViewSource
+          ? (opener) => props.onViewSource?.(row.task, opener)
+          : undefined
+      }
+      flat={{ project: row.project, status: row.status, unseen: row.unseen, now }}
+      hint={hint}
+    />
+  );
+
+  const loose = (
+    <LooseTerminals
+      entries={tree.loose}
+      selection={selection}
+      onSelectLoose={props.onSelectLoose}
+      onSelectEntry={props.onSelectEntry}
+      onCloseTerminal={props.onCloseTerminal}
+      onRenameEntry={props.onRenameEntry}
     />
   );
 
@@ -186,53 +296,39 @@ export function Sidebar(props: SidebarProps) {
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <ul className="m-0 list-none p-0">
-          {tree.projects.map((node) => (
-            <ProjectGroup
-              key={node.project.id}
-              node={node}
-              selection={selection}
-              collapsed={closedProjects.has(node.project.id)}
-              onToggle={toggleProject}
-              onSelectProject={props.onSelectProject}
-              renderTask={renderTask}
-            />
-          ))}
-          {tree.loose.length > 0 && (
-            <li>
-              <TreeRow project current={selection.taskId === null}>
-                <span className="w-8 shrink-0" aria-hidden />
-                <Button
-                  variant={selection.taskId === null ? "secondary" : "ghost"}
-                  layout="tree"
-                  aria-label="No task"
-                  onClick={props.onSelectLoose}
-                >
-                  <span className="min-w-0 flex-1 truncate">No task</span>
-                  <span className="text-xs text-muted-foreground">{tree.loose.length}</span>
-                </Button>
-              </TreeRow>
-              <TreeIndent>
-                <ul>
-                  {tree.loose.map((entry) => (
-                    <TerminalRow
-                      key={entry.terminal.id}
-                      entry={entry}
-                      current={entry.id === selection.entryId}
-                      onSelect={() => props.onSelectEntry(entry)}
-                      onClose={() => props.onCloseTerminal(entry.terminal.id)}
-                      onRename={
-                        entry.id === selection.entryId
-                          ? () => props.onRenameEntry(entry)
-                          : undefined
-                      }
-                    />
-                  ))}
-                </ul>
-              </TreeIndent>
-            </li>
-          )}
-        </ul>
+        {mode === "flat" ? (
+          <ul className="m-0 list-none p-0">
+            {flat.sections.map((section) => (
+              <li key={section.kind}>
+                <FlatSectionHeader section={section} />
+                <ul className="m-0 list-none p-0">{section.tasks.map(renderFlatTask)}</ul>
+              </li>
+            ))}
+            {flat.settled.length > 0 && (
+              <SettledGroup
+                items={flat.settled}
+                holdsCurrent={flat.settled.some(({ task }) => task.id === selection.taskId)}
+                renderItem={renderFlatTask}
+              />
+            )}
+            {loose}
+          </ul>
+        ) : (
+          <ul className="m-0 list-none p-0">
+            {tree.projects.map((node) => (
+              <ProjectGroup
+                key={node.project.id}
+                node={node}
+                selection={selection}
+                collapsed={closedProjects.has(node.project.id)}
+                onToggle={toggleProject}
+                onSelectProject={props.onSelectProject}
+                renderTask={renderTask}
+              />
+            ))}
+            {loose}
+          </ul>
+        )}
       </div>
     </nav>
   );
@@ -380,6 +476,13 @@ function SessionRow({
   );
 }
 
+interface FlatRow {
+  project: Project;
+  status: AgentStatus | undefined;
+  unseen: boolean;
+  now: number;
+}
+
 function TaskRow({
   node,
   selection,
@@ -395,6 +498,7 @@ function TaskRow({
   onRemoveSession,
   onRenameEntry,
   onViewSource,
+  flat,
   hint,
 }: {
   node: TaskNode;
@@ -411,10 +515,13 @@ function TaskRow({
   onRemoveSession: (session: Session) => void;
   onRenameEntry: (entry: Entry) => void;
   onViewSource?: ((opener?: HTMLElement) => void) | undefined;
+  /** Set in flat mode: its two-line row shows the project, the agent and the time, and unseen completion. */
+  flat?: FlatRow | undefined;
   hint: (label: string, action: ActionId) => string;
 }) {
   const { task, sessions } = node;
-  const status = taskStatus(sessions.map((entry) => entry.session))?.status;
+  const status = flat?.status ?? taskStatus(sessions.map((entry) => entry.session))?.status;
+  const unseen = flat?.unseen ?? false;
   const labels = sessionLabels(sessions.map((entry) => entry.session));
   const current = task.id === selection.taskId;
   const {
@@ -427,27 +534,65 @@ function TaskRow({
     clipped: branchClipped,
     display: branchDisplay,
   } = useTruncatedText(task.branch, "middle");
-  const clipped = titleClipped || branchClipped;
+  const clipped = titleClipped || (flat === undefined && branchClipped);
+  const agent = sessions.find(({ session }) => session.kind !== "shell")?.session.kind;
+  const detail =
+    flat === undefined
+      ? undefined
+      : [flat.project.name, task.ownsWorktree ? task.branch : undefined, agent]
+          .filter(Boolean)
+          .join(" · ");
+  const right =
+    flat === undefined
+      ? undefined
+      : (attentionWord(status) ?? formatAge(flat.now, status?.updatedAt ?? task.createdAt));
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const select = (
     <Button
       variant={current ? "secondary" : "ghost"}
+      size={flat === undefined ? "default" : "row"}
       layout="tree"
       aria-label={task.title}
       aria-current={current ? "true" : undefined}
       title={status?.message}
       onClick={onSelect}
     >
-      <span
-        ref={observeTitle}
-        className={cn(
-          "min-w-0 flex-1 truncate",
-          task.state === "settled" && "text-muted-foreground",
-        )}
-      >
-        {titleDisplay}
-      </span>
-      {task.branch && (
+      {flat === undefined ? (
+        <span
+          ref={observeTitle}
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            task.state === "settled" && "text-muted-foreground",
+          )}
+        >
+          {titleDisplay}
+        </span>
+      ) : (
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span
+              ref={observeTitle}
+              className={cn(
+                "min-w-0 flex-1 truncate",
+                unseen && "font-semibold",
+                task.state === "settled" && "text-muted-foreground",
+              )}
+            >
+              {titleDisplay}
+            </span>
+            {unseen && (
+              <span
+                role="img"
+                aria-label="unseen"
+                className="size-1.5 shrink-0 rounded-full bg-foreground"
+              />
+            )}
+            <span className="shrink-0 text-xs text-muted-foreground">{right}</span>
+          </span>
+          <span className="min-w-0 truncate text-xs text-muted-foreground">{detail}</span>
+        </span>
+      )}
+      {flat === undefined && task.branch && (
         <span ref={observeBranch} className="w-1/4 shrink-0 truncate text-xs text-muted-foreground">
           {branchDisplay}
         </span>
@@ -457,7 +602,7 @@ function TaskRow({
   return (
     <li>
       <TreeRow current={current}>
-        {sessions.length > 0 ? (
+        {flat !== undefined ? undefined : sessions.length > 0 ? (
           <IconButton
             label={`${open ? "Collapse" : "Expand"} sessions for ${task.title}`}
             icon={open ? "collapse" : "expand"}
@@ -474,7 +619,11 @@ function TaskRow({
             content={
               <span className="block">
                 <span className="block">{task.title}</span>
-                {task.branch && <span className="block text-muted-foreground">{task.branch}</span>}
+                {flat !== undefined ? (
+                  <span className="block text-muted-foreground">{detail}</span>
+                ) : (
+                  task.branch && <span className="block text-muted-foreground">{task.branch}</span>
+                )}
               </span>
             }
           >
@@ -592,7 +741,7 @@ function ProjectGroup({
           <ul>
             {active.map(renderTask)}
             {settled.length > 0 && (
-              <SettledGroup tasks={settled} holdsCurrent={settledCurrent} renderTask={renderTask} />
+              <SettledGroup items={settled} holdsCurrent={settledCurrent} renderItem={renderTask} />
             )}
           </ul>
         </TreeIndent>
@@ -601,14 +750,14 @@ function ProjectGroup({
   );
 }
 
-function SettledGroup({
-  tasks,
+function SettledGroup<T>({
+  items,
   holdsCurrent,
-  renderTask,
+  renderItem,
 }: {
-  tasks: readonly TaskNode[];
+  items: readonly T[];
   holdsCurrent: boolean;
-  renderTask: (task: TaskNode) => ReactNode;
+  renderItem: (item: T) => ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
   const open = expanded || holdsCurrent;
@@ -624,11 +773,11 @@ function SettledGroup({
         >
           <Icon name={open ? "collapse" : "expand"} />
           <span className="min-w-0 flex-1 truncate text-muted-foreground">
-            Settled ({tasks.length})
+            Settled ({items.length})
           </span>
         </Button>
       </TreeRow>
-      {open && <ul>{tasks.map(renderTask)}</ul>}
+      {open && <ul>{items.map(renderItem)}</ul>}
     </li>
   );
 }

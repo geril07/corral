@@ -22,6 +22,7 @@ const row = (id: string, status?: AgentStatus, sessionId = `s-${id}`): BoardRow 
     workspacePath: `/work/${id}`,
     ownsWorktree: true,
     state: "active",
+    seenAt: null,
     createdAt: 0,
   } satisfies Task,
   sessionId: status ? sessionId : undefined,

@@ -40,10 +40,10 @@ test("a blocked agent shows on its session and task; the board and prefix g jump
   await expect.element(indicators("blocked · permission")).toHaveLength(2);
   await expect.element(taskButton("Alpha")).toHaveAttribute("title", "Run rm -rf build?");
 
-  // A second task, which becomes current and has nothing to report.
+  // A second task, which becomes current and has nothing to report; Alpha's sessions stay with
+  // Alpha, which the flat list no longer shows the sessions of.
   await createTask("Beta");
-  await workspace().getByRole("button", { name: "Expand sessions for Alpha" }).click();
-  await expect.element(claudeButton()).not.toHaveAttribute("aria-current");
+  await expect.element(claudeButton()).not.toBeInTheDocument();
 
   await prefixThen("g");
   await expect.element(taskButton("Alpha")).toHaveAttribute("aria-current", "true");

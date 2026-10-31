@@ -1,13 +1,17 @@
+import { hasUnseen, taskStatus } from "@corral/client/agent-status";
 import { buildBoard, mostUrgentBlocked, type BoardRow } from "@corral/client/board";
 import { createConfigKeymap } from "@corral/client/prefix-keymap";
 import { describeError } from "@corral/client/rpc-errors";
 import { sessionLabels } from "@corral/client/session-labels";
 import { activeAfterClose, stepActive } from "@corral/client/terminal-selection";
 import {
+  buildFlatSidebar,
   buildWorkspaceTree,
   currentEntry,
   entriesOf,
+  flatTaskOrder,
   resolveSelection,
+  taskNodeOf,
   tasksInOrder,
   type Chosen,
   type Entry,
@@ -35,6 +39,7 @@ import {
 import { describeLaunchError, type AgentLaunchChoice } from "../sessions/index.ts";
 import type { RenameTarget } from "./rename-dialog.tsx";
 import { terminalLabel } from "./sidebar.tsx";
+import { useSidebarMode } from "./sidebar-mode.ts";
 import {
   chosenToSearch,
   searchToChosen,
@@ -109,7 +114,10 @@ export function useWorkspace({
 
   const tree = buildWorkspaceTree(projects, tasks, sessions, terminals);
   const selection = resolveSelection(tree, chosen);
-  const taskOrder = tasksInOrder(tree);
+  const [sidebarMode, toggleSidebarMode] = useSidebarMode();
+  const flatSidebar = buildFlatSidebar(tree);
+  // j/k and the remove fallback follow the order the sidebar shows.
+  const taskOrder = sidebarMode === "flat" ? flatTaskOrder(flatSidebar) : tasksInOrder(tree);
   const entryIds = entriesOf(tree, selection.taskId).map((entry) => entry.id);
   // Number keys name sessions of the current task; a group of loose terminals has none.
   const sessionEntries = selection.taskId === null ? [] : entriesOf(tree, selection.taskId);
@@ -117,6 +125,28 @@ export function useWorkspace({
   const currentSession = current?.type === "session" ? current.session : undefined;
   const currentTask = taskOrder.find((task) => task.id === selection.taskId);
   const currentProject = projects.find((project) => project.id === selection.projectId);
+
+  // The server owns `seenAt`, so opening a task or watching its status change clears the same
+  // completion on every client. One mark per update: the next watched task carries the new time.
+  const selectedNode = selection.taskId === null ? undefined : taskNodeOf(tree, selection.taskId);
+  const selectedStatus = selectedNode
+    ? taskStatus(selectedNode.sessions.map((entry) => entry.session))?.status
+    : undefined;
+  const seenRequest = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (selectedNode === undefined || !hasUnseen(selectedNode.task, selectedStatus)) return;
+    const key = [
+      selectedNode.task.id,
+      selectedNode.task.seenAt ?? "never",
+      selectedStatus?.updatedAt,
+    ].join(":");
+    if (seenRequest.current === key) return;
+    seenRequest.current = key;
+    client.connection.api.tasks.markSeen({ id: selectedNode.task.id }).catch(() => {
+      // A refused or dropped mark is retried at the next selection or status change.
+      seenRequest.current = undefined;
+    });
+  }, [client, selectedNode, selectedStatus]);
 
   const choose = (next: Chosen) => {
     const merged = { ...chosenRef.current, ...next };
@@ -509,6 +539,12 @@ export function useWorkspace({
       enabled: true,
       run: () => openAddProject(),
     },
+    "sidebar-mode": {
+      label: "Toggle sidebar mode",
+      group: "Navigation",
+      enabled: true,
+      run: toggleSidebarMode,
+    },
     board: {
       label: "Open board",
       group: "Navigation",
@@ -556,6 +592,7 @@ export function useWorkspace({
     tasks,
     tree,
     selection,
+    sidebarMode,
     loaded,
     current,
     currentSession,

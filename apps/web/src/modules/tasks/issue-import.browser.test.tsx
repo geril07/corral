@@ -17,7 +17,6 @@ import {
   taskActionsButton,
   taskButton,
   taskSourceDialog,
-  workspace,
 } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
@@ -273,7 +272,8 @@ test("the project chooser uses the current project host/cwd and cancels a pendin
   await expect.element(addProjectDialog()).not.toBeInTheDocument();
   const other = client.projects.getSnapshot().projects.find((p) => p.path === otherRepo)!;
 
-  await workspace().getByRole("button", { name: first.name }).click();
+  // The task in the first project selects that project for the composer (flat mode lists tasks).
+  await taskButton("Here").click();
   await prefixThen("t");
   await userEvent.fill(
     newTaskDialog().getByRole("textbox", { name: "Issue URL" }),
