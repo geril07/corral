@@ -43,6 +43,7 @@ test("a new-branch task gets a branch named from its title, in a worktree under 
     workspacePath: expectedPath,
     ownsWorktree: true,
     state: "active",
+    seenAt: null,
     createdAt: expect.any(Number),
   });
   expect(runGit(expectedPath, "branch", "--show-current").trim()).toBe("fix-the-login-bug");

@@ -231,6 +231,16 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
           },
         ),
       ),
+      markSeen: os.tasks.markSeen.handler(({ input, errors }) =>
+        translating(
+          () => tasks.markSeen(input.id),
+          (error) => {
+            if (error instanceof TaskNotFoundError)
+              return errors.TASK_NOT_FOUND({ data: { id: error.id } });
+            return undefined;
+          },
+        ),
+      ),
       watch: os.tasks.watch.handler(({ signal }) => tasks.watch(signal)),
     },
     sessions: {

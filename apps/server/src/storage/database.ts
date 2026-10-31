@@ -41,6 +41,9 @@ export const MIGRATIONS: readonly string[] = [
   // default is what backfills those rows (SQLite needs one for a NOT NULL column); inserts name
   // the column anyway.
   `ALTER TABLE tasks ADD COLUMN title_source TEXT NOT NULL DEFAULT 'user';`,
+  // When the user last saw the task's agent updates, in epoch milliseconds; NULL until first seen.
+  // Server-owned so every client derives the same "completed and unseen" state.
+  `ALTER TABLE tasks ADD COLUMN seen_at INTEGER;`,
 ];
 
 export const DATABASE_FILE = "corral.db";

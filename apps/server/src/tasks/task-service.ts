@@ -98,6 +98,14 @@ export class TaskService implements ProjectTasks {
     });
   }
 
+  /** Records that the user has seen the task's current agent update; the server stamps the time. */
+  markSeen(id: string): Task {
+    this.get(id);
+    this.#store.setSeenAt(id, Date.now());
+    this.#changes.notify();
+    return this.get(id);
+  }
+
   remove(id: string, force: boolean): Promise<void> {
     return this.#mutations.run(() => this.#remove(id, force));
   }
@@ -131,6 +139,7 @@ export class TaskService implements ProjectTasks {
       workspacePath: project.path,
       ownsWorktree: false,
       state: "active",
+      seenAt: null,
       createdAt: Date.now(),
     };
 
