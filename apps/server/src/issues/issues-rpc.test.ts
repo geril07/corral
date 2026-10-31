@@ -346,6 +346,21 @@ test("a GitLab CLI never receives GitHub token variables", async () => {
   });
 });
 
+test("a GitHub CLI never receives GitLab credential aliases", async () => {
+  const { project } = await addProject(server);
+  const url = "https://github.com/acme/app/issues/8";
+  clis.answer({ number: 8, title: "No foreign credentials", body: "", url });
+  vi.stubEnv("GITLAB_TOKEN", "SENTINEL_GITLAB_TOKEN");
+  vi.stubEnv("GITLAB_ACCESS_TOKEN", "SENTINEL_GITLAB_ACCESS_TOKEN");
+  vi.stubEnv("OAUTH_TOKEN", "SENTINEL_OAUTH_TOKEN");
+  vi.stubEnv("FAKE_ISSUE_FORBID_ENV", "GITLAB_TOKEN,GITLAB_ACCESS_TOKEN,OAUTH_TOKEN");
+  const api = await server.rpc();
+
+  await expect(api.projects.resolveIssue({ projectId: project.id, url })).resolves.toMatchObject({
+    title: "No foreign credentials",
+  });
+});
+
 test("a GitHub issue on a nonstandard port is refused before any CLI runs", async () => {
   const { project, repo } = await addProject(server);
   runGit(repo, "remote", "add", "origin", "https://ghe.example.com:8443/acme/app.git");
