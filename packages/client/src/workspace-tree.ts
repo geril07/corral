@@ -1,4 +1,5 @@
-import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
+import type { AgentStatus, Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
+import { isUnseenDone, taskStatus } from "./agent-status.ts";
 import { effectiveActive } from "./terminal-selection.ts";
 
 /** What can be current in a group: a session of a task, or a terminal outside any task. */
@@ -131,9 +132,115 @@ export function resolveSelection(tree: WorkspaceTree, chosen: Chosen): Selection
   };
 }
 
+/** The node of the task `taskId`, in whichever project holds it. */
+export function taskNodeOf(tree: WorkspaceTree, taskId: string): TaskNode | undefined {
+  for (const { active, settled } of tree.projects) {
+    const found = [...active, ...settled].find((node) => node.task.id === taskId);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 /** The entries of the task `taskId`, or the loose terminals for `null`. */
 export function entriesOf(tree: WorkspaceTree, taskId: string | null): readonly Entry[] {
   return taskId === null ? tree.loose : taskSessions(tree, taskId);
+}
+
+/** How the sidebar lists tasks: flat by status, or grouped by project (`layout.md`, **Sidebar**). */
+export type SidebarMode = "flat" | "project";
+
+export type FlatSectionKind = "needs-you" | "working" | "done";
+
+/** A task in the flat list, with what its row shows and the status it is ranked by. */
+export interface FlatTaskNode extends TaskNode {
+  project: Project;
+  status: AgentStatus | undefined;
+  /** A `done` update newer than the task's `seenAt`; only flat rows mark it (`isUnseenDone`). */
+  unseen: boolean;
+}
+
+export interface FlatSection {
+  kind: FlatSectionKind;
+  label: string;
+  tasks: readonly FlatTaskNode[];
+}
+
+/** Flat mode's list: the ranked sections and the settled shelf. */
+export interface FlatSidebar {
+  /** In display order, empty sections left out. */
+  sections: readonly FlatSection[];
+  settled: readonly FlatTaskNode[];
+}
+
+export const FLAT_SECTION_LABELS: Readonly<Record<FlatSectionKind, string>> = {
+  "needs-you": "Needs you",
+  working: "Working",
+  done: "Done",
+};
+
+const FLAT_SECTION_KINDS: readonly FlatSectionKind[] = ["needs-you", "working", "done"];
+
+/**
+ * Flat mode: the active tasks of every project in one list, ordered by status (blocked, error,
+ * working, completed and unseen, then the rest), then by the most recent update. Settled tasks
+ * keep a shelf of their own (`layout.md`, **Sidebar**).
+ */
+export function buildFlatSidebar(tree: WorkspaceTree): FlatSidebar {
+  const rows = tree.projects.flatMap(({ project, active }) =>
+    active.map((node) => flatNode(project, node)),
+  );
+  return {
+    sections: FLAT_SECTION_KINDS.map((kind) => ({
+      kind,
+      label: FLAT_SECTION_LABELS[kind],
+      tasks: rows.filter((row) => flatSectionOf(row) === kind).toSorted(compareFlat),
+    })).filter((section) => section.tasks.length > 0),
+    settled: tree.projects
+      .flatMap(({ project, settled }) => settled.map((node) => flatNode(project, node)))
+      .toSorted(compareFlat),
+  };
+}
+
+/** The tasks flat mode lists, in the order it lists them: the sections, then the settled shelf. */
+export function flatTaskOrder(sidebar: FlatSidebar): Task[] {
+  return [...sidebar.sections.flatMap(({ tasks }) => tasks), ...sidebar.settled].map(
+    ({ task }) => task,
+  );
+}
+
+/** Which section a flat row belongs to: needs you (blocked or error), working, or done. */
+export function flatSectionOf(row: FlatTaskNode): FlatSectionKind {
+  const state = row.status?.state;
+  if (state === "blocked" || state === "error") return "needs-you";
+  if (state === "working") return "working";
+  return "done";
+}
+
+/**
+ * Lower comes first: needs approval or input, error, working, completed and unseen, then the
+ * remaining done, idle and statusless tasks.
+ */
+export function flatRank(row: FlatTaskNode): number {
+  const state = row.status?.state;
+  if (state === "blocked") return 0;
+  if (state === "error") return 1;
+  if (state === "working") return 2;
+  return state === "done" && row.unseen ? 3 : 4;
+}
+
+/** Rank first, then the most recently reported status, then the newest task. */
+function compareFlat(a: FlatTaskNode, b: FlatTaskNode): number {
+  return (
+    flatRank(a) - flatRank(b) ||
+    (b.status?.updatedAt ?? 0) - (a.status?.updatedAt ?? 0) ||
+    b.task.createdAt - a.task.createdAt ||
+    a.task.id.localeCompare(b.task.id)
+  );
+}
+
+function flatNode(project: Project, node: TaskNode): FlatTaskNode {
+  const status = taskStatus(node.sessions.map((entry) => entry.session))?.status;
+  return { ...node, project, status, unseen: isUnseenDone(node.task, status) };
 }
 
 /** The entry `selection` points at. */
@@ -142,9 +249,5 @@ export function currentEntry(tree: WorkspaceTree, selection: Selection): Entry |
 }
 
 function taskSessions(tree: WorkspaceTree, taskId: string): readonly SessionEntry[] {
-  for (const { active, settled } of tree.projects) {
-    const found = [...active, ...settled].find((node) => node.task.id === taskId);
-    if (found) return found.sessions;
-  }
-  return [];
+  return taskNodeOf(tree, taskId)?.sessions ?? [];
 }

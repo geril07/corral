@@ -96,3 +96,25 @@ test("the server's refusals read as sentences, and a dirty worktree names its fi
   await api.tasks.remove({ id: task.id, force: true });
   expect(existsSync(task.workspacePath)).toBe(false);
 });
+
+test("seenAt lives on the server, so a restart keeps it and another client sees the same time", async () => {
+  const { client, project, api } = await clientWithProject();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Seen",
+    workspace: { type: "main-worktree" },
+  });
+  expect(task.seenAt).toBeNull();
+
+  const marked = await api.tasks.markSeen({ id: task.id });
+  expect(marked.seenAt).toEqual(expect.any(Number));
+  await eventually(() => expect(client.tasks.getSnapshot().tasks).toEqual([marked]));
+
+  await server.restart();
+
+  const after = await server.connected();
+  await eventually(() => expect(after.tasks.getSnapshot().tasks).toEqual([marked]));
+  expect(await rejection(after.connection.api.tasks.markSeen({ id: "gone" }))).toMatchObject({
+    code: "TASK_NOT_FOUND",
+  });
+});

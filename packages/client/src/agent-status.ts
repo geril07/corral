@@ -1,4 +1,4 @@
-import type { AgentState, AgentStatus, Session } from "@corral/protocol/rpc";
+import type { AgentState, AgentStatus, Session, Task } from "@corral/protocol/rpc";
 
 /** Most urgent first: what a task shows when its sessions disagree. */
 export const STATES_BY_URGENCY: readonly AgentState[] = [
@@ -52,6 +52,32 @@ export function compareStatuses(a: AgentStatus | undefined, b: AgentStatus | und
 /** `blocked · permission`: the text that stands in for the indicator's color and shape. */
 export function describeStatus(status: Pick<AgentStatus, "state" | "kind">): string {
   return status.kind ? `${status.state} · ${status.kind}` : status.state;
+}
+
+/**
+ * True when the task's status is newer than the last time the user saw it. `seenAt` is the
+ * server's record of that moment, so every client agrees on which updates are unseen.
+ */
+export function hasUnseen(task: Pick<Task, "seenAt">, status: AgentStatus | undefined): boolean {
+  return status !== undefined && (task.seenAt === null || status.updatedAt > task.seenAt);
+}
+
+/** A finished task whose `done` update the user has not looked at yet. */
+export function isUnseenDone(task: Pick<Task, "seenAt">, status: AgentStatus | undefined): boolean {
+  return status?.state === "done" && hasUnseen(task, status);
+}
+
+/**
+ * The word a flat sidebar row shows instead of the age while the task needs the user. The state
+ * name stays visible next to its glyph (`ux.md`: no status by shape or color alone).
+ */
+export function attentionWord(status: AgentStatus | undefined): string | undefined {
+  if (status?.state === "error") return "error";
+  if (status?.state !== "blocked") return undefined;
+  if (status.kind === "permission") return "needs approval";
+  if (status.kind === "question") return "needs input";
+  if (status.kind === "auth") return "needs auth";
+  return "blocked";
 }
 
 /** `5m`, `2h`: how long ago, for a list that is read at a glance. */

@@ -1,12 +1,24 @@
 import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
 import { expect, test } from "vite-plus/test";
 import {
+  buildFlatSidebar,
   buildWorkspaceTree,
   currentEntry,
   entriesOf,
+  flatTaskOrder,
   resolveSelection,
   tasksInOrder,
 } from "./workspace-tree.ts";
+
+const reported = (
+  id: string,
+  taskId: string,
+  state: NonNullable<Session["status"]>["state"],
+  updatedAt: number,
+): Session => ({
+  ...session(id, taskId, `term-${id}`),
+  status: { state, updatedAt },
+});
 
 const project = (id: string): Project => ({
   id,
@@ -23,6 +35,7 @@ const task = (id: string, projectId: string, state: Task["state"] = "active"): T
   workspacePath: `/work/${id}`,
   ownsWorktree: true,
   state,
+  seenAt: null,
   createdAt: 0,
 });
 const session = (
@@ -164,4 +177,106 @@ test("the current entry is the selected session or loose terminal, even a stoppe
     id: "c",
   });
   expect(currentEntry(tree, resolveSelection(tree, { taskId: "t4" }))).toBeUndefined();
+});
+
+/** One task per status, plus the ones that tie inside a rank, spread over two projects. */
+const flatTree = (() => {
+  const flatTasks = [
+    { ...task("blocked-old", "p1"), seenAt: null },
+    { ...task("blocked-new", "p1"), seenAt: null },
+    { ...task("error", "p2"), seenAt: null },
+    { ...task("working", "p1"), seenAt: null },
+    { ...task("unseen-done", "p1"), seenAt: null },
+    { ...task("unseen-done-p2", "p2"), seenAt: null },
+    { ...task("idle", "p1"), seenAt: null },
+    { ...task("seen-done", "p1"), seenAt: 60 },
+    { ...task("stale-done", "p2"), seenAt: 100 },
+    { ...task("plain", "p1"), seenAt: null },
+    { ...task("settled-blocked", "p1", "settled"), seenAt: null },
+  ];
+  const flatSessions = [
+    reported("sb1", "blocked-old", "blocked", 10),
+    reported("sb2", "blocked-new", "blocked", 30),
+    reported("se", "error", "error", 20),
+    reported("sw", "working", "working", 40),
+    reported("su1", "unseen-done", "done", 50),
+    reported("su2", "unseen-done-p2", "done", 45),
+    reported("si", "idle", "idle", 70),
+    reported("ss", "seen-done", "done", 60),
+    reported("st", "stale-done", "done", 55),
+    reported("sx", "plain", "idle", 0),
+    reported("ssb", "settled-blocked", "blocked", 80),
+  ];
+  // The plain task runs nothing that reports.
+  return buildWorkspaceTree(
+    [project("p1"), project("p2")],
+    flatTasks,
+    flatSessions.filter((each) => each.taskId !== "plain"),
+    [],
+  );
+})();
+
+test("flat mode sorts the active tasks of every project by status, then recency", () => {
+  const flat = buildFlatSidebar(flatTree);
+
+  expect(
+    flat.sections.map((section) => [section.kind, section.tasks.map((row) => row.task.id)]),
+  ).toEqual([
+    ["needs-you", ["blocked-new", "blocked-old", "error"]],
+    ["working", ["working"]],
+    ["done", ["unseen-done", "unseen-done-p2", "idle", "seen-done", "stale-done", "plain"]],
+  ]);
+  expect(flatTaskOrder(flat).map((each) => each.id)).toEqual([
+    "blocked-new",
+    "blocked-old",
+    "error",
+    "working",
+    "unseen-done",
+    "unseen-done-p2",
+    "idle",
+    "seen-done",
+    "stale-done",
+    "plain",
+    "settled-blocked",
+  ]);
+  // Every row knows the project its second line names.
+  expect(flat.sections[0]?.tasks.find((row) => row.task.id === "error")?.project.id).toBe("p2");
+});
+
+test("flat mode marks only a done update newer than the task's seenAt as unseen", () => {
+  const flat = buildFlatSidebar(flatTree);
+  expect(
+    flat.sections.flatMap((section) => section.tasks).map((row) => [row.task.id, row.unseen]),
+  ).toEqual([
+    ["blocked-new", false],
+    ["blocked-old", false],
+    ["error", false],
+    ["working", false],
+    ["unseen-done", true],
+    ["unseen-done-p2", true],
+    ["idle", false],
+    ["seen-done", false],
+    ["stale-done", false],
+    ["plain", false],
+  ]);
+});
+
+test("flat mode keeps settled tasks on their own shelf, cancelled from the sections", () => {
+  const flat = buildFlatSidebar(flatTree);
+  expect(flat.settled.map((row) => row.task.id)).toEqual(["settled-blocked"]);
+  expect(flat.sections.flatMap((section) => section.tasks.map((row) => row.task.id))).not.toContain(
+    "settled-blocked",
+  );
+});
+
+test("empty flat sections are left out", () => {
+  const quiet = buildWorkspaceTree(
+    [project("p1")],
+    [{ ...task("idle", "p1"), seenAt: null }],
+    [],
+    [],
+  );
+  const flat = buildFlatSidebar(quiet);
+  expect(flat.sections.map((section) => section.kind)).toEqual(["done"]);
+  expect(flat.settled).toEqual([]);
 });

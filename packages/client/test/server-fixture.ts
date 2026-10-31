@@ -47,13 +47,16 @@ export function useServer() {
   vi.setConfig({ testTimeout: 30_000 });
   let server: RunningServer;
   let scratchDir: string;
+  // One data directory per test, kept across `restart` so it can prove what persists.
+  let dataDir: string;
   let cleanups: (() => void | Promise<void>)[] = [];
 
   beforeEach(async () => {
     scratchDir = await realpath(await mkdtemp(join(tmpdir(), "corral-client-test-")));
+    dataDir = join(scratchDir, "data");
     // The server reads $CORRAL_CONFIG_DIR; never the developer's own ~/.config/corral.
     vi.stubEnv("CORRAL_CONFIG_DIR", join(scratchDir, "config"));
-    server = await startServer({ host: "127.0.0.1", port: 0 });
+    server = await startServer({ host: "127.0.0.1", port: 0, dataDir });
   });
   afterEach(async () => {
     // oxlint-disable-next-line eslint/no-await-in-loop -- newest first: streams before clients before proxies
@@ -85,10 +88,10 @@ export function useServer() {
       return server.capability;
     },
     connect,
-    /** Stops the server and starts a new one on a new port with a new capability. */
+    /** Stops the server and starts a new one on the same data directory, a new port and capability. */
     async restart(): Promise<void> {
       await server.close();
-      server = await startServer({ host: "127.0.0.1", port: 0 });
+      server = await startServer({ host: "127.0.0.1", port: 0, dataDir });
     },
     /** A git repository on `main` with one commit, in a directory that is deleted after the test. */
     repo(name = "repo"): string {

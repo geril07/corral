@@ -27,6 +27,7 @@ const task = (
   workspacePath: `/work/${id}`,
   ownsWorktree: true,
   state: options.state ?? "active",
+  seenAt: null,
   createdAt: options.createdAt ?? 0,
 });
 

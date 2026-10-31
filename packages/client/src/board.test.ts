@@ -23,6 +23,7 @@ const task = (
   workspacePath: `/work/${id}`,
   ownsWorktree: true,
   state,
+  seenAt: null,
   createdAt,
 });
 const session = (
