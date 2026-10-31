@@ -17,7 +17,7 @@ Modules compose kit components and named structural variants, never skin control
 with `className`. Structural page/tree grids and semantic content typography remain
 allowed. UI-boundary, AST class/control and token gates enforce this separation.
 A required variant must solve a current structural need, not hide the old skin.
-Stock primitive defaults remain identifiable and unchanged; see `ui-kit.md`.
+Stock primitive appearance remains identifiable; the permitted adaptations (no popup exit animations, one unpadded dialog footer, a wider row overflow menu, the hint delay) are listed in `ui-kit.md`.
 
 ## Layout and navigation
 
