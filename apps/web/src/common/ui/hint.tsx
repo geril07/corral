@@ -13,7 +13,7 @@ export function Hint({
 }) {
   if (content === undefined || content === null || content === "") return children;
   return (
-    <TooltipProvider>
+    <TooltipProvider delay={300}>
       <Tooltip disableHoverablePopup>
         <TooltipTrigger render={children} />
         <TooltipContent side={side} role="tooltip">
