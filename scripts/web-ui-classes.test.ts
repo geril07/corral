@@ -105,6 +105,8 @@ describe("class literals", () => {
       "text-text-muted",
       "bg-danger-strong",
       "rounded-control",
+      "text-status-blocked",
+      "bg-status-done",
       "focus-visible:outline-focus-ring",
     ]) {
       expect(messages(`const cls = "${token}";`)).toEqual([
@@ -147,7 +149,83 @@ describe("class literals", () => {
   });
 });
 
+describe("kit control appearance", () => {
+  it("rejects literal and computed class overrides, including aliased and namespace imports", () => {
+    for (const source of [
+      'import { Button } from "../common/ui/index.ts"; const view = <Button className="rounded-none" />;',
+      'import { Input as Editor } from "../common/ui/input.tsx"; const view = <Editor className={classes} />;',
+      'import * as UI from "@/common/ui"; const view = <UI.RadioGroup className="flex" />;',
+      'import { Button } from "../common/ui/index.ts"; const Action = Button; const view = <Action className="w-full" />;',
+      'import * as UI from "@/common/ui"; const Action = UI.Button; const view = <Action className="w-full" />;',
+    ]) {
+      expect(messages(source)).toEqual([
+        "1:visual override on UI kit control: className; use a kit variant",
+      ]);
+    }
+  });
+
+  it("covers the stock wrappers and compositions, not just buttons", () => {
+    for (const name of [
+      "IconButton",
+      "FormField",
+      "FieldLegend",
+      "FieldSet",
+      "RadioChoice",
+      "Badge",
+      "Alert",
+      "Item",
+      "TextLink",
+      "CommandItem",
+      "ComboboxInput",
+      "TaskDialog",
+      "TaskCommandDialog",
+      "Hint",
+      "Kbd",
+      "DropdownMenuItem",
+    ]) {
+      const source = `import { ${name} } from "../common/ui/index.ts"; const view = <${name} className={classes} />;`;
+      expect(messages(source)).toEqual([
+        "1:visual override on UI kit control: className; use a kit variant",
+      ]);
+    }
+  });
+
+  it("rejects styling and opaque composition/prop escape hatches", () => {
+    for (const attribute of [
+      "style={{ opacity: 0.5 }}",
+      'width="100"',
+      'height="20"',
+      'color="primary"',
+      "render={<span />}",
+      "{...props}",
+    ]) {
+      const reported = messages(
+        `import { Button } from "../common/ui/index.ts"; const view = <Button ${attribute} />;`,
+      );
+      expect(reported).toHaveLength(1);
+      expect(reported[0]).toMatch(/UI kit control/);
+    }
+  });
+
+  it("allows stock variants, behavior props, structural layout and ordinary content typography", () => {
+    const source =
+      'import { Button, AppShell } from "../common/ui/index.ts"; const view = <AppShell className="h-screen"><div className="flex gap-4"><Button variant="secondary" layout="tree" size="sm" onClick={run} disabled={busy} aria-label="Run"><span className="truncate text-muted-foreground">Run</span></Button></div></AppShell>;';
+    expect(messages(source)).toEqual([]);
+  });
+});
+
 describe("guard CLI", () => {
+  it("fails a module control override with its source location", () => {
+    const root = fixture({
+      "apps/web/src/modules/tasks/actions.tsx":
+        'import { Button } from "../../common/ui/index.ts";\nexport const view = <Button className="px-2" />;',
+    });
+    const result = guard(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "apps/web/src/modules/tasks/actions.tsx:2: visual override on UI kit control: className",
+    );
+  });
   it("ignores a comment with an apostrophe and checks real classes", () => {
     const root = fixture({
       "apps/web/src/modules/tasks/import-card.tsx": [

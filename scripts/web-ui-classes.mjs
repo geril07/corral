@@ -9,7 +9,7 @@ const CLASS_LIKE =
   /(?:^|[\s:])(?:flex|grid|block|inline|hidden|absolute|relative|fixed|sticky|w-|h-|min-|max-|p-|px-|py-|m-|mx-|my-|gap-|items-|justify-|text-|bg-|border|rounded|font-|leading-|tracking-|overflow-|truncate|whitespace-|cursor-|select-|shadow|ring-|outline-|opacity-|transition|duration-|ease-|z-|top-|left-|right-|bottom-|inset-|col-|row-|self-|place-|content-|list-|object-|align-|order-|basis-|grow|shrink|space-|divide-|fill-|stroke-|from-|via-|to-)/;
 const ARBITRARY = /\[[^\]]+\]/;
 const OBSOLETE_TOKEN =
-  /(?:^|[\s:])(?:bg-surface(?:-raised|-active)?|text-text(?:-muted)?|(?:bg|text|border)-danger(?:-strong|-foreground)?|(?:bg|text|border)-accent-strong|outline-focus-ring|rounded-(?:control|panel))(?=\/|\s|$)/;
+  /(?:^|[\s:])(?:bg-surface(?:-raised|-active)?|text-text(?:-muted)?|(?:bg|text|border)-danger(?:-strong|-foreground)?|(?:bg|text|border)-accent-strong|(?:bg|text)-status-[a-z]+|outline-focus-ring|rounded-(?:control|panel))(?=\/|\s|$)/;
 const RAW_COLOUR = /\b(?:rgb|hsl)a?\(|#[0-9a-fA-F]{3,8}\b/;
 
 /** Maps a source offset to a 1-based line, counting every JavaScript line terminator. */
@@ -65,6 +65,7 @@ export function classViolations(source, filename) {
     return diagnostics;
   }
 
+  controlOverrides(parsed.program, diagnostics, line);
   const literals = [];
   collectCodeLiterals(parsed.program, literals);
   for (const literal of literals) {
@@ -97,6 +98,80 @@ export function classViolations(source, filename) {
     }
   }
   return diagnostics;
+}
+
+/** Control appearance belongs to the kit, including when an import is aliased or namespaced. */
+function controlOverrides(program, diagnostics, line) {
+  const structural = new Set([
+    "AppShell",
+    "MainPanel",
+    "Screen",
+    "SidebarPanel",
+    "TreeIndent",
+    "TreeRow",
+    "BoardList",
+  ]);
+  const controls = new Set();
+  const namespaces = new Set();
+  for (const node of program.body) {
+    if (
+      node.type !== "ImportDeclaration" ||
+      !/(?:common\/ui(?:\/|$)|@\/components\/ui\/)/.test(node.source.value)
+    )
+      continue;
+    for (const specifier of node.specifiers) {
+      if (specifier.type === "ImportNamespaceSpecifier") namespaces.add(specifier.local.name);
+      else {
+        const name = specifier.imported?.name ?? specifier.local.name;
+        if (/^[A-Z]/.test(name) && !structural.has(name)) controls.add(specifier.local.name);
+      }
+    }
+  }
+  function walk(node) {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "VariableDeclarator") {
+      const init = node.init;
+      if (init?.type === "Identifier" && controls.has(init.name)) controls.add(node.id.name);
+      if (
+        init?.type === "MemberExpression" &&
+        namespaces.has(init.object.name) &&
+        !structural.has(init.property.name)
+      )
+        controls.add(node.id.name);
+    }
+    if (node.type === "JSXOpeningElement") {
+      const name = node.name;
+      const control =
+        name.type === "JSXIdentifier"
+          ? controls.has(name.name)
+          : name.type === "JSXMemberExpression" &&
+            namespaces.has(name.object.name) &&
+            !structural.has(name.property.name);
+      if (control) {
+        for (const attribute of node.attributes) {
+          const spread = attribute.type === "JSXSpreadAttribute";
+          const prop = attribute.name?.name;
+          if (
+            spread ||
+            ["className", "style", "color", "width", "height", "render"].includes(prop)
+          ) {
+            diagnostics.push({
+              line: line(attribute.start),
+              message: spread
+                ? "opaque prop spread on UI kit control: pass behavior props explicitly; appearance belongs in kit variants"
+                : `visual override on UI kit control: ${prop}; use a kit variant`,
+            });
+          }
+        }
+      }
+    }
+    for (const [key, child] of Object.entries(node)) {
+      if (key === "type" || key === "start" || key === "end") continue;
+      if (Array.isArray(child)) for (const item of child) walk(item);
+      else walk(child);
+    }
+  }
+  walk(program);
 }
 
 /** Length of the whitespace the regex consumed between the token and its predecessor. */
