@@ -18,10 +18,13 @@ import { Sidebar } from "./sidebar.tsx";
 import { useWorkspace } from "./use-workspace.ts";
 import type { WorkspaceSearch } from "./workspace-search.ts";
 
+function keyHint(config: ClientConfig, action: ActionId): string | undefined {
+  return config.keys.bindings[action] === null ? undefined : formatBinding(config, action);
+}
+
 function pressHint(config: ClientConfig, action: ActionId): string | undefined {
-  return config.keys.bindings[action] === null
-    ? undefined
-    : `Press ${formatBinding(config, action)}.`;
+  const key = keyHint(config, action);
+  return key === undefined ? undefined : `Press ${key}.`;
 }
 
 export interface WorkspaceScreenProps {
@@ -66,6 +69,7 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
     openNewTask,
     loadBranches,
     openRemoveTask,
+    openRemoveSession,
     openAddProject,
     openPalette,
     openFindTask,
@@ -75,7 +79,7 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
     removeTask,
     setDialog,
   } = useWorkspace({ search, onChange, onOpenBoard });
-  const restartHint = pressHint(config, "restart-session");
+  const restartKey = keyHint(config, "restart-session");
   const terminalHint = pressHint(config, "new-terminal");
   const agentHint = pressHint(config, "new-agent");
 
@@ -96,7 +100,7 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
           onCloseTerminal={(id) => void closeTerminal(id)}
           onStopSession={(session) => void stopSession(session)}
           onRestartSession={(session) => void restartSession(session)}
-          onRemoveSession={(session) => setDialog({ kind: "remove-session", session })}
+          onRemoveSession={openRemoveSession}
           onToggleSettle={(task) => void toggleSettle(task)}
           onRemoveTask={openRemoveTask}
           onAddProject={openAddProject}
@@ -138,7 +142,9 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
             onFit={rememberFitSize}
             exitHint={
               currentSession
-                ? `${describeSessionState(currentSession).note ?? ""} ${restartHint ?? ""}`.trim()
+                ? `${describeSessionState(currentSession).note ?? ""} ${
+                    restartKey ? `Press ${restartKey}.` : ""
+                  }`.trim()
                 : undefined
             }
           />
@@ -146,7 +152,7 @@ export function WorkspaceScreen({ search, onChange, onOpenBoard }: WorkspaceScre
           <StoppedSession
             key={currentSession.id}
             session={currentSession}
-            restartHint={restartHint}
+            restartHint={restartKey}
             onRestart={() => void restartSession(currentSession)}
           />
         ) : (

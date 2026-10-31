@@ -25,6 +25,7 @@ test("a stopped agent says it resumes, and Enter starts it, as the button has th
 
   await expect.element(pane()).toMatchTextContent("claude · stopped");
   await expect.element(pane()).toMatchTextContent("resumes");
+  await expect.element(pane()).toMatchTextContent("Enter, or alt+a r.");
   await expect.element(pane().getByRole("button", { name: "Start again" })).toHaveFocus();
 
   await userEvent.keyboard("{Enter}");

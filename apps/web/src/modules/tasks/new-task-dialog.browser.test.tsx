@@ -118,10 +118,13 @@ test("an existing branch is picked from the list with the keyboard", async () =>
   await userEvent.keyboard("Continue work");
   await dialog().getByRole("radio", { name: "Existing branch" }).click();
   await expect.element(dialog().getByRole("radio", { name: "Existing branch" })).toBeChecked();
-  const branch = dialog().getByRole("combobox", { name: "Branch" });
+  const branch = dialog().getByRole("combobox", { name: "Branch", exact: true });
   await expect.element(dialog().getByRole("button", { name: "Create task" })).toBeDisabled();
 
   await userEvent.click(branch);
+  await expect
+    .element(dialog().getByRole("combobox", { name: "Branch", exact: true }))
+    .toBeVisible();
   await userEvent.keyboard("feat");
   await expect.element(page.getByRole("option", { name: "feature/x" })).toBeVisible();
   await expect.element(page.getByRole("option", { name: "main" })).not.toBeInTheDocument();
@@ -146,7 +149,7 @@ test("the project field starts on the selected project and another project can t
   await rendered;
   await opened();
 
-  const picker = dialog().getByRole("combobox", { name: "Project" });
+  const picker = dialog().getByRole("combobox", { name: "Project", exact: true });
   await expect.element(picker).toHaveValue("repo");
   expect(loadBranches).toHaveBeenLastCalledWith("p1");
 

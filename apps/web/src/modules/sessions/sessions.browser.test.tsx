@@ -104,6 +104,7 @@ test("prefix x stops the session, which stays in the list; prefix r starts it ag
   await prefixThen("x");
   await expect.element(sessionButton("claude", "stopped")).toHaveAttribute("aria-current", "true");
   await expect.element(stoppedPane()).toMatchTextContent("resumes");
+  await expect.element(stoppedPane()).toMatchTextContent("Enter, or alt+a r.");
   await expect.element(workspace().getByRole("button", { name: "restart claude" })).toBeVisible();
   expect(sessionOf(client, "claude")).toMatchObject({ state: "stopped", terminalId: null });
 

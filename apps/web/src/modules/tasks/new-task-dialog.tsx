@@ -199,7 +199,12 @@ function ProjectPicker({
   return (
     <Combobox.Root items={ids} value={value} onValueChange={onChange} itemToStringLabel={label}>
       <Field label="Project">
-        <Combobox.Input placeholder="Search projects…" spellCheck={false} autoComplete="off" />
+        <Combobox.Input
+          aria-label="Project"
+          placeholder="Search projects…"
+          spellCheck={false}
+          autoComplete="off"
+        />
       </Field>
       <Combobox.Popup>
         <ComboboxList>
@@ -240,6 +245,7 @@ function BranchPicker({
     <Combobox.Root items={names} value={value} onValueChange={onChange}>
       <Field label="Branch">
         <Combobox.Input
+          aria-label="Branch"
           placeholder={branches.status === "loading" ? "Loading branches…" : "Type to filter"}
           spellCheck={false}
           autoComplete="off"
