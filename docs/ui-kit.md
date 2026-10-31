@@ -67,6 +67,9 @@ Current structural needs have named kit variants, not module class overrides:
 - Button `layout="tree"`: flex allocation, start alignment and truncation for the
   project/task/session hierarchy. Selection uses stock `secondary`, otherwise
   stock `ghost`; no replacement hover, ring, color, height, padding or font rules.
+- Button `size="row"`: the two-line 52 px task row of `layout.md` **Sidebar** needs a
+  minimum height and vertical padding above the stock `h-8`; font, radius, color,
+  variants and hover/focus treatment stay stock.
 - Badge `layout="truncate"`: bounded flex allocation for a saved launch summary;
   the badge's stock variant, shape and sizing are unchanged.
 - DialogContent `padding="none"`: the content box keeps no stock `p-4`, so

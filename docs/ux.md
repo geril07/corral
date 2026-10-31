@@ -27,7 +27,7 @@ What a user does; replaces the form-first flow below as each stage lands. New ke
 2. The task appears in the sidebar at once under the prompt-derived seed title, which the generated title replaces. Its primary agent opens in the chosen view, already working on the prompt. No shell opens on its own.
 3. Inside a task (header and tab strip: `layout.md`), sessions are equal tabs: agents (terminal or chat) and shells. `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel.
 4. `prefix v` hands the current agent session over between chat and terminal (stop one frontend, resume the same conversation in the other). OpenCode can keep both live; Codex's terminal is view-only while chat writes.
-5. The sidebar lists tasks either flat by status (pinned, needs attention, working, idle, settled shelf) or grouped by project; one key toggles the mode. A task's status is the most urgent of its sessions', ordered: needs approval or input, error, working, completed and unseen, idle. "Completed and unseen" clears when the task is opened.
+5. The sidebar lists tasks either flat by status (sections Needs you, Working and Done, plus a settled shelf; the default) or grouped by project; `prefix l` toggles the mode and the device keeps its choice. A task's status is the most urgent of its sessions', ordered: needs approval or input, error, working, completed and unseen, idle. "Completed and unseen" clears when the task is opened or its status changes while it is selected.
 6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles.
 7. Settings carry the defaults the composer uses: view (global, overridable per project), workspace mode, worktree root, branch prefix, slug mode, naming agent/model.
 
@@ -39,8 +39,9 @@ What a user does; replaces the form-first flow below as each stage lands. New ke
   Rows use stock Buttons with a structural tree layout variant; selection uses
   stock secondary appearance plus `aria-current`, not a bespoke colored left bar.
 - Task order is creation order, not status order, in the project-grouped mode; the flat mode
-  orders by status (Target flow 5). Current-task sessions remain open;
-  other tasks expand on demand. Titles/paths truncate without losing accessible names.
+  orders by status (Target flow 5) and shows the project on each row's second line. Current-task
+  sessions remain open; other tasks expand on demand. Titles/paths truncate without losing
+  accessible names.
 - Row actions use named icon buttons and menus. Frequent session stop/restart remains
   inline; rename/remove remain menu actions. Icons are Lucide's standard glyphs.
 - One scrolling region per pane. At 1024×640 and above all controls must be reachable.
