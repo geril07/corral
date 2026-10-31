@@ -35,6 +35,10 @@ Scope and operating rules: [roadmap.md](roadmap.md). This records outcomes and e
 | Close hostile-web-page RPC and terminal-stream access       | Integrated `62ab857`; independent browser/Electron security and recovery PASS                                    | `.e2e/transport-trust/verify/report.md`: both WS paths reject missing/wrong capabilities; protected IPC/storage/restart refresh verified. Trusted command API retained; same-UID code trusted, no account-isolation claim                                                                                                          |
 | Follow-on product improvement                               | Hash-query fix `a94fdfd` and numeric/legacy route-ID fix `b16c5dd` integrated                                    | Original failure `.e2e/session-labels/verify/37*`; real red/green `.e2e/selection-reload/`, independent closure `.e2e/transport-trust/verify/15*`, `42*`, `43*`. Numeric-ID red/green and navigation/fresh-router tests: `.e2e/selection-reload/race/`; final combined real-interface audit PASS (`.e2e/final-combined/report.md`) |
 
+## Open decisions
+
+Decisions only the user can make, with options and a recommendation. Empty when none are open.
+
 ## Integration gates
 
 - Delegate implementation, research, exploration, risk-based review and E2E; all agents use Deepseek.

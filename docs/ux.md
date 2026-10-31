@@ -19,14 +19,27 @@ allowed. UI-boundary, AST class/control and token gates enforce this separation.
 A required variant must solve a current structural need, not hide the old skin.
 Stock primitive appearance remains identifiable; the permitted adaptations (no popup exit animations, one unpadded dialog footer, a wider row overflow menu, the hint delay) are listed in `ui-kit.md`.
 
+## Target flow (stages A–B in `design.md`)
+
+What a user does; replaces the form-first flow below as each stage lands. New keys are proposals until implemented; existing ones are unchanged.
+
+1. `prefix t` opens the new-task composer: a prompt field, plus project (current), agent or profile, model/reasoning, view and workspace, all prefilled from settings and changeable from the keyboard. Enter submits.
+2. The task appears in the sidebar at once under the prompt-derived seed title, which the generated title replaces. Its primary agent opens in the chosen view, already working on the prompt. No shell opens on its own.
+3. Inside a task, sessions are equal tabs: agents (terminal or chat) and shells. `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel.
+4. `prefix v` hands the current agent session over between chat and terminal (stop one frontend, resume the same conversation in the other). OpenCode can keep both live; Codex's terminal is view-only while chat writes.
+5. The sidebar lists tasks either flat by status (pinned, needs attention, working, idle, settled shelf) or grouped by project; one key toggles the mode. A task's status is the most urgent of its sessions', ordered: needs approval or input, error, working, completed and unseen, idle. "Completed and unseen" clears when the task is opened.
+6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles.
+7. Settings carry the defaults the composer uses: view (global, overridable per project), workspace mode, worktree root, branch prefix, slug mode, naming agent/model.
+
 ## Layout and navigation
 
-- Preserve the two-pane hierarchy: project → task → session, one main terminal,
-  board, task search, command palette and settings. No chat, splits or store redesign.
+- Current (until stage A): the two-pane hierarchy project → task → session, one main terminal,
+  board, task search, command palette and settings. Splits and a store redesign are not planned.
 - The sidebar remains a fixed pane; the terminal takes the available main space.
   Rows use stock Buttons with a structural tree layout variant; selection uses
   stock secondary appearance plus `aria-current`, not a bespoke colored left bar.
-- Task order is creation order, not status order. Current-task sessions remain open;
+- Task order is creation order, not status order, in the project-grouped mode; the flat mode
+  orders by status (Target flow 5). Current-task sessions remain open;
   other tasks expand on demand. Titles/paths truncate without losing accessible names.
 - Row actions use named icon buttons and menus. Frequent session stop/restart remains
   inline; rename/remove remain menu actions. Icons are Lucide's standard glyphs.
@@ -36,8 +49,10 @@ Stock primitive appearance remains identifiable; the permitted adaptations (no p
 
 ## Tasks, sessions and sources
 
-- Add project is a path dialog with inline errors. New task selects a project and
-  workspace; project changes clear project-specific import/branch state safely.
+- Add project is a path dialog with inline errors. Current (until stage A): new task is a form
+  that selects a project and workspace and starts a shell; project changes clear
+  project-specific import/branch state safely. Issue import feeds the composer's prompt and
+  seed title once the composer replaces the form.
 - Radio groups retain the stock stacked default. Provider/agent/workspace choices
   use stock fields and labels, not custom selectable cards or row skins.
 - Remove task retains the dirty-worktree second confirmation; keyed buttons prevent
@@ -75,6 +90,8 @@ Stock primitive appearance remains identifiable; the permitted adaptations (no p
   inspecting settled history does not continue it. Continue is explicit.
 - Settings is read-only: actual config path, effective bindings, problems and profile
   descriptors. `config.toml` remains the source of truth; no write controls are added.
+  Composer defaults (Target flow 7) are config entries too, overridable per project
+  (`design.md` decision 17); Settings shows each effective value and where it comes from.
 - Agent selection offers native defaults, named profiles and supported model overrides.
   Changed/deleted profiles require explicit reselection; no silent fallback. Session
   details describe saved launch snapshots, never resolved environment values.
@@ -85,5 +102,5 @@ Stock primitive appearance remains identifiable; the permitted adaptations (no p
 - Long values may truncate; names and effective summaries retain their full meaning.
 - Font +/-/reset exists in playtest but not Corral. Terminal text remains fixed at
   14px; adding controls is separate scope. UI typography itself is stock shadcn.
-- Hover-only row actions, settings writes, chat and mid-session model switching are
-  not implied by this kit migration.
+- Hover-only row actions and settings writes are not implied by this kit migration.
+  Chat is stage B; mid-session model switching comes with the chat drivers, not the terminal.
