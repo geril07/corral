@@ -2,12 +2,13 @@ import type { Task } from "@corral/protocol/rpc";
 import { chmodSync, existsSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "vite-plus/test";
+import { expect, test, vi } from "vite-plus/test";
 import { cloneOfOrigin, commitFile, runGit, writeFiles } from "../../test/git-repo.ts";
 import { addProject } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
 import { openDatabase } from "../storage/database.ts";
 import { TaskStore } from "./task-store.ts";
+import { sessionsOf } from "../../test/session-helpers.ts";
 
 const server = useServer();
 
@@ -292,6 +293,7 @@ test("setState settles and reactivates a task; an unknown task fails with TASK_N
 });
 
 test("renaming a task changes its trimmed title and its source, and leaves branch, worktree and sessions alone", async () => {
+  vi.stubEnv("SHELL", "/bin/sh");
   const { project } = await addProject(server);
   const api = await server.rpc();
   const task = await api.tasks.create({
@@ -299,18 +301,31 @@ test("renaming a task changes its trimmed title and its source, and leaves branc
     title: "Fix the login bug",
     workspace: { type: "new-branch" },
   });
-
-  const renamed = await api.tasks.rename({ id: task.id, title: "  Login fails on Safari  " });
-
-  expect(renamed).toEqual({
-    ...task,
-    title: "Login fails on Safari",
-    titleSource: "user",
+  const session = await api.sessions.start({
+    taskId: task.id,
+    kind: "shell",
+    size: { cols: 80, rows: 24 },
   });
-  expect(renamed.workspacePath).toBe(task.workspacePath);
-  expect(existsSync(renamed.workspacePath)).toBe(true);
-  expect(runGit(renamed.workspacePath, "branch", "--show-current").trim()).toBe(task.branch);
-  expect((await api.tasks.watch().then((updates) => updates.next())).value).toEqual([renamed]);
+  // Subscribed before the rename, so only a real change notification can produce the second value.
+  const updates = await api.tasks.watch();
+  try {
+    expect((await within(updates.next(), "the created task")).value).toEqual([task]);
+
+    const renamed = await api.tasks.rename({ id: task.id, title: "  Login fails on Safari  " });
+
+    expect(renamed).toEqual({
+      ...task,
+      title: "Login fails on Safari",
+      titleSource: "user",
+    });
+    expect((await within(updates.next(), "the renamed task")).value).toEqual([renamed]);
+    expect(renamed.workspacePath).toBe(task.workspacePath);
+    expect(existsSync(renamed.workspacePath)).toBe(true);
+    expect(runGit(renamed.workspacePath, "branch", "--show-current").trim()).toBe(task.branch);
+    expect(await sessionsOf(api)).toEqual([session]);
+  } finally {
+    await updates.return?.();
+  }
 });
 
 test("renaming an unknown task fails with TASK_NOT_FOUND and a blank title is refused", async () => {

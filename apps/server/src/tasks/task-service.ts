@@ -82,11 +82,17 @@ export class TaskService implements ProjectTasks {
     return this.#mutations.run(() => this.#setState(id, state));
   }
 
-  rename(id: string, title: string): Task {
-    this.get(id);
-    this.#store.rename(id, title);
-    this.#changes.notify();
-    return this.get(id);
+  rename(id: string, title: string): Promise<Task> {
+    // Queued like every other task mutation: a removal that is stopping sessions must finish
+    // first, so a rename never writes into a task that is going away. A4's generated title has to
+    // write through this queue too, and only when `title_source <> 'user'`.
+    return this.#mutations.run(async () => {
+      this.get(id);
+      // The contract trims as well; a direct caller gets the same title the wire would store.
+      this.#store.rename(id, title.trim());
+      this.#changes.notify();
+      return this.get(id);
+    });
   }
 
   remove(id: string, force: boolean): Promise<void> {
