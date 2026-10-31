@@ -1,3 +1,4 @@
+import type { Task } from "@corral/protocol/rpc";
 import { chmodSync, existsSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -5,6 +6,8 @@ import { expect, test } from "vite-plus/test";
 import { cloneOfOrigin, commitFile, runGit, writeFiles } from "../../test/git-repo.ts";
 import { addProject } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
+import { openDatabase } from "../storage/database.ts";
+import { TaskStore } from "./task-store.ts";
 
 const server = useServer();
 
@@ -29,12 +32,7 @@ test("a new-branch task gets a branch named from its title, in a worktree under 
     workspace: { type: "new-branch" },
   });
 
-  const expectedPath = join(
-    server.dataDir,
-    "worktrees",
-    `app-${project.id.slice(0, 8)}`,
-    "fix-the-login-bug",
-  );
+  const expectedPath = join(server.dataDir, "worktrees", "app", "fix-the-login-bug");
   expect(task).toEqual({
     id: expect.any(String),
     projectId: project.id,
@@ -80,9 +78,7 @@ test("new-branch off another base branch and with a branch name of the user's ch
   });
 
   expect(task.branch).toBe("feature/oauth");
-  expect(task.workspacePath).toBe(
-    join(server.dataDir, "worktrees", `app-${project.id.slice(0, 8)}`, "feature-oauth"),
-  );
+  expect(task.workspacePath).toBe(join(server.dataDir, "worktrees", "app", "feature-oauth"));
   expect(existsSync(join(task.workspacePath, "develop.txt"))).toBe(true);
 });
 
@@ -120,7 +116,7 @@ test("two tasks created at once do not fight over a name", async () => {
 
 test("a worktree directory that already exists is never reused", async () => {
   const { project } = await addProject(server);
-  const occupied = join(server.dataDir, "worktrees", `app-${project.id.slice(0, 8)}`, "taken");
+  const occupied = join(server.dataDir, "worktrees", "app", "taken");
   writeFiles(occupied, { "keep.txt": "mine\n" });
   const api = await server.rpc();
 
@@ -316,6 +312,37 @@ test("removing a clean task deletes its worktree and keeps the branch with its c
   });
 });
 
+test("a task created under the old layout keeps its stored path and can still be removed", async () => {
+  const { project, repo } = await addProject(server);
+  // A row as the previous layout wrote it: `<data dir>/worktrees/<project>-<short id>/<branch>`.
+  const legacyPath = join(server.dataDir, "worktrees", `app-${project.id.slice(0, 8)}`, "legacy");
+  runGit(repo, "worktree", "add", "-b", "legacy", legacyPath, "main");
+  const legacy: Task = {
+    id: "legacy",
+    projectId: project.id,
+    title: "Legacy",
+    branch: "legacy",
+    workspacePath: legacyPath,
+    ownsWorktree: true,
+    state: "active",
+    createdAt: 1,
+  };
+  const db = openDatabase(server.dataDir);
+  try {
+    new TaskStore(db).insert(legacy);
+  } finally {
+    db.close();
+  }
+  const api = await server.rpc();
+  expect((await api.tasks.watch().then((updates) => updates.next())).value).toEqual([legacy]);
+
+  await api.tasks.remove({ id: legacy.id });
+
+  expect(existsSync(legacyPath)).toBe(false);
+  expect(worktreePaths(repo)).toEqual([repo]);
+  expect(branches(repo)).toContain("legacy");
+});
+
 test("removing a task with uncommitted or untracked changes is refused and lists the files; force removes it", async () => {
   const { project, repo } = await addProject(server);
   const api = await server.rpc();
@@ -406,9 +433,7 @@ test("a failure after the worktree exists undoes the worktree and the branch it 
   });
 
   expect({ branches: branches(repo), worktrees: worktreePaths(repo) }).toEqual(before);
-  expect(
-    existsSync(join(server.dataDir, "worktrees", `app-${project.id.slice(0, 8)}`, "hooked")),
-  ).toBe(false);
+  expect(existsSync(join(server.dataDir, "worktrees", "app", "hooked"))).toBe(false);
   expect((await api.tasks.watch().then((updates) => updates.next())).value).toEqual([]);
 
   // The failed attempt did not poison the next one.

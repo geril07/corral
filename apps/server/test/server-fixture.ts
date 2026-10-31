@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, vi } from "vite-plus/test";
+import type { TaskSettings } from "../src/tasks/task-settings.ts";
 import { startServer, type RunningServer } from "../src/transport/server.ts";
 import type { Program } from "./programs.ts";
 import { connectRpc, type RpcClient } from "./rpc-client.ts";
@@ -13,15 +14,30 @@ const DEADLINE_MS = 15_000;
 
 /**
  * A real server on port 0 per test, with its own data directory; the fixture closes every
- * client, kills every PTY and deletes the directories afterwards.
+ * client, kills every PTY and deletes the directories afterwards. `taskSettings` replaces the
+ * task settings source, as A0's config will.
  */
-export function useServer() {
+export function useServer(
+  fixture: {
+    taskSettings?: (dirs: { dataDir: string; scratchDir: string }) => TaskSettings;
+  } = {},
+) {
   let server: RunningServer;
   let root: string;
   let streams: StreamClient[] = [];
   let rpcClients: RpcClient[] = [];
 
-  const start = () => startServer({ host: "127.0.0.1", port: 0, dataDir: join(root, "data") });
+  const dataDir = () => join(root, "data");
+  const scratchDir = () => join(root, "scratch");
+  const start = () =>
+    startServer({
+      host: "127.0.0.1",
+      port: 0,
+      dataDir: dataDir(),
+      ...(fixture.taskSettings === undefined
+        ? {}
+        : { settings: fixture.taskSettings({ dataDir: dataDir(), scratchDir: scratchDir() }) }),
+    });
   const disconnectClients = () => {
     for (const stream of streams) stream.close();
     for (const client of rpcClients) client.close();
@@ -58,11 +74,11 @@ export function useServer() {
     },
     /** The server's data directory, which holds its database and worktrees. */
     get dataDir() {
-      return join(root, "data");
+      return dataDir();
     },
     /** An empty directory for the test's repositories, outside the data directory. */
     get scratchDir() {
-      return join(root, "scratch");
+      return scratchDir();
     },
     /** The config directory the server reads; it does not exist until a test creates it. */
     get configDir() {

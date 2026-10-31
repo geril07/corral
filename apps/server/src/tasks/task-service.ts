@@ -1,4 +1,4 @@
-import type { CreateTaskInput, Task } from "@corral/protocol/rpc";
+import type { CreateTaskInput, Project, Task } from "@corral/protocol/rpc";
 import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -24,6 +24,7 @@ import type { ProjectStore } from "../projects/project-store.ts";
 import { newId } from "../storage/ids.ts";
 import { TaskNotFoundError, WorktreeDirtyError } from "./errors.ts";
 import { SerialQueue } from "./serial-queue.ts";
+import type { TaskSettings } from "./task-settings.ts";
 import type { TaskStore } from "./task-store.ts";
 import { isPlanFailure, planWorktree, type WorktreePlan } from "./worktree-plan.ts";
 
@@ -38,13 +39,11 @@ export interface TaskSessions {
   resumeAllIn(taskId: string): Promise<void>;
 }
 
-const SHORT_PROJECT_ID_LENGTH = 8;
-
 export class TaskService implements ProjectTasks {
   readonly #store: TaskStore;
   readonly #projects: ProjectStore;
   readonly #sessions: TaskSessions;
-  readonly #worktreesDir: string;
+  readonly #settings: TaskSettings;
   readonly #changes = new ChangeFeed();
   // Branch and directory names are picked, then used, with git calls in between.
   readonly #mutations = new SerialQueue();
@@ -53,12 +52,12 @@ export class TaskService implements ProjectTasks {
     store: TaskStore;
     projects: ProjectStore;
     sessions: TaskSessions;
-    dataDir: string;
+    settings: TaskSettings;
   }) {
     this.#store = options.store;
     this.#projects = options.projects;
     this.#sessions = options.sessions;
-    this.#worktreesDir = join(options.dataDir, "worktrees");
+    this.#settings = options.settings;
   }
 
   list(): Task[] {
@@ -123,6 +122,7 @@ export class TaskService implements ProjectTasks {
 
     const plan = planWorktree(workspace, {
       title,
+      branchPrefix: this.#settings.branchPrefix(project),
       defaultBaseBranch: project.defaultBaseBranch,
       branches: await listBranches(project.path),
     });
@@ -133,7 +133,7 @@ export class TaskService implements ProjectTasks {
       await requireCommit(project.path, plan.base);
     }
 
-    const path = this.#freeWorktreePath(project, plan.branch);
+    const path = this.#freeWorktreePath(project, plan.slug);
     await mkdir(join(path, ".."), { recursive: true });
     try {
       await addWorktree(project.path, path, plan);
@@ -159,15 +159,12 @@ export class TaskService implements ProjectTasks {
     return task;
   }
 
-  /** `<data dir>/worktrees/<project>-<short id>/<branch>`, in a directory that does not exist yet. */
-  #freeWorktreePath(project: { id: string; name: string }, branch: string): string {
-    const projectDir = join(
-      this.#worktreesDir,
-      `${directoryName(project.name)}-${project.id.slice(0, SHORT_PROJECT_ID_LENGTH)}`,
-    );
+  /** `<worktree root>/<repo>/<slug>`, in a directory that does not exist yet. */
+  #freeWorktreePath(project: Project, slug: string): string {
+    const projectDir = join(this.#settings.worktreeRoot(project), directoryName(project.name));
     return join(
       projectDir,
-      uniqueName(directoryName(branch), (name) => existsSync(join(projectDir, name))),
+      uniqueName(directoryName(slug), (name) => existsSync(join(projectDir, name))),
     );
   }
 
