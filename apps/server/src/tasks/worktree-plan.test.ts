@@ -69,15 +69,22 @@ test("a generated slug is sanitized, and one with nothing usable falls back to t
   ).toMatchObject({ branch: "corral/oauth-sso", slug: "oauth-sso" });
 });
 
-test("a prefix without its separator, or with too many, still joins the slug once", () => {
-  for (const branchPrefix of ["corral", "corral/", "corral//", "/corral/"]) {
+test("a prefix is trimmed, loses empty segments and joins the slug with one separator", () => {
+  for (const [branchPrefix, branch] of [
+    ["corral", "corral/fix-login"],
+    ["corral/", "corral/fix-login"],
+    ["corral//", "corral/fix-login"],
+    ["/corral/", "corral/fix-login"],
+    ["corral ", "corral/fix-login"],
+    ["a//b", "a/b/fix-login"],
+    [" team / corral ", "team/corral/fix-login"],
+    ["/", "fix-login"],
+    ["  ", "fix-login"],
+  ] as const) {
     expect(
       planWorktree({ type: "new-branch" }, context(["main"], [], { branchPrefix })),
-    ).toMatchObject({ branch: "corral/fix-login", slug: "fix-login" });
+    ).toMatchObject({ branch, slug: "fix-login" });
   }
-  expect(
-    planWorktree({ type: "new-branch" }, context(["main"], [], { branchPrefix: "/" })),
-  ).toMatchObject({ branch: "fix-login" });
 });
 
 test("a local branch the prefix would sit under fails with that conflict, not with raw git", () => {
@@ -101,6 +108,15 @@ test("a branch name given by the user is used as is, and refused when it exists"
   ).toMatchObject({ branch: "Feature/X", slug: "Feature/X" });
   expect(planWorktree({ type: "new-branch", branch: "main" }, context(["main"]))).toEqual({
     problem: "a branch named 'main' already exists",
+  });
+});
+
+test("a chosen branch that git could not store next to the existing ones fails with that conflict", () => {
+  expect(
+    planWorktree({ type: "new-branch", branch: "corral/fix" }, context(["main", "corral"])),
+  ).toEqual({ problem: "a branch named 'corral' blocks 'corral/fix'" });
+  expect(planWorktree({ type: "new-branch", branch: "a" }, context(["main", "a/b/c"]))).toEqual({
+    problem: "a branch named 'a/b/c' is nested under 'a'",
   });
 });
 

@@ -10,7 +10,8 @@ export interface TaskSettings {
   worktreeRoot(project: Project): string;
   /**
    * In front of every branch name derived from a task slug: empty when unset, else a ref prefix
-   * ending in the separator (`corral/`). `planWorktree` normalizes a missing or doubled separator.
+   * ending in the separator (`corral/`). `planWorktree` normalizes a missing, doubled or padded
+   * separator and drops empty segments.
    */
   branchPrefix(project: Project): string;
 }

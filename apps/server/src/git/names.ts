@@ -47,10 +47,19 @@ export function takenAncestor(name: string, existing: ReadonlySet<string>): stri
  * branch under `name/`, or a branch `name` would sit under.
  */
 export function branchNameTaken(name: string, existing: ReadonlySet<string>): boolean {
-  if (existing.has(name)) return true;
-  if (takenAncestor(name, existing) !== undefined) return true;
-  for (const branch of existing) if (branch.startsWith(`${name}/`)) return true;
-  return false;
+  return branchConflict(name, existing) !== undefined;
+}
+
+/**
+ * The existing ref that keeps `name` from being created: itself, a ref above it (`a` for `a/b/c`),
+ * or a ref below it (`a/b/c` for `a`); git stores refs as files. `undefined` when `name` is free.
+ */
+export function branchConflict(name: string, existing: ReadonlySet<string>): string | undefined {
+  if (existing.has(name)) return name;
+  const ancestor = takenAncestor(name, existing);
+  if (ancestor !== undefined) return ancestor;
+  for (const branch of existing) if (branch.startsWith(`${name}/`)) return branch;
+  return undefined;
 }
 
 /** One safe path segment for a directory named after `name` (a branch or project name). Never empty. */

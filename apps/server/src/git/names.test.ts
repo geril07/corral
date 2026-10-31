@@ -1,6 +1,7 @@
 import * as fc from "fast-check";
 import { describe, expect, test } from "vite-plus/test";
 import {
+  branchConflict,
   branchNameTaken,
   directoryName,
   sanitizeSlug,
@@ -114,6 +115,18 @@ describe("takenAncestor", () => {
     expect(takenAncestor("team/corral/fix-login", existing)).toBe("team/corral");
     expect(takenAncestor("team/other/fix-login", existing)).toBeUndefined();
     expect(takenAncestor("fix-login", existing)).toBeUndefined();
+  });
+});
+
+describe("branchConflict", () => {
+  test("names the ref in the way: itself, one above it or one below it", () => {
+    const existing = new Set(["main", "corral", "a/b/c"]);
+    expect(branchConflict("main", existing)).toBe("main");
+    expect(branchConflict("corral/fix", existing)).toBe("corral");
+    expect(branchConflict("a", existing)).toBe("a/b/c");
+    expect(branchConflict("a/b", existing)).toBe("a/b/c");
+    expect(branchConflict("a/b/c/d", existing)).toBe("a/b/c");
+    expect(branchConflict("free", existing)).toBeUndefined();
   });
 });
 

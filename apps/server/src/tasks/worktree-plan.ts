@@ -1,5 +1,6 @@
 import type { CreateTaskInput } from "@corral/protocol/rpc";
 import {
+  branchConflict,
   branchNameTaken,
   sanitizeSlug,
   slugifyTitle,
@@ -43,10 +44,27 @@ export function taskSlug(naming: Pick<WorktreeNaming, "title" | "generatedSlug">
   return generated === "" ? slugifyTitle(naming.title) : generated;
 }
 
-/** `prefix` with exactly one trailing separator (`corral` and `corral//` both become `corral/`). */
+/**
+ * `prefix` as ref segments joined by one `/` with one trailing separator; empty segments and
+ * surrounding space are dropped, so `corral `, `a//b` and `/corral/` become `corral/`, `a/b/`
+ * and `corral/`. Nothing usable means no prefix.
+ */
 function branchPrefixOf(prefix: string): string {
-  const trimmed = prefix.replaceAll(/^\/+|\/+$/g, "");
-  return trimmed === "" ? "" : `${trimmed}/`;
+  const segments = prefix
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment !== "");
+  return segments.length === 0 ? "" : `${segments.join("/")}/`;
+}
+
+/** Why a branch the user chose cannot be created next to the existing ones, if it cannot. */
+function chosenBranchProblem(name: string, existing: ReadonlySet<string>): string | undefined {
+  const conflict = branchConflict(name, existing);
+  if (conflict === undefined) return undefined;
+  if (conflict === name) return `a branch named '${name}' already exists`;
+  return conflict.startsWith(`${name}/`)
+    ? `a branch named '${conflict}' is nested under '${name}'`
+    : `a branch named '${conflict}' blocks '${name}'`;
 }
 
 /** What to do for a `new-branch` or `existing-branch` workspace; `main-worktree` has no plan. */
@@ -69,8 +87,8 @@ export function planWorktree(
       const branch = uniqueName(`${prefix}${slug}`, (name) => branchNameTaken(name, local));
       return { kind: "new-branch", branch, base, slug };
     }
-    if (local.has(workspace.branch))
-      return { problem: `a branch named '${workspace.branch}' already exists` };
+    const problem = chosenBranchProblem(workspace.branch, local);
+    if (problem !== undefined) return { problem };
     return { kind: "new-branch", branch: workspace.branch, base, slug: workspace.branch };
   }
 
