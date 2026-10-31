@@ -20,8 +20,6 @@ export interface ResolveIssue {
 }
 
 interface IssueImportSectionProps {
-  /** The project context the next import uses; changing it cancels an in-flight read. */
-  projectId: string;
   /** Called only when the user presses Import, never on paste. */
   onResolveIssue: ResolveIssue;
   source: TaskSource | undefined;
@@ -35,7 +33,6 @@ interface IssueImportSectionProps {
 }
 
 export function IssueImportSection({
-  projectId,
   onResolveIssue,
   source,
   onImported,
@@ -49,21 +46,11 @@ export function IssueImportSection({
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<unknown>();
   const controller = useRef<AbortController | undefined>(undefined);
-  const projectIdRef = useRef(projectId);
-  projectIdRef.current = projectId;
-
-  useEffect(() => {
-    const pending = controller.current;
-    controller.current = undefined;
-    pending?.abort();
-    setImporting(false);
-    onImportingChange(false);
-    setError(undefined);
-    setProviderHost(undefined);
-  }, [projectId, onImportingChange]);
+  const mounted = useRef(true);
 
   useEffect(
     () => () => {
+      mounted.current = false;
       controller.current?.abort();
     },
     [],
@@ -98,7 +85,6 @@ export function IssueImportSection({
     const url = issueUrl.trim();
     if (url === "" || importing) return;
     if (providerHost !== undefined && provider === undefined) return;
-    const importProjectId = projectId;
     clear();
     const current = new AbortController();
     controller.current = current;
@@ -110,7 +96,7 @@ export function IssueImportSection({
         { url, ...(provider === undefined ? {} : { provider }) },
         current.signal,
       );
-      if (current.signal.aborted || projectIdRef.current !== importProjectId) return;
+      if (!mounted.current || current.signal.aborted) return;
       setIssueUrl(imported.url);
       setProviderHost(undefined);
       onImported(imported);

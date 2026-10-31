@@ -1,5 +1,5 @@
 import { Menu as BaseMenu } from "@base-ui/react/menu";
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps, ReactNode, Ref } from "react";
 import { cn } from "../lib/cn.ts";
 import { IconButton } from "./icon-button.tsx";
 
@@ -10,10 +10,18 @@ const itemClass =
   "flex h-7 cursor-default items-center gap-2 px-2.5 text-sm outline-none data-highlighted:bg-surface-active data-disabled:opacity-50";
 
 /** A row's secondary and destructive actions behind one 28px trigger. */
-export function OverflowMenu({ label, children }: { label: string; children: ReactNode }) {
+export function OverflowMenu({
+  label,
+  children,
+  triggerRef,
+}: {
+  label: string;
+  children: ReactNode;
+  triggerRef?: Ref<HTMLButtonElement>;
+}) {
   return (
     <BaseMenu.Root>
-      <BaseMenu.Trigger render={<IconButton label={label} icon="more" />} />
+      <BaseMenu.Trigger render={<IconButton ref={triggerRef} label={label} icon="more" />} />
       <BaseMenu.Portal container={document.body}>
         <BaseMenu.Positioner align="end" sideOffset={4} className="z-[60]">
           <BaseMenu.Popup className={popupClass}>{children}</BaseMenu.Popup>

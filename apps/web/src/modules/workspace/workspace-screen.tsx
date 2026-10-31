@@ -238,9 +238,9 @@ export function WorkspaceScreen({
           onClose={() => setDialog(undefined)}
         />
       )}
-      {dialog?.kind === "task-source" && (
+      {dialog?.kind === "task-source" && dialog.task.source !== undefined && (
         <TaskSourceDialog
-          source={dialog.task.source!}
+          source={dialog.task.source}
           taskTitle={dialog.task.title}
           onClose={() => setDialog(undefined)}
         />

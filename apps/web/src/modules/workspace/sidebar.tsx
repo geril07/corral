@@ -17,7 +17,7 @@ import type {
 } from "@corral/client/workspace-tree";
 import type { ActionId, ClientConfig } from "@corral/protocol/config";
 import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { cn } from "../../common/lib/cn.ts";
 import {
   Badge,
@@ -70,7 +70,7 @@ interface SidebarProps {
   onOpenPalette: (opener?: HTMLElement) => void;
   onOpenBoard: () => void;
   /** Opens the controlled source dialog; only tasks with a source offer it. */
-  onViewSource: (task: Task, opener?: HTMLElement) => void;
+  onViewSource?: (task: Task, opener?: HTMLElement) => void;
   onFindTask: (opener?: HTMLElement) => void;
 }
 
@@ -122,7 +122,9 @@ export function Sidebar(props: SidebarProps) {
       onRemoveSession={props.onRemoveSession}
       onRenameEntry={props.onRenameEntry}
       onViewSource={
-        node.task.source ? (opener) => props.onViewSource(node.task, opener) : undefined
+        node.task.source && props.onViewSource
+          ? (opener) => props.onViewSource?.(node.task, opener)
+          : undefined
       }
       hint={hint}
     />
@@ -428,6 +430,7 @@ function TaskRow({
     display: branchDisplay,
   } = useTruncatedText(task.branch, "middle");
   const clipped = titleClipped || branchClipped;
+  const sourceTrigger = useRef<HTMLButtonElement>(null);
   const select = (
     <Button
       variant="ghost"
@@ -479,9 +482,11 @@ function TaskRow({
         ) : (
           select
         )}
-        <OverflowMenu label={`Task actions for ${task.title}`}>
+        <OverflowMenu label={`Task actions for ${task.title}`} triggerRef={sourceTrigger}>
           {onViewSource && (
-            <MenuItem onClick={(event) => onViewSource(event.currentTarget)}>
+            <MenuItem
+              onClick={(event) => onViewSource(sourceTrigger.current ?? event.currentTarget)}
+            >
               View issue source…
             </MenuItem>
           )}

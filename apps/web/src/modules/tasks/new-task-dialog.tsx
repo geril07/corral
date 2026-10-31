@@ -44,7 +44,11 @@ export interface NewTaskDialogProps {
   /** Resolves once the task is created; a rejection is shown in the dialog. */
   onCreate: (input: CreateTaskInput) => Promise<void>;
   /** Reads an issue only when the user asks; the project is the currently selected one. */
-  onResolveIssue: (projectId: string, input: Parameters<ResolveIssue>[0], signal: AbortSignal) => Promise<TaskSource>;
+  onResolveIssue: (
+    projectId: string,
+    input: Parameters<ResolveIssue>[0],
+    signal: AbortSignal,
+  ) => Promise<TaskSource>;
   onClose: () => void;
 }
 
@@ -87,6 +91,7 @@ export function NewTaskDialog({
     setProjectId(next);
     setExisting(null);
     setBaseBranch("");
+    setImporting(false);
     if (source !== undefined) {
       setSource(undefined);
       if (!titleTouched.current) {
@@ -147,7 +152,7 @@ export function NewTaskDialog({
         </Field>
         <ProjectPicker projects={projects} value={projectId} onChange={chooseProject} />
         <IssueImportSection
-          projectId={projectId}
+          key={projectId}
           onResolveIssue={(input, signal) => onResolveIssue(projectId, input, signal)}
           source={source}
           onImported={setSource}
