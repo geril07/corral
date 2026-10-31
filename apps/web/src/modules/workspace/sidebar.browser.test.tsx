@@ -154,6 +154,14 @@ test("settled tasks stay collapsed until the group is opened", async () => {
   await renderSidebar().rendered;
   const toggle = nav().getByRole("button", { name: "Settled (1)" });
 
+  // The toggle is one full-width row like a task row, not a shrink-wrapped label.
+  const row = toggle.element().parentElement;
+  if (!row) throw new Error("the settled toggle has no row");
+  expect(toggle.element().getBoundingClientRect().width).toBeCloseTo(
+    row.getBoundingClientRect().width,
+    0,
+  );
+
   await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
   await expect.element(nav().getByRole("button", { name: /^task old/ })).not.toBeInTheDocument();
 
