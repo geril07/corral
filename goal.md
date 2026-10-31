@@ -18,13 +18,33 @@ Deliver stage A of Corral: a task starts from a prompt, its agent starts working
 - After each integration, update `docs/progress.md` (requirement ledger row: outcome, commit, gate counts, evidence path) and keep evidence under `.e2e/stage-a/<slice>/`.
 - When a brief turns out wrong or incomplete against the code, decide within `design.md`'s decisions, correct the brief in `docs/plans/stage-a.md` in the same branch, and note why in the slice's report.
 
+## Subagent workflow
+
+Roles are the harness's agent definitions; every role uses the model from `docs/roadmap.md` → **Working mode**. Launch agents, then wait for their results to arrive; do not poll.
+
+Per slice:
+
+1. **Prepare** (you): create the branch and worktree from current `main`, run `mise exec -- pnpm install` there, write the brief to `.e2e/stage-a/<slice>/brief.md`: the slice's section of the plan copied verbatim, the worktree path, the decisions it touches by name, the gates, and the report format below.
+2. **Explore** (explorer, optional): only when the brief's file references look stale or the slice touches unfamiliar code; its findings go into the brief as paths and line ranges.
+3. **Implement** (worker, cwd = the slice worktree): works only in that worktree, commits there in Conventional Commits (`AGENTS.md`), runs the slice's gates, writes `.e2e/stage-a/<slice>/report.md`: what changed and why, files, commits, gate commands with pass counts and log paths, brief corrections, open questions, anything left unverified.
+4. **Check** (you): read the report and the diff `main..<branch>`; rerun `pnpm check` yourself. A claim without a log is not done.
+5. **Review** (reviewer; mandatory for A3, A4 and A8, otherwise when the diff touches protocol, storage or process launch): give it the brief, the diff range and the decisions; findings P0–P3 into `.e2e/stage-a/<slice>/review.md`.
+6. **Fix loop**: send P0–P2 findings back to the same worker as a follow-up in its conversation; re-review only the fix. P3s are fixed or recorded in the report as accepted with a reason.
+7. **Integrate** (you, from the main checkout): rebase the branch onto `main`, resolve mechanical conflicts yourself (migration numbering, `rpc.ts` merges), rerun the slice's gates on the rebased branch, fast-forward `main`, update `docs/progress.md`.
+
+Then A-verify with an e2e-verifier that wrote none of the code, given the plan's **A-verify** section, how to build and start the app, and the boundaries below.
+
+Concurrency: at most three workers at once. `pnpm test:browser` and `pnpm test:e2e` run one at a time across all worktrees (the host was saturated before; `docs/progress.md`, test baseline): tell workers to take turns through a lock file, e.g. `flock /tmp/corral-heavy-tests.lock pnpm test:e2e`.
+
+You write no feature code yourself beyond conflict resolution and one-line fixes found during integration; anything larger goes back to a worker.
+
 ## Boundaries
 
 - Local only: there is no git remote; push nothing, publish nothing.
 - No paid model calls in tests or verification: fake agents and a fake naming CLI. Real agent CLIs only for `--help`/`--version`.
 - Never write to the user's global agent config (`~/.claude`, `~/.codex`, `~/.pi`, OpenCode's config) or to `~/.config/corral/config.toml`; tests use isolated directories.
 - Leave existing branches and worktrees from earlier runs untouched.
-- Out of scope: everything under "Not in stage A" in the plan, stage B/C work, appearance changes beyond what a slice needs.
+- Out of scope: everything under "Not in stage A" in the plan, stage B/C work, appearance changes beyond what `layout.md` asks of a slice. The roadmap's "when the queue runs out, pick the next improvement" rule does not apply to this run: it ends when stage A is done.
 
 ## When blocked
 
