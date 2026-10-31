@@ -605,16 +605,20 @@ function SettledGroup({
   const open = expanded || holdsCurrent;
   return (
     <li>
-      <Button
-        variant="ghost"
-        layout="tree"
-        aria-expanded={open}
-        disabled={holdsCurrent}
-        onClick={() => setExpanded((each) => !each)}
-      >
-        <Icon name={open ? "collapse" : "expand"} />
-        Settled ({tasks.length})
-      </Button>
+      <TreeRow>
+        <Button
+          variant="ghost"
+          layout="tree"
+          aria-expanded={open}
+          disabled={holdsCurrent}
+          onClick={() => setExpanded((each) => !each)}
+        >
+          <Icon name={open ? "collapse" : "expand"} />
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+            Settled ({tasks.length})
+          </span>
+        </Button>
+      </TreeRow>
       {open && <ul>{tasks.map(renderTask)}</ul>}
     </li>
   );
