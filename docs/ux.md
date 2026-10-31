@@ -93,10 +93,13 @@ What a user does; replaces the form-first flow below as each stage lands. New ke
   the conflict.
 - Task search shares cmdk and the watched client task set. Enter inspects a result;
   inspecting settled history does not continue it. Continue is explicit.
-- Settings is read-only: actual config path, effective bindings, problems and profile
-  descriptors. `config.toml` remains the source of truth; no write controls are added.
+- Settings is read-only: actual config path, effective bindings, problems, profile
+  descriptors, the effective task defaults and naming, and each project's overrides.
+  `config.toml` remains the source of truth; no write controls are added.
   Composer defaults (Target flow 7) are config entries too, overridable per project
-  (`design.md` decision 17); Settings shows each effective value and where it comes from.
+  (`design.md` decision 17); Settings shows each effective value and where it came from
+  (`default`, `global`, `project`), shows only the keys a project overrides, and says so
+  when `[naming]` is empty, so tasks keep their prompt-derived seed titles.
 - Agent selection offers native defaults, named profiles and supported model overrides.
   Changed/deleted profiles require explicit reselection; no silent fallback. Session
   details describe saved launch snapshots, never resolved environment values.

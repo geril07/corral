@@ -35,6 +35,30 @@ name = "Broken"
 agent = "grok"
 `;
 
+const TASK_SETTINGS = `
+[tasks]
+agent = "codex"
+workspace = "new-worktree"
+worktree-root = "/srv/corral/worktrees"
+branch-prefix = "corral/"
+slug-mode = "generated"
+
+[naming]
+agent = "claude"
+model = "claude-haiku-4-5"
+timeout-seconds = 5
+
+[projects."/repos/app"]
+branch-prefix = "app/"
+view = "terminal"
+`;
+
+/** A regular expression for `parts` in this order, with whitespace between and nothing else. */
+function sequence(...parts: string[]): RegExp {
+  const escaped = parts.map((part) => part.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(escaped.join("\\s*"));
+}
+
 const settingsHeading = () => page.getByRole("heading", { name: "Settings", level: 1 });
 const section = (name: string) => page.getByRole("region", { name });
 const settingsButton = () => page.getByRole("button", { name: "Settings" });
@@ -81,6 +105,89 @@ test("the settings surface shows effective keys, profiles with reference names, 
   await expect.element(config.getByRole("button", { name: "Copy config path" })).toBeVisible();
   await expect.element(page.getByRole("button", { name: /save/i })).not.toBeInTheDocument();
   await expect.element(page.getByRole("button", { name: /create/i })).not.toBeInTheDocument();
+});
+
+test("effective task defaults, naming and project overrides appear with the layer each came from", async () => {
+  const client = newClient();
+  await writeConfig(TASK_SETTINGS);
+  await renderSettings(client);
+  await vi.waitFor(() =>
+    expect(client.config.getSnapshot().config.tasks.agent.value).toBe("codex"),
+  );
+
+  await expect
+    .element(section("Task defaults"))
+    .toMatchTextContent(
+      sequence(
+        "Agent",
+        "codex",
+        "global",
+        "Launch profile",
+        "none",
+        "default",
+        "Model",
+        "agent default",
+        "default",
+        "Workspace",
+        "new-worktree",
+        "global",
+        "Worktree root",
+        "/srv/corral/worktrees",
+        "global",
+        "Branch prefix",
+        "corral/",
+        "global",
+        "Slug mode",
+        "generated",
+        "global",
+        "View",
+        "terminal",
+        "default",
+      ),
+    );
+
+  const naming = section("Task naming");
+  await expect
+    .element(naming)
+    .toMatchTextContent(
+      sequence(
+        "Launch profile",
+        "none",
+        "default",
+        "Agent",
+        "claude",
+        "global",
+        "Model",
+        "claude-haiku-4-5",
+        "global",
+        "Timeout",
+        "5 seconds",
+        "global",
+      ),
+    );
+  await expect.element(naming).not.toMatchTextContent("No naming profile or agent is set");
+
+  await expect
+    .element(section("Project overrides"))
+    .toMatchTextContent(
+      sequence("/repos/app", "Branch prefix", "app/", "project", "View", "terminal", "project"),
+    );
+});
+
+test("an empty naming section says seed titles stay, and no project entry reads as none", async () => {
+  const client = newClient();
+  await writeConfig('[tasks]\nagent = "pi"\n');
+  await renderSettings(client);
+  await vi.waitFor(() => expect(client.config.getSnapshot().config.tasks.agent.value).toBe("pi"));
+
+  const naming = section("Task naming");
+  await expect.element(naming).toMatchTextContent("No naming profile or agent is set");
+  await expect.element(naming).toMatchTextContent("keeps the title derived from its prompt");
+
+  await expect.element(section("Project overrides")).toMatchTextContent("No project overrides");
+  await expect
+    .element(section("Task defaults"))
+    .toMatchTextContent(sequence("Agent", "pi", "global"));
 });
 
 test("a problem at the profiles table itself is shown, not only per-profile paths", async () => {

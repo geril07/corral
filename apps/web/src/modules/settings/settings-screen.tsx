@@ -5,8 +5,12 @@ import { ConfigFileSection } from "./config-file-section.tsx";
 import { EffectiveKeys } from "./effective-keys.tsx";
 import { ProfileList } from "./profile-list.tsx";
 import { requestSettingsFocus } from "./settings-focus.ts";
+import { ProjectOverrides, TaskDefaults, TaskNaming } from "./task-defaults.tsx";
 
-/** The read-only settings route: effective keys, the config's profiles and its problems. */
+/**
+ * The read-only settings route: effective keys, task defaults and their layers, the config's
+ * profiles and its problems.
+ */
 export function SettingsScreen({ onClose }: { onClose: () => void }) {
   const { profiles } = useConfig();
   const close = useCallback(() => {
@@ -40,6 +44,24 @@ export function SettingsScreen({ onClose }: { onClose: () => void }) {
             Effective keys
           </h2>
           <EffectiveKeys />
+        </section>
+        <section aria-labelledby="settings-tasks" className="mb-5">
+          <h2 id="settings-tasks" className="mt-0 mb-1 text-sm font-semibold">
+            Task defaults
+          </h2>
+          <TaskDefaults />
+        </section>
+        <section aria-labelledby="settings-naming" className="mb-5">
+          <h2 id="settings-naming" className="mt-0 mb-1 text-sm font-semibold">
+            Task naming
+          </h2>
+          <TaskNaming />
+        </section>
+        <section aria-labelledby="settings-projects" className="mb-5">
+          <h2 id="settings-projects" className="mt-0 mb-1 text-sm font-semibold">
+            Project overrides
+          </h2>
+          <ProjectOverrides />
         </section>
         <section aria-labelledby="settings-profiles" className="mb-5">
           <h2 id="settings-profiles" className="mt-0 mb-1 text-sm font-semibold">
