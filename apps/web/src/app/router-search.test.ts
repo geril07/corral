@@ -24,3 +24,11 @@ test("a search that does not end with the document query is parsed as it is", ()
     entry: "e1",
   });
 });
+
+test("ids that look like JSON numbers stay strings", () => {
+  expect(parseRouteSearch("?project=123456789012&task=123e4567&entry=123456789012", "")).toEqual({
+    project: "123456789012",
+    task: "123e4567",
+    entry: "123456789012",
+  });
+});

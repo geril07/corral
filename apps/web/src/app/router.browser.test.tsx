@@ -40,3 +40,23 @@ test("the desktop server query stays out of the hash route search", async () => 
     window.history.replaceState({}, "", original);
   }
 });
+
+test("id-looking values stay strings in the route search", async () => {
+  const original = window.location.href;
+  try {
+    const href =
+      "/?server=ws%3A%2F%2F127.0.0.1%3A4317#/?project=123456789012&task=123e4567&entry=123456789012";
+    window.history.replaceState({}, "", href);
+    const router = createAppRouter();
+    await router.load();
+
+    expect(router.state.location.search).toEqual({
+      project: "123456789012",
+      task: "123e4567",
+      entry: "123456789012",
+    });
+    router.history.destroy();
+  } finally {
+    window.history.replaceState({}, "", original);
+  }
+});
