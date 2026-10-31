@@ -1,5 +1,5 @@
 import { expect, test } from "vite-plus/test";
-import { describeLaunchError } from "./launch-error.ts";
+import { describeLaunchError, launchErrorCode } from "./launch-error.ts";
 
 const defined = (code: string, data: unknown) => ({ code, defined: true, data });
 
@@ -27,6 +27,17 @@ test("each typed launch refusal becomes a sentence with names, never values", ()
   );
 });
 
+test("a pinned revision conflict and an invalid revision-only launch are explained", () => {
+  const changed = defined("LAUNCH_PROFILE_CHANGED", { id: "claude-gateway" });
+  expect(launchErrorCode(changed)).toBe("LAUNCH_PROFILE_CHANGED");
+  expect(describeLaunchError(changed)).toBe(
+    'The profile "claude-gateway" changed on the server. Review it and choose it again.',
+  );
+  expect(describeLaunchError(defined("LAUNCH_PROFILE_REVISION_UNSUPPORTED", undefined))).toBe(
+    "A pinned profile revision needs a selected profile.",
+  );
+});
+
 test("an unexpected spawn failure shows its redacted summary", () => {
   expect(
     describeLaunchError(
@@ -38,5 +49,6 @@ test("an unexpected spawn failure shows its redacted summary", () => {
 test("errors outside the launch contract fall through to the generic describer", () => {
   expect(describeLaunchError(defined("AGENT_NOT_FOUND", { command: "claude" }))).toBeUndefined();
   expect(describeLaunchError(new Error("boom"))).toBeUndefined();
+  expect(launchErrorCode(new Error("boom"))).toBeUndefined();
   expect(describeLaunchError({ code: "LAUNCH_FAILED", defined: false, data: {} })).toBeUndefined();
 });

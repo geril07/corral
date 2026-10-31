@@ -20,7 +20,7 @@ import {
   supportsModel,
   type AgentLaunchChoice,
 } from "./launch-choice.ts";
-import { describeLaunchError } from "./launch-error.ts";
+import { describeLaunchError, launchErrorCode } from "./launch-error.ts";
 
 interface AgentPickerProps {
   /** The valid profiles of the config file, in file order. */
@@ -129,9 +129,11 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
   }));
   const [model, setModel] = useState("");
   const [failure, setFailure] = useState<string>();
+  const [conflictedSelection, setConflictedSelection] = useState<string>();
   const [submitting, setSubmitting] = useState(false);
 
   const stale = staleSelectionReason(selection, profiles);
+  const conflict = conflictedSelection === choiceKey(selection);
   const currentProfile =
     selection.kind === "profile"
       ? profiles.find(
@@ -152,10 +154,14 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
   const profileProvider =
     selection.kind === "profile" ? (currentProfile?.provider ?? selection.provider) : undefined;
 
-  const error = stale ?? failure;
+  const conflictReason = conflict
+    ? "The profile changed on the server. Review it and choose it again."
+    : undefined;
+  const error = stale ?? conflictReason ?? failure;
 
   const submit = (target: Selection = selection, includeModel = true) => {
     if (submitting || staleSelectionReason(target, profiles) !== undefined) return;
+    if (conflictedSelection === choiceKey(target)) return;
     const targetProfile =
       target.kind === "profile"
         ? profiles.find(
@@ -176,11 +182,17 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
     setSubmitting(true);
     void onStart({
       kind: targetKind,
-      ...(targetProfile === undefined ? {} : { profileId: targetProfile.id }),
+      ...(targetProfile === undefined
+        ? {}
+        : { profileId: targetProfile.id, expectedProfileRevision: targetProfile.revision }),
       ...(pickedModel === undefined ? {} : { model: pickedModel }),
     })
       .catch((caught: unknown) => {
-        setFailure(describeLaunchError(caught) ?? describeError(caught));
+        if (launchErrorCode(caught) === "LAUNCH_PROFILE_CHANGED") {
+          setConflictedSelection(choiceKey(target));
+        } else {
+          setFailure(describeLaunchError(caught) ?? describeError(caught));
+        }
       })
       .finally(() => setSubmitting(false));
   };
@@ -196,6 +208,7 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
           const picked = choices.find((candidate) => candidate.key === key);
           if (picked === undefined) return;
           setSelection(selectionOfChoice(picked));
+          setConflictedSelection(undefined);
           setFailure(undefined);
         }}
         onKeyDown={(event) => {
@@ -280,7 +293,7 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
         <Button onClick={onClose}>Cancel</Button>
         <Button
           variant="primary"
-          disabled={submitting || stale !== undefined}
+          disabled={submitting || stale !== undefined || conflict}
           onClick={() => submit()}
         >
           Start session

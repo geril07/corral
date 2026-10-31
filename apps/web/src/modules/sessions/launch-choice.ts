@@ -11,6 +11,8 @@ export const NATIVE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/;
 export interface AgentLaunchChoice {
   kind: AgentKind;
   profileId?: string;
+  /** The revision the user saw, so the server refuses a profile that changed since. Only with a profile. */
+  expectedProfileRevision?: string;
   /** Overrides the profile's model, or the agent's native default. */
   model?: string;
 }

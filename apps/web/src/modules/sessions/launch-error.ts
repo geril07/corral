@@ -3,22 +3,36 @@ interface DefinedError {
   data: unknown;
 }
 
+function definedError(error: unknown): DefinedError | undefined {
+  if (typeof error !== "object" || error === null || Reflect.get(error, "defined") !== true) {
+    return undefined;
+  }
+  const code = Reflect.get(error, "code");
+  if (typeof code !== "string") return undefined;
+  return { code, data: Reflect.get(error, "data") };
+}
+
+/** The contract code of a typed error, for callers that branch on one refusal. */
+export function launchErrorCode(error: unknown): string | undefined {
+  return definedError(error)?.code;
+}
+
 /**
  * The typed launch errors of `sessions.start` and `restart`, in the user's words. Matched by
  * shape, like `@corral/client/rpc-errors`, so a web module needs no dependency on the RPC client.
  * `undefined` means another error: the caller falls back to `describeError`.
  */
 export function describeLaunchError(error: unknown): string | undefined {
-  if (typeof error !== "object" || error === null || Reflect.get(error, "defined") !== true) {
-    return undefined;
-  }
-  const code = Reflect.get(error, "code");
-  if (typeof code !== "string") return undefined;
-  const defined: DefinedError = { code, data: Reflect.get(error, "data") };
+  const defined = definedError(error);
+  if (defined === undefined) return undefined;
 
   switch (defined.code) {
     case "LAUNCH_PROFILE_UNKNOWN":
       return `The profile "${String(field(defined.data, "id"))}" is no longer in the config file.`;
+    case "LAUNCH_PROFILE_CHANGED":
+      return `The profile "${String(field(defined.data, "id"))}" changed on the server. Review it and choose it again.`;
+    case "LAUNCH_PROFILE_REVISION_UNSUPPORTED":
+      return "A pinned profile revision needs a selected profile.";
     case "LAUNCH_PROFILE_KIND_MISMATCH":
       return `The profile "${String(field(defined.data, "id"))}" does not start a ${String(field(defined.data, "kind"))} session.`;
     case "LAUNCH_MODEL_UNSUPPORTED":

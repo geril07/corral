@@ -168,7 +168,14 @@ export function useWorkspace({
       taskId,
       kind: choice.kind,
       size: fitSize.current,
-      ...(choice.profileId === undefined ? {} : { profileId: choice.profileId }),
+      ...(choice.profileId === undefined
+        ? {}
+        : {
+            profileId: choice.profileId,
+            ...(choice.expectedProfileRevision === undefined
+              ? {}
+              : { expectedProfileRevision: choice.expectedProfileRevision }),
+          }),
       ...(choice.model === undefined ? {} : { model: choice.model }),
     });
     setDialog(undefined);
