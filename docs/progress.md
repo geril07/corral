@@ -4,8 +4,9 @@ Scope and operating rules: [roadmap.md](roadmap.md). This records outcomes and e
 
 ## Current baseline
 
-- Integrated product `main`: `b16c5dd` (MVP5, UX/research, search, labels, capability auth, launch profiles, graphical workspace, AST UI-kit guard, read-only settings/profile picker, issue import/source context and route-ID correction).
-- Combined gates at `b16c5dd`: Node566/566 (68 files), browser179/179 (22 files), rebuilt Electron19/19; format/lint and typecheck5/5 clean under Node26.13.0. Logs: `.e2e/selection-reload/gates/final-*-b16c5dd.log`.
+- Integrated product `main`: `f755baf` (prior `b16c5dd` features plus the official shadcn/ui Base UI / Nova kit and tokens; horizontal workspace-option regression corrected).
+- Gates at `f755baf`: Node567/567 (68 files), browser181/181 (22 files), rebuilt Electron19/19 and additional built Electron smoke2/2; format/lint and typecheck5/5 clean under Node26.13.0. Logs: `.e2e/shadcn/row-*.log`; two viewport screenshots and red/green geometry proof: `.e2e/shadcn/row-followup.md`.
+- Earlier combined gates at `b16c5dd`: Node566/566, browser179/179, Electron19/19. Logs: `.e2e/selection-reload/gates/final-*-b16c5dd.log`.
 - The earlier `b090c54` browser171/172 failure is explained, not waived: TanStack's search decoder coerced numeric-looking hex IDs to numbers, failing string validation. Deterministic red/green, matching serializer and legacy quoted-ID compatibility close it at `b16c5dd`; no timeout increase or blind retry.
 - Final independent combined real-interface verification: PASS at `b16c5dd` through rebuilt web and built Electron, real server/SQLite/PTY/git/WS, fake external CLIs. Report: `.e2e/final-combined/report.md`; screenshots at 1920×1080 and 1024×640. Earlier slice-specific reports retain their original scope.
 - MVP5 web (config-driven keys, palette, config problems): independently PASS in a real browser and in Electron, then FF-integrated as `680ff2e`.
@@ -46,17 +47,17 @@ Scope and operating rules: [roadmap.md](roadmap.md). This records outcomes and e
 ## Known risks and verification limits
 
 - Baseline font-control gap (confirmed in parent review): font-size +/-/reset exists in playtest but is absent in Corral, whose terminal text is fixed at 14px. The shadcn migration neither introduced nor fixes this gap; no font controls are implemented in this scope.
-
 - Two first-character drops after Rename were recorded with the dialog detached and terminal focused. Later controlled and instrumented repeats were intact; neither a harness cause nor an app-side root cause is proven. Do not label this resolved or dismiss it as a transient. Evidence: UI worktree `.e2e/graphical-workspace/verify/forensic-a0/report.md`; source trace confirms stable terminal-id/effect dependencies and no asynchronous snapshot-to-input-listener gate. Final verification added 36 intact Rename→input checks with first-key focus/modifier evidence; this is not a fix or an explanation of the earlier drops. A recurrence needs per-key focus/modifier, client terminal-frame and PTY-input timing (the latter remains uncaptured).
 - Long profile rows truncate in the 440px picker; full values remain in accessible names and the effective summary (P3). At 1024×640, New task requires inner scrolling to reach Create/Cancel; browser and Electron usability verified. No launch/selection failure observed.
 - Verification uses real PTYs/git/SQLite/sockets with fake paid agent executables. Actual paid provider calls and native OS spawn failures are not verified.
 - Final sentinel scan saved its result and exported rows/logs, but not the raw 11 RPC frames or temporary SQLite files. See the evidence caveat in `.e2e/final-combined/report.md`.
 - Client-state inspection found that a failed watch can leave `watching` set while the control socket stays connected; per-watch error/retry is not exposed. This is a source-level risk, not a reproduced incident or a completed fix. Architecture changes remain a separate user decision (`research/client-state.md`).
 
-## UI kit migration branch
+## UI kit migration
 
-- `feature/shadcn-base-ui` migrates the existing compact composition to official shadcn/ui Base UI / Nova; generation, token mapping and vendor adaptations are in `ui-kit.md`. No domain/store/protocol changes or dependency upgrades.
-- Fresh verification: Node567/567 (one added retired-token gate test), browser181/181 (including two workspace-option geometry regressions), Electron19/19; built browser/Electron smoke at 1920×1080 and 1024×640. Local provenance, screenshots, original failures and qualifications: `.e2e/shadcn/report.md`. Main integration/review remains separate. The historical Rename input risk is not declared fixed; font +/-/reset controls were not found in this baseline and were not added.
+- FF-integrated `2b7e5dc` and `f755baf` from `feature/shadcn-base-ui`: the existing compact composition uses official shadcn/ui Base UI / Nova. Generation, token mapping and vendor adaptations are in `ui-kit.md`. No domain/store/protocol changes or dependency upgrades.
+- Parent source/artifact review found a P2: upstream RadioGroup's grid default ignored the retained domain flex-row class. Explicit domain flex display and two red/green browser geometry checks close it; upstream RadioGroup stays unchanged. Fresh screenshots confirm the row at both viewports. No remaining review findings; `.e2e/shadcn/parent-review.md` records the original finding, `.e2e/shadcn/row-followup.md` its closure.
+- Verification: Node567/567 (one added retired-token gate test), browser181/181 (including two workspace-option geometry regressions), Electron19/19; built browser/Electron smoke at 1920×1080 and 1024×640. Local provenance, screenshots, original failures and qualifications: `.e2e/shadcn/report.md` and `row-followup.md`. The historical Rename input risk is not declared fixed; font +/-/reset controls were not found in this baseline and were not added.
 
 ## Delivery state
 
@@ -66,7 +67,7 @@ Detailed reports are saved in their named agent's `result-N.md`; promote durable
 - UI guard landed as `9c54794`, including the review correction to import test helpers from `vite-plus/test`.
 - Settings landed at `82c6ed9`; source, both P3 corrections and the route-ID fix landed together at `b16c5dd` after full566/179/19 PASS. Migrations remain label4, launch5, source6; protocol5.
 - Source correction `0960df9` review: No findings. Router pair/legacy correction `b16c5dd` re-review: P2 closed, no new findings. Red/green and original failure artifacts retained.
-- `final-combined-e2e` PASS at the frozen `b16c5dd`: saved numeric/legacy IDs through reload/history, source immutability/escaping, import busy/title races, profile argv/snapshot/revision guards, read-only config, focus/input and actual old4 daemon refusal. Owned processes/state cleaned; no production edits. Main-only documentation updates do not change the verified product.
+- `final-combined-e2e` PASS at the frozen `b16c5dd`: saved numeric/legacy IDs through reload/history, source immutability/escaping, import busy/title races, profile argv/snapshot/revision guards, read-only config, focus/input and actual old4 daemon refusal. Owned processes/state cleaned; no production edits. This independent report remains scoped to the pre-shadcn product; the later UI-kit migration has its own checks and parent review above.
 - User-requested client-state alternatives research is in `docs/research/client-state.md`; this is discussion only, no stores/contexts/Query migration authorized. The statically identified watch-error recovery risk is not yet runtime-reproduced or fixed.
 - Documentation refresh records implemented settings/profiles/source behavior and release protocol5. No additional public issue reads or paid agent/provider calls.
 
