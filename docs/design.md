@@ -113,7 +113,7 @@ Findings (sourced, see research notes below): browsers keep some chords for them
 
 - Prefix mode: prefix key, then an action key. Default prefix `alt+a`.
 - Every binding is configurable in `~/.config/corral/config.toml` (`packages/protocol/src/config.ts`). The server reads and watches the file and pushes the effective config to every client; an invalid entry is dropped with a reported problem, the rest applies. User commands bound to keys (Herdr's `[[keys.command]]` popups) come after MVP.
-- Direct chords are reserved for things that must work inside a terminal without the prefix (font size, as now).
+- Direct chords are reserved for things that must work inside a terminal without the prefix. Font-size +/-/reset exists in the playtest prototype, not in Corral: Corral currently fixes terminal text at 14px. Adding those controls is a separate scope, not part of the UI-kit migration.
 - A command palette lists every action with its binding.
 - Bindings match `KeyboardEvent.code` (physical key), so they work on the Russian layout; text input uses `key`. Printable and composing keys are never intercepted, so xterm.js IME and dead-key handling keep working.
 - **Electron**: the app intercepts in `before-input-event` and has no application menu, so a lone Alt does not reveal a menu bar on Linux.

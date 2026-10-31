@@ -171,7 +171,7 @@ export function NewTaskDialog({
         <fieldset className="mb-2.5 border-0 p-0">
           <legend className="mb-1 p-0 text-muted-foreground">Workspace</legend>
           <RadioGroup
-            className="flex-row gap-3.5"
+            className="flex flex-row gap-3.5"
             value={kind}
             onValueChange={(next) => setKind(next)}
             onKeyDown={(event) => {

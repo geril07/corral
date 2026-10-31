@@ -45,6 +45,8 @@ Scope and operating rules: [roadmap.md](roadmap.md). This records outcomes and e
 
 ## Known risks and verification limits
 
+- Baseline font-control gap (confirmed in parent review): font-size +/-/reset exists in playtest but is absent in Corral, whose terminal text is fixed at 14px. The shadcn migration neither introduced nor fixes this gap; no font controls are implemented in this scope.
+
 - Two first-character drops after Rename were recorded with the dialog detached and terminal focused. Later controlled and instrumented repeats were intact; neither a harness cause nor an app-side root cause is proven. Do not label this resolved or dismiss it as a transient. Evidence: UI worktree `.e2e/graphical-workspace/verify/forensic-a0/report.md`; source trace confirms stable terminal-id/effect dependencies and no asynchronous snapshot-to-input-listener gate. Final verification added 36 intact Rename→input checks with first-key focus/modifier evidence; this is not a fix or an explanation of the earlier drops. A recurrence needs per-key focus/modifier, client terminal-frame and PTY-input timing (the latter remains uncaptured).
 - Long profile rows truncate in the 440px picker; full values remain in accessible names and the effective summary (P3). At 1024×640, New task requires inner scrolling to reach Create/Cancel; browser and Electron usability verified. No launch/selection failure observed.
 - Verification uses real PTYs/git/SQLite/sockets with fake paid agent executables. Actual paid provider calls and native OS spawn failures are not verified.
@@ -54,7 +56,7 @@ Scope and operating rules: [roadmap.md](roadmap.md). This records outcomes and e
 ## UI kit migration branch
 
 - `feature/shadcn-base-ui` migrates the existing compact composition to official shadcn/ui Base UI / Nova; generation, token mapping and vendor adaptations are in `ui-kit.md`. No domain/store/protocol changes or dependency upgrades.
-- Fresh verification: Node567/567 (one added retired-token gate test), browser179/179, Electron19/19; built browser/Electron smoke at 1920×1080 and 1024×640. Local provenance, screenshots, original failures and qualifications: `.e2e/shadcn/report.md`. Main integration/review remains separate. The historical Rename input risk is not declared fixed; font +/-/reset controls were not found in this baseline and were not added.
+- Fresh verification: Node567/567 (one added retired-token gate test), browser181/181 (including two workspace-option geometry regressions), Electron19/19; built browser/Electron smoke at 1920×1080 and 1024×640. Local provenance, screenshots, original failures and qualifications: `.e2e/shadcn/report.md`. Main integration/review remains separate. The historical Rename input risk is not declared fixed; font +/-/reset controls were not found in this baseline and were not added.
 
 ## Delivery state
 
