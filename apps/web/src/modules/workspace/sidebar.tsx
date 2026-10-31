@@ -321,7 +321,7 @@ function SessionRow({
     <Button
       variant="ghost"
       className={ROW_BUTTON}
-      aria-label={badge ? `${name} ${badge}` : name}
+      aria-label={[name, launch, badge].filter(Boolean).join(" ")}
       aria-current={current ? "true" : undefined}
       title={title}
       onClick={onSelect}
