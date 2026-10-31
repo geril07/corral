@@ -86,6 +86,9 @@ What a user does; replaces the form-first flow below as each stage lands. New ke
 
 - The palette lists every effective binding in fixed Sessions, Tasks, Projects,
   Navigation and General groups, using official CommandDialog/Command components.
+- A new default binding can take a chord an existing `config.toml` gave to another action:
+  the file's entry is dropped, that action falls back to its own default, and Settings reports
+  the conflict.
 - Task search shares cmdk and the watched client task set. Enter inspects a result;
   inspecting settled history does not continue it. Continue is explicit.
 - Settings is read-only: actual config path, effective bindings, problems and profile
