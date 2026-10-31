@@ -21,7 +21,7 @@ const claimNextProtocolVersion: (url: string, protocols: string[]) => WebSocket 
   );
 
 const claimOldProtocolVersion: (url: string, protocols: string[]) => WebSocket = (url, protocols) =>
-  new WebSocket(url.replace(`protocol=${PROTOCOL_VERSION}`, "protocol=3"), protocols);
+  new WebSocket(url.replace(`protocol=${PROTOCOL_VERSION}`, "protocol=4"), protocols);
 
 const SIZE = { cols: 80, rows: 24 };
 const { newClient } = realServerClients();
@@ -162,7 +162,7 @@ test("a server on another protocol version gets a clear message instead of the w
   await expect.element(workspace()).not.toBeInTheDocument();
 });
 
-test("an old protocol 3 server is refused before the keymap or any mutation", async () => {
+test("an old protocol 4 server is refused before the keymap or any mutation", async () => {
   await render(<App client={newClient(serverTarget(), claimOldProtocolVersion)} />);
 
   await expect.element(page.getByRole("alert")).toBeVisible();

@@ -80,7 +80,7 @@ test("an endpoint file left by a crashed server is replaced by a new server", as
   expect(readEndpoint().pid).not.toBe(crashed.pid);
 });
 
-test("an old protocol 3 endpoint is a version mismatch, left alive, never reused", async () => {
+test("an old protocol 4 endpoint is a version mismatch, left alive, never reused", async () => {
   const listener = net.createServer().listen(0, "127.0.0.1");
   listeners.push(listener);
   await new Promise((resolve) => listener.once("listening", resolve));
@@ -89,8 +89,8 @@ test("an old protocol 3 endpoint is a version mismatch, left alive, never reused
   const old = {
     pid: process.pid,
     url: `ws://127.0.0.1:${address.port}`,
-    capability: "old-protocol-3-capability",
-    protocolVersion: 3,
+    capability: "old-protocol-4-capability",
+    protocolVersion: 4,
     startedAt: 0,
   };
   writeFileSync(endpointFilePath(stateDir), JSON.stringify(old));
@@ -100,7 +100,7 @@ test("an old protocol 3 endpoint is a version mismatch, left alive, never reused
   expect(connection).toEqual({
     status: "protocol-mismatch",
     pid: process.pid,
-    serverProtocolVersion: 3,
+    serverProtocolVersion: 4,
   });
   // The old daemon is not killed, replaced or given another start attempt.
   expect(readEndpoint()).toEqual(old);

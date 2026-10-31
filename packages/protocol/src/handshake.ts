@@ -3,11 +3,11 @@ import { z } from "zod";
 /**
  * Bumped on any wire change a peer of the other version would misread. Version 2 introduced
  * the transport capability; version 3 the launch profile/model session fields; version 4 the
- * settings action and its binding. A version 3 daemon sends an exhaustive bindings record
- * without `settings`, so a client would silently run an incomplete keymap; it must be replaced,
- * not reused.
+ * settings action and its binding; version 5 the optional task source in create and watch. A
+ * version 4 server strips `source` as an unknown field, so a client must not reuse it. Version 4
+ * clients are likewise refused instead of silently losing the new settings binding.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in
