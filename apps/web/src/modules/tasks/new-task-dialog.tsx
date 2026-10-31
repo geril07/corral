@@ -12,11 +12,13 @@ import {
   ComboboxList,
   TaskDialog,
   DialogActions,
-  FieldLabel,
+  FormField,
+  FieldSet,
+  FieldLegend,
   FormError,
   Input,
   RadioGroup,
-  RadioGroupItem,
+  RadioChoice,
 } from "../../common/ui/index.ts";
 import { IssueImportSection, type ResolveIssue } from "./issue-import.tsx";
 
@@ -27,8 +29,6 @@ const KINDS: readonly { kind: WorkspaceKind; label: string }[] = [
   { kind: "existing-branch", label: "Existing branch" },
   { kind: "main-worktree", label: "Main worktree" },
 ];
-
-const RADIO_ROW = "flex cursor-pointer items-center gap-2";
 
 type BranchState =
   | { status: "loading" }
@@ -136,6 +136,7 @@ export function NewTaskDialog({
       onClose={onClose}
     >
       <form
+        className="grid gap-4"
         onSubmit={(event) => {
           event.preventDefault();
           if (!ready || !chosenWorkspace) return;
@@ -149,15 +150,14 @@ export function NewTaskDialog({
           );
         }}
       >
-        <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
-          Title
+        <FormField label="Title">
           <Input
             value={title}
             onChange={(event) => changeTitle(event.target.value)}
             autoComplete="off"
             autoFocus
           />
-        </FieldLabel>
+        </FormField>
         <ProjectPicker projects={projects} value={projectId} onChange={chooseProject} />
         <IssueImportSection
           key={projectId}
@@ -168,10 +168,9 @@ export function NewTaskDialog({
           onTitleDefault={defaultTitle}
           onImportingChange={setImporting}
         />
-        <fieldset className="mb-2.5 border-0 p-0">
-          <legend className="mb-1 p-0 text-muted-foreground">Workspace</legend>
+        <FieldSet>
+          <FieldLegend>Workspace</FieldLegend>
           <RadioGroup
-            className="flex flex-row gap-3.5"
             value={kind}
             onValueChange={(next) => setKind(next)}
             onKeyDown={(event) => {
@@ -183,17 +182,15 @@ export function NewTaskDialog({
             }}
           >
             {KINDS.map((option) => (
-              <label key={option.kind} className={RADIO_ROW}>
-                <RadioGroupItem value={option.kind} />
+              <RadioChoice key={option.kind} value={option.kind}>
                 {option.label}
-              </label>
+              </RadioChoice>
             ))}
           </RadioGroup>
-        </fieldset>
+        </FieldSet>
         {kind === "new-branch" && (
           <>
-            <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
-              Branch name (optional)
+            <FormField label="Branch name (optional)">
               <Input
                 value={branchName}
                 onChange={(event) => setBranchName(event.target.value)}
@@ -201,9 +198,8 @@ export function NewTaskDialog({
                 spellCheck={false}
                 autoComplete="off"
               />
-            </FieldLabel>
-            <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
-              Base branch (optional)
+            </FormField>
+            <FormField label="Base branch (optional)">
               <Input
                 value={baseBranch}
                 onChange={(event) => setBaseBranch(event.target.value)}
@@ -211,7 +207,7 @@ export function NewTaskDialog({
                 spellCheck={false}
                 autoComplete="off"
               />
-            </FieldLabel>
+            </FormField>
           </>
         )}
         {kind === "existing-branch" && (
@@ -253,16 +249,14 @@ function ProjectPicker({
   const label = (id: string) => projects.find((project) => project.id === id)?.name ?? id;
   return (
     <Combobox items={ids} value={value} onValueChange={onChange} itemToStringLabel={label}>
-      <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
-        Project
+      <FormField label="Project">
         <ComboboxInput
-          className="w-full"
           aria-label="Project"
           placeholder="Search projects…"
           spellCheck={false}
           autoComplete="off"
         />
-      </FieldLabel>
+      </FormField>
       <ComboboxContent>
         <ComboboxEmpty>No matching project.</ComboboxEmpty>
         <ComboboxList>
@@ -299,16 +293,14 @@ function BranchPicker({
   const names = branches.status === "loaded" ? branches.names : [];
   return (
     <Combobox items={names} value={value} onValueChange={onChange}>
-      <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
-        Branch
+      <FormField label="Branch">
         <ComboboxInput
-          className="w-full"
           aria-label="Branch"
           placeholder={branches.status === "loading" ? "Loading branches…" : "Type to filter"}
           spellCheck={false}
           autoComplete="off"
         />
-      </FieldLabel>
+      </FormField>
       <ComboboxContent>
         <ComboboxEmpty>No such branch.</ComboboxEmpty>
         <ComboboxList>

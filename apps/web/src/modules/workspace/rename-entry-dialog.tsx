@@ -7,7 +7,7 @@ import {
   Button,
   TaskDialog,
   DialogActions,
-  FieldLabel,
+  FormField,
   FormError,
   Input,
 } from "../../common/ui/index.ts";
@@ -64,11 +64,10 @@ export function RenameEntryDialog({ target, onSave, onClose }: RenameEntryDialog
 
   return (
     <TaskDialog title={`Rename ${target.name}`} description={HELP[target.type]} onClose={onClose}>
-      <form onSubmit={save}>
-        <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
-          Name
+      <form className="grid gap-4" onSubmit={save}>
+        <FormField label="Name">
           <Input ref={input} defaultValue={target.label ?? ""} />
-        </FieldLabel>
+        </FormField>
         {(problem ?? (attempt.failed ? describeError(attempt.error) : undefined)) && (
           <FormError>{problem ?? describeError(attempt.error)}</FormError>
         )}

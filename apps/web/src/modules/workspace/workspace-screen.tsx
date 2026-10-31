@@ -148,7 +148,6 @@ export function WorkspaceScreen({
               <Button
                 id={SETTINGS_BUTTON_ID}
                 variant="ghost"
-                size="sm"
                 onClick={(event) => openSettings(event.currentTarget)}
               >
                 Settings

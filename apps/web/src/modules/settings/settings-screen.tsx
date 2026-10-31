@@ -27,7 +27,7 @@ export function SettingsScreen({ onClose }: { onClose: () => void }) {
   return (
     <Screen>
       <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
-        <Button variant="ghost" size="sm" aria-label="Back to workspace" autoFocus onClick={close}>
+        <Button variant="ghost" aria-label="Back to workspace" autoFocus onClick={close}>
           <Icon name="back" />
           Back
         </Button>

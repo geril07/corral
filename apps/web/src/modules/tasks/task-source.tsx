@@ -1,5 +1,5 @@
 import type { IssueProvider, TaskSource } from "@corral/protocol/rpc";
-import { Button, TaskDialog, DialogActions } from "../../common/ui/index.ts";
+import { Button, Item, TextLink, TaskDialog, DialogActions } from "../../common/ui/index.ts";
 
 export function TaskSourceDialog({
   source,
@@ -27,21 +27,18 @@ export function TaskSourceDialog({
       {href === undefined ? (
         <p className="mb-2.5 break-words text-muted-foreground">{source.url}</p>
       ) : (
-        <a
-          className="mb-2.5 inline-block break-words text-primary underline-offset-4 hover:underline"
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+        <TextLink href={href} target="_blank" rel="noopener noreferrer">
           Open on {providerName(source.provider)}
-        </a>
+        </TextLink>
       )}
-      <pre
-        aria-label="Issue text"
-        className="mb-2.5 max-h-60 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border bg-background p-2 font-mono text-xs"
-      >
-        {source.body === "" ? "No description was included." : source.body}
-      </pre>
+      <Item variant="outline">
+        <pre
+          aria-label="Issue text"
+          className="max-h-60 w-full overflow-y-auto whitespace-pre-wrap break-words font-mono text-xs"
+        >
+          {source.body === "" ? "No description was included." : source.body}
+        </pre>
+      </Item>
       <DialogActions>
         <Button variant="outline" onClick={onClose}>
           Close

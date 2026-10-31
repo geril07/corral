@@ -1,6 +1,6 @@
 import type { ConnectionState } from "@corral/client/connection-state";
 import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
-import { cn } from "../../common/lib/cn.ts";
+import { StatusGlyph } from "../../common/ui/index.ts";
 
 export function ConnectionNotice({ state }: { state: ConnectionState }) {
   if (state.status === "protocol-mismatch") {
@@ -24,7 +24,7 @@ export function ConnectionNotice({ state }: { state: ConnectionState }) {
         role="status"
         aria-label={`connection: ${LABELS[state.status]}`}
       >
-        <span className={cn("size-1.5 rounded-full", DOT[state.status])} aria-hidden />
+        <StatusGlyph state={GLYPH_STATE[state.status]} />
         {LABELS[state.status]}
       </span>
       {state.status === "disconnected" && window.corral === undefined ? (
@@ -42,8 +42,8 @@ const LABELS: Record<Exclude<ConnectionState["status"], "protocol-mismatch">, st
   disconnected: "Disconnected. Retrying…",
 };
 
-const DOT: Record<Exclude<ConnectionState["status"], "protocol-mismatch">, string> = {
-  connecting: "bg-status-working",
-  connected: "bg-status-done",
-  disconnected: "bg-status-error",
-};
+const GLYPH_STATE = {
+  connecting: "working",
+  connected: "done",
+  disconnected: "error",
+} as const;

@@ -3,14 +3,14 @@ import type { IssueProvider, TaskSource } from "@corral/protocol/rpc";
 import { useEffect, useRef, useState } from "react";
 import {
   Button,
-  FieldLabel,
+  FormField,
   FormError,
   Input,
   RadioGroup,
-  RadioGroupItem,
+  RadioChoice,
+  FieldSet,
+  FieldLegend,
 } from "../../common/ui/index.ts";
-
-const RADIO_ROW = "flex cursor-pointer items-center gap-2";
 
 export interface ResolveIssue {
   (
@@ -121,10 +121,9 @@ export function IssueImportSection({
   const importDisabled = importing || issueUrl.trim() === "" || needsProvider;
 
   return (
-    <fieldset className="mb-2.5 border-0 p-0" aria-busy={importing}>
-      <legend className="mb-1 p-0 text-muted-foreground">Import from an issue (optional)</legend>
-      <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
-        Issue URL
+    <FieldSet aria-busy={importing}>
+      <FieldLegend>Import from an issue (optional)</FieldLegend>
+      <FormField label="Issue URL">
         <Input
           value={issueUrl}
           onChange={(event) => changeUrl(event.target.value)}
@@ -139,29 +138,20 @@ export function IssueImportSection({
           spellCheck={false}
           autoComplete="off"
         />
-      </FieldLabel>
+      </FormField>
       {providerHost !== undefined && (
-        <fieldset className="mb-2.5 border-0 p-0">
-          <legend className="mb-1 p-0 text-muted-foreground">
-            {providerHost} could be GitHub or GitLab
-          </legend>
+        <FieldSet>
+          <FieldLegend>{providerHost} could be GitHub or GitLab</FieldLegend>
           <RadioGroup
-            className="flex-row gap-3.5"
             value={provider ?? ""}
             onValueChange={(next) => {
               if (next === "github" || next === "gitlab") changeProvider(next);
             }}
           >
-            <label className={RADIO_ROW}>
-              <RadioGroupItem value="github" />
-              GitHub
-            </label>
-            <label className={RADIO_ROW}>
-              <RadioGroupItem value="gitlab" />
-              GitLab
-            </label>
+            <RadioChoice value="github">GitHub</RadioChoice>
+            <RadioChoice value="gitlab">GitLab</RadioChoice>
           </RadioGroup>
-        </fieldset>
+        </FieldSet>
       )}
       <div className="mb-2.5 flex gap-2">
         <Button variant="outline" onClick={() => void importIssue()} disabled={importDisabled}>
@@ -180,7 +170,7 @@ export function IssueImportSection({
         </p>
       )}
       {error !== undefined && !importing && <FormError>{describeError(error)}</FormError>}
-    </fieldset>
+    </FieldSet>
   );
 }
 

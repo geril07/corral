@@ -91,26 +91,31 @@ for (const [width, height] of [
   [1920, 1080],
   [1024, 640],
 ] as const) {
-  test(`workspace option labels stay in one row at ${width}×${height}`, async () => {
+  test(`stock workspace options and form actions remain reachable at ${width}×${height}`, async () => {
     const original = { width: window.innerWidth, height: window.innerHeight };
     try {
       await page.viewport(width, height);
       await renderDialog().rendered;
       await opened();
       const labels = ["New branch", "Existing branch", "Main worktree"].map((name) => {
-        const label = dialog().getByRole("radio", { name, exact: true }).element().closest("label");
-        if (!label) throw new Error(`Missing workspace option label: ${name}`);
-        return label.getBoundingClientRect();
+        return dialog().getByText(name, { exact: true }).element().getBoundingClientRect();
       });
-      const first = labels[0]!;
+      const popup = dialog().element().getBoundingClientRect();
       for (const label of labels) {
-        expect(Math.abs(label.top - first.top)).toBeLessThanOrEqual(1);
-        expect(Math.abs(label.bottom - first.bottom)).toBeLessThanOrEqual(1);
+        expect(label.left).toBeGreaterThanOrEqual(popup.left);
+        expect(label.right).toBeLessThanOrEqual(popup.right);
       }
       for (const [index, label] of labels.slice(1).entries()) {
-        expect(label.left).toBeGreaterThanOrEqual(labels[index]!.right);
+        expect(label.top).toBeGreaterThanOrEqual(labels[index]!.bottom);
       }
-      expect(labels.at(-1)!.right).toBeLessThanOrEqual(width);
+      const cancel = dialog().getByRole("button", { name: "Cancel" });
+      cancel.element().scrollIntoView({ block: "nearest" });
+      await expect.element(cancel).toBeVisible();
+      const action = cancel.element().getBoundingClientRect();
+      expect(action.top).toBeGreaterThanOrEqual(0);
+      expect(action.bottom).toBeLessThanOrEqual(height);
+      expect(popup.left).toBeGreaterThanOrEqual(0);
+      expect(popup.right).toBeLessThanOrEqual(width);
     } finally {
       await page.viewport(original.width, original.height);
     }

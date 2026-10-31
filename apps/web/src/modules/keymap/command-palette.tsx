@@ -6,7 +6,7 @@ import {
   CommandGroup,
   CommandItem,
   CommandEmpty,
-  TaskDialog,
+  TaskCommandDialog,
   Kbd,
 } from "../../common/ui/index.ts";
 import { ACTION_GROUPS, formatBinding, type ActionTable } from "./actions.ts";
@@ -27,7 +27,7 @@ export function CommandPaletteDialog({ actions, onRun, onClose }: CommandPalette
   }));
 
   return (
-    <TaskDialog title="Command palette" onClose={onClose}>
+    <TaskCommandDialog title="Command palette" onClose={onClose}>
       <Command label="Commands" loop>
         <CommandInput aria-label="Search actions" placeholder="Type an action…" autoFocus />
         <CommandList>
@@ -45,7 +45,7 @@ export function CommandPaletteDialog({ actions, onRun, onClose }: CommandPalette
                       onSelect={() => onRun(action)}
                     >
                       <span className="flex-1 truncate">{label}</span>
-                      <Kbd className="shrink-0">{formatBinding(config, action)}</Kbd>
+                      <Kbd>{formatBinding(config, action)}</Kbd>
                     </CommandItem>
                   );
                 })}
@@ -55,6 +55,6 @@ export function CommandPaletteDialog({ actions, onRun, onClose }: CommandPalette
           <CommandEmpty>No action matches.</CommandEmpty>
         </CommandList>
       </Command>
-    </TaskDialog>
+    </TaskCommandDialog>
   );
 }

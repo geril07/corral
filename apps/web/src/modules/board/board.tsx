@@ -56,7 +56,7 @@ export function Board({ rows, onJump, onClose }: BoardProps) {
   return (
     <section className="flex h-full min-h-0 flex-col p-3" aria-label="Board">
       <div className="mb-2 flex h-8 items-center gap-2 border-b border-border pb-1.5">
-        <Button variant="ghost" size="sm" aria-label="Back to workspace" onClick={onClose}>
+        <Button variant="ghost" aria-label="Back to workspace" onClick={onClose}>
           <Icon name="back" />
           Back
         </Button>

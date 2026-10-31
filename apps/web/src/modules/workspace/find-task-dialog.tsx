@@ -11,7 +11,7 @@ import {
   CommandGroup,
   CommandItem,
   CommandEmpty,
-  TaskDialog,
+  TaskCommandDialog,
   DialogActions,
   FormError,
 } from "../../common/ui/index.ts";
@@ -65,7 +65,7 @@ export function FindTaskDialog({
   };
 
   return (
-    <TaskDialog
+    <TaskCommandDialog
       title="Find task"
       description="Every task in every project, active and settled. Enter opens one; a settled task keeps its state until you continue it."
       onClose={onClose}
@@ -136,6 +136,6 @@ export function FindTaskDialog({
           </Button>
         )}
       </DialogActions>
-    </TaskDialog>
+    </TaskCommandDialog>
   );
 }

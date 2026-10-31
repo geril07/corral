@@ -29,7 +29,6 @@ export function ConfigFileSection() {
         {loaded && path !== "" && (
           <Button
             variant="outline"
-            size="sm"
             aria-label="Copy config path"
             onClick={() => void copyPath()}
           >

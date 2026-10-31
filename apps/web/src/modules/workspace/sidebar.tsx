@@ -42,10 +42,6 @@ export function terminalLabel(terminal: TerminalInfo): string {
   return `${program} · ${folder}`;
 }
 
-// Rows read from the left and cut at the right: a centred, clipped label hides the start of a title.
-const ROW_BUTTON = "h-7 min-w-0 flex-1 shrink justify-start gap-2 overflow-hidden px-2 text-left";
-const GROUP_BUTTON = `${ROW_BUTTON} font-semibold`;
-
 interface SidebarProps {
   tree: WorkspaceTree;
   selection: Selection;
@@ -203,10 +199,10 @@ export function Sidebar(props: SidebarProps) {
           {tree.loose.length > 0 && (
             <li>
               <TreeRow project current={selection.taskId === null}>
-                <span className="w-7 shrink-0" aria-hidden />
+                <span className="w-8 shrink-0" aria-hidden />
                 <Button
-                  variant="ghost"
-                  className={GROUP_BUTTON}
+                  variant={selection.taskId === null ? "secondary" : "ghost"}
+                  layout="tree"
                   aria-label="No task"
                   onClick={props.onSelectLoose}
                 >
@@ -262,8 +258,8 @@ function TerminalRow({
   } = useTruncatedText(label);
   const select = (
     <Button
-      variant="ghost"
-      className={ROW_BUTTON}
+      variant={current ? "secondary" : "ghost"}
+      layout="tree"
       aria-label={label}
       aria-current={current ? "true" : undefined}
       onClick={onSelect}
@@ -274,11 +270,7 @@ function TerminalRow({
       >
         {terminalDisplay}
       </span>
-      {terminal.exit && (
-        <Badge variant="secondary" className="ml-1 text-muted-foreground">
-          exited ({terminal.exit.exitCode})
-        </Badge>
-      )}
+      {terminal.exit && <Badge variant="secondary">exited ({terminal.exit.exitCode})</Badge>}
     </Button>
   );
   return (
@@ -328,8 +320,8 @@ function SessionRow({
   const { observe, clipped, display } = useTruncatedText(name);
   const select = (
     <Button
-      variant="ghost"
-      className={ROW_BUTTON}
+      variant={current ? "secondary" : "ghost"}
+      layout="tree"
       aria-label={[name, launch, badge].filter(Boolean).join(" ")}
       aria-current={current ? "true" : undefined}
       title={title}
@@ -348,11 +340,7 @@ function SessionRow({
         {display}
       </span>
       {launch && running && (
-        <Badge
-          variant="secondary"
-          className="min-w-0 max-w-1/3 justify-start overflow-hidden"
-          title={launchDetails}
-        >
+        <Badge variant="secondary" layout="truncate" title={launchDetails}>
           <span className="truncate">{launch}</span>
         </Badge>
       )}
@@ -439,8 +427,8 @@ function TaskRow({
   const sourceTrigger = useRef<HTMLButtonElement>(null);
   const select = (
     <Button
-      variant="ghost"
-      className={ROW_BUTTON}
+      variant={current ? "secondary" : "ghost"}
+      layout="tree"
       aria-label={task.title}
       aria-current={current ? "true" : undefined}
       title={status?.message}
@@ -474,7 +462,7 @@ function TaskRow({
             onClick={onToggle}
           />
         ) : (
-          <span className="w-7 shrink-0" aria-hidden />
+          <span className="w-8 shrink-0" aria-hidden />
         )}
         <StatusIndicator status={status} />
         {clipped ? (
@@ -560,8 +548,8 @@ function ProjectGroup({
   } = useTruncatedText(project.name);
   const select = (
     <Button
-      variant="ghost"
-      className={GROUP_BUTTON}
+      variant={project.id === selection.projectId ? "secondary" : "ghost"}
+      layout="tree"
       aria-label={project.name}
       aria-current={project.id === selection.projectId ? "true" : undefined}
       onClick={() => {
@@ -569,13 +557,7 @@ function ProjectGroup({
         onSelectProject(project);
       }}
     >
-      <span
-        ref={observeProject}
-        className={cn(
-          "min-w-0 flex-1 truncate",
-          project.id === selection.projectId && "text-primary",
-        )}
-      >
+      <span ref={observeProject} className="min-w-0 flex-1 truncate">
         {projectDisplay}
       </span>
       {!open && (
@@ -625,7 +607,7 @@ function SettledGroup({
     <li>
       <Button
         variant="ghost"
-        className="h-7 w-full justify-start px-2 text-muted-foreground disabled:cursor-default"
+        layout="tree"
         aria-expanded={open}
         disabled={holdsCurrent}
         onClick={() => setExpanded((each) => !each)}

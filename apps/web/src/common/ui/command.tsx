@@ -1,3 +1,5 @@
+"use client";
+
 import * as React from "react";
 import { Command as CommandPrimitive } from "cmdk";
 import { cn } from "../lib/cn.ts";
@@ -25,12 +27,14 @@ function CommandDialog({
   children,
   className,
   showCloseButton = false,
+  finalFocus,
   ...props
 }: Omit<React.ComponentProps<typeof Dialog>, "children"> & {
   title?: string;
   description?: string;
   className?: string;
   showCloseButton?: boolean;
+  finalFocus?: React.ComponentProps<typeof DialogContent>["finalFocus"];
   children: React.ReactNode;
 }) {
   return (
@@ -42,6 +46,7 @@ function CommandDialog({
       <DialogContent
         className={cn("top-1/3 translate-y-0 overflow-hidden rounded-xl! p-0", className)}
         showCloseButton={showCloseButton}
+        finalFocus={finalFocus}
       >
         {children}
       </DialogContent>

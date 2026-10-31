@@ -62,7 +62,7 @@ async function startAgent(kind: string, keys: string) {
   await userEvent.keyboard(keys);
   await expect.element(picker()).not.toBeInTheDocument();
   await expect.element(sessionButton(kind)).toHaveAttribute("aria-current", "true");
-  await expect.poll(screenText).toContain(`fake ${kind} ready`);
+  await expect.poll(wrappedScreen).toContain(`fake ${kind} ready`);
 }
 
 test("prefix s opens the picker; a digit starts that agent in the task and the keyboard goes to it", async () => {
@@ -167,7 +167,7 @@ test("an agent that ends by itself shows its last screen and is stopped until pr
 
   await expect.element(sessionButton("opencode", "stopped")).toBeVisible();
   await expect.element(exitedNotice()).toMatchTextContent("alt+a r");
-  expect(screenText()).toContain("fake opencode ready");
+  expect(wrappedScreen()).toContain("fake opencode ready");
 
   await prefixThen("r");
   await expect.element(sessionButton("opencode")).toBeVisible();

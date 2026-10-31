@@ -111,7 +111,7 @@ test("an explicit GitHub import fills the title, keeps a local edit, and the sou
 
   await userEvent.keyboard("{Alt>}a{/Alt}t");
   await expect.element(newTaskDialog()).not.toBeInTheDocument();
-  await taskSourceDialog().getByRole("button", { name: "Close" }).click();
+  await taskSourceDialog().getByRole("button", { name: "Close" }).first().click();
   await expect.element(taskActionsButton("My local title")).toHaveFocus();
 });
 

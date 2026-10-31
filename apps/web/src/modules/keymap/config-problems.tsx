@@ -12,7 +12,7 @@ export function ConfigProblemsNotice({ onOpen }: { onOpen: (opener?: HTMLElement
       label={`config: ${count}`}
       tooltip={`Config problems · ${count}`}
       icon="warn"
-      className="text-destructive"
+      variant="destructive"
       onClick={(event) => onOpen(event.currentTarget)}
     />
   );
@@ -51,7 +51,9 @@ function ProblemRow({ problem }: { problem: ConfigProblem }) {
   return (
     <li>
       <div className="flex items-baseline gap-2">
-        <span className={problem.severity === "error" ? "text-destructive" : "text-status-blocked"}>
+        <span
+          className={problem.severity === "error" ? "text-destructive" : "text-muted-foreground"}
+        >
           {problem.severity}
         </span>
         <span className="break-all font-mono text-xs text-muted-foreground">

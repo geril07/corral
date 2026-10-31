@@ -1,7 +1,13 @@
 import { describeError, dirtyWorktreeFiles } from "@corral/client/rpc-errors";
 import type { Task } from "@corral/protocol/rpc";
 import { useAttempt } from "../../common/hooks/use-attempt.ts";
-import { Button, DestructiveTaskDialog, DialogActions, FormError } from "../../common/ui/index.ts";
+import {
+  Button,
+  Item,
+  DestructiveTaskDialog,
+  DialogActions,
+  FormError,
+} from "../../common/ui/index.ts";
 
 interface RemoveTaskDialogProps {
   task: Task;
@@ -29,14 +35,16 @@ export function RemoveTaskDialog({ task, onRemove, onClose }: RemoveTaskDialogPr
           <p className="mb-2.5 text-destructive" role="alert">
             The worktree has uncommitted changes that removing it would lose:
           </p>
-          <ul
-            className="max-h-40 overflow-y-auto rounded-md bg-background px-2.5 py-1.5 font-mono"
-            aria-label="uncommitted files"
-          >
-            {dirtyFiles.map((file) => (
-              <li key={file}>{file}</li>
-            ))}
-          </ul>
+          <Item variant="outline">
+            <ul
+              className="max-h-40 w-full overflow-y-auto font-mono"
+              aria-label="uncommitted files"
+            >
+              {dirtyFiles.map((file) => (
+                <li key={file}>{file}</li>
+              ))}
+            </ul>
+          </Item>
         </div>
       )}
       {attempt.failed && !dirtyFiles && <FormError>{describeError(attempt.error)}</FormError>}

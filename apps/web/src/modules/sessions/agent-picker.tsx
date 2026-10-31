@@ -7,12 +7,12 @@ import {
   Button,
   TaskDialog,
   DialogActions,
-  FieldLabel,
+  FormField,
   FormError,
   Input,
   Kbd,
   RadioGroup,
-  RadioGroupItem,
+  RadioChoice,
 } from "../../common/ui/index.ts";
 import {
   modelOverride,
@@ -52,9 +52,6 @@ type Selection =
       model: string | null;
       provider: string | null;
     };
-
-const AGENT_ROW =
-  "flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent has-data-checked:bg-accent";
 
 function choiceKey(selection: Selection): string {
   return selection.kind === "native"
@@ -201,7 +198,6 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
     <TaskDialog title="New agent session" onClose={onClose}>
       {error && <FormError>{error}</FormError>}
       <RadioGroup
-        className="mb-1"
         aria-label="agent"
         value={choiceKey(selection)}
         onValueChange={(key) => {
@@ -231,11 +227,11 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
         }}
       >
         {choices.map((candidate, index) => (
-          <label key={candidate.key} className={AGENT_ROW}>
-            <RadioGroupItem
-              value={candidate.key}
-              aria-label={candidate.native ? candidate.kind : candidate.profile?.name}
-            />
+          <RadioChoice
+            key={candidate.key}
+            value={candidate.key}
+            aria-label={candidate.native ? candidate.kind : candidate.profile?.name}
+          >
             {candidate.native ? (
               <>
                 <Kbd aria-hidden>{index + 1}</Kbd>
@@ -256,12 +252,11 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
                 )}
               </>
             )}
-          </label>
+          </RadioChoice>
         ))}
       </RadioGroup>
       {offeredModel && (
-        <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
-          Model override (optional)
+        <FormField label="Model override (optional)">
           <Input
             aria-label="Model override"
             value={model}
@@ -281,7 +276,7 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
               submit();
             }}
           />
-        </FieldLabel>
+        </FormField>
       )}
       <p className="mb-2 text-muted-foreground" aria-label="launch choice">
         {selection.kind === "native"

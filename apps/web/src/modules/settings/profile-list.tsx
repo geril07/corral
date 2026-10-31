@@ -49,7 +49,6 @@ function ProfileRow({ profile }: { profile: LaunchProfile }) {
         {profile.env.length > 0 && (
           <Button
             variant="link"
-            size="sm"
             aria-expanded={envOpen}
             aria-label={`environment references for ${profile.name}`}
             onClick={() => setEnvOpen((open) => !open)}

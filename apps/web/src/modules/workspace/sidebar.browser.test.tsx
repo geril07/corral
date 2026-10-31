@@ -209,10 +209,12 @@ test("clicking reports what was picked", async () => {
 
   await nav().getByRole("button", { name: "Task actions for task a" }).click();
   await page.getByRole("menuitem", { name: "Settle task" }).click();
+  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
   expect(handlers.onToggleSettle).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
 
   await nav().getByRole("button", { name: "Task actions for task b" }).click();
   await page.getByRole("menuitem", { name: "Remove task…" }).click();
+  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
   expect(handlers.onRemoveTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
 
   await nav().getByRole("button", { name: "stop claude" }).click();
@@ -359,7 +361,7 @@ test("every icon action is named and its tooltip carries the effective binding",
   const terminalButton = toolbar.getByRole("button", { name: "New terminal" });
   terminalButton.element().focus();
 
-  await expect.element(page.getByRole("tooltip")).toMatchTextContent("New terminal · alt+a c");
+  await expect.element(page.getByRole("tooltip", { name: "New terminal · alt+a c" })).toBeVisible();
   await expect
     .element(toolbar.getByRole("button", { name: "Command palette" }))
     .toHaveAttribute("aria-label", "Command palette");

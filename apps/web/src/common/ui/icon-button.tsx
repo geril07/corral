@@ -13,12 +13,12 @@ export interface IconButtonProps extends Omit<
   icon: IconName;
 }
 
-/** A 28px icon-only action: named for assistive technology and explained in a tooltip. */
+/** A named stock icon button with an optional hint. */
 export function IconButton({
   label,
   tooltip,
   icon,
-  size = "icon-sm",
+  size = "icon",
   variant = "ghost",
   ...props
 }: IconButtonProps) {

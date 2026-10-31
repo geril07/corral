@@ -6,6 +6,10 @@ import {
   ChevronDown,
   ChevronRight,
   CircleAlert,
+  CircleX,
+  Circle,
+  CircleDot,
+  Check,
   Command,
   Ellipsis,
   FolderPlus,
@@ -41,12 +45,17 @@ const ICONS = {
   terminal: SquareTerminal,
   unsettle: ArchiveRestore,
   warn: TriangleAlert,
+  "status-blocked": TriangleAlert,
+  "status-error": CircleX,
+  "status-working": CircleDot,
+  "status-done": Check,
+  "status-idle": Circle,
 };
 
 export type IconName = keyof typeof ICONS;
 
-/** One lucide glyph at the kit's 14px-in-16px size, always hidden from the accessible name. */
+/** One lucide glyph at the kit's standard size, always hidden from the accessible name. */
 export function Icon({ name, className }: { name: IconName; className?: string }) {
   const Glyph = ICONS[name];
-  return <Glyph aria-hidden className={cn("size-3.5 shrink-0", className)} strokeWidth={1.75} />;
+  return <Glyph aria-hidden className={cn("size-4 shrink-0", className)} />;
 }

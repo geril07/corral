@@ -3,8 +3,18 @@ import {
   AlertDialogContent,
   AlertDialogTitle,
   AlertDialogDescription,
+  AlertDialogHeader,
+  AlertDialogFooter,
 } from "./alert-dialog.tsx";
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from "./dialog.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+  DialogHeader,
+  DialogFooter,
+} from "./dialog.tsx";
+import { CommandDialog } from "./command.tsx";
 import { createContext, useContext, useMemo, useRef, type ReactNode } from "react";
 
 const FINAL_FOCUS_SELECTOR = ".terminal-host .xterm-helper-textarea";
@@ -61,62 +71,77 @@ function finalFocusTarget(remembered: HTMLElement | null, fallback: HTMLElement 
 export interface DialogProps {
   title: string;
   description?: ReactNode;
-  /** Escape or a click outside asked to close. */
   onClose: () => void;
   children: ReactNode;
-  className?: string;
 }
 
-/** A dialog that is open while it is rendered; the caller stops rendering it to close it. */
-export function TaskDialog({ title, description, onClose, children, className }: DialogProps) {
+const DestructiveContext = createContext(false);
+
+export function TaskCommandDialog({
+  title,
+  description,
+  onClose,
+  children,
+}: Omit<DialogProps, "description"> & { description?: string }) {
   const focus = useDialogFocus();
-  const fallback = useRef<HTMLElement | null | undefined>(undefined);
-  if (fallback.current === undefined) fallback.current = currentOpener();
-  const finalFocus = () => finalFocusTarget(focus?.target() ?? null, fallback.current ?? null);
+  const fallback = useRef(currentOpener());
+  const finalFocus = () => finalFocusTarget(focus?.target() ?? null, fallback.current);
+  return (
+    <CommandDialog
+      open
+      title={title}
+      {...(description === undefined ? {} : { description })}
+      onOpenChange={(open) => !open && onClose()}
+      finalFocus={finalFocus}
+    >
+      {children}
+    </CommandDialog>
+  );
+}
+
+export function TaskDialog({ title, description, onClose, children }: DialogProps) {
+  const focus = useDialogFocus();
+  const fallback = useRef(currentOpener());
+  const finalFocus = () => finalFocusTarget(focus?.target() ?? null, fallback.current);
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent showCloseButton={false} className={className} finalFocus={finalFocus}>
-        <DialogTitle className="mb-1 text-base">{title}</DialogTitle>
-        {description && (
-          <DialogDescription className="mb-3 text-muted-foreground">
-            {description}
-          </DialogDescription>
-        )}
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto" finalFocus={finalFocus}>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          {description && <DialogDescription>{description}</DialogDescription>}
+        </DialogHeader>
         {children}
       </DialogContent>
     </Dialog>
   );
 }
 
-/** Like `Dialog`, for a destructive question: a click outside does not dismiss it. */
 export function DestructiveTaskDialog({ title, description, onClose, children }: DialogProps) {
   const focus = useDialogFocus();
-  const fallback = useRef<HTMLElement | null | undefined>(undefined);
-  if (fallback.current === undefined) fallback.current = currentOpener();
-  const finalFocus = () => finalFocusTarget(focus?.target() ?? null, fallback.current ?? null);
+  const fallback = useRef(currentOpener());
+  const finalFocus = () => finalFocusTarget(focus?.target() ?? null, fallback.current);
   return (
     <AlertDialog open onOpenChange={(open) => !open && onClose()}>
-      <AlertDialogContent finalFocus={finalFocus}>
-        <AlertDialogTitle className="mb-1 text-base">{title}</AlertDialogTitle>
-        {description && (
-          <AlertDialogDescription className="mb-3 text-muted-foreground">
-            {description}
-          </AlertDialogDescription>
-        )}
-        {children}
+      <AlertDialogContent
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        finalFocus={finalFocus}
+      >
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
+        </AlertDialogHeader>
+        <DestructiveContext value>{children}</DestructiveContext>
       </AlertDialogContent>
     </AlertDialog>
   );
 }
 
 export function DialogActions({ children }: { children: ReactNode }) {
-  return <div className="mt-1 flex justify-end gap-2">{children}</div>;
-}
-
-export function FormError({ children }: { children: ReactNode }) {
-  return (
-    <p className="mb-2.5 break-words text-destructive" role="alert">
-      {children}
-    </p>
+  return useContext(DestructiveContext) ? (
+    <AlertDialogFooter>{children}</AlertDialogFooter>
+  ) : (
+    <DialogFooter>{children}</DialogFooter>
   );
 }
+
+export { FieldError as FormError } from "./field.tsx";

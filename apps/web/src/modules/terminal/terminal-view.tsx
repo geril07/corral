@@ -7,6 +7,7 @@ import { Terminal } from "@xterm/xterm";
 // oxlint-disable-next-line import/no-unassigned-import -- xterm's own stylesheet
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useRef, useState } from "react";
+import { Alert, AlertDescription } from "../../common/ui/index.ts";
 import { publishScreenText } from "./screen-text-hook.ts";
 
 /** The element xterm.js takes keystrokes on, for returning focus to the terminal after a dialog. */
@@ -23,13 +24,22 @@ interface TerminalViewProps {
 }
 
 function readTerminalTheme() {
-  const styles = getComputedStyle(document.documentElement);
-  const color = (name: string, fallback: string) =>
-    styles.getPropertyValue(name).trim() || fallback;
+  const styles = getComputedStyle(document.body);
+  // xterm's parser does not accept OKLCH; canvas resolves the stock CSS colors to sRGB.
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return {};
+  const color = (value: string) => {
+    context.fillStyle = value;
+    context.fillRect(0, 0, 1, 1);
+    const [red, green, blue] = context.getImageData(0, 0, 1, 1).data;
+    return `rgb(${red}, ${green}, ${blue})`;
+  };
   return {
-    background: color("--terminal-background", "#000000"),
-    foreground: color("--terminal-foreground", "#ffffff"),
-    cursor: color("--terminal-cursor", "#ffffff"),
+    background: color(styles.backgroundColor),
+    foreground: color(styles.color),
+    cursor: color(styles.color),
   };
 }
 
@@ -111,36 +121,26 @@ function TerminalNotice({
   if (terminal.exit) {
     const { exitCode, signal } = terminal.exit;
     return (
-      <p
-        className="m-0 border-t border-border bg-card px-2.5 py-1.5 text-muted-foreground"
-        role="status"
-        aria-label="terminal exited"
-      >
-        Process exited with {signal ? `signal ${signal}` : `code ${exitCode}`}.
-        {exitHint && ` ${exitHint}`}
-      </p>
+      <Alert role="status" aria-label="terminal exited">
+        <AlertDescription>
+          Process exited with {signal ? `signal ${signal}` : `code ${exitCode}`}.
+          {exitHint && ` ${exitHint}`}
+        </AlertDescription>
+      </Alert>
     );
   }
   if (streamState.status === "disconnected") {
     return (
-      <p
-        className="m-0 border-t border-border bg-card px-2.5 py-1.5 text-muted-foreground"
-        role="status"
-        aria-label="terminal connection"
-      >
-        Connection lost. Reconnecting…
-      </p>
+      <Alert role="status" aria-label="terminal connection">
+        <AlertDescription>Connection lost. Reconnecting…</AlertDescription>
+      </Alert>
     );
   }
   if (streamState.status === "not-found") {
     return (
-      <p
-        className="m-0 border-t border-border bg-card px-2.5 py-1.5 text-muted-foreground"
-        role="status"
-        aria-label="terminal connection"
-      >
-        The server no longer has this terminal.
-      </p>
+      <Alert role="status" aria-label="terminal connection">
+        <AlertDescription>The server no longer has this terminal.</AlertDescription>
+      </Alert>
     );
   }
   return null;

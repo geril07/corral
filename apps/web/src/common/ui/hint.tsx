@@ -6,19 +6,17 @@ export function Hint({
   content,
   children,
   side = "top",
-  className,
 }: {
   content: ReactNode;
   children: ReactElement;
   side?: "top" | "right" | "bottom" | "left";
-  className?: string;
 }) {
   if (content === undefined || content === null || content === "") return children;
   return (
-    <TooltipProvider delay={300}>
-      <Tooltip>
+    <TooltipProvider>
+      <Tooltip disableHoverablePopup>
         <TooltipTrigger render={children} />
-        <TooltipContent side={side} className={className}>
+        <TooltipContent side={side} role="tooltip">
           {content}
         </TooltipContent>
       </Tooltip>

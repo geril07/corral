@@ -5,7 +5,7 @@ import {
   Button,
   TaskDialog,
   DialogActions,
-  FieldLabel,
+  FormField,
   FormError,
   Input,
 } from "../../common/ui/index.ts";
@@ -27,13 +27,13 @@ export function AddProjectDialog({ onAdd, onClose }: AddProjectDialogProps) {
       onClose={onClose}
     >
       <form
+        className="grid gap-4"
         onSubmit={(event) => {
           event.preventDefault();
           void attempt.run(() => onAdd(path.trim()));
         }}
       >
-        <FieldLabel className="mb-2.5 w-full flex-col items-start gap-1 text-muted-foreground">
-          Repository path
+        <FormField label="Repository path">
           <Input
             value={path}
             onChange={(event) => setPath(event.target.value)}
@@ -41,7 +41,7 @@ export function AddProjectDialog({ onAdd, onClose }: AddProjectDialogProps) {
             spellCheck={false}
             autoComplete="off"
           />
-        </FieldLabel>
+        </FormField>
         {attempt.failed && <FormError>{describeError(attempt.error)}</FormError>}
         <DialogActions>
           <Button variant="outline" onClick={onClose}>

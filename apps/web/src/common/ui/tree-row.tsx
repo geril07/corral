@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn.ts";
 
-/** One row of the sidebar tree; the selected row is marked by its accent bar, not by colour alone. */
+/** Structural tree row; its button owns the stock selected appearance and aria-current. */
 export function TreeRow({
   current,
   project,
@@ -15,12 +15,7 @@ export function TreeRow({
 }) {
   return (
     <div
-      className={cn(
-        "flex items-center",
-        current && "border-l-2 border-primary bg-accent",
-        !current && "border-l-2 border-transparent",
-        className,
-      )}
+      className={cn("flex items-center", className)}
       data-current={current || undefined}
       data-project={project || undefined}
     >
