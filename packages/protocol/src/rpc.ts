@@ -98,6 +98,13 @@ export const TaskSource = z.object({
 export type TaskSource = z.infer<typeof TaskSource>;
 
 /**
+ * Where a task's current title came from: the prompt-derived seed, the naming request, or the
+ * user. Kept so generation never overwrites a title the user chose.
+ */
+export const TaskTitleSource = z.enum(["seed", "generated", "user"]);
+export type TaskTitleSource = z.infer<typeof TaskTitleSource>;
+
+/**
  * A unit of work in a project. Its workspace is either its own git worktree on its own branch
  * (the default), or the project's main working tree.
  */
@@ -105,6 +112,8 @@ export const Task = z.object({
   id: TaskId,
   projectId: ProjectId,
   title: z.string().min(1),
+  /** What the title came from; a rename always makes it `user`. */
+  titleSource: TaskTitleSource,
   /** Set when the task was created from an issue URL; absent for tasks made by hand. */
   source: TaskSource.optional(),
   /** Branch checked out in the workspace; for a task in the main working tree, whatever is checked out there at creation. */
@@ -336,6 +345,14 @@ export const contract = {
     setState: oc
       .errors(taskNotFound)
       .input(z.object({ id: TaskId, state: Task.shape.state }))
+      .output(Task),
+    /**
+     * Names the task for the user and records `titleSource = user`. Nothing else changes: the
+     * branch keeps its name, the worktree its path, and the task its sessions.
+     */
+    rename: oc
+      .errors(taskNotFound)
+      .input(z.object({ id: TaskId, title: z.string().trim().min(1) }))
       .output(Task),
     /**
      * Removes the task's sessions (stopping them), removes a worktree the task owns and forgets the task. The

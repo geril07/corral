@@ -5,9 +5,12 @@ import { z } from "zod";
  * the transport capability; version 3 the launch profile/model session fields; version 4 the
  * settings action and its binding; version 5 the optional task source in create and watch. A
  * version 4 server strips `source` as an unknown field, so a client must not reuse it. Version 4
- * clients are likewise refused instead of silently losing the new settings binding.
+ * clients are likewise refused instead of silently losing the new settings binding. Version 6
+ * adds the task title source and `tasks.rename` plus the rename-task and session-number actions:
+ * a version 5 server's tasks have no title source and its config lacks those bindings, so a
+ * version 5 client and a version 6 client each misread the other's replies.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in

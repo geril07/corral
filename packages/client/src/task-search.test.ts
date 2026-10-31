@@ -22,6 +22,7 @@ const task = (
   id,
   projectId: options.projectId ?? "p1",
   title,
+  titleSource: "user",
   branch: options.branch ?? `branch-${id}`,
   workspacePath: `/work/${id}`,
   ownsWorktree: true,

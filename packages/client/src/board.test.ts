@@ -18,6 +18,7 @@ const task = (
   id,
   projectId,
   title: id,
+  titleSource: "user",
   branch: id,
   workspacePath: `/work/${id}`,
   ownsWorktree: true,

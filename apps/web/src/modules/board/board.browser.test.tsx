@@ -17,6 +17,7 @@ const row = (id: string, status?: AgentStatus, sessionId = `s-${id}`): BoardRow 
     id,
     projectId: "p1",
     title: `task ${id}`,
+    titleSource: "user",
     branch: id,
     workspacePath: `/work/${id}`,
     ownsWorktree: true,

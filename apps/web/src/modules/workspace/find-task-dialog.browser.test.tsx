@@ -43,6 +43,7 @@ const settledTask = (id: string, title: string, createdAt: number): Task => ({
   id,
   projectId: repoProject.id,
   title,
+  titleSource: "user",
   branch: `branch-${id}`,
   workspacePath: `/work/${id}`,
   ownsWorktree: true,

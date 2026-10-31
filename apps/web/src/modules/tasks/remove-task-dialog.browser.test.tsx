@@ -9,6 +9,7 @@ const task: Task = {
   id: "t1",
   projectId: "p1",
   title: "Fix login",
+  titleSource: "user",
   branch: "fix-login",
   workspacePath: "/data/worktrees/repo/fix-login",
   ownsWorktree: true,

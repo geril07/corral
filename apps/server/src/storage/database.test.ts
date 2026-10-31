@@ -3,7 +3,9 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vite-plus/test";
+import type { Task } from "@corral/protocol/rpc";
 import { SessionStore } from "../sessions/session-store.ts";
+import { TaskStore } from "../tasks/task-store.ts";
 import { MIGRATIONS, migrate, openDatabase, schemaVersion } from "./database.ts";
 
 let dataDir: string;
@@ -142,4 +144,56 @@ test("migrating a labelled database adds the task source without touching labels
     { id: "s", label: "my shell" },
   ]);
   expect(db.prepare("SELECT id, source FROM tasks").all()).toEqual([{ id: "t", source: null }]);
+});
+
+test("migrating a database from before title sources makes every existing title the user's", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
+  db.exec(`
+    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
+    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
+      VALUES ('t', 'p', 'typed by hand', 'b', '/n', 0, 'active', 1);
+  `);
+
+  migrate(db, MIGRATIONS);
+
+  expect(db.prepare("SELECT title, title_source FROM tasks").all()).toEqual([
+    { title: "typed by hand", title_source: "user" },
+  ]);
+  db.close();
+});
+
+const storedTask = (id: string, titleSource: Task["titleSource"]): Task => ({
+  id,
+  projectId: "p",
+  title: `${titleSource} title`,
+  titleSource,
+  branch: `branch-${id}`,
+  workspacePath: `/work/${id}`,
+  ownsWorktree: false,
+  state: "active",
+  createdAt: 1,
+});
+
+test("the task store keeps where a title came from, and a rename stores the user's title", () => {
+  const db = openDatabase(dataDir);
+  db.exec(
+    "INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main')",
+  );
+  const store = new TaskStore(db);
+  store.insert(storedTask("a", "seed"));
+  store.insert(storedTask("b", "user"));
+
+  expect(store.get("a")).toEqual(storedTask("a", "seed"));
+  expect(store.list().map((task) => task.titleSource)).toEqual(["seed", "user"]);
+
+  store.rename("a", "My own name");
+
+  expect(store.get("a")).toEqual({
+    ...storedTask("a", "user"),
+    title: "My own name",
+  });
+  expect(store.get("b")).toEqual(storedTask("b", "user"));
+  db.close();
 });

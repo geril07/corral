@@ -21,6 +21,7 @@ const task = (id: string, state: Task["state"] = "active"): Task => ({
   id,
   projectId: "p1",
   title: `task ${id}`,
+  titleSource: "user",
   branch: `branch-${id}`,
   workspacePath: `/work/${id}`,
   ownsWorktree: true,

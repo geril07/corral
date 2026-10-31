@@ -37,6 +37,10 @@ export const MIGRATIONS: readonly string[] = [
   // Stored once at start; a later config edit never rewrites it.
   `ALTER TABLE sessions ADD COLUMN launch_spec TEXT;`,
   `ALTER TABLE tasks ADD COLUMN source TEXT;`,
+  // Where the title came from; every task before this came from a title the user typed. The
+  // default is what backfills those rows (SQLite needs one for a NOT NULL column); inserts name
+  // the column anyway.
+  `ALTER TABLE tasks ADD COLUMN title_source TEXT NOT NULL DEFAULT 'user';`,
 ];
 
 export const DATABASE_FILE = "corral.db";

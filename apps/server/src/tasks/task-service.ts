@@ -82,6 +82,13 @@ export class TaskService implements ProjectTasks {
     return this.#mutations.run(() => this.#setState(id, state));
   }
 
+  rename(id: string, title: string): Task {
+    this.get(id);
+    this.#store.rename(id, title);
+    this.#changes.notify();
+    return this.get(id);
+  }
+
   remove(id: string, force: boolean): Promise<void> {
     return this.#mutations.run(() => this.#remove(id, force));
   }
@@ -107,6 +114,9 @@ export class TaskService implements ProjectTasks {
       id: newId(),
       projectId: project.id,
       title,
+      // A task made in the form is named by the user; A3 and A4 write the seed and generated
+      // titles instead.
+      titleSource: "user",
       ...(input.source === undefined ? {} : { source: input.source }),
       branch: "",
       workspacePath: project.path,

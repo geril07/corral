@@ -7,8 +7,8 @@ const Row = Task.extend({
   source: z.string().nullable().transform(parseSource),
 });
 
-const COLUMNS = `id, project_id AS projectId, title, source, branch, workspace_path AS workspacePath,
-  owns_worktree AS ownsWorktree, state, created_at AS createdAt`;
+const COLUMNS = `id, project_id AS projectId, title, title_source AS titleSource, source, branch,
+  workspace_path AS workspacePath, owns_worktree AS ownsWorktree, state, created_at AS createdAt`;
 
 export class TaskStore {
   readonly #db: DatabaseSync;
@@ -39,13 +39,14 @@ export class TaskStore {
   insert(task: Task): void {
     this.#db
       .prepare(
-        `INSERT INTO tasks (id, project_id, title, source, branch, workspace_path, owns_worktree, state, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, title, title_source, source, branch, workspace_path, owns_worktree, state, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         task.id,
         task.projectId,
         task.title,
+        task.titleSource,
         task.source === undefined ? null : JSON.stringify(task.source),
         task.branch,
         task.workspacePath,
@@ -57,6 +58,13 @@ export class TaskStore {
 
   setState(id: string, state: Task["state"]): void {
     this.#db.prepare("UPDATE tasks SET state = ? WHERE id = ?").run(state, id);
+  }
+
+  /** Stores a title the user chose, which is now where the title came from. */
+  rename(id: string, title: string): void {
+    this.#db
+      .prepare("UPDATE tasks SET title = ?, title_source = 'user' WHERE id = ?")
+      .run(title, id);
   }
 
   delete(id: string): void {

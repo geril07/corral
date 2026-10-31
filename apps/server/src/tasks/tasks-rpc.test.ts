@@ -37,6 +37,7 @@ test("a new-branch task gets a branch named from its title, in a worktree under 
     id: expect.any(String),
     projectId: project.id,
     title: "Fix the login bug",
+    titleSource: "user",
     branch: "fix-the-login-bug",
     workspacePath: expectedPath,
     ownsWorktree: true,
@@ -288,6 +289,48 @@ test("setState settles and reactivates a task; an unknown task fails with TASK_N
     code: "TASK_NOT_FOUND",
     data: { id: "nope" },
   });
+});
+
+test("renaming a task changes its trimmed title and its source, and leaves branch, worktree and sessions alone", async () => {
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Fix the login bug",
+    workspace: { type: "new-branch" },
+  });
+
+  const renamed = await api.tasks.rename({ id: task.id, title: "  Login fails on Safari  " });
+
+  expect(renamed).toEqual({
+    ...task,
+    title: "Login fails on Safari",
+    titleSource: "user",
+  });
+  expect(renamed.workspacePath).toBe(task.workspacePath);
+  expect(existsSync(renamed.workspacePath)).toBe(true);
+  expect(runGit(renamed.workspacePath, "branch", "--show-current").trim()).toBe(task.branch);
+  expect((await api.tasks.watch().then((updates) => updates.next())).value).toEqual([renamed]);
+});
+
+test("renaming an unknown task fails with TASK_NOT_FOUND and a blank title is refused", async () => {
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Keep me",
+    workspace: { type: "main-worktree" },
+  });
+
+  await expect(api.tasks.rename({ id: "nope", title: "x" })).rejects.toMatchObject({
+    code: "TASK_NOT_FOUND",
+    data: { id: "nope" },
+  });
+  await expect(api.tasks.rename({ id: task.id, title: "   " })).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
+
+  expect((await api.tasks.watch().then((updates) => updates.next())).value).toEqual([task]);
 });
 
 test("removing a clean task deletes its worktree and keeps the branch with its commits", async () => {

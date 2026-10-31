@@ -205,6 +205,16 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
           },
         ),
       ),
+      rename: os.tasks.rename.handler(({ input, errors }) =>
+        translating(
+          () => tasks.rename(input.id, input.title),
+          (error) => {
+            if (error instanceof TaskNotFoundError)
+              return errors.TASK_NOT_FOUND({ data: { id: error.id } });
+            return undefined;
+          },
+        ),
+      ),
       remove: os.tasks.remove.handler(({ input, errors }) =>
         translating(
           () => tasks.remove(input.id, input.force ?? false),
