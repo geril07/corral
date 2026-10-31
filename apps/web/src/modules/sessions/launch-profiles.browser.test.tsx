@@ -252,6 +252,61 @@ test("a profile revision change requires explicit reselect and launches the new 
     .toEqual([["--model", "claude-haiku-4", "--session-id", session.agentSessionId]]);
 });
 
+test("a revision pinned before a config edit is refused by the real RPC with no session", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Revision race");
+  await applyConfig(client, PROFILES, 2);
+  const task = client.tasks.getSnapshot().tasks[0]!;
+  const revisionA = client.config
+    .getSnapshot()
+    .profiles.find((profile) => profile.id === "claude-gateway")?.revision;
+  const before = client.sessions.getSnapshot().sessions.length;
+
+  await applyConfig(
+    client,
+    '[profiles.claude-gateway]\nname = "Claude gateway"\nagent = "claude"\nmodel = "claude-haiku-4"\n',
+    1,
+  );
+  const revisionB = client.config
+    .getSnapshot()
+    .profiles.find((profile) => profile.id === "claude-gateway")?.revision;
+  expect(revisionB).not.toBe(revisionA);
+
+  const error: unknown = await client.connection.api.sessions
+    .start({
+      taskId: task.id,
+      kind: "claude",
+      size: { cols: 80, rows: 24 },
+      profileId: "claude-gateway",
+      expectedProfileRevision: revisionA!,
+    })
+    .catch((caught: unknown) => caught);
+  expect(error).toMatchObject({ code: "LAUNCH_PROFILE_CHANGED", data: { id: "claude-gateway" } });
+  expect(describeLaunchError(error)).toContain("changed on the server");
+  expect(
+    (await agentLaunches()).filter((launch) => launch.env.CORRAL_TASK_ID === task.id),
+  ).toHaveLength(0);
+  expect(client.sessions.getSnapshot().sessions).toHaveLength(before);
+  expect(
+    client.sessions.getSnapshot().sessions.filter((session) => session.kind === "claude"),
+  ).toHaveLength(0);
+
+  const session = await client.connection.api.sessions.start({
+    taskId: task.id,
+    kind: "claude",
+    size: { cols: 80, rows: 24 },
+    profileId: "claude-gateway",
+    expectedProfileRevision: revisionB,
+  });
+  expect(session.launch).toMatchObject({
+    profile: { id: "claude-gateway" },
+    model: "claude-haiku-4",
+  });
+  await expect
+    .poll(() => argvOf(session.id))
+    .toEqual([["--model", "claude-haiku-4", "--session-id", session.agentSessionId]]);
+});
+
 test("a client that connects after a failed restart sees the safe launchError on the stopped session", async () => {
   await withServerEnv("PROFILE_MISSING_TOKEN", "not-a-real-token");
   const first = newClient();

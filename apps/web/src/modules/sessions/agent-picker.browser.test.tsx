@@ -81,6 +81,7 @@ test("arrows move onto profiles; Enter starts the highlighted profile", async ()
   expect(onStart).toHaveBeenCalledExactlyOnceWith({
     kind: "claude",
     profileId: "claude-gateway",
+    expectedProfileRevision: "0123456789ab",
   });
 });
 
@@ -96,6 +97,7 @@ test("a typed model overrides the profile's model in the summary and in the payl
   expect(onStart).toHaveBeenCalledExactlyOnceWith({
     kind: "claude",
     profileId: "claude-gateway",
+    expectedProfileRevision: "0123456789ab",
     model: "claude-opus-4-1",
   });
 });
@@ -218,6 +220,67 @@ test("a profile whose revision changed needs an explicit reselect before it can 
   expect(onStart).toHaveBeenCalledExactlyOnceWith({
     kind: "claude",
     profileId: "claude-gateway",
+    expectedProfileRevision: "ffffffffffff",
+  });
+});
+
+test("a server-side revision conflict keeps the draft and needs an explicit reselect", async () => {
+  let calls = 0;
+  const onStart = vi.fn<(choice: AgentLaunchChoice) => Promise<void>>(async () => {
+    calls += 1;
+    if (calls === 1) {
+      throw {
+        code: "LAUNCH_PROFILE_CHANGED",
+        defined: true,
+        data: { id: "claude-gateway" },
+      };
+    }
+  });
+  const onClose = vi.fn<() => void>();
+  const screen = await render(
+    <AgentPicker profiles={profiles} onStart={onStart} onClose={onClose} />,
+  );
+  await expect.element(dialog().getByRole("radio", { name: "claude" })).toHaveFocus();
+
+  await dialog().getByRole("radio", { name: "Claude gateway" }).click();
+  await modelInput().fill("claude-opus-4-1");
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(dialog().getByRole("alert")).toMatchTextContent("changed on the server");
+  await expect.element(startButton()).toBeDisabled();
+  await expect.element(modelInput()).toHaveValue("claude-opus-4-1");
+  expect(onStart).toHaveBeenCalledTimes(1);
+  expect(onStart).toHaveBeenNthCalledWith(1, {
+    kind: "claude",
+    profileId: "claude-gateway",
+    expectedProfileRevision: "0123456789ab",
+    model: "claude-opus-4-1",
+  });
+
+  // Retrying the same pinned revision is blocked; nothing is auto-refreshed or sent native.
+  await userEvent.keyboard("{Enter}");
+  expect(onStart).toHaveBeenCalledTimes(1);
+
+  const changed = profile({ revision: "ffffffffffff", model: "claude-haiku-4" });
+  await screen.rerender(
+    <AgentPicker profiles={[changed, codex, opencode]} onStart={onStart} onClose={onClose} />,
+  );
+  await expect
+    .element(dialog().getByRole("alert"))
+    .toMatchTextContent("changed in the config file");
+  await expect.element(startButton()).toBeDisabled();
+
+  await dialog().getByRole("radio", { name: "Claude gateway" }).click();
+  await expect.element(dialog().getByRole("alert")).not.toBeInTheDocument();
+  await expect.element(startButton()).toBeEnabled();
+  await startButton().click();
+
+  expect(onStart).toHaveBeenCalledTimes(2);
+  expect(onStart).toHaveBeenLastCalledWith({
+    kind: "claude",
+    profileId: "claude-gateway",
+    expectedProfileRevision: "ffffffffffff",
+    model: "claude-opus-4-1",
   });
 });
 
