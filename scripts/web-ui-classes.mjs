@@ -11,6 +11,8 @@ const ARBITRARY = /\[[^\]]+\]/;
 const OBSOLETE_TOKEN =
   /(?:^|[\s:])(?:bg-surface(?:-raised|-active)?|text-text(?:-muted)?|(?:bg|text|border)-danger(?:-strong|-foreground)?|(?:bg|text|border)-accent-strong|(?:bg|text)-status-[a-z]+|outline-focus-ring|rounded-(?:control|panel))(?=\/|\s|$)/;
 const RAW_COLOUR = /\b(?:rgb|hsl)a?\(|#[0-9a-fA-F]{3,8}\b/;
+/** Props that change how a control looks; behavior and structure travel as their own props. */
+const VISUAL_PROPS = new Set(["className", "style", "color", "width", "height", "render"]);
 
 /** Maps a source offset to a 1-based line, counting every JavaScript line terminator. */
 function lineAt(source) {
@@ -127,11 +129,47 @@ function controlOverrides(program, diagnostics, line) {
       }
     }
   }
+  /** A control reached through its imported name or a namespace member. */
+  function controlReference(expression) {
+    if (expression?.type === "Identifier") return controls.has(expression.name);
+    return (
+      expression?.type === "MemberExpression" &&
+      expression.object.type === "Identifier" &&
+      namespaces.has(expression.object.name) &&
+      expression.property.type === "Identifier" &&
+      !structural.has(expression.property.name)
+    );
+  }
+
+  function propDiagnostic(start, spread, prop) {
+    if (!spread && !VISUAL_PROPS.has(prop)) return;
+    diagnostics.push({
+      line: line(start),
+      message: spread
+        ? "opaque prop spread on UI kit control: pass behavior props explicitly; appearance belongs in kit variants"
+        : `visual override on UI kit control: ${prop}; use a kit variant`,
+    });
+  }
+
   function walk(node) {
     if (!node || typeof node !== "object") return;
     if (node.type === "VariableDeclarator") {
       const init = node.init;
       if (init?.type === "Identifier" && controls.has(init.name)) controls.add(node.id.name);
+      if (
+        init?.type === "Identifier" &&
+        namespaces.has(init.name) &&
+        node.id.type === "ObjectPattern"
+      ) {
+        for (const property of node.id.properties) {
+          if (property.type !== "Property" || property.computed) continue;
+          const imported =
+            property.key.type === "Identifier" ? property.key.name : property.key.value;
+          if (typeof imported !== "string" || !/^[A-Z]/.test(imported)) continue;
+          if (!structural.has(imported) && property.value.type === "Identifier")
+            controls.add(property.value.name);
+        }
+      }
       if (
         init?.type === "MemberExpression" &&
         namespaces.has(init.object.name) &&
@@ -149,19 +187,35 @@ function controlOverrides(program, diagnostics, line) {
             !structural.has(name.property.name);
       if (control) {
         for (const attribute of node.attributes) {
-          const spread = attribute.type === "JSXSpreadAttribute";
-          const prop = attribute.name?.name;
-          if (
-            spread ||
-            ["className", "style", "color", "width", "height", "render"].includes(prop)
-          ) {
-            diagnostics.push({
-              line: line(attribute.start),
-              message: spread
-                ? "opaque prop spread on UI kit control: pass behavior props explicitly; appearance belongs in kit variants"
-                : `visual override on UI kit control: ${prop}; use a kit variant`,
-            });
-          }
+          propDiagnostic(
+            attribute.start,
+            attribute.type === "JSXSpreadAttribute",
+            attribute.name?.name,
+          );
+        }
+      }
+    }
+    // `createElement(Control, { className })` and `cloneElement(element, { className })` skin a
+    // control without JSX. cloneElement's element cannot be resolved statically, so a visual prop
+    // object on it counts as a control override.
+    if (node.type === "CallExpression") {
+      const callee = node.callee;
+      const called =
+        callee.type === "Identifier"
+          ? callee.name
+          : callee.type === "MemberExpression" && callee.property.type === "Identifier"
+            ? callee.property.name
+            : undefined;
+      const props = node.arguments[1];
+      const targets = node.arguments[0];
+      if (
+        props?.type === "ObjectExpression" &&
+        (called === "cloneElement" || (called === "createElement" && controlReference(targets)))
+      ) {
+        for (const property of props.properties) {
+          if (property.type === "SpreadElement") propDiagnostic(property.start, true);
+          else if (property.type === "Property" && !property.computed)
+            propDiagnostic(property.start, false, property.key.name ?? property.key.value);
         }
       }
     }

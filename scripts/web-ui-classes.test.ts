@@ -157,10 +157,35 @@ describe("kit control appearance", () => {
       'import * as UI from "@/common/ui"; const view = <UI.RadioGroup className="flex" />;',
       'import { Button } from "../common/ui/index.ts"; const Action = Button; const view = <Action className="w-full" />;',
       'import * as UI from "@/common/ui"; const Action = UI.Button; const view = <Action className="w-full" />;',
+      'import * as UI from "@/common/ui"; const { Button } = UI; const view = <Button className="h-7 px-1" />;',
+      'import * as UI from "@/common/ui"; const { Button: Action } = UI; const view = <Action className="h-7" />;',
     ]) {
       expect(messages(source)).toEqual([
         "1:visual override on UI kit control: className; use a kit variant",
       ]);
+    }
+  });
+
+  it("rejects controls composed without JSX", () => {
+    for (const source of [
+      'import { createElement } from "react"; import { Button } from "../common/ui/index.ts"; const view = createElement(Button, { className: "h-7 px-1" });',
+      'import * as React from "react"; import * as UI from "../common/ui/index.ts"; const view = React.createElement(UI.Button, { style: { width: 8 } });',
+      'import { cloneElement } from "react"; const view = cloneElement(child, { className: classes });',
+      'import { Button } from "../common/ui/index.ts"; const Action = Button; const view = createElement(Action, { ...props });',
+    ]) {
+      expect(messages(source)).toHaveLength(1);
+      expect(messages(source)[0]).toMatch(
+        /^1:(?:visual override|opaque prop spread) on UI kit control/,
+      );
+    }
+
+    // A DOM element factory and a control spread through a non-JSX call stay untouched.
+    for (const source of [
+      'const canvas = document.createElement("canvas");',
+      'import { createElement } from "react"; const view = createElement("div", { className: "p-4" });',
+      'import { fork } from "./fork.ts"; const view = fork(Button, { className: classes });',
+    ]) {
+      expect(messages(source)).toEqual([]);
     }
   });
 
