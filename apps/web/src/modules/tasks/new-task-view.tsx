@@ -222,7 +222,10 @@ export function NewTaskView({
               return;
             }
             // Stop the implicit submission an Enter in the title field would otherwise trigger.
-            if (guard.isComposition(event)) event.preventDefault();
+            if (guard.isComposition(event)) {
+              guard.consume();
+              event.preventDefault();
+            }
           }}
         >
           <Textarea
@@ -239,8 +242,13 @@ export function NewTaskView({
             }
             onKeyDown={(event) => {
               if (event.key !== "Enter") return;
-              // A composition's Enter is handled by the form; only a plain Enter submits here.
-              if (guard.isComposition(event) || event.shiftKey) return;
+              // A confirming composition Enter is swallowed here; the form also blocks its default.
+              if (guard.isComposition(event)) {
+                guard.consume();
+                event.preventDefault();
+                return;
+              }
+              if (event.shiftKey) return;
               event.preventDefault();
               submit();
             }}

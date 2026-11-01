@@ -1,27 +1,10 @@
 import { PatchDiff } from "@pierre/diffs/react";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "./button.tsx";
+import { diffContentLines } from "./diff-lines.ts";
 
 /** The changed-file preview folds after this many diff line boxes (`layout.md`, **Chat**). */
 const FOLD_LINES = 20;
-/**
- * Counts the lines a unified diff will render inside its hunks. File headers, `@@` headers and
- * the trailing newline are not line boxes; a blank content line is a single space in a unified
- * diff and still counts.
- */
-function diffContentLines(text: string): number {
-  const lines = text.split("\n");
-  const firstHunk = lines.findIndex((line) => line.startsWith("@@"));
-  if (firstHunk === -1) return 0;
-  let count = 0;
-  for (let index = firstHunk + 1; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (line === undefined || line === "" || line.startsWith("@@")) continue;
-    count += 1;
-  }
-  return count;
-}
-
 /** The app switches no theme, but the diff reads the same `dark` class the tokens do. */
 function useDarkTheme(): boolean {
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
@@ -53,7 +36,8 @@ export function DiffView({ text, path }: { text: string; path: string | null }) 
       <div className="min-w-0 overflow-hidden rounded-md border border-border">
         <div
           data-testid="diff-body"
-          className={folded ? "max-h-[25rem] min-w-0 overflow-hidden" : "min-w-0 overflow-hidden"}
+          // 20 line boxes plus the 8 px top padding of the code surface: 20 × 20 + 8 = 408 px.
+          className={folded ? "max-h-[25.5rem] min-w-0 overflow-hidden" : "min-w-0 overflow-hidden"}
         >
           <PatchDiff
             patch={text}

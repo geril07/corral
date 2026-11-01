@@ -36,15 +36,20 @@ export function ChatRequestItem({
   const guard = useEnterGuard();
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const fieldRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const dismissRef = useRef<HTMLButtonElement | null>(null);
   const pending = item.status === "pending";
+  const choiceCount =
+    item.request === "confirm" ? 2 : item.request === "select" ? item.options.length : 0;
 
   // The request owns the keyboard when it arrives (`layout.md`, **Chat**); a select/confirm starts
-  // on its first choice and moves with the arrow keys.
+  // on its first choice and moves with the arrow keys. A choice-less request has no radio to focus,
+  // so its explicit Dismiss button takes the keyboard instead of leaving the request unreachable.
   useEffect(() => {
     if (!pending) return;
     if (item.request === "input" || item.request === "editor") fieldRef.current?.focus();
+    else if (choiceCount === 0) dismissRef.current?.focus();
     else optionRefs.current[active]?.focus();
-  }, [pending, item.request, active]);
+  }, [pending, item.request, active, choiceCount]);
 
   const answer = async (value: ChatAnswer) => {
     if (!pending || busy) return;
@@ -88,6 +93,8 @@ export function ChatRequestItem({
           return;
         }
         if (item.request !== "select" && item.request !== "confirm") return;
+        // With no choices the explicit Dismiss button owns Enter/Space; Escape still dismisses.
+        if (choiceCount === 0) return;
         if (event.key === "ArrowDown" || event.key === "ArrowRight") {
           event.preventDefault();
           step(1, choices.length);
@@ -120,6 +127,21 @@ export function ChatRequestItem({
         <p className="m-0 text-xs text-muted-foreground">
           {item.status === "expired" ? "Expired" : `Answered: ${answerLabel(item)}`}
         </p>
+      ) : (item.request === "select" || item.request === "confirm") && choiceCount === 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="m-0 text-xs text-muted-foreground">No options.</p>
+          <Button
+            ref={(node) => {
+              dismissRef.current = node;
+            }}
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => void answer(null)}
+          >
+            Dismiss
+          </Button>
+        </div>
       ) : item.request === "select" || item.request === "confirm" ? (
         <div role="radiogroup" aria-label={item.title} className="flex flex-col items-start gap-1">
           {choices.map((choice, index) => (
@@ -147,7 +169,6 @@ export function ChatRequestItem({
               )}
             </Button>
           ))}
-          {choices.length === 0 && <p className="m-0 text-xs text-muted-foreground">No options.</p>}
         </div>
       ) : item.request === "input" ? (
         <div className="flex flex-col gap-2">
@@ -168,6 +189,7 @@ export function ChatRequestItem({
                 return;
               }
               if (guard.isComposition(event)) {
+                guard.consume();
                 event.preventDefault();
                 return;
               }
@@ -206,6 +228,7 @@ export function ChatRequestItem({
                 return;
               }
               if (guard.isComposition(event)) {
+                guard.consume();
                 if (event.metaKey || event.ctrlKey) event.preventDefault();
                 return;
               }

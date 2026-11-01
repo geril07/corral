@@ -187,6 +187,29 @@ test("an input request answers with Enter and a pending editor with Ctrl+Enter",
   );
 });
 
+test("a select with no options is still answerable: Dismiss takes focus and Enter responds null", async () => {
+  const empty = {
+    kind: "user-request" as const,
+    id: "q-empty",
+    request: "select" as const,
+    title: "Pick one",
+    body: "The driver offered no options.",
+    options: [],
+    placeholder: null,
+    prefill: null,
+    expiresAt: null,
+    status: "pending" as const,
+  };
+  const chat = await renderChat(recorded([{ type: "item", item: empty }]));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(1));
+
+  const dismiss = page.getByRole("button", { name: "Dismiss" });
+  await expect.element(dismiss).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(chat.responded).toEqual([{ requestId: "q-empty", value: null }]));
+  await expect.element(page.getByRole("textbox", { name: "Message" })).toHaveFocus();
+});
+
 test("send, steer and queue a follow-up from the keyboard; Shift+Enter is a newline", async () => {
   const chat = await renderChat(recorded([], { state: IDLE_CHAT }));
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
@@ -396,8 +419,9 @@ test("expanding a fold near the end does not drag the tail back into view", asyn
 
   // The user is reading above the end: a fold expanding under them must not re-pin the tail.
   const end = scrollNode().scrollTop;
-  await userEvent.wheel(page.getByTestId("chat-timeline"), { delta: { y: -160 } });
-  await vi.waitFor(() => expect(scrollNode().scrollTop).toBeLessThan(end - 20));
+  // 20 px is inside the library's 10 % re-pin threshold, so a layout trigger would still re-pin.
+  await userEvent.wheel(page.getByTestId("chat-timeline"), { delta: { y: -20 } });
+  await vi.waitFor(() => expect(scrollNode().scrollTop).toBeLessThan(end - 10));
   const before = scrollNode().scrollTop;
   const group = page.getByRole("button", { name: "2 tool calls" });
   await expect.element(group).toBeVisible();
@@ -449,11 +473,75 @@ test("the transcript scrolls from the keyboard and the end follow is released an
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(2));
   await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
 
+  // At the end, ArrowUp is the handler's 48 px step (a native arrow scroll is a different
+  // amount), and the row appended after it must stay offscreen because the handler released.
+  const atEndTop = scrollNode().scrollTop;
+  await userEvent.keyboard("{ArrowUp}");
+  await vi.waitFor(() => {
+    const top = scrollNode().scrollTop;
+    expect(atEndTop - top).toBeGreaterThanOrEqual(47);
+    expect(atEndTop - top).toBeLessThanOrEqual(49);
+  });
+  chat.script.push({
+    type: "event",
+    sequence: 3,
+    event: { type: "item", item: { kind: "notice", id: "n-arrow", text: "Above the tail." } },
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(3));
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  expect(atEnd(scrollNode())).toBe(false);
+
   // Home and the arrow keys move without a pointer.
   await userEvent.keyboard("{Home}");
   await vi.waitFor(() => expect(scrollNode().scrollTop).toBe(0));
   await userEvent.keyboard("{ArrowDown}");
   await vi.waitFor(() => expect(scrollNode().scrollTop).toBeGreaterThan(20));
+});
+
+test("a modified Home moves only through the keyboard handler and releases the follow", async () => {
+  const chat = await renderChat(longChat(160));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+  const log = page.getByRole("log", { name: "Chat transcript" });
+  log.element().focus();
+  await expect.element(log).toHaveFocus();
+
+  // Ctrl+Home has no native list scroll; the handler's Home branch is what moves it and releases.
+  await userEvent.keyboard("{Control>}{Home}{/Control}");
+  await vi.waitFor(() => expect(scrollNode().scrollTop).toBe(0));
+  chat.script.push({
+    type: "event",
+    sequence: 1,
+    event: { type: "item", item: { kind: "notice", id: "n-home", text: "After Home." } },
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(1));
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  expect(atEnd(scrollNode())).toBe(false);
+});
+
+test("a wheel back to the bottom re-arms the follow after a keyboard release", async () => {
+  const chat = await renderChat(longChat(160));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+  const log = page.getByRole("log", { name: "Chat transcript" });
+  log.element().focus();
+  await expect.element(log).toHaveFocus();
+
+  const before = scrollNode().scrollTop;
+  await userEvent.keyboard("{PageUp}");
+  await vi.waitFor(() => expect(scrollNode().scrollTop).toBeLessThan(before - 100));
+
+  // The wheel returns to the bottom without End; that must re-arm the latch.
+  await userEvent.wheel(log, { delta: { y: 2000 }, times: 10 });
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+
+  chat.script.push({
+    type: "event",
+    sequence: 1,
+    event: { type: "item", item: { kind: "notice", id: "n-wheel", text: "After the wheel." } },
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(1));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
 });
 
 test("a composition-confirming Enter never sends; the next real Enter sends once", async () => {

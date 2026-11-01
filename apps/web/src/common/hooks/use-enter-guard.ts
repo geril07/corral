@@ -14,12 +14,16 @@ export interface EnterGuard {
   /** Any key that is not the guarded Enter closes the Safari window described below. */
   noteKey: (key: string) => void;
   /**
-   * True when this Enter confirms an IME composition and must not submit. Chrome and Firefox send
-   * the confirming keydown inside the composition; Safari ends the composition first, so its
-   * `compositionend` alone cannot tell the confirming Enter from the user's next one. Recording
-   * that a keydown was seen (`enterSeen`) makes both orders swallow exactly one Enter.
+   * Pure predicate: true when this Enter confirms an IME composition and must not submit. Chrome
+   * and Firefox send the confirming keydown inside the composition; Safari ends the composition
+   * first, so its `compositionend` alone cannot tell the confirming Enter from the user's next one.
    */
   isComposition: (event: EnterEvent) => boolean;
+  /**
+   * Records that the confirming Enter was seen. Call it only after `isComposition` returned true
+   * and the caller prevented the default action, so the next Enter is real again in both orders.
+   */
+  consume: () => void;
 }
 
 /**
@@ -45,12 +49,11 @@ export function useEnterGuard(): EnterGuard {
   }, []);
   const isComposition = useCallback((event: EnterEvent) => {
     const current = state.current;
-    if (event.nativeEvent.isComposing || current.composing || current.ended) {
-      state.current = { composing: current.composing, ended: false, enterSeen: true };
-      return true;
-    }
-    return false;
+    return event.nativeEvent.isComposing || current.composing || current.ended;
+  }, []);
+  const consume = useCallback(() => {
+    state.current = { composing: state.current.composing, ended: false, enterSeen: true };
   }, []);
 
-  return { start, end, noteKey, isComposition };
+  return { start, end, noteKey, isComposition, consume };
 }

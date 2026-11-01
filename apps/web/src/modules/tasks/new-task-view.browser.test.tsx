@@ -344,6 +344,24 @@ test("an IME Enter in the Chrome order leaves the next Enter free to submit", as
   await vi.waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
 });
 
+test("a composition Enter through the real keyboard neither submits nor inserts a newline", async () => {
+  const { rendered, onCreate } = renderView();
+  await rendered;
+  await userEvent.keyboard("Write it");
+
+  const field = prompt().element();
+  field.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  // Safari ends the composition before the confirming keydown; a real key press is used so the
+  // textarea's default action would insert a newline if the confirming Enter were not prevented.
+  field.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+  await userEvent.keyboard("{Enter}");
+  await expect.element(prompt()).toHaveValue("Write it");
+  expect(onCreate).not.toHaveBeenCalled();
+
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
+});
+
 test("an IME Enter in the Safari order is not a submission", async () => {
   const { rendered, onCreate } = renderView();
   await rendered;

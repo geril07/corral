@@ -50,6 +50,16 @@ export function ChatTimeline({
     return node instanceof HTMLElement ? node : null;
   };
 
+  /**
+   * The latch follows the list's own at-end state on every scroll, whatever moved it: a wheel, a
+   * scrollbar or a key. That makes it reversible — a wheel back to the bottom re-arms it even after
+   * a keyboard PageUp released it — instead of only the key handler writing the flag.
+   */
+  const syncFollow = useCallback(() => {
+    const state = list.current?.getState();
+    if (state !== undefined) setFollow(state.isAtEnd);
+  }, []);
+
   /** Keyboard scrolling: a move up releases the end follow, reaching the end takes it again. */
   const scrollBy = async (delta: number) => {
     const node = scrollNode();
@@ -131,6 +141,8 @@ export function ChatTimeline({
       tabIndex={0}
       role="log"
       aria-label="Chat transcript"
+      onScroll={syncFollow}
+      onUserScroll={syncFollow}
       onKeyDown={onKeyDown}
       contentContainerStyle={{ paddingTop: 8, paddingBottom: endSpace + 8 }}
     />

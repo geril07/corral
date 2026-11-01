@@ -165,6 +165,7 @@ export function ChatView({ store, agent, abortHint, onSend, onAbort, onRespond }
                 }
                 // An IME commit is not a send, in either platform ordering.
                 if (guard.isComposition(event)) {
+                  guard.consume();
                   event.preventDefault();
                   return;
                 }

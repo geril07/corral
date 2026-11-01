@@ -96,8 +96,10 @@ Current structural needs have named kit variants, not module class overrides:
 - DiffView: `@pierre/diffs`' `PatchDiff` in `common/ui/diff-view.tsx`, unified, wrapping in the
   46 rem lane, no file header (the tool row names the path), the pierre theme chosen from the
   document's `dark` class, no worker pool. More than 20 unified content lines fold at exactly 20
-  line boxes (the kit's 400 px cap) behind "Show all N lines" (`layout.md`, **Chat**); headers and
-  the trailing newline are not counted. Modules pass the diff text and optional path.
+  line boxes (a 408 px cap: 20 × 20 px plus the code surface's 8 px top padding) behind "Show all
+  N lines" (`layout.md`, **Chat**); content lines are counted through `@pierre/diffs`' parser, so
+  file and hunk headers, the trailing newline and repeated headers in a multi-file patch are not
+  counted. Modules pass the diff text and optional path.
 - Combobox `ComboboxButton` / `ComboboxSearch`: the composer's row of compact pickers is a stock
   combobox trigger rendered as an outline `Button` showing its value, with the list's search field
   (Base UI's input-inside-popup pattern) inside the popup. The kit owns the `render` composition
