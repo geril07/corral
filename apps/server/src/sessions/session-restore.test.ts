@@ -67,18 +67,20 @@ test(
     expect(terminals[0]!.command).toBe("/bin/sh");
     expect(terminals[0]!.args).toEqual([]);
 
-    const claudeLaunches = await launchesOf(agents, "claude", 3);
+    // Five agents resume one after another; the test's own budget is the deadline, not the
+    // helper's default 10 s, which a loaded machine can miss on the last of them.
+    const claudeLaunches = await launchesOf(agents, "claude", 3, RESTART_TIMEOUT_MS);
     expect(claudeLaunches[2]!.argv).toEqual(["--resume", claude.agentSessionId]);
-    expect((await launchesOf(agents, "pi", 2))[1]!.argv).toEqual([
+    expect((await launchesOf(agents, "pi", 2, RESTART_TIMEOUT_MS))[1]!.argv).toEqual([
       "--session-id",
       pi.agentSessionId,
     ]);
-    expect((await launchesOf(agents, "opencode", 2))[1]!.argv).toEqual([
+    expect((await launchesOf(agents, "opencode", 2, RESTART_TIMEOUT_MS))[1]!.argv).toEqual([
       "--standalone",
       "--session",
       opencode.agentSessionId,
     ]);
-    expect((await launchesOf(agents, "codex", 2))[1]!.argv).toEqual([
+    expect((await launchesOf(agents, "codex", 2, RESTART_TIMEOUT_MS))[1]!.argv).toEqual([
       "resume",
       codexLaunch!.rolloutId,
     ]);

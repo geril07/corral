@@ -14,15 +14,19 @@ export async function sessionsOf(api: Api): Promise<Session[]> {
   return z.array(Session).parse(first.value);
 }
 
-/** Waits until the fake `agent` has been launched `count` times, then returns those launches. */
+/**
+ * Waits until the fake `agent` has been launched `count` times, then returns those launches.
+ * `timeoutMs` is for a test whose own budget is longer, such as a restore of several agents.
+ */
 export async function launchesOf(
   agents: ReturnType<typeof useFakeAgents>,
   agent: Launch["agent"],
   count: number,
+  timeoutMs = 10_000,
 ): Promise<Launch[]> {
   await expect
     .poll(async () => (await agents.launches()).filter((launch) => launch.agent === agent).length, {
-      timeout: 10_000,
+      timeout: timeoutMs,
       message: `${count} launches of ${agent}`,
     })
     .toBe(count);
