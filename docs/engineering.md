@@ -41,6 +41,8 @@ Dependency direction, enforced by lint (import boundaries):
 - `desktop` → `protocol` (the server endpoint file contract only); it starts the server and loads the web bundle.
 - Nothing imports `server` except tests. Its own tests import it normally; tests of `client` and `web` start the real server through a relative import (`packages/client/test/server-fixture.ts`, `apps/web/test/real-server.ts`), because a package dependency would be a cycle (`server` already uses `client` in its tests). A client never reaches into server code for types; shared types live in `protocol`.
 
+**Two directories, two keys.** The single-instance lock keys on the state directory while the database and the chat writer records key on the data directory, so two servers started with one data directory and different state directories would pass the lock and share the database and the per-session writer records. One machine, one state directory, is the supported shape.
+
 Internal packages export TypeScript source (no build step). The server runs that source directly in Node, so all code is restricted to erasable TypeScript (`erasableSyntaxOnly`: no enums, namespaces or parameter properties) and relative imports carry `.ts` extensions. The production server is bundled into one file with `vp pack`. Verified: Node 26 runs the server from source, including workspace packages reached through pnpm symlinks.
 
 ## Code organization
