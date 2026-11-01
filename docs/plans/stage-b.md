@@ -128,7 +128,7 @@ Moved to stage A as A8 (`plans/stage-a.md`). B3 renders inside an A8 tab.
 **Rules.**
 
 - Handoff stops the live frontend, waits for its process to exit, then starts the other view with resume on the same agent session id; the session keeps its id, label and tab position.
-- While the agent is working, the action asks to confirm and aborts the turn first; when idle it proceeds at once. Pending user requests are cancelled with the frontend (state this in the confirmation).
+- While the agent is working, the action asks to confirm and ends the turn first — aborted in chat, cut when a terminal's PTY closes; when idle it proceeds at once. Pending user requests are cancelled with the frontend (state this in the confirmation, worded per direction).
 - Only agents with a chat driver offer the action (pi in stage B); others show it disabled with the reason in the palette.
 - `sessions.setView` and `prefix v` join protocol 9's history entry rather than bumping a new version (goal D5).
 - A handoff whose second start fails leaves the session stopped with the launch error and a way to retry in either view; it never leaves two frontends.

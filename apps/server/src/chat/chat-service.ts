@@ -182,11 +182,13 @@ export class ChatService {
    *
    * Both waits are bounded, the abort itself included: a pi that is alive but never answers would
    * otherwise park the handoff inside the session queue and keep `stop`, `restart`, `remove` and
-   * the server's shutdown queued behind it forever. One grace covers both — the race and the poll
-   * share one deadline, so a silent child costs a stop's grace, not two. A turn pi closes is written
-   * to its own session, so the conversation keeps it; a child killed mid-turn may write nothing. A
-   * frontend that is idle, or none at all, is left alone. The stop that follows is what removes the
-   * frontend, whatever these waits saw — they never replace it.
+   * the server's shutdown queued behind it forever. The race and the poll share one deadline, so
+   * this call costs at most one grace; the stop that follows then allows its own grace for the exit
+   * before it kills the group, so a child that ignores both the abort and stdin EOF costs about two
+   * graces in all — bounded, which is what keeps the queue moving, not one grace exactly. A turn pi
+   * closes is written to its own session, so the conversation keeps it; a child killed mid-turn may
+   * write nothing. A frontend that is idle, or none at all, is left alone. The stop that follows is
+   * what removes the frontend, whatever these waits saw — they never replace it.
    */
   async abortWorking(sessionId: string): Promise<void> {
     const driver = this.#drivers.get(sessionId);

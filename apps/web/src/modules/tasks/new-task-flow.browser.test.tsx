@@ -19,6 +19,16 @@ import {
 
 const { newClient } = realServerClients();
 
+/**
+ * Opens the composer's workspace picker and waits for its search field to have the keyboard.
+ * The popup focuses the field a frame after it opens; typing before that loses the text and Enter
+ * then keeps the value that was already selected, which is how this file used to flake under load.
+ */
+async function openWorkspacePicker() {
+  await userEvent.click(picker(/^Workspace /));
+  await expect.element(page.getByRole("combobox", { name: "Search workspaces" })).toHaveFocus();
+}
+
 const picker = (name: RegExp) => newTaskView().getByRole("combobox", { name });
 
 /** A fake agent's launch with the prompt as the agent would read it on its own command line. */
@@ -218,7 +228,7 @@ test("git's refusal stays in the composer and keeps the prompt", async () => {
   const { client } = await appWithProject(newClient(), ["feature/x"]);
   await prefixThen("t");
   await userEvent.keyboard("Take the branch");
-  await userEvent.click(picker(/^Workspace /));
+  await openWorkspacePicker();
   await userEvent.keyboard("feature/x{Enter}");
   await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace feature/x");
   await userEvent.click(promptField());
@@ -230,7 +240,7 @@ test("git's refusal stays in the composer and keeps the prompt", async () => {
   // The same branch cannot be checked out in a second worktree; git's own words come back.
   await prefixThen("t");
   await userEvent.keyboard("Second try");
-  await userEvent.click(picker(/^Workspace /));
+  await openWorkspacePicker();
   await userEvent.keyboard("feature/x{Enter}");
   await userEvent.click(promptField());
   await userEvent.keyboard("{Enter}");
@@ -249,7 +259,7 @@ test("git's refusal stays in the composer and keeps the prompt", async () => {
   await expect.element(promptField()).toHaveValue("Second try");
 
   // Fixing the workspace is enough: the same prompt now creates the task.
-  await userEvent.click(picker(/^Workspace /));
+  await openWorkspacePicker();
   await userEvent.keyboard("new worktree{Enter}");
   await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace new worktree");
   await userEvent.click(promptField());
@@ -279,7 +289,7 @@ test("a sidebar project pick keeps the draft and creates the task in the new pro
 
   // A prompt and the current project's branch: both belong to the composer's draft now.
   await userEvent.keyboard("In the other repo");
-  await userEvent.click(picker(/^Workspace /));
+  await openWorkspacePicker();
   await userEvent.keyboard("feature/x{Enter}");
   await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace feature/x");
 

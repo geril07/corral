@@ -927,6 +927,7 @@ test("a handoff whose second start fails leaves the session stopped in the targe
   expect(stopped?.launchError).toBe("pi is not on the server's PATH");
   // Nothing was left running on the session, and no second process was started for it.
   expect(await agents.launches()).toHaveLength(1);
+  expect(existsSync(overlapMarker(session.agentSessionId!))).toBe(false);
 
   // A stopped session only records the view its next start opens in: that is the retry in either
   // view, without a process to stop.
@@ -1085,6 +1086,7 @@ test("a failed handoff into chat fails asynchronously and leaves the session sto
   expect(failed?.status?.state).not.toBe("working");
   expect(processExists(terminalLaunch!.pid)).toBe(false);
   expect(await agents.launches()).toHaveLength(2);
+  expect(existsSync(overlapMarker(terminal.agentSessionId!))).toBe(false);
 });
 
 test("a pi that never answers abort cannot hold the session queue: handoff then queued stop both finish", async () => {
@@ -1094,6 +1096,8 @@ test("a pi that never answers abort cannot hold the session queue: handoff then 
   await waitForStatus(api, session.id, "working");
 
   // Both issued in one tick: the stop queues behind the handoff, as a user's `prefix x` would.
+  // The 15 s deadline is what proves the queue is not parked; the measured latency for this child
+  // is one grace (441 ms with `exitGraceMs: 400`, measured in review), not the deadline.
   const handed = within(
     api.sessions.setView({ id: session.id, view: "terminal", size: SIZE }),
     "the handoff to a pi that ignores abort",

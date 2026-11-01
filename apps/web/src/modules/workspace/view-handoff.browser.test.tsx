@@ -298,6 +298,30 @@ test("a busy terminal says its turn is cut, not aborted, because it has no abort
     expect(setView).not.toHaveBeenCalled();
     await userEvent.keyboard("{Escape}");
     await expect.element(confirm).not.toBeInTheDocument();
+
+    // A terminal that is *blocked* waits for an answer: the request dies with the PTY, and the
+    // confirmation says that instead of "cancels that request with the frontend".
+    sessions.set({
+      loaded: true,
+      sessions: [
+        seededSession("agent-claude", task.id, "claude", "terminal", {
+          state: "blocked",
+          kind: "question",
+          message: "Run the migration?",
+          updatedAt: 1,
+        }),
+      ],
+    });
+    await prefixThen("v");
+    await expect.element(confirm).toBeVisible();
+    await expect
+      .element(confirm)
+      .toMatchTextContent(
+        "The agent is waiting for your answer. Switching closes its terminal and the request is lost.",
+      );
+    expect(setView).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(confirm).not.toBeInTheDocument();
   } finally {
     tasks.set({ loaded: true, tasks: [] });
     sessions.set({ loaded: true, sessions: [] });

@@ -191,6 +191,9 @@ test("an existing branch is picked in the workspace list with the keyboard", asy
   await userEvent.keyboard("Continue");
   const workspacePicker = newTaskView().getByRole("combobox", { name: /^Workspace / });
   await userEvent.click(workspacePicker);
+  // The popup takes the keyboard a frame after it opens; typing before that loses the text and
+  // Enter then takes the value already selected. The search box having focus is the precondition.
+  await expect.element(page.getByRole("combobox", { name: "Search workspaces" })).toHaveFocus();
   await userEvent.keyboard("feat");
   await userEvent.keyboard("{Enter}");
   await expect.element(workspacePicker).toHaveAccessibleName("Workspace feature/x");

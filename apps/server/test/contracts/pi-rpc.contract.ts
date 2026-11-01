@@ -328,8 +328,26 @@ async function tuiLeg(options: { agent: string; message: string }): Promise<void
     await quiet(500);
     expect(screenLines(terminal).join("\n")).toContain("Changed hello.txt");
   } finally {
+    // SIGHUP first, as a closed terminal would send; a pi that ignores it must neither hang this
+    // test to its own timeout nor leave a child behind, so the group is killed after a bounded wait.
     child.kill();
-    await exited;
+    const stopped = await Promise.race([
+      exited.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5000).unref()),
+    ]);
+    if (!stopped) {
+      for (const target of [-child.pid, child.pid]) {
+        try {
+          process.kill(target, "SIGKILL");
+        } catch {
+          // The group is gone, or this pid is not one; the next target covers it.
+        }
+      }
+      await Promise.race([
+        exited,
+        new Promise<void>((resolve) => setTimeout(resolve, 5000).unref()),
+      ]);
+    }
   }
   // The TUI is gone before the next frontend exists — the same one-writer rule the driver keeps.
   await expect

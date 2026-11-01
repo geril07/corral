@@ -29,9 +29,9 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
 4. `prefix v` hands the current agent session over between chat and terminal: one frontend is
    stopped and its process waited for, then the other starts on the same agent conversation, so
    the session keeps its name, its tab and its history. An idle agent switches at once; a working
-   one asks first, because the handoff aborts the turn and cancels a request the agent is waiting
-   on — both are named in the confirmation, together with what survives (the conversation the agent
-   already wrote). While the switch runs, the main area says "Switching this session to …" instead
+   one asks first, because the handoff ends that turn — aborted in chat, cut when a terminal's PTY
+   closes — and a request the agent is waiting on is cancelled with the frontend. The confirmation
+   names both, per direction, together with what survives (the conversation the agent already wrote). While the switch runs, the main area says "Switching this session to …" instead
    of showing a half-switched pane. Only an agent with a chat driver has two views: the palette
    shows the action disabled with the reason for a shell or a driverless agent, and pressing the key
    there does nothing. A handoff whose second start fails leaves the session stopped in the target
