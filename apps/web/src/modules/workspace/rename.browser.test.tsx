@@ -130,7 +130,10 @@ test("a task is renamed from its key, and its branch and worktree stay as they w
   await userEvent.keyboard("{Enter}");
 
   await expect.element(dialog()).not.toBeInTheDocument();
-  await expect.element(row("Login fails on Safari")).toHaveAttribute("aria-current", "true");
+  // A flat task row's name is "title — project · branch", so it is matched by its title.
+  await expect
+    .element(workspace().getByRole("button", { name: /^Login fails on Safari/ }))
+    .toHaveAttribute("aria-current", "true");
   expect(client.tasks.getSnapshot().tasks[0]).toEqual({
     ...before,
     title: "Login fails on Safari",
