@@ -406,6 +406,34 @@ test("tabs switch by click and by prefix n without losing the keyboard", async (
   await expect.poll(screenText).toContain("fake claude got: next-tab");
 });
 
+test("an arrow key in the tab strip selects the next tab; the terminal keeps the key after that", async () => {
+  await appWithProject(newClient());
+  await createTaskWithShell("Arrowed");
+  await prefixThen("s");
+  await expect.element(page.getByRole("dialog", { name: "New agent session" })).toBeVisible();
+  await userEvent.keyboard("1");
+  await expect.element(sessionTab("claude")).toHaveAttribute("aria-selected", "true");
+  await expect.poll(screenText).toContain("fake claude ready");
+  // The picker hands the keyboard back to the terminal before the test takes it away.
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  // Start on the shell tab, then take the keyboard to it as Tab navigation would.
+  await sessionTab("shell").click();
+  await expect.element(sessionTab("shell")).toHaveAttribute("aria-selected", "true");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  sessionTab("shell").element().focus();
+
+  await userEvent.keyboard("{ArrowRight}");
+  await expect.element(sessionTab("claude")).toHaveAttribute("aria-selected", "true");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  // The same key again: with two tabs a wrap would land on the shell, so staying on claude means
+  // the remounted terminal took the key, not the strip.
+  await userEvent.keyboard("{ArrowRight}");
+  await expect.element(sessionTab("claude")).toHaveAttribute("aria-selected", "true");
+  await expect.element(sessionTab("shell")).toHaveAttribute("aria-selected", "false");
+});
+
 test("prefix \\ hides the sidebar, gives the window to the terminal, and shows it again", async () => {
   await appWithProject(newClient());
   await createTaskWithShell("Full width");
@@ -447,8 +475,28 @@ test("the sidebar edge resizes, keeps its width, and double-click resets it", as
   const again = page.getByRole("separator", { name: "Resize sidebar" });
   await expect.element(again).toHaveAttribute("aria-valuenow", String(initial - 16));
 
-  again.element().dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+  await again.dblClick();
   await expect.element(again).toHaveAttribute("aria-valuenow", String(initial));
+});
+
+test("the sidebar edge is hit-testable where it overhangs the main area, and shows a hover line", async () => {
+  await render(<App client={newClient()} />);
+  const handle = page.getByRole("separator", { name: "Resize sidebar" });
+  await expect.element(handle).toBeVisible();
+
+  // The 6 px strip sits over <main>, which comes later and would paint and hit-test above it at
+  // z-index auto: the point must resolve to the handle, not the main panel.
+  const rect = handle.element().getBoundingClientRect();
+  expect(rect.width).toBeGreaterThanOrEqual(6);
+  const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  expect(hit === handle.element() || handle.element().contains(hit)).toBe(true);
+
+  // Its hover line is the aside's border color, not transparent.
+  expect(getComputedStyle(handle.element()).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+  await handle.hover();
+  await expect
+    .poll(() => getComputedStyle(handle.element()).backgroundColor)
+    .not.toBe("rgba(0, 0, 0, 0)");
 });
 
 test("mounting the shell does not freeze a sidebar width into the device preference", async () => {
@@ -493,6 +541,46 @@ test("the sidebar keeps the main area's 640 px and its edge does not cover the l
   expect(handle.element().getBoundingClientRect().left).toBeGreaterThanOrEqual(
     aside.getBoundingClientRect().right - 1,
   );
+});
+
+/** Pretends the window is `value` CSS pixels wide and tells the app about it. */
+function pretendWindowWidth(value: number) {
+  Object.defineProperty(window, "innerWidth", { configurable: true, value });
+  window.dispatchEvent(new Event("resize"));
+}
+
+test("a shrinking window re-clamps the sidebar and its maximum without losing a width that fits", async () => {
+  await render(<App client={newClient()} />);
+  const handle = page.getByRole("separator", { name: "Resize sidebar" });
+  const width = () => Number(handle.element().getAttribute("aria-valuenow"));
+  const original = window.innerWidth;
+
+  // Widen to this window's maximum, then pretend the window shrank under it.
+  handle.element().focus();
+  await userEvent.keyboard("{ArrowRight}".repeat(20));
+  const widest = Math.min(420, original - 640);
+  await expect.element(handle).toHaveAttribute("aria-valuenow", String(widest));
+
+  try {
+    pretendWindowWidth(900);
+    const shrunkMax = Math.min(420, 900 - 640);
+    await expect.element(handle).toHaveAttribute("aria-valuemax", String(shrunkMax));
+    await expect.element(handle).toHaveAttribute("aria-valuenow", String(shrunkMax));
+    expect(900 - width()).toBeGreaterThanOrEqual(640);
+
+    // A width the user chose that still fits is kept when the window grows again.
+    handle.element().focus();
+    await userEvent.keyboard("{ArrowLeft}".repeat(3));
+    const chosen = width();
+    expect(chosen).toBe(shrunkMax - 48);
+    pretendWindowWidth(1000);
+    await expect
+      .element(handle)
+      .toHaveAttribute("aria-valuemax", String(Math.min(420, 1000 - 640)));
+    await expect.element(handle).toHaveAttribute("aria-valuenow", String(chosen));
+  } finally {
+    pretendWindowWidth(original);
+  }
 });
 
 test("the sidebar footer shows the prefix pill while the prefix is armed and the settings icon", async () => {

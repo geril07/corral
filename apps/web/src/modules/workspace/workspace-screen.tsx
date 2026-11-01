@@ -170,6 +170,7 @@ export function WorkspaceScreen({
           />
           <SidebarResizeHandle
             width={sidebar.width}
+            maxWidth={sidebar.maxWidth}
             onResize={sidebar.setWidth}
             onReset={sidebar.resetWidth}
           />

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /** Sidebar sizing and visibility per device (`layout.md`, **Shell**). */
 export const SIDEBAR_MIN_WIDTH = 208;
@@ -64,6 +64,8 @@ function store(key: string, value: string): void {
 export interface SidebarPane {
   width: number;
   hidden: boolean;
+  /** The widest the sidebar may be in this window; follows window resizes. */
+  maxWidth: number;
   setWidth: (width: number) => void;
   resetWidth: () => void;
   toggle: () => void;
@@ -77,6 +79,19 @@ export interface SidebarPane {
 export function useSidebarPane(): SidebarPane {
   const [width, setStoredWidth] = useState(readWidth);
   const [hidden, setHidden] = useState(readHidden);
+  const [maxWidth, setMaxWidth] = useState(() => maxSidebarWidth(window.innerWidth));
+
+  // A window that shrinks under a width the user chose must not squeeze the main area below its
+  // reserve: re-clamp, keep the size if it still fits, and republish the maximum. Nothing here
+  // writes the preference; only a user action does.
+  useEffect(() => {
+    const onResize = () => {
+      setMaxWidth(maxSidebarWidth(window.innerWidth));
+      setStoredWidth((current) => clampSidebarWidth(current));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   const setWidth = useCallback((next: number) => {
     const value = clampSidebarWidth(next);
@@ -93,5 +108,5 @@ export function useSidebarPane(): SidebarPane {
     setHidden(next);
     store(HIDDEN_KEY, String(next));
   }, [hidden]);
-  return { width, hidden, setWidth, resetWidth, toggle };
+  return { width, hidden, maxWidth, setWidth, resetWidth, toggle };
 }

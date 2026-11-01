@@ -1,5 +1,5 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { clampSidebarWidth, maxSidebarWidth, SIDEBAR_MIN_WIDTH } from "./sidebar-pane.ts";
+import { clampSidebarWidth, SIDEBAR_MIN_WIDTH } from "./sidebar-pane.ts";
 
 const KEY_STEP = 16;
 
@@ -10,10 +10,13 @@ const KEY_STEP = 16;
  */
 export function SidebarResizeHandle({
   width,
+  maxWidth,
   onResize,
   onReset,
 }: {
   width: number;
+  /** The window's own maximum (`min(420, innerWidth − 640)`), re-read when the window resizes. */
+  maxWidth: number;
   onResize: (width: number) => void;
   onReset: () => void;
 }) {
@@ -38,6 +41,8 @@ export function SidebarResizeHandle({
     handle.addEventListener("lostpointercapture", stop);
   };
 
+  // `z-10` keeps the 6 px strip above the later <main> sibling, which paints and hit-tests
+  // above the aside at z-index auto; without it the edge would be the 1 px border at most.
   return (
     <div
       role="separator"
@@ -45,9 +50,9 @@ export function SidebarResizeHandle({
       aria-label="Resize sidebar"
       aria-valuenow={width}
       aria-valuemin={SIDEBAR_MIN_WIDTH}
-      aria-valuemax={maxSidebarWidth(window.innerWidth)}
+      aria-valuemax={maxWidth}
       tabIndex={0}
-      className="absolute inset-y-0 -right-1.5 w-1.5 cursor-col-resize hover:bg-border"
+      className="absolute inset-y-0 -right-1.5 z-10 w-1.5 cursor-col-resize hover:bg-border"
       onPointerDown={drag}
       onDoubleClick={onReset}
       onKeyDown={(event) => {
