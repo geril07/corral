@@ -27,7 +27,7 @@ final:   B-verify
 
 Settled before the run and not for a slice to re-decide: the Markdown engine (D1), no Tiptap in stage B (D2), a hand-written pi RPC client (D3), and the fake-plus-real-pi verification stance (D4). Record them where the slice touches them.
 
-Gates for every slice are stage A's (`plans/stage-a.md`, **Gates for every slice**), with a fake pi that speaks the RPC protocol instead of fake TUIs. No paid model calls.
+Gates for every slice are stage A's (`plans/stage-a.md`, **Gates for every slice**), with a fake pi that speaks the RPC protocol instead of fake TUIs. No paid model calls. The real-pi stub-endpoint evidence of `goal.md` D4 replaces the inherited "real agent CLIs are used only for `--help`/`--version`" bullet: it costs nothing, so it is part of the gates, not an exception.
 
 ---
 
@@ -39,13 +39,13 @@ Gates for every slice are stage A's (`plans/stage-a.md`, **Gates for every slice
 
 **Rules.**
 
-- On focus and on `visibilitychange` to visible, propose the fit again when the host's dimensions no longer match the surface's grid; keep the existing frame debounce.
-- Do not resize the PTY for a client that is merely resizing its window while unfocused.
-- Document the remaining limitation in `docs/design.md` **Terminal**: two clients share one PTY grid, so the unfocused one is stale until it is focused; the shared-grid redesign is an open question, not part of this run.
+- Trigger on `focusin` inside the terminal host and on `visibilitychange` to visible, calling the existing `applySize` path; keep the frame debounce. A document-level `focus` cannot be told apart between two pages in one browser test, and a page that opens unfocused must still take its first fit.
+- Do not add a "skip while unfocused" rule: at element level it would regress the single-client fit (sidebar drag, palette open, focus in another tab), and at document level it cannot be tested.
+- Record the remaining limitation under `docs/design.md` **Open questions**: two clients share one PTY grid, so a client that cannot show the grid stays clipped while it is unfocused; the shared-grid redesign is not part of this run.
 
-**Done when.** A browser test with two attached clients at different host sizes shows the newly focused client reporting its own size while the other keeps its canvas; no regression in the single-client fit tests.
+**Done when.** A browser test with two attached clients at different host sizes shows the newly focused client reporting its own size while the other keeps its canvas, and no regression in the single-client fit tests. Record in the report that the A-verify P2's second expectation ("not left clipped" while unfocused) stays open by design.
 
-**Depends on.** Nothing (stage A's terminal view).
+**Depends on.** Nothing (stage A's terminal view). May run in the same wave as B0.
 
 ---
 
@@ -63,6 +63,7 @@ Gates for every slice are stage A's (`plans/stage-a.md`, **Gates for every slice
 - Model it on T3 Code's normalized items (`packages/contracts/src/orchestrationV2.ts` in `../../oss/t3code`, MIT) as an idea, not its schema: no runs, checkpoints, provider refs or subagent threads.
 - Clients never see a provider protocol: everything pi-specific stays in the B1 driver.
 - The contract carries no transcript persistence: the agent's own session is the conversation (`roadmap.md`, **Decision boundaries**).
+- `Session.view` (`terminal | chat`) lands in `packages/protocol/src/rpc.ts` here, so B3 can build against it while B1 runs; the storage migration belongs to B1.
 
 **Done when.** Schemas and the client store exist with tests for applying snapshot + events, a sequence gap leading to a resnapshot, and streaming text assembled from deltas; the contract is documented in `design.md` (**Terminal and chat**) in a few lines.
 
@@ -80,10 +81,13 @@ Gates for every slice are stage A's (`plans/stage-a.md`, **Gates for every slice
 - Spawn `pi --mode rpc --session-id <id>` with the launch args, profile environment and `CORRAL_*` variables a terminal launch gets, in the task's workspace. Restore after a server restart resumes the same id in the same view.
 - The client is hand-written (goal D3): JSONL against the documented protocol, no pi npm dependency, so the driver follows the user's installed pi. Record the choice in `engineering.md`.
 - Framing per the facts above; read stdout continuously; correlate responses by id; a parse failure or unexpected exit ends the frontend with a visible reason, like a failed terminal launch.
-- Add the opt-in contract test from goal D4: the real pi binary against the local stub endpoint, start → stream → resume on the same session id.
+- Supervise the child like the naming run does (`apps/server/src/naming/naming-run.ts`): own process group, kill the group on stop, stderr drained, stdin backpressure honoured. A pipe child gets no SIGHUP when the server dies, so on restore kill or await a pid recorded from the previous process before respawning — two writers corrupt a pi session. Measure whether pi exits mid-turn on stdin EOF before relying on EOF alone.
+- The `view` column migration belongs here, with `Session.view` already in the protocol from B0.
+- Add the opt-in contract test from goal D4 in `apps/server/test/contracts/` (tracked; the probe under `.e2e/` is gitignored): the real pi binary against the local stub endpoint on port 0, start with prompt → stream, including a tool call and a dialog request → resume on the same session id. Update that suite's "no agent conversation is ever started" header, set an explicit timeout, and record the command and log path in the slice report.
 - On every (re)start, load history with `get_messages` and turn it into items, then stream events. The in-memory chat state is the server's; it is rebuilt from pi after a restart, and pending user requests are lost then (record this limit).
 - The prompt of a task created in chat view (A3/A5 path) is sent with the `prompt` command once the child is ready, on first start only.
-- Status comes from events instead of OSC 7501: `agent_start` → working, a pending dialog request → blocked (`question`), `agent_settled` → done (or idle when aborted), a provider error → error. Settle stops the child (close stdin, then a deadline and a kill); continue restarts it.
+- Status comes from events instead of OSC 7501: `agent_start` → working, a pending dialog request → blocked (`question`), `agent_settled` → done (or idle when aborted), a provider error → error. Settling the _task_ (the sidebar action) stops the child: close stdin, wait for exit to a deadline, then kill the process group; continuing restarts it. `agent_settled` is pi's event for "the run will not continue", not this action.
+- Pending dialog requests are expired by the server on its own deadline, because pi resolves its own timeouts locally and the contract does not rely on an event for that.
 - One writer: a session has at most one live frontend by construction; the driver never starts a second process on the same id.
 
 **Done when.** Tests with a fake pi RPC executable cover start with prompt, streaming assembly, tool events, a dialog request answered by the client, abort, crash with a visible reason, restore with history and no resent prompt, and status transitions; the migration test keeps existing sessions as `terminal`.
@@ -102,7 +106,7 @@ Moved to stage A as A8 (`plans/stage-a.md`). B3 renders inside an A8 tab.
 
 **Rules.**
 
-- Markdown engine is settled (decision 15, goal D1): **Streamdown** with `@streamdown/code` for Shiki, including the Tailwind `@source` lines its README asks for. It is not T3's `react-markdown`.
+- Markdown engine is settled (decision 15, goal D1): **Streamdown**, with its `CodeHighlighterPlugin` backed by `@pierre/diffs`' `getSharedHighlighter` so code blocks and diffs share one engine and theme; do not add `@streamdown/code` unless sharing proves impractical, in which case record the bundle cost. Import `streamdown/styles.css` and the Tailwind `@source` lines (check that `@source` follows the pnpm symlink with one real build), set `controls={false}` and `linkSafety` off or to a kit modal, wrap the component in `apps/web/src/common/ui`, and add the adaptation to `docs/ui-kit.md`.
 - Sizes and styling as `layout.md` **Chat** (46 rem lane, user bubbles, folded tool calls, composer bounds).
 - Timeline: virtualized (`@legendapp/list`, as T3 Code), user and assistant messages, reasoning collapsed by default, tool calls as collapsible blocks with arguments and output, code blocks highlighted with Shiki, diffs with `@pierre/diffs` when a tool result carries one (pi's edit tool; check what its result contains). Auto-scroll follows the stream unless the user scrolled up.
 - Composer: Enter sends, Shift+Enter inserts a newline; while working, Enter steers and a modifier queues a follow-up (show which); an abort action with a prefix binding (`prefix .` proposed) and in the palette.
@@ -126,6 +130,7 @@ Moved to stage A as A8 (`plans/stage-a.md`). B3 renders inside an A8 tab.
 - Handoff stops the live frontend, waits for its process to exit, then starts the other view with resume on the same agent session id; the session keeps its id, label and tab position.
 - While the agent is working, the action asks to confirm and aborts the turn first; when idle it proceeds at once. Pending user requests are cancelled with the frontend (state this in the confirmation).
 - Only agents with a chat driver offer the action (pi in stage B); others show it disabled with the reason in the palette.
+- `sessions.setView` and `prefix v` join protocol 9's history entry rather than bumping a new version (goal D5).
 - A handoff whose second start fails leaves the session stopped with the launch error and a way to retry in either view; it never leaves two frontends.
 
 **Done when.** Tests with the fake pi cover idle handoff both ways with history intact, handoff while working (abort, then switch), a failed second start, and that no second process runs on the id; an Electron e2e switches a session chat → terminal → chat.
@@ -144,6 +149,7 @@ Moved to stage A as A8 (`plans/stage-a.md`). B3 renders inside an A8 tab.
 - `view = "chat"` is accepted where the agent has a chat driver; for other agents the effective view falls back to terminal with a config warning. The composer's view control is enabled.
 - `[agents.<kind>]`: `enabled` (default true; disabled agents disappear from pickers) and `command` (an executable path overriding the `PATH` lookup). Launch profiles stay the place for model, provider and environment (`docs/agent-profiles.md`); do not duplicate them.
 - Settings shows agents, whether each is found, and which have a chat driver.
+- `[agents]` and `view = "chat"` join protocol 9's history entry (goal D5).
 
 **Done when.** Tests cover model and level changes reaching the fake pi, the chat view default per project, a disabled agent hidden from pickers and a custom command used for launch.
 
@@ -153,7 +159,7 @@ Moved to stage A as A8 (`plans/stage-a.md`). B3 renders inside an A8 tab.
 
 Independent real-interface verification with a fake pi RPC executable: create a task in chat view from the composer → the prompt arrives once → streaming answer, tool call and diff render → a dialog request is answered by keyboard → steer and abort → change model and reasoning → `prefix v` to terminal, where the fake TUI receives the same session id → back to chat with history → settle, continue → server restart restores the chat with history and no resent prompt. Screenshots at 1920×1080 and 1024×640; report at `.e2e/stage-b/verify/report.md`.
 
-Separately and only with the user's permission (it is a paid call): one smoke run with the real pi to confirm the RPC/TUI handoff on the installed version.
+Separately, and required rather than optional (goal D4): the real pi binary against the local stub endpoint — no paid call, isolated `PI_CODING_AGENT_DIR`/`PI_CODING_AGENT_SESSION_DIR`, `PI_OFFLINE=1` — confirms the RPC → TUI-in-a-PTY → RPC handoff on the installed version, which is the path the fakes cannot prove. The stub emits a tool call and a dialog request so tool events and approvals are exercised on the real protocol.
 
 ## Not in stage B
 

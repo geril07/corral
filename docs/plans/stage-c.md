@@ -29,7 +29,7 @@ final:   C-verify
 **Goal.** Chat for OpenCode, with the terminal live at the same time.
 
 - Facts to re-check on the installed version (2.2.5 observed): `opencode serve` (v2 API with SSE events, `--port`, `--hostname`, `--stdio`), the TUI's `--server <url>` and `--session <id>`, `--standalone`. The server owns the session; chat is an API client, the terminal view runs the TUI against the same server.
-- Corral starts one OpenCode server per task workspace (or per session; decide by how the API scopes directories), on a loopback port or `--stdio`, and stops it with the last session using it.
+- Corral starts one OpenCode server per task workspace (or per session; decide by how the API scopes directories), on a loopback port or `--stdio`, and stops it with the last session using it. `opencode serve` has no auth flag and the binary carries `OPENCODE_SERVER_PASSWORD`: a loopback server that can run agents needs that secret, or `--stdio`, under `design.md`'s **Local trust boundary** — decide it in C-prep.
 - Status: from the event stream, replacing the plugin path for chat sessions; terminal-only OpenCode sessions keep the plugin (`design.md`, **Status**).
 - Approvals: OpenCode's permission requests become B0 user requests; answers from either frontend resolve them once.
 - Both views live: switching view is only switching tabs, no handoff; `prefix v` opens the other view next to the current one.
@@ -41,7 +41,7 @@ final:   C-verify
 **Goal.** Chat for Claude Code through the Claude Agent SDK, stop-and-resume handoff with the TUI.
 
 - `@anthropic-ai/claude-agent-sdk` (0.3.316 observed on npm) as a server dependency; record it in `engineering.md`. Use `resume`/`sessionId` options with Corral's agent session id, so `claude --resume <id>` continues the conversation.
-- Verify the SDK uses the user's installed `claude` binary and login, not a bundled one with separate credentials; if it does not, record the gap and stop this slice as an open decision (no new paid account, `roadmap.md`).
+- The SDK uses its own bundled platform binary by default (`pathToClaudeCodeExecutable`, a ~328 MB `@anthropic-ai/claude-agent-sdk-linux-x64` package) — point it at the user's installed `claude` and gate the version, or record the gap and stop the slice as an open decision (no new paid account, `roadmap.md`). Its licence is the Anthropic Commercial Terms, not open source: record that in `engineering.md` with the dependency.
 - Permissions: the SDK's permission callback becomes a B0 user request; reasoning effort and model through query options.
 - History for the chat view after a restart: SDK session messages; the TUI transcript format stays internal (`design.md`, **Terminal and chat**).
 
@@ -51,7 +51,7 @@ final:   C-verify
 
 **Goal.** Chat for Codex through the app-server, if its stability allows.
 
-- First resolve the open contradiction in `design.md` (**Terminal and chat**): whether `codex --remote` against Corral's app-server can write while chat is attached, or is view-only. Record the result there.
+- First resolve the open contradiction in `design.md` (**Terminal and chat**): whether `codex --remote` against Corral's app-server can write while chat is attached, or is view-only. Record the result there. Codex 0.166.0 auto-starts a shared app-server daemon (`daemon_auto_start`), so the probe covers the default TUI, `--no-daemon`, and attaching to the running daemon, and checks whether the stage A Codex launch already leaves a daemon behind.
 - The app-server is officially experimental: pin the tested Codex version in the driver, check the version at launch and refuse chat (terminal stays available) on an untested one, with the reason visible.
 - Thread id is server-assigned (`thread/start`); store it as the agent session id, replacing rollout-file discovery for chat sessions.
 
