@@ -265,8 +265,9 @@ export const ClientConfig = z.object({
   tasks: ResolvedTaskSettings,
   naming: NamingSettings,
   /**
-   * `[projects."<absolute repository path>"]` resolved against `[tasks]`, keyed by the path as
-   * written; it matches `Project.path` exactly. A project without an entry uses `tasks`.
+   * `[projects."<absolute repository path>"]` resolved against `[tasks]`, keyed by the canonical
+   * repository path: the real path when it exists (so a symlinked key matches `Project.path`),
+   * else the key as written. A project without an entry uses `tasks`.
    */
   projects: z.record(z.string(), ResolvedTaskSettings),
 });
@@ -275,42 +276,6 @@ export type ClientConfig = z.infer<typeof ClientConfig>;
 /** The effective task settings for `path`: its own table, else the global `[tasks]` values. */
 export function taskSettingsFor(config: ClientConfig, path: string): ResolvedTaskSettings {
   return config.projects[path] ?? config.tasks;
-}
-
-/**
- * What is wrong with a worktree root as written, or `undefined` when it is usable: an absolute
- * path or one below `~`, and a `~`-relative root may not climb out of the home directory.
- * Paths here are POSIX paths; the server's data directory and home are absolute already.
- */
-export function worktreeRootProblem(root: string): string | undefined {
-  if (root === "~") return undefined;
-  if (root.startsWith("~/")) {
-    const climbs = root
-      .slice(1)
-      .split("/")
-      .some((segment) => segment === "..");
-    return climbs ? 'a ~-relative worktree root may not hold ".."' : undefined;
-  }
-  if (root.startsWith("/")) return undefined;
-  return "the worktree root must be an absolute path or start with ~/";
-}
-
-/**
- * The absolute directory a worktree root names, with `~` expanded and separators collapsed.
- * Consumers call this before touching the filesystem, so a root has one meaning everywhere;
- * an unusable root throws the message `worktreeRootProblem` reports.
- */
-export function expandWorktreeRoot(root: string, home: string): string {
-  const problem = worktreeRootProblem(root);
-  if (problem !== undefined) throw new Error(problem);
-  const absolute = root === "~" || root.startsWith("~/") ? `${home}${root.slice(1)}` : root;
-  const segments: string[] = [];
-  for (const segment of absolute.split("/")) {
-    if (segment === "" || segment === ".") continue;
-    if (segment === "..") segments.pop();
-    else segments.push(segment);
-  }
-  return `/${segments.join("/")}`;
 }
 
 /**

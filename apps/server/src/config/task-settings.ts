@@ -1,7 +1,8 @@
-import { expandWorktreeRoot, taskSettingsFor } from "@corral/protocol/config";
+import { taskSettingsFor } from "@corral/protocol/config";
 import type { Project } from "@corral/protocol/rpc";
 import type { TaskSettings } from "../tasks/task-settings.ts";
 import type { ConfigWatcher } from "./config-watcher.ts";
+import { expandWorktreeRoot } from "./worktree-root.ts";
 
 /**
  * A1's task settings backed by the config: the effective worktree root and branch prefix for the

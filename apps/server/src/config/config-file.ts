@@ -8,7 +8,6 @@ import {
   SlugMode,
   defaultClientConfig,
   defaultNamingSettings,
-  worktreeRootProblem,
   type ClientConfig,
   type ConfigProblem,
   type EnvRef,
@@ -24,6 +23,7 @@ import { isAbsolute, normalize, sep } from "node:path";
 import { parse as parseToml, TomlError } from "smol-toml";
 import { launchChoiceProblems, modelIdProblem } from "../agents/launch-capabilities.ts";
 import { ENV_NAME, isReservedEnvName } from "../agents/launch-env.ts";
+import { worktreeRootProblem } from "./worktree-root.ts";
 
 const PREFIX_PATH = "keys.prefix";
 const BINDINGS_PATH = "keys.bindings";
@@ -384,11 +384,17 @@ function taskLayer(
   }
   const layer: TaskLayer = {};
   const agent = choiceField(AgentKind.options, value["agent"], `${base}.agent`, problems);
-  if (agent !== undefined) layer.agent = agent;
   const profile = profileRef(value["profile"], `${base}.profile`, problems, profilesById);
+  const launchedAgent = agentKeepingProfile(agent, profile, `${base}.agent`, problems);
+  if (launchedAgent !== undefined) layer.agent = launchedAgent;
   if (profile !== undefined) layer.profile = profile.id;
   // A profile wins over the agent, so its agent is the one the model has to fit.
-  const model = modelField(value["model"], `${base}.model`, profile?.agent ?? agent, problems);
+  const model = modelField(
+    value["model"],
+    `${base}.model`,
+    profile?.agent ?? launchedAgent,
+    problems,
+  );
   if (model !== undefined) layer.model = model;
   const workspace = choiceField(
     WorkspaceMode.options,
@@ -425,14 +431,15 @@ function namingLayer(
   }
   const layer: NamingLayer = {};
   const profile = profileRef(value["profile"], `${NAMING_PATH}.profile`, problems, profilesById);
-  if (profile !== undefined) layer.profile = profile.id;
   const agent = choiceField(AgentKind.options, value["agent"], `${NAMING_PATH}.agent`, problems);
-  if (agent !== undefined) layer.agent = agent;
+  const launchedAgent = agentKeepingProfile(agent, profile, `${NAMING_PATH}.agent`, problems);
+  if (profile !== undefined) layer.profile = profile.id;
+  if (launchedAgent !== undefined) layer.agent = launchedAgent;
   // A profile wins over the agent, so its agent is the one the model has to fit.
   const model = modelField(
     value["model"],
     `${NAMING_PATH}.model`,
-    profile?.agent ?? agent,
+    profile?.agent ?? launchedAgent,
     problems,
   );
   if (model !== undefined) {
@@ -483,7 +490,12 @@ function resolvedProjects(
     }
     // Projects are stored by the main working tree's real path, so a symlinked key has to
     // become that path too or its overrides would never apply.
-    const key = canonicalProjectPath(path);
+    const canonical = canonicalProjectPath(path);
+    if ("problem" in canonical) {
+      problems.push(errorAt(base, canonical.problem));
+      continue;
+    }
+    const key = canonical.path;
     if (projects[key] !== undefined) {
       problems.push(errorAt(base, "another project table already resolves to this path"));
       continue;
@@ -497,13 +509,24 @@ function resolvedProjects(
   return projects;
 }
 
-/** The real path of an existing key, else the key as written (the project may not exist yet). */
-function canonicalProjectPath(path: string): string {
+/**
+ * The real path of an existing key, else the key as written (the project may not exist yet).
+ * Only "not there" falls back: a path that exists but cannot be resolved (permissions, a
+ * symlink loop) is a problem, because its overrides could silently never apply.
+ */
+function canonicalProjectPath(path: string): { path: string } | { problem: string } {
   try {
-    return realpathSync(path);
-  } catch {
-    return path;
+    return { path: realpathSync(path) };
+  } catch (error) {
+    const code = errnoCode(error);
+    if (code === "ENOENT" || code === "ENOTDIR") return { path };
+    return { problem: `cannot resolve the project path: ${messageOf(error)}` };
   }
+}
+
+function errnoCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null || !("code" in error)) return undefined;
+  return typeof error.code === "string" ? error.code : undefined;
 }
 
 /**
@@ -532,6 +555,24 @@ function resolveTaskSettings(
     slugMode: resolved("slugMode"),
     view: resolved("view"),
   };
+}
+
+/**
+ * The agent a table may keep: with a profile set, the profile's agent is the one that launches
+ * (`launchSnapshotFor` rejects any other kind), so an explicit agent that disagrees with it is
+ * reported and dropped instead of being advertised as effective.
+ */
+function agentKeepingProfile(
+  agent: AgentKind | undefined,
+  profile: LaunchProfile | undefined,
+  path: string,
+  problems: ConfigProblem[],
+): AgentKind | undefined {
+  if (agent === undefined || profile === undefined || agent === profile.agent) return agent;
+  problems.push(
+    errorAt(path, `the profile "${profile.id}" launches ${profile.agent}, not ${agent}`),
+  );
+  return undefined;
 }
 
 /** The protocol's built-in layer, without the sources: the one default definition, reused. */

@@ -3,6 +3,9 @@ import {
   defaultClientConfig,
   namingConfigured,
 } from "@corral/protocol/config";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
 import { parseConfigFile } from "./config-file.ts";
 
@@ -125,16 +128,25 @@ test("a ~-relative worktree root is kept as written, and climbing out of home is
   ]);
 });
 
-test("a model is checked against the profile's agent when a profile wins", () => {
+test("the profile's agent decides both the agent and the model check", () => {
+  // The profile launches claude, so an explicit opencode agent would make a launch fail with
+  // LaunchProfileKindMismatchError; it is reported and dropped, the model fits claude.
   const claude = parse(`${PROFILE}
 [tasks]
 agent = "opencode"
 profile = "gateway"
 model = "claude-sonnet-4-5"
 `);
-  expect(claude.problems).toEqual([]);
-  expect(claude.config.tasks.agent).toEqual({ value: "opencode", source: "global" });
+  expect(claude.config.tasks.agent).toEqual({ value: null, source: "default" });
+  expect(claude.config.tasks.profile).toEqual({ value: "gateway", source: "global" });
   expect(claude.config.tasks.model).toEqual({ value: "claude-sonnet-4-5", source: "global" });
+  expect(claude.problems).toEqual([
+    {
+      severity: "error",
+      path: "tasks.agent",
+      message: 'the profile "gateway" launches claude, not opencode',
+    },
+  ]);
 
   const opencode = parse(`
 [profiles.oc]
@@ -146,12 +158,77 @@ agent = "claude"
 profile = "oc"
 model = "gpt-5"
 `);
+  expect(opencode.config.tasks.agent).toEqual({ value: null, source: "default" });
   expect(opencode.config.tasks.model.source).toBe("default");
   expect(opencode.problems).toEqual([
     {
       severity: "error",
+      path: "tasks.agent",
+      message: 'the profile "oc" launches opencode, not claude',
+    },
+    {
+      severity: "error",
       path: "tasks.model",
       message: "opencode has no model flag on its launch command; a profile for it is env-only",
+    },
+  ]);
+});
+
+test("a project's agent that contradicts its profile is reported there too", () => {
+  const { config, problems } = parse(`${PROFILE}
+[projects."${REPO}"]
+profile = "gateway"
+agent = "codex"
+`);
+
+  expect(config.projects[REPO]?.agent).toEqual({ value: null, source: "default" });
+  expect(config.projects[REPO]?.profile).toEqual({ value: "gateway", source: "project" });
+  expect(problems).toEqual([
+    {
+      severity: "error",
+      path: `projects."${REPO}".agent`,
+      message: 'the profile "gateway" launches claude, not codex',
+    },
+  ]);
+});
+
+test("a naming model is checked against its profile's agent, not a table agent", () => {
+  // Before the profile's agent decided the check, a model here only had to look like a model id.
+  const { config, problems } = parse(`
+[profiles.oc]
+name = "OpenCode team"
+agent = "opencode"
+
+[naming]
+profile = "oc"
+model = "gpt-5"
+`);
+
+  expect(config.naming.profile).toEqual({ value: "oc", source: "global" });
+  expect(config.naming.model).toEqual({ value: null, source: "default" });
+  expect(problems).toEqual([
+    {
+      severity: "error",
+      path: "naming.model",
+      message: "opencode has no model flag on its launch command; a profile for it is env-only",
+    },
+  ]);
+});
+
+test("a naming agent that contradicts its profile is reported and dropped", () => {
+  const { config, problems } = parse(`${PROFILE}
+[naming]
+profile = "gateway"
+agent = "codex"
+`);
+
+  expect(config.naming.agent).toEqual({ value: null, source: "default" });
+  expect(config.naming.profile).toEqual({ value: "gateway", source: "global" });
+  expect(problems).toEqual([
+    {
+      severity: "error",
+      path: "naming.agent",
+      message: 'the profile "gateway" launches claude, not codex',
     },
   ]);
 });
@@ -375,4 +452,23 @@ test.for(rejectedProjects)("%s is rejected at %s", ([file, path, message]) => {
   expect(problems).toHaveLength(1);
   expect(problems[0]).toMatchObject({ severity: "error", path });
   expect(problems[0]?.message).toContain(message);
+});
+
+test("a project path that exists but cannot be resolved is a problem, not a literal key", () => {
+  const dir = mkdtempSync(join(tmpdir(), "corral-config-"));
+  const loop = join(dir, "loop");
+  try {
+    // realpathSync fails with ELOOP, which is not "the path is not there yet".
+    symlinkSync(join(dir, "other"), loop);
+    symlinkSync(loop, join(dir, "other"));
+
+    const { config, problems } = parse(`[projects."${loop}"]\nagent = "codex"\n`);
+
+    expect(config.projects).toEqual({});
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toMatchObject({ severity: "error", path: `projects."${loop}"` });
+    expect(problems[0]?.message).toContain("cannot resolve the project path");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

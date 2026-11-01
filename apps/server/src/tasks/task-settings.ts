@@ -16,7 +16,7 @@ export interface TaskSettings {
   branchPrefix(project: Project): string;
 }
 
-/** Today's defaults: `<data dir>/worktrees` and no branch prefix. */
+/** The defaults for callers without config: `<data dir>/worktrees` and no branch prefix. */
 export function defaultTaskSettings(options: { dataDir: string }): TaskSettings {
   const worktreeRoot = defaultWorktreeRoot(options.dataDir);
   return { worktreeRoot: () => worktreeRoot, branchPrefix: () => "" };
