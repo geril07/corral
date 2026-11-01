@@ -38,9 +38,6 @@ export function startFakePiRpc(argv: readonly string[]): void {
     { id: "stub-1", name: "Stub One", provider: "stub" },
     { id: "stub-2", name: "Stub Two", provider: "stub" },
   ];
-  // pi's thinking levels are per model: the second model adds `max` and has no `low`.
-  const levelsFor = (model: { id: string }): readonly string[] =>
-    model.id === "stub-2" ? ["off", "medium", "high", "max"] : ["off", "low", "medium", "high"];
   let currentModel = models[0]!;
   let currentLevel = "medium";
   let buffer = "";
@@ -331,6 +328,13 @@ export function startFakePiRpc(argv: readonly string[]): void {
     mkdirSync(dirname(journalPath), { recursive: true });
     writeFileSync(journalPath, JSON.stringify(history));
   }
+}
+
+/** pi's thinking levels are per model: the second model adds `max` and has no `low`. */
+function levelsFor(model: { id: string }): readonly string[] {
+  return model.id === "stub-2"
+    ? ["off", "medium", "high", "max"]
+    : ["off", "low", "medium", "high"];
 }
 
 /** One record on stdout; the only place the fake writes its protocol. */
