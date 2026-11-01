@@ -102,7 +102,13 @@ workspace = "main-worktree" # the same keys as [tasks]
   relative work away from the repository. OpenCode cannot be a naming runner: `opencode run`
   always saves a session (2.2.5), so an OpenCode profile or agent in `[naming]` is a
   `ConfigProblem` and naming stays off.
-- `view = "chat"` is a problem until stage B; `terminal` is the only valid view in stage A.
+- `view` is `terminal` (the default) or `chat`. `chat` is accepted where this build has a chat
+  driver for the agent (`chat.capabilities`; pi in stage B). After the layers resolve, a `chat`
+  view whose agent has no driver becomes `terminal`, and the file reports a **warning** at the
+  entry responsible — `tasks.view`, or the project table whose own agent or view caused it. With
+  no agent pinned the view stays `chat`, and the **composer** applies the rule to the agent the
+  user picks there. It governs a new task's **primary** session only: `sessions.start` without a
+  view (`prefix s`, the agent picker) still opens in the terminal.
 - Unknown keys and invalid values are `ConfigProblem`s that drop only that entry; the rest of
   the table still applies. A `profile` that names no valid profile is such a problem, and two
   project keys that resolve to one repository are reported rather than merged.

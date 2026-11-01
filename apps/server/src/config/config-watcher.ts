@@ -119,7 +119,14 @@ export function watchConfigFile(filePath: string, options: { dataDir: string }):
 
   return {
     state: () => state,
-    watch: (signal) => changes.watch(() => state, signal),
+    watch: (signal) =>
+      changes.watch(() => {
+        // "found" is a fact about the machine, not the file: ask the filesystem on every new
+        // subscription (four `accessSync` calls), so installing an agent shows up when Settings
+        // opens instead of waiting for the next save.
+        state = withAvailability(state);
+        return state;
+      }, signal),
     close() {
       closed = true;
       clearTimeout(refreshTimer);
@@ -170,10 +177,15 @@ function readConfigFile(filePath: string, dataDir: string): ConfigState {
   };
 }
 
+/** The state with its availability re-read; a subscription uses it so `found` is a live fact. */
+function withAvailability(state: ConfigState): ConfigState {
+  return { ...state, agents: agentAvailability(state.config) };
+}
+
 /**
- * What this host has for each agent, read on every file change: whether the effective command is
- * executable (with the same lookup a launch uses) and whether this build can show it as chat.
- * Settings renders it; nothing else needs it.
+ * What this host has for each agent, read on every file change and on every new subscription:
+ * whether the effective command is executable (with the same lookup a launch uses) and whether
+ * this build can show it as chat. Settings renders it; nothing else needs it.
  */
 function agentAvailability(config: ClientConfig): AgentAvailability[] {
   return AgentKind.options.map((kind) => ({

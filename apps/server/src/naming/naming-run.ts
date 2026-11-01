@@ -49,7 +49,7 @@ export async function runNaming(request: NamingRunRequest): Promise<NamingRun> {
   }
   const command = request.command;
   if (!isExecutable(command, env["PATH"]))
-    return { ok: false, reason: `no executable ${command} on the server's PATH` };
+    return { ok: false, reason: `no executable ${command} the server can run` };
   let cwd: string;
   try {
     cwd = await mkdtemp(join(tmpdir(), "corral-naming-"));

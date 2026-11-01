@@ -253,3 +253,19 @@ test("a task created from a prompt starts in the configured root, under the proj
     argv: ["--session-id", expect.any(String), " Fix the flaky login test"],
   });
 });
+
+test("a new subscription asks the filesystem again, so a newly installed command is found", async () => {
+  const command = join(server.scratchDir, "late-pi");
+  const watcher = await openWatcher();
+  await mkdir(server.configDir, { recursive: true });
+  await writeFile(configFile(), `[agents.pi]\ncommand = "${command}"\n`);
+
+  const configured = await watcher.next("the configured command");
+  expect(configured.agents.find((agent) => agent.kind === "pi")?.found).toBe(false);
+
+  // The config file is untouched: only the executable appears.
+  await writeFile(command, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+  const after = await openWatcher();
+  expect(after.initial.agents.find((agent) => agent.kind === "pi")?.found).toBe(true);
+});

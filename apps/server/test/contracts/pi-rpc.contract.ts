@@ -141,6 +141,16 @@ async function agentDir(): Promise<string> {
               contextWindow: 128000,
               maxTokens: 4096,
             },
+            // A second model with reasoning, so the model/level switch below has a real target.
+            {
+              id: "stub-2",
+              name: "Stub Two",
+              reasoning: true,
+              input: ["text"],
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              contextWindow: 128000,
+              maxTokens: 4096,
+            },
           ],
         },
       },
@@ -320,6 +330,29 @@ test.skipIf(!installed)(
       expect(last.role).toBe("user");
       // Newer pi sends content blocks; the words are what matters here.
       expect(JSON.stringify(last.content)).toContain(WORKSPACE_MESSAGE);
+
+      // The ref shapes the chat's pickers send: a model from pi's own list, then a level from the
+      // list the new model reports. A wrong shape or provider is refused by the real binary. Last,
+      // because a reasoning model changes the prompt's first role from `system` to `developer`.
+      const target = second.timeline.state.models.find((model) => model.id === "stub-2");
+      expect(target, "the stub provider's second model").toBeDefined();
+      await second.setModel({ provider: target!.provider, id: target!.id });
+      await expect
+        .poll(() => second.timeline.state.model?.id, {
+          timeout: 30_000,
+          message: "the switched model",
+        })
+        .toBe("stub-2");
+      const levels = second.timeline.state.reasoningLevels;
+      expect(levels.length, "the new model's thinking levels").toBeGreaterThan(0);
+      const level = levels.at(-1)!;
+      await second.setReasoning(level);
+      await expect
+        .poll(() => second.timeline.state.reasoning, {
+          timeout: 30_000,
+          message: "the switched level",
+        })
+        .toBe(level);
     } finally {
       await second.stop();
     }

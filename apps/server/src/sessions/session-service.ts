@@ -1,5 +1,4 @@
-import type { LaunchProfile } from "@corral/protocol/config";
-import type { AgentKind } from "@corral/protocol/config";
+import { agentCommand, type AgentKind, type LaunchProfile } from "@corral/protocol/config";
 import type {
   AgentStatus,
   CreateTerminalInput,
@@ -485,7 +484,7 @@ export class SessionService {
   /** The executable a launch of `kind` runs: `[agents.<kind>].command`, else the agent's name. */
   #agentCommand(kind: SessionKind): string {
     if (kind === "shell") throw new Error("a shell has no agent command");
-    return this.#config.state().config.agents[kind].command.value;
+    return agentCommand(this.#config.state().config, kind);
   }
 
   #agentEnabled(kind: AgentKind): boolean {

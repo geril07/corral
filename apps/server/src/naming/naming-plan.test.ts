@@ -50,6 +50,14 @@ test("a profile supplies agent, model and environment; the section's model wins"
   });
 });
 
+test("a source that knows the configured command carries it into the plan", () => {
+  const withCommand: NamingSettingsSource = {
+    ...source(settings({ agent: { value: "pi", source: "global" } })),
+    command: (kind) => `/opt/${kind}/bin/${kind}`,
+  };
+  expect(namingPlan(withCommand, { generatedSlug: false })?.command).toBe("/opt/pi/bin/pi");
+});
+
 test("an agent alone runs with the default timeout and no model", () => {
   expect(
     namingPlan(source(settings({ agent: { value: "pi", source: "global" } })), {

@@ -45,8 +45,21 @@ test("a custom command is used for a launch, so no PATH lookup can find the agen
 
   const session = await primarySession(task.primarySessionId);
   expect(session).toMatchObject({ kind: "pi", state: "running" });
-  const launches = await launchesOf(agents, "pi", 1);
-  expect(launches[0]?.argv.some((argument) => argument.trim() === "Name the files")).toBe(true);
+  const [terminalLaunch] = await launchesOf(agents, "pi", 1);
+  expect(terminalLaunch?.argv.some((argument) => argument.trim() === "Name the files")).toBe(true);
+
+  // The chat launch reads the same effective command; with the fake bin off PATH it can only run
+  // through the override.
+  const chatTask = await api.tasks.create({
+    projectId: project.id,
+    prompt: "Chat with the custom command",
+    agent: { kind: "pi", view: "chat" },
+    workspace: { type: "main-worktree" },
+  });
+  const chatSession = await primarySession(chatTask.primarySessionId);
+  expect(chatSession).toMatchObject({ kind: "pi", view: "chat", state: "running" });
+  const launches = await launchesOf(agents, "pi", 2);
+  expect(launches.some((launch) => launch.argv.includes("rpc"))).toBe(true);
 
   // Settings' "found" uses the same effective command, not the agent's name on PATH.
   const config = await api.config.watch();
@@ -54,6 +67,26 @@ test("a custom command is used for a launch, so no PATH lookup can find the agen
   await config.return?.();
   const state = ConfigState.parse(first.value);
   expect(state.agents.find((agent) => agent.kind === "pi")?.found).toBe(true);
+});
+
+test("the custom command is used for a naming run too", async () => {
+  vi.stubEnv("PATH", `${dirname(process.execPath)}:/usr/bin:/bin`);
+  await writeConfig(
+    `[agents.pi]\ncommand = "${join(FAKE_BIN, "pi")}"\n[naming]\nagent = "pi"\ntimeout-seconds = 1\n`,
+  );
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "Name this task",
+    workspace: { type: "main-worktree" },
+  });
+  // The fake pi prints no name, so the seed title stays; the launch itself is the assertion.
+  expect(task.title).toBe("Name this task");
+  const [naming] = await launchesOf(agents, "pi", 1);
+  expect(naming?.argv).toContain("-p");
+  expect(naming?.argv).toContain("--no-session");
+  expect(naming?.argv).toContain("--no-tools");
 });
 
 test("a disabled agent is refused and never launched", async () => {
@@ -161,13 +194,26 @@ test("the model and level lists come from the fake pi and a switch reaches it", 
     expect(state.models.map((model) => model.id)).toEqual(["stub-1", "stub-2"]);
     expect(state.reasoningLevels).toEqual(["off", "low", "medium", "high"]);
 
+    // A level the first model takes, so the switch below has one the second model does not.
+    await api.chat.setReasoning({ sessionId: session.id, level: "low" });
+    await untilState((candidate) => candidate.reasoning === "low", "the first level");
+
     await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-2" } });
-    await api.chat.setReasoning({ sessionId: session.id, level: "high" });
     const switched = await untilState(
-      (candidate) => candidate.model?.id === "stub-2" && candidate.reasoning === "high",
-      "the switched model and level",
+      (candidate) => candidate.model?.id === "stub-2" && candidate.reasoningLevels.includes("max"),
+      "the new model's level list",
     );
     expect(switched.model).toEqual({ provider: "stub", id: "stub-2", name: "Stub Two" });
+    // The list is the new model's, and the level pi clamped to is what the driver read back.
+    expect(switched.reasoningLevels).toEqual(["off", "medium", "high", "max"]);
+    expect(switched.reasoning).toBe("medium");
+
+    // A level the new model does not take is refused by pi and reported as such.
+    await expect(
+      api.chat.setReasoning({ sessionId: session.id, level: "low" }),
+    ).rejects.toMatchObject({ code: "CHAT_REASONING_UNSUPPORTED" });
+    await api.chat.setReasoning({ sessionId: session.id, level: "high" });
+    await untilState((candidate) => candidate.reasoning === "high", "the new level");
   } finally {
     await updates.return?.();
   }

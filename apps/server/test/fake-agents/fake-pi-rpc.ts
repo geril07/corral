@@ -38,6 +38,11 @@ export function startFakePiRpc(argv: readonly string[]): void {
     { id: "stub-1", name: "Stub One", provider: "stub" },
     { id: "stub-2", name: "Stub Two", provider: "stub" },
   ];
+  // pi's thinking levels are per model: the second model adds `max` and has no `low`.
+  const levelsFor = (model: { id: string }): readonly string[] =>
+    model.id === "stub-2" ? ["off", "medium", "high", "max"] : ["off", "low", "medium", "high"];
+  let currentModel = models[0]!;
+  let currentLevel = "medium";
   let buffer = "";
   let dialogCount = 0;
   let running = false;
@@ -96,8 +101,8 @@ export function startFakePiRpc(argv: readonly string[]): void {
           process.exit(0);
         }
         respond(id, "get_state", {
-          model: models[0],
-          thinkingLevel: "medium",
+          model: currentModel,
+          thinkingLevel: currentLevel,
           isStreaming: running,
           messageCount: history.length,
           sessionId,
@@ -113,24 +118,40 @@ export function startFakePiRpc(argv: readonly string[]): void {
         respond(id, "get_available_models", { models });
         return;
       case "get_available_thinking_levels":
-        respond(id, "get_available_thinking_levels", { levels: ["off", "low", "medium", "high"] });
+        respond(id, "get_available_thinking_levels", { levels: levelsFor(currentModel) });
         return;
       case "set_model": {
-        const model = models.find((candidate) => candidate.id === record["modelId"]);
+        const model = models.find(
+          (candidate) =>
+            candidate.id === record["modelId"] && candidate.provider === record["provider"],
+        );
         if (model === undefined) {
           reply(id, "set_model", {
             success: false,
-            error: `Model not found: ${String(record["modelId"])}`,
+            error: `Model not found: ${String(record["provider"])}/${String(record["modelId"])}`,
           });
           return;
         }
+        currentModel = model;
+        // pi clamps a level the new model does not take; the driver reads it back with `get_state`.
+        if (!levelsFor(model).includes(currentLevel)) currentLevel = "medium";
         respond(id, "set_model", model);
         return;
       }
-      case "set_thinking_level":
+      case "set_thinking_level": {
+        const level = typeof record["level"] === "string" ? record["level"] : "";
+        if (!levelsFor(currentModel).includes(level)) {
+          reply(id, "set_thinking_level", {
+            success: false,
+            error: `Thinking level not supported: ${level}`,
+          });
+          return;
+        }
+        currentLevel = level;
         respond(id, "set_thinking_level");
-        send({ type: "thinking_level_changed", level: record["level"] });
+        send({ type: "thinking_level_changed", level });
         return;
+      }
       case "prompt":
       case "steer":
       case "follow_up": {

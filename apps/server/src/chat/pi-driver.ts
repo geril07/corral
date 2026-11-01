@@ -16,6 +16,7 @@ import {
   command,
   objectField,
   recordsField,
+  stringField,
   stringsField,
   typeOf,
   type PiRecord,
@@ -216,6 +217,28 @@ export class PiDriver {
         id: typeof data["id"] === "string" ? data["id"] : model.id,
         name: typeof data["name"] === "string" ? data["name"] : model.id,
       },
+    });
+    // pi's thinking levels belong to the model in effect (`xhigh`/`max` appear only where the
+    // model supports them), so the level and the accepted list are re-read after the switch. The
+    // model change itself has succeeded: a failed refresh must not report it as refused, and a
+    // dead frontend surfaces on the next command.
+    try {
+      await this.#refreshModelState();
+    } catch {
+      // Keep the switched model; the list stays as it was until the next successful read.
+    }
+  }
+
+  /** What the model in effect reports about reasoning: the level it runs at and the levels it takes. */
+  async #refreshModelState(): Promise<void> {
+    const [state, levels] = await Promise.all([
+      this.#requestCommand("get_state"),
+      this.#requestCommand("get_available_thinking_levels"),
+    ]);
+    if (this.#closed) return;
+    this.timeline.setState({
+      reasoning: stringField(state, "thinkingLevel") ?? null,
+      reasoningLevels: stringsField(levels, "levels"),
     });
   }
 

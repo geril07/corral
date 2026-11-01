@@ -116,8 +116,8 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
 - The chat's control row shows the model and reasoning level the driver reported; each opens a
   keyboard-first list of what the driver offers (type to filter, Enter applies) and the same two
   choosers are palette actions, `prefix m` for the model and `prefix shift+m` for the level. A
-  refused choice keeps the list open with the server's sentence. A terminal session has no model
-  or level control.
+  refused choice keeps the list open with a sentence naming the model or level the agent does not
+  offer. A terminal session has no model or level control.
 - The composer's view control offers `terminal` always and `chat` only for an agent
   `chat.capabilities` reports a driver for. A `[tasks] view = "chat"` (or a project's) that names
   an agent without a driver is reported as a config warning and opens in the terminal; when the

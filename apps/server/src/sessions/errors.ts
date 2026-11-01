@@ -17,7 +17,12 @@ export class AlreadyRunningError extends Error {
 export class AgentNotFoundError extends Error {
   readonly command: string;
   constructor(command: string) {
-    super(`${command} is not on the server's PATH`);
+    // A `[agents.<kind>].command` is an absolute path; PATH is not where it was looked for.
+    super(
+      command.includes("/")
+        ? `${command} is not an executable the server can run`
+        : `${command} is not on the server's PATH`,
+    );
     this.command = command;
   }
 }
