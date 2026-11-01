@@ -27,8 +27,6 @@ interface IssueImportSectionProps {
   onImported: (source: TaskSource) => void;
   /** The draft no longer matches its source (URL/provider edited, or a new import started). */
   onCleared: () => void;
-  /** The issue title is only a default; the dialog decides whether to apply it. */
-  onTitleDefault: (title: string) => void;
   onImportingChange: (importing: boolean) => void;
 }
 
@@ -37,7 +35,6 @@ export function IssueImportSection({
   source,
   onImported,
   onCleared,
-  onTitleDefault,
   onImportingChange,
 }: IssueImportSectionProps) {
   const [issueUrl, setIssueUrl] = useState("");
@@ -102,7 +99,6 @@ export function IssueImportSection({
       setIssueUrl(imported.url);
       setProviderHost(undefined);
       onImported(imported);
-      onTitleDefault(imported.title);
     } catch (reason) {
       if (current.signal.aborted) return;
       const host = providerRequiredHost(reason);

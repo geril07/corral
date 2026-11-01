@@ -16,7 +16,7 @@ import {
 } from "../../common/ui/index.ts";
 import { AddProjectDialog } from "../projects/index.ts";
 import { AgentPicker, RemoveSessionDialog, StoppedSession } from "../sessions/index.ts";
-import { NewTaskDialog, RemoveTaskDialog, TaskSourceDialog } from "../tasks/index.ts";
+import { NewTaskView, RemoveTaskDialog, TaskSourceDialog } from "../tasks/index.ts";
 import { TerminalView } from "../terminal/index.ts";
 import { ConnectionNotice } from "../connection/index.ts";
 import {
@@ -83,6 +83,7 @@ export function WorkspaceScreen({
     currentSessionLabels,
     sidebar,
     dialog,
+    composing,
     failure,
     armed,
     actions,
@@ -105,6 +106,7 @@ export function WorkspaceScreen({
     selectEntry,
     toggleSettle,
     openNewTask,
+    closeNewTask,
     loadBranches,
     openRemoveTask,
     openRemoveSession,
@@ -119,6 +121,28 @@ export function WorkspaceScreen({
   } = useWorkspace({ search, onChange, onOpenBoard, onOpenSettings });
   const restartKey = keyHint(config, "restart-session");
   const settingsBinding = formatBinding(config, "settings");
+  // The composer is a view, not a dialog: `prefix t` shows it over the selected task, and it is
+  // also what the main area shows when no task or loose terminal is selected (`layout.md`,
+  // **New task view**, **Empty states**).
+  const showComposer =
+    composing !== undefined || (selection.taskId === null && current === undefined);
+  const composerProject =
+    composing?.project ??
+    projects.find((project) => project.id === selection.projectId) ??
+    projects[0];
+  const composer =
+    showComposer && loaded && composerProject !== undefined ? (
+      <NewTaskView
+        projects={projects}
+        project={composerProject}
+        config={config}
+        profiles={profiles}
+        loadBranches={loadBranches}
+        onCreate={createTask}
+        onResolveIssue={resolveIssue}
+        onCancel={closeNewTask}
+      />
+    ) : undefined;
 
   const session =
     current?.terminal !== undefined ? (
@@ -211,7 +235,7 @@ export function WorkspaceScreen({
             <AlertDescription>{failure}</AlertDescription>
           </Alert>
         )}
-        {currentTaskNode && (
+        {currentTaskNode && composing === undefined && (
           <TaskHeader
             node={currentTaskNode}
             project={currentTaskProject}
@@ -222,7 +246,7 @@ export function WorkspaceScreen({
             onViewSource={openTaskSource}
           />
         )}
-        {currentTaskNode && (
+        {currentTaskNode && composing === undefined && (
           <SessionTabs
             entries={currentTaskNode.sessions}
             labels={currentSessionLabels}
@@ -238,7 +262,8 @@ export function WorkspaceScreen({
           />
         )}
         <div className="relative min-h-0 flex-1" role="region" aria-label="task content">
-          {session ??
+          {composer ??
+            session ??
             (loaded && (
               <EmptyWorkspace
                 hasProjects={projects.length > 0}
@@ -254,16 +279,6 @@ export function WorkspaceScreen({
       </MainPanel>
       {dialog?.kind === "add-project" && (
         <AddProjectDialog onAdd={addProject} onClose={() => setDialog(undefined)} />
-      )}
-      {dialog?.kind === "new-task" && (
-        <NewTaskDialog
-          projects={projects}
-          project={dialog.project}
-          loadBranches={loadBranches}
-          onCreate={createTask}
-          onResolveIssue={resolveIssue}
-          onClose={() => setDialog(undefined)}
-        />
       )}
       {dialog?.kind === "pick-agent" && (
         <AgentPicker
@@ -330,8 +345,8 @@ export function WorkspaceScreen({
 }
 
 /**
- * The main area's empty states (`layout.md`, **Empty states**). The no-task-selected view keeps
- * today's behavior until the new-task view replaces it.
+ * The main area's remaining empty states (`layout.md`, **Empty states**): no project at all, or a
+ * task without sessions. A task that is merely not selected shows the new-task composer instead.
  */
 function EmptyWorkspace({
   hasProjects,
@@ -351,33 +366,21 @@ function EmptyWorkspace({
   onNewAgent: (opener?: HTMLElement) => void;
 }) {
   if (!hasProjects) return <NoProjectState onAdd={onAddProject} />;
-  if (task !== undefined && task.id !== undefined) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-4">
-        <p className="m-0 text-muted-foreground">No sessions</p>
-        <div className="flex flex-wrap justify-center gap-2">
-          <Button variant="default" onClick={(event) => onNewAgent(event.currentTarget)}>
-            Start agent
-          </Button>
-          <Button variant="outline" onClick={onNewTerminal}>
-            Open shell
-          </Button>
-        </div>
-        <p className="m-0 text-xs text-muted-foreground">
-          {[agentHint, terminalHint].filter(Boolean).join(" ")}
-        </p>
-      </div>
-    );
-  }
+  if (task === undefined) return null;
   return (
-    <div className="px-4 py-6">
-      <p className="mb-3">No terminals.</p>
-      <div className="flex gap-2">
-        <Button variant="default" onClick={onNewTerminal}>
-          New terminal
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-4">
+      <p className="m-0 text-muted-foreground">No sessions</p>
+      <div className="flex flex-wrap justify-center gap-2">
+        <Button variant="default" onClick={(event) => onNewAgent(event.currentTarget)}>
+          Start agent
+        </Button>
+        <Button variant="outline" onClick={onNewTerminal}>
+          Open shell
         </Button>
       </div>
-      <p className="mt-3 text-muted-foreground">{terminalHint}</p>
+      <p className="m-0 text-xs text-muted-foreground">
+        {[agentHint, terminalHint].filter(Boolean).join(" ")}
+      </p>
     </div>
   );
 }

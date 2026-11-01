@@ -14,8 +14,10 @@ import {
   appWithProject as openProject,
   createTask,
   createTaskWithShell,
+  expandTitleButton,
   focusedIsTerminal,
-  newTaskDialog,
+  newTaskView,
+  promptField,
   shellTabs,
   taskButton,
   workspace,
@@ -41,7 +43,8 @@ test("shift+p adds a project and the dialog returns the keyboard", async () => {
   await appWithProject();
 
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-  await expect.element(page.getByText(/No terminals/)).toBeVisible();
+  // With a project and no task the main area is the composer, ready for a prompt.
+  await expect.element(page.getByRole("form", { name: "New task" })).toBeVisible();
 });
 
 test("a path outside any repository, or a repository added twice, is explained in the dialog", async () => {
@@ -81,7 +84,7 @@ test("creating a task starts no session: the task stays empty until one is added
 test("a new task gets its own worktree and a terminal opens in it", async () => {
   const { client } = await appWithProject();
 
-  await createTaskWithShell("Fix login");
+  await createTaskWithShell("Fix login", 1, { workspace: "new-worktree" });
 
   const task = taskNamed(client, "Fix login");
   expect(task).toMatchObject({ ownsWorktree: true, state: "active" });
@@ -165,56 +168,37 @@ test("New task starts on the selected project and can create the task in another
   await taskButton("Here").click();
   await expect.element(taskButton("Here")).toHaveAttribute("aria-current", "true");
   await prefixThen("t");
-  await expect.element(newTaskDialog().getByRole("textbox", { name: "Title" })).toHaveFocus();
-  await userEvent.keyboard("There");
-  const project = newTaskDialog().getByRole("combobox", { name: /Project/ });
-  await expect.element(project).toHaveValue(first.name);
+  await expect.element(promptField()).toHaveFocus();
+  const project = newTaskView().getByRole("combobox", { name: /^Project / });
+  await expect.element(project).toHaveAccessibleName(`Project ${first.name}`);
   await userEvent.click(project);
-  await userEvent.fill(project, other.name);
   await page.getByRole("option", { name: new RegExp(other.name) }).click();
-  await expect.element(project).toHaveValue(other.name);
-  await newTaskDialog().getByRole("button", { name: "Create task" }).click();
+  await expect.element(project).toHaveAccessibleName(`Project ${other.name}`);
+
+  await expandTitleButton().click();
+  await userEvent.keyboard("There{Enter}");
 
   await expect.element(taskButton("There")).toBeVisible();
   expect(taskNamed(client, "There").projectId).toBe(other.id);
 });
 
-test("an existing branch is picked in the dialog with the keyboard", async () => {
+test("an existing branch is picked in the workspace list with the keyboard", async () => {
   const { client } = await appWithProject(["feature/x", "other"]);
 
   await prefixThen("t");
-  await expect.element(newTaskDialog().getByRole("textbox", { name: "Title" })).toHaveFocus();
+  await expect.element(promptField()).toHaveFocus();
+  await promptField().click();
   await userEvent.keyboard("Continue");
-  await newTaskDialog().getByRole("radio", { name: "Existing branch" }).click();
-  const branch = newTaskDialog().getByRole("combobox", { name: "Branch" });
-  await userEvent.click(branch);
+  const workspacePicker = newTaskView().getByRole("combobox", { name: /^Workspace / });
+  await userEvent.click(workspacePicker);
   await userEvent.keyboard("feat");
-  await userEvent.keyboard("{ArrowDown}{Enter}{Enter}");
+  await userEvent.keyboard("{Enter}");
+  await expect.element(workspacePicker).toHaveAccessibleName("Workspace feature/x");
+  await userEvent.click(promptField());
+  await userEvent.keyboard("{Enter}");
 
   await expect.element(taskButton("Continue")).toBeVisible();
   expect(taskNamed(client, "Continue").branch).toBe("feature/x");
-});
-
-test("git's own message is shown in the dialog when it refuses, and the form stays as it was", async () => {
-  await appWithProject();
-
-  await prefixThen("t");
-  await expect.element(newTaskDialog().getByRole("textbox", { name: "Title" })).toHaveFocus();
-  await userEvent.keyboard("Doomed");
-  await userEvent.fill(
-    newTaskDialog().getByRole("textbox", { name: "Base branch (optional)" }),
-    "no-such-base",
-  );
-  await userEvent.keyboard("{Enter}");
-
-  await expect.element(newTaskDialog().getByRole("alert")).toMatchTextContent(/no-such-base/);
-  await expect
-    .element(newTaskDialog().getByRole("textbox", { name: "Title" }))
-    .toHaveValue("Doomed");
-  await userEvent.keyboard("{Escape}");
-  await expect
-    .element(workspace().getByRole("button", { name: /^Doomed/ }))
-    .not.toBeInTheDocument();
 });
 
 test("shift+t removes a clean task after a confirmation, and Escape keeps it", async () => {
@@ -241,7 +225,7 @@ test("shift+t removes a clean task after a confirmation, and Escape keeps it", a
 
 test("a worktree with uncommitted files lists them and is only removed by Remove anyway", async () => {
   const { client } = await appWithProject();
-  await createTaskWithShell("Messy");
+  await createTaskWithShell("Messy", 1, { workspace: "new-worktree" });
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
   await userEvent.keyboard("echo scribble > notes.txt; echo done-$((3+4)){Enter}");
   await expect.poll(screenText).toContain("done-7");

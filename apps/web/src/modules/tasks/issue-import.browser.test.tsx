@@ -10,13 +10,18 @@ import { renderApp } from "../../../test/render-app.tsx";
 import {
   addProjectDialog,
   appWithProject as openProject,
+  createTaskButton,
+  expandIssueButton,
+  expandTitleButton,
   importIssueButton,
   issueUrlField,
-  newTaskDialog,
+  newTaskView,
   openTaskSource,
+  promptField,
   taskActionsButton,
   taskButton,
   taskSourceDialog,
+  titleField,
 } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
@@ -39,6 +44,11 @@ function taskNamed(client: CorralClient, title: string): Task {
   return task;
 }
 
+/** Opens the composer's issue field: it expands in place from its text button. */
+async function openIssueImport() {
+  await expandIssueButton().click();
+}
+
 afterEach(async () => {
   await setServerEnv("PATH", await issueCliPath("with"));
   await setServerEnv("FAKE_ISSUE_MODE", "ok");
@@ -50,28 +60,28 @@ afterEach(async () => {
   await clearIssueCliCalls();
 });
 
-test("an explicit GitHub import fills the title, keeps a local edit, and the source reopens after a reload", async () => {
+test("an explicit GitHub import fills the prompt, keeps a local title, and the source reopens after a reload", async () => {
   await clearIssueCliCalls();
   const { client, repo, rendered } = await appWithProject();
   await setServerEnv("FAKE_ISSUE_MODE", "ok");
   await setServerEnv("FAKE_ISSUE_RESPONSE", issue("Use <b>bold</b> & $(touch pwned)"));
 
   await prefixThen("t");
-  await expect.element(newTaskDialog().getByRole("textbox", { name: "Title" })).toHaveFocus();
+  await expect.element(promptField()).toHaveFocus();
+  await openIssueImport();
   await userEvent.fill(issueUrlField(), GITHUB_URL);
   expect(await issueCliCalls()).toEqual([]);
 
   await importIssueButton().click();
   await expect
-    .element(newTaskDialog().getByRole("status"))
+    .element(newTaskView().getByRole("status"))
     .toMatchTextContent("Imported GitHub issue acme/app#7");
-  await expect
-    .element(newTaskDialog().getByRole("textbox", { name: "Title" }))
-    .toHaveValue("Issue title");
+  await expect.element(promptField()).toHaveValue(`Issue title\n\n${GITHUB_URL}`);
 
-  await userEvent.fill(newTaskDialog().getByRole("textbox", { name: "Title" }), "My local title");
-  await newTaskDialog().getByRole("button", { name: "Create task" }).click();
-  await expect.element(newTaskDialog()).not.toBeInTheDocument();
+  await expandTitleButton().click();
+  await userEvent.fill(titleField(), "My local title");
+  await createTaskButton().click();
+  await expect.element(newTaskView()).not.toBeInTheDocument();
   await expect.element(taskButton("My local title")).toBeVisible();
   const created = taskNamed(client, "My local title");
   expect(created.source).toMatchObject({
@@ -82,6 +92,7 @@ test("an explicit GitHub import fills the title, keeps a local edit, and the sou
     title: "Issue title",
     body: "Use <b>bold</b> & $(touch pwned)",
   });
+  expect(created.prompt).toBe(`Issue title\n\n${GITHUB_URL}`);
   expect(await issueCliCalls()).toEqual([
     {
       command: "gh",
@@ -108,8 +119,9 @@ test("an explicit GitHub import fills the title, keeps a local edit, and the sou
   await expect.element(link).toHaveAttribute("target", "_blank");
   await expect.element(link).toHaveAttribute("rel", "noopener noreferrer");
 
+  // The source dialog owns the keyboard: the new-task key does nothing behind it.
   await userEvent.keyboard("{Alt>}a{/Alt}t");
-  await expect.element(newTaskDialog()).not.toBeInTheDocument();
+  await expect.element(newTaskView()).not.toBeInTheDocument();
   await taskSourceDialog().getByRole("button", { name: "Close" }).click();
   await expect.element(taskActionsButton("My local title")).toHaveFocus();
 });
@@ -129,19 +141,20 @@ test("a self-hosted host asks for GitHub or GitLab before the second explicit im
   );
 
   await prefixThen("t");
+  await openIssueImport();
   await userEvent.fill(issueUrlField(), "https://gitlab.example.com/group/project/-/issues/3");
   await importIssueButton().click();
   await expect
-    .element(newTaskDialog().getByText("gitlab.example.com could be GitHub or GitLab"))
+    .element(newTaskView().getByText("gitlab.example.com could be GitHub or GitLab"))
     .toBeVisible();
   await expect.element(importIssueButton()).toBeDisabled();
 
-  await newTaskDialog().getByRole("radio", { name: "GitLab" }).click();
+  await newTaskView().getByRole("radio", { name: "GitLab" }).click();
   await importIssueButton().click();
   await expect
-    .element(newTaskDialog().getByRole("status"))
+    .element(newTaskView().getByRole("status"))
     .toMatchTextContent("Imported GitLab issue group/project#3");
-  await newTaskDialog().getByRole("button", { name: "Create task" }).click();
+  await createTaskButton().click();
   await expect.element(taskButton("Self hosted title")).toBeVisible();
   expect(taskNamed(client, "Self hosted title").source).toMatchObject({
     provider: "gitlab",
@@ -167,13 +180,14 @@ test("a self-hosted host asks for GitHub or GitLab before the second explicit im
 test("malformed, auth, network and missing-CLI failures leave manual creation working and no source", async () => {
   const { client } = await appWithProject();
   await prefixThen("t");
+  await openIssueImport();
   await userEvent.fill(issueUrlField(), GITHUB_URL);
 
   await setServerEnv("FAKE_ISSUE_MODE", "ok");
   await setServerEnv("FAKE_ISSUE_RESPONSE", "{");
   await importIssueButton().click();
   await expect
-    .element(newTaskDialog().getByRole("alert"))
+    .element(newTaskView().getByRole("alert"))
     .toMatchTextContent("The issue tool returned something Corral could not read.");
 
   await setServerEnv("FAKE_ISSUE_MODE", "fail");
@@ -184,32 +198,30 @@ test("malformed, auth, network and missing-CLI failures leave manual creation wo
   );
   await importIssueButton().click();
   await expect
-    .element(newTaskDialog().getByRole("alert"))
+    .element(newTaskView().getByRole("alert"))
     .toMatchTextContent("The server's GitHub CLI is not logged in for this host.");
 
   await setServerEnv("FAKE_ISSUE_EXIT", "1");
   await setServerEnv("FAKE_ISSUE_STDERR", "dial tcp: lookup github.com: no such host");
   await importIssueButton().click();
   await expect
-    .element(newTaskDialog().getByRole("alert"))
+    .element(newTaskView().getByRole("alert"))
     .toMatchTextContent("Could not reach the issue host.");
 
   const previousPath = await setServerEnv("PATH", await issueCliPath("missing"));
   try {
     await importIssueButton().click();
     await expect
-      .element(newTaskDialog().getByRole("alert"))
+      .element(newTaskView().getByRole("alert"))
       .toMatchTextContent("gh was not found on the server's PATH.");
   } finally {
     await setServerEnv("PATH", previousPath ?? (await issueCliPath("with")));
   }
-  await expect.element(newTaskDialog().getByRole("textbox", { name: "Title" })).toHaveValue("");
+  await expect.element(promptField()).toHaveValue("");
 
-  await userEvent.fill(
-    newTaskDialog().getByRole("textbox", { name: "Title" }),
-    "Manual after failures",
-  );
-  await newTaskDialog().getByRole("button", { name: "Create task" }).click();
+  await expandTitleButton().click();
+  await userEvent.fill(titleField(), "Manual after failures");
+  await createTaskButton().click();
   await expect.element(taskButton("Manual after failures")).toBeVisible();
   expect(taskNamed(client, "Manual after failures").source).toBeUndefined();
   await taskActionsButton("Manual after failures").click();
@@ -224,23 +236,22 @@ test("an arbitrary host chosen as GitHub is untrusted before the CLI runs", asyn
   await setServerEnv("GH_ENTERPRISE_TOKEN", "SENTINEL_ENTERPRISE_TOKEN");
 
   await prefixThen("t");
+  await openIssueImport();
   await userEvent.fill(issueUrlField(), "https://attacker.example/acme/app/issues/1");
   await importIssueButton().click();
   await expect
-    .element(newTaskDialog().getByText("attacker.example could be GitHub or GitLab"))
+    .element(newTaskView().getByText("attacker.example could be GitHub or GitLab"))
     .toBeVisible();
-  await newTaskDialog().getByRole("radio", { name: "GitHub" }).click();
+  await newTaskView().getByRole("radio", { name: "GitHub" }).click();
   await importIssueButton().click();
   await expect
-    .element(newTaskDialog().getByRole("alert"))
+    .element(newTaskView().getByRole("alert"))
     .toMatchTextContent(/attacker\.example is not a configured GitHub host/);
   expect(await issueCliCalls()).toEqual([]);
 
-  await userEvent.fill(
-    newTaskDialog().getByRole("textbox", { name: "Title" }),
-    "Manual after untrusted host",
-  );
-  await newTaskDialog().getByRole("button", { name: "Create task" }).click();
+  await expandTitleButton().click();
+  await userEvent.fill(titleField(), "Manual after untrusted host");
+  await createTaskButton().click();
   await expect.element(taskButton("Manual after untrusted host")).toBeVisible();
   expect(taskNamed(client, "Manual after untrusted host").source).toBeUndefined();
 });
@@ -260,8 +271,9 @@ test("the project chooser uses the current project host/cwd and cancels a pendin
   );
 
   await prefixThen("t");
-  await userEvent.fill(newTaskDialog().getByRole("textbox", { name: "Title" }), "Here");
-  await newTaskDialog().getByRole("button", { name: "Create task" }).click();
+  await expandTitleButton().click();
+  await userEvent.fill(titleField(), "Here");
+  await createTaskButton().click();
   await expect.element(taskButton("Here")).toBeVisible();
   const first = client.projects.getSnapshot().projects.find((project) => project.path === repo)!;
 
@@ -275,44 +287,38 @@ test("the project chooser uses the current project host/cwd and cancels a pendin
   // The task in the first project selects that project for the composer (flat mode lists tasks).
   await taskButton("Here").click();
   await prefixThen("t");
-  await userEvent.fill(
-    newTaskDialog().getByRole("textbox", { name: "Issue URL" }),
-    "https://gitlab.example.com/group/project/-/issues/3",
-  );
+  await openIssueImport();
+  await userEvent.fill(issueUrlField(), "https://gitlab.example.com/group/project/-/issues/3");
   await importIssueButton().click();
   await expect
-    .element(newTaskDialog().getByText("gitlab.example.com could be GitHub or GitLab"))
+    .element(newTaskView().getByText("gitlab.example.com could be GitHub or GitLab"))
     .toBeVisible();
-  await newTaskDialog().getByRole("radio", { name: "GitLab" }).click();
+  await newTaskView().getByRole("radio", { name: "GitLab" }).click();
   await setServerEnv("FAKE_ISSUE_MODE", "slow");
   await importIssueButton().click();
-  await expect.element(newTaskDialog().getByRole("button", { name: "Importing…" })).toBeVisible();
+  await expect.element(newTaskView().getByRole("button", { name: "Importing…" })).toBeVisible();
   await vi.waitFor(async () => expect(await issueCliCalls()).toHaveLength(1));
 
-  // Real mouse project switch while the read is pending: the old request is cancelled/ignored.
-  const picker = newTaskDialog().getByRole("combobox", { name: /Project/ });
+  // A project switch while the read is pending: the old request is cancelled and its list cleared.
+  const picker = newTaskView().getByRole("combobox", { name: /^Project / });
   await userEvent.click(picker);
-  await userEvent.fill(picker, other.name);
   await page.getByRole("option", { name: new RegExp(other.name) }).click();
-  await expect.element(picker).toHaveValue(other.name);
+  await expect.element(picker).toHaveAccessibleName(`Project ${other.name}`);
   await expect.element(importIssueButton()).toBeVisible();
-  await expect.element(newTaskDialog().getByRole("status")).not.toBeInTheDocument();
+  await expect.element(newTaskView().getByRole("status")).not.toBeInTheDocument();
 
   await setServerEnv("FAKE_ISSUE_MODE", "ok");
-  await userEvent.fill(
-    newTaskDialog().getByRole("textbox", { name: "Issue URL" }),
-    "https://gitlab.example.com/group/project/-/issues/3",
-  );
+  await userEvent.fill(issueUrlField(), "https://gitlab.example.com/group/project/-/issues/3");
   await importIssueButton().click();
   await expect
-    .element(newTaskDialog().getByText("gitlab.example.com could be GitHub or GitLab"))
+    .element(newTaskView().getByText("gitlab.example.com could be GitHub or GitLab"))
     .toBeVisible();
-  await newTaskDialog().getByRole("radio", { name: "GitLab" }).click();
+  await newTaskView().getByRole("radio", { name: "GitLab" }).click();
   await importIssueButton().click();
   await expect
-    .element(newTaskDialog().getByRole("status"))
+    .element(newTaskView().getByRole("status"))
     .toMatchTextContent("Imported GitLab issue group/project#3");
-  await newTaskDialog().getByRole("button", { name: "Create task" }).click();
+  await createTaskButton().click();
   await expect.element(taskButton("Selected project issue")).toBeVisible();
   expect(taskNamed(client, "Selected project issue").projectId).toBe(other.id);
   expect(await issueCliCalls()).toEqual([

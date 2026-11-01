@@ -52,7 +52,6 @@ const DEFAULT_SIZE: TerminalSize = { cols: 80, rows: 24 };
 
 export type DialogState =
   | { kind: "add-project" }
-  | { kind: "new-task"; project: Project }
   | { kind: "remove-task"; task: Task }
   | { kind: "task-source"; task: Task }
   | { kind: "pick-agent"; taskId: string }
@@ -93,6 +92,12 @@ export function useWorkspace({
   const chosenRef = useRef(chosen);
   const routeSearchRef = useRef(search);
   const [dialog, setDialog] = useState<DialogState>();
+  /**
+   * The main area's new-task view (`layout.md`, **New task view**). It is also what the main area
+   * shows whenever no task is selected, so it is a view, not a dialog: nothing captures the
+   * keyboard, and Escape only returns to the task that was selected before.
+   */
+  const [composing, setComposing] = useState<{ project: Project }>();
   const openDialog = (next: DialogState, opener?: HTMLElement) => {
     dialogFocus?.remember(opener);
     setDialog(next);
@@ -163,6 +168,8 @@ export function useWorkspace({
     const merged = { ...chosenRef.current, ...next };
     chosenRef.current = merged;
     setChosen(merged);
+    // Picking a task (or a loose terminal) leaves the composer; Escape has nothing to undo then.
+    setComposing(undefined);
     onChange(chosenToSearch(merged));
   };
   const showTask = (task: Task | undefined) =>
@@ -366,9 +373,13 @@ export function useWorkspace({
       });
     });
 
-  /** A project group's "new task here" names its project; the header button uses the current one. */
-  const openNewTask = (project?: Project, opener?: HTMLElement) => {
-    const target = project ?? currentTaskProject ?? currentProject;
+  /**
+   * `prefix t` and the sidebar's buttons show the new-task view; `project` names the group whose
+   * "+" was used. Without any project there is nowhere to create a task (`layout.md`, **Empty
+   * states**), so the failure says how to add one.
+   */
+  const openNewTask = (project?: Project) => {
+    const target = project ?? currentTaskProject ?? currentProject ?? projects[0];
     if (!target) {
       const addProject = formatBinding(config, "add-project");
       setFailure(
@@ -377,8 +388,10 @@ export function useWorkspace({
       return;
     }
     setFailure(undefined);
-    openDialog({ kind: "new-task", project: target }, opener);
+    setComposing({ project: target });
   };
+  /** Escape in the composer: the selection it covered is still there and comes back. */
+  const closeNewTask = () => setComposing(undefined);
   const loadBranches = useCallback(
     (projectId: string) => api.projects.branches({ id: projectId }),
     [api],
@@ -514,7 +527,7 @@ export function useWorkspace({
     "new-task": {
       label: "New task",
       group: "Tasks",
-      enabled: currentProject !== undefined,
+      enabled: projects.length > 0,
       run: () => openNewTask(),
     },
     "remove-task": {
@@ -632,6 +645,7 @@ export function useWorkspace({
     taskOrder,
     board,
     dialog,
+    composing,
     failure,
     armed,
     actions,
@@ -655,6 +669,7 @@ export function useWorkspace({
     jumpTo,
     toggleSettle,
     openNewTask,
+    closeNewTask,
     loadBranches,
     openRemoveTask,
     openRemoveSession,

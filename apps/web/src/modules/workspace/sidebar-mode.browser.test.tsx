@@ -38,7 +38,7 @@ async function reportFromHiddenAgent(client: CorralClient, taskId: string, body:
 test("prefix l switches flat and project modes, the device keeps the choice, and the palette lists it", async () => {
   const client = newClient();
   const { rendered } = await appWithProject(client);
-  await createTask("Alpha");
+  await createTask("Alpha", { workspace: "new-worktree" });
 
   // Flat by status is the default: sections carry the list, not the project tree.
   await expect.element(sectionHeading("Done")).toBeVisible();

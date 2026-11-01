@@ -19,10 +19,17 @@ export const focusedIsTerminal = () =>
   document.activeElement?.classList.contains("xterm-helper-textarea");
 
 export const addProjectDialog = () => page.getByRole("dialog", { name: "Add project" });
-export const newTaskDialog = () => page.getByRole("dialog", { name: "New task" });
-export const issueUrlField = () => newTaskDialog().getByRole("textbox", { name: "Issue URL" });
-export const importIssueButton = () =>
-  newTaskDialog().getByRole("button", { name: "Import issue" });
+/** The new-task composer in the main area (`layout.md`, **New task view**): a view, not a dialog. */
+export const newTaskView = () => page.getByRole("form", { name: "New task" });
+export const promptField = () => newTaskView().getByRole("textbox", { name: "Prompt" });
+export const expandTitleButton = () =>
+  newTaskView().getByRole("button", { name: "Title (optional)", exact: true });
+export const titleField = () => newTaskView().getByRole("textbox", { name: "Title (optional)" });
+export const expandIssueButton = () => newTaskView().getByRole("button", { name: "From issue…" });
+export const issueUrlField = () => newTaskView().getByRole("textbox", { name: "Issue URL" });
+export const importIssueButton = () => newTaskView().getByRole("button", { name: "Import issue" });
+export const createTaskButton = () =>
+  newTaskView().getByRole("button", { name: /^(?:Create task|Creating…)$/ });
 export const taskActionsButton = (title: string) =>
   workspace().getByRole("button", { name: `Task actions for ${title}` });
 export const viewIssueSourceAction = () =>
@@ -54,15 +61,28 @@ export async function appWithProject(client: CorralClient, branches: string[] = 
   return { client, repo, rendered };
 }
 
+export interface CreateTaskOptions {
+  /** Where the task works; absent keeps the configured default (the project's main tree). */
+  workspace?: "new-worktree" | "main-worktree";
+}
+
 /**
- * Creates a task from the keyboard with a new branch. Creating a task starts no session: a task
- * without an agent stays empty until one is added (design.md, **Domain model → Task → Creation**).
+ * Creates a task from the composer's optional title, with no prompt, so it starts no session
+ * (`design.md`, **Domain model → Task → Creation**); a prompt-created task starts its agent.
  */
-export async function createTask(title: string) {
+export async function createTask(title: string, options: CreateTaskOptions = {}) {
   await prefixThen("t");
-  await expect.element(newTaskDialog().getByRole("textbox", { name: "Title" })).toHaveFocus();
-  await userEvent.keyboard(`${title}{Enter}`);
-  await expect.element(newTaskDialog()).not.toBeInTheDocument();
+  await expect.element(promptField()).toHaveFocus();
+  if (options.workspace === "new-worktree") {
+    await newTaskView()
+      .getByRole("combobox", { name: /^Workspace / })
+      .click();
+    await userEvent.keyboard("new worktree{Enter}");
+  }
+  await expandTitleButton().click();
+  await userEvent.keyboard(title);
+  await userEvent.keyboard("{Enter}");
+  await expect.element(newTaskView()).not.toBeInTheDocument();
   await expect.element(taskButton(title)).toHaveAttribute("aria-current", "true");
 }
 
@@ -70,8 +90,12 @@ export async function createTask(title: string) {
  * The same, then a terminal to type in. `shellCount` is how many shell tabs the current task
  * shows afterwards.
  */
-export async function createTaskWithShell(title: string, shellCount = 1) {
-  await createTask(title);
+export async function createTaskWithShell(
+  title: string,
+  shellCount = 1,
+  options: CreateTaskOptions = {},
+) {
+  await createTask(title, options);
   await startShell(shellCount);
 }
 

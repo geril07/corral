@@ -251,13 +251,13 @@ test("the first character typed after Escape reaches the terminal", async () => 
   expect(screenText()).not.toContain("not found");
 });
 
-test("prefix t without a project says so instead of opening the task dialog", async () => {
+test("prefix t without a project says so instead of opening the composer", async () => {
   await render(<App client={newClient()} />);
   await expect.element(page.getByText("Add a repository to start")).toBeVisible();
 
   await prefixThen("t");
   await expect.element(page.getByText(/Add a project first/)).toBeVisible();
-  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+  await expect.element(page.getByRole("form", { name: "New task" })).not.toBeInTheDocument();
 });
 
 test("prefix b opens the board, which Escape closes and returns the keyboard from", async () => {
@@ -311,7 +311,9 @@ test("the empty state adds a project from an inline path field", async () => {
   await userEvent.type(page.getByRole("textbox", { name: "Repository path" }), repo);
   await page.getByRole("button", { name: "Add", exact: true }).click();
 
-  await expect.element(page.getByText("No terminals.")).toBeVisible();
+  // With a project and no task selected the main area is the new-task view, prompt first.
+  await expect.element(page.getByRole("form", { name: "New task" })).toBeVisible();
+  await expect.element(page.getByRole("textbox", { name: "Prompt" })).toHaveFocus();
   await expect.element(workspace().getByRole("button", { name: "New task" })).toBeEnabled();
   expect(workspace().getByRole("textbox").elements()).toHaveLength(0);
 });
@@ -345,7 +347,7 @@ test("a task without sessions shows the empty state with its two ways to start o
 
 test("the task header names the task, its project and branch, and its agent", async () => {
   await appWithProject(newClient());
-  await createTask("Header facts");
+  await createTask("Header facts", { workspace: "new-worktree" });
 
   await expect.element(taskHeader().getByRole("heading", { name: "Header facts" })).toBeVisible();
   const where = await vi.waitFor(() => {
