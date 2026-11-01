@@ -121,6 +121,8 @@ export function IssueImportSection({
       <FieldLegend>Import from an issue (optional)</FieldLegend>
       <FormField label="Issue URL">
         <Input
+          // The section expands in place; the keyboard goes into it rather than to <body>.
+          autoFocus
           value={issueUrl}
           onChange={(event) => changeUrl(event.target.value)}
           onKeyDown={(event) => {

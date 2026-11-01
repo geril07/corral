@@ -12,6 +12,7 @@ import {
   ComboboxItem,
   ComboboxList,
   ComboboxSearch,
+  ContentLane,
   FormError,
   FormField,
   Input,
@@ -55,6 +56,8 @@ export interface NewTaskViewProps {
     input: { url: string; provider?: IssueProvider | undefined },
     signal: AbortSignal,
   ) => Promise<TaskSource>;
+  /** True while `prefix t` (or a sidebar button) opened the view over a selected task. */
+  opened: boolean;
   /** Escape: back to the task that was selected before the view opened. */
   onCancel: () => void;
 }
@@ -72,6 +75,7 @@ export function NewTaskView({
   loadBranches,
   onCreate,
   onResolveIssue,
+  opened,
   onCancel,
 }: NewTaskViewProps) {
   const [projectId, setProjectId] = useState(project.id);
@@ -91,6 +95,17 @@ export function NewTaskView({
   const [workspaceKey, setWorkspaceKey] = useState<string>();
   const [branches, setBranches] = useState<Branches>({ projectId, status: "loading" });
   const attempt = useAttempt();
+  // An IME commit is not a submission: Enter belongs to the composition while it runs, and Safari
+  // ends the composition before that keydown. The mark is consumed by the next Enter, or cleared
+  // by any other key, so a later Enter submits as usual.
+  const ime = useRef({ composing: false, ended: false });
+
+  // `autoFocus` only runs on mount. `prefix t` on an already-open composer (the no-task state)
+  // must still hand the keyboard to the prompt, so the open transition focuses it again.
+  useEffect(() => {
+    if (!opened) return;
+    promptRef.current?.focus();
+  }, [opened]);
 
   useEffect(() => {
     let current = true;
@@ -107,10 +122,15 @@ export function NewTaskView({
   const branchState: BranchState =
     branches.projectId === projectId ? branches : { status: "loading" };
 
-  const agents = agentChoices(profiles);
+  const settingsAgent = defaultAgent(settings, profiles);
+  // The entry the settings pick carries the configured model, so re-picking the agent already
+  // shown keeps the model instead of falling back to the agent's native default.
+  const agents = agentChoices(profiles).map((choice) =>
+    choice.key === settingsAgent.key ? settingsAgent : choice,
+  );
   const agent =
     (agentKey === undefined ? undefined : agents.find((choice) => choice.key === agentKey)) ??
-    defaultAgent(settings, profiles);
+    settingsAgent;
   const workspaces = workspaceChoices(branchState.status === "loaded" ? branchState.names : []);
   const workspace =
     (workspaceKey === undefined
@@ -124,6 +144,19 @@ export function NewTaskView({
         (each) => each.source === "project",
       )) ||
     (workspaceKey === undefined && settings.workspace.source === "project");
+
+  const startComposition = () => {
+    ime.current = { composing: true, ended: false };
+  };
+  const endComposition = () => {
+    ime.current = { composing: false, ended: true };
+  };
+  /** Whether this Enter confirms a composition; consumes the one keydown that follows its end. */
+  const compositionTakesEnter = () => {
+    const busy = ime.current.composing || ime.current.ended;
+    ime.current = { composing: ime.current.composing, ended: false };
+    return busy;
+  };
 
   const chooseProject = (next: string | null) => {
     if (next === null || next === projectId) return;
@@ -169,7 +202,7 @@ export function NewTaskView({
 
   return (
     <div className="flex h-full min-h-0 justify-center overflow-y-auto px-4">
-      <div className="flex w-full max-w-3xl flex-col">
+      <ContentLane>
         {/* About a third down (`layout.md`); the composer scrolls when the prompt grows. */}
         <div className="h-1/3 min-h-4 shrink-0" aria-hidden="true" />
         <form
@@ -180,11 +213,24 @@ export function NewTaskView({
             event.preventDefault();
             submit();
           }}
+          onCompositionStart={startComposition}
+          onCompositionEnd={endComposition}
           onKeyDown={(event) => {
-            if (event.key !== "Escape") return;
-            event.preventDefault();
-            event.stopPropagation();
-            onCancel();
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              // A failed create keeps its error and the draft in view (`ux.md`: failed submissions
+              // preserve input); leaving now would throw both away.
+              if (attempt.failed) return;
+              onCancel();
+              return;
+            }
+            if (event.key !== "Enter") {
+              ime.current = { composing: ime.current.composing, ended: false };
+              return;
+            }
+            // Stop the implicit submission an Enter in the title field would otherwise trigger.
+            if (event.nativeEvent.isComposing || compositionTakesEnter()) event.preventDefault();
           }}
         >
           <Textarea
@@ -201,8 +247,10 @@ export function NewTaskView({
               setPrompt(event.target.value);
             }}
             onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing) return;
               if (event.key !== "Enter" || event.shiftKey) return;
+              // The form's handler consumes the composition mark, so only check it here.
+              if (event.nativeEvent.isComposing || ime.current.composing || ime.current.ended)
+                return;
               event.preventDefault();
               submit();
             }}
@@ -272,9 +320,16 @@ export function NewTaskView({
               onImportingChange={setImporting}
             />
           )}
-          {failure !== undefined && <FormError>{failure}</FormError>}
+          {failure !== undefined && (
+            <>
+              <FormError>{failure}</FormError>
+              <p className="m-0 text-xs text-muted-foreground">
+                Escape stays here until this is fixed.
+              </p>
+            </>
+          )}
         </form>
-      </div>
+      </ContentLane>
     </div>
   );
 }

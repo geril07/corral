@@ -106,6 +106,7 @@ export function classViolations(source, filename) {
 function controlOverrides(program, diagnostics, line) {
   const structural = new Set([
     "AppShell",
+    "ContentLane",
     "MainPanel",
     "Screen",
     "SidebarPanel",

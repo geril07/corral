@@ -133,6 +133,9 @@ export function WorkspaceScreen({
   const composer =
     showComposer && loaded && composerProject !== undefined ? (
       <NewTaskView
+        // A project navigation (the sidebar, or a group's "+") is a new composer: without this
+        // the view keeps the old project while the sidebar and the URL name the new one.
+        key={composerProject.id}
         projects={projects}
         project={composerProject}
         config={config}
@@ -140,6 +143,7 @@ export function WorkspaceScreen({
         loadBranches={loadBranches}
         onCreate={createTask}
         onResolveIssue={resolveIssue}
+        opened={composing !== undefined}
         onCancel={closeNewTask}
       />
     ) : undefined;

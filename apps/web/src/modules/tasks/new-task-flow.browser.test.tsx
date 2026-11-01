@@ -14,6 +14,7 @@ import {
   shellTabs,
   taskButton,
   taskHeader,
+  workspace,
 } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
@@ -39,8 +40,9 @@ test("the composer sits about a third down, with a four-line prompt in a centere
   expect(prompt.top).toBeGreaterThan(region.height * 0.28);
   expect(prompt.top).toBeLessThan(region.height * 0.4);
   expect(prompt.height).toBeGreaterThanOrEqual(80);
-  // The column is centered on the main area, not on the window.
+  // The column is centered on the main area, not on the window, and is the 46 rem lane.
   expect(prompt.left - region.left).toBeCloseTo(region.right - prompt.right, 0);
+  expect(prompt.width).toBeCloseTo(46 * 16, 0);
 
   // It grows with the prompt, up to half the view.
   await userEvent.fill(
@@ -175,7 +177,69 @@ test("git's refusal stays in the composer and keeps the prompt", async () => {
   await expect.element(promptField()).toHaveValue("Second try");
   expect(client.tasks.getSnapshot().tasks).toHaveLength(1);
 
-  // Escape still goes back to the task this composer covered.
+  // Escape is refused while the error is showing: leaving would throw the draft away, and
+  // `ux.md` promises that a failed submission preserves its input.
   await userEvent.keyboard("{Escape}");
-  await expect.element(taskButton("Take the branch")).toHaveAttribute("aria-current", "true");
+  await expect.element(newTaskView()).toBeVisible();
+  await expect.element(newTaskView().getByRole("alert")).toBeVisible();
+  await expect.element(promptField()).toHaveValue("Second try");
+
+  // Fixing the workspace is enough: the same prompt now creates the task.
+  await userEvent.click(picker(/^Workspace /));
+  await userEvent.keyboard("new worktree{Enter}");
+  await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace new worktree");
+  await userEvent.click(promptField());
+  await userEvent.keyboard("{Enter}");
+  await expect.element(taskButton("Second try")).toHaveAttribute("aria-current", "true");
+  const tasks = client.tasks.getSnapshot().tasks;
+  expect(tasks).toHaveLength(2);
+  expect(tasks.find((task) => task.title === "Second try")?.branch).not.toBe("feature/x");
+});
+
+test("a project picked in the sidebar moves the open composer to it", async () => {
+  // Another file may have left this device in project mode; the default is flat.
+  window.localStorage.removeItem("corral.sidebar-mode");
+  const { client } = await appWithProject(newClient());
+  const otherRepo = await createGitRepo("other");
+  await client.connection.api.projects.add({ path: otherRepo });
+  await vi.waitFor(() => expect(client.projects.getSnapshot().projects).toHaveLength(2));
+  const other = client.projects
+    .getSnapshot()
+    .projects.find((project) => project.path === otherRepo)!;
+  const current = client.projects
+    .getSnapshot()
+    .projects.find((project) => project.path !== otherRepo)!;
+  await expect
+    .element(newTaskView().getByRole("combobox", { name: /^Project / }))
+    .toHaveAccessibleName(`Project ${current.name}`);
+
+  // Project mode lists the projects; selecting one selects it for the composer too.
+  await prefixThen("l");
+  await workspace().getByRole("button", { name: other.name, exact: true }).click();
+
+  await expect
+    .element(newTaskView().getByRole("combobox", { name: /^Project / }))
+    .toHaveAccessibleName(`Project ${other.name}`);
+  // The new composer takes the keyboard back, so a prompt typed now creates the task in B.
+  await expect.element(promptField()).toHaveFocus();
+  await userEvent.keyboard("In the other repo{Enter}");
+
+  await expect.element(taskButton("In the other repo")).toHaveAttribute("aria-current", "true");
+  const task = client.tasks.getSnapshot().tasks[0]!;
+  expect(task.projectId).toBe(other.id);
+  expect(task.workspacePath).toBe(other.path);
+});
+
+test("prefix t hands the keyboard back to an already-open composer", async () => {
+  await appWithProject(newClient());
+  await expect.element(promptField()).toHaveFocus();
+
+  // The keyboard is somewhere else - the sidebar's search button - and the composer is still open.
+  workspace().getByRole("button", { name: "Search tasks" }).element().focus();
+  await expect.element(promptField()).not.toHaveFocus();
+
+  await prefixThen("t");
+  await expect.element(promptField()).toHaveFocus();
+  await userEvent.keyboard("typedafterthekey");
+  await expect.element(promptField()).toHaveValue("typedafterthekey");
 });

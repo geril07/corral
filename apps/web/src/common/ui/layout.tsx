@@ -46,6 +46,15 @@ export function MainPanel({ children, className }: { children: ReactNode; classN
   return <main className={cn("relative min-h-0 min-w-0", className)}>{children}</main>;
 }
 
+/**
+ * The centered 46 rem content lane of a main area (`layout.md`: the new-task column, and the chat
+ * lane in stage B). It is structural, like MainPanel: modules own the vertical placement and the
+ * spacing around it.
+ */
+export function ContentLane({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn("flex w-full max-w-[46rem] flex-col", className)}>{children}</div>;
+}
+
 /** A screen that fills the window, for routes without the workspace sidebar. */
 export function Screen({ children, className }: { children: ReactNode; className?: string }) {
   return (

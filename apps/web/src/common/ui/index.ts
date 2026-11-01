@@ -39,7 +39,7 @@ export { Input } from "./input.tsx";
 export { TextLink } from "./text-link.tsx";
 export { Textarea } from "./textarea.tsx";
 export { Kbd } from "./kbd.tsx";
-export { AppShell, MainPanel, Screen, SidebarPanel } from "./layout.tsx";
+export { AppShell, ContentLane, MainPanel, Screen, SidebarPanel } from "./layout.tsx";
 export { OverflowMenu } from "./overflow-menu.tsx";
 export { DropdownMenuItem } from "./dropdown-menu.tsx";
 export { RadioGroup, RadioGroupItem } from "./radio-group.tsx";

@@ -71,6 +71,7 @@ function renderView({
   config = configWith(),
   profiles = [] as LaunchProfile[],
   branches = Promise.resolve(["main", "feature/x"]),
+  opened = false,
   onCreate = vi.fn<(input: CreateTaskInput) => Promise<void>>(() => Promise.resolve()),
   onResolveIssue = vi.fn<
     (
@@ -91,6 +92,7 @@ function renderView({
       loadBranches={loadBranches}
       onCreate={onCreate}
       onResolveIssue={onResolveIssue}
+      opened={opened}
       onCancel={onCancel}
     />,
   );
@@ -239,6 +241,110 @@ test("Escape asks for the previous task back and leaves the text alone", async (
   expect(onCancel).toHaveBeenCalledOnce();
   expect(onCreate).not.toHaveBeenCalled();
   await expect.element(prompt()).toHaveValue("Half a thought");
+});
+
+test("Escape is refused while a failed create is showing, so the draft is not thrown away", async () => {
+  const onCreate = vi.fn<(input: CreateTaskInput) => Promise<void>>(() =>
+    Promise.reject(new Error("fatal: invalid reference: base")),
+  );
+  const { rendered, onCancel } = renderView({ onCreate });
+  await rendered;
+
+  await userEvent.keyboard("Doomed{Enter}");
+  await expect.element(form().getByRole("alert")).toMatchTextContent("fatal: invalid reference");
+
+  await userEvent.keyboard("{Escape}");
+  expect(onCancel).not.toHaveBeenCalled();
+  await expect.element(form().getByRole("alert")).toBeVisible();
+  await expect.element(prompt()).toHaveValue("Doomed");
+});
+
+test("From issue… takes the keyboard into the issue field", async () => {
+  const { rendered } = renderView();
+  await rendered;
+  await expect.element(prompt()).toHaveFocus();
+
+  // Keyboard only: the text button, then Enter; the field it expands takes the focus.
+  form().getByRole("button", { name: "From issue…" }).element().focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(form().getByRole("textbox", { name: "Issue URL" })).toHaveFocus();
+});
+
+test("re-picking the agent already shown keeps the configured model", async () => {
+  const config = configWith({
+    agent: { value: "codex", source: "global" },
+    model: { value: "gpt-5-codex", source: "global" },
+  });
+  const { rendered, onCreate } = renderView({ config });
+  await rendered;
+
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · gpt-5-codex");
+  await userEvent.click(picker(/^Agent /));
+  // The list's entry for the settings' agent carries the same model as the trigger.
+  await page.getByRole("option", { name: "codex · gpt-5-codex" }).click();
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · gpt-5-codex");
+
+  await prompt().click();
+  await userEvent.keyboard("Model kept{Enter}");
+  await vi.waitFor(() =>
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith({
+      projectId: "p1",
+      prompt: "Model kept",
+      agent: { kind: "codex", model: "gpt-5-codex" },
+      workspace: { type: "main-worktree" },
+    }),
+  );
+});
+
+test("an IME Enter does not create the task, in either event order", async () => {
+  const { rendered, onCreate } = renderView();
+  await rendered;
+  await userEvent.keyboard("Write it");
+
+  const field = prompt().element();
+  field.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  field.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+  );
+  expect(onCreate).not.toHaveBeenCalled();
+
+  // Safari ends the composition before the keydown that confirms it.
+  field.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+  field.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+  );
+  expect(onCreate).not.toHaveBeenCalled();
+  await expect.element(prompt()).toHaveValue("Write it");
+
+  // The next Enter is the user's own and creates the task.
+  field.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+  );
+  await vi.waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
+});
+
+test("an IME Enter in the title field does not submit the form", async () => {
+  const { rendered, onCreate } = renderView();
+  await rendered;
+  await form().getByRole("button", { name: "Title (optional)", exact: true }).click();
+  await expect.element(title()).toHaveFocus();
+  await userEvent.keyboard("Only a title");
+
+  // The composition has just ended and a real Enter follows: implicit submission must not run.
+  const field = title().element();
+  field.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  field.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+  await userEvent.keyboard("{Enter}");
+  expect(onCreate).not.toHaveBeenCalled();
+
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() =>
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith({
+      projectId: "p1",
+      title: "Only a title",
+      workspace: { type: "main-worktree" },
+    }),
+  );
 });
 
 test("a failed create keeps the prompt and says why in the view", async () => {
