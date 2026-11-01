@@ -295,10 +295,16 @@ async function tuiLeg(options: { agent: string; message: string }): Promise<void
   };
 
   try {
-    // The TUI has drawn its composer when it has been silent for a while; the footer hint pins
-    // that this really is pi's interactive view (measured on 1.4.0, the version this file targets).
-    await quiet(700);
-    expect(screenLines(terminal).join("\n")).toContain("ctrl+o");
+    // The footer hint is drawn once the composer is ready, and it pins that this really is pi's
+    // interactive view (measured on 1.4.0, the version this file targets). Polling the screen is
+    // what makes the wait independent of how fast the TUI's first paint arrives.
+    await expect
+      .poll(() => screenLines(terminal).join("\n"), {
+        timeout: 60_000,
+        message: "the TUI's composer",
+      })
+      .toContain("ctrl+o");
+    await quiet(500);
     const before = requests.length;
     const assistantsBefore = assistantMessages(await sessionFileText());
     child.write(`${options.message}\r`);

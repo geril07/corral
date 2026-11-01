@@ -1029,6 +1029,34 @@ test("a terminal launch stops a chat frontend's recorded writer before it spawns
   await piLaunches(launchesBefore + 1);
 }, 20_000);
 
+test("a failed handoff clears the working status it interrupted, so the task does not stay working", async () => {
+  // A turn that is genuinely working (and never settles) when the handoff fails: the row becomes
+  // stopped, and a status left over from the killed frontend would keep the task in "Working".
+  vi.stubEnv("FAKE_PI_RPC", "stuck-abort");
+  const { api, session } = await chatTask("Interrupted");
+  await waitForStatus(api, session.id, "working");
+  await piLaunches(1);
+  const path = process.env["PATH"];
+
+  vi.stubEnv("PATH", "/nonexistent");
+  try {
+    await expect(
+      api.sessions.setView({ id: session.id, view: "terminal", size: SIZE }),
+    ).rejects.toMatchObject({ code: "AGENT_NOT_FOUND" });
+  } finally {
+    vi.stubEnv("PATH", path ?? "");
+  }
+  const stopped = (await sessionsOf(api)).find((each) => each.id === session.id);
+  expect(stopped).toMatchObject({
+    state: "stopped",
+    view: "terminal",
+    terminalId: null,
+    launchError: "pi is not on the server's PATH",
+  });
+  // `working` does not outlive its program, so nothing is left reporting it.
+  expect(stopped?.status).toBeNull();
+}, 20_000);
+
 test("a failed handoff into chat fails asynchronously and leaves the session stopped and settled", async () => {
   const { api, task } = await addTask(server, "Terminal first");
   const terminal = await api.sessions.start({ taskId: task.id, kind: "pi", size: SIZE });
