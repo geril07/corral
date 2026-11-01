@@ -1,97 +1,257 @@
 # Stage C: more agents, git and links
 
-Plan for stage C (`design.md`, **Stages**). Coarser than stages A and B on purpose: the pi driver (B1) fixes the shape of the driver interface, and the briefs below are refined against it before work starts. The orchestrator that starts stage C first rewrites each brief here against the integrated code, as `plans/stage-a.md` is written, then runs the slices.
+Implementation plan for stage C (`design.md`, **Stages**), rewritten in the `C-prep` slice (goal D8) against the integrated stage B code: every file path below was checked on `main` after B5, and every claim about an agent CLI or SDK was measured on the installed binary or package on 2026-11-01, with the command recorded (see **Measured facts**). Re-measure a version when its slice starts; if a measurement and a brief disagree, the measurement wins and the brief is corrected in that slice's branch.
 
-Rules: `design.md` decisions 5, 13–15, **Terminal and chat**; `ux.md`; `plans/layout.md` for where things sit. Gates: `plans/stage-a.md`, **Gates for every slice**. No paid model calls and no writes to real remotes in tests or verification. Settled before the run (`goal.md`): C starts with a docs-only `C-prep` slice that rewrites these briefs against the integrated B1 driver (D8); Codex's view capability is measured, never assumed (D7); verification uses fakes plus a real-binary smoke against a local stub endpoint where the CLI allows one (D9); the protocol version changes to 10 in the first slice that changes the contract (D5).
+Product rules: `design.md` decisions 5, 13–15, 17, **Terminal and chat**, **Local trust boundary**; `ux.md`; `layout.md` **Changes**, **Chat**, **Session tabs**; `docs/agent-profiles.md` for launch, profile and `[agents.<kind>]` rules. Where a brief and `design.md` disagree, `design.md` wins and the brief is corrected. Gates: `plans/stage-a.md` **Gates for every slice** (`mise exec -- pnpm check`; `pnpm test:browser` for web slices; `pnpm test:e2e` for user-visible flows), plus goal D9's per-agent evidence: fake executables in the suites, and a real binary driven by a local stub endpoint (three dialects: OpenAI chat-completions, Responses API, Anthropic Messages SSE) with every agent's own footprint isolated. No paid model call, no account, no remote write in tests or verification.
+
+## Measured facts
+
+Measured 2026-11-01 in a scratch directory with isolated `HOME`/`CODEX_HOME`/OpenCode config and data dirs; nothing here is recalled. Where a claim could not be measured without a paid call or a write to the user's own agent config, the brief that needs it says so and names the check that would settle it.
+
+| Agent         | Installed                                | Measured with                                                                                                                               |
+| ------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| claude        | 2.1.316                                  | `claude --version`, `claude --help`                                                                                                         |
+| SDK           | `@anthropic-ai/claude-agent-sdk` 0.3.316 | `npm view … version license dependencies optionalDependencies engines`, `npm pack` + reading the tarball                                    |
+| codex         | 0.166.0                                  | `codex --version`, `codex --help`, `codex app-server --help`, `codex features list`, `codex app-server generate-json-schema --experimental` |
+| opencode      | 2.2.5                                    | `opencode --version`, `--help`, `serve --help`, a running `opencode serve` on an isolated config, `opencode api`                            |
+| pi            | 1.4.0                                    | stage B (`plans/stage-b.md`); not re-measured here                                                                                          |
+| `gh` / `glab` | 2.102.1 / 1.126.0                        | `gh pr create --help`, `gh pr view --help`, `gh pr list --help`, `gh pr checks --help`, `glab mr create --help`, `glab mr view --help`      |
+
+**Claude Code 2.1.316.** `--session-id <uuid>` starts a conversation under our id and `-r/--resume [value]` resumes it (also `-c/--continue`, `--fork-session`); `attach <id|name>` is a subcommand for its own `--bg/--background` sessions, not for a live SDK attach; `--no-session-persistence` and `-p/--print` with `--input-format`/`--output-format stream-json` exist. `--permission-mode` takes `default | auto | acceptEdits | bypassPermissions | plan | dontAsk`, and `--permission-prompts` says who answers them.
+
+**Claude Agent SDK 0.3.316.** npm license field is `SEE LICENSE IN README.md`; the tarball's `LICENSE.md` is `© Anthropic PBC. All rights reserved. Use is subject to the Legal Agreements …`, and the README links the Commercial Terms — not an open-source licence. `dependencies` is empty; `peerDependencies` are `@anthropic-ai/sdk >=0.93.0`, `@modelcontextprotocol/sdk ^1.29.0`, `zod ^4.0.0`; `optionalDependencies` are eight `@anthropic-ai/claude-agent-sdk-<platform>` packages; unpacked size 4,976,758 B, and `@anthropic-ai/claude-agent-sdk-linux-x64` is 328,262,589 B. `sdk.d.ts` exposes `query({prompt, options})`, `getSessionMessages(sessionId, {dir, limit, offset})`, `getSessionInfo`, `listSessions`, `forkSession`, `renameSession`, `deleteSession`, and an `Options` with `resume?: string` ("session ID to resume"), `sessionId?: string` (must be a UUID; not with `continue`/`resume`), `forkSession`, `persistSession`, `permissionMode`, `canUseTool`, `settingSources` (omitted = all sources, "matches CLI defaults"), `env`, `pathToClaudeCodeExecutable` ("Uses the built-in executable if not specified"), and `Query.interrupt()`, `supportedModels()`, `accountInfo()`.
+
+The bundled binary is the same version as the installed CLI: the SDK tarball's `manifest.json` says `"version": "2.1.316"`.
+
+Pointed at the user's own binary, the SDK uses the user's login, measured without a model call: `npm install --omit=optional` of the SDK, then
+
+```js
+query({ prompt: (async function* () {})(), options: { pathToClaudeCodeExecutable: <the user's claude>, persistSession: false, permissionMode: "default" } })
+```
+
+answered `accountInfo()` with `{"subscriptionType":"Claude Pro","apiProvider":"firstParty"}` and `supportedModels()` with five models (effort levels `low…max`). No turn ran. That probe **wrote to the user's `~/.claude`**: `.credentials.json` changed (a token refresh) and `.claude/sessions/` plus `session-env/<uuid>/` were created; no transcript was written (`persistSession: false`). So an SDK-backed chat is not config-dir-neutral even when it runs no turn, and tests must keep `CLAUDE_CONFIG_DIR` isolated while the "uses the user's login" path stays a user-authorised check.
+
+**Codex 0.166.0.** `codex --help`: `--remote <ADDR>` (`ws://`, `wss://`, `unix://`, `unix://PATH`) with `--remote-auth-token-env`, `--no-daemon` ("run without the shared background server"), `-p/--profile`, `--oss`/`--local-provider` (lmstudio, ollama only), and subcommands `agents`, `resume`, `fork`, `queue`, `archive`, `app-server`, `remote-control`. `codex app-server` is labelled `[experimental]` and has `daemon` (`start|stop|restart|version|bootstrap`, and `enable/disable-remote-control`), `proxy --sock <path>`, `generate-ts`, `generate-json-schema --out <dir> [--experimental]`; `--listen` accepts `stdio:// | unix://PATH | ws://IP:PORT | off`, with `--ws-auth capability-token|signed-bearer-token` and token-file/hash flags. `codex features list` (excerpt): `daemon_auto_start stable true`, `tui_app_server removed true`, `steer removed true`, `remote_control removed false`, `hooks stable true`. `codex agents` needs a terminal (`ERROR: stdin is not a terminal`), so any probe of it runs in a PTY.
+
+The generated v2 protocol schema (5.8 MB, `--experimental`) names the methods a chat driver needs: `thread/start`, `thread/resume`, `thread/read`, `thread/list`, `thread/fork`, `thread/unarchive`, `turn/start`, `turn/steer`, `turn/interrupt`, notifications (`thread/started`, `turn/started`, `turn/completed`, `thread/compacted`), `model/list`, `config/read`, `command/exec`, `thread/approveGuardianDeniedAction`, plus `CommandExecutionRequestApproval`, `FileChangeRequestApproval` and `ApplyPatchApproval` params/response schemas. Whether `thread/start` accepts a caller-chosen id is in that schema and is C3's first check.
+
+A custom `model_providers` entry must speak the Responses API: `codex app-server --strict-config -c 'model_providers.stub={base_url="http://127.0.0.1:9/v1", wire_api="chat"}' --print-startup-config` fails with `` `wire_api = "chat"` is no longer supported. … set `wire_api = "responses"` ``, and `wire_api="completions"` fails with ``unknown variant `completions`, expected `responses` ``. `wire_api="responses"` starts cleanly. So D7's stub is a Responses-API stub, and `--local-provider` is not a stub route.
+
+**OpenCode 2.2.5.** Root flags are `--standalone`, `--server <url>`, `--auto`, `-c/--continue`, `-s/--session <id>` ("continue, or create if it does not exist"), `--prompt`; there is no `--model`. `opencode serve` takes `--hostname`, `--port`, `--cors`, `--service`, `--stdio` and no auth flag.
+
+Measured with a running server on an isolated config dir:
+
+- Default bind is **loopback plus auth**: `opencode serve` printed `server listening on http://127.0.0.1:4096` and `server password <32 chars>`, and `ss -ltnp` showed `127.0.0.1:4096`. `/api/*` answers `401 {"_tag":"UnauthorizedError","message":"Authentication required"}` without credentials; the accepted form is **HTTP Basic, user `opencode`, password that value** (`curl -u opencode:<pw>` → 404 on an unknown path, i.e. authenticated).
+- `OPENCODE_SERVER_PASSWORD=<value>` sets the password instead of generating one (the `server password …` line disappears), and the CLI resolves it client-side too: without it, `opencode --server …` and `opencode api --server …` fail with `Server at … requires a password; set OPENCODE_PASSWORD`, with it they work. Both `OPENCODE_SERVER_PASSWORD` and `OPENCODE_PASSWORD` are read, and both appear in the binary.
+- `--port 0` picks a free port and reports it (`server listening on http://127.0.0.1:37861`), so a test server can follow the repo's port-0 rule.
+- `serve --stdio` is **not** a stdio RPC transport: it prints `{"url":"http://127.0.0.1:4096"}` and exits 0 when stdin closes (measured: 4 s with a 4 s stdin, immediate with `</dev/null`). The v2 API is the transport.
+- The v2 API, measured with `opencode api --server …` and the Basic credential: `POST /api/session {"title":…}` creates a session and **accepts a caller-chosen `id`** (`{"id":"ses_…"}` was created as given; the generated form is `ses_` + 26 base62 chars, the shape `apps/server/src/agents/opencode.ts` already produces); sessions carry `location.directory` and `GET /api/session?directory=<path>` scopes the list; `GET /api/session/:id/message` lists messages (`{data,cursor}`); `GET /api/session/:id/permission` lists permission requests; `POST /api/session/:id/prompt` requires `{"text":…}` (400 `Missing key at ["text"]` without it); `POST /api/session/:id/interrupt` returns `{"interrupted":false}`; `POST /api/session/:id/permission/:requestID/reply` validates `requestID` as a `per…` string. `GET /api/event` is SSE (`data: {…}`, `: heartbeat`) with ids like `evt_…`, a `server.connected` greeting, `?types=` filtering, and `session.created` events carrying a `durable` sequence. `/api/info` reports version, pid and urls.
+- **Both views live, measured:** with the API attached and reading a session, `opencode --server http://127.0.0.1:4600 --session ses_…` opened its TUI on that session (window title `OC | corral id`, the title the API had set), and it emitted OSC 7501 itself (`\x1b]7501;state=idle:app=opencode`).
+
+**`gh` 2.102.1 / `glab` 1.126.0.** `gh pr create` has `--base/-B`, `--head/-H`, `--title/-t`, `--body/-b`, `--body-file/-F -`, `--draft/-d`, `--fill`, `--dry-run`, `--repo/-R`. `gh pr view --json <fields>` accepts `number,url,title,state,isDraft,mergeable,mergeStateStatus,baseRefName,headRefName,statusCheckRollup`; `gh pr list --json` adds `additions,deletions,files`; `gh pr checks --json` adds `bucket` (`pass|fail|pending|skipping|cancel`) and `--required`. `glab mr create` has `-t/--title`, `-d/--description`, `--description-file -`, `-s/--source-branch`, `-b/--target-branch`, `--draft`, `-f/--fill`, `--push=false`, `-y/--yes`; `glab mr view -F json` (also `--jq`). The issue-import path (`apps/server/src/issues/issue-import.ts` `readCommand`/`runReadOnlyCommand`) already shells out this way: `gh issue view <url> --repo=<host>/<repo> --json=number,title,body,url`, `glab issue view <url> --output=json`, with `execFile`, a timeout, GitHub tokens stripped for untrusted hosts, and exit-code/`401` mapped to "not logged in".
+
+## Invariants every chat slice inherits
+
+Spelled out once here; each brief says which of them it touches. All of them are stage B's, in the code named.
+
+- **One writer per session.** `ChatService.launch` (`apps/server/src/chat/chat-service.ts`) claims the session id synchronously before its first `await`; a second launch is refused. A persisted writer record per session carries the child's pid **and its `/proc/<pid>/stat` start time** (`writer-claim.ts`), so a reaped and reused pid is left alone, an unidentifiable live pid refuses the launch, and a record from before the last boot is never killed. A terminal launch of an agent session calls `releaseWriterBeforeTerminal` first. A handoff (`SessionService.setView`) stops and awaits the live frontend before starting the other.
+- **The sequence floor.** Every launch reserves and persists a block in `<dataDir>/chat/<session>.floor.json` before it spawns (`sequence-floor.ts`), so a client's cursor from a replaced frontend is a hole and gets a snapshot; `raiseFloor` records the last sequence when the frontend ends.
+- **Typed refusals, never silence.** `CHAT_UNAVAILABLE` carries `reason: no-driver | not-started | exited`; per-agent refusals are codes with data (`CHAT_MODEL_UNSUPPORTED`, `CHAT_REASONING_UNSUPPORTED`, `CHAT_REQUEST_UNKNOWN`, `LAUNCH_VIEW_UNSUPPORTED`, `AGENT_DISABLED`, `AGENT_NOT_FOUND`) and clients render a sentence via `describeError`. A driver's own provider text never crosses the wire as a code.
+- **`chat.capabilities` is the only build fact.** The client asks once per connection (`packages/client/src/chat-capabilities-store.ts`) and `CHAT_DRIVERS` (`apps/server/src/chat/chat-drivers.ts`) is the one definition behind `chat.capabilities`, the config fallback for `view = "chat"` and `ConfigState.agents`. A client never infers a driver from `session.kind`, and a slice that adds a driver adds it there.
+- **The contract is provider-neutral.** Items, deltas and session state are Corral's (`packages/protocol/src/chat.ts`); no provider record reaches a client. The transcript stays the agent's own session, and the chat is rebuilt on every start (pi: `get_messages`).
+- **Status comes from the driver for chat sessions**, from OSC 7501 or the OpenCode plugin for terminal-only ones, and a failed frontend keeps its reason in `Session.launchError`.
+- **Protocol rules (goal D5).** 10 at the first stage C slice that changes `packages/protocol`; later contract changes in stage C grow 10's history entry instead of bumping again (nothing is released). `packages/protocol/src/handshake.ts` and `docs/engineering.md` name every addition, and the handshake keeps refusing an older daemon.
 
 ## Order
 
 ```
-wave 1:  C0                     driver interface extracted from B1
-wave 2:  C1  C4  C5             C1 needs C0; C4 and C5 independent of drivers
-wave 3:  C2  C6                 C2 needs C0 (after C1 for lessons); C6 needs C4
-wave 4:  C3                     needs C0; last because of Codex risk
+wave 1:  C0                     the driver interface, extracted from the pi driver
+wave 2:  C1  C4  C5             C1 needs C0; C4 and C5 touch no driver
+wave 3:  C2  C6                 C2 needs C0 and C1's lessons; C6 needs C4
+wave 4:  C3                     needs C0; last because its premise is the least settled
 final:   C-verify
 ```
 
+Conflicts are mechanical and expected: C0–C3 touch `apps/server/src/chat/`, `apps/server/src/sessions/session-service.ts` and `packages/protocol/src/rpc.ts`; C4 and C6 both touch the task header and the sidebar row; C1 and C2 may each add a migration only if a new column is unavoidable (neither should need one). Integrate one slice at a time; the next rebases.
+
+---
+
 ## C0. Driver interface
 
-**Goal.** One server-side interface every chat driver implements, extracted from the pi driver rather than designed ahead of it.
+**Goal.** One server-side interface every chat driver implements, extracted from the working pi driver rather than designed ahead of it, with the capabilities the UI needs to enable or disable controls (decision 13).
 
-- What a driver provides: start/resume on an agent session id with launch choices, history load into B0 items, event stream, send (prompt, steer, follow-up where supported), abort, user-request answers, model/reasoning lists and changes, status mapping, orderly stop.
-- Capabilities a driver declares, used by the UI to enable controls: steer, follow-up, approvals, model switch, reasoning levels, live terminal next to chat (`both-live` | `view-only-terminal` | `handoff-only`).
-- pi moves onto it with no behavior change (its B tests stay green).
+**Where.** `apps/server/src/chat/` — a new `chat-driver.ts` (the interface and the launch request), `chat-drivers.ts` (today a 13-line list of kinds; becomes the registry: kind → factory + declared capabilities), `chat-service.ts` (replaces its hard-wired `PiDriver` map, `PiDriverTimeouts` and pi's spawn shape with the interface), `chat-errors.ts` (`PiCommandError` stays pi's; the contract-level errors stay agent-neutral), `pi-driver.ts` + `pi-projection.ts` (pi becomes one implementation); `apps/server/src/sessions/session-service.ts` (`#launchChat` no longer hard-codes `--mode rpc` and `resumeArgs`); `packages/protocol/src/chat.ts` and `rpc.ts` if the capability flags reach the wire; `packages/client/src/chat-capabilities-store.ts` and `apps/web/src/modules/chat/` consumers.
 
-**Done when.** The interface and capability flags exist, pi implements them, and `design.md` decision 13 names the file.
+**Rules.**
+
+- The interface covers what `ChatService` and `SessionService` already call on `PiDriver`: `start()`, `stop()`, `closed`, `sessionId`, `state`, `timeline`, `send(text, mode) → itemId`, `abort()`, `respond(itemId, value)`, `setModel(model)`, `setReasoning(level)`, plus the callbacks a driver raises (`onStatus`, `onExit(reason | null)`) and the launch inputs (`command`, `args`, `cwd`, `env`, `prompt`, `claimPath`, `startAt`). `ChatTimeline` (`timeline.ts`) and the writer claim stay **outside** the interface: they are Corral's, one copy, and every driver writes through them.
+- Argv building moves out of `SessionService.#launchChat` into the driver (pi's `--mode rpc` + `resumeArgs`/`startArgs` today), so C1–C3 add a driver without touching the session service. `AgentAdapter` (`apps/server/src/agents/agent-adapter.ts`) keeps the TUI argv and the prompt shape; the chat argv is the driver's.
+- Capabilities are declared per driver as data, not asked of the agent at runtime: `steer`, `followUp`, `approvals`, `modelSwitch`, `reasoningLevels`, and the terminal view a session can have next to chat — `both-live | view-only-terminal | handoff-only` (`design.md`, **Terminal and chat**). pi is `handoff-only`.
+- **One writer, one floor, one refusal vocabulary stay structural.** The driver never spawns a second process on its id, never writes the floor and never decides a client-visible refusal code; `ChatService` keeps doing all three so a new driver cannot get them wrong. `writer-claim.ts` and `sequence-floor.ts` remain pi-agnostic.
+- pi moves onto the interface with **no behavior change**: `apps/server/src/chat/*.test.ts`, `chat-rpc.test.ts` and `apps/server/test/contracts/` stay green unmodified except where a name moved.
+- If the capability flags go on the wire (they must, if the UI is to disable a control), `chat.capabilities` grows from `{drivers: AgentKind[]}` to a per-agent capability record: that is **protocol 10**, taken here, and the version's history entry names it. If a slice can ship the interface without a wire change, 10 moves to C1 — decide it in the slice and record where.
+- Record the interface's file and the registry shape in `docs/engineering.md` (**Chat driver client**) and in `design.md`, **Terminal and chat** — decision 13 names the approach, not a file, so the file is named in those two places.
+
+**Done when.** The interface, the registry and the capability data exist; pi implements the interface and its whole suite passes; the registry refuses an unknown kind and `chat.capabilities` answers from it; a second, deliberately trivial in-repo test driver (test-only, not a product driver) proves a driver can be added without touching `chat-service.ts` — including one writer per session through `ChatService`. Protocol 10's entry is in `handshake.ts` and `engineering.md` if the flags reached the wire.
+
+**Depends on.** Nothing (stage B integrated).
+
+**Decisions this slice settles.** (a) Does the capability record go on the wire now (protocol 10 here) or later (10 in C1)? (b) Is the terminal view a property of the driver (pi: `handoff-only`) or of the pair driver+agent? Recommend the driver, since only the driver knows what its own frontend can share. (c) Does the registry own the launch-argv shape, or does each driver get its own `ChatLaunch` builder? Recommend the driver owning it, as above.
+
+---
 
 ## C1. OpenCode driver
 
-**Goal.** Chat for OpenCode, with the terminal live at the same time.
+**Goal.** Chat for OpenCode with the terminal **live at the same time** — the first driver whose terminal view is `both-live` — with one OpenCode server owning the session and both frontends attached to it.
 
-- Facts to re-check on the installed version (2.2.5 observed): `opencode serve` (v2 API with SSE events, `--port`, `--hostname`, `--stdio`), the TUI's `--server <url>` and `--session <id>`, `--standalone`. The server owns the session; chat is an API client, the terminal view runs the TUI against the same server.
-- Corral starts one OpenCode server per task workspace (or per session; decide by how the API scopes directories), on a loopback port or `--stdio`, and stops it with the last session using it. `opencode serve` has no auth flag and the binary carries `OPENCODE_SERVER_PASSWORD`: a loopback server that can run agents needs that secret, or `--stdio`, under `design.md`'s **Local trust boundary** — decide it in C-prep.
-- Status: from the event stream, replacing the plugin path for chat sessions; terminal-only OpenCode sessions keep the plugin (`design.md`, **Status**).
-- Approvals: OpenCode's permission requests become B0 user requests; answers from either frontend resolve them once.
-- Both views live: switching view is only switching tabs, no handoff; `prefix v` opens the other view next to the current one.
+**Where.** `apps/server/src/chat/opencode-driver.ts` (the new driver: an HTTP/SSE client of `opencode serve`), `apps/server/src/chat/chat-drivers.ts` (registry), `apps/server/src/agents/opencode.ts` (the TUI argv: `--session`, `--prompt`, and now `--server <url>`), `apps/server/src/status/opencode-integration.ts` and `apps/server/src/status/opencode-plugin/index.js` (the plugin's role shrinks for chat sessions), `apps/server/src/sessions/session-service.ts` (a chat launch that also starts a server and exports its url/password into the environment), `apps/server/src/storage/database.ts` (a migration only if the server url/password must be remembered; prefer re-deriving it per server run), `packages/protocol/src/chat.ts` (capabilities and any OpenCode-specific item mapping), tests under `apps/server/test/` with a **fake `opencode` executable that speaks this v2 API**.
 
-**Done when.** Fake-server tests cover streaming, a permission request answered from chat, both frontends attached, server lifecycle with the last session; real `--help` checks recorded.
+**Rules.**
+
+- **The server is the session; a driver is a client.** Corral starts one `opencode serve` per agent session that needs one (or one per server run — the decision below) with `--hostname 127.0.0.1 --port 0`, reads the `server listening on http://127.0.0.1:<port>` line and the `server password <value>` line from stdout, and passes `OPENCODE_SERVER_PASSWORD=<that value>` to both the server it starts and every client it launches. Do not rely on `--stdio`: measured, it prints a url and exits.
+- **The loopback server is authenticated, and that is the trust boundary.** Measured: the default bind is `127.0.0.1:4096` with a generated password, `/api/*` is 401 without credentials, and HTTP Basic `opencode:<password>` is the accepted form. Corral's driver therefore presents Basic auth with the per-run password and never binds the server to a non-loopback hostname. This closes the **Local trust boundary** question the coarse plan left open: `OPENCODE_SERVER_PASSWORD` plus loopback binding is the answer, and no capability token is needed on top.
+- **Session ids stay Corral's.** `POST /api/session` accepts a caller-chosen `id` (measured), so the driver creates the session with `Session.agentSessionId` (the shape `newOpenCodeSessionId()` already produces) instead of adopting a server-assigned id, which keeps settle/continue/restart/resume and the handoff on one id. Requests carry `location.directory` = the task's workspace, and reads scope themselves the same way (`?directory=`), because one server can serve several workspaces.
+- **Streaming comes from SSE** (`GET /api/event`, `?types=`), projected into `ChatItem`s exactly as pi's records are: text deltas into `assistant-message`/`reasoning`, tool invocations into `tool-call` (with `ChatDiff.text` as unified diff when the invocation carries one), the durable sequence translated into Corral's per-session timeline sequence. Reconnect with `Last-Event-ID`/replay or rebuild from `GET /api/session/:id/message` on start; the rebuild path is the one that must work after a server restart.
+- **Approvals** are `GET /api/session/:id/permission` plus `POST /api/session/:id/permission/:requestID/reply` mapped to B0 user requests; an answer from either frontend resolves once, and the server's own deadline stays the backstop as it is for pi's dialogs. Do not use `--auto`: it would answer permissions on the user's behalf.
+- **Both views live, and that is measured.** The TUI attaches with `opencode --server http://127.0.0.1:<port> --session <agentSessionId>` in the task's workspace, launched with `OPENCODE_SERVER_PASSWORD` in its environment; two clients on one session were observed (API reading, TUI showing the same title). Corral's one-writer rule therefore means **one prompt writer at a time**: the driver refuses `chat.send` while a turn runs with `mode: "prompt"` and steers instead (below), and the handoff action (`prefix v`) is not needed for this agent — the UI must offer "open the other view" rather than a stop-and-start handoff, and `sessions.setView` must be replaced or bypassed for a `both-live` driver. Decide the exact shape below.
+- **Steer and follow-up**: OpenCode takes another `prompt` while a turn runs (`POST /api/session/:id/prompt` with `delivery`), so `steer` and `follow-up` map onto its own delivery modes rather than onto pi's commands; if a mode cannot be expressed, the driver declares the capability off and the composer hides it instead of pretending.
+- **Status**: from the event stream for chat sessions (`session.*` events). The plugin path (`opencode-plugin/index.js` over `CORRAL_STATUS_URL`) stays for terminal-only OpenCode sessions, as `design.md` **Status** says, and the OSC 7501 report that 2.2.5's TUI emits is now measured — record that fact in `design.md` **Status** where 2.1.4's measurement stands.
+- **Lifecycle**: a server starts with the first session that needs it and stops with the last (`stop` → SIGTERM the process group; a recorded pid + start time like `writer-claim.ts` so a restarted Corral never leaves two servers on one data directory). A server that dies must surface as `CHAT_UNAVAILABLE`/`exited` with the reason, like a pi crash.
+- **Isolation**: `<data dir>/...` for OpenCode's own config/data/state (`XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`) in tests and probes, never the user's.
+
+**Done when.** With the fake `opencode` server: streaming text and a tool call arrive as items; a permission request is answered from chat and by the terminal frontend, once; `chat.send` steers a running turn; abort interrupts; a killed server surfaces as a typed refusal; a second session on the same server reuses it and the last stop ends it; the handoff/other-view action attaches the TUI to the same session id without stopping chat (asserted on the fake's journal: one server, two clients, one prompt writer). Recorded real-version evidence: the commands and outputs quoted in **Measured facts**, plus a real-binary smoke later in C-verify.
+
+**Depends on.** C0.
+
+**Decisions this slice settles.** (a) **Server lifecycle**: one server per task workspace, per agent session, or one per Corral run. Facts: sessions carry `location.directory` and reads take `?directory=`, so one server can serve many workspaces; `--port 0` gives a free port; the password is per server. Recommend one server per Corral run (started lazily, stopped with the last session) unless the TUI's `--server` cannot reach a second workspace's session. (b) **Auth**: settled by measurement — `OPENCODE_SERVER_PASSWORD` + loopback + Basic; record it in `design.md` **Local trust boundary** as the agent-server case. (c) **The both-live action**: does `prefix v` become "open the other view beside this one" (a tab that does not move the session), or a second entry in the tab strip? `layout.md` **Session tabs** promises `prefix v` swaps one tab in place, which is handoff semantics; decide and record the delta for `both-live`. (d) Are sessions created by Corral with a caller-chosen id (recommended) or adopted from the server, and does that hold across a server restart.
+
+---
 
 ## C2. Claude Code driver
 
-**Goal.** Chat for Claude Code through the Claude Agent SDK, stop-and-resume handoff with the TUI.
+**Goal.** Chat for Claude Code through the Claude Agent SDK, stop-and-resume handoff with the TUI (`handoff-only`), using the user's own Claude Code install and login.
 
-- `@anthropic-ai/claude-agent-sdk` (0.3.316 observed on npm) as a server dependency; record it in `engineering.md`. Use `resume`/`sessionId` options with Corral's agent session id, so `claude --resume <id>` continues the conversation.
-- The SDK uses its own bundled platform binary by default (`pathToClaudeCodeExecutable`, a ~328 MB `@anthropic-ai/claude-agent-sdk-linux-x64` package) — point it at the user's installed `claude` and gate the version, or record the gap and stop the slice as an open decision (no new paid account, `roadmap.md`). Its licence is the Anthropic Commercial Terms, not open source: record that in `engineering.md` with the dependency.
-- Permissions: the SDK's permission callback becomes a B0 user request; reasoning effort and model through query options.
-- History for the chat view after a restart: SDK session messages; the TUI transcript format stays internal (`design.md`, **Terminal and chat**).
+**Where.** `apps/server/src/chat/claude-driver.ts` (the SDK-backed driver), `apps/server/src/chat/chat-drivers.ts` (registry entry + `handoff-only`), `apps/server/package.json` (`@anthropic-ai/claude-agent-sdk`), `apps/server/src/agents/claude.ts` (the TUI argv stays; the SDK path reuses the same executable), `apps/server/src/sessions/session-service.ts` (a chat launch that hands the SDK its executable, env and config dir), `docs/engineering.md` (dependency, licence, version gate), tests with a **stubbed SDK** (`apps/server/test/fakes/`) because the real one needs a login.
 
-**Done when.** Tests with a stubbed SDK cover start, resume, permission round trip, interrupt and handoff to a fake TUI on the same id; one real handoff smoke run only with the user's permission.
+**Rules.**
+
+- **The executable is the user's, and the version is gated.** `[agents.claude].command` (B5) or `claude` on `PATH` is passed as `pathToClaudeCodeExecutable`; the driver checks `claude --version` against the tested version (2.1.316) at launch and refuses chat with a visible reason on an untested one, the way C3 gates Codex. The bundled platform binary is the same version today (`manifest.json` 2.1.316) but it is a second copy of a 328 MB CLI, so it is not the default: installing the SDK with its optional platform packages must be decided explicitly (see the decisions).
+- **The SDK uses the user's login — measured, and not free of side effects.** `accountInfo()` through the user's binary reports the subscription login, and the probe wrote to `~/.claude` (credential refresh, `sessions/`, `session-env/<uuid>/`). Therefore: the driver inherits the launch environment (`#launchEnv`) exactly as a terminal launch does, tests set `CLAUDE_CONFIG_DIR` to an isolated directory, and the real-login check is a user-authorised, no-turn probe (`accountInfo()` + `supportedModels()`), never part of the gate. If `accountInfo()` reports no first-party login at slice start, stop and record it as the open decision the coarse plan named.
+- `resume` carries `Session.agentSessionId`; `getSessionMessages(id, { dir })` rebuilds the timeline on start, so `claude --resume <id>` in the TUI continues what chat wrote and vice versa. Keep the transcript JSONL internal (`design.md`, **Terminal and chat**).
+- **Permissions**: `canUseTool` (and `permissionMode`) map onto B0 user requests one-for-one; `toolUseID`/request ids become the item id so an answer replaces the item in place. Do not use `bypassPermissions` or `--dangerously-skip-permissions`.
+- **Model and reasoning**: `Options.model` and the SDK's effort/model controls drive `chat.setModel`/`chat.setReasoning`; the lists come from `supportedModels()` (measured: five entries with `supportedEffortLevels`). A level a model does not take is refused with `CHAT_REASONING_UNSUPPORTED`.
+- **Interrupt** is `Query.interrupt()`; a stop closes the query (`close()`), and the writer record is released the same way pi's is. History and in-flight state follow the same rule as every driver: the conversation stays, a pending request and partial output do not.
+- **Licence and dependency rules.** The SDK is not open source (Anthropic's Commercial Terms, measured). Record it in `engineering.md` next to the dependency with its version, its peers (`@anthropic-ai/sdk`, `@modelcontextprotocol/sdk`, `zod ^4` — zod 4 is already ours) and the fact that it spawns a CLI subprocess. `goal.md` forbids a _paid_ dependency; this one is free of charge but proprietary, so state that reason explicitly in the ledger entry.
+- **Handoff** is `handoff-only`: the TUI and the SDK cannot be attached at once, so `prefix v` keeps B4's serial stop-and-start unchanged, and `claude --resume <id>` is the TUI leg.
+
+**Done when.** With a stubbed SDK: start creates a session under our id, resume loads history, a permission round trip is answered from chat, interrupt ends a turn, a model/level change reaches the SDK, a stop is orderly, and a handoff to a fake TUI on the same id leaves exactly one writer. One user-authorised no-turn real check (`accountInfo()`/`supportedModels()` through the effective executable) is recorded with its output; a real turn is verified in C-verify only with the user's permission.
+
+**Depends on.** C0 (and C1's lessons on a client-server driver; can run in the same wave if C1 lands first).
+
+**Decisions this slice settles.** (a) **Executable override**: always the user's binary (recommended, with the version gate) vs the SDK's bundled binary vs "prefer the user's, fall back to bundled when `[agents.claude].command` is unset". (b) **Dependency weight**: install the SDK with its optional platform packages (328 MB per platform, duplicated CLI) or with `--omit=optional` and `pathToClaudeCodeExecutable` always set — record the choice and why in `engineering.md`. (c) The **"stop if the SDK cannot use the user's login" rule**: measure `accountInfo()` at slice start; if it is not first-party, stop, record the evidence and leave Claude as terminal-only (the option the coarse plan allowed). (d) `settingSources`: default (user settings and CLAUDE.md load, matching the CLI) versus `[]` isolation — recommend the default, because chat and TUI must see one environment, and record the consequence that the user's global settings apply.
+
+---
 
 ## C3. Codex driver
 
-**Goal.** Chat for Codex through the app-server, if its stability allows.
+**Goal.** Chat for Codex through its app-server, with the view capability **measured** (goal D7), not assumed.
 
-- First resolve the open contradiction in `design.md` (**Terminal and chat**): whether `codex --remote` against Corral's app-server can write while chat is attached, or is view-only. Record the result there. Codex 0.166.0 auto-starts a shared app-server daemon (`daemon_auto_start`), so the probe covers the default TUI, `--no-daemon`, and attaching to the running daemon, and checks whether the stage A Codex launch already leaves a daemon behind.
-- The app-server is officially experimental: pin the tested Codex version in the driver, check the version at launch and refuse chat (terminal stays available) on an untested one, with the reason visible.
-- Thread id is server-assigned (`thread/start`); store it as the agent session id, replacing rollout-file discovery for chat sessions.
+**Where.** `apps/server/src/chat/codex-driver.ts` (JSON-RPC client of `codex app-server`), `apps/server/src/chat/chat-drivers.ts` (registry entry + the measured `viewCapability`), `apps/server/src/agents/codex.ts` and `apps/server/src/agents/codex-sessions.ts` (rollout discovery stays for terminal sessions; a chat session's thread id comes from the app-server), `apps/server/src/sessions/session-service.ts` (thread id storage uses the existing `agentSessionId` column; no new migration unless a daemon socket path must persist), `docs/design.md` **Terminal and chat**, tests with a **stub app-server** speaking the generated v2 protocol subset.
 
-**Done when.** Contradiction resolved and documented; fake app-server tests cover thread start/resume, turn streaming, approval, interrupt; version gate tested.
+**Rules.**
+
+- **The contradiction is resolved first, on this machine, and written into `design.md`.** The table's Codex row says both views are live through one app-server; research found the TUI blocking input on a thread another writer holds. The probe decides one of `both-live`, `view-only-terminal`, `handoff-only`, and the row plus a paragraph records which and why, with the commands.
+- **The probe's topology** (goal D7): (1) the default TUI (which auto-starts a shared daemon — `daemon_auto_start stable true`), (2) the TUI with `--no-daemon`, (3) chat attached to an already running daemon (`codex app-server daemon start`, `proxy --sock`, or `--listen unix://PATH` plus `codex --remote unix://…`). It also checks whether stage A's launch (`codex` with no `--no-daemon`) leaves a daemon behind after the PTY exits, and whether `codex agents` (a TUI command — it needs a terminal) shows that session. Everything runs under an isolated `CODEX_HOME`, in a PTY, with the stub endpoint; nothing touches `~/.codex`.
+- **Transport**: `codex app-server --listen unix://<data dir>/codex/<session>.sock` (measured to accept `unix://PATH`) or `--stdio` for a per-session server, and `codex --remote unix://… resume <thread>` for the terminal view if the probe allows it. WebSocket listeners must carry `--ws-auth capability-token` with a token file if a ws listener is ever used; a loopback ws without auth would repeat the OpenCode mistake.
+- **The version is pinned and gated.** The driver records the tested `codex --version` (0.166.0) and refuses chat on an untested version with a visible reason, terminal still available. The app-server is labelled experimental, so the refusal is the contract.
+- **Thread id**: `thread/start` (server-assigned per the protocol; C3 confirms from the generated schema whether a caller-chosen id is accepted). Store it in `Session.agentSessionId`, replacing rollout discovery for chat sessions only, and use `thread/resume`/`thread/read` for a rebuild.
+- **Mapping**: `turn/start` for a prompt, `turn/steer` for steer (measured to exist in the protocol even though the TUI's `steer` feature is removed), `turn/interrupt` for abort; `item/*` notifications into `ChatItem`s with `ChatDiff.text` for file changes; approvals (`CommandExecutionRequestApproval`, `FileChangeRequestApproval`, `ApplyPatchApproval`) into B0 user requests — the first answer wins, as `design.md` promises for the live case.
+- **One writer** still comes from `ChatService`; a persistent daemon shared by several sessions is a new case (one process, many threads), so the writer record becomes per session with the daemon's pid recorded against the first session it serves, or the driver declares `both-live`/`view-only-terminal` in a way that never needs a second writer on one thread. Decide and record.
+- **The stub is a Responses-API stub** (measured: `wire_api = "chat"` is refused in 0.166.0), configured through `-c model_providers.<id>={…, wire_api="responses"}` and `-c model_provider=<id>`, not through `--local-provider` (lmstudio/ollama only).
+
+**Done when.** The capability (`both-live` | `view-only-terminal` | `handoff-only`) is measured and written into `design.md` **Terminal and chat** with the probe commands, the stage A daemon question answered in the same place; the driver implements exactly that capability; with the stub app-server, thread start/resume, turn streaming, an approval answered, interrupt and a version-gate refusal are covered; the real-binary smoke against the Responses stub is recorded in C-verify.
+
+**Depends on.** C0. Runs last because its premise is the least settled.
+
+**Decisions this slice settles.** (a) The measured capability itself, and what the UI offers for it. (b) **Daemon topology**: one app-server per session (`--listen unix://…`), one per Corral run, or attach to the user's existing daemon. Recommend per session with an isolated `CODEX_HOME`, because a shared user daemon is shared writer state Corral cannot fence. (c) Whether a `view-only-terminal` outcome ships chat at all, or only the terminal with the reason recorded.
+
+---
 
 ## C4. Diff and changes per task
 
-**Goal.** See what a task changed without leaving Corral.
+**Goal.** See what a task changed without leaving Corral: a **Changes** tab in the task's tab strip with per-file diffs, read-only in this slice.
 
-- A **Changes** tab kind in the task's tab strip (`plans/layout.md`): files changed in the task's workspace against its base (worktree: merge base with the base branch; main working tree: `HEAD` plus uncommitted), with per-file diffs rendered by the B3 diff component.
-- Header shows `+added −removed` for the task; the sidebar row shows a compact count only when non-zero.
-- Read-only in this slice. Refresh on file-system change in the workspace, debounced.
+**Where.** `apps/server/src/git/` — a new `diff.ts` (merge-base against the base branch, `git diff --numstat -z`, per-file unified diffs, binary detection) beside `repository.ts` (`findMainWorkingTree`, `defaultBaseBranch`, `uncommittedPaths`), `status-porcelain.ts` (`changedPaths`); `packages/protocol/src/rpc.ts` (a `changes.*` contract: `changes.files(taskId)`, `changes.diff(taskId, path)`, or one subscription) and `handshake.ts` (protocol 10's entry, if not already grown); `apps/server/src/tasks/task-service.ts` or a new `apps/server/src/changes/` service (the read model: base ref per task); `apps/web/src/modules/workspace/session-tabs.tsx` (the extra tab), `workspace-search.ts` (the `entry` param must address a tab that is not a session), `apps/web/src/modules/workspace/workspace-screen.tsx`, a new `apps/web/src/modules/changes/`; `apps/web/src/common/ui/diff-view.tsx` only if it gains the plating variant below; `layout.md` **Changes** is the size and shape spec.
 
-**Done when.** Tests on a real temporary repository cover worktree and main-tree tasks, renames and binary files; browser test opens the tab by key.
+**Rules.**
+
+- **The base is computed, not stored.** A worktree task diffs against `git merge-base HEAD <defaultBaseBranch>`; a main-working-tree task diffs against `HEAD` plus uncommitted changes (`findMainWorkingTree` already resolves the main tree from a worktree path). A task whose base branch is gone or has no merge base falls back to `HEAD` and says so in the summary row instead of failing.
+- **The data source is one server read model**, not a client-side `git` call and not a file watcher per client: `changes.files` returns the file list with `status` (`M|A|D|R`), old/new path, `+N −M`, and whether the file is binary; `changes.diff` returns that file's unified diff, capped (statement of the cap in the brief's report). Read-only: no index mutation, no checkout, and no `git add` (that is C6).
+- **Refresh**: the server recomputes when asked and the client asks on mount, on the tab becoming current, and after the agent's tool calls in that workspace (the chat stream already knows when a file change happened). A file-system watcher is not in the repo today; if a poll is used, its interval and its cost are stated in the slice report, and `layout.md`'s "refreshed with a debounce when the workspace changes" is met by whichever mechanism is chosen (decision below).
+- **The tab is not a session.** It has no number hint, no status glyph, and selecting it does not change the current session (`layout.md` **Changes**); the route's `entry` param must address it without pretending it is a session id, and reloading on the tab must restore it.
+- **Rendering** is `layout.md`'s: mediaqueries at 1024×640, summary row, 28 px file rows with the status letter and `old → new`, unified hunks with folded unchanged regions, binary files as one row. The existing `DiffView({text, path})` wraps text and folds at 20 lines/408 px for the 46 rem chat lane; Changes is full width with horizontal scroll, so it needs either a variant or its own renderer over the same `@pierre/diffs` highlighter — do not silently change chat's diff. Record the choice.
+- Task header shows `+N −M` when non-zero; the sidebar row shows the compact counts only when non-zero (`layout.md` **Sidebar** line 2, **Task header**).
+- Read-only means no staging, no commit, no push, no editor; every one of those is C6 or out.
+
+**Done when.** Tests on real temporary repositories (worktree and main-tree tasks, a rename, a binary file, an empty diff, a deleted base branch) produce the right file lists and diffs from the server; the browser test opens the tab by key and by click, sees the summary, a file row, a rendered diff and the empty state, and asserts that selecting the tab did not change `sessions.current`; keyboard navigation covers the file list.
+
+**Depends on.** Nothing (may run beside C1). C6 depends on it.
+
+**Decisions this slice settles.** (a) **The tab's identity**: a synthetic entry in the route's `entry` (`changes`) with a client-side selection, versus a persisted `Task.view`-like field. Recommend the synthetic route entry, because `layout.md` says the tab does not change the current session. (b) **The tab's data source**: one `changes.*` RPC subscription the server recomputes, versus per-file RPC calls on demand plus a client refresh trigger. (c) **Refresh mechanism**: the agent-stream trigger above versus a debounced server poll versus a real watcher (new dependency) — recommend the stream trigger plus a refetch on tab focus, and state what it misses (edits from outside Corral). (d) Whether `[tasks]`/`[projects]` gains a base-branch override or the project's default branch is always the base.
+
+---
 
 ## C5. Local links in chat
 
-**Goal.** Paths and URLs in chat open usefully, like Ovis does (the user's reference).
+**Goal.** Paths and URLs in chat open usefully, like Ovis (the user's reference): file paths reach the user's editor, images and video preview inline, URLs go to the OS browser.
 
-- Detect absolute paths, workspace-relative paths (`file.ts:12`) and URLs in assistant text and tool output.
-- Images and video inside the workspace or temp dirs preview inline (bounded size), opened full in a lightbox; other files open in the user's editor (`[editor] command` in config, default `$VISUAL`/`$EDITOR` in a new Corral shell tab for terminal editors, or the OS opener); URLs go to the OS browser (desktop) or a new tab (browser).
-- The server serves file bytes only for paths inside the task workspace or explicitly allowed roots, through the authenticated channel (`design.md`, **Local trust boundary**); never an arbitrary path.
+**Where.** `apps/web/src/modules/chat/chat-items.tsx` and `apps/web/src/common/ui/streamdown.tsx` (link rendering; Streamdown currently runs with `linkSafety` off, so links are plain anchors), a new `apps/server/src/files/` service or a `files.*` RPC in `packages/protocol/src/rpc.ts` (byte serving with the allow-list), `packages/protocol/src/config.ts` + `apps/server/src/config/config-file.ts` (`SECTIONS` and a new `[editor]` table), `packages/protocol/src/desktop-bridge.ts` and `apps/desktop/src/main.ts` + preload (OS opener, if it is used), `apps/server/src/sessions/session-service.ts` or the terminal registry (opening an editor in a Corral shell tab), `docs/ux.md` (the new keys/bindings, if any).
 
-**Done when.** Tests for detection, the path allow-list (a path outside is refused), preview of an image and a video, editor launch with a fake editor.
+**Rules.**
+
+- **Detection** covers what the agent actually emits: absolute paths, workspace-relative paths with optional `:line[:col]` (`file.ts:12`), and URLs. Detection is a pure function with property tests (no throw on odd input, no dependence on chunk boundaries when text streams).
+- **The allow-list is the security boundary.** File bytes are served only for paths inside the task's workspace (or an explicitly allowed root, if the slice adds one), resolved through `realpath` so a symlink cannot escape, and only through the authenticated channel — the server has exactly two WebSocket routes today (`/rpc`, `/terminals/:id`), both capability-gated, so a new HTTP route would need the same capability check; an RPC procedure is the cheaper, already-authenticated path. A path outside is refused with a typed error, not a 404 that hides the reason.
+- **Previews** are inline for images and video inside the workspace or temp dirs, bounded by size and type, with a lightbox that is keyboard-operable; anything else opens in the editor. A file that is binary but not previewable shows one row, not a broken image.
+- **Editor launch** is a decision (below) with three candidate paths: `[editor] command` in `config.toml`, `$VISUAL`/`$EDITOR` in a new Corral shell tab (terminal editors), and the OS opener (desktop only). Whatever is chosen, the config key is new, must be added to `SECTIONS` and to `docs/agent-profiles.md`/`docs/ux.md` where config keys are documented, and an invalid entry is a reported problem that drops only itself.
+- **URLs**: desktop passes them to the OS browser, browser mode opens a tab; `design.md` **Local trust boundary** already says ordinary http(s) links never load in the capability-bearing window, so this reuses that rule rather than adding another.
+- No new tab kind, no transcript storage, no composer attachments: an image in an assistant message is previewed from the workspace, not uploaded.
+
+**Done when.** Tests cover detection (absolute, relative, `:line`, URL, false positives like `src/foo` that does not exist), the allow-list (a path outside the workspace and a symlink out of it are refused with the typed error), an image and a video preview, an editor launch with a fake editor executable that logs its argv, the OS-opener call in desktop mode, and a browser test that a link opens without navigating the app away.
+
+**Depends on.** Nothing (may run beside C1).
+
+**Decisions this slice settles.** (a) **Editor launch**: `[editor] command` first, then `$VISUAL`/`$EDITOR` in a shell tab, then the OS opener — or one of them alone. Recommend the config key as the override, `$VISUAL`/`$EDITOR` as the fallback for terminal editors in a shell tab, and the OS opener for non-terminal editors, with the precedence written into `docs/agent-profiles.md`. (b) **The path allow-list's shape**: workspace only, or workspace plus configured roots; recommend workspace only in this slice and record the extension point. (c) Byte serving over RPC versus a new capability-gated HTTP route. (d) Whether a media preview may stream (range requests) or is bounded to a size that fits one message.
+
+---
 
 ## C6. Commit and pull request
 
-**Goal.** Finish a task from Corral: commit, push, open a PR/MR, see its state on the task.
+**Goal.** Finish a task from Corral: stage and commit, push the branch, open a PR/MR through the user's `gh`/`glab`, and show its state on the task.
 
-- From the Changes tab: stage all or selected files, commit with a message (optional generated message through `[naming]`'s agent, same rules as title generation), push the branch, create a PR/MR through the user's `gh`/`glab` (as issue import does).
-- The task stores the linked PR/MR; the header and sidebar row show its state (open, draft, merged, closed) and checks summary, refreshed on focus and every few minutes.
-- Merged PR → offer to settle the task (not automatic in this slice).
-- Every remote write is an explicit user action with a confirmation that names the remote and branch. Verification uses a local bare repository and fake `gh`/`glab`; nothing reaches a real host.
+**Where.** `apps/server/src/changes/` (the service grows write operations: stage, commit, push, PR state) and `apps/server/src/git/` (`git.ts` has only `git(cwd, args)`; push/remote helpers go beside it in `repository.ts`); `apps/server/src/issues/issue-import.ts` is the pattern for shelling out — `readCommand` (argv per provider), `runReadOnlyCommand` (`execFile`, timeout, token stripping, auth-error mapping) — reuse its shape for `pr`/`mr` commands rather than inventing a second one; `packages/protocol/src/rpc.ts` (`changes.commit`, `changes.push`, `changes.createPullRequest`, `changes.pullRequest`), `apps/server/src/storage/database.ts` (a migration storing the linked PR/MR: provider, host, number, url, state) and `Task`/`TaskSource` in `packages/protocol/src/rpc.ts`; `apps/web/src/modules/changes/` (staging and commit controls below the summary row, per `layout.md` **Changes**), `task-header.tsx` and `sidebar.tsx` (the PR badge), the naming seam `apps/server/src/naming/naming.ts` for a generated commit message.
 
-**Done when.** Tests with a bare remote and fake CLIs cover commit, push, PR creation, state refresh and the settle offer.
+**Rules.**
+
+- **Every remote write is an explicit user action with a confirmation that names the remote and branch.** Commit and push are separate actions; `gh pr create` pushes as a side effect in some paths, so the flow either pushes first and then creates with `--head`/`--fill`, or uses `gh pr create --dry-run`-equivalent behaviour — never a silent push. The confirmation names the remote url and the branch, and the server refuses a remote whose url is not the one the user confirmed.
+- **The CLI calls mirror the issue path**: `gh pr create --base <base> --head <branch> --title <t> --body-file -` and `gh pr view --json number,url,state,isDraft,mergeable,mergeStateStatus,statusCheckRollup`, `gh pr checks --json bucket,name,state`; `glab mr create --title --description-file - --source-branch --target-branch --yes` and `glab mr view -F json`. Credentials come from the user's own CLI login (no token handling in Corral beyond the existing GH-token stripping rule for untrusted hosts).
+- **PR state** is stored on the task (provider, number, url, state `open|draft|merged|closed`, checks summary) and refreshed on focus and every few minutes, with the refresh rate stated; a state that cannot be read (offline, logged out) shows as unknown plus the reason, never as closed.
+- **Merged PR offers to settle** the task; settling stays the user's action (`design.md`, **Domain model**).
+- **A generated commit message** may use `[naming]`'s agent with the same rules as title generation (ephemeral, no session, timeout, sanitized output), and a failure falls back to the user's text — never to an empty commit message.
+- **Verification uses a local bare repository** as the remote and fake `gh`/`glab` executables that log argv; nothing reaches a real host, and the suite asserts that no real host name appears in the fake's journal.
+- No force-push, no branch deletion, no rebase from Corral in this slice.
+
+**Done when.** With a local bare remote and the fake CLIs: stage selected files and all; commit with a message; push the branch and assert the bare repo has it; create a PR/MR and store the link; refresh state to merged and offer settle; a refused remote (url mismatch) and a logged-out CLI each surface a typed error; the header and sidebar row show the badge and the `+N −M` counts.
+
+**Depends on.** C4.
+
+**Decisions this slice settles.** (a) **Remote-write confirmation**: one confirmation per remote write (push, then create) versus one combined confirmation for the whole flow; recommend per write, with the second naming the PR target. (b) Where the PR link lives: a new `tasks` column (migration) versus a JSON field on the existing `source`-like column; recommend a small dedicated table or column set so a re-link and a state refresh do not rewrite the task row's other fields. (c) Whether the push uses the user's upstream/`origin` or an explicitly named remote, and what happens when the branch has no upstream. (d) Whether the commit message generator is in scope here or a follow-up (it is the only paid call in the slice, so it stays opt-in).
+
+---
 
 ## C-verify
 
-Independent verification of each driver's chat and its view behavior (OpenCode both live, Claude and pi handoff, Codex per C3's outcome), Changes tab, links and the commit/PR flow against fakes. Report at `.e2e/stage-c/verify/report.md`. Real-agent smoke runs only with the user's permission.
+Independent verification of the whole stage by an agent that wrote none of it: per-driver chat and its measured view behaviour (OpenCode both views live, Claude and pi handoff, Codex per C3's outcome), the Changes tab, local links and the commit/PR flow against a local bare repository and fake CLIs. Report at `.e2e/stage-c/verify/report.md`, screenshots at 1920×1080 and 1024×640. Per-driver real-binary evidence comes from the local stub endpoints of goal D9, in the three dialects (OpenAI chat-completions for pi/OpenCode, Responses for Codex, Anthropic Messages SSE for claude), with each agent's footprint isolated; a real agent turn runs only with the user's permission, and the SDK's `accountInfo()`-class check is the one real-login probe allowed without one.
 
 ## Not in stage C
 
-Mobile client, remote servers, orchestration, Corral-side transcript search, images in the composer.
+Mobile client, remote servers, orchestration, Corral-side transcript storage or search, images and attachments in the composer, a diff right-panel (`layout.md`: diff is a tab), force-push or branch operations beyond creating a PR, and any automatic settling on a merged PR.
