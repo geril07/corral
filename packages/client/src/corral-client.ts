@@ -1,4 +1,6 @@
+import type { SessionId } from "@corral/protocol/rpc";
 import type { ServerTarget } from "@corral/protocol/server-target";
+import { createChatStore, type ChatStore } from "./chat-store.ts";
 import type { Backoff, CreateSocket } from "./reconnecting-socket.ts";
 import { createConfigStore, type ConfigStore } from "./config-store.ts";
 import { createProjectsStore, type ProjectsStore } from "./projects-store.ts";
@@ -25,6 +27,8 @@ export interface CorralClient {
   readonly terminals: TerminalsStore;
   /** Shows the terminal on `surface` until the caller closes the returned stream. */
   attach(terminalId: string, surface: TerminalSurface): TerminalStream;
+  /** Follows one session's chat until the caller closes the returned store. */
+  openChat(sessionId: SessionId): ChatStore;
   close(): void;
 }
 
@@ -43,6 +47,14 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
     sessions,
     terminals,
     attach: (terminalId, surface) => new TerminalStream({ ...options, terminalId, surface }),
+    openChat: (sessionId) =>
+      createChatStore(
+        {
+          state: connection.state,
+          watch: (input) => connection.api.chat.watch(input),
+        },
+        sessionId,
+      ),
     close: () => {
       config.close();
       projects.close();
