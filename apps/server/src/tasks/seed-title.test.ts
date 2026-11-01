@@ -33,3 +33,25 @@ test("a seed exactly at the limit is kept whole", () => {
 
   expect(seedTitle(line)).toBe(line);
 });
+
+test("a prompt of emoji is cut between characters, never inside one", () => {
+  // 40 rockets are 40 characters but 80 UTF-16 units: counting units would cut this at all.
+  const forty = "🚀".repeat(40);
+  expect(seedTitle(forty)).toBe(forty);
+
+  // Past the limit there is no word boundary either, so it cuts where it must — between rockets.
+  const title = seedTitle("🚀".repeat(70));
+  expect(Array.from(title)).toHaveLength(SEED_TITLE_LENGTH);
+  expect(title).toBe(`${"🚀".repeat(SEED_TITLE_LENGTH - 1)}…`);
+  // A lone half of a surrogate pair is not text and would read as a replacement glyph.
+  const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+  expect(loneSurrogate.test(title)).toBe(false);
+  expect(title).not.toContain("\ufffd");
+
+  // A joined family is one character: cutting between its people would leave loose ones.
+  const family = "👩\u200d👩\u200d👧\u200d👦";
+  expect(seedTitle(family.repeat(SEED_TITLE_LENGTH))).toBe(family.repeat(SEED_TITLE_LENGTH));
+  const joined = seedTitle(family.repeat(SEED_TITLE_LENGTH + 10));
+  expect(joined).toBe(`${family.repeat(SEED_TITLE_LENGTH - 1)}…`);
+  expect(joined.endsWith("\u200d…")).toBe(false);
+});
