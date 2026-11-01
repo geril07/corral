@@ -8,7 +8,7 @@ import { existsSync } from "node:fs";
  * the child's environment. The issue import (C0/a) and the pull-request calls (C6) share it so the
  * two cannot drift on what a CLI call inherits.
  */
-export const NATIVE_CLI_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
+const NATIVE_CLI_MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
 
 const GITHUB_TOKEN_ENV = [
   "GH_TOKEN",

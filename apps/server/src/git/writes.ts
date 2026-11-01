@@ -1,4 +1,4 @@
-import { git, GitError, gitRead } from "./git.ts";
+import { git, gitRead } from "./git.ts";
 
 /**
  * The writes behind the Changes tab (C6): staging, committing and pushing, each one an action the
@@ -17,13 +17,15 @@ export async function stagePaths(
   staged: boolean,
 ): Promise<void> {
   if (staged) {
-    // `git add` records a deletion too (git ≥ 2.0), so a removed file stages as a removal.
+    // `git add` records a deletion too (git ≥ 2.0), so a removed file stages as a removal, and
+    // `--all` without a pathspec is the whole worktree.
     await git(workspace, ["add", "--all", ...pathArgs(paths)], { env: WRITE_ENV });
     return;
   }
-  // `--staged` needs HEAD; an index with no commit at all can only be emptied by unstaging paths
-  // git knows about, which is what the UI offers after a first commit. A refusal is git's sentence.
-  await git(workspace, ["restore", "--staged", ...pathArgs(paths)], { env: WRITE_ENV });
+  // `git restore --staged` always wants a pathspec, so "everything" is `.` from the workspace root
+  // (the task's worktree or the main tree). It also needs HEAD: an index with no commit at all
+  // cannot be unstaged this way, and git's own refusal is the sentence the user sees.
+  await git(workspace, ["restore", "--staged", ...unstageArgs(paths)], { env: WRITE_ENV });
 }
 
 /** Paths in the index, sorted; the workspace's own staged set, not the whole repository's. */
@@ -80,16 +82,10 @@ export async function pushBranch(
   return { commit: head };
 }
 
-/** The commit `branch` points at locally, for a "pushed this commit" line. */
-export async function branchCommit(workspace: string, branch: string): Promise<string | undefined> {
-  try {
-    return (await gitRead(workspace, ["rev-parse", "--verify", `refs/heads/${branch}`])).trim();
-  } catch (error) {
-    if (error instanceof GitError) return undefined;
-    throw error;
-  }
-}
-
 function pathArgs(paths: readonly string[] | "all"): string[] {
   return paths === "all" ? [] : ["--", ...paths];
+}
+
+function unstageArgs(paths: readonly string[] | "all"): string[] {
+  return paths === "all" ? ["--", "."] : ["--", ...paths];
 }

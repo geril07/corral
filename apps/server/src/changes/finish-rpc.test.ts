@@ -74,6 +74,11 @@ test("staging, committing and pushing reach the local bare remote, and no forge 
   expect(
     (await api.changes.stage({ id: task.id, paths: ["src/one.ts"], staged: false })).staged,
   ).toEqual(["notes.txt"]);
+  // "Unstage all" is a pathspec too: git refuses `restore --staged` without one.
+  expect((await api.changes.stage({ id: task.id, paths: "all", staged: false })).staged).toEqual(
+    [],
+  );
+  await api.changes.stage({ id: task.id, paths: "all", staged: true });
 
   const committed = await api.changes.commit({ id: task.id, message: "feat: ship one and two" });
   expect(committed.subject).toBe("feat: ship one and two");

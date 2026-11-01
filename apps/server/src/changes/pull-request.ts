@@ -73,7 +73,7 @@ const GlabView = z.object({
 });
 
 /** `gh pr create --base <base> --head <branch> --title <t> --body-file -`, body on stdin. */
-export function createCommand(input: {
+function createCommand(input: {
   provider: IssueProvider;
   branch: string;
   base: string;
@@ -118,7 +118,7 @@ export function createCommand(input: {
 }
 
 /** `gh pr view --json …` / `glab mr view -F json`: the current branch's request, no host named. */
-export function viewCommand(provider: IssueProvider): { command: string; args: string[] } {
+function viewCommand(provider: IssueProvider): { command: string; args: string[] } {
   return provider === "github"
     ? {
         command: "gh",
@@ -133,16 +133,14 @@ export function viewCommand(provider: IssueProvider): { command: string; args: s
 }
 
 /** `gh pr checks --json bucket,name,state`; GitLab reports no per-check list to Corral. */
-export function checksCommand(
-  provider: IssueProvider,
-): { command: string; args: string[] } | undefined {
+function checksCommand(provider: IssueProvider): { command: string; args: string[] } | undefined {
   return provider === "github"
     ? { command: "gh", args: ["pr", "checks", "--json", "bucket,name,state"] }
     : undefined;
 }
 
 /** The URL a create printed, used when the follow-up read cannot answer. */
-export function createdUrl(stdout: string, provider: IssueProvider): string | undefined {
+function createdUrl(stdout: string, provider: IssueProvider): string | undefined {
   const pattern =
     provider === "github" ? /https?:\/\/\S+\/pull\/\d+/ : /https?:\/\/\S+\/-\/merge_requests\/\d+/;
   for (const line of stdout.split("\n")) {
@@ -174,7 +172,7 @@ function hostOf(url: string): string | undefined {
 }
 
 /** Parses `gh pr view` and `gh pr checks`, or their GitLab equivalents. */
-export function parsePullRequest(
+function parsePullRequest(
   provider: IssueProvider,
   stdout: string,
   checksStdout: string | undefined,
@@ -222,7 +220,7 @@ export function parsePullRequest(
 }
 
 /** A check summary from `gh pr checks --json bucket,name,state`; `null` when there is no check. */
-export function parseChecks(stdout: string): PullRequestChecks | null {
+function parseChecks(stdout: string): PullRequestChecks | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(stdout);
