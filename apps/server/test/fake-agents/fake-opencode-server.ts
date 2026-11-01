@@ -93,13 +93,22 @@ export function runFakeOpenCodeServer(options: {
     }
   };
 
+  /** The per-session durable sequence, as OpenCode's own events carry it. */
+  const sequences = new Map<string, number>();
+
   const emit = (type: string, data: Record<string, unknown>) => {
     events += 1;
+    const sessionID = typeof data["sessionID"] === "string" ? data["sessionID"] : undefined;
+    const seq = sessionID === undefined ? undefined : (sequences.get(sessionID) ?? 0) + 1;
+    if (sessionID !== undefined && seq !== undefined) sequences.set(sessionID, seq);
     const frame = {
       id: `evt_fake${events}`,
       created: Date.now(),
       type,
       data,
+      ...(sessionID === undefined || seq === undefined
+        ? {}
+        : { durable: { aggregateID: sessionID, seq: seq - 1, version: 1 } }),
     };
     const chunk = `data: ${JSON.stringify(frame)}\n\n`;
     for (const stream of streams) stream.write(chunk);
@@ -238,6 +247,24 @@ export function runFakeOpenCodeServer(options: {
     startAssistant(session);
     if (text === "hold") {
       textDelta(session, "holding");
+      return;
+    }
+    if (text === "slow") {
+      textDelta(session, "working");
+      setTimeout(() => {
+        textDelta(session, " then done");
+        endText(session, "working then done");
+        finish(session, "succeeded");
+      }, 300).unref();
+      return;
+    }
+    if (text === "split" || text === "haha") {
+      // Two deltas whose boundary repeats the previous tail: a driver that deduplicates every
+      // delta (instead of only a replay) loses the second one.
+      const pieces = text === "split" ? ["coffe", "e"] : ["ha", "ha"];
+      for (const piece of pieces) textDelta(session, piece);
+      endText(session, pieces.join(""));
+      setTimeout(() => finish(session, "succeeded"), 10).unref();
       return;
     }
     if (text === "ask") {

@@ -43,6 +43,14 @@ export function useFakeAgents() {
     vi.stubEnv("CLAUDE_CONFIG_DIR", join(root, "claude"));
     vi.stubEnv("OPENCODE_CONFIG_DIR", join(root, "opencode"));
     vi.stubEnv("OPENCODE_CONFIG_CONTENT", "");
+    // OpenCode reads its log path from the whole XDG/home footprint, not one variable, and its
+    // provider credentials from the environment: a test must never inherit the developer's.
+    vi.stubEnv("HOME", join(root, "home"));
+    vi.stubEnv("XDG_CONFIG_HOME", join(root, "xdg", "config"));
+    vi.stubEnv("XDG_DATA_HOME", join(root, "xdg", "data"));
+    vi.stubEnv("XDG_STATE_HOME", join(root, "xdg", "state"));
+    vi.stubEnv("OPENROUTER_API_KEY", undefined);
+    vi.stubEnv("OPENCODE_API_KEY", undefined);
     vi.stubEnv("FAKE_AGENT_LOG", logFile);
     // The fake `opencode serve`: its own journal and the directory that makes sessions survive a
     // restart of the process, as OpenCode's data directory does.

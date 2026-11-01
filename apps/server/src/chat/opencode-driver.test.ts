@@ -170,8 +170,10 @@ test("an answer that arrives while a turn runs is a steer; a prompt then is refu
         ),
       "the refused prompt",
     );
-    // Only the first prompt and the steer reached the server.
+    // Only the first prompt and the steer reached the server, and the refusal left no user item
+    // for a message that never left the driver.
     expect(await prompts()).toHaveLength(2);
+    expect(items(test1.timeline).filter((item) => item.kind === "user-message")).toHaveLength(2);
 
     await test1.driver.abort();
     await until(() => test1.timeline.state.turn === "aborted", "the interrupted turn");
@@ -317,7 +319,8 @@ test(
       });
       rebuilt.start();
       await until(() => second.state.turn === "settled", "the rebuilt transcript");
-      expect(textOf(second)).toContain("Hello world");
+      // The rebuilt text is exact: no duplicated replay, no lost delta at a boundary.
+      expect(textOf(second)).toBe("Hello world");
       expect(
         items(second).find((item) => item.kind === "tool-call" && item.status === "done"),
       ).toMatchObject({ name: "edit", diff: { path: "src/app.ts" } });
@@ -349,5 +352,109 @@ test("a server that dies is reported as an exit with the reason, not as silence"
     expect(reason).toEqual(expect.stringContaining("opencode"));
   } finally {
     await test1.stop();
+  }
+});
+
+/** A driver on an existing pool server, for the tests that start a second frontend. */
+function driverOn(
+  server: { url: string; password: string },
+  sessionId: string,
+  options: { prompt?: string | null; timeline: ChatTimeline; statuses?: string[] },
+): OpenCodeDriver {
+  return new OpenCodeDriver({
+    sessionId: "corral-session-2",
+    timeline: options.timeline,
+    command: "opencode",
+    args: [],
+    cwd: "/tmp",
+    env: processEnv(),
+    prompt: options.prompt ?? null,
+    agentSessionId: sessionId,
+    server,
+    writer: { record: () => {}, release: () => {} },
+    dialogTimeoutMs: 3000,
+    readyTimeoutMs: 5000,
+    exitGraceMs: 500,
+    onStatus: (status) => options.statuses?.push(status.state),
+    onExit: () => {},
+  });
+}
+
+test("a second frontend on a session that already has a user message sends no prompt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corral-opencode-"));
+  const servers = new OpenCodeServers({ dataDir: root, readyTimeoutMs: 10_000 });
+  const command = join(import.meta.dirname, "../..", "test", "fake-agents", "bin", "opencode");
+  const server = await servers.acquire("chat:first", { command, cwd: root, env: processEnv() });
+  const sessionId = "ses_prompt0000000000000000000";
+  const first = new ChatTimeline(0);
+  const driver = driverOn(server, sessionId, { prompt: "stream please", timeline: first });
+  try {
+    driver.start();
+    await until(() => first.state.turn === "settled", "the first turn");
+    expect(await prompts()).toHaveLength(1);
+    await driver.stop();
+
+    const second = new ChatTimeline(0);
+    const restarted = driverOn(server, sessionId, { prompt: "stream please", timeline: second });
+    restarted.start();
+    await until(() => second.state.turn === "settled", "the rebuilt turn");
+    expect(await prompts()).toHaveLength(1);
+    expect(second.snapshot().items.filter((item) => item.kind === "user-message")).toHaveLength(1);
+    await restarted.stop();
+  } finally {
+    await servers.closeAll();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a delta that repeats the previous tail is text, not a replay", async () => {
+  const test1 = await harness();
+  try {
+    test1.driver.send("split", "prompt");
+    await until(() => test1.timeline.state.turn === "settled", "the split turn");
+    expect(textOf(test1.timeline)).toBe("coffee");
+
+    test1.driver.send("haha", "prompt");
+    await until(
+      () => textOf(test1.timeline).endsWith("haha") && test1.timeline.state.turn === "settled",
+      "the repeated-tail turn",
+    );
+    expect(textOf(test1.timeline)).toBe("coffeehaha");
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("one session's stream never carries another session's text", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corral-opencode-"));
+  const servers = new OpenCodeServers({ dataDir: root, readyTimeoutMs: 10_000 });
+  const command = join(import.meta.dirname, "../..", "test", "fake-agents", "bin", "opencode");
+  const server = await servers.acquire("chat:shared", { command, cwd: root, env: processEnv() });
+  const timelineA = new ChatTimeline(0);
+  const timelineB = new ChatTimeline(0);
+  const a = driverOn(server, "ses_cross00000000000000000000", { timeline: timelineA });
+  const b = driverOn(server, "ses_cross11111111111111111111", { timeline: timelineB });
+  try {
+    a.start();
+    b.start();
+    await until(
+      async () =>
+        (await journal()).filter((entry) => entry["action"] === "session-create").length === 2,
+      "both sessions created",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    a.send("alpha", "prompt");
+    b.send("beta", "prompt");
+    await until(
+      () => textOf(timelineA).includes("echo: alpha") && textOf(timelineB).includes("echo: beta"),
+      "both turns",
+    );
+    expect(textOf(timelineA)).not.toContain("beta");
+    expect(textOf(timelineB)).not.toContain("alpha");
+  } finally {
+    await a.stop();
+    await b.stop();
+    await servers.closeAll();
+    await rm(root, { recursive: true, force: true });
   }
 });

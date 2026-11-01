@@ -13,7 +13,11 @@ import type {
   ChatLaunchFacts,
   ChatTimeouts,
 } from "./chat-driver.ts";
-import { OpenCodeProjection, type OpenCodeAction } from "./opencode-projection.ts";
+import {
+  OpenCodeProjection,
+  newOpenCodeMessageId,
+  type OpenCodeAction,
+} from "./opencode-projection.ts";
 import type { ChatTimeline } from "./timeline.ts";
 
 /** What OpenCode's chat frontend is started with: the launch, its server and the deadlines. */
@@ -33,10 +37,12 @@ const REQUEST_TIMEOUT_MS = 10_000;
  * - The session id is Corral's (`Session.agentSessionId`, shaped `ses_…`); `POST /api/session`
  *   accepts it, so settle/continue/restart keep one id. A server that restarted without the
  *   session re-creates it under that id.
- * - Streaming is `GET /api/event`, filtered to this session by `data.sessionID`; the durable
- *   sequence is translated into the timeline's Corral sequence by the projection. Every reconnect
- *   rebuilds the transcript from `GET /api/session/:id/message`, so the rebuild path is the one
- *   that runs after a server restart rather than a replay that may not cover a new server.
+ * - Streaming is `GET /api/event`, filtered to this session by `data.sessionID`. Events carry a
+ *   `durable` sequence, but the timeline's sequence is Corral's own: ordering comes from the
+ *   projection, and every reconnect rebuilds the transcript from
+ *   `GET /api/session/:id/message`, which is the path that works after a server restart. Only a
+ *   text delta that arrives while the transcript is rebuilt is measured against the rebuilt text;
+ *   a live delta is always appended whole.
  * - A permission request becomes a `select` user request (allow once, allow always, reject) sent to
  *   `POST …/permission/:requestID/reply`; an answer from the terminal's own prompt arrives as
  *   `permission.replied` and resolves the same item, so one request has one resolution.
@@ -109,17 +115,19 @@ export class OpenCodeDriver implements ChatDriver {
   }
 
   send(text: string, mode: ChatSendMode): string {
-    const { itemId, messageId } = this.#projection.userMessage(text);
     if (mode === "prompt" && this.timeline.state.turn === "working") {
       // The client offers steer and follow-up while a turn runs; a prompt would be a second
-      // writer on the same turn, so it is refused visibly and nothing is sent.
+      // writer on the same turn, so it is refused visibly and nothing is sent — and no user item
+      // is left behind for a message that never left the driver.
+      const refused = `error:send:${newOpenCodeMessageId()}`;
       this.timeline.put({
         kind: "error",
-        id: `error:send:${messageId}`,
+        id: refused,
         text: "a turn is running in this session; steer it or queue a follow-up instead",
       });
-      return itemId;
+      return refused;
     }
+    const { itemId, messageId } = this.#projection.userMessage(text);
     const delivery = mode === "steer" ? "steer" : mode === "follow-up" ? "queue" : undefined;
     void this.#prompt(messageId, text, delivery).catch((error: unknown) => {
       this.timeline.put({
@@ -238,7 +246,9 @@ export class OpenCodeDriver implements ChatDriver {
               // oxlint-disable-next-line no-await-in-loop -- hydrate once, before the buffered events
               const failure = await this.#hydrate();
               if (failure !== undefined) return failure;
-              for (const queued of buffered.splice(0)) this.#onEvent(queued);
+              // Buffered events arrived while the transcript was being rebuilt; text they carry is
+              // measured against the rebuilt text, because that snapshot may already contain it.
+              for (const queued of buffered.splice(0)) this.#onEvent(queued, true);
             }
             continue;
           }
@@ -293,12 +303,18 @@ export class OpenCodeDriver implements ChatDriver {
     }
   }
 
-  /** The launch's candidate first prompt, handed over only when the conversation has no user message. */
+  /**
+   * The launch's candidate first prompt, handed over only when the rebuilt transcript has no user
+   * message. A restart, a `setView` into chat and a restore all re-run this after `#hydrate`, so
+   * the transcript — not a flag on the session row — decides: a conversation that already has the
+   * user's words must never receive the task prompt again.
+   */
   #sendPromptIfNeeded(): void {
     if (this.#promptSent) return;
     this.#promptSent = true;
     const prompt = this.#request.prompt;
     if (prompt === null) return;
+    if (this.timeline.snapshot().items.some((item) => item.kind === "user-message")) return;
     const { itemId, messageId } = this.#projection.userMessage(prompt);
     void this.#prompt(messageId, prompt, undefined).catch((error: unknown) => {
       this.timeline.put({
@@ -332,7 +348,7 @@ export class OpenCodeDriver implements ChatDriver {
     }
   }
 
-  #onEvent(event: unknown): void {
+  #onEvent(event: unknown, replay = false): void {
     if (this.#closed) return;
     const type = typeOfEvent(event);
     if (type === undefined) return;
@@ -340,7 +356,10 @@ export class OpenCodeDriver implements ChatDriver {
     const data = recordOf(recordField(event, "data"));
     if (data === undefined) return;
     if (stringField(data, "sessionID") !== this.#session()) return;
-    for (const action of this.#projection.applyEvent({ type, data, ...eventShape(event) }))
+    for (const action of this.#projection.applyEvent(
+      { type, data, ...eventShape(event) },
+      { replay },
+    ))
       this.#apply(action);
   }
 

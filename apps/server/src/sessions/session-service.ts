@@ -84,7 +84,13 @@ interface Live {
   /** Whether the live frontend is a chat child rather than a terminal. */
   chat: boolean;
   discovery: CodexSessionWatch | undefined;
+  /** The terminal leg's launch token: its OSC reports and the HTTP status report carry it. */
   statusToken: string;
+  /**
+   * The chat leg's launch token. It is separate on purpose: a both-live session has two frontends,
+   * and opening the terminal must not rotate the identity the live chat driver reports with.
+   */
+  chatStatusToken: string;
   /** Once this launch has had an HTTP report accepted, its OSC 7501 reports no longer change the status. */
   reportedOverHttp: boolean;
   /** A terminal leg that fell back to OpenCode's own private server because the shared one could not start. */
@@ -261,7 +267,10 @@ export class SessionService {
       // Read before the launch: the live record is one object per session, and the launch replaces
       // its terminal id in place.
       const exitedTerminal = previous?.terminalId ?? null;
-      if (previous?.chat) await this.#chat.stop(id);
+      if (previous?.chat) {
+        await this.#chat.stop(id);
+        await this.#openCodeServers.release(openCodeOwner("chat", id));
+      }
       try {
         await this.#launch(stored, this.#task(stored.taskId), size, "resume", prompt);
       } catch (error) {
@@ -749,14 +758,20 @@ export class SessionService {
         // OSC 7501 fills in only until the launch's first accepted HTTP report (Orca's rule: the plugin wins).
         (status) => {
           const current = this.#live.get(stored.id);
-          if (current?.statusToken === statusToken && !current.reportedOverHttp)
+          if (
+            current?.terminalId === info.id &&
+            current.statusToken === statusToken &&
+            !current.reportedOverHttp
+          )
             this.#setStatus(stored.id, status);
         },
       );
     } catch (error) {
+      // The pool client was acquired before the PTY existed; a spawn that failed leaves it behind.
+      await this.#openCodeServers.release(openCodeOwner("terminal", stored.id));
       throw new LaunchSpawnError(stored.kind, redactLaunchError(error, referencedValues));
     }
-    this.#statuses.delete(stored.id);
+    if (previous === undefined) this.#statuses.delete(stored.id);
     const discovery =
       stored.kind === "codex" && stored.agentSessionId === null
         ? watchForCodexSession({
@@ -777,6 +792,7 @@ export class SessionService {
       chat: false,
       discovery,
       statusToken,
+      chatStatusToken: statusToken,
       reportedOverHttp: false,
       standaloneOpenCode: standalone,
     };
@@ -841,11 +857,12 @@ export class SessionService {
       chat: false,
       discovery: undefined,
       statusToken,
+      chatStatusToken: statusToken,
       reportedOverHttp: false,
       standaloneOpenCode: false,
     };
     live.chat = true;
-    live.statusToken = statusToken;
+    live.chatStatusToken = statusToken;
     live.reportedOverHttp = false;
     live.standaloneOpenCode = false;
     try {
@@ -864,7 +881,8 @@ export class SessionService {
         ...(server === undefined ? {} : { server }),
         onStatus: (status) => {
           const current = this.#live.get(stored.id);
-          if (current?.statusToken === statusToken) this.#setStatus(stored.id, status);
+          if (current?.chat && current.chatStatusToken === statusToken)
+            this.#setStatus(stored.id, status);
         },
         onExit: (reason) => {
           void this.#openCodeServers.release(owner);
@@ -881,7 +899,7 @@ export class SessionService {
           : redactLaunchError(error, referencedValues),
       );
     }
-    this.#statuses.delete(stored.id);
+    if (previous === undefined) this.#statuses.delete(stored.id);
     this.#live.set(stored.id, live);
     this.#launchErrors.delete(stored.id);
   }
@@ -901,6 +919,7 @@ export class SessionService {
         await this.#openCodeServers.release(openCodeOwner("terminal", sessionId));
       } else {
         live.chat = false;
+        await this.#openCodeServers.release(openCodeOwner("chat", sessionId));
       }
       // A both-live session keeps its other frontend; only the last leg ending settles it.
       if (!live.chat && !this.#terminalAlive(sessionId)) {
@@ -951,7 +970,12 @@ export class SessionService {
   async #halt(id: string): Promise<void> {
     const live = this.#live.get(id);
     if (!live) return;
-    if (live.chat) await this.#chat.stop(id);
+    if (live.chat) {
+      await this.#chat.stop(id);
+      // The database release happens even when the driver already did it from `onExit`: it then
+      // waits for the stop in flight, so an immediate restart cannot join a dying server.
+      await this.#openCodeServers.release(openCodeOwner("chat", id));
+    }
     if (live.terminalId !== null) {
       await this.#terminals.close(live.terminalId);
       await this.#openCodeServers.release(openCodeOwner("terminal", id));

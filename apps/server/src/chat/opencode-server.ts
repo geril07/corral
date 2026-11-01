@@ -53,7 +53,7 @@ interface Attachment {
  *
  * The process record is keyed by the process, not by a session: `<dataDir>/chat/opencode-server.json`
  * names the pid and its start time, so a Corral that starts again stops the previous server before
- * it spawns its own, and a second server on one data directory is refused rather than raced. The
+ * it spawns its own, so a second server on one data directory is never left running. The
  * module that writes it is `writer-claim.ts`, as for every writer.
  */
 export class OpenCodeServers {
@@ -98,9 +98,14 @@ export class OpenCodeServers {
 
   /** Lets one client go; the last one stops the server. Resolves once it is gone. */
   async release(owner: string): Promise<void> {
-    if (!this.#owners.delete(owner)) return;
-    if (this.#owners.size > 0) return;
-    await this.#stop();
+    const owned = this.#owners.delete(owner);
+    if (owned && this.#owners.size === 0) {
+      await this.#stop();
+      return;
+    }
+    // A release that arrives after another leg already started the stop waits for it too, so a
+    // caller can rely on "the release resolved" meaning "nothing of this server is left running".
+    await this.#stopping;
   }
 
   /** Stops the server whatever its clients say; the server is shutting down. */
@@ -111,7 +116,9 @@ export class OpenCodeServers {
 
   /** The address of the running server, or a started one; concurrent callers share one start. */
   async #ensure(launch: OpenCodeServerLaunch): Promise<RunningServer> {
-    if (this.#running !== undefined) return this.#running;
+    // A stop in flight must finish before anything can join the server it is stopping: the old
+    // address still answers for a moment after SIGTERM, and a client that took it would lose the
+    // conversation when the process goes. Only then is a live server joinable.
     if (this.#starting !== undefined) return this.#starting;
     if (this.#stopping !== undefined) await this.#stopping;
     if (this.#running !== undefined) return this.#running;
@@ -125,9 +132,9 @@ export class OpenCodeServers {
   }
 
   async #start(launch: OpenCodeServerLaunch): Promise<RunningServer> {
-    // A server a previous Corral run left behind holds the same data directory; two servers on
-    // one of them is the thing the record exists to refuse. Only on a first start: a live server
-    // of this run has no record of its own to release.
+    // A server a previous Corral run left behind holds the same data directory; the record is
+    // what stops it before this one starts. Only on a first start: a live server of this run has
+    // no record of its own to release.
     await releasePreviousWriter(
       this.#recordPath,
       this.#identityOfPid === undefined ? {} : { identityOfPid: this.#identityOfPid },

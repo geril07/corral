@@ -89,11 +89,6 @@ export class OpenCodeProjection {
     return { itemId, messageId };
   }
 
-  /** Whether the transcript already holds the user message with this OpenCode id. */
-  hasUserMessage(messageId: string): boolean {
-    return this.#timeline.item(`user:${messageId}`) !== undefined;
-  }
-
   /** Takes the model and activity the session itself reports (`GET /api/session/:id`). */
   sessionState(info: { model?: unknown; time?: unknown }): void {
     const model = modelOf(info.model);
@@ -132,7 +127,13 @@ export class OpenCodeProjection {
   }
 
   /** Applies one event of the session's stream; returns what the driver has to do about it. */
-  applyEvent(event: OpenCodeServerEvent): OpenCodeAction[] {
+  /**
+   * Applies one event of the session's stream; returns what the driver has to do about it. `replay`
+   * marks an event that arrived while the transcript was rebuilt: a text delta it carries may
+   * already be in the hydrated text, so only then is the delta measured against the current text.
+   * A live delta is always new text, even when it repeats the tail ("coffe" + "e", "ha" + "ha").
+   */
+  applyEvent(event: OpenCodeServerEvent, options: { replay?: boolean } = {}): OpenCodeAction[] {
     const data = asRecord(event.data);
     if (data === undefined) return [];
     const actions: OpenCodeAction[] = [];
@@ -156,6 +157,7 @@ export class OpenCodeProjection {
               : "delta",
           delta: stringOf(data["delta"]) ?? "",
           text: stringOf(data["text"]),
+          replay: options.replay === true,
         });
         break;
       }
@@ -358,6 +360,7 @@ export class OpenCodeProjection {
     phase: "started" | "delta" | "ended";
     delta: string;
     text: string | undefined;
+    replay: boolean;
   }): void {
     const itemId = input.reasoning
       ? reasoningItemId(input.messageId, input.ordinal)
@@ -381,7 +384,10 @@ export class OpenCodeProjection {
       return;
     }
     if (input.delta === "") return;
-    const addition = input.delta.slice(suffixOverlap(current, input.delta));
+    // A live delta is new text; only a replayed one can duplicate the hydrated text.
+    const addition = input.replay
+      ? input.delta.slice(suffixOverlap(current, input.delta))
+      : input.delta;
     if (addition === "") return;
     if (this.#timeline.item(itemId) === undefined) {
       this.#texts.set(itemId, addition);

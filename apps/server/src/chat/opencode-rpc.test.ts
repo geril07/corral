@@ -269,3 +269,97 @@ test("a killed server is a typed refusal with the reason, and a restart recreate
   );
   expect(creations.every((entry) => entry["sessionID"] === session.agentSessionId)).toBe(true);
 });
+
+async function sessionNow(api: Api, id: string) {
+  return (await sessionsOf(api)).find((session) => session.id === id);
+}
+
+async function promptsOf(): Promise<Record<string, unknown>[]> {
+  return (await openCodeJournal()).filter((entry) => entry["action"] === "prompt");
+}
+
+test("stopping and restarting a chat session at once keeps it running and never repeats the prompt", async () => {
+  const { api, session } = await openCodeTask("stream please");
+  await untilChat(
+    api,
+    session.id,
+    (view) => textOf(view).includes("Hello world") && view.state.turn === "settled",
+    "the first turn",
+  );
+  expect(await promptsOf()).toHaveLength(1);
+
+  // Same tick: the restart asks for the server while the stop is still shutting it down.
+  await api.sessions.stop({ id: session.id });
+  const restarted = await api.sessions.restart({ id: session.id, size: SIZE });
+
+  expect(restarted).toMatchObject({ id: session.id, state: "running" });
+  expect(restarted.launchError).toBeNull();
+  await untilChat(
+    api,
+    session.id,
+    (view) => textOf(view).includes("Hello world") && view.state.turn === "settled",
+    "the transcript rebuilt after the restart",
+  );
+  expect(await promptsOf()).toHaveLength(1);
+  expect(await serveLaunches()).toHaveLength(2);
+});
+
+test("a chat view opened after the terminal never repeats the prompt of a session that has history", async () => {
+  const { api, session } = await openCodeTask("stream please");
+  await untilChat(
+    api,
+    session.id,
+    (view) => textOf(view).includes("Hello world") && view.state.turn === "settled",
+    "the first turn",
+  );
+  expect(await promptsOf()).toHaveLength(1);
+
+  await api.sessions.stop({ id: session.id });
+  await api.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+  const terminal = await api.sessions.restart({ id: session.id, size: SIZE });
+  expect(terminal).toMatchObject({ view: "terminal", terminalId: expect.any(String) });
+
+  const chat = await api.sessions.setView({ id: session.id, view: "chat", size: SIZE });
+  expect(chat).toMatchObject({ view: "chat", terminalId: expect.any(String) });
+  await untilChat(
+    api,
+    session.id,
+    (view) => textOf(view).includes("Hello world"),
+    "the transcript in the chat view",
+  );
+  expect(await promptsOf()).toHaveLength(1);
+});
+
+test("opening the terminal keeps the live chat driver's status, and its later reports still land", async () => {
+  const { api, session } = await openCodeTask("ask");
+  await untilChat(
+    api,
+    session.id,
+    (view) => itemOf(view, "user-request")?.status === "pending",
+    "the permission request",
+  );
+  await expect
+    .poll(async () => (await sessionNow(api, session.id))?.status?.state, { timeout: 10_000 })
+    .toBe("blocked");
+
+  const opened = await api.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+  expect(opened).toMatchObject({ view: "terminal", terminalId: expect.any(String) });
+  // The terminal leg must not erase what the chat driver reported or stop its future reports.
+  expect((await sessionNow(api, session.id))?.status?.state).toBe("blocked");
+
+  const pending = await untilChat(
+    api,
+    session.id,
+    (view) => itemOf(view, "user-request")?.status === "pending",
+    "the request still pending",
+  );
+  await api.chat.respond({
+    sessionId: session.id,
+    requestId: itemOf(pending, "user-request")!.id,
+    value: "once",
+  });
+  await untilChat(api, session.id, (view) => view.state.turn === "settled", "the settled turn");
+  await expect
+    .poll(async () => (await sessionNow(api, session.id))?.status?.state, { timeout: 10_000 })
+    .toBe("done");
+});

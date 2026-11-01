@@ -129,3 +129,23 @@ test("a server that dies tells every client why, and the next acquire starts a f
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("an acquire that races a stop waits for it and starts a new server", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corral-opencode-pool-"));
+  const servers = new OpenCodeServers({ dataDir: root, readyTimeoutMs: 10_000, exitGraceMs: 300 });
+  try {
+    const first = await servers.acquire("chat:a", { command, cwd: root, env: env() });
+    const stopping = servers.release("chat:a");
+    // Same tick: the next session acquires while the old server is still shutting down.
+    const second = await servers.acquire("chat:b", { command, cwd: root, env: env() });
+    expect(second.url).not.toBe(first.url);
+    await stopping;
+    expect(await alive(first.url, first.password)).toBe(false);
+    expect(await alive(second.url, second.password)).toBe(true);
+    const listens = (await journal()).filter((entry) => entry["action"] === "listen");
+    expect(listens).toHaveLength(2);
+  } finally {
+    await servers.closeAll();
+    await rm(root, { recursive: true, force: true });
+  }
+});

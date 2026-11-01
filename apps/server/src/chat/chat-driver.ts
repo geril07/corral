@@ -86,9 +86,12 @@ export type ChatLaunchFacts = Pick<
  * **A process shared by several sessions is not recorded here.** C1's `opencode serve` holds many
  * sessions' conversations; one per-session record per attached session would let the next launch
  * of session A kill the process session B is using, and the first stop would forget it while it
- * still runs. A shared writer is recorded **once, keyed by the process rather than a session**, and
- * released when the last session using it stops — a shape the service grows with its first
- * `both-live` driver (see C1's brief), not something a driver may fake with this per-session pair.
+ * still runs. A shared writer is recorded **once, keyed by the process rather than a session**, at
+ * `<dataDir>/chat/opencode-server.json` (`opencode-server.ts`), and released when the last session
+ * using it stops. The OpenCode chat driver therefore reports no process through this pair: its
+ * conversation is the shared server's, and the pool's process record is the one-writer record.
+ * Its terminal leg is a client of the same pool record; the session's two legs are one writer
+ * because the server is the conversation, not because of a per-session pid.
  */
 export interface ChatWriterClaim {
   record(pid: number): void;
