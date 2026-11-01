@@ -19,14 +19,25 @@ allowed. UI-boundary, AST class/control and token gates enforce this separation.
 A required variant must solve a current structural need, not hide the old skin.
 Stock primitive appearance remains identifiable; the permitted adaptations (no popup exit animations, one unpadded dialog footer, a wider row overflow menu, the hint delay) are listed in `ui-kit.md`.
 
-## Target flow (stage A and stage B's chat built; stage B's handoff ahead)
+## Target flow (stages A and B built)
 
-What a user does. Items 1–3, 5–7 are built and verified end to end (stage A, `progress.md`); item 3's chat view and the chat halves of items 1–2 are stage B (B1, B3, B5). Item 4 (chat handoff) is B4. Keys listed here are the effective defaults.
+What a user does. Items 1–3, 5–7 are built and verified end to end (stage A, `progress.md`); item 3's chat view and the chat halves of items 1–2 (B1, B3, B5) and item 4's handoff (B4) are stage B. Keys listed here are the effective defaults.
 
 1. `prefix t` opens the new-task view in the main area (`layout.md`, **New task view**): a prompt field, plus project (current), agent · model, workspace and view, all prefilled from settings and changeable from the keyboard. Enter submits.
 2. The task appears in the sidebar at once under the prompt-derived seed title, which the generated title replaces. Its primary agent opens in the chosen view, already working on the prompt. No shell opens on its own.
 3. Inside a task (header and tab strip: `layout.md`), sessions are equal tabs: agents (terminal or chat) and shells. `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel.
-4. `prefix v` hands the current agent session over between chat and terminal (stop one frontend, resume the same conversation in the other). OpenCode can keep both live; whether Codex's terminal is view-only while chat writes is measured when its driver starts (stage C).
+4. `prefix v` hands the current agent session over between chat and terminal: one frontend is
+   stopped and its process waited for, then the other starts on the same agent conversation, so
+   the session keeps its name, its tab and its history. An idle agent switches at once; a working
+   one asks first, because the handoff aborts the turn and cancels a request the agent is waiting
+   on — both are named in the confirmation, together with what survives (the conversation the agent
+   already wrote). While the switch runs, the main area says "Switching this session to …" instead
+   of showing a half-switched pane. Only an agent with a chat driver has two views: the palette
+   shows the action disabled with the reason for a shell or a driverless agent, and pressing the key
+   there does nothing. A handoff whose second start fails leaves the session stopped in the target
+   view with the launch error and its Start again button, and `prefix v` on a stopped session only
+   chooses the view its next start opens in. OpenCode can keep both live and whether Codex's
+   terminal is view-only while chat writes is measured when its driver starts (stage C).
 5. The sidebar lists tasks either flat by status (sections Needs you, Working and Done, plus a settled shelf; the default) or grouped by project; `prefix l` toggles the mode and the device keeps its choice. A task's status is the most urgent of its sessions', ordered: needs approval or input, error, working, completed and unseen, idle. "Completed and unseen" clears when the task is opened or its status changes while it is selected.
 6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles.
 7. Settings carry the defaults the composer uses: view (global, overridable per project), workspace mode, worktree root, branch prefix, slug mode, naming agent/model; and the agents, whether each is found and which have a chat driver.
@@ -124,8 +135,8 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
   user picks such an agent in the composer the view control moves to `terminal` and says why. A user request
   arrives as the last timeline item with the keyboard: arrows and Enter answer `select` and
   `confirm`, Enter answers `input`, Ctrl/Cmd+Enter answers `editor`, and Escape dismisses any of
-  them. Prefix mode is the window capture-phase handler, so it works while the composer has the
-  keyboard and plain keys stay in the field. The transcript is a focusable `log`: PageUp/PageDown,
+  them. Prefix mode is the window capture-phase handler, so it works while the composer and the
+  chat have the keyboard and plain keys stay in the field. The transcript is a focusable `log`: PageUp/PageDown,
   Home/End and the arrow keys scroll it without a pointer; moving up releases the end follow and
   End takes it again. A fold that expands while the user reads above the end does not drag the
   view back to the tail.
@@ -137,7 +148,9 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
 ## Palette, search and settings
 
 - The palette lists every effective binding in fixed Sessions, Tasks, Projects,
-  Navigation and General groups, using official CommandDialog/Command components.
+  Navigation and General groups, using official CommandDialog/Command components. An action that
+  cannot run now is shown disabled next to the reason it cannot (e.g. "The claude agent has no chat
+  driver in this build.").
 - A new default binding can take a chord an existing `config.toml` gave to another action:
   the file's entry is dropped, that action falls back to its own default, and Settings reports
   the conflict.

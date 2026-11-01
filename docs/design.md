@@ -137,6 +137,16 @@ A session row carries a view (`terminal` or `chat`), persisted by migration 9; e
 - **Dialogs** are server-expired on a deadline (10 minutes, shorter when pi's extension set its own timeout), because pi resolves its own timeouts locally and the contract cannot rely on an event for that. Answering, dismissing, expiring, aborting and stopping all replace the request item in place.
 - **A tool diff** is pi's unified patch from the tool result (`details.patch` of `edit`, path from the call's arguments), not its compact `details.diff`; a tool result without one has no diff.
 
+### The handoff between views (stage B, B4)
+
+`prefix v` (`sessions.setView`) moves one session between chat and terminal. It is a serial stop and start, not two frontends:
+
+- A working turn is aborted first — pi is sent `abort`, any dialog waiting for an answer is cancelled, and the turn gets the grace a stop gives to report it ended, so a turn pi closes stays in the conversation. Then the live frontend is stopped through the same path a plain stop uses: a chat child closes stdin, is waited for and killed with its group; a terminal's PTY is closed and awaited. Only then does the other view start, with `--session-id`/`--resume` on the same agent session id. One writer exists at every moment, which the fake's launch journal and the real pi contract run both assert.
+- The session is never recreated, so its id, label and tab position stay; only `sessions.view` changes, and it is persisted, so a restore opens the view the user last chose.
+- In-flight state does not survive (it cannot, per the table above), so the client confirms while the agent is busy: the confirmation says the turn is aborted and a pending request cancelled, and that the conversation stays. When the agent is idle the switch runs at once, and while it runs the main area says so rather than showing a half-switched pane.
+- A failed second start leaves the session `stopped` in the target view with its `launchError`; `restart` (or `prefix v` back) is the retry. On a stopped session `setView` only records the view its next start opens in.
+- The offer is a build fact, not a client guess: the palette asks `chat.capabilities` and shows the action disabled with the reason for a shell or an agent this build cannot show as chat.
+
 ## Keyboard
 
 Findings (sourced, see research notes below): browsers keep some chords for themselves, and Electron can capture almost everything.

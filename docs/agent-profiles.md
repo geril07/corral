@@ -355,14 +355,16 @@ inputs; version 6 adds the task title source, `tasks.rename`, the rename-task/se
 actions and the required task, naming and project settings; version 7 adds the sidebar-mode
 action, the server-owned task `seenAt` and, while still unreleased, the task's prompt and primary
 session; version 8 adds the toggle-sidebar action; version 9 adds the `chat.*` contract, the
-session's `view` (optional until B1's migration), the abort-turn/change-model/change-reasoning
-bindings, `[tasks] view = "chat"`, `[agents.<kind>]` with `AGENT_DISABLED`, and
-`ConfigState.agents`. A protocol 4 daemon would strip task sources, a
+session's `view` (optional until B1's migration), `sessions.setView`, the
+abort-turn/change-model/change-reasoning/switch-view bindings, `[tasks] view = "chat"`,
+`[agents.<kind>]` with `AGENT_DISABLED`, and `ConfigState.agents`. A protocol 4 daemon would
+strip task sources, a
 protocol 3 daemon sends an exhaustive bindings record without `settings`, and a protocol 2
 daemon would strip launch fields and start the agent natively; a protocol 5 daemon strips the
 title source and its bindings, a protocol 6 daemon strips `seenAt` and the sidebar-mode binding
 and has no `tasks.markSeen`, a protocol 7 daemon strips the toggle-sidebar binding, and a
-protocol 8 daemon has no `chat.*` procedures and its sessions carry no `view`. Clients
+protocol 8 daemon has no `chat.*` procedures, no `sessions.setView` and its sessions carry no
+`view`. Clients
 must therefore refuse older versions: the endpoint check reports a protocol mismatch, and a
 WebSocket handshake on an older version closes with `4001` and the server's version before any
 route, keymap or session mutation. The old daemon is left running with its sessions; nothing
