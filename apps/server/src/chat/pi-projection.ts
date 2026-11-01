@@ -155,8 +155,9 @@ export class PiProjection {
         );
         return [];
       default:
-        // turn_start/turn_end/agent_end are covered by agent_settled; session entries, thinking
-        // levels of providers and the RPC bash stream have no item in this contract.
+        // turn_start/turn_end/agent_end are covered by agent_settled; session entries, provider
+        // thinking levels, the summarization retries and the RPC bash stream have no item in this
+        // contract, so they are dropped rather than guessed at.
         return [];
     }
   }
@@ -545,6 +546,11 @@ export class PiProjection {
   }
 
   #compactionEnd(record: PiRecord): void {
+    // An aborted compaction has no result, and leaving "Compacting…" as the last line would lie.
+    if (booleanField(record, "aborted") === true) {
+      this.#notice("Compaction was stopped.");
+      return;
+    }
     const error = stringField(record, "errorMessage");
     if (error !== undefined) {
       this.#error(`Compaction failed: ${error}`);

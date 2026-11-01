@@ -385,7 +385,9 @@ export class SessionService {
       const remembered = this.#store.listResumableOnUnsettle(taskId);
       for (const stored of remembered) {
         this.#store.setResumeOnUnsettle(stored.id, false);
-        if (stored.state !== "running") void this.#relaunch(stored);
+        // Awaited on purpose: the queue is what keeps a launch from racing a stop or a restart.
+        // oxlint-disable-next-line no-await-in-loop -- sessions are relaunched one after the other
+        if (stored.state !== "running") await this.#relaunch(stored);
       }
       if (remembered.length > 0) this.#changes.notify();
     });
@@ -404,7 +406,9 @@ export class SessionService {
         this.#settle(stored.id);
         this.#store.setResumeOnUnsettle(stored.id, true);
       } else {
-        void this.#relaunch(stored);
+        // Through the queue, like every other session mutation: a restore that spawned beside a
+        // queued stop or restart could leave two frontends, or resurrect a session the user stopped.
+        void this.#queue.run(() => this.#relaunch(stored));
       }
     }
   }

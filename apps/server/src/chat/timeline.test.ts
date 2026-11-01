@@ -107,6 +107,17 @@ test("an aborted signal ends the watch", async () => {
   expect(await watch.next()).toEqual({ done: true, value: undefined });
 });
 
+test("a timeline that starts above a predecessor treats its cursors as holes", () => {
+  const timeline = new ChatTimeline(5);
+  expect(timeline.snapshot().sequence).toBe(5);
+  // A cursor from the timeline this one replaced can never replay into the rebuilt items.
+  expect(timeline.eventsAfter(4)).toBeUndefined();
+  expect(timeline.eventsAfter(5)).toEqual([]);
+  timeline.setState({ steering: ["x"] });
+  expect(timeline.eventsAfter(4)).toBeUndefined();
+  expect(timeline.eventsAfter(5)).toHaveLength(1);
+});
+
 test("a replacement keeps its place and the snapshot stays authoritative", () => {
   const timeline = new ChatTimeline();
   timeline.put({ kind: "assistant-message", id: "a", text: "one", streaming: true });

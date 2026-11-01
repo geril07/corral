@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -16,7 +17,9 @@ import { isRecord } from "../../src/chat/pi-record.ts";
  *   `$FAKE_PI_RPC_CRASH_DELAY_MS`, default 0, so a test can be watching when it happens);
  * - `badline`: one line that is not JSON, the shape of a broken protocol;
  * - `silent`: start-up commands are never answered, so the ready deadline is exercised;
- * - `reject`: every message command answers `success:false`, the shape of a refused prompt.
+ * - `reject`: every message command answers `success:false`, the shape of a refused prompt;
+ * - `noeof`: ignores stdin EOF and keeps a `sleep` in its process group (its pid is written to
+ *   `<home>/<session>.grandchild`), so a test can prove the group is killed on stop.
  *
  * The journal lives under `$FAKE_PI_RPC_HOME`, keyed by `--session-id`, so a real server restart
  * resumes the same conversation exactly as pi's own session store would.
@@ -24,7 +27,8 @@ import { isRecord } from "../../src/chat/pi-record.ts";
 export function startFakePiRpc(argv: readonly string[]): void {
   const sessionId = argValue(argv, "--session-id") ?? `fake-${process.pid}`;
   const home = process.env["FAKE_PI_RPC_HOME"] ?? join(tmpdir(), "fake-pi-rpc");
-  const journalPath = join(home, `${sessionId.replace(/[^A-Za-z0-9._-]/g, "_")}.json`);
+  const safeSessionId = sessionId.replace(/[^A-Za-z0-9._-]/g, "_");
+  const journalPath = join(home, `${safeSessionId}.json`);
   const mode = process.env["FAKE_PI_RPC"] ?? "normal";
   const delayMs = Number(process.env["FAKE_PI_RPC_DELAY_MS"] ?? 500);
   const history = readJournal(journalPath);
@@ -41,6 +45,13 @@ export function startFakePiRpc(argv: readonly string[]): void {
   let currentUser: Record<string, unknown> | undefined;
 
   process.stdout.on("error", () => process.exit(0));
+  if (mode === "noeof") {
+    // A real handle keeps Node alive after stdin ends; a grandchild proves the group kill.
+    setInterval(() => undefined, 1000);
+    const grandchild = spawn("sleep", ["60"], { stdio: "ignore" });
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, `${safeSessionId}.grandchild`), String(grandchild.pid));
+  }
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (chunk: string) => {
     buffer += chunk;
@@ -55,8 +66,10 @@ export function startFakePiRpc(argv: readonly string[]): void {
       newline = buffer.indexOf("\n");
     }
   });
-  // pi closes on stdin EOF (measured on 1.4.0), so the fake does too.
-  process.stdin.on("end", () => process.exit(0));
+  // pi closes on stdin EOF (measured on 1.4.0), so the fake does too, unless the mode ignores it.
+  process.stdin.on("end", () => {
+    if (mode !== "noeof") process.exit(0);
+  });
 
   function handle(record: Record<string, unknown>): void {
     const id = typeof record["id"] === "string" ? record["id"] : undefined;

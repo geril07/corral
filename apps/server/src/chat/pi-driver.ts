@@ -43,6 +43,8 @@ export interface PiDriverRequest extends PiDriverTimeouts {
   prompt: string | null;
   /** Where this process's pid is recorded, so a later server can stop it before spawning. */
   claimPath: string;
+  /** The sequence this frontend's timeline starts at; above a predecessor it replaces. */
+  startAt: number;
   /** The agent's status, from pi's events instead of OSC 7501. */
   onStatus(status: AgentStatus): void;
   /** The child is gone; `reason` is null for a stop the server asked for. */
@@ -60,7 +62,7 @@ export interface PiDriverRequest extends PiDriverTimeouts {
  * on one pi session.
  */
 export class PiDriver {
-  readonly timeline = new ChatTimeline();
+  readonly timeline: ChatTimeline;
   readonly #request: PiDriverRequest;
   readonly #projection: PiProjection;
   readonly #reader = new PiLineReader();
@@ -82,6 +84,7 @@ export class PiDriver {
 
   constructor(request: PiDriverRequest) {
     this.#request = request;
+    this.timeline = new ChatTimeline(request.startAt);
     this.#projection = new PiProjection(this.timeline, {
       now: () => Date.now(),
       dialogTimeoutMs: request.dialogTimeoutMs,
@@ -355,38 +358,51 @@ export class PiDriver {
     if (stdin === undefined || stdin.destroyed || this.#closed || this.#stdinEnded)
       return Promise.reject(this.#unavailable());
     const line = `${JSON.stringify(record)}\n`;
-    this.#writes = this.#writes.then(
-      () =>
-        new Promise<void>((resolve, reject) => {
-          if (stdin.destroyed || this.#stdinEnded || this.#closed) {
-            reject(this.#unavailable());
-            return;
-          }
-          let flushed: boolean;
-          try {
-            flushed = stdin.write(line, (error) => {
-              if (error) reject(error);
-            });
-          } catch (error) {
-            this.#stdinEnded = true;
-            reject(error instanceof Error ? error : this.#unavailable());
-            return;
-          }
-          if (flushed) {
-            resolve();
-            return;
-          }
-          // Backpressure: wait for the buffer to drain; a pipe that closes rejects the command.
-          const done = () => resolve();
-          stdin.once("drain", done);
-          stdin.once("close", done);
-        }),
-    );
+    // `then(run, run)`: one failed write must not leave the chain rejected for every later command.
+    const run = () =>
+      new Promise<void>((resolve, reject) => {
+        if (stdin.destroyed || this.#stdinEnded || this.#closed) {
+          reject(this.#unavailable());
+          return;
+        }
+        let flushed: boolean;
+        try {
+          flushed = stdin.write(line, (error) => {
+            if (error) reject(error);
+          });
+        } catch (error) {
+          this.#stdinEnded = true;
+          reject(error instanceof Error ? error : this.#unavailable());
+          return;
+        }
+        if (flushed) {
+          resolve();
+          return;
+        }
+        // Backpressure: wait for the buffer to drain; a pipe that closes settles the write too.
+        const settle = () => {
+          stdin.off("drain", settle);
+          stdin.off("close", settle);
+          resolve();
+        };
+        stdin.once("drain", settle);
+        stdin.once("close", settle);
+      });
+    this.#writes = this.#writes.then(run, run);
     return this.#writes;
   }
 
   #onClose(code: number | null, signal: NodeJS.Signals | null): void {
     if (this.#closed) return;
+    // Flush what did not end in LF: a truncated record is a parse failure the user should see,
+    // not a silently dropped event (and not a clean exit either).
+    let tail: PiRecord[] = [];
+    try {
+      tail = this.#reader.finish();
+    } catch (error) {
+      this.#failureReason ??= messageOf(error);
+    }
+    for (const record of tail) this.#onRecord(record);
     // A stop the server asked for has no reason to report, whatever failed on the way out.
     const reason = this.#stopping
       ? null

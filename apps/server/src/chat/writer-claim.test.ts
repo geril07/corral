@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vite-plus/test";
 import { processExists } from "../../test/session-helpers.ts";
+import { ChatLaunchError } from "./chat-errors.ts";
 import { recordWriter, releasePreviousWriter, releaseWriter, writerPath } from "./writer-claim.ts";
 
 let root: string;
@@ -62,6 +63,51 @@ test("a record from before the last boot is a reused pid and is never killed", a
   await releasePreviousWriter(path, { waitMs: 100 });
 
   expect(processExists(innocent.pid!)).toBe(true);
+});
+
+test("a recycled pid is not killed: the record's start time does not match the live process", async () => {
+  const innocent = sleeper();
+  const path = writerPath(root, SESSION);
+  await mkdir(root, { recursive: true });
+  // From this boot, but a start time that belongs to some other process.
+  await writeFile(
+    path,
+    JSON.stringify({ pid: innocent.pid, startedAt: Date.now(), identity: "0" }),
+  );
+
+  await releasePreviousWriter(path, { waitMs: 100 });
+
+  expect(processExists(innocent.pid!)).toBe(true);
+});
+
+test("a live pid whose start time cannot be read refuses the launch instead of guessing", async () => {
+  const innocent = sleeper();
+  const path = writerPath(root, SESSION);
+  await mkdir(root, { recursive: true });
+  await writeFile(
+    path,
+    JSON.stringify({ pid: innocent.pid, startedAt: Date.now(), identity: "12345" }),
+  );
+
+  await expect(
+    releasePreviousWriter(path, { waitMs: 100, identityOfPid: () => null }),
+  ).rejects.toBeInstanceOf(ChatLaunchError);
+  expect(processExists(innocent.pid!)).toBe(true);
+});
+
+test("without a recorded start time the boot margin decides, and a current writer is killed", async () => {
+  const previous = sleeper();
+  const path = writerPath(root, SESSION);
+  await mkdir(root, { recursive: true });
+  // A record written on a platform without /proc: no identity, from this boot.
+  await writeFile(
+    path,
+    JSON.stringify({ pid: previous.pid, startedAt: Date.now(), identity: null }),
+  );
+
+  await releasePreviousWriter(path, { waitMs: 2000 });
+
+  expect(processExists(previous.pid!)).toBe(false);
 });
 
 test("an unreadable record is removed, and releasing one that is not there is a no-op", async () => {

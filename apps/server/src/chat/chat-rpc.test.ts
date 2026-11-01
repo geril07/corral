@@ -4,6 +4,7 @@ import type {
   ChatSessionState,
   ChatStreamMessage,
 } from "@corral/protocol/chat";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vite-plus/test";
@@ -13,7 +14,7 @@ import { useServer, within } from "../../test/server-fixture.ts";
 import { processExists, sessionsOf } from "../../test/session-helpers.ts";
 
 const server = useServer({
-  chat: { dialogTimeoutMs: 600, readyTimeoutMs: 4000, exitGraceMs: 1000, writerWaitMs: 2000 },
+  chat: { dialogTimeoutMs: 600, readyTimeoutMs: 1200, exitGraceMs: 400, writerWaitMs: 2000 },
 });
 const agents = useFakeAgents();
 const SIZE = { cols: 80, rows: 24 };
@@ -512,6 +513,90 @@ test("a message pi refuses is an error item, and the frontend keeps running", as
   } finally {
     await chat.close();
   }
+});
+
+test("a cursor from before a restarted frontend gets a snapshot instead of a replay", async () => {
+  const { api, session } = await chatTask("Cursor");
+  const first = follow(api, session.id);
+  try {
+    await first.until((view) => view.itemOfKind("user-request") !== undefined, "the dialog");
+    await api.chat.respond({
+      sessionId: session.id,
+      requestId: first.itemOfKind("user-request")!.id,
+      value: true,
+    });
+    await first.until((view) => view.state.turn === "settled", "the settled turn");
+  } finally {
+    await first.close();
+  }
+
+  await api.sessions.stop({ id: session.id });
+  await api.sessions.restart({ id: session.id, size: SIZE });
+  // A low cursor a previous client could hold. Wait until the rebuilt timeline is past it: only
+  // then is a replay possible at all, so the assertion below is about the rule, not about a race.
+  const rebuilt = follow(api, session.id);
+  try {
+    await rebuilt.until((view) => view.sequence > 1, "the rebuilt history");
+  } finally {
+    await rebuilt.close();
+  }
+  const iterator = (await api.chat.watch({ sessionId: session.id, after: 1 }))[
+    Symbol.asyncIterator
+  ]();
+  try {
+    const message = await within(iterator.next(), "the first message of the resumed chat");
+    expect(message.value).toMatchObject({ type: "snapshot" });
+  } finally {
+    await iterator.return?.(undefined);
+  }
+});
+
+test("a stop kills the whole process group when pi ignores stdin EOF", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "noeof");
+  const { api, session } = await chatTask();
+  const grandchildFile = join(
+    agents.piRpcHome,
+    `${session.agentSessionId!.replace(/[^A-Za-z0-9._-]/g, "_")}.grandchild`,
+  );
+  await expect
+    .poll(async () => (existsSync(grandchildFile) ? readFile(grandchildFile, "utf8") : ""), {
+      timeout: 10_000,
+      message: "the fake's grandchild",
+    })
+    .toMatch(/^\d+$/);
+  const grandchild = Number(await readFile(grandchildFile, "utf8"));
+  const [launch] = await agents.launches();
+  expect(processExists(launch!.pid)).toBe(true);
+  expect(processExists(grandchild)).toBe(true);
+
+  // stdin closing does not stop this child; the exit deadline passes and the group is killed.
+  await api.sessions.stop({ id: session.id });
+
+  expect(processExists(launch!.pid)).toBe(false);
+  expect(processExists(grandchild)).toBe(false);
+});
+
+test("a silent child fails the frontend at the ready deadline and is killed", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "silent");
+  const { api, session } = await chatTask();
+
+  await expect
+    .poll(async () => (await sessionsOf(api)).find((candidate) => candidate.id === session.id), {
+      timeout: 10_000,
+      message: "the failed frontend",
+    })
+    .toMatchObject({ state: "stopped", launchError: expect.stringContaining("did not answer") });
+  expect(
+    (await sessionsOf(api)).find((candidate) => candidate.id === session.id)?.status?.state,
+  ).toBe("error");
+  const [launch] = await agents.launches();
+  await expect
+    .poll(async () => processExists(launch!.pid), { timeout: 10_000, message: "the killed child" })
+    .toBe(false);
+  await expect(firstMessage(api.chat.watch({ sessionId: session.id }))).rejects.toMatchObject({
+    code: "CHAT_UNAVAILABLE",
+    data: { reason: "exited" },
+  });
 });
 
 test("the view is validated, and chat refuses a terminal session, a stopped one and an unknown id", async () => {

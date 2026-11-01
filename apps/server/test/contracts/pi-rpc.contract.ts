@@ -203,6 +203,7 @@ async function makeDriver(options: {
     env: piEnv(agent),
     prompt: options.prompt,
     claimPath: writerPath(join(root, "chat"), "corral-contract-session"),
+    startAt: 0,
     dialogTimeoutMs: 30_000,
     readyTimeoutMs: 30_000,
     exitGraceMs: 5_000,
@@ -282,9 +283,11 @@ test.skipIf(!installed)(
     }
     expect(exitReason).toBeNull();
 
-    // Resume the same pi session id with no prompt: the chat is rebuilt from pi's history, and
-    // the next turn proves pi itself carried the earlier conversation forward.
-    const second = await makeDriver({ prompt: null });
+    // Resume the same pi session id *with the task's prompt again*: the rule is that pi's own
+    // history decides it is not a first start, so nothing is handed over and the chat is rebuilt
+    // from history. The next turn then proves pi carried the earlier conversation forward.
+    const requestsBeforeResume = requests.length;
+    const second = await makeDriver({ prompt: PROMPT });
     second.start();
     try {
       await expect
@@ -300,6 +303,9 @@ test.skipIf(!installed)(
         text: PROMPT,
       });
       expect(toolCall(second)).toMatchObject({ status: "done", diff: { path: "hello.txt" } });
+      // The resume sent no prompt: the stub saw no new request and pi has one user message.
+      expect(requests).toHaveLength(requestsBeforeResume);
+      expect(items(second).filter((item) => item.kind === "user-message")).toHaveLength(1);
 
       const requestsBefore = requests.length;
       second.send(WORKSPACE_MESSAGE, "prompt");

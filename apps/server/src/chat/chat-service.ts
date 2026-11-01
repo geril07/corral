@@ -43,10 +43,30 @@ export interface ChatServiceOptions {
 
 /**
  * The chat frontends of one server run, addressed by session id. There is at most one per session
- * by construction: `launch` refuses a second one, and the session service never asks for one.
+ * by construction: a launch claims its session id *before* its first await, so two concurrent
+ * launches cannot both pass the "is one running?" check, and the session service serialises its
+ * own mutations through one queue.
  */
 export class ChatService {
   readonly #drivers = new Map<string, PiDriver>();
+  /**
+   * Launches between their claim and their spawn, by session id. The claim is taken synchronously,
+   * before the previous writer is awaited, so a second `launch` of the same id is refused instead
+   * of racing the first to `spawn`.
+   */
+  readonly #launching = new Map<string, Promise<void>>();
+  /**
+   * The sequence a session's next frontend starts from. A client keeps its last sequence across a
+   * reconnect, so a new timeline must never replay a cursor that belongs to the one it replaced:
+   * its `startAt` makes such a cursor a hole, which the timeline answers with a fresh snapshot.
+   */
+  readonly #nextSequence = new Map<string, number>();
+  /**
+   * Sessions whose frontend has not answered a watch with `after` yet. The client's cursor can be
+   * from before this frontend (a server restart, a crash, a stop/continue), so the first `after`
+   * watch of a launch is answered with a snapshot instead of replay.
+   */
+  readonly #firstAfter = new Set<string>();
   /**
    * How the last frontend of a session ended during this run: a reason string when it crashed or
    * was failed, null when the server stopped it. It is what `chat.watch` reports, so a client that
@@ -82,28 +102,49 @@ export class ChatService {
    * two writers corrupt one pi session, so the launch fails rather than race one.
    */
   async launch(request: ChatLaunchRequest): Promise<void> {
-    if (this.#drivers.has(request.sessionId))
-      throw new ChatLaunchError(`session ${request.sessionId} already has a chat frontend`);
-    const claimPath = writerPath(this.#chatDir, request.sessionId);
+    const { sessionId } = request;
+    if (this.#drivers.has(sessionId) || this.#launching.has(sessionId))
+      throw new ChatLaunchError(`session ${sessionId} already has a chat frontend`);
+    // Claimed synchronously: the await below is what two concurrent launches used to race over.
+    const launching = this.#spawnFrontend(request);
+    this.#launching.set(sessionId, launching);
+    try {
+      await launching;
+    } finally {
+      if (this.#launching.get(sessionId) === launching) this.#launching.delete(sessionId);
+    }
+  }
+
+  /** Stops a previous server's writer, then spawns and registers this frontend. */
+  async #spawnFrontend(request: ChatLaunchRequest): Promise<void> {
+    const { sessionId } = request;
+    const claimPath = writerPath(this.#chatDir, sessionId);
     await releasePreviousWriter(claimPath, { waitMs: this.#writerWaitMs });
     const driver: PiDriver = new PiDriver({
       ...request,
       ...this.#timeouts,
+      startAt: this.#nextSequence.get(sessionId) ?? 0,
       claimPath,
       onExit: (reason) => {
-        if (this.#drivers.get(request.sessionId) === driver)
-          this.#drivers.delete(request.sessionId);
-        this.#lastExit.set(request.sessionId, reason);
+        if (this.#drivers.get(sessionId) === driver) this.#drivers.delete(sessionId);
+        this.#nextSequence.set(sessionId, driver.timeline.sequence + 1);
+        this.#lastExit.set(sessionId, reason);
         request.onExit(reason);
       },
     });
-    this.#drivers.set(request.sessionId, driver);
-    this.#lastExit.delete(request.sessionId);
+    this.#drivers.set(sessionId, driver);
+    this.#nextSequence.delete(sessionId);
+    this.#firstAfter.add(sessionId);
+    this.#lastExit.delete(sessionId);
     driver.start();
   }
 
-  /** Closes stdin, waits for pi to exit, then kills its group; resolves once it is gone. */
+  /**
+   * Closes stdin, waits for pi to exit, then kills its group; resolves once it is gone. A launch
+   * still in flight is awaited first, so a stop cannot return while a child is being spawned.
+   */
   async stop(sessionId: string): Promise<void> {
+    await this.#launching.get(sessionId)?.catch(() => undefined);
     const driver = this.#drivers.get(sessionId);
     if (driver === undefined) return;
     await driver.stop();
@@ -111,16 +152,26 @@ export class ChatService {
 
   /** Stops every frontend; the server is shutting down and cleans up after itself. */
   async closeAll(): Promise<void> {
+    await Promise.all([...this.#launching.values()].map((launch) => launch.catch(() => undefined)));
     await Promise.all([...this.#drivers.values()].map((driver) => driver.stop()));
   }
 
-  /** `chat.watch`: the snapshot and events of a session's frontend. */
+  /**
+   * `chat.watch`: the snapshot and events of a session's frontend. A cursor that may predate this
+   * frontend is answered with a snapshot — the client's item ids are from the timeline it
+   * replaced, so replaying into them would be a silently corrupt timeline rather than a hole.
+   */
   watch(
     subject: ChatSubject,
     after: number | undefined,
     signal: AbortSignal | undefined,
   ): AsyncGenerator<ChatStreamMessage> {
-    return this.#frontend(subject).timeline.watch(after, signal);
+    const driver = this.#frontend(subject);
+    if (after !== undefined && this.#firstAfter.has(subject.sessionId)) {
+      this.#firstAfter.delete(subject.sessionId);
+      return driver.timeline.watch(undefined, signal);
+    }
+    return driver.timeline.watch(after, signal);
   }
 
   send(subject: ChatSubject, text: string, mode: ChatSendMode): string {
