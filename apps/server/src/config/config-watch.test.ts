@@ -8,10 +8,13 @@ import { symlinkSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
+import { useFakeAgents } from "../../test/fake-agents.ts";
 import { initRepo } from "../../test/git-repo.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
+import { launchesOf } from "../../test/session-helpers.ts";
 
 const server = useServer();
+const agents = useFakeAgents();
 const configFile = () => join(server.configDir, "config.toml");
 /** The defaults of this server's data directory, including its worktree root. */
 const defaults = () => defaultClientConfig(server.dataDir);
@@ -202,4 +205,45 @@ test("task creation takes the worktree root and branch prefix from the config, p
 
   expect(task.branch).toBe("proj/config-task");
   expect(task.workspacePath).toBe(join(root, "app", "config-task"));
+});
+
+test("a task created from a prompt starts in the configured root, under the project's prefix", async () => {
+  const repo = initRepo(join(server.scratchDir, "app"));
+  const root = join(server.scratchDir, "prompt-worktrees");
+  const api = await server.rpc();
+  const project = await api.projects.add({ path: repo });
+
+  const watcher = await openWatcher();
+  await mkdir(server.configDir, { recursive: true });
+  await writeFile(
+    configFile(),
+    `[tasks]\nworktree-root = "${root}"\nbranch-prefix = "corral/"\n\n[projects."${project.path}"]\nbranch-prefix = "proj/"\n`,
+  );
+  const state = await watcher.next("the config with a task root and a project prefix");
+  expect(state.problems).toEqual([]);
+  // The root comes from `[tasks]`, the prefix from the project table: the layers add up.
+  expect(state.config.tasks.worktreeRoot.value).toBe(root);
+  expect(state.config.projects[project.path]?.branchPrefix).toMatchObject({
+    value: "proj/",
+    source: "project",
+  });
+
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "Fix the flaky login test",
+    agent: { kind: "claude" },
+    workspace: { type: "new-branch" },
+  });
+
+  expect(task).toMatchObject({
+    title: "Fix the flaky login test",
+    titleSource: "seed",
+    branch: "proj/fix-the-flaky-login-test",
+    workspacePath: join(root, "app", "fix-the-flaky-login-test"),
+  });
+  const [launch] = await launchesOf(agents, "claude", 1);
+  expect(launch).toMatchObject({
+    cwd: task.workspacePath,
+    argv: ["--session-id", expect.any(String), " Fix the flaky login test"],
+  });
 });
