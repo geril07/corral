@@ -14,9 +14,9 @@ const sectionHeading = (name: string) => workspace().getByRole("heading", { name
 const projectHeader = () => workspace().getByRole("button", { name: /^repo-/ });
 
 /**
- * Reports a status from an agent session of the task the UI is not showing. A terminal the
+ * Reports a status from an agent session of the task the main area is not showing. A terminal the
  * main area does not display still belongs to the task, so its report arrives while the user is
- * looking at another task — which is exactly when a completion stays unseen.
+ * looking somewhere else — another task, or the same task with another session shown.
  */
 async function reportFromHiddenAgent(client: CorralClient, taskId: string, body: string) {
   const session = await client.connection.api.sessions.start({
@@ -43,7 +43,11 @@ test("prefix l switches flat and project modes, the device keeps the choice, and
   // Flat by status is the default: sections carry the list, not the project tree.
   await expect.element(sectionHeading("Done")).toBeVisible();
   await expect.element(projectHeader()).not.toBeInTheDocument();
-  await expect.element(taskButton("Alpha")).toMatchTextContent(/repo-/);
+  // The row's second line is part of its accessible name, not just painted text.
+  const project = client.projects.getSnapshot().projects[0]!;
+  await expect
+    .element(workspace().getByRole("button", { name: `Alpha — ${project.name} · alpha` }))
+    .toBeVisible();
 
   await prefixThen("l");
   await expect.element(projectHeader()).toBeVisible();
@@ -100,4 +104,53 @@ test("a finished task stays marked until it is opened, and the mark is the serve
     if (found === undefined) throw new Error("the other client has no task yet");
     return expect(found.seenAt).toBe(marked.seenAt);
   });
+});
+
+/** Counts `tasks.markSeen` calls at the client's RPC boundary; every call still reaches the server. */
+function countMarkSeen(client: CorralClient): string[] {
+  const marks: string[] = [];
+  const connection = client.connection;
+  const tasks = connection.api.tasks;
+  const countingTasks = new Proxy(tasks, {
+    get(target, property, receiver) {
+      if (property !== "markSeen") return Reflect.get(target, property, receiver);
+      return (input: Parameters<typeof target.markSeen>[0]) => {
+        marks.push(input.id);
+        return target.markSeen(input);
+      };
+    },
+  });
+  const api: typeof connection.api = new Proxy(connection.api, {
+    get(target, property, receiver) {
+      return property === "tasks" ? countingTasks : Reflect.get(target, property, receiver);
+    },
+  });
+  Object.assign(connection, { api });
+  return marks;
+}
+
+test("a status change while the task is selected is marked seen once, and no unseen mark shows", async () => {
+  const client = newClient();
+  const marks = countMarkSeen(client);
+  await appWithProject(client);
+  await createTask("Alpha");
+  const alpha = await vi.waitFor(() => {
+    const found = client.tasks.getSnapshot().tasks.find((task) => task.title === "Alpha");
+    if (!found) throw new Error("Alpha is not in the list yet");
+    return found;
+  });
+
+  // Alpha stays the selected task; the report comes from a session the main area does not show.
+  await reportFromHiddenAgent(client, alpha.id, reportBody({ state: "done", msg: "All green" }));
+
+  const marked = await vi.waitFor(() => {
+    const found = client.tasks.getSnapshot().tasks.find((task) => task.id === alpha.id);
+    if (found?.seenAt == null) throw new Error("the status change is not marked seen yet");
+    return found;
+  });
+  expect(marked.seenAt).toBeGreaterThanOrEqual(alpha.createdAt);
+  await expect.element(workspace().getByRole("img", { name: "unseen" })).not.toBeInTheDocument();
+  await expect.element(taskButton("Alpha")).toHaveAttribute("aria-current", "true");
+  // One mark for that one update: the guard must not mark twice and must not skip the change.
+  expect(marks).toEqual([alpha.id]);
 });

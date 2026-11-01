@@ -52,7 +52,7 @@ export function WorkspaceScreen({
     tasks,
     tree,
     selection,
-    sidebarMode,
+    flatSidebar,
     loaded,
     current,
     currentSession,
@@ -104,7 +104,7 @@ export function WorkspaceScreen({
         <Sidebar
           tree={tree}
           selection={selection}
-          mode={sidebarMode}
+          flat={flatSidebar}
           config={config}
           onSelectProject={(project) =>
             choose({ projectId: project.id, taskId: undefined, entryId: undefined })

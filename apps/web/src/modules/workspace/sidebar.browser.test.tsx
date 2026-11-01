@@ -1,4 +1,5 @@
 import {
+  buildFlatSidebar,
   buildWorkspaceTree,
   resolveSelection,
   type Chosen,
@@ -111,7 +112,7 @@ function renderSidebar(
       <Sidebar
         tree={tree}
         selection={resolveSelection(tree, chosen)}
-        mode={mode}
+        flat={mode === "flat" ? buildFlatSidebar(tree) : undefined}
         config={config}
         {...handlers}
       />
@@ -490,7 +491,6 @@ test("a loose terminal shows the name the user gave it instead of its command an
     <Sidebar
       tree={tree}
       selection={resolveSelection(tree, { taskId: null, entryId: "loose" })}
-      mode="project"
       config={config}
       {...handlers}
     />,
@@ -543,20 +543,23 @@ test("flat mode lists every project's tasks by status, each row naming its proje
   await expect.element(headings.nth(1)).toMatchTextContent(/Working/);
   await expect.element(headings.nth(2)).toMatchTextContent(/Done/);
 
-  const text = nav().element().textContent ?? "";
-  const at = (id: string) => text.indexOf(`task ${id}`);
+  // The accessible name carries the second line, which the button's own label overrides.
+  const names = nav()
+    .getByRole("button", { name: /^task / })
+    .elements()
+    .map((element) => element.getAttribute("aria-label") ?? "");
   // Needs approval or input, error, working, completed and unseen; then the Done section's
   // newest-first order puts the idle task before the done task the user has already seen.
-  expect(at("blocked")).toBeLessThan(at("error"));
-  expect(at("error")).toBeLessThan(at("working"));
-  expect(at("working")).toBeLessThan(at("unseen"));
-  expect(at("unseen")).toBeLessThan(at("idle"));
-  expect(at("idle")).toBeLessThan(at("seen"));
+  expect(names).toEqual([
+    "task blocked — repo-p1 · branch-blocked · claude",
+    "task error — repo-p1 · branch-error · codex",
+    "task working — repo-p2 · branch-working · pi",
+    "task unseen — repo-p2 · branch-unseen · claude",
+    "task idle — repo-p2 · branch-idle · pi",
+    "task seen — repo-p1 · branch-seen · claude",
+  ]);
 
-  // Each row's second line names its project; the right slot says what the task needs.
-  await expect
-    .element(nav().getByRole("button", { name: /^task unseen/ }))
-    .toMatchTextContent(/repo-p2/);
+  // The right slot still says what a task needs; its state is announced by the status glyph.
   await expect
     .element(nav().getByRole("button", { name: /^task blocked/ }))
     .toMatchTextContent(/needs approval/);
@@ -566,9 +569,6 @@ test("flat mode lists every project's tasks by status, each row naming its proje
 
   // A done task is marked unseen until its status is older than what the user saw.
   await expect.element(nav().getByRole("img", { name: "unseen" })).toHaveLength(1);
-  await expect
-    .element(nav().getByRole("button", { name: /^task unseen/ }))
-    .toMatchTextContent(/claude/);
 });
 
 test("a flat row is the two-line 52 px task row, with its sessions under the selected task only", async () => {

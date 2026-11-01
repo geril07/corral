@@ -1,10 +1,9 @@
 import type { CorralClient } from "@corral/client/corral-client";
-import { expect } from "vite-plus/test";
+import { expect, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
-import { render } from "vitest-browser-react";
-import { App } from "./render-app.tsx";
 import { createGitRepo } from "./git-repo.ts";
 import { prefixShifted, prefixThen } from "./real-client.ts";
+import { renderApp } from "./render-app.tsx";
 
 export const workspace = () => page.getByRole("navigation", { name: "workspace" });
 export const taskButton = (title: string) =>
@@ -31,14 +30,21 @@ export async function openTaskSource(title: string) {
 /** An app on the real server with one project added through the dialog. */
 export async function appWithProject(client: CorralClient, branches: string[] = []) {
   const repo = await createGitRepo("repo", branches);
-  const rendered = await render(<App client={client} />);
+  const rendered = await renderApp(client);
   await prefixShifted("p");
   await expect.element(addProjectDialog().getByRole("textbox")).toHaveFocus();
   await userEvent.keyboard(`${repo}{Enter}`);
   await expect.element(addProjectDialog()).not.toBeInTheDocument();
-  // The project has no task yet, so flat mode lists none: the enabled New task button says the
-  // selection is on the new project.
-  await expect.element(workspace().getByRole("button", { name: "New task" })).toBeEnabled();
+  // Adding a project selects it, and the route names the selection: waiting for that project id
+  // keeps the helper honest when a test already has another project.
+  const project = await vi.waitFor(() => {
+    const found = client.projects.getSnapshot().projects.find((each) => each.path === repo);
+    if (found === undefined) throw new Error("the project is not in the list yet");
+    return found;
+  });
+  await vi.waitFor(() =>
+    expect(rendered.history.location.search).toContain(`project=${project.id}`),
+  );
   return { client, repo, rendered };
 }
 

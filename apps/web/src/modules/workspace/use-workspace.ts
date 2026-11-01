@@ -115,9 +115,11 @@ export function useWorkspace({
   const tree = buildWorkspaceTree(projects, tasks, sessions, terminals);
   const selection = resolveSelection(tree, chosen);
   const [sidebarMode, toggleSidebarMode] = useSidebarMode();
-  const flatSidebar = buildFlatSidebar(tree);
+  // Built once here and handed to the sidebar: project mode has no flat list at all, and the
+  // sidebar must not build a second one.
+  const flatSidebar = sidebarMode === "flat" ? buildFlatSidebar(tree) : undefined;
   // j/k and the remove fallback follow the order the sidebar shows.
-  const taskOrder = sidebarMode === "flat" ? flatTaskOrder(flatSidebar) : tasksInOrder(tree);
+  const taskOrder = flatSidebar === undefined ? tasksInOrder(tree) : flatTaskOrder(flatSidebar);
   const entryIds = entriesOf(tree, selection.taskId).map((entry) => entry.id);
   // Number keys name sessions of the current task; a group of loose terminals has none.
   const sessionEntries = selection.taskId === null ? [] : entriesOf(tree, selection.taskId);
@@ -592,7 +594,7 @@ export function useWorkspace({
     tasks,
     tree,
     selection,
-    sidebarMode,
+    flatSidebar,
     loaded,
     current,
     currentSession,

@@ -8,18 +8,17 @@ import {
 } from "@corral/client/agent-status";
 import { sessionLabels } from "@corral/client/session-labels";
 import { describeSessionState } from "@corral/client/session-state";
-import {
-  buildFlatSidebar,
-  type Entry,
-  type FlatSection,
-  type FlatTaskNode,
-  type ProjectNode,
-  type SessionEntry,
-  type Selection,
-  type SidebarMode,
-  type TaskNode,
-  type TerminalEntry,
-  type WorkspaceTree,
+import type {
+  Entry,
+  FlatSection,
+  FlatSidebar,
+  FlatTaskNode,
+  ProjectNode,
+  SessionEntry,
+  Selection,
+  TaskNode,
+  TerminalEntry,
+  WorkspaceTree,
 } from "@corral/client/workspace-tree";
 import type { ActionId, ClientConfig } from "@corral/protocol/config";
 import type { AgentStatus, Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
@@ -114,8 +113,11 @@ function LooseTerminals({
 interface SidebarProps {
   tree: WorkspaceTree;
   selection: Selection;
-  /** Flat by status or grouped by project (`layout.md`, **Sidebar**). */
-  mode: SidebarMode;
+  /**
+   * The flat list when the sidebar lists tasks flat by status (`layout.md`, **Sidebar**); absent
+   * in project mode, where the tree is shown instead. Built once by the caller.
+   */
+  flat?: FlatSidebar | undefined;
   /** Effective bindings for the tooltips; absent in a bare sidebar test. */
   config?: ClientConfig;
   onSelectProject: (project: Project) => void;
@@ -143,11 +145,10 @@ interface SidebarProps {
 }
 
 export function Sidebar(props: SidebarProps) {
-  const { tree, selection, config, mode } = props;
+  const { tree, selection, config, flat } = props;
   const [closedProjects, setClosedProjects] = useState<ReadonlySet<string>>(new Set());
   const [openTasks, setOpenTasks] = useState<ReadonlySet<string>>(new Set());
   const now = useNow(AGE_REFRESH_MS);
-  const flat = buildFlatSidebar(tree);
 
   const hint = (label: string, action: ActionId) =>
     config ? `${label} · ${formatBinding(config, action)}` : label;
@@ -296,7 +297,7 @@ export function Sidebar(props: SidebarProps) {
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {mode === "flat" ? (
+        {flat !== undefined ? (
           <ul className="m-0 list-none p-0">
             {flat.sections.map((section) => (
               <li key={section.kind}>
@@ -534,7 +535,6 @@ function TaskRow({
     clipped: branchClipped,
     display: branchDisplay,
   } = useTruncatedText(task.branch, "middle");
-  const clipped = titleClipped || (flat === undefined && branchClipped);
   const agent = sessions.find(({ session }) => session.kind !== "shell")?.session.kind;
   const detail =
     flat === undefined
@@ -542,6 +542,12 @@ function TaskRow({
       : [flat.project.name, task.ownsWorktree ? task.branch : undefined, agent]
           .filter(Boolean)
           .join(" · ");
+  const {
+    observe: observeDetail,
+    clipped: detailClipped,
+    display: detailDisplay,
+  } = useTruncatedText(detail ?? "");
+  const clipped = titleClipped || (flat === undefined ? branchClipped : detailClipped);
   const right =
     flat === undefined
       ? undefined
@@ -552,7 +558,9 @@ function TaskRow({
       variant={current ? "secondary" : "ghost"}
       size={flat === undefined ? "default" : "row"}
       layout="tree"
-      aria-label={task.title}
+      // The two-line row's project, branch and agent live in an overridden subtree, so the
+      // accessible name carries them; the name is the row's only full copy of that line.
+      aria-label={detail === undefined ? task.title : `${task.title} — ${detail}`}
       aria-current={current ? "true" : undefined}
       title={status?.message}
       onClick={onSelect}
@@ -589,7 +597,9 @@ function TaskRow({
             )}
             <span className="shrink-0 text-xs text-muted-foreground">{right}</span>
           </span>
-          <span className="min-w-0 truncate text-xs text-muted-foreground">{detail}</span>
+          <span ref={observeDetail} className="min-w-0 truncate text-xs text-muted-foreground">
+            {detailDisplay}
+          </span>
         </span>
       )}
       {flat === undefined && task.branch && (
