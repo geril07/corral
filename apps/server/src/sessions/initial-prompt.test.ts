@@ -10,6 +10,7 @@ import { useFakeAgents } from "../../test/fake-agents.ts";
 import { launchesOf } from "../../test/session-helpers.ts";
 import { ProjectStore } from "../projects/project-store.ts";
 import { TaskStore } from "../tasks/task-store.ts";
+import { OpenCodeServers } from "../chat/opencode-server.ts";
 import { OpenCodeIntegration } from "../status/opencode-integration.ts";
 import { openDatabase } from "../storage/database.ts";
 import { TerminalRegistry } from "../terminals/terminal-registry.ts";
@@ -39,6 +40,7 @@ function openServer(): void {
     chat: new ChatService({ dataDir }),
     statusUrl: (sessionId) => `http://127.0.0.1:9${sessionId}/report`,
     openCode: OpenCodeIntegration.install(dataDir),
+    openCodeServers: new OpenCodeServers({ dataDir }),
     // A start and a resume read no profile; a config without profiles makes asking for one
     // fail loudly. The launch reads `[agents]` for the command, which is the empty defaults.
     config: {

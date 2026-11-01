@@ -52,6 +52,12 @@ export interface ChatLaunchRequest {
   how: "start" | "resume";
   /** A candidate first prompt; only a launch that finds no conversation hands it over. */
   prompt: string | null;
+  /**
+   * A server this launch's own frontends attach to, when the agent keeps the session in one (C1's
+   * `opencode serve`). The session service starts it and passes its address; a driver whose agent
+   * has no such server gets none and must not start one (`design.md`, **Terminal and chat**).
+   */
+  server?: { url: string; password: string };
   onStatus(status: AgentStatus): void;
   /** The frontend is gone; `reason` is null for a stop the server asked for. */
   onExit(reason: string | null): void;
@@ -108,6 +114,13 @@ export interface ChatDriverLaunch {
   cwd: string;
   env: Record<string, string>;
   prompt: string | null;
+  /**
+   * The agent's own conversation id this frontend opens, after the driver's argv was built from it
+   * (`ChatLaunchFacts`). A client of an agent server addresses the same id a terminal does.
+   */
+  agentSessionId: string | null;
+  /** The shared server this frontend is a client of, when its agent has one; see `ChatLaunchRequest`. */
+  server?: { url: string; password: string };
   /** The record of the process holding this session's conversation; see `ChatWriterClaim`. */
   writer: ChatWriterClaim;
   onStatus(status: AgentStatus): void;

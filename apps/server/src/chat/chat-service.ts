@@ -179,6 +179,8 @@ export class ChatService {
       cwd: request.cwd,
       env: request.env,
       prompt: request.prompt,
+      agentSessionId: request.agentSessionId,
+      ...(request.server === undefined ? {} : { server: request.server }),
       writer,
       ...this.#timeouts,
       onStatus: (status) => request.onStatus(status),
@@ -312,10 +314,13 @@ export class ChatService {
       const agent = subject.kind === "shell" ? "a shell" : `the ${subject.kind} agent`;
       throw new ChatUnavailableError(`${agent} has no chat driver`, "no-driver");
     }
-    if (subject.view !== "chat")
-      throw new ChatUnavailableError("this session runs in a terminal, not in chat", "no-driver");
+    // A live frontend answers whatever view the session currently shows: a `both-live` driver's
+    // chat stays addressable while the main area shows its terminal (C1), and for a `handoff-only`
+    // driver the two views cannot both exist, so this changes nothing there.
     const driver = this.#drivers.get(subject.sessionId);
     if (driver !== undefined && !driver.closed) return driver;
+    if (subject.view !== "chat")
+      throw new ChatUnavailableError("this session runs in a terminal, not in chat", "no-driver");
     const lastExit = this.#lastExit.get(subject.sessionId);
     if (lastExit !== undefined) {
       if (lastExit !== null) throw new ChatUnavailableError(lastExit, "exited");

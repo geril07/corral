@@ -210,6 +210,7 @@ test("a driver is one registry entry: it answers chat.capabilities and starts th
     expect(recordsOf(chat.capabilities())).toEqual([
       "claude:both-live:",
       "pi:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
+      "opencode:both-live:steer,followUp,approvals",
     ]);
     expect(chat.hasDriver("claude")).toBe(true);
 
@@ -243,9 +244,10 @@ test("the registry refuses an agent kind this build has no driver for", async ()
       "the codex agent has no chat driver in this build",
     );
     expect(harness.started).toHaveLength(0);
-    // The build's own registry ships pi and nothing else; the seam is what added claude.
+    // The build's own registry ships pi and opencode; the seam is what added claude.
     expect(recordsOf(chatService().capabilities())).toEqual([
       "pi:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
+      "opencode:both-live:steer,followUp,approvals",
     ]);
   } finally {
     await chat.closeAll();

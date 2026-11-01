@@ -15,7 +15,7 @@ import { useFakeAgents } from "../../test/fake-agents.ts";
 import { claudeTranscriptExists } from "../../test/claude-transcripts.ts";
 import { addTask } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
-import { launchesOf, sessionsOf } from "../../test/session-helpers.ts";
+import { launchesOf, sessionsOf, tuiLaunchesOf } from "../../test/session-helpers.ts";
 
 const server = useServer();
 const agents = useFakeAgents();
@@ -193,7 +193,7 @@ test("a pi profile passes provider and model together, and settling/resuming kee
   ]);
 });
 
-test("an OpenCode profile is env-only and its status plugin still loads", async () => {
+test("an OpenCode profile is env-only, and its TUI attaches to the run's server instead of loading the plugin", async () => {
   vi.stubEnv("FAKE_AGENT_LOG_ENV", "OPENCODE_TEST_TOKEN");
   vi.stubEnv("LAUNCH_OPENCODE_TOKEN", SENTINEL_TOKEN);
   await writeConfig(
@@ -207,11 +207,16 @@ test("an OpenCode profile is env-only and its status plugin still loads", async 
     size: SIZE,
     profileId: "oc",
   });
-  const [launch] = await launchesOf(agents, "opencode", 1);
+  const [launch] = await tuiLaunchesOf(agents, "opencode", 1);
 
-  expect(launch!.argv).toEqual(["--standalone", "--session", session.agentSessionId]);
+  expect(launch!.argv).toEqual([
+    "--server",
+    expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
+    "--session",
+    session.agentSessionId,
+  ]);
   expect(launch!.envSentinels).toEqual({ OPENCODE_TEST_TOKEN: SENTINEL_TOKEN });
-  expect(launch!.opencode).toMatchObject({ pluginPresent: true });
+  expect(launch!.opencode).toMatchObject({ pluginPresent: false });
 
   await expect(
     api.sessions.start({
@@ -222,7 +227,7 @@ test("an OpenCode profile is env-only and its status plugin still loads", async 
       model: "gpt-5",
     }),
   ).rejects.toMatchObject({ code: "LAUNCH_MODEL_UNSUPPORTED", data: { kind: "opencode" } });
-  expect(await launchesOf(agents, "opencode", 1)).toHaveLength(1);
+  expect(await tuiLaunchesOf(agents, "opencode", 1)).toHaveLength(1);
 });
 
 test("a model can be chosen without a profile; a shell or opencode refuses it", async () => {

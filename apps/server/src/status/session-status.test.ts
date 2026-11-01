@@ -1,12 +1,10 @@
 import type { Session } from "@corral/protocol/rpc";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { expect, test, vi } from "vite-plus/test";
 import { useFakeAgents, type Launch } from "../../test/fake-agents.ts";
 import { reportBody } from "../../test/osc7501.ts";
 import { useServer } from "../../test/server-fixture.ts";
 import { addTask } from "../../test/project-fixture.ts";
-import { launchesOf, sessionsOf, watchStatus } from "../../test/session-helpers.ts";
+import { launchesOf, sessionsOf, tuiLaunchesOf, watchStatus } from "../../test/session-helpers.ts";
 
 const server = useServer();
 const agents = useFakeAgents();
@@ -18,8 +16,10 @@ async function startAgent(kind: Launch["agent"] | "shell") {
   const session = await api.sessions.start({ taskId: task.id, kind, size: SIZE });
   const client = await server.attach(session.terminalId!);
   const watcher = await watchStatus(api, session.id);
+  // OpenCode's TUI, not the `serve` process its launch also starts: the status token and the
+  // terminal belong to the frontend.
   const launch = async () =>
-    kind === "shell" ? undefined : (await launchesOf(agents, kind, 1))[0];
+    kind === "shell" ? undefined : (await tuiLaunchesOf(agents, kind, 1))[0];
   if (kind !== "shell") await client.waitForScreen(`fake ${kind} ready`);
   return { api, task, session, client, watcher, launch };
 }
@@ -200,7 +200,7 @@ test("the HTTP channel takes a report from the agent's launch and nothing else",
 
 test("a token stops working when the session's process is replaced or gone", async () => {
   const { api, session, client } = await startAgent("opencode");
-  const first = (await launchesOf(agents, "opencode", 1))[0]!;
+  const first = (await tuiLaunchesOf(agents, "opencode", 1))[0]!;
   const body = JSON.stringify({ state: "working" });
   expect((await post(first, body)).status).toBe(204);
 
@@ -208,7 +208,7 @@ test("a token stops working when the session's process is replaced or gone", asy
   expect((await post(first, body)).status).toBe(403);
 
   await api.sessions.restart({ id: session.id, size: SIZE });
-  const second = (await launchesOf(agents, "opencode", 2))[1]!;
+  const second = (await tuiLaunchesOf(agents, "opencode", 2))[1]!;
   expect(second.env.CORRAL_STATUS_URL).toBe(first.env.CORRAL_STATUS_URL);
   expect(second.env.CORRAL_STATUS_TOKEN).not.toBe(first.env.CORRAL_STATUS_TOKEN);
   expect((await post(first, body)).status).toBe(403);
@@ -304,14 +304,14 @@ test("a repeated report is not a change: watchers hear nothing and updatedAt sta
   await watcher.stop();
 });
 
-test("every agent gets the status endpoint; only OpenCode is started with the plugin", async () => {
+test("every agent gets the status endpoint; an OpenCode TUI attaches to the run's server, no plugin", async () => {
   const { api, task } = await addTask(server, "Env");
   const kinds = ["claude", "codex", "pi", "opencode"] as const;
   const sessions: Session[] = await Promise.all(
     kinds.map((kind) => api.sessions.start({ taskId: task.id, kind, size: SIZE })),
   );
   const launches = await Promise.all(
-    kinds.map(async (kind) => (await launchesOf(agents, kind, 1))[0]!),
+    kinds.map(async (kind) => (await tuiLaunchesOf(agents, kind, 1))[0]!),
   );
 
   const tokens = new Set(launches.map((launch) => launch.env.CORRAL_STATUS_TOKEN));
@@ -325,38 +325,27 @@ test("every agent gets the status endpoint; only OpenCode is started with the pl
   const [claude, , pi, opencode] = launches;
   expect(claude!.argv).not.toContain("--standalone");
   expect(pi!.argv).not.toContain("--standalone");
-  expect(opencode!.argv.slice(0, 1)).toEqual(["--standalone"]);
+  // OpenCode keeps its session in the server Corral starts, so the TUI is a client of it and
+  // loads no status plugin: chat status comes from the stream and the terminal's from OSC 7501.
+  expect(opencode!.argv.slice(0, 1)).toEqual(["--server"]);
+  expect(opencode!.opencode).toMatchObject({ pluginPresent: false });
 });
 
-test("OpenCode is started with the plugin from the server's data directory, merged into the user's config", async () => {
-  const { api, task } = await addTask(server, "Plugin");
-  await api.sessions.start({ taskId: task.id, kind: "opencode", size: SIZE });
-  const [launch] = await launchesOf(agents, "opencode", 1);
-
-  const pluginDir = join(server.dataDir, "agent-integrations", "opencode", "corral-status");
-  expect(launch!.opencode).toEqual({
-    configContent: JSON.stringify({ plugins: [{ package: pluginDir }] }),
-    pluginDir,
-    pluginPresent: true,
-  });
-  expect(await readFile(join(pluginDir, "index.js"), "utf8")).toContain("corral.status");
-});
-
-test("OpenCode launched with the user's own inline config gets no plugin; the server says so once", async () => {
-  vi.stubEnv("OPENCODE_CONFIG_CONTENT", '{"theme":"mine"}');
-  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-  const { api, task } = await addTask(server, "Own config");
+test("two OpenCode sessions share one server process, and neither TUI loads the plugin", async () => {
+  const { api, task } = await addTask(server, "Shared server");
   await api.sessions.start({ taskId: task.id, kind: "opencode", size: SIZE });
   await api.sessions.start({ taskId: task.id, kind: "opencode", size: SIZE });
 
-  const launches = await launchesOf(agents, "opencode", 2);
-
-  for (const launch of launches) {
+  const launches = await agents.launches();
+  const serves = launches.filter(
+    (launch) => launch.agent === "opencode" && launch.argv[0] === "serve",
+  );
+  const tuis = await tuiLaunchesOf(agents, "opencode", 2);
+  expect(serves).toHaveLength(1);
+  for (const launch of tuis) {
     expect(launch.argv).not.toContain("--standalone");
-    expect(launch.opencode).toEqual({ configContent: '{"theme":"mine"}', pluginPresent: false });
+    expect(launch.opencode).toMatchObject({ pluginPresent: false });
   }
-  expect(warn).toHaveBeenCalledTimes(1);
-  warn.mockRestore();
 });
 
 test("the OpenCode fake reports over the HTTP channel as the plugin does", async () => {

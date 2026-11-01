@@ -11,6 +11,7 @@ import {
   launchesOf as launchesOfAgent,
   processExists,
   sessionsOf,
+  tuiLaunchesOf,
 } from "../../test/session-helpers.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
 
@@ -22,6 +23,11 @@ const WIDE = { cols: 300, rows: 24 };
 
 function launchesOf(agent: Launch["agent"], count: number) {
   return launchesOfAgent(agents, agent, count);
+}
+
+/** OpenCode's TUI launches only: its `serve` processes are the run's one server, not the frontend. */
+function frontendsOf(agent: Launch["agent"], count: number) {
+  return agent === "opencode" ? tuiLaunchesOf(agents, agent, count) : launchesOf(agent, count);
 }
 
 async function launchOf(agent: Launch["agent"]): Promise<Launch> {
@@ -87,9 +93,20 @@ const IDS_WE_CHOOSE = {
   },
   opencode: {
     format: /^ses_[0-9A-Za-z]{26}$/,
-    // `--standalone` makes OpenCode run its server in the process, where the status plugin lives.
-    start: (id: string) => ["--standalone", "--session", id],
-    resume: (id: string) => ["--standalone", "--session", id],
+    // The TUI is a client of the one server Corral started for the run (C1): the url is the
+    // server's, the id is Corral's, and `--standalone` is not used.
+    start: (id: string) => [
+      "--server",
+      expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
+      "--session",
+      id,
+    ],
+    resume: (id: string) => [
+      "--server",
+      expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
+      "--session",
+      id,
+    ],
   },
 } as const;
 
@@ -103,7 +120,7 @@ test.each(["claude", "pi", "opencode"] as const)(
     const id = session.agentSessionId!;
     expect(id).toMatch(format);
     const client = await ready(session, `fake ${kind} ready`);
-    expect(await launchesOf(kind, 1)).toMatchObject([
+    expect(await frontendsOf(kind, 1)).toMatchObject([
       {
         argv: start(id),
         cwd: task.workspacePath,
@@ -117,7 +134,7 @@ test.each(["claude", "pi", "opencode"] as const)(
     await api.sessions.stop({ id: session.id });
     const restarted = await api.sessions.restart({ id: session.id, size: SIZE });
     expect(restarted).toMatchObject({ id: session.id, agentSessionId: id, state: "running" });
-    expect((await launchesOf(kind, 2))[1]).toMatchObject({
+    expect((await frontendsOf(kind, 2))[1]).toMatchObject({
       argv: resume(id),
       env: { CORRAL_SESSION_ID: session.id, CORRAL_TASK_ID: task.id },
     });
@@ -129,8 +146,12 @@ test.each([
   { kind: "pi", flag: ["--session-id"], flagAfterPrompt: ["--session-id"] },
   {
     kind: "opencode",
-    flag: ["--standalone", "--session"],
-    flagAfterPrompt: ["--standalone", "--session"],
+    flag: ["--server", expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/), "--session"],
+    flagAfterPrompt: [
+      "--server",
+      expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
+      "--session",
+    ],
   },
 ] as const)(
   "a $kind session restarted before any prompt keeps its id; the conversation is resumed once it has history",
@@ -143,14 +164,14 @@ test.each([
     await api.sessions.stop({ id: session.id });
     const second = await api.sessions.restart({ id: session.id, size: SIZE });
     const client = await ready(second, `fake ${kind} ready`);
-    expect((await launchesOf(kind, 2))[1]!.argv).toEqual([...flag, id]);
+    expect((await frontendsOf(kind, 2))[1]!.argv).toEqual([...flag, id]);
     expect(second.agentSessionId).toBe(id);
 
     client.type("hello\n");
     await client.waitForScreen(`fake ${kind} got: hello`);
     await api.sessions.stop({ id: session.id });
     await api.sessions.restart({ id: session.id, size: SIZE });
-    expect((await launchesOf(kind, 3))[2]!.argv).toEqual([...flagAfterPrompt, id]);
+    expect((await frontendsOf(kind, 3))[2]!.argv).toEqual([...flagAfterPrompt, id]);
   },
 );
 
@@ -267,7 +288,10 @@ test("remove stops a running session, kills its process and forgets it", async (
   const { api, task } = await addTask(server, "Remove me");
   const session = await api.sessions.start({ taskId: task.id, kind: "opencode", size: SIZE });
   await ready(session, "fake opencode ready");
-  const { pid } = await launchOf("opencode");
+  const { pid } = (await tuiLaunchesOf(agents, "opencode", 1))[0]!;
+  const serve = (await agents.launches()).find(
+    (launch) => launch.agent === "opencode" && launch.argv[0] === "serve",
+  )!;
   const other = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
 
   await api.sessions.remove({ id: session.id });
@@ -275,7 +299,9 @@ test("remove stops a running session, kills its process and forgets it", async (
   const listed = await sessionsOf(api);
   expect(listed.map((entry) => entry.id)).toEqual([other.id]);
   expect((await api.terminals.list()).map((terminal) => terminal.id)).toEqual([other.terminalId]);
+  // The TUI goes with the session, and the server it was the last client of goes with it too.
   await expect.poll(() => processExists(pid), { timeout: 10_000 }).toBe(false);
+  await expect.poll(() => processExists(serve.pid), { timeout: 10_000 }).toBe(false);
 });
 
 test("closing a session's terminal stops the session; other terminals close as before", async () => {
@@ -494,7 +520,10 @@ test("chat reports the pi driver and refuses an unknown session with SESSION_NOT
   // A build fact: the driver list comes from the server, not from a client-side agent check. The
   // record's full shape is pinned in `chat-rpc.test.ts`; here only that it answers with the kind.
   expect(await api.chat.capabilities()).toEqual({
-    drivers: [expect.objectContaining({ kind: "pi", terminalView: "handoff-only" })],
+    drivers: [
+      expect.objectContaining({ kind: "pi", terminalView: "handoff-only" }),
+      expect.objectContaining({ kind: "opencode", terminalView: "both-live" }),
+    ],
   });
 
   await expect(api.chat.watch({ sessionId: "missing" })).rejects.toMatchObject({

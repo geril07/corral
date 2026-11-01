@@ -5,7 +5,7 @@ import { afterEach, expect, test, vi } from "vite-plus/test";
 import { FAKE_BIN, useFakeAgents } from "../../test/fake-agents.ts";
 import { addTask } from "../../test/project-fixture.ts";
 import { useServer } from "../../test/server-fixture.ts";
-import { launchesOf, sessionsOf } from "../../test/session-helpers.ts";
+import { launchesOf, sessionsOf, tuiLaunchesOf } from "../../test/session-helpers.ts";
 
 const server = useServer();
 const agents = useFakeAgents();
@@ -44,6 +44,17 @@ test(
     const before = await sessionsOf(api);
 
     await server.restart();
+    // Restores run one at a time through the session queue, and OpenCode's now starts a server
+    // first: wait until every running session has its terminal again before comparing.
+    await expect
+      .poll(
+        async () =>
+          (await sessionsOf(await server.rpc())).filter(
+            (session) => session.state === "running" && session.terminalId === null,
+          ).length,
+        { timeout: RESTART_TIMEOUT_MS, message: "every restored session's terminal" },
+      )
+      .toBe(0);
     const restored = await sessionsOf(await server.rpc());
 
     expect(restored.map((session) => [session.id, session.state, session.agentSessionId])).toEqual(
@@ -75,8 +86,10 @@ test(
       "--session-id",
       pi.agentSessionId,
     ]);
-    expect((await launchesOf(agents, "opencode", 2, RESTART_TIMEOUT_MS))[1]!.argv).toEqual([
-      "--standalone",
+    // OpenCode's TUI is a client of the run's one server, started or resumed under Corral's id.
+    expect((await tuiLaunchesOf(agents, "opencode", 2, RESTART_TIMEOUT_MS))[1]!.argv).toEqual([
+      "--server",
+      expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
       "--session",
       opencode.agentSessionId,
     ]);

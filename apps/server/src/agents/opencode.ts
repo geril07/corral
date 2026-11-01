@@ -14,6 +14,16 @@ export function newOpenCodeSessionId(): string {
 }
 
 /**
+ * The flags that attach a TUI to the server Corral started instead of OpenCode's own background
+ * service: measured on 2.2.5 with a server whose session the API had created, the TUI opened on
+ * that session and both frontends were live. The client resolves the password from
+ * `OPENCODE_SERVER_PASSWORD`, which the launch also exports.
+ */
+export function openCodeServerArgs(url: string): string[] {
+  return ["--server", url];
+}
+
+/**
  * `--session` continues the session, or creates it when missing, so start and resume are the same call.
  *
  * Opencode 2.2.5 has no model or provider flag on this command; a profile is env-only. A prompt is

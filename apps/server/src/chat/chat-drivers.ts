@@ -1,5 +1,6 @@
 import { AgentKind } from "@corral/protocol/config";
 import type { ChatDriverRegistration, ChatDriverRegistry } from "./chat-driver.ts";
+import { openCodeChatDriver } from "./opencode-driver.ts";
 import { piChatDriver } from "./pi-driver.ts";
 
 /**
@@ -9,7 +10,10 @@ import { piChatDriver } from "./pi-driver.ts";
  * Settings' `ConfigState.agents`. Adding a driver adds its module and this entry — `ChatService`
  * and `SessionService` need no branch for it.
  */
-export const CHAT_DRIVER_REGISTRY: ChatDriverRegistry = { pi: piChatDriver };
+export const CHAT_DRIVER_REGISTRY: ChatDriverRegistry = {
+  pi: piChatDriver,
+  opencode: openCodeChatDriver,
+};
 
 /** The agents this build can show as chat, in the protocol's agent order. */
 export const CHAT_DRIVERS: readonly AgentKind[] = AgentKind.options.filter(hasChatDriver);

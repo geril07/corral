@@ -44,6 +44,10 @@ export function useFakeAgents() {
     vi.stubEnv("OPENCODE_CONFIG_DIR", join(root, "opencode"));
     vi.stubEnv("OPENCODE_CONFIG_CONTENT", "");
     vi.stubEnv("FAKE_AGENT_LOG", logFile);
+    // The fake `opencode serve`: its own journal and the directory that makes sessions survive a
+    // restart of the process, as OpenCode's data directory does.
+    vi.stubEnv("FAKE_OPENCODE_LOG", join(root, "opencode-server.jsonl"));
+    vi.stubEnv("FAKE_OPENCODE_STATE", join(root, "opencode-state"));
     // The fake pi's RPC journal: a resumed process rebuilds its history from here.
     vi.stubEnv("FAKE_PI_RPC_HOME", join(root, "pi-rpc"));
     vi.stubEnv("FAKE_CODEX_ROLLOUT", "eager");
@@ -66,6 +70,14 @@ export function useFakeAgents() {
     /** Where the fake pi's RPC journals live, one per session id. */
     get piRpcHome() {
       return join(root, "pi-rpc");
+    },
+    /** What the fake `opencode serve` journaled (sessions, prompts, permissions, clients). */
+    get openCodeLog() {
+      return join(root, "opencode-server.jsonl");
+    },
+    /** The fake OpenCode data directory: a restarted server reads the sessions it wrote. */
+    get openCodeState() {
+      return join(root, "opencode-state");
     },
     /** Every launch so far, oldest first. */
     async launches(): Promise<Launch[]> {

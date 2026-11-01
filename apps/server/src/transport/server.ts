@@ -16,6 +16,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { ChatService } from "../chat/chat-service.ts";
 import type { ChatTimeouts } from "../chat/chat-driver.ts";
 import { ChangesService } from "../changes/changes-service.ts";
+import { OpenCodeServers } from "../chat/opencode-server.ts";
 import { watchConfigFile } from "../config/config-watcher.ts";
 import { configNaming } from "../config/naming.ts";
 import { configTaskSettings } from "../config/task-settings.ts";
@@ -77,6 +78,23 @@ export function startServer(options: {
     ...(options.chat === undefined ? {} : { timeouts: options.chat }),
     onWorkspaceChange: (sessionId) => changes.workspaceChanged(sessionId),
   });
+  // One `opencode serve` for this run: both legs of an OpenCode session attach to it, so its
+  // lifetime is the session service's, not one driver's (C1).
+  const openCodeServers = new OpenCodeServers({
+    dataDir,
+    ...(options.chat === undefined
+      ? {}
+      : {
+          ...(options.chat.readyTimeoutMs === undefined
+            ? {}
+            : { readyTimeoutMs: options.chat.readyTimeoutMs }),
+          ...(options.chat.exitGraceMs === undefined
+            ? {}
+            : { exitGraceMs: options.chat.exitGraceMs }),
+        }),
+  });
+  const projectStore = new ProjectStore(database);
+  const taskStore = new TaskStore(database);
   const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, homedir())), {
     dataDir,
   });
@@ -89,6 +107,7 @@ export function startServer(options: {
     chat,
     statusUrl: (sessionId) => `${httpOrigin}${statusReportPath(sessionId)}`,
     openCode: OpenCodeIntegration.install(dataDir),
+    openCodeServers,
     config,
     // Defined below, once there is a TaskService to notify; called only after startup.
     taskEvents: { primarySessionRemoved: () => tasks.primarySessionRemoved() },

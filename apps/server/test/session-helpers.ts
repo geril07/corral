@@ -33,6 +33,30 @@ export async function launchesOf(
   return (await agents.launches()).filter((launch) => launch.agent === agent);
 }
 
+/**
+ * Waits until the fake `agent`'s TUI has been launched `count` times. An agent that keeps its
+ * session in a shared server (`opencode serve`, C1) is launched twice per start — the server and
+ * the TUI — so a test about the frontend counts only the launches that are not `serve`.
+ */
+export async function tuiLaunchesOf(
+  agents: ReturnType<typeof useFakeAgents>,
+  agent: Launch["agent"],
+  count: number,
+  timeoutMs = 10_000,
+): Promise<Launch[]> {
+  const tuis = async () =>
+    (await agents.launches()).filter(
+      (launch) => launch.agent === agent && launch.argv[0] !== "serve",
+    );
+  await expect
+    .poll(async () => (await tuis()).length, {
+      timeout: timeoutMs,
+      message: `${count} TUI launches of ${agent}`,
+    })
+    .toBe(count);
+  return tuis();
+}
+
 export function processExists(pid: number): boolean {
   try {
     process.kill(pid, 0);

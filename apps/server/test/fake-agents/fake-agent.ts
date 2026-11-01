@@ -34,6 +34,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeTranscriptExists, writeClaudeTranscript } from "../claude-transcripts.ts";
 import { writeRollout } from "../rollouts.ts";
+import { runFakeOpenCodeServer } from "./fake-opencode-server.ts";
 import { startFakePiRpc } from "./fake-pi-rpc.ts";
 
 const [name, ...argv] = process.argv.slice(2);
@@ -106,6 +107,33 @@ if (logFile) {
     opencode: name === "opencode" ? openCodePlugin() : undefined,
   };
   appendFileSync(logFile, `${JSON.stringify(launch)}\n`);
+}
+
+// `opencode serve`: the v2 API the chat driver speaks. It stays in this process until it is
+// killed, and prints the real 2.2.5 lines; the TUI half below does not run for it.
+if (name === "opencode" && argv[0] === "serve") {
+  const { randomBytes } = await import("node:crypto");
+  runFakeOpenCodeServer({
+    journal: process.env["FAKE_OPENCODE_LOG"],
+    stateDir: process.env["FAKE_OPENCODE_STATE"],
+    password: process.env["OPENCODE_SERVER_PASSWORD"] ?? randomBytes(32).toString("base64url"),
+    hostname: argumentValue(argv, "--hostname") ?? "127.0.0.1",
+    port: Number(argumentValue(argv, "--port") ?? "0"),
+  });
+}
+
+// The TUI attaching to a Corral server (`--server <url>`): announce itself to the fake server so
+// its journal shows two clients of one server, then behave like a TUI (the block below).
+const attachUrl = name === "opencode" ? argumentValue(argv, "--server") : undefined;
+if (attachUrl !== undefined) {
+  const sessionId = argumentValue(argv, "--session");
+  const password = process.env["OPENCODE_SERVER_PASSWORD"] ?? "";
+  void fetch(`${attachUrl}/api/session/${sessionId ?? ""}`, {
+    headers: {
+      authorization: `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`,
+      "x-fake-client": "tui",
+    },
+  }).catch(() => undefined);
 }
 
 let rolloutWritten = false;

@@ -13,8 +13,10 @@ import type {
 import { normalizeLabel } from "@corral/protocol/label";
 import type { StatusReport } from "@corral/protocol/status-report";
 import { AGENTS } from "../agents/agents.ts";
+import { openCodeServerArgs } from "../agents/opencode.ts";
 import type { ChatService } from "../chat/chat-service.ts";
 import { ChatLaunchError, type ChatSubject } from "../chat/chat-errors.ts";
+import type { OpenCodeServers } from "../chat/opencode-server.ts";
 import {
   codexHome,
   watchForCodexSession,
@@ -85,6 +87,8 @@ interface Live {
   statusToken: string;
   /** Once this launch has had an HTTP report accepted, its OSC 7501 reports no longer change the status. */
   reportedOverHttp: boolean;
+  /** A terminal leg that fell back to OpenCode's own private server because the shared one could not start. */
+  standaloneOpenCode: boolean;
 }
 
 export type StatusReportOutcome = "accepted" | "unknown-session" | "forbidden";
@@ -97,6 +101,8 @@ export class SessionService {
   readonly #live = new Map<string, Live>();
   readonly #statusUrl: (sessionId: string) => string;
   readonly #openCode: OpenCodeIntegration;
+  /** The one `opencode serve` of this Corral run; both legs of an OpenCode session are its clients. */
+  readonly #openCodeServers: OpenCodeServers;
   readonly #config: Pick<ConfigWatcher, "state">;
   readonly #taskEvents: SessionTasks;
   // Kept after the process is gone: a `done` or `error` outlives it. Not persisted.
@@ -117,6 +123,8 @@ export class SessionService {
     /** Where an agent of this session POSTs its status; resolved at launch, when the server is listening. */
     statusUrl: (sessionId: string) => string;
     openCode: OpenCodeIntegration;
+    /** The shared OpenCode server of this run; started lazily, stopped with its last client. */
+    openCodeServers: OpenCodeServers;
     /** The current config, for the profile a new session names. Never read on resume. */
     config: Pick<ConfigWatcher, "state">;
     /** Told when a removal took a task's primary session away, so the task feed republishes it. */
@@ -129,6 +137,7 @@ export class SessionService {
     this.#chat = options.chat;
     this.#statusUrl = options.statusUrl;
     this.#openCode = options.openCode;
+    this.#openCodeServers = options.openCodeServers;
     this.#config = options.config;
   }
 
@@ -249,6 +258,9 @@ export class SessionService {
       // The exited terminal of a session that stopped by itself stays listed until now; a chat
       // session is stopped before anything new spawns, so one session never has two writers.
       const previous = this.#live.get(id);
+      // Read before the launch: the live record is one object per session, and the launch replaces
+      // its terminal id in place.
+      const exitedTerminal = previous?.terminalId ?? null;
       if (previous?.chat) await this.#chat.stop(id);
       try {
         await this.#launch(stored, this.#task(stored.taskId), size, "resume", prompt);
@@ -262,7 +274,7 @@ export class SessionService {
         );
         throw error;
       }
-      if (previous?.terminalId) await this.#terminals.close(previous.terminalId);
+      if (exitedTerminal !== null) await this.#terminals.close(exitedTerminal);
       this.#store.setState(id, "running");
       this.#store.setResumeOnUnsettle(id, false);
       this.#changes.notify();
@@ -293,6 +305,36 @@ export class SessionService {
       const stored = this.#stored(id);
       const target = this.#viewFor(stored.kind, view);
       if (stored.view === target) return this.#withTerminal(stored);
+      if (stored.state === "running" && this.#bothLive(stored.kind)) {
+        // This agent's two frontends are clients of one server (`design.md`, **Terminal and
+        // chat**), so opening the other view starts a client beside the live one instead of
+        // stopping what the user is looking at. The session keeps one tab; the stored view says
+        // which frontend the main area shows, and the other stays live server-side.
+        const live = this.#live.get(id);
+        const attached = target === "chat" ? (live?.chat ?? false) : this.#terminalAlive(id);
+        if (!attached) {
+          try {
+            await this.#launch(
+              { ...stored, view: target },
+              this.#task(stored.taskId),
+              size,
+              "resume",
+              this.#taskPrompt(stored) ?? null,
+            );
+          } catch (error) {
+            const reason = launchFailureReason(error);
+            this.#launchErrors.set(id, reason);
+            console.error(
+              `corral-server: could not open the ${target} view of session ${stored.id} (${stored.kind}): ${reason}`,
+              launchDiagnostic(error),
+            );
+            throw error;
+          }
+        }
+        this.#store.setView(id, target);
+        this.#changes.notify();
+        return this.#withTerminal(this.#stored(id));
+      }
       if (stored.state === "running") {
         const prompt = this.#taskPrompt(stored) ?? null;
         await this.#chat.abortWorking(id);
@@ -485,6 +527,8 @@ export class SessionService {
     await Promise.all(
       [...this.#live.values()].flatMap((live) => (live.discovery ? [live.discovery.finish()] : [])),
     );
+    // Its clients are gone; nothing of this run may keep the server on the data directory.
+    await this.#openCodeServers.closeAll();
   }
 
   #stored(id: string): StoredSession {
@@ -544,6 +588,29 @@ export class SessionService {
 
   #agentEnabled(kind: AgentKind): boolean {
     return this.#config.state().config.agents[kind].enabled.value;
+  }
+
+  /** Whether this agent's chat driver declares both views live at once (C1's OpenCode). */
+  #bothLive(kind: SessionKind): boolean {
+    if (kind === "shell") return false;
+    return this.#chat
+      .capabilities()
+      .some((each) => each.kind === kind && each.terminalView === "both-live");
+  }
+
+  /** One leg's registration as a client of the shared OpenCode server of this run. */
+  #openCodeServer(
+    leg: "chat" | "terminal",
+    stored: StoredSession,
+    task: Task,
+    command: string,
+    env: Record<string, string>,
+  ): Promise<{ url: string; password: string }> {
+    return this.#openCodeServers.acquire(openCodeOwner(leg, stored.id), {
+      command,
+      cwd: task.workspacePath,
+      env,
+    });
   }
 
   /** The view a start runs in; a chat view needs an agent with a chat driver in this build. */
@@ -613,6 +680,8 @@ export class SessionService {
       return;
     }
     const input: CreateTerminalInput = { cwd: task.workspacePath, size };
+    const previous = this.#live.get(stored.id);
+    let standalone = previous?.standaloneOpenCode ?? false;
     if (adapter) {
       // A chat frontend of this session may still hold pi's session file (a server that died, a
       // child that outlived its kill): the record is what stops it, and a terminal launch writes
@@ -642,10 +711,29 @@ export class SessionService {
         ...(prompt !== null && !resumable ? adapter.promptArgs(prompt) : []),
       ];
       if (stored.kind === "opencode") {
-        const plugin = this.#openCode.launch(env);
-        if (plugin) {
-          args = [...plugin.args, ...args];
-          Object.assign(env, plugin.env);
+        // The terminal is a client of the one server this run shares with the chat driver, so the
+        // two frontends are live at once: `--server <url> --session <id>` (`design.md`,
+        // **Terminal and chat**). A server that cannot start falls back to OpenCode's own private
+        // one and its status plugin; that session cannot open chat (two servers would be two
+        // writers on one conversation) until it is stopped and started again.
+        let server: { url: string; password: string } | undefined;
+        try {
+          server = await this.#openCodeServer("terminal", stored, task, command, env);
+        } catch (error) {
+          if (error instanceof ChatLaunchError)
+            throw new LaunchSpawnError(stored.kind, error.message);
+          server = undefined;
+        }
+        if (server === undefined) {
+          standalone = true;
+          const plugin = this.#openCode.launch(env);
+          if (plugin) {
+            args = [...plugin.args, ...args];
+            Object.assign(env, plugin.env);
+          }
+        } else {
+          env["OPENCODE_SERVER_PASSWORD"] = server.password;
+          args = [...openCodeServerArgs(server.url), ...args];
         }
       }
       input.args = args;
@@ -682,19 +770,27 @@ export class SessionService {
             },
           })
         : undefined;
-    const live: Live = {
-      terminalId: info.id,
+    // One `Live` object per session, mutated by each leg: the callbacks of a chat frontend and of
+    // a terminal created later both see the same record, so a leg ending cannot read a stale copy.
+    const live: Live = previous ?? {
+      terminalId: null,
       chat: false,
       discovery,
       statusToken,
       reportedOverHttp: false,
+      standaloneOpenCode: standalone,
     };
+    live.terminalId = info.id;
+    live.discovery = discovery;
+    live.statusToken = statusToken;
+    live.reportedOverHttp = false;
+    live.standaloneOpenCode = standalone;
     this.#live.set(stored.id, live);
     this.#launchErrors.delete(stored.id);
     void this.#terminals
       .get(info.id)
       ?.whenExitRecorded()
-      .then(() => this.#exitedByItself(stored.id, live));
+      .then(() => this.#exitedByItself(stored.id, live, "terminal"));
   }
 
   /**
@@ -718,13 +814,40 @@ export class SessionService {
     env["CORRAL_STATUS_URL"] = this.#statusUrl(stored.id);
     env["CORRAL_STATUS_TOKEN"] = statusToken;
     if (!isExecutable(command, env["PATH"])) throw new AgentNotFoundError(command);
-    const live: Live = {
+    const previous = this.#live.get(stored.id);
+    if (kind === "opencode" && previous?.standaloneOpenCode) {
+      // That terminal writes the same conversation through a server of its own; a second server
+      // here would be a second writer. Stopping the session drops the flag, and the next start
+      // tries the shared server again.
+      throw new ChatLaunchError(
+        "this session runs on OpenCode's own private server; stop it and start it again to open chat",
+      );
+    }
+    const owner = openCodeOwner("chat", stored.id);
+    let server: { url: string; password: string } | undefined;
+    try {
+      if (kind === "opencode")
+        server = await this.#openCodeServer("chat", stored, task, command, env);
+    } catch (error) {
+      throw new LaunchSpawnError(
+        stored.kind,
+        error instanceof ChatLaunchError
+          ? error.message
+          : redactLaunchError(error, referencedValues),
+      );
+    }
+    const live: Live = previous ?? {
       terminalId: null,
-      chat: true,
+      chat: false,
       discovery: undefined,
       statusToken,
       reportedOverHttp: false,
+      standaloneOpenCode: false,
     };
+    live.chat = true;
+    live.statusToken = statusToken;
+    live.reportedOverHttp = false;
+    live.standaloneOpenCode = false;
     try {
       await this.#chat.launch({
         sessionId: stored.id,
@@ -738,16 +861,19 @@ export class SessionService {
         // A session that has an id but no conversation to resume starts one under that id.
         how: how === "resume" && stored.agentSessionId !== null ? "resume" : "start",
         prompt,
+        ...(server === undefined ? {} : { server }),
         onStatus: (status) => {
           const current = this.#live.get(stored.id);
           if (current?.statusToken === statusToken) this.#setStatus(stored.id, status);
         },
         onExit: (reason) => {
+          void this.#openCodeServers.release(owner);
           if (reason !== null) this.#launchErrors.set(stored.id, reason);
-          void this.#exitedByItself(stored.id, live);
+          void this.#exitedByItself(stored.id, live, "chat");
         },
       });
     } catch (error) {
+      await this.#openCodeServers.release(owner);
       throw new LaunchSpawnError(
         stored.kind,
         error instanceof ChatLaunchError
@@ -764,15 +890,32 @@ export class SessionService {
    * The session's process ended on its own: no status change from the server, only what the agent
    * reported. A chat session's frontend is gone with it; a terminal stays listed until it is closed.
    */
-  #exitedByItself(sessionId: string, live: Live): Promise<void> {
+  #exitedByItself(sessionId: string, live: Live, leg: "chat" | "terminal"): Promise<void> {
     return this.#queue.run(async () => {
       if (this.#shuttingDown || this.#live.get(sessionId) !== live) return;
       await live.discovery?.finish();
       live.discovery = undefined;
-      if (live.chat) this.#live.delete(sessionId);
-      this.#settle(sessionId);
+      if (leg === "terminal") {
+        // The terminal keeps its place in the registry and this session's id: an exited terminal
+        // is still listed until it is closed or the session starts again.
+        await this.#openCodeServers.release(openCodeOwner("terminal", sessionId));
+      } else {
+        live.chat = false;
+      }
+      // A both-live session keeps its other frontend; only the last leg ending settles it.
+      if (!live.chat && !this.#terminalAlive(sessionId)) {
+        if (live.terminalId === null) this.#live.delete(sessionId);
+        this.#settle(sessionId);
+      }
       this.#changes.notify();
     });
+  }
+
+  /** Whether this session's terminal leg is still running (an exited one is listed but dead). */
+  #terminalAlive(sessionId: string): boolean {
+    const live = this.#live.get(sessionId);
+    if (live?.terminalId === null || live?.terminalId === undefined) return false;
+    return this.#terminals.get(live.terminalId)?.info.exit === null;
   }
 
   /** Starts a stopped session again, an agent resumed; one that cannot start becomes `stopped`. */
@@ -808,8 +951,11 @@ export class SessionService {
   async #halt(id: string): Promise<void> {
     const live = this.#live.get(id);
     if (!live) return;
-    if (live.terminalId === null) await this.#chat.stop(id);
-    else await this.#terminals.close(live.terminalId);
+    if (live.chat) await this.#chat.stop(id);
+    if (live.terminalId !== null) {
+      await this.#terminals.close(live.terminalId);
+      await this.#openCodeServers.release(openCodeOwner("terminal", id));
+    }
     await live.discovery?.finish();
     this.#live.delete(id);
   }
@@ -829,6 +975,11 @@ export class SessionService {
     const lost = stored.kind === "codex" && stored.agentSessionId === null;
     this.#store.setState(id, lost ? "unresumable" : "stopped");
   }
+}
+
+/** Names one leg of a session's launch as a client of the shared server (acquire/release idempotent). */
+function openCodeOwner(leg: "chat" | "terminal", sessionId: string): string {
+  return `${leg}:${sessionId}`;
 }
 
 function stringEnv(env: Record<string, string | undefined>): Record<string, string> {
