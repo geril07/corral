@@ -19,13 +19,13 @@ allowed. UI-boundary, AST class/control and token gates enforce this separation.
 A required variant must solve a current structural need, not hide the old skin.
 Stock primitive appearance remains identifiable; the permitted adaptations (no popup exit animations, one unpadded dialog footer, a wider row overflow menu, the hint delay) are listed in `ui-kit.md`.
 
-## Target flow (stages A–B in `design.md`)
+## Target flow (stage A built; stage B ahead)
 
-What a user does; replaces the form-first flow below as each stage lands. New keys are proposals until implemented; existing ones are unchanged.
+What a user does. Items 1–3, 5–7 are built and verified end to end (stage A, `progress.md`); item 4 (chat handoff) and the chat halves of items 2–3 are stage B. Keys listed here are the effective defaults.
 
 1. `prefix t` opens the new-task view in the main area (`layout.md`, **New task view**): a prompt field, plus project (current), agent or profile, model/reasoning, view and workspace, all prefilled from settings and changeable from the keyboard. Enter submits.
 2. The task appears in the sidebar at once under the prompt-derived seed title, which the generated title replaces. Its primary agent opens in the chosen view, already working on the prompt. No shell opens on its own.
-3. Inside a task (header and tab strip: `layout.md`), sessions are equal tabs: agents (terminal or chat) and shells. `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel.
+3. Inside a task (header and tab strip: `layout.md`), sessions are equal tabs: agents and shells (chat arrives with stage B). `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel.
 4. `prefix v` hands the current agent session over between chat and terminal (stop one frontend, resume the same conversation in the other). OpenCode can keep both live; Codex's terminal is view-only while chat writes.
 5. The sidebar lists tasks either flat by status (sections Needs you, Working and Done, plus a settled shelf; the default) or grouped by project; `prefix l` toggles the mode and the device keeps its choice. A task's status is the most urgent of its sessions', ordered: needs approval or input, error, working, completed and unseen, idle. "Completed and unseen" clears when the task is opened or its status changes while it is selected.
 6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles.
