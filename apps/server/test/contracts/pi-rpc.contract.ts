@@ -2,6 +2,11 @@
 // prompt → streamed answer, a real `edit` tool call and a real extension dialog → resume on the
 // same pi session id, with the earlier turn in pi's history and in the stub's next request.
 //
+// The view handoff (B4) is measured in both of its real directions: the id is reopened by pi's
+// non-interactive CLI and then by the **interactive TUI in a PTY** — the frontend `prefix v`
+// actually starts — and the driver resumes after each, so what the other frontend wrote is what the
+// chat rebuilds. Every frontend is waited for before the next one starts.
+//
 // It costs nothing and touches nothing of the user's: pi runs with an isolated
 // `PI_CODING_AGENT_DIR` (its own `models.json` and extension), an isolated session directory,
 // `PI_OFFLINE=1`, and a local OpenAI-compatible stub on port 0 that answers with a tool call and
@@ -10,9 +15,10 @@
 // Skipped when `pi` is not on the PATH.
 import { createServer, type Server } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn as spawnPty } from "node-pty";
 import { afterAll, beforeAll, expect, test } from "vite-plus/test";
 import type { ChatItem } from "@corral/protocol/chat";
 import type { AgentStatus } from "@corral/protocol/rpc";
@@ -20,6 +26,7 @@ import { isExecutable } from "../../src/agents/executable-lookup.ts";
 import { PiDriver } from "../../src/chat/pi-driver.ts";
 import { isRecord } from "../../src/chat/pi-record.ts";
 import { writerPath } from "../../src/chat/writer-claim.ts";
+import { createClientTerminal, screenLines, writeAndWait } from "../client-terminal.ts";
 
 const PI = "pi";
 const installed = isExecutable(PI, process.env["PATH"]);
@@ -215,6 +222,113 @@ function runCli(
       resolve({ code, output });
     });
   });
+}
+
+/** The bytes pi wrote into the isolated session directory, whatever the frontend was. */
+async function sessionFileText(): Promise<string> {
+  const names = await readdir(join(root, "sessions")).catch(() => [] as string[]);
+  let text = "";
+  for (const name of names.filter((each) => each.endsWith(".jsonl"))) {
+    // oxlint-disable-next-line no-await-in-loop -- a handful of session files, read in order
+    text += await readFile(join(root, "sessions", name), "utf8").catch(() => "");
+  }
+  return text;
+}
+
+/** How many assistant messages pi has written, whichever frontend wrote them. */
+function assistantMessages(text: string): number {
+  return (text.match(/"role":"assistant"/g) ?? []).length;
+}
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !(error instanceof Error && "code" in error && error.code === "ESRCH");
+  }
+}
+
+/**
+ * The interactive pi TUI in a PTY — the frontend the terminal view starts (`pi --session-id <id>`
+ * with no `--mode rpc`) — typing one message and waiting until pi has written the answer into its
+ * session file. The PTY is then closed and its process awaited, so the driver that follows is the
+ * only writer when it starts.
+ */
+async function tuiLeg(options: { agent: string; message: string }): Promise<void> {
+  const size = { cols: 120, rows: 40 };
+  const terminal = createClientTerminal(size);
+  const child = spawnPty(
+    PI,
+    [
+      "--provider",
+      "stub",
+      "--model",
+      "stub-1",
+      "--session-id",
+      PI_SESSION_ID,
+      "--no-approve",
+      "--offline",
+    ],
+    {
+      cwd: join(root, "workspace"),
+      env: { ...piEnv(options.agent), TERM: "xterm-256color" },
+      cols: size.cols,
+      rows: size.rows,
+      name: "xterm-256color",
+    },
+  );
+  let lastOutput = Date.now();
+  let rendered: Promise<unknown> = Promise.resolve();
+  child.onData((chunk: string) => {
+    lastOutput = Date.now();
+    rendered = rendered.then(() => writeAndWait(terminal, chunk));
+  });
+  const exited = new Promise<number>((resolve) =>
+    child.onExit(({ exitCode }) => resolve(exitCode)),
+  );
+  const quiet = async (ms: number): Promise<void> => {
+    while (Date.now() - lastOutput < ms) {
+      // oxlint-disable-next-line no-await-in-loop -- waiting for the TUI to stop drawing
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  };
+
+  try {
+    // The TUI has drawn its composer when it has been silent for a while; the footer hint pins
+    // that this really is pi's interactive view (measured on 1.4.0, the version this file targets).
+    await quiet(700);
+    expect(screenLines(terminal).join("\n")).toContain("ctrl+o");
+    const before = requests.length;
+    const assistantsBefore = assistantMessages(await sessionFileText());
+    child.write(`${options.message}\r`);
+    await expect
+      .poll(() => requests.length, { timeout: 60_000, message: "the TUI's completion request" })
+      .toBeGreaterThan(before);
+    // pi has saved the turn when its session file holds the typed message and one more assistant
+    // message than before. That file is the test's oracle; the driver turns it back into chat items.
+    await expect
+      .poll(async () => (await sessionFileText()).includes(options.message), {
+        timeout: 60_000,
+        message: "the TUI's turn in pi's session",
+      })
+      .toBe(true);
+    await expect
+      .poll(async () => assistantMessages(await sessionFileText()), {
+        timeout: 60_000,
+        message: "pi's answer to the TUI's turn",
+      })
+      .toBeGreaterThan(assistantsBefore);
+    await quiet(500);
+    expect(screenLines(terminal).join("\n")).toContain("Changed hello.txt");
+  } finally {
+    child.kill();
+    await exited;
+  }
+  // The TUI is gone before the next frontend exists — the same one-writer rule the driver keeps.
+  await expect
+    .poll(() => pidAlive(child.pid), { timeout: 10_000, message: "the TUI's exit" })
+    .toBe(false);
 }
 
 /** A driver on the isolated pi, warned through `onStatus`/`onExit` so the test can wait on events. */
@@ -436,6 +550,34 @@ test.skipIf(!installed)(
       expect(toolCall(third)).toMatchObject({ status: "done", diff: { path: "hello.txt" } });
     } finally {
       await third.stop();
+    }
+
+    // The direction B4 and B-verify actually exercise: the interactive TUI in a PTY, on the same
+    // session id, typing its own turn. Its PTY is closed and its process awaited before the driver
+    // starts, so this is one writer at a time on the real binary too.
+    const tuiMessage = "Does the file still say hello there?";
+    await tuiLeg({ agent: await agentDir(), message: tuiMessage });
+
+    // Back to chat once more: what the TUI typed and pi's answer are in the rebuilt history, and
+    // the task's prompt is still not sent a second time.
+    const fourth = await makeDriver({ prompt: PROMPT });
+    fourth.start();
+    try {
+      await expect
+        .poll(() => fourth.timeline.state.model?.id, {
+          timeout: 30_000,
+          message: "the fourth frontend's state",
+        })
+        .toBe("stub-1");
+      const userMessages = items(fourth).filter((item) => item.kind === "user-message");
+      // The prompt, the chat turn, the CLI turn and the TUI turn — and no resent prompt.
+      expect(userMessages).toHaveLength(4);
+      expect(userMessages.at(-1)).toMatchObject({ text: tuiMessage });
+      // pi answered the TUI turn; the rebuilt chat carries that answer, not only its question.
+      expect(JSON.stringify(items(fourth))).toContain("Changed hello.txt");
+      expect(toolCall(fourth)).toMatchObject({ status: "done", diff: { path: "hello.txt" } });
+    } finally {
+      await fourth.stop();
     }
   },
   TIMEOUT_MS,
