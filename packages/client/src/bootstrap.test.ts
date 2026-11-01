@@ -29,7 +29,7 @@ describe("desktop bridge", () => {
 
     const resolved = await resolveServerTarget({
       location: { ...page, search: "?server=ws%3A%2F%2Fevil", hash: "#/board" },
-      bridge: { server: async () => target },
+      bridge: { server: async () => target, openExternal: async () => undefined },
       storage,
     });
 
@@ -41,7 +41,7 @@ describe("desktop bridge", () => {
     await expect(
       resolveServerTarget({
         location: page,
-        bridge: { server: async () => null },
+        bridge: { server: async () => null, openExternal: async () => undefined },
         storage: memoryStorage(sameServer),
       }),
     ).rejects.toThrow("did not provide");

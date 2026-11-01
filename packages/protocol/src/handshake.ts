@@ -27,7 +27,10 @@ import { z } from "zod";
  * action with its binding: a version 10 daemon from before C4 answers neither procedure, so the
  * client's default binding for the action is all it has and the tab reports that this server does
  * not offer changes instead of showing an empty one.
- */
+ * grew C5's additions, both optional for a daemon already on 10: the `files.*` procedures
+ * (`resolve`, `read`, `openEditor`) behind chat's local links, which an older 10 answers as unknown
+ * procedures, and `ClientConfig.editor` (`[editor] command`) with the empty-command default, so a
+ * client that reads it from an older 10 falls back to `$VISUAL`/`$EDITOR` exactly as the server does. */
 export const PROTOCOL_VERSION = 10;
 
 /**

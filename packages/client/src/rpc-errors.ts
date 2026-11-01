@@ -88,6 +88,23 @@ export function describeError(error: unknown): string {
         return String(field(data, "message"));
       case "WORKTREE_DIRTY":
         return "The worktree has uncommitted changes.";
+      // Local links in chat: the path refusals say why, so a click that fails is not a mystery.
+      case "FILE_OUTSIDE_WORKSPACE":
+        return `${String(field(data, "path"))} is outside this task's workspace.`;
+      case "FILE_NOT_FOUND":
+        return `${String(field(data, "path"))} does not exist any more.`;
+      case "FILE_IS_DIRECTORY":
+        return `${String(field(data, "path"))} is a directory, not a file.`;
+      case "FILE_TOO_LARGE":
+        return `${String(field(data, "path"))} is too large to preview (${String(field(data, "size"))} bytes).`;
+      case "FILE_TYPE_UNSUPPORTED":
+        return `${String(field(data, "path"))} is not an image or a video.`;
+      case "FILE_UNREADABLE":
+        return `${String(field(data, "path"))} could not be read.`;
+      case "EDITOR_UNSET":
+        return String(field(data, "reason"));
+      case "EDITOR_NOT_FOUND":
+        return `${String(field(data, "command"))} is not an executable the server can run.`;
       case "ISSUE_URL_INVALID":
         return String(field(data, "message"));
       case "ISSUE_PROVIDER_REQUIRED":

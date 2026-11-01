@@ -33,6 +33,9 @@ import { z } from "zod";
  * enabled = true      # false hides it from every picker and refuses a new launch
  * command = "/opt/pi/bin/pi"  # an absolute path overriding the PATH lookup
  *
+ * [editor]            # what a local file link in chat opens; no per-project layer
+ * command = "code --goto {file}:{line}"  # else $VISUAL, else $EDITOR, run in a terminal
+ *
  * [projects."/home/me/code/app"]  # the same keys, for that project only
  * workspace = "main-worktree"
  * ```
@@ -202,6 +205,28 @@ export function agentEnabled(config: ClientConfig, kind: AgentKind): boolean {
 }
 
 /**
+ * `[editor]`: the command a local file link in chat opens. Like `[agents.<kind>]` it describes the
+ * machine, not a repository, so it has no per-project layer. Empty means "not configured": the
+ * server falls back to `$VISUAL`, then `$EDITOR`, and a file link without any of them is refused
+ * with `EDITOR_UNSET` (`docs/agent-profiles.md`).
+ */
+export const EditorSetting = z.object({
+  /** A command line, split like a shell would; `{file}`, `{line}` and `{column}` are filled in. */
+  command: sourced(z.string()),
+});
+export type EditorSetting = z.infer<typeof EditorSetting>;
+
+/** The editor before the file: nothing configured, so `$VISUAL`/`$EDITOR` decide. */
+export function defaultEditorSetting(): EditorSetting {
+  return { command: builtin("") };
+}
+
+/** The command a file link runs: `[editor] command`, or the empty string for the environment. */
+export function editorCommand(config: ClientConfig): string {
+  return config.editor.command.value;
+}
+
+/**
  * What this server host has for one agent, for Settings. It is a fact about the machine and the
  * build, not a configured value: `found` comes from the server's executable lookup and
  * `chatDriver` from the same list `chat.capabilities` reports.
@@ -322,6 +347,7 @@ export function defaultClientConfig(dataDir: string): ClientConfig {
     },
     naming: defaultNamingSettings(),
     agents: defaultAgentSettings(),
+    editor: defaultEditorSetting(),
     projects: {},
   };
 }
@@ -342,6 +368,12 @@ export const ClientConfig = z.object({
    * protocol 9 daemon from before this table existed, like `Session.view`'s default.
    */
   agents: z.record(AgentKind, AgentSetting).default(() => defaultAgentSettings()),
+  /**
+   * `[editor]`: the command a local file link opens. The default keeps "absent means the server's
+   * `$VISUAL`/`$EDITOR` decide" one definition for a protocol 10 daemon from before the table
+   * existed, like `agents` above.
+   */
+  editor: EditorSetting.default(() => defaultEditorSetting()),
   /**
    * `[projects."<absolute repository path>"]` resolved against `[tasks]`, keyed by the canonical
    * repository path: the real path when it exists (so a symlinked key matches `Project.path`),

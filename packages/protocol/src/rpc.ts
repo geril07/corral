@@ -475,6 +475,59 @@ export const ChatSetReasoningInput = z.object({
 });
 export type ChatSetReasoningInput = z.infer<typeof ChatSetReasoningInput>;
 
+/** What an inline chat preview can show, decided by the file's extension. */
+export const FileMedia = z.enum(["image", "video"]);
+export type FileMedia = z.infer<typeof FileMedia>;
+
+/** How many bytes a path lookup may hand back for an inline preview, per media kind. */
+export const FILE_PREVIEW_LIMITS = { image: 4 * 1024 * 1024, video: 8 * 1024 * 1024 } as const;
+
+/**
+ * One path a task's workspace holds, as `files.resolve` found it. `requested` is the caller's own
+ * text so a client can match its candidate, and `path` is the canonical workspace-relative form
+ * every other `files.*` call takes back. Paths outside the workspace never become a target: they
+ * are refused, not reported as missing.
+ */
+export const FileTarget = z.object({
+  requested: z.string(),
+  /** Relative to the task's workspace, `/`-separated, symlinks resolved. */
+  path: z.string(),
+  /** The last path segment, for a row's label and a preview's alt text. */
+  name: z.string(),
+  kind: z.enum(["file", "directory"]),
+  /** Bytes; 0 for a directory. */
+  size: z.number().int().nonnegative(),
+  /** `null` for anything this build does not preview inline. */
+  media: FileMedia.nullable(),
+  /** The media type of `media`, else `null`. */
+  mime: z.string().nullable(),
+  /** Whether `files.read` will serve it: a file, with a media kind, within `FILE_PREVIEW_LIMITS`. */
+  previewable: z.boolean(),
+});
+export type FileTarget = z.infer<typeof FileTarget>;
+
+/** One candidate of `files.resolve`: a target, or why it is not one. */
+export const FileResolution = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok"), target: FileTarget }),
+  /** Nothing at that path; the false positive a link renderer must leave as plain text. */
+  z.object({ status: z.literal("missing"), requested: z.string() }),
+  /** Real, but outside the task's workspace (a `..` path, an absolute path elsewhere, a symlink out). */
+  z.object({ status: z.literal("outside"), requested: z.string() }),
+]);
+export type FileResolution = z.infer<typeof FileResolution>;
+
+/** A previewable file's bytes, bounded by `FILE_PREVIEW_LIMITS` and base64 in the payload. */
+export const FileBytes = z.object({
+  path: z.string(),
+  name: z.string(),
+  media: FileMedia,
+  mime: z.string(),
+  size: z.number().int().nonnegative(),
+  /** The file's bytes as base64; a stream or a range request stays out of this slice. */
+  bytes: z.string(),
+});
+export type FileBytes = z.infer<typeof FileBytes>;
+
 const terminalNotFound = { NOT_FOUND: { data: z.object({ id: TerminalId }) } };
 const projectNotFound = { PROJECT_NOT_FOUND: { data: z.object({ id: ProjectId }) } };
 const taskNotFound = { TASK_NOT_FOUND: { data: z.object({ id: TaskId }) } };
@@ -509,6 +562,30 @@ export const ChatUnavailableReason = z.enum(["no-driver", "not-started", "exited
 export type ChatUnavailableReason = z.infer<typeof ChatUnavailableReason>;
 
 /** The session has no live chat driver; `message` is safe to show and `reason` says whether a retry can help. */
+/**
+ * Reading or opening a local path behind a chat link. The allow-list is the security boundary, so
+ * a refusal says why (outside the workspace, missing, a directory, too large) instead of hiding as
+ * a 404: the client shows the reason and leaves the text alone.
+ */
+const fileErrors = {
+  /** The path resolves outside the task's workspace, directly or through a symlink. */
+  FILE_OUTSIDE_WORKSPACE: { data: z.object({ path: z.string() }) },
+  FILE_NOT_FOUND: { data: z.object({ path: z.string() }) },
+  /** The target is a directory; Corral opens files, not folders. */
+  FILE_IS_DIRECTORY: { data: z.object({ path: z.string() }) },
+  /** Bigger than the inline preview bound; the file itself is fine, it is just not previewed. */
+  FILE_TOO_LARGE: {
+    data: z.object({ path: z.string(), size: z.number().int(), limit: z.number().int() }),
+  },
+  /** Not an image or video this build previews. */
+  FILE_TYPE_UNSUPPORTED: { data: z.object({ path: z.string() }) },
+  /** It exists but could not be read, e.g. permissions. */
+  FILE_UNREADABLE: { data: z.object({ path: z.string() }) },
+  /** No `[editor] command`, `$VISUAL` or `$EDITOR` on the server; `reason` is a sentence. */
+  EDITOR_UNSET: { data: z.object({ reason: z.string() }) },
+  /** The configured editor is not an executable the server can run. */
+  EDITOR_NOT_FOUND: { data: z.object({ command: z.string() }) },
+};
 const chatUnavailable = {
   CHAT_UNAVAILABLE: {
     data: z.object({
@@ -802,6 +879,52 @@ export const contract = {
       })
       .input(z.object({ taskId: TaskId, path: z.string().min(1) }))
       .output(ChangeDiff),
+files: {
+    /**
+     * Resolves path candidates of a chat message against the task's workspace, which is the only
+     * root a link may reach (symlinks are resolved, so a link cannot leave it). A batch lookup is
+     * a lookup, not a fetch: a path outside the workspace and a path that does not exist are both
+     * answers per entry, so a renderer can leave that text plain instead of showing a dead link.
+     */
+    resolve: oc
+      .errors({ ...taskNotFound, ...badRequest })
+      .input(
+        z.object({
+          taskId: TaskId,
+          /** Candidates as the message wrote them; at most a screenful of them per message. */
+          paths: z.array(z.string().min(1).max(4096)).max(64),
+        }),
+      )
+      .output(z.object({ results: z.array(FileResolution) })),
+    /**
+     * Serves an image's or video's bytes for an inline preview. Bounded by `FILE_PREVIEW_LIMITS`
+     * and base64 in one reply: there is no range request and no second HTTP route, so the bytes
+     * travel over the already-authenticated channel like every other call.
+     */
+    read: oc
+      .errors({ ...taskNotFound, ...badRequest, ...fileErrors })
+      .input(z.object({ taskId: TaskId, path: z.string().min(1) }))
+      .output(FileBytes),
+    /**
+     * Opens a workspace file in the user's editor: `[editor] command`, else `$VISUAL`, else
+     * `$EDITOR`, run as a terminal in the task's workspace (a terminal editor needs a PTY). A
+     * `{line}`/`{column}` placeholder carries the position the message named. The launch is
+     * refused with `EDITOR_UNSET` when nothing is configured — the desktop OS opener is not a
+     * fallback for a source file.
+     */
+    openEditor: oc
+      .errors({ ...taskNotFound, ...badRequest, ...fileErrors })
+      .input(
+        z.object({
+          taskId: TaskId,
+          path: z.string().min(1),
+          line: z.number().int().positive().optional(),
+          column: z.number().int().positive().optional(),
+          /** The grid the editor's terminal opens with; a GUI editor ignores it. */
+          size: TerminalSize,
+        }),
+      )
+      .output(z.object({ terminalId: TerminalId })),
   },
   terminals: {
     list: oc.output(z.array(TerminalInfo)),
