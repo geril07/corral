@@ -202,6 +202,8 @@ export class PiDriver {
     }
     const data = await this.#requestCommand("set_model", { provider, modelId: model.id }).catch(
       (error: unknown) => {
+        // A dead frontend is CHAT_UNAVAILABLE, not an unsupported model.
+        if (error instanceof ChatUnavailableError) throw error;
         throw new ChatModelUnsupportedError(model, messageOf(error));
       },
     );
@@ -216,6 +218,7 @@ export class PiDriver {
 
   async setReasoning(level: string): Promise<void> {
     await this.#requestCommand("set_thinking_level", { level }).catch((error: unknown) => {
+      if (error instanceof ChatUnavailableError) throw error;
       throw new ChatReasoningUnsupportedError(level, messageOf(error));
     });
     this.timeline.setState({ reasoning: level });
