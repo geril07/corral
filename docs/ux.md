@@ -146,20 +146,25 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
 
 ### Local links in chat
 
-- A path an agent writes in an answer is a link when the task's workspace actually holds it:
+- A path an agent writes in an answer is actionable when the task's workspace actually holds it:
   absolute paths, workspace-relative paths and `file.ts:12[:3]` are recognised, and the server
   resolves them through the workspace (`files.resolve`) — a `..` path, an absolute path elsewhere,
   a symlink out of the workspace and a path that does not exist all stay plain text rather than
-  becoming a dead link. Code spans and fenced blocks are never linkified.
-- A file link opens in the editor: `[editor] command`, else `$VISUAL`, else `$EDITOR`
-  (`agent-profiles.md`, **The editor for local file links**), run as a terminal in the task's
-  workspace, which is then selected. The line and column the message named travel only through a
-  `{line}`/`{column}` placeholder. A refusal (nothing configured, the executable is missing) is a
-  sentence above the composer, not silence.
+  becoming a dead link. Code spans and fenced blocks are never linkified. A `..` after a symlink is
+  read lexically (`link/../x` is `x` beside `link`), as `path.resolve` does, not as a shell would.
+- A path is an **action, not a URL**: it is drawn like a link but it is a button, so ctrl/cmd-click
+  does not open a meaningless tab and "copy link" offers no `#corral-file…` token. It opens in the
+  editor: `[editor] command`, else `$VISUAL`, else `$EDITOR` (`agent-profiles.md`, **The editor for
+  local file links**), run as a terminal in the task's workspace, which is then selected. The line
+  and column the message named travel only through a `{line}`/`{column}` placeholder. A refusal
+  (nothing configured, the executable is missing) is a sentence above the composer, not silence.
 - Images and videos in the workspace preview inline, bounded by size and type (4 MB images,
   8 MB video). The preview is a button: Enter or Space opens a lightbox, Escape closes it, and the
-  video plays there. A media file past the bound is one row with its size and an Open button — never
-  a broken frame. Any other file, binary or not, is a link that opens the editor.
+  video plays there. While the bytes travel the lane holds the preview's height, so a screenshot
+  does not push what is being read down the page. Every failure is **one row with an Open button
+  that names the file**: too large for the bound, a refused read, bytes that do not decode (a
+  `.png` that is not an image, a broken video) — never a broken frame or a stuck "Loading". Any
+  other file, binary or not, is the same action that opens the editor.
 - An ordinary web link never loads in the app window (`design.md`, **Local trust boundary**): the
   desktop app hands it to the OS browser over the preload bridge, and in a browser it opens a new
   tab. The app's own URL — and the task being looked at — stay where they were.

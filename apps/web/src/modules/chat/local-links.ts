@@ -8,7 +8,7 @@
  * and `files.resolve` answers `missing`, so it stays plain text. A renderer never shows a link the
  * workspace does not hold.
  */
-import { FILE_RESOLVE_BATCH } from "@corral/protocol/rpc";
+import { FILE_PATH_MAX, FILE_RESOLVE_BATCH } from "@corral/protocol/rpc";
 
 /** The file (and position) a path-like token names: `src/app.ts:12:3` → `src/app.ts`, line 12, col 3. */
 export interface LocalTarget {
@@ -102,16 +102,25 @@ export function candidateBatches(paths: readonly string[]): string[][] {
   return batches;
 }
 
-/** Every distinct path a text offers, in first-seen order: the batch `files.resolve` takes. */
+/**
+ * Every distinct path a text offers, in first-seen order: the batch `files.resolve` takes. A token
+ * past `FILE_PATH_MAX` is not a candidate — the wire schema would refuse the whole call for it.
+ */
 export function pathCandidates(text: string): string[] {
   const seen = new Set<string>();
   for (const link of detectLinks(text)) {
-    if (link.kind === "path" && link.target !== undefined) seen.add(link.target.path);
+    if (link.kind !== "path" || link.target === undefined) continue;
+    if (link.target.path.length > FILE_PATH_MAX) continue;
+    seen.add(link.target.path);
   }
   return [...seen];
 }
 
-/** `#corral-file?path=…&line=…`: a link URL that survives Markdown's URL transform untouched. */
+/**
+ * `#corral-file?path=…&line=…`: the token the remark transform puts on a link node so the anchor
+ * knows which file it means. It is internal — the anchor never renders it as an `href`, because a
+ * link that runs the editor is an action, not a URL (`docs/ux.md`, **Local links in chat**).
+ */
 export function fileLinkHref(target: LocalTarget): string {
   const params = new URLSearchParams({ path: target.path });
   if (target.line !== undefined) params.set("line", String(target.line));

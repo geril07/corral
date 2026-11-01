@@ -36,7 +36,7 @@ export { Hint } from "./hint.tsx";
 export { Icon, type IconName, type IconSize } from "./icon.tsx";
 export { IconButton } from "./icon-button.tsx";
 export { Input } from "./input.tsx";
-export { TextLink, LinkAnchor } from "./text-link.tsx";
+export { ActionLink, TextLink, LinkAnchor } from "./text-link.tsx";
 export { MediaPreview, type MediaSource } from "./media-preview.tsx";
 export { Textarea } from "./textarea.tsx";
 export { Markdown, type MarkdownAnchorProps, type MarkdownLinks } from "./streamdown.tsx";

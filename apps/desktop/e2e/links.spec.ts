@@ -90,8 +90,9 @@ test("a file link opens the editor at its line and a web link goes to the OS bro
   expect(window.url()).toBe(before);
   await expect(transcript.getByRole("link", { name: "https://example.com/docs" })).toBeVisible();
 
-  // The path in the answer is a link too, and it opens the editor as a terminal in the workspace.
-  await transcript.getByRole("link", { name: "src/app.ts:12" }).click();
+  // The path in the answer is an action too (a button, not a URL), and it opens the editor as a
+  // terminal in the workspace.
+  await transcript.getByRole("button", { name: "src/app.ts:12" }).click();
   await expect
     .poll(() => unwrappedScreenText(window), { timeout: 15_000 })
     .toContain(`${repo}/src/app.ts:12`);

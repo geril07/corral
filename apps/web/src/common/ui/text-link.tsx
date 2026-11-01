@@ -58,3 +58,33 @@ export function LinkAnchor({
     </a>
   );
 }
+
+/**
+ * An inline, link-styled element for something that **does** work rather than goes somewhere — a
+ * workspace file that opens the editor (`docs/ux.md`, **Local links in chat**). It is a button on
+ * purpose: an `href` would let ctrl/cmd-click or a copied link promise a URL that does not exist,
+ * and the app's hash route is not a place to point at. A click in any form runs the action.
+ */
+export function ActionLink({
+  children,
+  title,
+  onActivate,
+  ariaLabel,
+}: {
+  children: ReactNode;
+  title?: string;
+  onActivate: () => void;
+  ariaLabel?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className="wrap-anywhere inline cursor-pointer border-0 bg-transparent p-0 text-left font-medium text-primary underline"
+      title={title}
+      aria-label={ariaLabel}
+      onClick={onActivate}
+    >
+      {children}
+    </button>
+  );
+}

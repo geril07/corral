@@ -15,7 +15,14 @@ export interface MediaSource {
  * button, not a bare element: Enter or Space opens the lightbox, and the media itself is not
  * interactive, so the keyboard flow stays one stop.
  */
-export function MediaPreview({ media }: { media: MediaSource }) {
+export function MediaPreview({
+  media,
+  onError,
+}: {
+  media: MediaSource;
+  /** The bytes did not decode: the caller replaces the frame with a row that opens the editor. */
+  onError?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -26,13 +33,13 @@ export function MediaPreview({ media }: { media: MediaSource }) {
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
       >
-        <MediaElement media={media} size="inline" />
+        <MediaElement media={media} size="inline" onError={onError} />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-[calc(100%-2rem)] sm:max-w-[calc(100%-4rem)]">
           <DialogTitle className="truncate">{media.name}</DialogTitle>
           <div className="flex max-h-[80vh] justify-center overflow-auto">
-            <MediaElement media={media} size="lightbox" />
+            <MediaElement media={media} size="lightbox" onError={onError} />
           </div>
         </DialogContent>
       </Dialog>
@@ -40,13 +47,21 @@ export function MediaPreview({ media }: { media: MediaSource }) {
   );
 }
 
-function MediaElement({ media, size }: { media: MediaSource; size: "inline" | "lightbox" }) {
+function MediaElement({
+  media,
+  size,
+  onError,
+}: {
+  media: MediaSource;
+  size: "inline" | "lightbox";
+  onError?: (() => void) | undefined;
+}) {
   const className =
     size === "inline"
       ? "max-h-64 max-w-full rounded-md border border-border object-contain"
       : "max-h-[75vh] max-w-full rounded-md object-contain";
   if (media.kind === "image") {
-    return <img className={className} src={media.src} alt={media.name} />;
+    return <img className={className} src={media.src} alt={media.name} onError={onError} />;
   }
   return (
     <video
@@ -58,6 +73,7 @@ function MediaElement({ media, size }: { media: MediaSource; size: "inline" | "l
       playsInline
       preload="metadata"
       aria-label={media.name}
+      onError={onError}
     />
   );
 }

@@ -5,7 +5,7 @@ import type { SessionsSnapshot } from "@corral/client/sessions-store";
 import { Store } from "@corral/client/store";
 import type { TasksSnapshot } from "@corral/client/tasks-store";
 import type { ChatItem } from "@corral/protocol/chat";
-import type { Session, Task } from "@corral/protocol/rpc";
+import type { FileResolution, Session, Task } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
@@ -18,6 +18,10 @@ import { ChatView } from "./chat-view.tsx";
 import type { ChatFiles } from "./local-links.tsx";
 
 const { newClient } = realServerClients();
+
+/** A one-frame VP8 WebM (548 bytes, 16×16): Chromium decodes it, so the `<video>` really loads. */
+const WEBM_BASE64 =
+  "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAH0EU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEyTbuMU6uEHFO7a1OsggHe7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjMuMS4xMDJXQYxMYXZmNjMuMS4xMDJEiYhAWQAAAAAAABZUrmvXrgEAAAAAAABO14EBc8WIytW+8ezQKLecgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QF9eEA4JCwgRC6gRCagQJVsIRVuYEBVe6BAOwBAAAAAAAAAgAAElTDZ/pzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYzLjEuMTAyc3PVY8CLY8WIytW+8ezQKLdnyKBFo4dFTkNPREVSRIeTTGF2YzYzLjEuMTAyIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDAuMTAwMDAwMDAwAB9DtnWo54EAo6OBAACAEAIAnQEqEAAQAABHCIWFiIWEiAICAAwNYAD+/6tQgBxTu2uRu4+zgQC3iveBAfGCAbHwgQM=";
 
 /** A 1×1 PNG: enough for a real `<img>` to decode, small enough to keep a fixture readable. */
 const PNG_BASE64 =
@@ -61,6 +65,14 @@ function assistant(text: string): ChatItem {
 }
 
 function chatStoreWith(items: readonly ChatItem[]): ChatStore {
+  return streamingChatStore(items).store;
+}
+
+/** The same store, with a way to push the next snapshot: a streamed message growing a delta at a time. */
+function streamingChatStore(items: readonly ChatItem[]): {
+  store: ChatStore;
+  append: (delta: string) => void;
+} {
   const state = new Store<ChatStoreSnapshot>({
     loaded: true,
     sequence: 0,
@@ -68,7 +80,19 @@ function chatStoreWith(items: readonly ChatItem[]): ChatStore {
     items: [...items],
     failure: null,
   });
-  return { subscribe: state.subscribe, getSnapshot: state.getSnapshot, close: () => {} };
+  return {
+    store: { subscribe: state.subscribe, getSnapshot: state.getSnapshot, close: () => {} },
+    append: (delta) => {
+      const snapshot = state.getSnapshot();
+      const last = snapshot.items.at(-1);
+      if (last?.kind !== "assistant-message") return;
+      state.set({
+        ...snapshot,
+        sequence: (snapshot.sequence ?? 0) + 1,
+        items: [...snapshot.items.slice(0, -1), { ...last, text: last.text + delta }],
+      });
+    },
+  };
 }
 
 /**
@@ -118,10 +142,11 @@ test("a resolved path is a link that opens the editor; an unresolved one stays t
     (root) => writeRepoFile(root, "src/app.ts", { text: "const answer = 42;\n" }),
   );
 
-  const link = page.getByRole("link", { name: "src/app.ts:3" });
+  // A file link is an action, not a URL: a button, so no `href` can be copied or opened.
+  const link = page.getByRole("button", { name: "src/app.ts:3" });
   await expect.element(link).toBeVisible();
   // `src/missing.ts` is not in the workspace, so resolution left it plain text (`docs/ux.md`).
-  await expect.element(page.getByRole("link", { name: /missing/ })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: /missing/ })).not.toBeInTheDocument();
 
   await link.click();
 
@@ -160,18 +185,121 @@ test("an image previews inline and its lightbox is keyboard operable", async () 
 });
 
 test("a video previews inline as a video, with its lightbox", async () => {
-  await laneWith("Recording: clip.mp4", (repo) =>
-    // The element is what this test pins; a headless browser does not decode the frame.
-    writeRepoFile(repo, "clip.mp4", { base64: "AAAAHGZ0eXBpc29t" }),
+  await laneWith("Recording: clip.webm", (repo) =>
+    writeRepoFile(repo, "clip.webm", { base64: WEBM_BASE64 }),
   );
 
-  await page.getByRole("button", { name: "Preview clip.mp4" }).click();
-  const lightbox = page.getByRole("dialog", { name: "clip.mp4" });
+  await page.getByRole("button", { name: "Preview clip.webm" }).click();
+  const lightbox = page.getByRole("dialog", { name: "clip.webm" });
   await expect.element(lightbox).toBeVisible();
   // Inline preview and lightbox: two `<video>` elements, the lightbox one with controls.
   await expect.poll(() => document.querySelectorAll("video").length).toBe(2);
   await userEvent.keyboard("{Escape}");
   await expect.element(lightbox).not.toBeInTheDocument();
+});
+
+test("a video whose bytes do not decode is one row too", async () => {
+  await laneWith("Recording: broken.webm", (repo) =>
+    writeRepoFile(repo, "broken.webm", { text: "not a webm at all" }),
+  );
+  await expect
+    .element(page.getByRole("button", { name: "Open broken.webm in the editor" }))
+    .toBeVisible();
+  await expect.element(page.getByText(/Preview unavailable/)).toBeVisible();
+});
+
+test("bytes that do not decode become one row with the editor, not a broken frame", async () => {
+  await laneWith("Screenshot: broken.png", (root) =>
+    // A `.png` name with text inside: the extension says image, the bytes do not decode.
+    writeRepoFile(root, "broken.png", { text: "this is not a png" }),
+  );
+
+  const row = page.getByRole("button", { name: "Open broken.png in the editor" });
+  await expect.element(row).toBeVisible();
+  await expect.element(page.getByRole("img", { name: "broken.png" })).not.toBeInTheDocument();
+  await expect.element(page.getByText(/Preview unavailable/)).toBeVisible();
+});
+
+test("a refused read becomes the same row, and the row's Open still reaches the editor", async () => {
+  const open = vi.fn<(path: string, line?: number, column?: number) => Promise<void>>(
+    async () => undefined,
+  );
+  const target = {
+    requested: "shot.png",
+    path: "shot.png",
+    name: "shot.png",
+    kind: "file" as const,
+    size: 2048,
+    media: "image" as const,
+    mime: "image/png",
+    previewable: true,
+  };
+  const files: ChatFiles = {
+    resolve: async (paths) =>
+      paths.map((requested) => ({ status: "ok" as const, target: { ...target, requested } })),
+    read: async () => {
+      throw new Error("the server refused the read");
+    },
+    open,
+  };
+  await render(
+    <div className="h-screen w-full">
+      <ChatView
+        store={chatStoreWith([assistant("Screenshot: shot.png")])}
+        agent="pi"
+        files={files}
+        abortHint="alt+a ."
+        onSend={async () => {}}
+        onAbort={async () => {}}
+        onRespond={async () => {}}
+        onChangeModel={() => {}}
+        onChangeReasoning={() => {}}
+      />
+    </div>,
+  );
+
+  await expect.element(page.getByText(/Preview unavailable/)).toBeVisible();
+  await page.getByRole("button", { name: "Open shot.png in the editor" }).click();
+  await vi.waitFor(() => expect(open).toHaveBeenCalledWith("shot.png", undefined, undefined));
+});
+
+test("a streaming lane asks about each path once, and never retries a refused lookup", async () => {
+  // A refused lookup is a transport problem, not a path that appeared again: one ask per path.
+  const resolve = vi.fn<(paths: readonly string[]) => Promise<FileResolution[]>>(async () => {
+    throw new Error("the server refused the lookup");
+  });
+  const files: ChatFiles = {
+    resolve,
+    read: async () => {
+      throw new Error("no reads here");
+    },
+    open: async () => undefined,
+  };
+  const { store, append } = streamingChatStore([assistant("See src/app.ts")]);
+  await render(
+    <div className="h-screen w-full">
+      <ChatView
+        store={store}
+        agent="pi"
+        files={files}
+        abortHint="alt+a ."
+        onSend={async () => {}}
+        onAbort={async () => {}}
+        onRespond={async () => {}}
+        onChangeModel={() => {}}
+        onChangeReasoning={() => {}}
+      />
+    </div>,
+  );
+  await expect.element(page.getByText("See src/app.ts")).toBeVisible();
+  await vi.waitFor(() => expect(resolve.mock.calls.length).toBe(1));
+
+  // Three deltas naming the same path: an in-flight or already-asked path is not asked again.
+  append(" now");
+  append(" please");
+  append(", see src/app.ts again");
+  await new Promise((done) => setTimeout(done, 200));
+  expect(resolve.mock.calls.length).toBe(1);
 });
 
 test("a media file too large to preview is one row, not a broken image", async () => {
@@ -216,7 +344,7 @@ test("a media file too large to preview is one row, not a broken image", async (
 
   await expect.element(page.getByText("Too large to preview · 8.6 MB")).toBeVisible();
   await expect.element(page.getByRole("img", { name: "shot.png" })).not.toBeInTheDocument();
-  await page.getByRole("button", { name: "Open" }).click();
+  await page.getByRole("button", { name: "Open shot.png in the editor" }).click();
   await vi.waitFor(() => expect(open).toHaveBeenCalledWith("shot.png", undefined, undefined));
 });
 

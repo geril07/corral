@@ -12,12 +12,12 @@ import {
   type ReactNode,
 } from "react";
 import {
+  ActionLink,
   Button,
   Icon,
   LinkAnchor,
   MediaPreview,
   type MarkdownLinks,
-  type MediaSource,
 } from "../../common/ui/index.ts";
 import {
   candidateBatches,
@@ -66,36 +66,52 @@ export function LocalLinks({
 }) {
   const [known, setKnown] = useState<ReadonlyMap<string, FileTarget>>(() => new Map());
   const [failure, setFailure] = useState<string>();
+  /** Paths already asked about, whether they resolved or not: one ask per path, not per delta. */
   const requested = useRef(new Set<string>());
+  /** Paths in a call that has not settled yet, so a streaming delta cannot ask twice. */
+  const inFlight = useRef(new Set<string>());
+  /** False once the lane closes; a late answer must not set state on a gone component. */
+  const mounted = useRef(true);
   const objectUrls = useRef(new Map<string, string>());
   const candidates = useMemo(() => texts.flatMap((text) => pathCandidates(text)), [texts]);
 
   useEffect(() => {
-    const missing = [...new Set(candidates)].filter((path) => !requested.current.has(path));
-    if (missing.length === 0) return undefined;
-    let live = true;
-    Promise.all(candidateBatches(missing).map((batch) => files.resolve(batch)))
+    const pending = [...new Set(candidates)].filter(
+      (path) => !requested.current.has(path) && !inFlight.current.has(path),
+    );
+    if (pending.length === 0) return;
+    for (const path of pending) inFlight.current.add(path);
+    Promise.all(candidateBatches(pending).map((batch) => files.resolve(batch)))
       .then((pages) => {
-        if (!live) return;
-        for (const path of missing) requested.current.add(path);
         const found = pages
           .flat()
           .flatMap((result) =>
             result.status === "ok" && result.target.kind === "file" ? [result.target] : [],
           );
-        if (found.length === 0) return;
+        if (!mounted.current || found.length === 0) return;
         setKnown((current) => {
           const next = new Map(current);
           for (const file of found) next.set(file.requested, file);
           return next;
         });
       })
-      // A lookup that fails leaves the text plain; the next message asks again.
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
+      // A refused lookup leaves the text plain. The paths count as asked either way, so a message
+      // that keeps streaming does not retry the same batch on every delta.
+      .catch(() => undefined)
+      .finally(() => {
+        for (const path of pending) {
+          inFlight.current.delete(path);
+          requested.current.add(path);
+        }
+      });
   }, [candidates, files]);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   // The object URLs belong to this lane; a closed chat view releases them.
   useEffect(() => {
@@ -181,10 +197,11 @@ function LocalLinkAnchor({ href, children }: { href?: string | undefined; childr
     const file = links?.known.get(target.path);
     if (links === undefined || file === undefined) return <>{children}</>;
     if (file.media !== null) return <FileMedia file={file} target={target} />;
+    // An action, not a URL: no `href`, so a modifier click or "copy link" cannot promise one.
     return (
-      <LinkAnchor href={href ?? "#"} title={file.path} onActivate={() => links.open(target)}>
+      <ActionLink title={file.path} onActivate={() => links.open(target)}>
         {children}
-      </LinkAnchor>
+      </ActionLink>
     );
   }
   const url = href === undefined ? undefined : externalUrl(href);
@@ -213,11 +230,14 @@ export function openWebLink(url: string): void {
 
 /**
  * An image or video the message pointed at. Bytes come over RPC (`files.read`) and become a
- * `blob:` URL; too large or not previewable is one row with the editor link, never a broken frame.
+ * `blob:` URL. Every way this can fail — past the bound, a refused read, bytes that do not decode
+ * — ends as **one row with the editor**, never a broken frame or a stuck "Loading" line
+ * (`docs/ux.md`, **Local links in chat**).
  */
 function FileMedia({ file, target }: { file: FileTarget; target: LocalTarget }) {
   const links = useLocalLinks();
   const [src, setSrc] = useState<string>();
+  const [failed, setFailed] = useState(false);
   const loadable = file.previewable && file.media !== null;
 
   useEffect(() => {
@@ -228,8 +248,10 @@ function FileMedia({ file, target }: { file: FileTarget; target: LocalTarget }) 
       .then((url) => {
         if (live) setSrc(url);
       })
-      // A read refusal keeps the row with its reason; it is not a lane-wide failure.
-      .catch(() => undefined);
+      // A refused read is this row's problem, not the lane's: the row keeps its Open button.
+      .catch(() => {
+        if (live) setFailed(true);
+      });
     return () => {
       live = false;
     };
@@ -245,19 +267,32 @@ function FileMedia({ file, target }: { file: FileTarget; target: LocalTarget }) 
       />
     );
   }
-  if (src === undefined) {
+  if (failed) {
     return (
       <FileRow
         file={file}
-        note={`Loading preview… · ${formatBytes(file.size)}`}
+        note={`Preview unavailable · ${formatBytes(file.size)}`}
         onOpen={() => links?.open(target)}
       />
     );
   }
-  const media: MediaSource = { kind: file.media, src, name: file.name };
   return (
-    <span className="inline-flex max-w-full flex-col gap-1">
-      <MediaPreview media={media} />
+    <span className="inline-flex w-full max-w-full flex-col gap-1">
+      {src === undefined ? (
+        // The max height a preview can take (`max-h-64`), held while the bytes travel: a row that
+        // grows from 28 px to a screenshot's height would move everything the user is reading.
+        <span
+          className="flex min-h-64 w-full max-w-full items-center justify-center rounded-md border border-border bg-muted/20 text-xs text-muted-foreground"
+          role="status"
+        >
+          Loading preview… · {formatBytes(file.size)}
+        </span>
+      ) : (
+        <MediaPreview
+          media={{ kind: file.media, src, name: file.name }}
+          onError={() => setFailed(true)}
+        />
+      )}
       <span className="text-xs text-muted-foreground">{file.path}</span>
     </span>
   );
@@ -272,7 +307,12 @@ function FileRow({ file, note, onOpen }: { file: FileTarget; note: string; onOpe
         {file.path}
       </span>
       <span className="truncate text-xs text-muted-foreground">{note}</span>
-      <Button variant="ghost" size="xs" onClick={onOpen}>
+      <Button
+        variant="ghost"
+        size="xs"
+        aria-label={`Open ${file.path} in the editor`}
+        onClick={onOpen}
+      >
         Open
       </Button>
     </span>
