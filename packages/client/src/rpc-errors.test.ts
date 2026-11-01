@@ -1,6 +1,6 @@
 import { ORPCError } from "@orpc/client";
 import { expect, test } from "vite-plus/test";
-import { describeError, dirtyWorktreeFiles } from "./rpc-errors.ts";
+import { chatUnavailableReason, describeError, dirtyWorktreeFiles } from "./rpc-errors.ts";
 
 // The server sends these over the wire as defined errors, which the client rebuilds as ORPCError.
 function defined(code: string, data: unknown) {
@@ -84,6 +84,17 @@ test("an error outside the contract falls back to its message", () => {
   );
   expect(describeError(new ORPCError("INTERNAL_SERVER_ERROR", { message: "boom" }))).toBe("boom");
   expect(describeError("plain")).toBe("plain");
+});
+
+test("a chat refusal keeps the server's sentence and reason, not the error code", () => {
+  const refusal = defined("CHAT_UNAVAILABLE", {
+    message: "This server has no chat driver for any session yet.",
+    reason: "not-started",
+  });
+  expect(describeError(refusal)).toBe("This server has no chat driver for any session yet.");
+  expect(chatUnavailableReason(refusal)).toBe("not-started");
+  expect(chatUnavailableReason(defined("GIT_FAILED", { message: "x" }))).toBeUndefined();
+  expect(chatUnavailableReason(new Error("CHAT_UNAVAILABLE"))).toBeUndefined();
 });
 
 test("only WORKTREE_DIRTY yields the list of blocking files", () => {

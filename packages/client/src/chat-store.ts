@@ -7,6 +7,7 @@ import {
   type ChatStoreSnapshot,
 } from "./chat-state.ts";
 import type { ConnectionState } from "./connection-state.ts";
+import { chatUnavailableReason, describeError } from "./rpc-errors.ts";
 import { Store, type ReadableStore } from "./store.ts";
 
 /**
@@ -130,16 +131,27 @@ export function createChatStore(source: ChatSource, sessionId: SessionId): ChatS
 /** The wire error code when the failure did not come from one. */
 const CHAT_WATCH_FAILED = "CHAT_WATCH_FAILED";
 
-/** The error an RPC refusal carries its code in, or a generic one. */
+/**
+ * The failure an RPC refusal or a dropped stream becomes. The sentence comes from
+ * `describeError`, which reads a refusal's `data.message`: an `ORPCError`'s own `message` is only
+ * its code on the wire, and that code is not what a user should read.
+ */
 function failureOf(error: unknown): ChatFailure {
-  if (error instanceof Error) {
-    const code = "code" in error ? error.code : undefined;
-    return {
-      code: typeof code === "string" ? code : CHAT_WATCH_FAILED,
-      message: error.message,
-    };
+  const reason = chatUnavailableReason(error);
+  return {
+    code: errorCode(error),
+    message: describeError(error),
+    ...(reason === undefined ? {} : { reason }),
+  };
+}
+
+/** The RPC code an error carries, or a client-side one when it carries none. */
+function errorCode(error: unknown): string {
+  if (error instanceof Error && "code" in error) {
+    const code = error.code;
+    if (typeof code === "string") return code;
   }
-  return { code: CHAT_WATCH_FAILED, message: String(error) };
+  return CHAT_WATCH_FAILED;
 }
 
 /** The failure to record after two attempts stopped without continuing the chat. */

@@ -1,3 +1,4 @@
+import type { ChatUnavailableReason } from "@corral/protocol/rpc";
 import { ORPCError } from "@orpc/client";
 
 /** The typed errors of the contract (`rpc.ts`) that the UI explains in its own words. */
@@ -9,6 +10,16 @@ function definedError(error: unknown): { code: string; data: unknown } | undefin
 
 function field(data: unknown, key: string): unknown {
   return typeof data === "object" && data !== null ? Reflect.get(data, key) : undefined;
+}
+
+/** Why a chat call was refused, for a caller deciding whether a retry can help. */
+export function chatUnavailableReason(error: unknown): ChatUnavailableReason | undefined {
+  const defined = definedError(error);
+  if (defined?.code !== "CHAT_UNAVAILABLE") return undefined;
+  const reason = field(defined.data, "reason");
+  return reason === "no-driver" || reason === "not-started" || reason === "exited"
+    ? reason
+    : undefined;
 }
 
 /** The files that block removing a task's worktree, when that is why the call failed. */
@@ -43,6 +54,9 @@ export function describeError(error: unknown): string {
         return "This terminal no longer exists.";
       case "SESSION_NOT_FOUND":
         return "This session no longer exists.";
+      case "CHAT_UNAVAILABLE":
+        // The server's own sentence; the RPC message is only the code.
+        return String(field(data, "message"));
       case "ALREADY_RUNNING":
         return "This session is already running.";
       case "AGENT_NOT_FOUND":

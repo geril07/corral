@@ -487,3 +487,18 @@ test("a session's terminal is named through its session, not as a loose terminal
 
   expect((await api.terminals.list())[0]!.label).toBeNull();
 });
+
+test("chat reports no driver and refuses a watch with the typed reason", async () => {
+  const { api } = await addTask(server, "Chat refusal");
+
+  expect(await api.chat.capabilities()).toEqual({ drivers: [] });
+
+  // The real ORPCError path: the sentence and reason travel in `data`, while `message` is the code.
+  await expect(api.chat.watch({ sessionId: "missing" })).rejects.toMatchObject({
+    code: "CHAT_UNAVAILABLE",
+    data: {
+      message: "This server has no chat driver for any session yet.",
+      reason: "no-driver",
+    },
+  });
+});

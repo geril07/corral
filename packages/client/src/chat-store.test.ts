@@ -7,12 +7,22 @@ import type {
   ChatToolCall,
 } from "@corral/protocol/chat";
 import type { ChatWatchInput } from "@corral/protocol/rpc";
+import { ORPCError } from "@orpc/client";
 import { expect, test, vi } from "vite-plus/test";
 import { createChatStore, type ChatSource } from "./chat-store.ts";
 import type { ConnectionState } from "./connection-state.ts";
 import { Store } from "./store.ts";
 
 const SESSION = "session-1";
+const REFUSAL = "This server has no chat driver for any session yet.";
+
+/** The shape a real refused `chat.watch` takes: the sentence lives in `data.message`, not `message`. */
+function chatRefusal(reason: "no-driver" | "not-started" | "exited" = "no-driver") {
+  return new ORPCError("CHAT_UNAVAILABLE", {
+    defined: true,
+    data: { message: REFUSAL, reason },
+  });
+}
 
 const idle: ChatSessionState = {
   turn: "idle",
@@ -310,16 +320,14 @@ test("a clean end of the stream watches again once instead of freezing", async (
 });
 
 test("a refused watch is reported on the store instead of disappearing", async () => {
-  const refusal = Object.assign(new Error("This server has no chat driver for any session yet."), {
-    code: "CHAT_UNAVAILABLE",
-  });
-  const chat = fakeChat({ reject: refusal });
+  const chat = fakeChat({ reject: chatRefusal() });
   try {
     // One refusal is retried immediately; after the second, the failure stays on the store.
     await waitFor(() =>
       expect(chat.store.getSnapshot().failure).toEqual({
         code: "CHAT_UNAVAILABLE",
-        message: refusal.message,
+        message: REFUSAL,
+        reason: "no-driver",
       }),
     );
     expect(chat.calls).toHaveLength(2);
@@ -329,10 +337,7 @@ test("a refused watch is reported on the store instead of disappearing", async (
 });
 
 test("a retry that is accepted clears the refusal before any message arrives", async () => {
-  const refusal = Object.assign(new Error("This server has no chat driver for any session yet."), {
-    code: "CHAT_UNAVAILABLE",
-  });
-  const chat = fakeChat({ reject: refusal, refusals: 1 });
+  const chat = fakeChat({ reject: chatRefusal(), refusals: 1 });
   try {
     // The first call is refused, the immediate retry is accepted. No message has been applied yet,
     // so only the accepted call can have cleared the refusal.

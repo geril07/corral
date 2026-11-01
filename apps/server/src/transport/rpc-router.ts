@@ -33,7 +33,7 @@ import {
   SessionNotFoundError,
 } from "../sessions/errors.ts";
 import { MissingEnvRefError, ReservedEnvRefError } from "../agents/launch-env.ts";
-import type { SessionKind } from "@corral/protocol/rpc";
+import type { ChatUnavailableReason, SessionKind } from "@corral/protocol/rpc";
 import type { SessionService } from "../sessions/session-service.ts";
 import { BlankTaskTitleError, TaskNotFoundError, WorktreeDirtyError } from "../tasks/errors.ts";
 import type { TaskService } from "../tasks/task-service.ts";
@@ -103,7 +103,7 @@ const CHAT_NOT_AVAILABLE = "This server has no chat driver for any session yet."
 /** The refusal every chat procedure gives in a build without a driver. */
 function chatNotAvailable(errors: {
   CHAT_UNAVAILABLE: (options: {
-    data: { message: string; reason: "no-driver" | "not-started" | "exited" };
+    data: { message: string; reason: ChatUnavailableReason };
   }) => Error;
 }): Error {
   return errors.CHAT_UNAVAILABLE({

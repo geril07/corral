@@ -4,11 +4,15 @@ import type {
   ChatSessionState,
   ChatStreamMessage,
 } from "@corral/protocol/chat";
+import type { ChatUnavailableReason } from "@corral/protocol/rpc";
 
 /** Why a chat stream stopped, when it did; `code` is the RPC error code or a client-side one. */
 export interface ChatFailure {
   code: string;
+  /** A sentence to show, taken from the refusal's `data.message` when it carried one. */
   message: string;
+  /** For `CHAT_UNAVAILABLE`: whether a retry can help (`not-started`) or cannot (`no-driver`). */
+  reason?: ChatUnavailableReason;
 }
 
 /** What a chat store holds: the session state, the timeline, and the sequence both are at. */
@@ -19,7 +23,7 @@ export interface ChatStoreSnapshot {
   sequence: number | null;
   state: ChatSessionState;
   items: readonly ChatItem[];
-  /** Why the last watch stopped, so a frozen view can say so; cleared by the next applied message. */
+  /** Why the last watch stopped, so a frozen view can say so; cleared when a watch is accepted or a message applies. */
   failure: ChatFailure | null;
 }
 

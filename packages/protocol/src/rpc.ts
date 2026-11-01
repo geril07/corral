@@ -401,14 +401,20 @@ const launchRefused = {
 };
 /** Git refused or failed; `message` is git's own stderr, meant for the user. */
 const gitFailed = { GIT_FAILED: { data: z.object({ message: z.string() }) } };
-/** The session has no live chat driver; `message` is safe to show and `reason` says for how long. */
+/**
+ * Why chat is unavailable: `no-driver` — this build has no driver for the agent, so retrying
+ * cannot help; `not-started` — the session's frontend is not running and can be started;
+ * `exited` — it stopped and its last state is what the client already has.
+ */
+export const ChatUnavailableReason = z.enum(["no-driver", "not-started", "exited"]);
+export type ChatUnavailableReason = z.infer<typeof ChatUnavailableReason>;
+
+/** The session has no live chat driver; `message` is safe to show and `reason` says whether a retry can help. */
 const chatUnavailable = {
   CHAT_UNAVAILABLE: {
     data: z.object({
       message: z.string(),
-      /** `no-driver`: this build has no chat driver for the agent; `not-started`: the session's
-       * frontend is not running; `exited`: it stopped and its state is what is left. */
-      reason: z.enum(["no-driver", "not-started", "exited"]),
+      reason: ChatUnavailableReason,
     }),
   },
 };
@@ -581,15 +587,17 @@ export const contract = {
   chat: {
     /**
      * What this server build can show as chat: the agent kinds with a driver. A build fact, not a
-     * session's state, so a client asks once (a handoff or a disabled picker does not need a probe).
+     * session's state, so a client asks once per connection (the list changes when a driver lands).
      */
     capabilities: oc.output(z.object({ drivers: z.array(AgentKind) })),
     /**
      * Yields the chat of one session: a snapshot first, then sequenced events. With `after` it
      * yields what the client missed instead, or a fresh snapshot when those events are gone.
      * Sequences are contiguous per session; a hole means the client must watch again without `after`.
-     * The server may end the iterator when the session's frontend stops; a client treats a clean end
-     * as a retry (watch again from its last sequence), not as the end of the chat.
+     * A stopped chat frontend is a `CHAT_UNAVAILABLE` refusal with `reason: "exited"`, not the end
+     * of this iterator; ending is a last resort. A client treats a clean end as one retry from its
+     * last sequence and then reports the failure until the connection changes, not as an unbounded
+     * reconnect.
      */
     watch: oc
       .errors({ ...sessionNotFound, ...chatUnavailable })
