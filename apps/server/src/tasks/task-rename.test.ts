@@ -7,6 +7,7 @@ import { ProjectStore } from "../projects/project-store.ts";
 import { openDatabase } from "../storage/database.ts";
 import { BlankTaskTitleError, TaskNotFoundError } from "./errors.ts";
 import { TaskService, type TaskSessions } from "./task-service.ts";
+import { defaultTaskSettings } from "./task-settings.ts";
 import { TaskStore } from "./task-store.ts";
 
 let dataDir: string;
@@ -34,7 +35,8 @@ function serviceWith(sessions: TaskSessions) {
   projects.insert({ id: "p", name: "n", path: dataDir, defaultBaseBranch: "main" });
   const store = new TaskStore(db);
   store.insert(storedTask("t"));
-  return { tasks: new TaskService({ store, projects, sessions, dataDir }), store, db };
+  const settings = defaultTaskSettings({ dataDir });
+  return { tasks: new TaskService({ store, projects, sessions, settings }), store, db };
 }
 
 test("a rename queued behind a removal waits for it and fails without writing the removed task", async () => {

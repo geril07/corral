@@ -6,9 +6,9 @@ import { expect, test, vi } from "vite-plus/test";
 import { cloneOfOrigin, commitFile, runGit, writeFiles } from "../../test/git-repo.ts";
 import { addProject } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
+import { sessionsOf } from "../../test/session-helpers.ts";
 import { openDatabase } from "../storage/database.ts";
 import { TaskStore } from "./task-store.ts";
-import { sessionsOf } from "../../test/session-helpers.ts";
 
 const server = useServer();
 
@@ -379,6 +379,8 @@ test("a task created under the old layout keeps its stored path and can still be
     id: "legacy",
     projectId: project.id,
     title: "Legacy",
+    // A row from before title sources; the migration marked those as the user's.
+    titleSource: "user",
     branch: "legacy",
     workspacePath: legacyPath,
     ownsWorktree: true,

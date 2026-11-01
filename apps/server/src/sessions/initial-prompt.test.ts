@@ -63,6 +63,7 @@ beforeEach(async () => {
       id: TASK_ID,
       projectId: project.id,
       title: "Prompt",
+      titleSource: "user",
       branch: "main",
       workspacePath: workspace,
       ownsWorktree: false,
