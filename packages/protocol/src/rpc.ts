@@ -116,6 +116,17 @@ export const Task = z.object({
   titleSource: TaskTitleSource,
   /** Set when the task was created from an issue URL; absent for tasks made by hand. */
   source: TaskSource.optional(),
+  /**
+   * What the task's primary agent was started with, and what its first launch passes to the agent
+   * (`promptArgs`); `null` for a task made without one. Kept so a restart that has no conversation
+   * to resume can hand it over again.
+   */
+  prompt: z.string().nullable(),
+  /**
+   * The session created from the prompt (design.md, **Sessions**); `null` until a task has one, and
+   * again when that session is removed.
+   */
+  primarySessionId: SessionId.nullable(),
   /** Branch checked out in the workspace; for a task in the main working tree, whatever is checked out there at creation. */
   branch: z.string(),
   /** Absolute path the task's terminals start in. */
@@ -138,12 +149,37 @@ export const Task = z.object({
 });
 export type Task = z.infer<typeof Task>;
 
+/**
+ * An agent the task's primary session starts. The shape `sessions.start` takes, without a shell: a
+ * task never starts one on its own (design.md, **Domain model → Task → Creation**).
+ */
+export const TaskAgent = z.object({
+  kind: AgentKind,
+  profileId: z.string().min(1).optional(),
+  expectedProfileRevision: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+});
+export type TaskAgent = z.infer<typeof TaskAgent>;
+
+/**
+ * The most a prompt may hold. It reaches the agent as one argv word, which Linux caps at 128 KiB
+ * (`MAX_ARG_STRLEN`), so a longer one could never be launched.
+ */
+export const MAX_TASK_PROMPT = 64 * 1024;
+
 export const CreateTaskInput = z
   .object({
     projectId: ProjectId,
-    /** Defaults to `source.title` when the task comes from an issue. */
+    /**
+     * Defaults to `source.title`, then to the prompt's seed title (its first line, shortened).
+     * An explicit title always wins and is the user's.
+     */
     title: z.string().trim().min(1).optional(),
     source: TaskSource.optional(),
+    /** What the primary agent starts working on. Trimmed; blank is the same as absent. */
+    prompt: z.string().trim().max(MAX_TASK_PROMPT).optional(),
+    /** Starts this agent as the task's primary session, with `prompt`; absent starts no session. */
+    agent: TaskAgent.optional(),
     workspace: z.discriminatedUnion("type", [
       /** New branch (named from the title unless given) off `baseBranch` (default: the project's), in a new worktree. */
       z.object({
@@ -157,10 +193,16 @@ export const CreateTaskInput = z
       z.object({ type: z.literal("main-worktree") }),
     ]),
   })
-  .refine((input) => input.title !== undefined || input.source !== undefined, {
-    message: "a title is required unless the task comes from an issue source",
-    path: ["title"],
-  });
+  .refine(
+    (input) =>
+      input.title !== undefined ||
+      input.source !== undefined ||
+      (input.prompt !== undefined && input.prompt !== ""),
+    {
+      message: "a title is required unless the task comes from an issue source or a prompt",
+      path: ["title"],
+    },
+  );
 export type CreateTaskInput = z.infer<typeof CreateTaskInput>;
 
 /** A URL the server may resolve through its own `gh` or `glab` login for an existing project. */
