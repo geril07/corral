@@ -35,8 +35,10 @@ export function createPrefixKeymap<Action>(
 export function createConfigKeymap(config: ClientConfig): PrefixKeymap<ActionId> {
   const bindings: Record<string, ActionId> = {};
   for (const action of ActionId.options) {
-    const chord = config.keys.bindings[action];
-    if (chord !== null) bindings[chord] = action;
+    const chord: unknown = config.keys.bindings[action];
+    // A same-version daemon from before this action sends no entry; skip it instead of feeding
+    // `undefined` to `parseChord` (the client's store fills the defaults, this is the last guard).
+    if (typeof chord === "string") bindings[chord] = action;
   }
   return createPrefixKeymap(config.keys.prefix, bindings);
 }

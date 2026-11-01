@@ -83,6 +83,18 @@ test("the config builds the keymap and leaves an unbound action without a key", 
   expect(fromConfig.bindings.some(({ action }) => action === "new-agent")).toBe(false);
 });
 
+test("a binding a same-version daemon does not know is skipped, not parsed", () => {
+  const config = {
+    ...defaultClientConfig(""),
+    keys: {
+      prefix: "alt+a",
+      bindings: { ...DEFAULT_BINDINGS, "change-model": undefined },
+    },
+  };
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a same-version daemon's wire
+  expect(() => createConfigKeymap(config as unknown as ClientConfig)).not.toThrow();
+});
+
 test("a keymap from config dispatches the action bound in the file", () => {
   const config: ClientConfig = {
     ...defaultClientConfig(""),

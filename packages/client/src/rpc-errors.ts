@@ -59,8 +59,19 @@ export function describeError(error: unknown): string {
         return String(field(data, "message"));
       case "ALREADY_RUNNING":
         return "This session is already running.";
-      case "AGENT_NOT_FOUND":
-        return `${String(field(data, "command"))} was not found on the server's PATH.`;
+      case "AGENT_NOT_FOUND": {
+        const command = String(field(data, "command"));
+        // A `[agents.<kind>].command` is an absolute path, so PATH is not where it was looked for.
+        return command.includes("/")
+          ? `${command} is not an executable the server can run.`
+          : `${command} was not found on the server's PATH.`;
+      }
+      case "AGENT_DISABLED":
+        return `The ${String(field(data, "kind"))} agent is disabled in the config file.`;
+      case "CHAT_MODEL_UNSUPPORTED":
+        return `The agent does not offer the model ${String(field(field(data, "model"), "id"))}.`;
+      case "CHAT_REASONING_UNSUPPORTED":
+        return `The agent has no reasoning level "${String(field(data, "level"))}".`;
       case "LAUNCH_PROFILE_CHANGED":
         return "The launch profile changed since you chose it. Reload and choose it again.";
       case "LAUNCH_PROFILE_REVISION_UNSUPPORTED":

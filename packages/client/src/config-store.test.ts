@@ -1,8 +1,17 @@
-import { DEFAULT_BINDINGS, defaultClientConfig } from "@corral/protocol/config";
+import {
+  DEFAULT_BINDINGS,
+  defaultAgentSettings,
+  defaultClientConfig,
+} from "@corral/protocol/config";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "vite-plus/test";
+import { expect, test, vi } from "vite-plus/test";
 import { eventually, useServer } from "../test/server-fixture.ts";
+import { createConfigStore } from "./config-store.ts";
+import { createConfigKeymap } from "./prefix-keymap.ts";
+import type { ConnectionState } from "./connection-state.ts";
+import type { RpcConnection } from "./rpc-connection.ts";
+import { Store } from "./store.ts";
 
 const server = useServer();
 const configDir = () => process.env["CORRAL_CONFIG_DIR"] ?? "";
@@ -90,4 +99,44 @@ test("deleting the file goes back to the defaults", async () => {
     expect(state.config).toEqual(defaultClientConfig(server.dataDir));
     expect(state.problems).toEqual([]);
   });
+});
+
+test("a pre-B5 config state gets the agent defaults and the newer bindings", async () => {
+  // What a same-version daemon from before B5 puts on the wire: no `[agents]` table and an
+  // exhaustive bindings record without the actions this client added. Nothing parses ConfigState
+  // on the client, so the store has to fill the defaults the schema promises.
+  const config = structuredClone(defaultClientConfig("/data"));
+  Reflect.deleteProperty(config, "agents");
+  for (const action of ["abort-turn", "change-model", "change-reasoning"]) {
+    Reflect.deleteProperty(config.keys.bindings, action);
+  }
+  const wire = {
+    path: "/home/me/.config/corral/config.toml",
+    config,
+    profiles: [],
+    problems: [],
+  };
+  const state = new Store<ConnectionState>({ status: "connected" });
+  const api = {
+    config: {
+      watch: async () =>
+        (async function* () {
+          yield wire;
+        })(),
+    },
+  };
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a hand-built wire payload
+  const connection = { state, api } as unknown as RpcConnection;
+  const store = createConfigStore(connection);
+  try {
+    await vi.waitFor(() => expect(store.getSnapshot().loaded).toBe(true));
+    const snapshot = store.getSnapshot();
+    expect(snapshot.config.agents).toEqual(defaultAgentSettings());
+    expect(snapshot.config.keys.bindings["change-model"]).toBe(DEFAULT_BINDINGS["change-model"]);
+    expect(
+      createConfigKeymap(snapshot.config).bindings.some(({ action }) => action === "change-model"),
+    ).toBe(true);
+  } finally {
+    store.close();
+  }
 });

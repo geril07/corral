@@ -31,6 +31,22 @@ test("a missing agent names the command, and session errors are explained", () =
   );
 });
 
+test("a refused model, level or disabled agent names what the server refused", () => {
+  expect(
+    describeError(defined("CHAT_MODEL_UNSUPPORTED", { model: { provider: "stub", id: "stub-9" } })),
+  ).toBe("The agent does not offer the model stub-9.");
+  expect(describeError(defined("CHAT_REASONING_UNSUPPORTED", { level: "low" }))).toBe(
+    'The agent has no reasoning level "low".',
+  );
+  expect(describeError(defined("AGENT_DISABLED", { kind: "claude" }))).toBe(
+    "The claude agent is disabled in the config file.",
+  );
+  // A custom `[agents.<kind>].command` is a path, so PATH is not where it was looked for.
+  expect(describeError(defined("AGENT_NOT_FOUND", { command: "/opt/pi/bin/pi" }))).toBe(
+    "/opt/pi/bin/pi is not an executable the server can run.",
+  );
+});
+
 test("a launch profile pinned to a changed revision is explained", () => {
   expect(describeError(defined("LAUNCH_PROFILE_CHANGED", { id: "p1" }))).toBe(
     "The launch profile changed since you chose it. Reload and choose it again.",

@@ -46,6 +46,8 @@ export function describeLaunchError(error: unknown): string | undefined {
         ? `The server has no environment variable ${name} for profile "${profileId}".`
         : `The server has no environment variable ${name}.`;
     }
+    case "AGENT_DISABLED":
+      return `The ${String(field(defined.data, "kind"))} agent is disabled in the config file.`;
     case "LAUNCH_ENV_RESERVED":
       return `A profile may not set ${String(field(defined.data, "name"))}.`;
     case "LAUNCH_FAILED": {

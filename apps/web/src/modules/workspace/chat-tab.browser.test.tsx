@@ -6,6 +6,7 @@ import type { SessionsSnapshot } from "@corral/client/sessions-store";
 import { Store } from "@corral/client/store";
 import type { TasksSnapshot } from "@corral/client/tasks-store";
 import type { Session, Task } from "@corral/protocol/rpc";
+import { ORPCError } from "@orpc/client";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { agentLaunches } from "../../../test/fake-agents.ts";
@@ -20,7 +21,13 @@ const { newClient } = realServerClients();
  * sessions and has no driver before B1, and a real task here would outlive this file on the shared
  * server; `openChat` returns a working chat so the abort action is enabled.
  */
-function seededClient(state: ChatSessionState = workingChat()) {
+function seededClient(
+  state: ChatSessionState = workingChat(),
+  setModelImpl: (input: {
+    sessionId: string;
+    model: { provider: string | null; id: string };
+  }) => Promise<void> = async () => undefined,
+) {
   const real = newClient();
   const abort = vi
     .fn<(input: { sessionId: string }) => Promise<void>>()
@@ -32,7 +39,7 @@ function seededClient(state: ChatSessionState = workingChat()) {
         model: { provider: string | null; id: string };
       }) => Promise<void>
     >()
-    .mockResolvedValue(undefined);
+    .mockImplementation(setModelImpl);
   const setReasoning = vi
     .fn<(input: { sessionId: string; level: string }) => Promise<void>>()
     .mockResolvedValue(undefined);
@@ -265,6 +272,79 @@ test("the chat model and reasoning controls apply what the driver reports, from 
     await expect.element(levelDialog).toBeVisible();
     await userEvent.keyboard("{Escape}");
     await expect.element(levelDialog).not.toBeInTheDocument();
+  } finally {
+    tasks.set({ loaded: true, tasks: [] });
+    sessions.set({ loaded: true, sessions: [] });
+    chatStore.close();
+  }
+});
+
+test("a refused model keeps the chooser open with a sentence, not the RPC code", async () => {
+  const state = workingChat({
+    model: { provider: "stub", id: "stub-1", name: "Stub One" },
+    models: [
+      { provider: "stub", id: "stub-1", name: "Stub One" },
+      { provider: "stub", id: "stub-2", name: "Stub Two" },
+    ],
+    reasoning: "medium",
+    reasoningLevels: ["off", "medium", "high"],
+  });
+  const { client, real, tasks, sessions, chatStore, chatSession } = seededClient(
+    state,
+    async () => {
+      throw new ORPCError("CHAT_MODEL_UNSUPPORTED", {
+        defined: true,
+        data: { model: { provider: "stub", id: "stub-2" } },
+      });
+    },
+  );
+  const { repo } = await appWithProject(client);
+  const project = await vi.waitFor(() => {
+    const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
+    if (found === undefined) throw new Error("the project is not in the list yet");
+    return found;
+  });
+  await vi.waitFor(() => expect(real.sessions.getSnapshot().loaded).toBe(true));
+
+  const task: Task = {
+    id: "task-chat-refused",
+    projectId: project.id,
+    title: "Refused model",
+    titleSource: "user",
+    prompt: null,
+    primarySessionId: chatSession,
+    branch: "main",
+    workspacePath: project.path,
+    ownsWorktree: false,
+    state: "active",
+    seenAt: null,
+    createdAt: 1,
+  };
+  const session: Session = {
+    id: chatSession,
+    taskId: task.id,
+    kind: "pi",
+    view: "chat",
+    agentSessionId: "pi-seeded",
+    terminalId: null,
+    state: "running",
+    status: null,
+    createdAt: 1,
+  };
+
+  try {
+    tasks.set({ loaded: true, tasks: [task] });
+    sessions.set({ loaded: true, sessions: [session] });
+
+    await page.getByRole("button", { name: "Model Stub One" }).click();
+    const dialog = page.getByRole("dialog", { name: "Chat model" });
+    await expect.element(dialog).toBeVisible();
+    await userEvent.keyboard("{ArrowDown}{Enter}");
+
+    // The server's data, in a sentence: the list stays open so the user can pick another model.
+    await expect.element(dialog).toBeVisible();
+    await expect.element(dialog).toMatchTextContent("does not offer the model stub-2");
+    await expect.element(dialog).not.toMatchTextContent("CHAT_MODEL_UNSUPPORTED");
   } finally {
     tasks.set({ loaded: true, tasks: [] });
     sessions.set({ loaded: true, sessions: [] });

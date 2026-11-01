@@ -1,4 +1,7 @@
 import {
+  ActionId,
+  DEFAULT_BINDINGS,
+  defaultAgentSettings,
   defaultClientConfig,
   type AgentAvailability,
   type ClientConfig,
@@ -23,6 +26,25 @@ export interface ConfigSnapshot {
 }
 
 export type ConfigStore = WatchStore<ConfigSnapshot>;
+
+/**
+ * The wire config as this client understands it. A protocol 9 daemon from before `[agents]` (or
+ * before an action) sends no such table and an exhaustive bindings record without the newer
+ * actions; nothing parses `ConfigState` on the client (oRPC validates no outputs), so the
+ * defaults the schema comments promise are applied here, once, for every later consumer.
+ */
+function normalizeConfig(config: ClientConfig): ClientConfig {
+  const bindings: Record<ActionId, string | null> = { ...DEFAULT_BINDINGS };
+  for (const action of ActionId.options) {
+    const chord = config.keys?.bindings?.[action];
+    if (chord !== undefined) bindings[action] = chord;
+  }
+  return {
+    ...config,
+    agents: config.agents ?? defaultAgentSettings(),
+    keys: { prefix: config.keys?.prefix ?? "", bindings },
+  };
+}
 
 /** Follows `config.watch`: the state now and after every change of the file on disk. */
 export function createConfigStore(connection: RpcConnection): ConfigStore {
@@ -50,10 +72,10 @@ export function createConfigStore(connection: RpcConnection): ConfigStore {
         ? {
             loaded: true,
             path: state.path,
-            config: state.config,
+            config: normalizeConfig(state.config),
             profiles: state.profiles ?? [],
             agents: state.agents ?? [],
-            problems: state.problems,
+            problems: state.problems ?? [],
           }
         : initial,
   });
