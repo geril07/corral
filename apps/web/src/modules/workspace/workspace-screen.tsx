@@ -3,6 +3,8 @@ import { describeError } from "@corral/client/rpc-errors";
 import { ActionId, type ClientConfig } from "@corral/protocol/config";
 import { useState } from "react";
 import {
+  Alert,
+  AlertDescription,
   AppShell,
   Badge,
   Button,
@@ -202,6 +204,12 @@ export function WorkspaceScreen({
         </SidebarPanel>
       )}
       <MainPanel className="flex min-h-0 flex-col bg-background">
+        {/* The footer carries the alert with the sidebar; a hidden sidebar must not hide it. */}
+        {sidebar.hidden && failure && (
+          <Alert variant="destructive">
+            <AlertDescription>{failure}</AlertDescription>
+          </Alert>
+        )}
         {currentTaskNode && (
           <TaskHeader
             node={currentTaskNode}
