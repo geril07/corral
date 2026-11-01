@@ -39,9 +39,10 @@ What a user does; replaces the form-first flow below as each stage lands. New ke
   Rows use stock Buttons with a structural tree layout variant; selection uses
   stock secondary appearance plus `aria-current`, not a bespoke colored left bar.
 - Task order is creation order, not status order, in the project-grouped mode; the flat mode
-  orders by status (Target flow 5) and shows the project on each row's second line. Current-task
-  sessions remain open; other tasks expand on demand. Titles/paths truncate without losing
-  accessible names.
+  orders by status (Target flow 5) and shows the project on each row's second line. The selected
+  task's sessions stay open in both modes; another task's sessions expand on demand in project
+  mode, while flat mode lists no sessions of other tasks until A8 turns them into tabs.
+  Titles/paths truncate without losing accessible names.
 - Row actions use named icon buttons and menus. Frequent session stop/restart remains
   inline; rename/remove remain menu actions. Icons are Lucide's standard glyphs.
 - One scrolling region per pane. At 1024×640 and above all controls must be reachable.
