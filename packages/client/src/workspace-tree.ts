@@ -228,14 +228,22 @@ export function flatRank(row: FlatTaskNode): number {
   return state === "done" && row.unseen ? 3 : 4;
 }
 
-/** Rank first, then the most recently reported status, then the newest task. */
+/**
+ * Rank first, then the most recent update — the status report, or the task's own age when it
+ * has none, which is what its row displays — then the newest task and its id as a tiebreak.
+ */
 function compareFlat(a: FlatTaskNode, b: FlatTaskNode): number {
   return (
     flatRank(a) - flatRank(b) ||
-    (b.status?.updatedAt ?? 0) - (a.status?.updatedAt ?? 0) ||
+    updateTime(b) - updateTime(a) ||
     b.task.createdAt - a.task.createdAt ||
     a.task.id.localeCompare(b.task.id)
   );
+}
+
+/** The moment a flat row's age label counts from. */
+function updateTime(row: FlatTaskNode): number {
+  return row.status?.updatedAt ?? row.task.createdAt;
 }
 
 function flatNode(project: Project, node: TaskNode): FlatTaskNode {

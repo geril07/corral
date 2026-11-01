@@ -269,6 +269,20 @@ test("flat mode keeps settled tasks on their own shelf, cancelled from the secti
   );
 });
 
+test("a flat row without a status is ordered by its own age, the time its row shows", () => {
+  const withStatusless = buildWorkspaceTree(
+    [project("p1")],
+    [
+      { ...task("old-idle", "p1"), seenAt: null, createdAt: 1 },
+      { ...task("fresh", "p1"), seenAt: null, createdAt: 5_000 },
+    ],
+    [reported("si", "old-idle", "idle", 900)],
+    [],
+  );
+  const flat = buildFlatSidebar(withStatusless);
+  expect(flat.sections[0]?.tasks.map((row) => row.task.id)).toEqual(["fresh", "old-idle"]);
+});
+
 test("empty flat sections are left out", () => {
   const quiet = buildWorkspaceTree(
     [project("p1")],
