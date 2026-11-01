@@ -79,6 +79,15 @@ The revision: the sidebar lists tasks, the main area shows one task with a heade
 - Composer: at the bottom of the lane, overlaying the timeline's end; 2 lines minimum, grows to 13 rem, then scrolls (T3: `max-h-52`). One control row below the text: model and reasoning pickers on the left, queue/steer hint and send/abort on the right. Placeholder: "Ask pi…" (agent name).
 - A user request (a question the agent waits on) renders as the last timeline item with focus, above the composer.
 
+## Changes (stage C)
+
+- A `Changes` tab per task sits in the session tab strip after the task's sessions. It has no session behind it: no number hint, no status glyph, and selecting it does not change which session is current.
+- Full main-area width with the Terminal's 8 px padding, not the 46 rem chat lane: diffs are wide and get horizontal scroll rather than wrapping.
+- A summary row at the top ("12 files, +340 −87", `text-sm`, muted), then file rows 28 px high: status letter (`M`/`A`/`D`/`R`), path in mono 13 px truncated from the left, `+N −M` right-aligned. Changed files sort by path; a renamed file shows `old → new`.
+- The diff pane under the list: unified hunks, muted hunk headers, monospace 13 px on a 20 px line height, unchanged regions folded with "Show N more lines". Binary files show one row ("Binary file, 12 KB") and no diff. At 1024×640 the list collapses to the top third and the selected file's diff takes the rest.
+- The task header shows `+N −M` right-aligned next to the status when non-zero; the sidebar row shows the same compact numbers only when non-zero.
+- Read-only in C4, refreshed with a debounce when the workspace changes: loading shows skeleton rows, a clean tree shows "No changes yet". C6 adds staging and commit controls inside this tab, below the summary row.
+
 ## New task view
 
 The composer is a view in the main area, not a dialog (T3's draft thread; Orca uses a dialog and its staged form is what the user disliked in Corral's).

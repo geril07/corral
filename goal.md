@@ -37,7 +37,7 @@ stage C:  C-prep → C0 → (C1, C4, C5) → (C2, C6) → C3 → C-verify → C 
 - Gates for every slice are `docs/plans/stage-a.md` → **Gates for every slice**: `mise exec -- pnpm check`, plus `pnpm test:browser` for web slices and `pnpm test:e2e` for user-visible flows, with logs under `.e2e/stage-b/<slice>/gates/` or `.e2e/stage-c/<slice>/gates/`. A claim without a log is not done.
 - `pnpm test:browser` and `pnpm test:e2e` run one at a time across all worktrees through `flock /tmp/corral-heavy-tests.lock`.
 - At most three workers at once. Slices of one wave may run in parallel; integrate one at a time, rebasing onto the result. Migrations and `rpc.ts` merge conflicts are renumbered by you during integration.
-- Stage B ends when **B done when** holds; then stage C starts on the result. Do not start C work inside a B branch.
+- Stage B ends when the **Stage B** list under **Done when** holds; then stage C starts on the result. Do not start C work inside a B branch.
 
 ## How to run
 
@@ -56,11 +56,11 @@ Per slice, as in `docs/plans/stage-a-run.md` → **Subagent workflow**, with the
 2. **Explore** (optional): only when file references look stale.
 3. **Implement** (worker, cwd = worktree): gates, commits, `.e2e/stage-b/<slice>/report.md`.
 4. **Check** (you): read report and diff, rerun `pnpm check`.
-5. **Review** (reviewer): **mandatory** for T0, B0, B1, B4, B5 and for every C slice (protocol, process launch, storage, config, file paths, remote writes); B3 by risk. Findings P0–P3 into `review.md`.
+5. **Review** (reviewer): **mandatory** for T0, B0, B1, B4, B5 and for every C slice except `C-prep`, which is docs-only and reviewed by risk (protocol, process launch, storage, config, file paths, remote writes); B3 by risk. Findings P0–P3 into `review.md`.
 6. **Fix loop**: P0–P2 back to the same worker; re-review the fix; P3s fixed or recorded.
 7. **Integrate**: rebase, rerun gates, fast-forward, ledger row.
 
-Stage verification uses an e2e-verifier that wrote none of the code, given the stage's verify section, how to build and start the app, and the boundaries below. It also takes the real-binary probes of D4/D9 as evidence, not the repo's own suites.
+Stage verification uses an e2e-verifier that wrote none of the code, given the stage's verify section, the boundaries below, and how to build and start the app — take the commands from `docs/engineering.md` and, for a worked example, `.e2e/stage-a/verify/brief.md` (built web client in Chromium at both viewports plus built Electron). It also takes the real-binary probes of D4/D9 as evidence, not the repo's own suites. Ledger rows go into the existing table in `docs/progress.md` with a `Stage B ·` or `Stage C ·` prefix.
 
 ## Boundaries
 
