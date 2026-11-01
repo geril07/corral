@@ -31,7 +31,7 @@ export {
 export { FieldSet, FieldLegend } from "./field.tsx";
 export { FormField, RadioChoice } from "./form-field.tsx";
 export { Hint } from "./hint.tsx";
-export { Icon, type IconName } from "./icon.tsx";
+export { Icon, type IconName, type IconSize } from "./icon.tsx";
 export { IconButton } from "./icon-button.tsx";
 export { Input } from "./input.tsx";
 export { TextLink } from "./text-link.tsx";
@@ -40,6 +40,6 @@ export { AppShell, MainPanel, Screen, SidebarPanel } from "./layout.tsx";
 export { OverflowMenu } from "./overflow-menu.tsx";
 export { DropdownMenuItem } from "./dropdown-menu.tsx";
 export { RadioGroup, RadioGroupItem } from "./radio-group.tsx";
-export { StatusGlyph } from "./status-glyph.tsx";
+export { StatusGlyph, type StatusGlyphSize } from "./status-glyph.tsx";
 export { useTruncatedText } from "./truncated-text.tsx";
 export { TreeIndent, TreeRow } from "./tree-row.tsx";

@@ -58,8 +58,25 @@ const ICONS = {
 
 export type IconName = keyof typeof ICONS;
 
-/** One lucide glyph at the kit's standard size, always hidden from the accessible name. */
-export function Icon({ name, className }: { name: IconName; className?: string }) {
+/** `row` is the 12 px glyph of sidebar rows, `chrome` the 14 px one of tabs and the task header. */
+export type IconSize = "default" | "row" | "chrome";
+
+const SIZES: Readonly<Record<IconSize, string>> = {
+  default: "size-4",
+  row: "size-3",
+  chrome: "size-3.5",
+};
+
+/** One lucide glyph at the kit's size step, always hidden from the accessible name. */
+export function Icon({
+  name,
+  size = "default",
+  className,
+}: {
+  name: IconName;
+  size?: IconSize;
+  className?: string;
+}) {
   const Glyph = ICONS[name];
-  return <Glyph aria-hidden className={cn("size-4 shrink-0", className)} />;
+  return <Glyph aria-hidden className={cn("shrink-0", SIZES[size], className)} />;
 }

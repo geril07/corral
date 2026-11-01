@@ -435,6 +435,8 @@ test("the sidebar edge resizes, keeps its width, and double-click resets it", as
   handle.element().focus();
   await userEvent.keyboard("{ArrowRight}");
   await expect.element(handle).toHaveAttribute("aria-valuenow", String(initial + 16));
+  // A user action writes the preference; mounting alone does not (see the next test).
+  expect(window.localStorage.getItem("corral.sidebar-width")).toBe(String(initial + 16));
   await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
   await expect.element(handle).toHaveAttribute("aria-valuenow", String(initial - 16));
 
@@ -446,6 +448,50 @@ test("the sidebar edge resizes, keeps its width, and double-click resets it", as
 
   again.element().dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
   await expect.element(again).toHaveAttribute("aria-valuenow", String(initial));
+});
+
+test("mounting the shell does not freeze a sidebar width into the device preference", async () => {
+  await render(<App client={newClient()} />);
+  await expect.element(page.getByRole("separator", { name: "Resize sidebar" })).toBeVisible();
+
+  // The default is derived from the window at start; writing it on mount would make 232 or 264
+  // permanent for this profile.
+  expect(window.localStorage.getItem("corral.sidebar-width")).toBeNull();
+  await prefixThen("\\");
+  await prefixThen("\\");
+  expect(window.localStorage.getItem("corral.sidebar-width")).toBeNull();
+});
+
+test("a stored width outside 208–420 px falls back to the device default", async () => {
+  // Not a width the user can have chosen: keep the entry but start from the window-dependent
+  // default instead of silently clamping to a value they never picked.
+  window.localStorage.setItem("corral.sidebar-width", "999");
+  await render(<App client={newClient()} />);
+
+  const initial = window.innerWidth < 1180 ? 232 : 264;
+  await expect
+    .element(page.getByRole("separator", { name: "Resize sidebar" }))
+    .toHaveAttribute("aria-valuenow", String(initial));
+  expect(window.localStorage.getItem("corral.sidebar-width")).toBe("999");
+});
+
+test("the sidebar keeps the main area's 640 px and its edge does not cover the list's scrollbar", async () => {
+  await render(<App client={newClient()} />);
+  const handle = page.getByRole("separator", { name: "Resize sidebar" });
+  const max = Math.min(420, window.innerWidth - 640);
+  await expect.element(handle).toHaveAttribute("aria-valuemax", String(max));
+
+  handle.element().focus();
+  await userEvent.keyboard("{ArrowRight}".repeat(20));
+  await expect.element(handle).toHaveAttribute("aria-valuenow", String(max));
+  // The main area is still at least 640 px wide.
+  expect(window.innerWidth - max).toBeGreaterThanOrEqual(640);
+
+  // The strip starts at the aside's border, so a scrollbar's edge stays grabbable.
+  const aside = handle.element().parentElement!;
+  expect(handle.element().getBoundingClientRect().left).toBeGreaterThanOrEqual(
+    aside.getBoundingClientRect().right - 1,
+  );
 });
 
 test("the sidebar footer shows the prefix pill while the prefix is armed and the settings icon", async () => {

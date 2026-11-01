@@ -1,7 +1,6 @@
 import { describeStatus } from "@corral/client/agent-status";
 import type { AgentStatus } from "@corral/protocol/rpc";
-import { StatusGlyph, Hint } from "../../common/ui/index.ts";
-import type { StatusGlyphSize } from "../../common/ui/status-glyph.tsx";
+import { StatusGlyph, Hint, type StatusGlyphSize } from "../../common/ui/index.ts";
 
 /**
  * The agent's state in a sidebar row: a fixed-size glyph, with the words as its text alternative

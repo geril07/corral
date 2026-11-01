@@ -72,7 +72,11 @@ Current structural needs have named kit variants, not module class overrides:
   variants and hover/focus treatment stay stock.
 - Button `layout="tab"`: a session tab takes its content width up to 200 px and then
   truncates (`layout.md`, **Session tabs**); the tab's own appearance is stock `secondary`
-  when selected and stock `ghost` otherwise.
+  when selected and stock `ghost` otherwise. The tab strip is composed from this Button with
+  `role="tab"`/`aria-selected` in a `role="tablist"`, not from a Tabs component: Base UI's
+  Tabs trigger cannot host the strip's sibling stop, menu and close controls, and
+  `layout.md` asks for content-width tabs, not the kit's equal-width triggers. No stock Tabs
+  class strings are hand-written.
 - Badge `layout="truncate"`: bounded flex allocation for a saved launch summary;
   the badge's stock variant, shape and sizing are unchanged.
 - DialogContent `padding="none"`: the content box keeps no stock `p-4`, so
@@ -86,7 +90,9 @@ Current structural needs have named kit variants, not module class overrides:
 - AppShell takes the sidebar's width (including 0 while it is hidden) for its two-column
   grid; the stock 16 rem column remains the default.
 - StatusGlyph takes the row (12 px) or chrome (14 px) glyph size of `layout.md` **Status
-  visuals** and fades a `done` update the user has already seen to muted.
+  visuals** and fades a `done` update the user has already seen to muted. `Icon` carries the
+  same `size="row"`/`size="chrome"` steps, so a tab's kind icon and its status glyph stay one
+  size and the tab does not shift when a session starts working.
 - BoardRow uses exported official Item variants for its appearance and focus,
   retaining only the board's five-column grid as structural layout. Issue text
   and dirty-file lists use stock outlined Item containers; terminal notices use

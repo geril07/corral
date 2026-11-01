@@ -39,9 +39,12 @@ export function SessionTabs(props: SessionTabsProps) {
 
   // The selected tab stays in view when the strip scrolls (`layout.md`, **Session tabs**).
   useEffect(() => {
-    const selected = strip.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (entries.length === 0) return;
+    const selected = strip.current?.querySelector<HTMLElement>(
+      `[data-session-id="${CSS.escape(currentId ?? "")}"]`,
+    );
     selected?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  });
+  }, [currentId, entries.length]);
 
   const step = (offset: 1 | -1 | "first" | "last") => {
     const index = entries.findIndex((entry) => entry.id === currentId);
@@ -51,11 +54,8 @@ export function SessionTabs(props: SessionTabsProps) {
         : offset === "last"
           ? entries[entries.length - 1]
           : entries[((index < 0 ? 0 : index) + offset + entries.length) % entries.length];
-    if (next === undefined) return;
-    props.onSelect(next);
-    strip.current
-      ?.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(next.id)}"]`)
-      ?.focus();
+    // Selection, not focus: the terminal is remounted and takes the keyboard again (`ux.md`).
+    if (next !== undefined) props.onSelect(next);
   };
 
   return (
@@ -63,7 +63,7 @@ export function SessionTabs(props: SessionTabsProps) {
       ref={strip}
       role="tablist"
       aria-label="Sessions"
-      className="flex h-8 shrink-0 items-stretch gap-0.5 overflow-x-auto border-b border-border px-1"
+      className="no-scrollbar flex h-8 shrink-0 items-stretch gap-0.5 overflow-x-auto border-b border-border px-1"
       // Pressing a tab must not take the keyboard from the terminal (`ux.md`).
       onMouseDown={(event) => event.preventDefault()}
       onKeyDown={(event) => {
@@ -175,14 +175,14 @@ function SessionTab({
           {glyphState ? (
             <StatusIndicator status={glyphState} size="chrome" />
           ) : (
-            <Icon name={session.kind === "shell" ? "terminal" : "agent"} />
+            <Icon name={session.kind === "shell" ? "terminal" : "agent"} size="chrome" />
           )}
           <span className={running ? "min-w-0 truncate" : "min-w-0 truncate text-muted-foreground"}>
             {name}
           </span>
         </span>
       </Button>
-      <span className={tabActionsClass(current)}>
+      <span className={TAB_ACTIONS_CLASS}>
         <IconButton
           label={running ? `stop ${name}` : `restart ${name}`}
           tooltip={
@@ -216,9 +216,6 @@ function SessionTab({
   );
 }
 
-/** Stop, the menu and close appear on hover or focus, and stay on the selected tab. */
-function tabActionsClass(current: boolean): string {
-  return current
-    ? "flex items-center"
-    : "flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100";
-}
+/** Stop, the menu and close appear on hover or focus, and stay while one of them has focus. */
+const TAB_ACTIONS_CLASS =
+  "flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100";

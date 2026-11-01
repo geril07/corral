@@ -1,8 +1,8 @@
 import type { AgentState } from "@corral/protocol/rpc";
-import { Icon } from "./icon.tsx";
+import { Icon, type IconSize } from "./icon.tsx";
 
 /** `row` is the 12 px glyph of sidebar rows, `chrome` the 14 px one of tabs and the task header. */
-export type StatusGlyphSize = "row" | "chrome";
+export type StatusGlyphSize = Exclude<IconSize, "default">;
 
 const COLORS: Readonly<Record<AgentState, string>> = {
   working: "text-status-working",
@@ -31,7 +31,7 @@ export function StatusGlyph({
       aria-hidden
       data-status={state}
     >
-      <Icon name={`status-${state}`} className={size === "row" ? "size-3" : "size-3.5"} />
+      <Icon name={`status-${state}`} size={size} />
     </span>
   );
 }

@@ -1,11 +1,12 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { clampSidebarWidth, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "./sidebar-pane.ts";
+import { clampSidebarWidth, maxSidebarWidth, SIDEBAR_MIN_WIDTH } from "./sidebar-pane.ts";
 
 const KEY_STEP = 16;
 
 /**
  * The sidebar's drag edge (`layout.md`, **Shell**): dragging resizes, a double click restores the
- * device default, and arrow keys do the same from the keyboard.
+ * device default, and arrow keys do the same from the keyboard. The strip sits just outside the
+ * aside, over the main area's 8 px padding, so it never covers the sidebar list's scrollbar.
  */
 export function SidebarResizeHandle({
   width,
@@ -18,16 +19,23 @@ export function SidebarResizeHandle({
 }) {
   const drag = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
+    const handle = event.currentTarget;
     const startX = event.clientX;
     const startWidth = width;
-    event.currentTarget.setPointerCapture(event.pointerId);
     const move = (moved: PointerEvent) => onResize(startWidth + (moved.clientX - startX));
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+    const stop = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", stop);
+      handle.removeEventListener("pointercancel", stop);
+      handle.removeEventListener("lostpointercapture", stop);
+      if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    // Capture routes the move and end events here; every way a drag can end removes them again.
+    handle.setPointerCapture(event.pointerId);
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", stop);
+    handle.addEventListener("pointercancel", stop);
+    handle.addEventListener("lostpointercapture", stop);
   };
 
   return (
@@ -37,9 +45,9 @@ export function SidebarResizeHandle({
       aria-label="Resize sidebar"
       aria-valuenow={width}
       aria-valuemin={SIDEBAR_MIN_WIDTH}
-      aria-valuemax={SIDEBAR_MAX_WIDTH}
+      aria-valuemax={maxSidebarWidth(window.innerWidth)}
       tabIndex={0}
-      className="absolute inset-y-0 right-0 z-10 w-1.5 cursor-col-resize hover:bg-border"
+      className="absolute inset-y-0 -right-1.5 w-1.5 cursor-col-resize hover:bg-border"
       onPointerDown={drag}
       onDoubleClick={onReset}
       onKeyDown={(event) => {

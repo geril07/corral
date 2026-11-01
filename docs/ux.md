@@ -39,8 +39,9 @@ What a user does; replaces the form-first flow below as each stage lands. New ke
 - The sidebar lists tasks only. Its 44 px header is task search with its chord plus a new-task
   button; its 36 px footer carries the connection state while it is not connected, the
   prefix-armed pill, config problems and Settings. It is 264 px by default (232 px below
-  1180 px), dragged between 208 and 420 px with the edge handle, kept per device, reset by a
-  double click, and hidden or shown by `prefix \`.
+  1180 px), dragged between 208 and 420 px with the edge handle — and never so wide that the
+  main area drops below its 640 px — kept per device, reset by a double click, and hidden or
+  shown by `prefix \`.
 - Flat mode by status is the default (`prefix l` switches to project groups and the device keeps
   the choice). Rows are the two-line 52 px task rows of `layout.md`; selection uses stock
   secondary appearance plus `aria-current`, not a bespoke colored left bar. Titles and paths

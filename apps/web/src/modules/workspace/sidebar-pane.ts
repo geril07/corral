@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 /** Sidebar sizing and visibility per device (`layout.md`, **Shell**). */
 export const SIDEBAR_MIN_WIDTH = 208;
@@ -7,12 +7,23 @@ export const SIDEBAR_DEFAULT_WIDTH = 264;
 /** A narrower window starts with a narrower sidebar instead of leaving the main area nothing. */
 export const SIDEBAR_NARROW_WIDTH = 232;
 export const SIDEBAR_NARROW_BELOW = 1180;
+/** The main area never gives up more than this, whatever the edge or a stored width asks for. */
+export const MAIN_AREA_MIN_WIDTH = 640;
 
 const WIDTH_KEY = "corral.sidebar-width";
 const HIDDEN_KEY = "corral.sidebar-hidden";
 
-export function clampSidebarWidth(width: number): number {
-  return Math.round(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width)));
+/** The widest sidebar this window may have: the static maximum or the main area's 640 px, whichever wins. */
+export function maxSidebarWidth(windowWidth: number): number {
+  return Math.max(
+    SIDEBAR_MIN_WIDTH,
+    Math.min(SIDEBAR_MAX_WIDTH, windowWidth - MAIN_AREA_MIN_WIDTH),
+  );
+}
+
+/** Keeps a width inside 208–420 px and inside what the window can spare for the main area. */
+export function clampSidebarWidth(width: number, windowWidth = window.innerWidth): number {
+  return Math.round(Math.min(maxSidebarWidth(windowWidth), Math.max(SIDEBAR_MIN_WIDTH, width)));
 }
 
 /** The width a device starts with, before the user has dragged the edge. */
@@ -23,8 +34,10 @@ export function defaultSidebarWidth(windowWidth: number): number {
 function readWidth(): number {
   try {
     const stored = Number(window.localStorage.getItem(WIDTH_KEY));
+    // A stored width outside the slider's range is corrupt or from another layout: fall back to
+    // the device default rather than silently changing what the user last chose to something else.
     if (Number.isFinite(stored) && stored >= SIDEBAR_MIN_WIDTH && stored <= SIDEBAR_MAX_WIDTH) {
-      return stored;
+      return clampSidebarWidth(stored);
     }
   } catch {
     // Storage can be unavailable (a sandboxed or file: origin); the default still applies.
@@ -56,16 +69,29 @@ export interface SidebarPane {
   toggle: () => void;
 }
 
-/** The sidebar's width and visibility, the resize handle's setters and `prefix \`. */
+/**
+ * The sidebar's width and visibility, the resize handle's setters and `prefix \`. Only a user
+ * action writes the device preference: mounting must not freeze today's window-dependent default
+ * into storage, or the Shell defaults would be one-shot per profile.
+ */
 export function useSidebarPane(): SidebarPane {
   const [width, setStoredWidth] = useState(readWidth);
   const [hidden, setHidden] = useState(readHidden);
 
-  useEffect(() => store(WIDTH_KEY, String(width)), [width]);
-  useEffect(() => store(HIDDEN_KEY, String(hidden)), [hidden]);
-
-  const setWidth = useCallback((next: number) => setStoredWidth(clampSidebarWidth(next)), []);
-  const resetWidth = useCallback(() => setStoredWidth(defaultSidebarWidth(window.innerWidth)), []);
-  const toggle = useCallback(() => setHidden((current) => !current), []);
+  const setWidth = useCallback((next: number) => {
+    const value = clampSidebarWidth(next);
+    setStoredWidth(value);
+    store(WIDTH_KEY, String(value));
+  }, []);
+  const resetWidth = useCallback(() => {
+    const value = defaultSidebarWidth(window.innerWidth);
+    setStoredWidth(value);
+    store(WIDTH_KEY, String(value));
+  }, []);
+  const toggle = useCallback(() => {
+    const next = !hidden;
+    setHidden(next);
+    store(HIDDEN_KEY, String(next));
+  }, [hidden]);
   return { width, hidden, setWidth, resetWidth, toggle };
 }

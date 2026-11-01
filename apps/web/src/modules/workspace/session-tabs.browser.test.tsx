@@ -2,6 +2,7 @@ import { sessionLabels } from "@corral/client/session-labels";
 import type { SessionEntry } from "@corral/client/workspace-tree";
 import { DEFAULT_BINDINGS, DEFAULT_PREFIX, type ClientConfig } from "@corral/protocol/config";
 import type { AgentStatus, Session } from "@corral/protocol/rpc";
+import { useState } from "react";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
@@ -60,7 +61,22 @@ function renderTabs(
     onNewAgent: vi.fn<(opener?: HTMLElement) => void>(),
     ...overrides,
   };
-  const rendered = render(<SessionTabs {...props} />);
+  // The selection lives in the strip's caller, as it does in the workspace; the harness keeps it
+  // so the tests read the rendered selection instead of only the callback.
+  function Harness() {
+    const [selected, setSelected] = useState(currentId);
+    return (
+      <SessionTabs
+        {...props}
+        currentId={selected}
+        onSelect={(selectedEntry) => {
+          props.onSelect(selectedEntry);
+          setSelected(selectedEntry.id);
+        }}
+      />
+    );
+  }
+  const rendered = render(<Harness />);
   return { rendered, props };
 }
 
@@ -72,6 +88,9 @@ test("one tab per session, in creation order, numbered for the first nine", asyn
     Array.from({ length: 10 }, (_, index) => session(`s${index + 1}`, "shell")),
     "s1",
   ).rendered;
+
+  // A classic scrollbar would eat the 32 px strip; the kit's utility hides it.
+  expect(getComputedStyle(strip().element()).scrollbarWidth).toBe("none");
 
   const tabs = strip().getByRole("tab").elements();
   expect(tabs).toHaveLength(10);
@@ -113,9 +132,15 @@ test("the status glyph replaces the kind icon while working or blocked", async (
   expect(glyphs.map((each) => each.getAttribute("data-status"))).toEqual(["working", "blocked"]);
   // A finished or idle session shows what it is, not a status glyph.
   await expect.element(tab("pi")).toBeVisible();
+
+  // Both the kind icon and the status glyph are 14 px, so a tab does not shift when it starts working.
+  const sizes = [...strip().element().querySelectorAll('[role="tab"]')].map(
+    (each) => each.querySelector("svg")!.getBoundingClientRect().width,
+  );
+  expect(sizes).toEqual([14, 14, 14, 14]);
 });
 
-test("the selected tab is marked and pressing another one reports it", async () => {
+test("the selected tab is marked and pressing another one selection follows it", async () => {
   const { rendered, props } = renderTabs(undefined, "s2");
   await rendered;
 
@@ -123,20 +148,27 @@ test("the selected tab is marked and pressing another one reports it", async () 
   await expect.element(tab("shell")).toHaveAttribute("aria-selected", "false");
 
   await tab("shell").click();
+  await expect.element(tab("shell")).toHaveAttribute("aria-selected", "true");
+  await expect.element(tab("claude")).toHaveAttribute("aria-selected", "false");
   expect(props.onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
 });
 
 test("arrow keys and Home/End move the selection along the strip", async () => {
-  const { rendered, props } = renderTabs(undefined, "s2");
+  const { rendered } = renderTabs(undefined, "s2");
   await rendered;
 
+  // Focus stays where the keyboard was (`ux.md`); the keys bubble from the tab to the strip.
   tab("claude").element().focus();
   await userEvent.keyboard("{ArrowRight}");
-  expect(props.onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ id: "s3" }));
+  await expect.element(tab("codex stopped")).toHaveAttribute("aria-selected", "true");
+  await userEvent.keyboard("{ArrowRight}");
+  await expect.element(tab("shell")).toHaveAttribute("aria-selected", "true");
+  await userEvent.keyboard("{ArrowLeft}");
+  await expect.element(tab("codex stopped")).toHaveAttribute("aria-selected", "true");
   await userEvent.keyboard("{Home}");
-  expect(props.onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ id: "s1" }));
+  await expect.element(tab("shell")).toHaveAttribute("aria-selected", "true");
   await userEvent.keyboard("{End}");
-  expect(props.onSelect).toHaveBeenLastCalledWith(expect.objectContaining({ id: "s3" }));
+  await expect.element(tab("codex stopped")).toHaveAttribute("aria-selected", "true");
 });
 
 test("a running tab stops its session and a stopped one restarts it", async () => {
@@ -170,17 +202,24 @@ test("a stopped session names its state and its menu and close ask before removi
   );
 });
 
-test("a tab's close, menu and stop appear on hover; the selected tab keeps them", async () => {
+test("every tab reveals stop, its menu and close on hover, and keeps them while focused", async () => {
   const { rendered } = renderTabs(undefined, "s1");
   await rendered;
 
-  const actions = () => strip().getByRole("tab", { name: "claude" }).element().nextElementSibling;
-  const selected = strip().getByRole("tab", { name: "shell" }).element().nextElementSibling;
-  expect(getComputedStyle(selected!).opacity).toBe("1");
-  expect(getComputedStyle(actions()!).opacity).toBe("0");
+  const actions = (name: string) =>
+    strip().getByRole("tab", { name }).element().nextElementSibling!;
+  // `layout.md`: shown on hover or focus only, selected tab included.
+  expect(getComputedStyle(actions("shell")).opacity).toBe("0");
+  expect(getComputedStyle(actions("claude")).opacity).toBe("0");
 
   await tab("claude").hover();
-  await expect.poll(() => getComputedStyle(actions()!).opacity).toBe("1");
+  await expect.poll(() => getComputedStyle(actions("claude")).opacity).toBe("1");
+  // Only the hovered tab reveals them.
+  expect(getComputedStyle(actions("shell")).opacity).toBe("0");
+
+  // They stay reachable from the keyboard: focusing one keeps its tab's group revealed.
+  strip().getByRole("button", { name: "stop claude" }).element().focus();
+  await expect.poll(() => getComputedStyle(actions("claude")).opacity).toBe("1");
 });
 
 test("the trailing + offers a shell and an agent", async () => {
