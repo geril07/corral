@@ -46,6 +46,50 @@ will not happen.
 Every valid profile has a content `revision` (12 hex characters) over its id, name, agent,
 model, provider and environment reference names. It lets a session say which definition it used.
 
+### Task defaults, naming and project overrides
+
+`[tasks]` holds what a new task starts with, `[naming]` picks the agent that generates task
+titles, and `[projects."<absolute repository path>"]` overrides `[tasks]` for one repository.
+
+```toml
+[tasks]
+agent = "claude" # default agent for a new task
+profile = "claude-gateway" # a [profiles.<id>] id; wins over agent
+model = "claude-sonnet-4-5" # overrides the profile's model
+workspace = "new-worktree" # main-worktree (default) | new-worktree
+worktree-root = "~/corral-worktrees" # absolute or ~-relative; default <data dir>/worktrees
+branch-prefix = "corral/" # prefix of a branch a task creates; default empty
+slug-mode = "title" # title (default) | generated
+view = "terminal" # terminal only until stage B
+
+[naming]
+profile = "claude-gateway" # or agent, plus its optional model
+timeout-seconds = 8 # whole seconds, at least 1; default 8
+
+[projects."/home/me/code/app"]
+workspace = "main-worktree" # the same keys as [tasks]
+```
+
+- Every task value resolves in layers: built-in default, then `[tasks]`, then the project's
+  table. The server sends the resolved values with the layer each came from; Settings shows
+  them.
+- A project without a `[projects]` table uses `[tasks]`. A project key is the absolute
+  repository path as the server stores it — the main working tree's real path, so a symlinked
+  path resolves to its target. A path that does not exist yet is kept as written. Quote keys
+  that contain dots.
+- `profile` wins over `agent`, and `model` overrides the profile's model. A model is checked
+  against the agent that will run it (the profile's agent when a profile wins), so a model the
+  agent has no flag for is a problem.
+- `worktree-root` is an absolute path or below `~` (the server's home directory). A
+  `~`-relative root may not climb out with `..`; the server expands `~` when it uses the root,
+  and the file keeps the value as written.
+- `[naming]` needs a profile or an agent (with an optional model). A missing or empty section
+  means no generation: tasks keep the prompt-derived seed title (`design.md` decision 16).
+- `view = "chat"` is a problem until stage B; `terminal` is the only valid view in stage A.
+- Unknown keys and invalid values are `ConfigProblem`s that drop only that entry; the rest of
+  the table still applies. A `profile` that names no valid profile is such a problem, and two
+  project keys that resolve to one repository are reported rather than merged.
+
 ### Safe examples per agent
 
 Claude Code has `--model` and no provider flag. Route it with environment references:
