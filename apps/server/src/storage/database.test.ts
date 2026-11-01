@@ -203,6 +203,34 @@ test("migrating a database from before task prompts adds both columns empty and 
   db.close();
 });
 
+test("the task insert writes the primary session instead of dropping it", () => {
+  const db = openDatabase(dataDir);
+  db.exec(
+    "INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main')",
+  );
+  const tasks = new TaskStore(db);
+  const sessions = new SessionStore(db);
+  // A caller holding both ids writes the two rows together, so the foreign key is checked at
+  // commit. Task creation cannot use this order — it learns the session id only after the launch —
+  // and writes the column again with `setPrimarySession`; the insert must not lose it either way.
+  db.exec("BEGIN; PRAGMA defer_foreign_keys = ON;");
+  sessions.insert({
+    id: "primary",
+    taskId: "a",
+    kind: "claude",
+    agentSessionId: "conversation",
+    state: "running",
+    label: null,
+    createdAt: 2,
+    launch: null,
+  });
+  tasks.insert({ ...storedTask("a", "seed"), primarySessionId: "primary" });
+  db.exec("COMMIT");
+
+  expect(tasks.get("a")).toMatchObject({ primarySessionId: "primary" });
+  db.close();
+});
+
 test("a task's primary session reference goes away with that session, not with the task", () => {
   const db = openDatabase(dataDir);
   db.exec(

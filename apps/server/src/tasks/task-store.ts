@@ -37,11 +37,12 @@ export class TaskStore {
       .map((row) => z.string().parse(row["id"]));
   }
 
+  /** Stores every field of the task, `primarySessionId` included; nothing is silently dropped. */
   insert(task: Task): void {
     this.#db
       .prepare(
-        `INSERT INTO tasks (id, project_id, title, title_source, source, prompt, branch, workspace_path, owns_worktree, state, seen_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, title, title_source, source, prompt, primary_session_id, branch, workspace_path, owns_worktree, state, seen_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         task.id,
@@ -50,6 +51,7 @@ export class TaskStore {
         task.titleSource,
         task.source === undefined ? null : JSON.stringify(task.source),
         task.prompt,
+        task.primarySessionId,
         task.branch,
         task.workspacePath,
         task.ownsWorktree ? 1 : 0,
@@ -59,7 +61,11 @@ export class TaskStore {
       );
   }
 
-  /** Records the session created from the task's prompt, once it exists. */
+  /**
+   * Records the primary session on a task that is already stored. Task creation needs this: the
+   * task row exists before its session, because the session's foreign key needs it, and the id is
+   * only known once the session has started.
+   */
   setPrimarySession(id: string, sessionId: string): void {
     this.#db.prepare("UPDATE tasks SET primary_session_id = ? WHERE id = ?").run(sessionId, id);
   }
