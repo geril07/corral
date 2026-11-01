@@ -15,7 +15,9 @@ import {
   FolderPlus,
   LayoutDashboard,
   Play,
+  Plus,
   Search,
+  Settings,
   Square,
   SquarePen,
   SquareTerminal,
@@ -26,6 +28,7 @@ import {
 import { cn } from "../lib/cn.ts";
 
 const ICONS = {
+  add: Plus,
   "add-project": FolderPlus,
   agent: Bot,
   back: ArrowLeft,
@@ -40,6 +43,7 @@ const ICONS = {
   remove: Trash2,
   restart: Play,
   settle: Archive,
+  settings: Settings,
   stop: Square,
   task: SquarePen,
   terminal: SquareTerminal,

@@ -20,6 +20,9 @@
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
+  --color-status-working: var(--status-working);
+  --color-status-attention: var(--status-attention);
+  --color-status-done: var(--status-done);
   --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
   --color-input: var(--input);
@@ -67,6 +70,11 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+  /* Agent state, in addition to the glyph and its word (`layout.md`, **Status visuals**);
+     the one deliberate theme addition of `ui-kit.md`. */
+  --status-working: oklch(0.55 0.16 250);
+  --status-attention: oklch(0.62 0.14 75);
+  --status-done: oklch(0.55 0.12 150);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -102,6 +110,9 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+  --status-working: oklch(0.72 0.13 250);
+  --status-attention: oklch(0.78 0.13 80);
+  --status-done: oklch(0.72 0.14 150);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);

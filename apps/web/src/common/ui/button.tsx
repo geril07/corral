@@ -21,6 +21,8 @@ const buttonVariants = cva(
       layout: {
         default: "",
         tree: "min-w-0 flex-1 justify-start overflow-hidden text-left",
+        // A session tab takes its content width up to 200 px, then truncates (`layout.md`).
+        tab: "min-w-0 max-w-50 justify-start overflow-hidden text-left",
       },
       size: {
         default:
