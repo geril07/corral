@@ -51,10 +51,11 @@ What a user does; replaces the form-first flow below as each stage lands. New ke
 
 ## Tasks, sessions and sources
 
-- Add project is a path dialog with inline errors. Current (until stage A): new task is a form
-  that selects a project and workspace and starts a shell; project changes clear
-  project-specific import/branch state safely. Issue import feeds the composer's prompt and
-  seed title once the composer replaces the form.
+- Add project is a path dialog with inline errors. Current (until A5 replaces it): new task is
+  a form with a title, an optional issue import and a workspace; creating from it starts no
+  session, so the task stays empty until a shell or an agent is added, and project changes
+  clear project-specific import/branch state safely. The task's prompt, agent and prefill
+  arrive with the composer; issue import then feeds the composer's prompt and seed title.
 - Radio groups retain the stock stacked default. Provider/agent/workspace choices
   use stock fields and labels, not custom selectable cards or row skins.
 - Remove task retains the dirty-worktree second confirmation; keyed buttons prevent

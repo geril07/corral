@@ -44,6 +44,9 @@ Scope and operating rules: [roadmap.md](roadmap.md). This records outcomes and e
 
 Decisions an autonomous run made on the user's behalf: question, options, choice, why, where in the code. The user reviews them; they never block a run.
 
+- **Stage A · A3 — a restart of the primary session re-offers the task's prompt.** A2 left it to the caller whether a restart that finds no conversation to resume hands the prompt over again. Choice: yes, for the task's primary session only, decided on the server (`SessionService.restart` → `#taskPrompt`, design.md **Sessions**), because the prompt is the task's work and only a start that never reached the agent gets it — a real resume still drops it. The session row a failed create leaves behind (`stopped` with its `launchError`) is what makes that recoverable. Tests: `tasks-rpc.test.ts`, both directions with the fake claude agent.
+- **Stage A · A3 — a failed primary launch keeps the task, and `tasks.create` still succeeds.** Options: roll the task back, fail the call and keep the task, or return the task with the session stopped. Choice: return the task; the primary session row exists in `stopped` with `launchError`, which the stopped-session pane already shows with a Start again button, so a stale profile or a missing CLI costs the user no typing. `CreateTaskInput.agent.kind` is `AgentKind`, not `SessionKind`, so `create` can never ask for a shell and `ShellPromptError` stays unreachable from `tasks.create` (no RPC mapping was needed for it).
+
 ## Integration gates
 
 - Delegate implementation, research, exploration, risk-based review and E2E; all agents use Deepseek.
