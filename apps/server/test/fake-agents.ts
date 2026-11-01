@@ -63,7 +63,9 @@ export function useFakeAgents() {
   });
   afterEach(async () => {
     vi.unstubAllEnvs();
-    await rm(root, { recursive: true, force: true });
+    // The fake OpenCode server can still be shutting down while this hook runs (the server fixture
+    // closes after it), and its log lives under `HOME` inside this directory: retry the removal.
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   });
 
   return {
