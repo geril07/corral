@@ -149,7 +149,8 @@ test("migrating a labelled database adds the task source without touching labels
 test("migrating a database from before title sources makes every existing title the user's", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
-  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
+  // Every migration before the title source and the two that followed it.
+  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 2));
   db.exec(`
     INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
     INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
@@ -158,9 +159,25 @@ test("migrating a database from before title sources makes every existing title 
 
   migrate(db, MIGRATIONS);
 
-  expect(db.prepare("SELECT title, title_source FROM tasks").all()).toEqual([
-    { title: "typed by hand", title_source: "user" },
+  expect(db.prepare("SELECT title, title_source, seen_at FROM tasks").all()).toEqual([
+    { title: "typed by hand", title_source: "user", seen_at: null },
   ]);
+  db.close();
+});
+
+test("migrating a database from before seenAt leaves its tasks unread", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
+  db.exec(`
+    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
+    INSERT INTO tasks (id, project_id, title, title_source, branch, workspace_path, owns_worktree, state, created_at)
+      VALUES ('t', 'p', 'already there', 'user', 'b', '/n', 0, 'active', 1);
+  `);
+
+  migrate(db, MIGRATIONS);
+
+  expect(db.prepare("SELECT id, seen_at FROM tasks").all()).toEqual([{ id: "t", seen_at: null }]);
   db.close();
 });
 
@@ -173,6 +190,7 @@ const storedTask = (id: string, titleSource: Task["titleSource"]): Task => ({
   workspacePath: `/work/${id}`,
   ownsWorktree: false,
   state: "active",
+  seenAt: null,
   createdAt: 1,
 });
 

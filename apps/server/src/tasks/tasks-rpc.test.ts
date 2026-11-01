@@ -386,6 +386,8 @@ test("a task created under the old layout keeps its stored path and can still be
     workspacePath: legacyPath,
     ownsWorktree: true,
     state: "active",
+    // A row from before seenAt; the migration leaves it NULL, as a task nobody has opened.
+    seenAt: null,
     createdAt: 1,
   };
   const db = openDatabase(server.dataDir);

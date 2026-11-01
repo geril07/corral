@@ -25,6 +25,7 @@ const storedTask = (id: string): Task => ({
   workspacePath: `/work/${id}`,
   ownsWorktree: false,
   state: "active",
+  seenAt: null,
   createdAt: 1,
 });
 

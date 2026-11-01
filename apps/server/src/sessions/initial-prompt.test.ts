@@ -68,6 +68,7 @@ beforeEach(async () => {
       workspacePath: workspace,
       ownsWorktree: false,
       state: "active",
+      seenAt: null,
       createdAt: Date.now(),
     }),
   );
