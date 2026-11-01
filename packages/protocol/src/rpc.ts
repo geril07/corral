@@ -185,6 +185,17 @@ export const ChangeFile = z.object({
   deletions: z.number().int().min(0),
   /** Git saw no text, or the worktree file holds a NUL byte in its first 8 kB. */
   binary: z.boolean(),
+  /**
+   * `additions` and `deletions` are a lower bound: an untracked file is counted from the first
+   * 8 MiB of its bytes, and a file the server could not read is counted as zero. The header and the
+   * sidebar mark a partial total instead of presenting it as final.
+   */
+  partial: z.boolean(),
+  /**
+   * Why this entry has no content to count or diff — unreadable, not a regular file — or `null`.
+   * The entry is kept (rather than dropped) so the tab never shows a changed file as a clean tree.
+   */
+  note: z.string().nullable(),
 });
 export type ChangeFile = z.infer<typeof ChangeFile>;
 
@@ -231,6 +242,8 @@ export const ChangeDiff = z.object({
   size: z.number().int().min(0).nullable(),
   /** The diff was longer than the server's cap and is cut at a line boundary. */
   truncated: z.boolean(),
+  /** Why there is no text to show (unreadable, not a regular file), or `null`. */
+  note: z.string().nullable(),
 });
 export type ChangeDiff = z.infer<typeof ChangeDiff>;
 

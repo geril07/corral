@@ -52,7 +52,12 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
     state: connection.state,
     capabilities: () => connection.api.chat.capabilities(),
   });
-  const changes = createChangesStore(connection);
+  const changes = createChangesStore({
+    state: connection.state,
+    watch: () => connection.api.changes.watch(),
+    files: (input) => connection.api.changes.files(input),
+    diff: (input) => connection.api.changes.diff(input),
+  });
   return {
     connection,
     config,

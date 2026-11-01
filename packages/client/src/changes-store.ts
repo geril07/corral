@@ -1,5 +1,5 @@
 import type { ChangeDiff, TaskChanges } from "@corral/protocol/rpc";
-import type { RpcConnection } from "./rpc-connection.ts";
+import type { ConnectionState } from "./connection-state.ts";
 import { Store, type ReadableStore } from "./store.ts";
 
 export interface ChangesState {
@@ -12,6 +12,17 @@ export interface ChangesState {
    * changes read model. The tab says so instead of showing an empty task as if it were clean.
    */
   failed: boolean;
+}
+
+/**
+ * What the store needs from the client's connection: the socket state it follows and the three
+ * calls it makes. `CorralClient` builds it from the RPC connection; a test can answer without one.
+ */
+export interface ChangesSource {
+  readonly state: ReadableStore<ConnectionState>;
+  watch(): Promise<AsyncIterable<readonly TaskChanges[]>>;
+  files(input: { id: string }): Promise<TaskChanges>;
+  diff(input: { taskId: string; path: string }): Promise<ChangeDiff>;
 }
 
 export interface ChangesStore extends ReadableStore<ChangesState> {
@@ -28,7 +39,7 @@ export interface ChangesStore extends ReadableStore<ChangesState> {
  * pull the watch cannot cover: an edit made outside Corral; it merges its answer in so the sidebar
  * and the header counts move with the tab.
  */
-export function createChangesStore(connection: RpcConnection): ChangesStore {
+export function createChangesStore(source: ChangesSource): ChangesStore {
   const store = new Store<ChangesState>({ loaded: false, byTask: new Map(), failed: false });
   let watching: object | undefined;
 
@@ -53,21 +64,22 @@ export function createChangesStore(connection: RpcConnection): ChangesStore {
 
   async function follow(token: object) {
     try {
-      for await (const snapshots of await connection.api.changes.watch()) {
+      for await (const snapshots of await source.watch()) {
         if (watching !== token) return;
         merge(snapshots, { loaded: true, failed: false });
       }
     } catch (error) {
-      // A server without `changes.*` is a protocol-10 daemon from before C4; anything else is a
-      // dropped socket, which the next connection restarts. Neither is worth a console error loop.
+      // Any refusal is "this server does not give us changes" until a watch yields again: a daemon
+      // from before C4 has no such procedure, and a dropped socket restarts the watch with the
+      // next connection. Matching on the error's text was brittle; the state is what matters.
       if (watching !== token) return;
-      if (isUnknownProcedure(error)) store.set({ loaded: true, byTask: new Map(), failed: true });
-      else console.error("changes.watch failed", error);
+      console.error("changes.watch failed", error);
+      store.set({ loaded: true, failed: true, byTask: store.getSnapshot().byTask });
     }
   }
 
   const sync = () => {
-    const connected = connection.state.getSnapshot().status === "connected";
+    const connected = source.state.getSnapshot().status === "connected";
     if (connected && watching === undefined) {
       watching = {};
       void follow(watching);
@@ -75,25 +87,19 @@ export function createChangesStore(connection: RpcConnection): ChangesStore {
       watching = undefined;
     }
   };
-  const unsubscribe = connection.state.subscribe(sync);
+  const unsubscribe = source.state.subscribe(sync);
   sync();
 
   return {
     subscribe: store.subscribe,
     getSnapshot: store.getSnapshot,
     refresh: async (taskId) => {
-      mergeOne(await connection.api.changes.files({ id: taskId }));
+      mergeOne(await source.files({ id: taskId }));
     },
-    diff: (taskId, path) => connection.api.changes.diff({ taskId, path }),
+    diff: (taskId, path) => source.diff({ taskId, path }),
     close: () => {
       unsubscribe();
       watching = undefined;
     },
   };
-}
-
-/** oRPC answers an unknown procedure with `NOT_FOUND`-shaped text, not a typed contract error. */
-function isUnknownProcedure(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return /not found|unknown procedure|no procedure/i.test(message);
 }

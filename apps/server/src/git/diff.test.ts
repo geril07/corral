@@ -1,11 +1,13 @@
 import { expect, test } from "vite-plus/test";
 import {
   capDiff,
+  countLines,
   MAX_DIFF_CHARACTERS,
   mergeChangedFiles,
   newFilePatch,
   parseNameStatus,
   parseNumstat,
+  quotePatchPath,
   splitLines,
   untrackedPaths,
 } from "./diff.ts";
@@ -44,7 +46,16 @@ test("merging sorts by path and gives a file git counted nothing for zeros", () 
     new Map([["README.md", { additions: 1, deletions: 1, binary: false }]]),
   );
   expect(files).toEqual([
-    { path: "README.md", oldPath: null, status: "M", additions: 1, deletions: 1, binary: false },
+    {
+      path: "README.md",
+      oldPath: null,
+      status: "M",
+      additions: 1,
+      deletions: 1,
+      binary: false,
+      partial: false,
+      note: null,
+    },
     {
       path: "renamed.ts",
       oldPath: "before.ts",
@@ -52,6 +63,8 @@ test("merging sorts by path and gives a file git counted nothing for zeros", () 
       additions: 0,
       deletions: 0,
       binary: false,
+      partial: false,
+      note: null,
     },
   ]);
 });
@@ -87,6 +100,7 @@ test("an untracked file with a NUL byte is binary, and an empty one has an empty
   expect(newFilePatch("blob.bin", Buffer.from([0x89, 0x00, 0x01]))).toEqual({
     text: null,
     binary: true,
+    truncated: false,
   });
   expect(newFilePatch("empty.txt", Buffer.from("")).text).not.toContain("@@");
 });
@@ -105,4 +119,68 @@ test("a diff longer than the cap is cut at a line boundary and flagged", () => {
   expect(capped.text.length).toBeLessThanOrEqual(MAX_DIFF_CHARACTERS);
   expect(capped.text.endsWith("\n")).toBe(true);
   expect(capDiff("short\n")).toEqual({ text: "short\n", truncated: false });
+});
+
+test("numstat keeps a path that holds a tab", () => {
+  const counts = parseNumstat("1\t2\ttab\tname.txt\0-\t-\t\0old\tone.bin\0new\tone.bin\0");
+  expect(counts.get("tab\tname.txt")).toEqual({ additions: 1, deletions: 2, binary: false });
+  expect(counts.get("new\tone.bin")).toEqual({ additions: 0, deletions: 0, binary: true });
+});
+
+test("countLines does not open an empty line after a trailing newline", () => {
+  expect(countLines(Buffer.from(""))).toBe(0);
+  expect(countLines(Buffer.from("a\n"))).toBe(1);
+  expect(countLines(Buffer.from("a\nb"))).toBe(2);
+  expect(countLines(Buffer.from("a\n\n"))).toBe(2);
+});
+
+test("a path with a tab or a quote is quoted in the patch header", () => {
+  const patch = newFilePatch("tab\tname.txt", Buffer.from("x\n"));
+  expect(patch.text).toContain('+++ "b/tab\\tname.txt"');
+  expect(patch.text).toContain('diff --git "a/tab\\tname.txt" "b/tab\\tname.txt"');
+  expect(quotePatchPath("plain.txt")).toBe("plain.txt");
+});
+
+test("a symlink patch is git's mode 120000 with the target as the content", () => {
+  const patch = newFilePatch("link", Buffer.from("../outside/secret"), "120000");
+  expect(patch.binary).toBe(false);
+  expect(patch.truncated).toBe(false);
+  expect(patch.text).toContain("new file mode 120000");
+  expect(patch.text).toContain("@@ -0,0 +1,1 @@");
+  expect(patch.text).toContain("+../outside/secret");
+  expect(patch.text).toContain("\\ No newline at end of file");
+});
+
+test("a long new file is cut inside the cap with the hunk counting what is really there", () => {
+  const patch = newFilePatch("big.txt", Buffer.from("x\n".repeat(400_000)));
+  expect(patch.truncated).toBe(true);
+  const text = patch.text ?? "";
+  expect(text.length).toBeLessThanOrEqual(MAX_DIFF_CHARACTERS);
+  const header = /@@ -0,0 \+1,(\d+) @@/.exec(text);
+  const body = text
+    .slice(text.indexOf("@@"))
+    .split("\n")
+    .filter((line) => line.startsWith("+"));
+  expect(header?.[1]).toBe(String(body.length));
+  expect(body.length).toBeLessThan(400_000);
+});
+
+test("a capped tracked patch is cut at a hunk boundary when one is inside the cap", () => {
+  const body = "+x".repeat(300_000);
+  const patch = [
+    "diff --git a/x b/x",
+    "--- a/x",
+    "+++ b/x",
+    `@@ -1,1 +1,${body.length + 1} @@`,
+    body,
+    "@@ -5,1 +5,2 @@",
+    "+second hunk",
+    "",
+  ].join("\n");
+  const capped = capDiff(patch);
+  expect(capped.truncated).toBe(true);
+  expect(capped.text).not.toContain("second hunk");
+  expect(capped.text.endsWith("\n")).toBe(true);
+  // What is left is a complete first hunk, not a body with a header that promises more.
+  expect(capped.text.trimEnd().split("\n@@ ").length).toBe(1);
 });

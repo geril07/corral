@@ -3,6 +3,7 @@ import { describeError } from "@corral/client/rpc-errors";
 import type { ChangeDiff, Task, TaskChanges } from "@corral/protocol/rpc";
 import { useEffect, useRef, useState } from "react";
 import { ChangeFileRow, DiffPane } from "../../common/ui/index.ts";
+import { totalsArePartial } from "./counts.ts";
 
 export interface ChangesViewProps {
   task: Task;
@@ -117,6 +118,7 @@ export function ChangesView({ task, changes, failed, store }: ChangesViewProps) 
         {files.length} {files.length === 1 ? "file" : "files"}, +{changes.additions} −
         {changes.deletions}
         {changes.truncated ? " (the first 500 files)" : ""}
+        {totalsArePartial(changes) ? " · some counts are a lower bound" : ""}
         {changes.base.fallback === null ? "" : ` · ${changes.base.fallback}`}
       </p>
       <div

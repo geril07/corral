@@ -48,12 +48,20 @@ export class ChangesService {
     return snapshot;
   }
 
-  /** One changed file's unified diff under the task's current base. */
+  /**
+   * One changed file's unified diff under the task's current base. The cached snapshot is reused
+   * when it is current, so clicking through files reads one diff, not the whole workspace again;
+   * a dirty task (an agent tool call) or a task never read is recomputed first.
+   */
   async diff(taskId: string, path: string): Promise<ChangeDiff> {
     const task = this.#task(taskId);
-    const snapshot = await this.#snapshot(task);
-    this.#cache.set(task.id, snapshot);
-    this.#dirty.delete(task.id);
+    const cached = this.#cache.get(task.id);
+    const snapshot =
+      cached === undefined || this.#dirty.has(task.id) ? await this.#snapshot(task) : cached;
+    if (snapshot !== cached) {
+      this.#cache.set(task.id, snapshot);
+      this.#dirty.delete(task.id);
+    }
     const file = snapshot.files.find((each) => each.path === path);
     if (file === undefined) throw new ChangeFileUnknownError(path);
     return readFileDiff(task.workspacePath, snapshot.base, file);

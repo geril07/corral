@@ -34,6 +34,7 @@ import {
   TreeRow,
   useTruncatedText,
 } from "../../common/ui/index.ts";
+import { changeCounts } from "../changes/index.ts";
 import { formatBinding } from "../keymap/index.ts";
 import { StatusIndicator } from "../status/index.ts";
 
@@ -378,9 +379,7 @@ function TaskRow({
       agent,
       sessions.length > 1 ? `${sessions.length} sessions` : undefined,
       // The compact counts appear only when the task changed something (`layout.md`, **Sidebar**).
-      changes !== undefined && (changes.additions > 0 || changes.deletions > 0)
-        ? `+${changes.additions} −${changes.deletions}`
-        : undefined,
+      changeCounts(changes),
     ]
       .filter(Boolean)
       .join(" · ") || undefined;

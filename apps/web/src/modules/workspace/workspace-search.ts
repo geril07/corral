@@ -16,13 +16,20 @@ export const workspaceSearchSchema = z.object({
   project: z.string().min(1).optional(),
   task: z.string().min(1).optional(),
   entry: z.string().min(1).optional(),
+  /**
+   * The session the `Changes` tab covers. The tab's own entry is not a session, so without this a
+   * reload on the tab would land on the task's first session instead of the one it was showing.
+   */
+  session: z.string().min(1).optional(),
 });
 
 export type WorkspaceSearch = z.infer<typeof workspaceSearchSchema>;
 
-/** True when two route searches describe the same project, task and entry intent. */
+/** True when two route searches describe the same project, task, entry and session intent. */
 export function workspaceSearchEqual(a: WorkspaceSearch, b: WorkspaceSearch): boolean {
-  return a.project === b.project && a.task === b.task && a.entry === b.entry;
+  return (
+    a.project === b.project && a.task === b.task && a.entry === b.entry && a.session === b.session
+  );
 }
 
 /** Search params that do not validate fall back to the empty selection instead of failing the route. */
@@ -35,16 +42,28 @@ export function searchToChosen(search: WorkspaceSearch): Chosen {
   return {
     ...(search.project === undefined ? {} : { projectId: search.project }),
     ...(search.task === undefined ? {} : { taskId: search.task === NO_TASK ? null : search.task }),
-    // The Changes tab is not an entry: choosing it must not make a session id out of `changes`.
-    ...(search.entry === undefined || search.entry === CHANGES_ENTRY
+    // The Changes tab is not an entry: choosing it must not make a session id out of `changes`;
+    // the session it covers travels beside it in `session`, and is only read for that tab.
+    ...(search.entry === undefined
       ? {}
-      : { entryId: search.entry }),
+      : search.entry === CHANGES_ENTRY
+        ? search.session === undefined
+          ? {}
+          : { entryId: search.session }
+        : { entryId: search.entry }),
   };
 }
 
-/** The search of a task's Changes tab; the session the task shows stays the client's own choice. */
+/**
+ * The search of a task's Changes tab: the tab's own entry, and the session it covers beside it so
+ * that a reload restores both. The session stays out of `entry`, which is never a session id here.
+ */
 export function changesSearch(chosen: Chosen): WorkspaceSearch {
-  return { ...chosenToSearch(chosen), entry: CHANGES_ENTRY };
+  return {
+    ...chosenToSearch(chosen),
+    entry: CHANGES_ENTRY,
+    ...(chosen.entryId === undefined ? {} : { session: chosen.entryId }),
+  };
 }
 
 export function chosenToSearch(chosen: Chosen): WorkspaceSearch {

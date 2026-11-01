@@ -2,10 +2,11 @@ import type { Project, Session, Task } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { writeFilesIn } from "../../../test/files-client.ts";
+import { runGitIn } from "../../../test/git-client.ts";
 import { createGitRepo } from "../../../test/git-repo.ts";
 import { prefixShifted, realServerClients } from "../../../test/real-client.ts";
 import { renderApp } from "../../../test/render-app.tsx";
-import { sessionTab, taskHeader } from "../../../test/task-flows.tsx";
+import { sessionTab, taskHeader, workspace } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 const SIZE = { cols: 80, rows: 24 };
@@ -48,6 +49,8 @@ async function seed(options: { files?: boolean } = {}): Promise<{
     // folds its middle, and the list has a modified and an added row.
     const readme = [
       "changed near the top",
+      // Longer than the pane: the diff must scroll sideways here, not wrap like chat's.
+      "x".repeat(400),
       ...Array.from({ length: 38 }, (_, index) => `unchanged ${index + 2}`),
       "changed near the bottom",
       "",
@@ -90,6 +93,18 @@ test("the Changes tab opens by key and by click, with the summary, a file row an
   expect(root.textContent).toContain("changed near the top");
   // The unchanged stretch between the two hunks is folded, not rendered as 40 lines.
   expect(root.querySelector("[data-separator]")).not.toBeNull();
+
+  // Full width and no wrap (`layout.md`, **Changes**): the long added line scrolls sideways and
+  // keeps its 20 px line box, where chat's diff would wrap it in the 46 rem lane.
+  const additions = [
+    ...root.querySelectorAll<HTMLElement>('[data-line-type="change-addition"][data-line]'),
+  ];
+  const longLine = additions.find((line) => (line.textContent ?? "").length > 300);
+  expect(longLine, "the long added line is rendered").toBeDefined();
+  expect(getComputedStyle(longLine!).whiteSpace).toBe("pre");
+  expect(getComputedStyle(longLine!).lineHeight).toBe("20px");
+  const code = root.querySelector<HTMLElement>("[data-code]")!;
+  expect(code.scrollWidth).toBeGreaterThan(code.clientWidth);
 
   // Selecting the tab left the current session alone: it is marked as the one behind the tab.
   await expect.element(sessionTab("shell 2")).toHaveAttribute("aria-current", "true");
@@ -182,4 +197,62 @@ test("a binary file is one row with its size and no diff", async () => {
   await expect.element(fileRow("blob\\.bin")).toBeVisible();
   await vi.waitFor(() => expect(document.body.textContent).toContain("Binary file, 8 B"));
   expect(diffLines()).toHaveLength(0);
+});
+
+test("a deleted base branch says why in the summary row instead of failing", async () => {
+  const data = await seed();
+  await runGitIn(data.project.path, ["switch", "-c", "elsewhere"]);
+  await runGitIn(data.project.path, ["branch", "-D", "main"]);
+  await writeFilesIn(data.task.workspacePath, { "local.txt": "still here\n" });
+
+  await renderApp(newClient(), [data.href]);
+  await prefixShifted("c");
+
+  await vi.waitFor(() =>
+    expect(document.body.textContent).toContain("'main' is gone; compared with HEAD"),
+  );
+  await expect.element(fileRow("local\\.txt")).toBeVisible();
+});
+
+test("a capped list and a lower-bound total say so in the tab, the header and the sidebar row", async () => {
+  const data = await seed({ files: false });
+  const many: Record<string, string> = {};
+  for (let index = 0; index < 501; index += 1) {
+    many[`many/f${String(index).padStart(4, "0")}.txt`] = "x\n";
+  }
+  await writeFilesIn(data.task.workspacePath, many);
+
+  await renderApp(newClient(), [data.href]);
+  await prefixShifted("c");
+
+  await expect.element(page.getByText(/the first 500 files/)).toBeVisible();
+  await expect.element(page.getByText(/some counts are a lower bound/)).toBeVisible();
+  expect(fileList().getByRole("option").elements()).toHaveLength(500);
+  // The header and the sidebar row carry the same marker, not a count presented as final.
+  await vi.waitFor(() => expect(taskHeader().element().textContent).toContain("(partial)"));
+  await expect
+    .element(workspace().getByRole("button", { name: /Show the changes.*\(partial\)/ }))
+    .toBeVisible();
+});
+
+test("reloading on the Changes tab restores the tab and the session behind it", async () => {
+  const data = await seed();
+  const rendered = await renderApp(newClient(), [data.href]);
+  await expect.element(sessionTab("shell 2")).toHaveAttribute("aria-selected", "true");
+  await prefixShifted("c");
+  await expect.element(changesTab()).toHaveAttribute("aria-selected", "true");
+
+  const search = await vi.waitFor(() => {
+    const current = rendered.history.location.search;
+    if (!current.includes("entry=changes")) throw new Error("the route is not the tab yet");
+    return current;
+  });
+  expect(search).toContain(`session=${data.second.id}`);
+
+  await rendered.unmount();
+  await renderApp(newClient(), [`/${search}`]);
+
+  await expect.element(changesTab()).toHaveAttribute("aria-selected", "true");
+  await expect.element(sessionTab("shell 2")).toHaveAttribute("aria-current", "true");
+  await expect.element(fileRow("README\\.md")).toBeVisible();
 });

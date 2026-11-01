@@ -142,12 +142,9 @@ export function useWorkspace({
   useEffect(() => {
     if (workspaceSearchEqual(search, routeSearchRef.current)) return;
     routeSearchRef.current = search;
-    if (search.entry === CHANGES_ENTRY) {
-      // The tab, not a session: the selection behind it stays whatever the client already had.
-      setChangesView(true);
-      return;
-    }
-    setChangesView(false);
+    // The tab is a view, not the selection: `fromRoute` carries the session it covers (from
+    // `session`), so a reload or Back restores both the tab and the session behind it.
+    setChangesView(search.entry === CHANGES_ENTRY);
     const fromRoute = searchToChosen(search);
     if (workspaceSearchEqual(chosenToSearch(fromRoute), chosenToSearch(chosenRef.current))) {
       return;

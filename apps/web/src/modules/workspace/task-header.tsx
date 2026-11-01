@@ -11,6 +11,7 @@ import {
   OverflowMenu,
   useTruncatedText,
 } from "../../common/ui/index.ts";
+import { changeCounts } from "../changes/index.ts";
 import { formatBinding } from "../keymap/index.ts";
 import { compactLaunchLabel } from "../sessions/index.ts";
 import { StatusIndicator } from "../status/index.ts";
@@ -95,9 +96,16 @@ export function TaskHeader({
         <span className="min-w-0 truncate text-xs text-muted-foreground">{whereDisplay}</span>
       </Button>
       <div className="ml-auto flex min-w-0 items-center gap-1.5">
-        {changes !== undefined && (changes.additions > 0 || changes.deletions > 0) && (
-          <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-            +{changes.additions} −{changes.deletions}
+        {changeCounts(changes) !== undefined && (
+          <span
+            className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground"
+            title={
+              changeCounts(changes)?.endsWith("(partial)")
+                ? "A lower bound: the file list was capped or a file was counted from a prefix"
+                : undefined
+            }
+          >
+            {changeCounts(changes)}
           </span>
         )}
         <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">

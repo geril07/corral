@@ -13,7 +13,10 @@ export function ChangeFileRow({
   selected,
   onSelect,
 }: {
-  file: Pick<ChangeFile, "path" | "oldPath" | "status" | "additions" | "deletions" | "binary">;
+  file: Pick<
+    ChangeFile,
+    "path" | "oldPath" | "status" | "additions" | "deletions" | "binary" | "note"
+  >;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -27,7 +30,7 @@ export function ChangeFileRow({
       size="xs"
       layout="tree"
       data-path={file.path}
-      title={shown}
+      title={file.note === null ? shown : `${shown} — ${file.note}`}
       className="h-7 w-full gap-2 rounded-sm px-2"
       onClick={onSelect}
     >
@@ -37,7 +40,9 @@ export function ChangeFileRow({
         {shown}
       </span>
       <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-        {file.binary ? "" : `+${file.additions} −${file.deletions}`}
+        {file.binary || (file.additions === 0 && file.deletions === 0)
+          ? ""
+          : `+${file.additions} −${file.deletions}`}
       </span>
     </Button>
   );
