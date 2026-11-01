@@ -31,6 +31,10 @@ test("a task created in chat view from the composer opens as chat", async ({
     .click();
   await window.keyboard.type("pi");
   await window.keyboard.press("Enter");
+  // The view list is built from the agent picked now; wait for the choice to apply before it opens.
+  await expect(newTaskView(window).getByRole("combobox", { name: /^Agent / })).toHaveAccessibleName(
+    "Agent pi · native default",
+  );
   await newTaskView(window)
     .getByRole("combobox", { name: /^View / })
     .click();
