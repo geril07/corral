@@ -803,7 +803,7 @@ test("restarting the primary session of a task resumes a conversation without re
   expect((await launchesOf(agents, "claude", 2))[1]!.argv).toEqual(["--resume", conversation]);
 });
 
-test("removing the primary session clears the task's reference to it and leaves its prompt", async () => {
+test("removing the primary session clears the task's reference and says so on the tasks feed", async () => {
   const { project } = await addProject(server);
   const api = await server.rpc();
   const task = await api.tasks.create({
@@ -813,10 +813,51 @@ test("removing the primary session clears the task's reference to it and leaves 
     workspace: { type: "main-worktree" },
   });
   expect(task.primarySessionId).not.toBeNull();
+  // Subscribed before the removal: only a real notification can produce the second value.
+  const updates = await api.tasks.watch();
+  try {
+    expect((await within(updates.next(), "the created task")).value).toEqual([task]);
 
-  await api.sessions.remove({ id: task.primarySessionId! });
+    await api.sessions.remove({ id: task.primarySessionId! });
 
-  expect((await api.tasks.watch().then((updates) => updates.next())).value).toEqual([
-    { ...task, primarySessionId: null },
+    expect((await within(updates.next(), "the task without its primary session")).value).toEqual([
+      { ...task, primarySessionId: null },
+    ]);
+  } finally {
+    await updates.return?.();
+  }
+});
+
+test("a restored primary session whose agent never wrote a conversation starts one with the task's prompt", async () => {
+  // The default fake claude writes no transcript until it is typed at, like a start that got as
+  // far as the process but never into the conversation.
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "Resume the primary work",
+    agent: { kind: "claude" },
+    workspace: { type: "new-branch" },
+  });
+  const conversation = (await sessionsOf(api))[0]!.agentSessionId;
+  expect((await launchesOf(agents, "claude", 1))[0]!.argv).toEqual([
+    "--session-id",
+    conversation,
+    " Resume the primary work",
   ]);
+
+  // The server comes back and restores the session: nothing resumed, so the launch is a start and
+  // carries the prompt again instead of leaving the agent waiting for work it never received.
+  await server.restart();
+
+  const restored = await sessionsOf(await server.rpc());
+  expect(restored).toEqual([
+    expect.objectContaining({ id: task.primarySessionId, state: "running" }),
+  ]);
+  expect((await launchesOf(agents, "claude", 2))[1]!.argv).toEqual([
+    "--session-id",
+    conversation,
+    " Resume the primary work",
+  ]);
+  expect((await launchesOf(agents, "claude", 2))[1]!.cwd).toBe(task.workspacePath);
 });

@@ -42,6 +42,8 @@ function openServer(): void {
         throw new Error("a session launch read the config");
       },
     },
+    // Removing a session is not what this test is about; the tasks feed is elsewhere.
+    taskEvents: { primarySessionRemoved: () => undefined },
   });
 }
 

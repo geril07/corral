@@ -69,6 +69,8 @@ export function startServer(options: {
     statusUrl: (sessionId) => `${httpOrigin}${statusReportPath(sessionId)}`,
     openCode: OpenCodeIntegration.install(dataDir),
     config,
+    // Defined below, once there is a TaskService to notify; called only after startup.
+    taskEvents: { primarySessionRemoved: () => tasks.primarySessionRemoved() },
   });
   const tasks = new TaskService({
     store: taskStore,

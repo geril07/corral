@@ -46,6 +46,15 @@ import type { SessionStore, StoredSession } from "./session-store.ts";
 /** Sessions started with no client to size them yet: a restored one, or a task's primary session. */
 const UNATTACHED_SIZE: TerminalSize = { cols: 80, rows: 24 };
 
+/**
+ * What a removed session tells the task it leaves behind. The database clears
+ * `tasks.primary_session_id` through its foreign key, so the tasks feed has to republish the row;
+ * nothing else about the task changes.
+ */
+export interface SessionTasks {
+  primarySessionRemoved(): void;
+}
+
 /** What `start` and `startPrimary` let the caller choose; the launch snapshot is made from it. */
 export interface SessionStartChoice {
   profileId?: string | undefined;
@@ -77,6 +86,7 @@ export class SessionService {
   readonly #statusUrl: (sessionId: string) => string;
   readonly #openCode: OpenCodeIntegration;
   readonly #config: Pick<ConfigWatcher, "state">;
+  readonly #taskEvents: SessionTasks;
   // Kept after the process is gone: a `done` or `error` outlives it. Not persisted.
   readonly #statuses = new Map<string, AgentStatus>();
   // Why the last launch failed; visible to clients that connect after a restore. Not persisted.
@@ -95,9 +105,12 @@ export class SessionService {
     openCode: OpenCodeIntegration;
     /** The current config, for the profile a new session names. Never read on resume. */
     config: Pick<ConfigWatcher, "state">;
+    /** Told when a removal took a task's primary session away, so the task feed republishes it. */
+    taskEvents: SessionTasks;
   }) {
     this.#store = options.store;
     this.#tasks = options.tasks;
+    this.#taskEvents = options.taskEvents;
     this.#terminals = options.terminals;
     this.#statusUrl = options.statusUrl;
     this.#openCode = options.openCode;
@@ -245,12 +258,15 @@ export class SessionService {
 
   remove(id: string): Promise<void> {
     return this.#queue.run(async () => {
-      this.#stored(id);
+      const stored = this.#stored(id);
+      // Read before the delete: the foreign key takes the reference away with the row.
+      const wasPrimary = this.#tasks.get(stored.taskId)?.primarySessionId === id;
       await this.#halt(id);
       this.#store.delete(id);
       this.#statuses.delete(id);
       this.#launchErrors.delete(id);
       this.#changes.notify();
+      if (wasPrimary) this.#taskEvents.primarySessionRemoved();
     });
   }
 
@@ -534,7 +550,15 @@ export class SessionService {
         this.#store.setState(stored.id, "unresumable");
         return;
       }
-      this.#launch(stored, this.#task(stored.taskId), UNATTACHED_SIZE, "resume");
+      // A restored primary session whose agent never wrote a conversation starts one, and only
+      // that launch takes the prompt; a real resume drops it inside `#launch`.
+      this.#launch(
+        stored,
+        this.#task(stored.taskId),
+        UNATTACHED_SIZE,
+        "resume",
+        this.#taskPrompt(stored) ?? null,
+      );
       this.#store.setState(stored.id, "running");
     } catch (error) {
       const reason = launchFailureReason(error);

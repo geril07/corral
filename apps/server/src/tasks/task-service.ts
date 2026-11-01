@@ -127,6 +127,11 @@ export class TaskService implements ProjectTasks {
     this.#changes.notify();
   }
 
+  /** A task lost its primary session outside this service; clients get the list without the id. */
+  primarySessionRemoved(): void {
+    this.#changes.notify();
+  }
+
   async #create(input: CreateTaskInput): Promise<Task> {
     const project = this.#project(input.projectId);
     const { workspace } = input;
