@@ -159,7 +159,7 @@ test("the selected tab is marked and pressing another one selection follows it",
   expect(props.onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
 });
 
-test("arrow keys and Home/End move the selection along the strip", async () => {
+test("the strip's own keys move the selection and wrap", async () => {
   const { rendered } = renderTabs(undefined, "s2");
   await rendered;
 
@@ -175,6 +175,36 @@ test("arrow keys and Home/End move the selection along the strip", async () => {
   await expect.element(tab("shell")).toHaveAttribute("aria-selected", "true");
   await userEvent.keyboard("{End}");
   await expect.element(tab("codex stopped")).toHaveAttribute("aria-selected", "true");
+});
+
+/** Where the tab's leading glyph starts, measured from the tab's own left edge. */
+function glyphOffset(name: string): number {
+  const button = strip().getByRole("tab", { name }).element().getBoundingClientRect();
+  const glyph = strip()
+    .getByRole("tab", { name })
+    .element()
+    .querySelector("svg")!
+    .getBoundingClientRect();
+  return glyph.left - button.left;
+}
+
+test("a tab keeps its width when a session starts working", async () => {
+  // The status glyph and the kind icon share one 20 px slot; without it the tab grew by ~6 px.
+  const working = await renderTabs(
+    [session("s1", "claude", { state: "working", updatedAt: 1 })],
+    "s1",
+  ).rendered;
+  const workingWidth = tab("claude").element().getBoundingClientRect().width;
+  const workingGlyph = glyphOffset("claude");
+  await working.unmount();
+
+  await renderTabs([session("s1", "claude")], "s1").rendered;
+  const idleWidth = tab("claude").element().getBoundingClientRect().width;
+  const idleGlyph = glyphOffset("claude");
+
+  expect(workingWidth).toBeCloseTo(idleWidth, 0);
+  // The glyph sits at the same offset too: the shared 20 px slot, not merely the svg's size.
+  expect(workingGlyph).toBeCloseTo(idleGlyph, 0);
 });
 
 test("a running tab stops its session and a stopped one restarts it", async () => {

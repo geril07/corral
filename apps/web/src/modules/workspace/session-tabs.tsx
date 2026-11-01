@@ -172,11 +172,15 @@ function SessionTab({
               {number}
             </span>
           )}
-          {glyphState ? (
-            <StatusIndicator status={glyphState} size="chrome" />
-          ) : (
-            <Icon name={session.kind === "shell" ? "terminal" : "agent"} size="chrome" />
-          )}
+          {/* One 20 px slot either way: the status glyph's box and the kind icon must match,
+              or the tab shifts when a session starts working (`layout.md`, **Session tabs**). */}
+          <span className="flex w-5 shrink-0 items-center justify-center">
+            {glyphState ? (
+              <StatusIndicator status={glyphState} size="chrome" />
+            ) : (
+              <Icon name={session.kind === "shell" ? "terminal" : "agent"} size="chrome" />
+            )}
+          </span>
           <span className={running ? "min-w-0 truncate" : "min-w-0 truncate text-muted-foreground"}>
             {name}
           </span>
