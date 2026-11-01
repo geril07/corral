@@ -15,6 +15,7 @@ import {
   MainPanel,
   SidebarPanel,
 } from "../../common/ui/index.ts";
+import { ChangesView } from "../changes/index.ts";
 import { AddProjectDialog } from "../projects/index.ts";
 import { ChatChoiceDialog, ChatView } from "../chat/index.ts";
 import {
@@ -91,6 +92,8 @@ export function WorkspaceScreen({
     currentTaskNode,
     currentTaskProject,
     currentSessionLabels,
+    changes,
+    changesView,
     sidebar,
     dialog,
     composing,
@@ -115,6 +118,7 @@ export function WorkspaceScreen({
     removeSession,
     openRenameEntry,
     openRenameTask,
+    openChanges,
     renameEntry,
     selectEntry,
     toggleSettle,
@@ -133,6 +137,8 @@ export function WorkspaceScreen({
     setDialog,
   } = useWorkspace({ search, onChange, onOpenBoard, onOpenSettings });
   const restartKey = keyHint(config, "restart-session");
+  // The Changes tab is the route's `entry=changes`; it needs a task and nothing of a session.
+  const changesCurrent = changesView && currentTask !== undefined;
   const settingsBinding = formatBinding(config, "settings");
   // The composer is a view, not a dialog: `prefix t` shows it over the selected task, and it is
   // also what the main area shows when no task or loose terminal is selected (`layout.md`,
@@ -161,6 +167,17 @@ export function WorkspaceScreen({
         onResolveIssue={resolveIssue}
         opened={composing?.opened ?? 0}
         onCancel={closeNewTask}
+      />
+    ) : undefined;
+
+  const changesPane =
+    changesCurrent && currentTask !== undefined ? (
+      <ChangesView
+        key={currentTask.id}
+        task={currentTask}
+        changes={changes.byTask.get(currentTask.id)}
+        failed={changes.failed}
+        store={client.changes}
       />
     ) : undefined;
 
@@ -209,6 +226,7 @@ export function WorkspaceScreen({
             selection={selection}
             flat={flatSidebar}
             config={config}
+            changes={changes.byTask}
             onSelectProject={(project) =>
               choose({ projectId: project.id, taskId: undefined, entryId: undefined })
             }
@@ -271,6 +289,7 @@ export function WorkspaceScreen({
           <TaskHeader
             node={currentTaskNode}
             project={currentTaskProject}
+            changes={changes.byTask.get(currentTaskNode.task.id)}
             config={config}
             onSettle={(task) => void toggleSettle(task)}
             onRename={openRenameTask}
@@ -283,6 +302,11 @@ export function WorkspaceScreen({
             entries={currentTaskNode.sessions}
             labels={currentSessionLabels}
             currentId={selection.entryId}
+            changes={{
+              current: changesCurrent,
+              onSelect: openChanges,
+              hint: keyHint(config, "changes"),
+            }}
             config={config}
             onSelect={selectEntry}
             onStop={(each) => void stopSession(each)}
@@ -298,6 +322,7 @@ export function WorkspaceScreen({
             <HandOffNotice target={handoff} />
           ) : (
             (composer ??
+            changesPane ??
             session ??
             (loaded && (
               <EmptyWorkspace

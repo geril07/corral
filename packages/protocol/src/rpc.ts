@@ -167,6 +167,74 @@ export const Task = z.object({
 export type Task = z.infer<typeof Task>;
 
 /**
+ * How a changed file differs from the task's base: modified, added, deleted or renamed. A copy and
+ * a type change are reported as an addition and a modification; the summary row has one letter per
+ * file.
+ */
+export const ChangeStatus = z.enum(["M", "A", "D", "R"]);
+export type ChangeStatus = z.infer<typeof ChangeStatus>;
+
+/** One file a task changed, as `changes.files` lists it. */
+export const ChangeFile = z.object({
+  /** The path after the change: what `changes.diff` addresses. */
+  path: z.string().min(1),
+  /** The path before a rename; `null` for every other status. */
+  oldPath: z.string().nullable(),
+  status: ChangeStatus,
+  additions: z.number().int().min(0),
+  deletions: z.number().int().min(0),
+  /** Git saw no text, or the worktree file holds a NUL byte in its first 8 kB. */
+  binary: z.boolean(),
+});
+export type ChangeFile = z.infer<typeof ChangeFile>;
+
+/** What a task's changes are compared with. The server computes it on every read; nothing stores it. */
+export const ChangesBase = z.object({
+  /** The commit compared against; `null` when the repository has no commit yet. */
+  commit: z.string().nullable(),
+  /** What the commit is, for the summary row: the base branch's name, or `HEAD`. */
+  label: z.string().min(1),
+  /**
+   * Why the base is not the merge base, for the summary row, or `null` when it is. A worktree whose
+   * base branch is gone, or has no merge base with `HEAD`, falls back to `HEAD` and says so here
+   * instead of failing.
+   */
+  fallback: z.string().nullable(),
+});
+export type ChangesBase = z.infer<typeof ChangesBase>;
+
+/** The read model of one task's changes: the computed base and the changed files under it. */
+export const TaskChanges = z.object({
+  taskId: TaskId,
+  base: ChangesBase,
+  /** Changed files sorted by path, at most the server's cap; a clean task lists none. */
+  files: z.array(ChangeFile),
+  additions: z.number().int().min(0),
+  deletions: z.number().int().min(0),
+  /** The task changed more files than the server lists; `additions` and `deletions` cover the listed ones. */
+  truncated: z.boolean(),
+  /**
+   * Why the workspace could not be read (a worktree deleted behind Corral's back), or `null`.
+   * One task failing must not end the watch for every other task.
+   */
+  error: z.string().nullable(),
+});
+export type TaskChanges = z.infer<typeof TaskChanges>;
+
+/** One file's unified diff, as `changes.diff` returns it. */
+export const ChangeDiff = z.object({
+  path: z.string().min(1),
+  /** The unified diff; `null` for a binary file and for one whose diff could not be read. */
+  text: z.string().nullable(),
+  binary: z.boolean(),
+  /** The file's size in bytes when known: what the binary row shows instead of a diff. */
+  size: z.number().int().min(0).nullable(),
+  /** The diff was longer than the server's cap and is cut at a line boundary. */
+  truncated: z.boolean(),
+});
+export type ChangeDiff = z.infer<typeof ChangeDiff>;
+
+/**
  * An agent the task's primary session starts. The shape `sessions.start` takes, without a shell: a
  * task never starts one on its own (design.md, **Domain model → Task → Creation**).
  */
@@ -693,6 +761,34 @@ export const contract = {
       })
       .input(ChatSetReasoningInput)
       .output(z.void()),
+  },
+  changes: {
+    /**
+     * Yields every task's changed files now and after the server learns a workspace may have
+     * changed (a chat driver's tool call). Read-only: nothing here stages, commits or checks out.
+     */
+    watch: oc.output(eventIterator(z.array(TaskChanges))),
+    /**
+     * Recomputes one task's read model now: the base is the merge base with the project's default
+     * branch for a worktree task, `HEAD` for a task in the main working tree, plus untracked files;
+     * a base branch that is gone falls back to `HEAD` and says so in `base.fallback`.
+     */
+    files: oc
+      .errors(taskNotFound)
+      .input(z.object({ id: TaskId }))
+      .output(TaskChanges),
+    /**
+     * One file's unified diff under the task's base, capped at 512 KiB and cut at a line boundary;
+     * a binary file carries no text and its size instead.
+     */
+    diff: oc
+      .errors({
+        ...taskNotFound,
+        ...gitFailed,
+        CHANGES_FILE_UNKNOWN: { data: z.object({ path: z.string() }) },
+      })
+      .input(z.object({ taskId: TaskId, path: z.string().min(1) }))
+      .output(ChangeDiff),
   },
   terminals: {
     list: oc.output(z.array(TerminalInfo)),

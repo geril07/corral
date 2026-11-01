@@ -22,7 +22,11 @@ import { z } from "zod";
  * tables nor the availability list. Version 10 adds the per-agent capability record in
  * `chat.capabilities` (goal D7, decision 13): a version 9 server answers `{ drivers: AgentKind[] }`,
  * so a version 10 client asking for the record would receive a list of bare strings whose fields it
- * reads as absent, and its controls would claim a capability no driver declared.
+ * reads as absent, and its controls would claim a capability no driver declared. The same version 10
+ * grew the `changes.*` read model (a task's changed files, one file's capped diff) and the `changes`
+ * action with its binding: a version 10 daemon from before C4 answers neither procedure, so the
+ * client's default binding for the action is all it has and the tab reports that this server does
+ * not offer changes instead of showing an empty one.
  */
 export const PROTOCOL_VERSION = 10;
 

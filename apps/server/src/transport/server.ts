@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { ChatService } from "../chat/chat-service.ts";
 import type { ChatTimeouts } from "../chat/chat-driver.ts";
+import { ChangesService } from "../changes/changes-service.ts";
 import { watchConfigFile } from "../config/config-watcher.ts";
 import { configNaming } from "../config/naming.ts";
 import { configTaskSettings } from "../config/task-settings.ts";
@@ -60,19 +61,28 @@ export function startServer(options: {
   const capability = newCapability();
   const database = openDatabase(dataDir);
   const terminals = new TerminalRegistry();
+  const projectStore = new ProjectStore(database);
+  const taskStore = new TaskStore(database);
+  const sessionStore = new SessionStore(database);
+  // Built before the chat service, which tells it when an agent's tool call may have changed a
+  // workspace; neither waits for the other, because the changes read model only knows the stores.
+  const changes = new ChangesService({
+    tasks: taskStore,
+    projects: projectStore,
+    sessions: sessionStore,
+  });
   const chat = new ChatService({
     dataDir,
     ...(options.chat === undefined ? {} : { timeouts: options.chat }),
+    onWorkspaceChange: (sessionId) => changes.workspaceChanged(sessionId),
   });
-  const projectStore = new ProjectStore(database);
-  const taskStore = new TaskStore(database);
   const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, homedir())), {
     dataDir,
   });
   // Known once the server listens, which is before any session starts.
   let httpOrigin = "";
   const sessions = new SessionService({
-    store: new SessionStore(database),
+    store: sessionStore,
     tasks: taskStore,
     terminals,
     chat,
@@ -94,7 +104,7 @@ export function startServer(options: {
   const issues = new IssueImportService({ timeoutMs: issueImportTimeoutMs(process.env) });
   const projects = new ProjectService(projectStore, tasks, issues);
   const rpc = new RPCHandler(
-    createRpcRouter({ config, projects, tasks, sessions, chat, terminals }),
+    createRpcRouter({ config, projects, tasks, sessions, chat, changes, terminals }),
   );
   const http = createServer((request, response) => {
     const sessionId = statusReportSessionId(

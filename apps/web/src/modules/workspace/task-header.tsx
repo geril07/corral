@@ -1,7 +1,7 @@
 import { describeStatus, taskStatus } from "@corral/client/agent-status";
 import type { TaskNode } from "@corral/client/workspace-tree";
 import type { ActionId, ClientConfig } from "@corral/protocol/config";
-import type { Project, Task } from "@corral/protocol/rpc";
+import type { Project, Task, TaskChanges } from "@corral/protocol/rpc";
 import { useRef } from "react";
 import {
   Badge,
@@ -19,6 +19,8 @@ export interface TaskHeaderProps {
   node: TaskNode;
   /** Absent only if the task's project disappeared between the two watches. */
   project: Project | undefined;
+  /** The task's changed files, for the `+N −M` beside the status; absent until the server's list. */
+  changes?: TaskChanges | undefined;
   /** Effective bindings for the settle hint; absent in a bare header test. */
   config?: ClientConfig | undefined;
   onSettle: (task: Task) => void;
@@ -35,6 +37,7 @@ export interface TaskHeaderProps {
 export function TaskHeader({
   node,
   project,
+  changes,
   config,
   onSettle,
   onRename,
@@ -92,6 +95,11 @@ export function TaskHeader({
         <span className="min-w-0 truncate text-xs text-muted-foreground">{whereDisplay}</span>
       </Button>
       <div className="ml-auto flex min-w-0 items-center gap-1.5">
+        {changes !== undefined && (changes.additions > 0 || changes.deletions > 0) && (
+          <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+            +{changes.additions} −{changes.deletions}
+          </span>
+        )}
         <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
           <StatusIndicator status={status} size="chrome" />
           <span className="truncate">{status ? describeStatus(status) : "no status"}</span>

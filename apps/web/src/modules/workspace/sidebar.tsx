@@ -17,7 +17,7 @@ import type {
   WorkspaceTree,
 } from "@corral/client/workspace-tree";
 import type { ActionId, ClientConfig } from "@corral/protocol/config";
-import type { AgentStatus, Project, Task, TerminalInfo } from "@corral/protocol/rpc";
+import type { AgentStatus, Project, Task, TaskChanges, TerminalInfo } from "@corral/protocol/rpc";
 import { useRef, useState } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
 import { cn } from "../../common/lib/cn.ts";
@@ -65,6 +65,8 @@ interface SidebarProps {
    * in project mode, where the tree is shown instead. Built once by the caller.
    */
   flat?: FlatSidebar | undefined;
+  /** Each task's changed files; a row shows the compact `+N −M` only when one is non-zero. */
+  changes?: ReadonlyMap<string, TaskChanges> | undefined;
   /** Effective bindings for the tooltips and the search hint; absent in a bare sidebar test. */
   config?: ClientConfig | undefined;
   onSelectProject: (project: Project) => void;
@@ -90,7 +92,7 @@ interface SidebarProps {
  * footer the shell draws below it.
  */
 export function Sidebar(props: SidebarProps) {
-  const { tree, selection, config, flat } = props;
+  const { tree, selection, config, flat, changes } = props;
   const [closedProjects, setClosedProjects] = useState<ReadonlySet<string>>(new Set());
   const now = useNow(AGE_REFRESH_MS);
 
@@ -116,6 +118,7 @@ export function Sidebar(props: SidebarProps) {
       key={node.task.id}
       node={node}
       selection={selection}
+      changes={changes?.get(node.task.id)}
       now={now}
       onSelect={() => {
         openProject(node.task.projectId);
@@ -137,6 +140,7 @@ export function Sidebar(props: SidebarProps) {
       key={row.task.id}
       node={row}
       selection={selection}
+      changes={changes?.get(row.task.id)}
       now={now}
       row={{ projectName: row.project.name, status: row.status, unseen: row.unseen }}
       onSelect={() => props.onSelectTask(row.task)}
@@ -341,6 +345,7 @@ interface FlatRowFacts {
 function TaskRow({
   node,
   selection,
+  changes,
   now,
   row,
   onSelect,
@@ -351,6 +356,7 @@ function TaskRow({
 }: {
   node: TaskNode;
   selection: Selection;
+  changes: TaskChanges | undefined;
   now: number;
   /** Absent in project mode, which derives the status and the unseen mark itself. */
   row?: FlatRowFacts | undefined;
@@ -371,6 +377,10 @@ function TaskRow({
       task.ownsWorktree ? task.branch : undefined,
       agent,
       sessions.length > 1 ? `${sessions.length} sessions` : undefined,
+      // The compact counts appear only when the task changed something (`layout.md`, **Sidebar**).
+      changes !== undefined && (changes.additions > 0 || changes.deletions > 0)
+        ? `+${changes.additions} −${changes.deletions}`
+        : undefined,
     ]
       .filter(Boolean)
       .join(" · ") || undefined;

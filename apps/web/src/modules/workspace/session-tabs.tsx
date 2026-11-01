@@ -15,6 +15,12 @@ export interface SessionTabsProps {
   /** The name each session shows (`sessionLabels`); ancestors pass it so tabs and rows agree. */
   labels: ReadonlyMap<string, string>;
   currentId: string | undefined;
+  /**
+   * The task's `Changes` tab, which has no session behind it (`layout.md`, **Changes**). It is the
+   * last tab, has no number hint and no glyph, and while it is current the session that stays
+   * current is marked with `aria-current` instead of `aria-selected`: exactly one tab is selected.
+   */
+  changes?: { current: boolean; onSelect: () => void; hint?: string | undefined } | undefined;
   /** Effective bindings for the tooltips and the end hint; absent in a bare tab-strip test. */
   config?: ClientConfig | undefined;
   onSelect: (entry: SessionEntry) => void;
@@ -33,6 +39,8 @@ export interface SessionTabsProps {
  */
 export function SessionTabs(props: SessionTabsProps) {
   const { entries, labels, currentId, config } = props;
+  const changes = props.changes;
+  const changesCurrent = changes?.current ?? false;
   const strip = useRef<HTMLDivElement>(null);
   const hint = (label: string, action: ActionId) =>
     config ? `${label} · ${formatBinding(config, action)}` : label;
@@ -86,6 +94,7 @@ export function SessionTabs(props: SessionTabsProps) {
           name={labels.get(entry.session.id) ?? entry.session.kind}
           number={index < 9 ? index + 1 : undefined}
           current={entry.id === currentId}
+          behind={changesCurrent && entry.id === currentId}
           hint={hint}
           onSelect={() => props.onSelect(entry)}
           onStop={() => props.onStop(entry.session)}
@@ -94,6 +103,21 @@ export function SessionTabs(props: SessionTabsProps) {
           onRename={(opener) => props.onRename(entry, opener)}
         />
       ))}
+      {changes !== undefined && (
+        <Button
+          role="tab"
+          aria-selected={changes.current}
+          tabIndex={changes.current ? 0 : -1}
+          variant={changes.current ? "secondary" : "ghost"}
+          layout="tab"
+          aria-label="Changes"
+          title={changes.hint}
+          data-changes-tab=""
+          onClick={changes.onSelect}
+        >
+          <span className="min-w-0 truncate">Changes</span>
+        </Button>
+      )}
       <div className="flex shrink-0 items-center">
         <OverflowMenu
           label="Add session"
@@ -117,6 +141,7 @@ function SessionTab({
   name,
   number,
   current,
+  behind,
   hint,
   onSelect,
   onStop,
@@ -128,6 +153,8 @@ function SessionTab({
   name: string;
   number: number | undefined;
   current: boolean;
+  /** The session stays current while the Changes tab shows: marked, but not the selected tab. */
+  behind: boolean;
   hint: (label: string, action: ActionId) => string;
   onSelect: () => void;
   onStop: () => void;
@@ -151,7 +178,8 @@ function SessionTab({
     <div className="group flex shrink-0 items-center">
       <Button
         role="tab"
-        aria-selected={current}
+        aria-selected={current && !behind}
+        aria-current={behind ? "true" : undefined}
         tabIndex={current ? 0 : -1}
         variant={current ? "secondary" : "ghost"}
         layout="tab"

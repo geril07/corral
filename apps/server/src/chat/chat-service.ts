@@ -40,6 +40,11 @@ export interface ChatServiceOptions {
   timeouts?: Partial<ChatTimeouts> & { writerWaitMs?: number };
   /** Test seam; production runs the build's registry (`CHAT_DRIVER_REGISTRY`). */
   drivers?: ChatDriverRegistry;
+  /**
+   * A chat frontend put an item that may have changed its workspace: a tool call. The changes read
+   * model recomputes that session's task from it; the server wires this to `ChangesService`.
+   */
+  onWorkspaceChange?: (sessionId: string) => void;
 }
 
 /**
@@ -71,6 +76,7 @@ export class ChatService {
   readonly #chatDir: string;
   readonly #timeouts: ChatTimeouts;
   readonly #writerWaitMs: number;
+  readonly #onWorkspaceChange: ((sessionId: string) => void) | undefined;
 
   constructor(options: ChatServiceOptions) {
     this.#chatDir = `${options.dataDir}/chat`;
@@ -81,6 +87,7 @@ export class ChatService {
       exitGraceMs: options.timeouts?.exitGraceMs ?? EXIT_GRACE_MS,
     };
     this.#writerWaitMs = options.timeouts?.writerWaitMs ?? 3000;
+    this.#onWorkspaceChange = options.onWorkspaceChange;
   }
 
   /** What `chat.capabilities` answers: one declared capability record per driver in this build. */
@@ -143,6 +150,11 @@ export class ChatService {
     // silently replay a stale cursor instead of snapshotting (a second frontend of one session).
     const floor = floorPath(this.#chatDir, sessionId);
     const timeline = new ChatTimeline(reserveFloor(floor));
+    // The changes read model listens here rather than on a repository watcher: a tool call is the
+    // one signal the server has that an agent touched its workspace (a terminal agent has none).
+    timeline.observeItems((item) => {
+      if (item.kind === "tool-call") this.#onWorkspaceChange?.(sessionId);
+    });
     const writer: ChatWriterClaim = {
       record: (pid) => recordWriter(claimPath, pid),
       release: () => releaseWriter(claimPath),

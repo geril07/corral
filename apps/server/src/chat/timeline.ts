@@ -47,6 +47,8 @@ export class ChatTimeline {
   #indexById = new Map<string, number>();
   #events: { sequence: number; event: ChatEvent }[] = [];
   #listeners = new Set<() => void>();
+  /** Observers of every item put, outside the streaming watch: who else needs to know it happened. */
+  #itemObservers = new Set<(item: ChatItem) => void>();
   #closed = false;
 
   constructor(startAt = 0) {
@@ -86,7 +88,17 @@ export class ChatTimeline {
     } else {
       this.#items = this.#items.with(index, item);
     }
+    for (const observer of this.#itemObservers) observer(item);
     this.#emit({ type: "item", item });
+  }
+
+  /**
+   * Called with every item put, before it reaches a watcher. The changes read model uses it to
+   * recompute a task after a tool call; it must not consume the item or await anything.
+   */
+  observeItems(observer: (item: ChatItem) => void): () => void {
+    this.#itemObservers.add(observer);
+    return () => this.#itemObservers.delete(observer);
   }
 
   /**

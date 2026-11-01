@@ -5,6 +5,7 @@ import {
   type ChatCapabilitiesStore,
 } from "./chat-capabilities-store.ts";
 import { createChatStore, type ChatStore } from "./chat-store.ts";
+import { createChangesStore, type ChangesStore } from "./changes-store.ts";
 import type { Backoff, CreateSocket } from "./reconnecting-socket.ts";
 import { createConfigStore, type ConfigStore } from "./config-store.ts";
 import { createProjectsStore, type ProjectsStore } from "./projects-store.ts";
@@ -31,6 +32,8 @@ export interface CorralClient {
   readonly terminals: TerminalsStore;
   /** Which agents this server can show as chat, asked once per connection. */
   readonly chatCapabilities: ChatCapabilitiesStore;
+  /** Each task's changed files, for the Changes tab, the task header and the sidebar rows. */
+  readonly changes: ChangesStore;
   /** Shows the terminal on `surface` until the caller closes the returned stream. */
   attach(terminalId: string, surface: TerminalSurface): TerminalStream;
   /** Follows one session's chat until the caller closes the returned store. */
@@ -49,6 +52,7 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
     state: connection.state,
     capabilities: () => connection.api.chat.capabilities(),
   });
+  const changes = createChangesStore(connection);
   return {
     connection,
     config,
@@ -57,6 +61,7 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
     sessions,
     terminals,
     chatCapabilities,
+    changes,
     attach: (terminalId, surface) => new TerminalStream({ ...options, terminalId, surface }),
     openChat: (sessionId) =>
       createChatStore(
@@ -73,6 +78,7 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
       sessions.close();
       terminals.close();
       chatCapabilities.close();
+      changes.close();
       connection.close();
     },
   };

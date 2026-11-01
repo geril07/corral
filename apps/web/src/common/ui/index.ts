@@ -40,6 +40,7 @@ export { TextLink } from "./text-link.tsx";
 export { Textarea } from "./textarea.tsx";
 export { Markdown } from "./streamdown.tsx";
 export { DiffView } from "./diff-view.tsx";
+export { ChangeFileRow, DiffPane } from "./change-row.tsx";
 export { Kbd } from "./kbd.tsx";
 export { AppShell, ContentLane, MainPanel, Screen, SidebarPanel } from "./layout.tsx";
 export { OverflowMenu } from "./overflow-menu.tsx";

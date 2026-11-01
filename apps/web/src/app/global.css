@@ -157,3 +157,13 @@ body,
 .terminal-host .xterm {
   height: 100%;
 }
+/* The Changes tab's file list: half the tab, a third at the 1024×640 minimum window so the
+   selected file's diff keeps the rest (`layout.md`, **Changes**). */
+.changes-list {
+  flex: 0 0 50%;
+}
+@media (width <= 1024px) and (height <= 640px) {
+  .changes-list {
+    flex-basis: 33.3333%;
+  }
+}

@@ -1,22 +1,12 @@
 import { PatchDiff } from "@pierre/diffs/react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "./button.tsx";
 import { diffContentLines } from "./diff-lines.ts";
+import { useDarkTheme } from "./diff-theme.ts";
 
 /** The changed-file preview folds after this many diff line boxes (`layout.md`, **Chat**). */
 const FOLD_LINES = 20;
 /** The app switches no theme, but the diff reads the same `dark` class the tokens do. */
-function useDarkTheme(): boolean {
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
-  useEffect(() => {
-    const observer = new MutationObserver(() =>
-      setDark(document.documentElement.classList.contains("dark")),
-    );
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-    return () => observer.disconnect();
-  }, []);
-  return dark;
-}
 
 /**
  * A tool result's unified diff, rendered by `@pierre/diffs` on the highlighter Streamdown uses

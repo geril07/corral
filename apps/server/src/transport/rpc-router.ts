@@ -7,6 +7,8 @@ import {
   ChatRequestUnknownError,
   ChatUnavailableError,
 } from "../chat/chat-errors.ts";
+import type { ChangesService } from "../changes/changes-service.ts";
+import { ChangeFileUnknownError } from "../changes/errors.ts";
 import type { ConfigWatcher } from "../config/config-watcher.ts";
 import { GitError } from "../git/git.ts";
 import {
@@ -55,6 +57,7 @@ export interface RpcServices {
   tasks: TaskService;
   sessions: SessionService;
   chat: ChatService;
+  changes: ChangesService;
   terminals: TerminalRegistry;
 }
 
@@ -151,6 +154,7 @@ export function createRpcRouter({
   tasks,
   sessions,
   chat,
+  changes,
   terminals,
 }: RpcServices) {
   const os = implement(contract);
@@ -450,6 +454,33 @@ export function createRpcRouter({
             error instanceof SessionNotFoundError
               ? errors.SESSION_NOT_FOUND({ data: { id: error.id } })
               : chatError(error, errors),
+        ),
+      ),
+    },
+    changes: {
+      watch: os.changes.watch.handler(({ signal }) => changes.watch(signal)),
+      files: os.changes.files.handler(({ input, errors }) =>
+        translating(
+          () => changes.files(input.id),
+          (error) => {
+            if (error instanceof TaskNotFoundError)
+              return errors.TASK_NOT_FOUND({ data: { id: error.id } });
+            return undefined;
+          },
+        ),
+      ),
+      diff: os.changes.diff.handler(({ input, errors }) =>
+        translating(
+          () => changes.diff(input.taskId, input.path),
+          (error) => {
+            if (error instanceof TaskNotFoundError)
+              return errors.TASK_NOT_FOUND({ data: { id: error.id } });
+            if (error instanceof ChangeFileUnknownError)
+              return errors.CHANGES_FILE_UNKNOWN({ data: { path: error.path } });
+            if (error instanceof GitError)
+              return errors.GIT_FAILED({ data: { message: error.message } });
+            return undefined;
+          },
         ),
       ),
     },

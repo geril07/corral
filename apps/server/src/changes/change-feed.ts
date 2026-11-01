@@ -6,8 +6,12 @@ export class ChangeFeed {
     for (const listener of this.#listeners) listener();
   }
 
-  /** Yields `read()` now and after every change; changes between two yields collapse into one. */
-  async *watch<T>(read: () => T, signal: AbortSignal | undefined): AsyncGenerator<T> {
+  /**
+   * Yields `read()` now and after every change; changes between two yields collapse into one. The
+   * read may be asynchronous: the next change waits for it, so a burst of notifications costs one
+   * recomputation, not one per notification.
+   */
+  async *watch<T>(read: () => T | Promise<T>, signal: AbortSignal | undefined): AsyncGenerator<T> {
     let changed = true;
     let wake: (() => void) | undefined;
     const listener = () => {
@@ -22,7 +26,8 @@ export class ChangeFeed {
       while (!signal?.aborted) {
         if (changed) {
           changed = false;
-          yield read();
+          // oxlint-disable-next-line no-await-in-loop -- one read per change is the point
+          yield await read();
         } else {
           // oxlint-disable-next-line no-await-in-loop -- one wait per change is the point
           await new Promise<void>((resolve) => (wake = resolve));

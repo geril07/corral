@@ -4,6 +4,7 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite-plus";
 import { playwright } from "vite-plus/test/browser-playwright";
 import { createGitRepo } from "./test/git-repos.ts";
+import { writeFilesIn } from "./test/write-files.ts";
 import { writeConfigFile } from "./test/config-file.ts";
 import { clearIssueCliCalls, issueCliCalls, issueCliPath } from "./test/issue-clis.ts";
 import { agentLaunches, serverEnv } from "./test/server-agents.ts";
@@ -37,6 +38,7 @@ export default defineConfig({
       provider: playwright(),
       commands: {
         createGitRepo,
+        writeFilesIn,
         agentLaunches,
         serverEnv,
         writeConfig: writeConfigFile,

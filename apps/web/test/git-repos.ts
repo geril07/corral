@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 /** Where this run's repositories live; the global setup deletes it at the end. */
 export const REPOS_DIR = join(tmpdir(), `corral-web-repos-${process.pid}`);
@@ -22,13 +22,25 @@ function git(cwd: string, ...args: string[]) {
   });
 }
 
-/** A repository on `main` with one commit, plus a branch for each of `branches`. */
-export function createGitRepo(_context: unknown, name: string, branches: string[] = []): string {
+/**
+ * A repository on `main` with one commit, plus a branch for each of `branches`. `files` are
+ * written before that commit, so a test can start from a file whose edit spans two hunks.
+ */
+export function createGitRepo(
+  _context: unknown,
+  name: string,
+  branches: string[] = [],
+  files: Record<string, string> = {},
+): string {
   mkdirSync(REPOS_DIR, { recursive: true });
   const dir = mkdtempSync(join(REPOS_DIR, `${name}-`));
   git(dir, "init", "-b", "main");
   writeFileSync(join(dir, "README.md"), "hello\n");
-  git(dir, "add", "README.md");
+  for (const [file, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(dir, file)), { recursive: true });
+    writeFileSync(join(dir, file), content);
+  }
+  git(dir, "add", ".");
   git(dir, "commit", "-m", "initial commit");
   for (const branch of branches) git(dir, "branch", branch);
   return dir;

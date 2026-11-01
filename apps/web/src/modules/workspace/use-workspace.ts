@@ -46,6 +46,8 @@ import { terminalLabel } from "./sidebar.tsx";
 import { useSidebarMode } from "./sidebar-mode.ts";
 import { useSidebarPane } from "./sidebar-pane.ts";
 import {
+  CHANGES_ENTRY,
+  changesSearch,
   chosenToSearch,
   searchToChosen,
   workspaceSearchEqual,
@@ -101,6 +103,8 @@ export function useWorkspace({
     client.terminals.subscribe,
     client.terminals.getSnapshot,
   );
+  // Each task's changed files: the Changes tab's rows, the task header's counts and the sidebar's.
+  const changes = useSyncExternalStore(client.changes.subscribe, client.changes.getSnapshot);
   const [chosen, setChosen] = useState<Chosen>(() => searchToChosen(search));
   const chosenRef = useRef(chosen);
   const routeSearchRef = useRef(search);
@@ -111,6 +115,12 @@ export function useWorkspace({
    * keyboard, and Escape only returns to the task that was selected before.
    */
   const [composing, setComposing] = useState<{ project: Project; opened: number }>();
+  /**
+   * Whether the current task shows its `Changes` tab (`layout.md`, **Changes**). It is the
+   * route's `entry=changes` and deliberately not part of `Chosen`: the tab is not a session, so
+   * opening it leaves the current session alone, and choosing a session closes it again.
+   */
+  const [changesView, setChangesView] = useState(() => search.entry === CHANGES_ENTRY);
   /**
    * The composer's text and picks, kept here rather than in the view: a project navigation remounts
    * the composer, and the draft must outlive both that and a failed create (`new-task-draft.ts`).
@@ -132,6 +142,12 @@ export function useWorkspace({
   useEffect(() => {
     if (workspaceSearchEqual(search, routeSearchRef.current)) return;
     routeSearchRef.current = search;
+    if (search.entry === CHANGES_ENTRY) {
+      // The tab, not a session: the selection behind it stays whatever the client already had.
+      setChangesView(true);
+      return;
+    }
+    setChangesView(false);
     const fromRoute = searchToChosen(search);
     if (workspaceSearchEqual(chosenToSearch(fromRoute), chosenToSearch(chosenRef.current))) {
       return;
@@ -209,7 +225,24 @@ export function useWorkspace({
     setChosen(merged);
     // Picking a task (or a loose terminal) leaves the composer; Escape has nothing to undo then.
     setComposing(undefined);
+    // Any entry choice is a session choice: it also leaves the task's Changes tab.
+    setChangesView(false);
     onChange(chosenToSearch(merged));
+  };
+
+  /**
+   * Opens the task's `Changes` tab: the route says `entry=changes` and the current session, the
+   * terminal in the main area and the chat store stay exactly as they were.
+   */
+  const openChanges = () => {
+    if (selection.taskId === null) {
+      setFailure("Select a task to see its changes.");
+      return;
+    }
+    setFailure(undefined);
+    setComposing(undefined);
+    setChangesView(true);
+    onChange(changesSearch(chosenRef.current));
   };
   const showTask = (task: Task | undefined) =>
     choose({ projectId: task?.projectId, taskId: task?.id, entryId: undefined });
@@ -662,6 +695,12 @@ export function useWorkspace({
         },
       };
     })(),
+    changes: {
+      label: "Changes",
+      group: "Sessions",
+      enabled: selection.taskId !== null,
+      run: openChanges,
+    },
     "session-1": goToSession(1),
     "session-2": goToSession(2),
     "session-3": goToSession(3),
@@ -791,6 +830,8 @@ export function useWorkspace({
     currentTaskNode,
     currentTaskProject,
     currentSessionLabels,
+    changes,
+    changesView,
     sidebar,
     taskOrder,
     board,
@@ -817,6 +858,7 @@ export function useWorkspace({
     removeSession,
     openRenameEntry,
     openRenameTask,
+    openChanges,
     renameEntry,
     selectEntry,
     jumpTo,
