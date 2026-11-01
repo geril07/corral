@@ -95,6 +95,14 @@ test("stopping an agent drops the working status it had", async () => {
   await expect.element(indicators("working")).not.toBeInTheDocument();
 });
 
+/** The task row's glyph is the one every view shares; its color is the theme token's. */
+function glyphColor(name: string): string {
+  const row = workspace().getByRole("img", { name });
+  const glyph = row.element().querySelector("[data-status]");
+  if (!glyph) throw new Error(`no glyph for ${name}`);
+  return getComputedStyle(glyph).color;
+}
+
 /** The color a theme token resolves to, read through a throwaway element. */
 function tokenColor(token: string): string {
   const probe = document.createElement("span");
@@ -109,14 +117,6 @@ test("working, needs you and done carry the three status colors, and idle stays 
   await appWithProject(newClient());
   await createTask("Colored");
   await startClaude();
-
-  // The task row's glyph is the one every view shares; its color is the theme token's.
-  const glyphColor = (name: string) => {
-    const row = workspace().getByRole("img", { name });
-    const glyph = row.element().querySelector("[data-status]");
-    if (!glyph) throw new Error(`no glyph for ${name}`);
-    return getComputedStyle(glyph).color;
-  };
 
   await report({ state: "working" });
   await expect.element(indicators("working")).toHaveLength(3);
