@@ -1,5 +1,9 @@
 import type { SessionId } from "@corral/protocol/rpc";
 import type { ServerTarget } from "@corral/protocol/server-target";
+import {
+  createChatCapabilitiesStore,
+  type ChatCapabilitiesStore,
+} from "./chat-capabilities-store.ts";
 import { createChatStore, type ChatStore } from "./chat-store.ts";
 import type { Backoff, CreateSocket } from "./reconnecting-socket.ts";
 import { createConfigStore, type ConfigStore } from "./config-store.ts";
@@ -25,6 +29,8 @@ export interface CorralClient {
   readonly tasks: TasksStore;
   readonly sessions: SessionsStore;
   readonly terminals: TerminalsStore;
+  /** Which agents this server can show as chat, asked once per connection. */
+  readonly chatCapabilities: ChatCapabilitiesStore;
   /** Shows the terminal on `surface` until the caller closes the returned stream. */
   attach(terminalId: string, surface: TerminalSurface): TerminalStream;
   /** Follows one session's chat until the caller closes the returned store. */
@@ -39,6 +45,10 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
   const tasks = createTasksStore(connection);
   const sessions = createSessionsStore(connection);
   const terminals = createTerminalsStore(connection);
+  const chatCapabilities = createChatCapabilitiesStore({
+    state: connection.state,
+    capabilities: () => connection.api.chat.capabilities(),
+  });
   return {
     connection,
     config,
@@ -46,6 +56,7 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
     tasks,
     sessions,
     terminals,
+    chatCapabilities,
     attach: (terminalId, surface) => new TerminalStream({ ...options, terminalId, surface }),
     openChat: (sessionId) =>
       createChatStore(
@@ -61,6 +72,7 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
       tasks.close();
       sessions.close();
       terminals.close();
+      chatCapabilities.close();
       connection.close();
     },
   };
