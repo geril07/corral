@@ -1,4 +1,5 @@
 import type { AgentKind, SessionKind } from "@corral/protocol/rpc";
+import { isAbsolute } from "node:path";
 
 export class SessionNotFoundError extends Error {
   readonly id: string;
@@ -18,8 +19,9 @@ export class AgentNotFoundError extends Error {
   readonly command: string;
   constructor(command: string) {
     // A `[agents.<kind>].command` is an absolute path; PATH is not where it was looked for.
+    // `isAbsolute` is the same rule the config parser validates with.
     super(
-      command.includes("/")
+      isAbsolute(command)
         ? `${command} is not an executable the server can run`
         : `${command} is not on the server's PATH`,
     );

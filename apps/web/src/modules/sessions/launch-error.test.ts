@@ -25,6 +25,10 @@ test("each typed launch refusal becomes a sentence with names, never values", ()
   expect(describeLaunchError(defined("LAUNCH_ENV_RESERVED", { name: "HOME" }))).toBe(
     "A profile may not set HOME.",
   );
+  // The composer and the agent picker call this first, so this copy is the sentence users see.
+  expect(describeLaunchError(defined("AGENT_DISABLED", { kind: "claude" }))).toBe(
+    "The claude agent is disabled in the config file.",
+  );
 });
 
 test("a pinned revision conflict and an invalid revision-only launch are explained", () => {

@@ -66,8 +66,9 @@ export function describeError(error: unknown): string {
         return "This session is already running.";
       case "AGENT_NOT_FOUND": {
         const command = String(field(data, "command"));
-        // A `[agents.<kind>].command` is an absolute path, so PATH is not where it was looked for.
-        return command.includes("/")
+        // A `[agents.<kind>].command` is an absolute path (on either separator), so PATH is not
+        // where it was looked for; the server's own `isAbsolute` is the authority.
+        return /[\\/]/.test(command)
           ? `${command} is not an executable the server can run.`
           : `${command} was not found on the server's PATH.`;
       }

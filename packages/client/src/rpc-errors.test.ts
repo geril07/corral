@@ -55,6 +55,9 @@ test("a refused model, level or disabled agent names what the server refused", (
   expect(describeError(defined("AGENT_NOT_FOUND", { command: "/opt/pi/bin/pi" }))).toBe(
     "/opt/pi/bin/pi is not an executable the server can run.",
   );
+  expect(describeError(defined("AGENT_NOT_FOUND", { command: "C:\\tools\\pi.exe" }))).toBe(
+    "C:\\tools\\pi.exe is not an executable the server can run.",
+  );
 });
 
 test("a launch profile pinned to a changed revision is explained", () => {

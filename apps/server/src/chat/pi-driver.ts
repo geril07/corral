@@ -225,7 +225,9 @@ export class PiDriver {
     try {
       await this.#refreshModelState();
     } catch {
-      // Keep the switched model; the list stays as it was until the next successful read.
+      // Keep the switched model. The refresh runs only from this method, so a failure leaves the
+      // previous model's level list for the rest of the session unless another model switch (or a
+      // restart) re-reads it.
     }
   }
 
