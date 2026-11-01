@@ -235,6 +235,7 @@ export class OpenCodeDriver implements ChatDriver {
             buffered.push(event);
             if (typeOfEvent(event) === "server.connected") {
               connected = true;
+              // oxlint-disable-next-line no-await-in-loop -- hydrate once, before the buffered events
               const failure = await this.#hydrate();
               if (failure !== undefined) return failure;
               for (const queued of buffered.splice(0)) this.#onEvent(queued);
@@ -545,9 +546,11 @@ function isBusy(turn: string): boolean {
 }
 
 function recordOf(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+  return isRecord(value) ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function recordField(value: unknown, key: string): unknown {

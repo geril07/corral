@@ -150,7 +150,7 @@ export class OpenCodeServers {
         cause: error,
       });
     }
-    let exitedResolve: () => void = () => {};
+    let exitedResolve: () => void = noop;
     const exited = new Promise<void>((resolve) => (exitedResolve = resolve));
     const running: RunningServer = { child, address: { url: "", password: "" }, exited };
 
@@ -282,6 +282,8 @@ async function waitGone(child: ChildProcess, ms: number): Promise<boolean> {
   }
   return child.exitCode !== null || child.signalCode !== null;
 }
+
+function noop(): void {}
 
 function exitReason(code: number | null, signal: NodeJS.Signals | null): string {
   if (signal !== null) return `was killed by ${signal}`;

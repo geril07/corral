@@ -8,7 +8,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AddressInfo } from "node:net";
+import { isRecord } from "../../test/json.ts";
 
 interface SessionMessage {
   id: string;
@@ -84,7 +84,8 @@ export function runFakeOpenCodeServer(options: {
     const path = statePath(id);
     if (path === undefined) return undefined;
     try {
-      const parsed = JSON.parse(readFileSync(path, "utf8")) as StoredSession;
+      const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+      if (!isStoredSession(parsed)) return undefined;
       sessions.set(id, parsed);
       return parsed;
     } catch {
@@ -102,27 +103,6 @@ export function runFakeOpenCodeServer(options: {
     };
     const chunk = `data: ${JSON.stringify(frame)}\n\n`;
     for (const stream of streams) stream.write(chunk);
-  };
-
-  const json = (response: ServerResponse, status: number, body: unknown) => {
-    const text = body === undefined ? "" : JSON.stringify(body);
-    response.writeHead(status, {
-      "content-type": "application/json",
-      "content-length": Buffer.byteLength(text),
-    });
-    response.end(text);
-  };
-
-  const readBody = async (request: IncomingMessage): Promise<Record<string, unknown>> => {
-    const chunks: Buffer[] = [];
-    for await (const chunk of request) chunks.push(chunk as Buffer);
-    const text = Buffer.concat(chunks).toString("utf8");
-    if (text === "") return {};
-    try {
-      return JSON.parse(text) as Record<string, unknown>;
-    } catch {
-      return {};
-    }
   };
 
   const authorized = (request: IncomingMessage): boolean => {
@@ -169,7 +149,7 @@ export function runFakeOpenCodeServer(options: {
   const endText = (session: StoredSession, text: string) => {
     if (assistant === undefined) startAssistant(session);
     assistant!.content = [
-      ...assistant!.content.filter((part) => (part as { type?: string }).type !== "text"),
+      ...assistant!.content.filter((part) => !(isRecord(part) && part["type"] === "text")),
       {
         type: "text",
         text,
@@ -436,7 +416,8 @@ export function runFakeOpenCodeServer(options: {
   });
 
   server.listen(options.port, options.hostname, () => {
-    const address = server.address() as AddressInfo;
+    const address = server.address();
+    if (address === null || typeof address === "string") return;
     const url = `http://${options.hostname}:${address.port}`;
     journal({ action: "listen", url, password });
     process.stdout.write(`server listening on ${url}\n`);
@@ -469,4 +450,43 @@ function sessionInfo(session: StoredSession): Record<string, unknown> {
     ...(session.outcome === null ? {} : { outcome: session.outcome }),
     model: { id: "stub-model", providerID: "stub" },
   };
+}
+
+/** The fake's own session record, after a restart read it back from disk. */
+function isStoredSession(value: unknown): value is StoredSession {
+  return (
+    isRecord(value) &&
+    typeof value["id"] === "string" &&
+    typeof value["title"] === "string" &&
+    typeof value["directory"] === "string" &&
+    Array.isArray(value["messages"]) &&
+    Array.isArray(value["permissions"]) &&
+    typeof value["busy"] === "boolean" &&
+    (value["outcome"] === null || typeof value["outcome"] === "string")
+  );
+}
+
+function json(response: ServerResponse, status: number, body: unknown): void {
+  const text = body === undefined ? "" : JSON.stringify(body);
+  response.writeHead(status, {
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(text),
+  });
+  response.end(text);
+}
+
+async function readBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) {
+    // A request chunk is `any` in @types/node's async iterator; keep whatever it is as bytes.
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+  const text = Buffer.concat(chunks).toString("utf8");
+  if (text === "") return {};
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
 }

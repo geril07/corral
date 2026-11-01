@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
 import { useFakeAgents } from "../../test/fake-agents.ts";
+import { isRecord } from "../../test/json.ts";
 import { OpenCodeServers } from "./opencode-server.ts";
 import { writerPath } from "./writer-claim.ts";
 
@@ -22,7 +23,8 @@ async function journal(): Promise<Record<string, unknown>[]> {
   return text
     .split("\n")
     .filter((line) => line !== "")
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
+    .map((line) => JSON.parse(line) as unknown)
+    .filter(isRecord);
 }
 
 async function until(
@@ -58,11 +60,13 @@ test("one server serves every client of the run, and the last release stops it",
     expect(first.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
     expect(first.password).not.toBe("");
     // Process-keyed, not session-keyed: one record for the server, written by the pool.
-    const record = JSON.parse(
+    const raw: unknown = JSON.parse(
       await readFile(writerPath(join(root, "chat"), "opencode-server"), "utf8"),
-    ) as { pid: number; identity?: string | null };
-    expect(record.pid).toBeGreaterThan(0);
-    expect(record.identity).toEqual(expect.any(String));
+    );
+    expect(isRecord(raw)).toBe(true);
+    if (!isRecord(raw)) throw new Error("the writer record is not an object");
+    expect(raw["pid"]).toBeGreaterThan(0);
+    expect(raw["identity"]).toEqual(expect.any(String));
 
     const second = await servers.acquire("tui:a", { command, cwd: root, env: env() });
     expect(second).toEqual(first);
@@ -109,7 +113,8 @@ test("a server that dies tells every client why, and the next acquire starts a f
     });
     const pid = (await journal()).find((entry) => entry["action"] === "listen")?.["pid"];
     expect(typeof pid).toBe("number");
-    process.kill(pid as number, "SIGKILL");
+    if (typeof pid !== "number") throw new Error("the fake server did not journal its pid");
+    process.kill(pid, "SIGKILL");
 
     await until(() => exits.length === 2, "both clients to learn the server exited");
     expect(exits.every((reason) => reason.includes("opencode server"))).toBe(true);

@@ -616,10 +616,12 @@ function errorMessage(value: unknown): string | undefined {
   return stringOf(asRecord(value)?.["message"]);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+  return isRecord(value) ? value : undefined;
 }
 
 function stringOf(value: unknown): string | undefined {

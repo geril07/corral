@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
 import { useFakeAgents } from "../../test/fake-agents.ts";
+import { isRecord } from "../../test/json.ts";
 import { OpenCodeDriver, type OpenCodeDriverRequest } from "./opencode-driver.ts";
 import { OpenCodeServers, type OpenCodeServerAddress } from "./opencode-server.ts";
 import { ChatTimeline } from "./timeline.ts";
@@ -20,6 +21,8 @@ interface Harness {
   stop(): Promise<void>;
 }
 
+function noop(): void {}
+
 /** A pool on a fresh data directory, one driver on it, and what it reported. */
 async function harness(
   options: { prompt?: string | null; sessionId?: string } = {},
@@ -33,7 +36,7 @@ async function harness(
   });
   const timeline = new ChatTimeline(0);
   const statuses: string[] = [];
-  let resolveExit: (reason: string | null) => void = () => {};
+  let resolveExit: (reason: string | null) => void = noop;
   const exited = new Promise<string | null>((resolve) => (resolveExit = resolve));
   const sessionId = options.sessionId ?? "ses_driver0000000000000000000";
   const request: OpenCodeDriverRequest = {
@@ -85,7 +88,8 @@ async function journal(): Promise<Record<string, unknown>[]> {
   return text
     .split("\n")
     .filter((line) => line !== "")
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
+    .map((line) => JSON.parse(line) as unknown)
+    .filter(isRecord);
 }
 
 async function prompts(): Promise<Record<string, unknown>[]> {
@@ -242,12 +246,10 @@ test("an answer from the terminal frontend resolves the same request once, witho
       },
     );
     expect(response.status).toBe(204);
-    await until(
-      () =>
-        test1.timeline.item(request!.id)?.kind === "user-request" &&
-        (test1.timeline.item(request!.id) as { status?: string }).status === "answered",
-      "the answered request",
-    );
+    await until(() => {
+      const item = test1.timeline.item(request!.id);
+      return item?.kind === "user-request" && item.status === "answered";
+    }, "the answered request");
     await until(() => test1.timeline.state.turn === "settled", "the settled turn");
     // Chat sent no reply of its own: the journal has exactly the terminal's decision.
     const replies = (await journal()).filter((entry) => entry["action"] === "permission-reply");
@@ -341,7 +343,8 @@ test("a server that dies is reported as an exit with the reason, not as silence"
     );
     const pid = (await journal()).find((entry) => entry["action"] === "listen")?.["pid"];
     expect(typeof pid).toBe("number");
-    process.kill(pid as number, "SIGKILL");
+    if (typeof pid !== "number") throw new Error("the fake server did not journal its pid");
+    process.kill(pid, "SIGKILL");
     const reason = await test1.exited;
     expect(reason).toEqual(expect.stringContaining("opencode"));
   } finally {

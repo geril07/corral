@@ -2,6 +2,7 @@ import type { ChatItem, ChatSnapshot } from "@corral/protocol/chat";
 import { readFile } from "node:fs/promises";
 import { beforeEach, expect, test, vi } from "vite-plus/test";
 import { useFakeAgents } from "../../test/fake-agents.ts";
+import { isRecord } from "../../test/json.ts";
 import { addProject } from "../../test/project-fixture.ts";
 import { useServer } from "../../test/server-fixture.ts";
 import { sessionsOf } from "../../test/session-helpers.ts";
@@ -39,7 +40,7 @@ async function openCodeTask(
 }
 
 /** The current whole timeline: one `chat.watch` that only reads its first snapshot. */
-async function snapshot(api: Api, sessionId: string): Promise<ChatSnapshot> {
+async function timelineOf(api: Api, sessionId: string): Promise<ChatSnapshot> {
   const stream = await api.chat.watch({ sessionId });
   const iterator = stream[Symbol.asyncIterator]();
   const first = await iterator.next();
@@ -59,7 +60,7 @@ async function untilChat(
   let latest: ChatSnapshot | undefined;
   while (Date.now() < deadline) {
     // oxlint-disable-next-line no-await-in-loop -- polling the server's snapshot is the point
-    latest = await snapshot(api, sessionId);
+    latest = await timelineOf(api, sessionId);
     if (predicate(latest)) return latest;
     // oxlint-disable-next-line no-await-in-loop -- see above
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -85,7 +86,8 @@ async function openCodeJournal(): Promise<Record<string, unknown>[]> {
   return text
     .split("\n")
     .filter((line) => line !== "")
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
+    .map((line) => JSON.parse(line) as unknown)
+    .filter(isRecord);
 }
 
 async function serveLaunches() {
@@ -231,7 +233,8 @@ test("a killed server is a typed refusal with the reason, and a restart recreate
   );
   const pid = (await openCodeJournal()).find((entry) => entry["action"] === "listen")?.["pid"];
   expect(typeof pid).toBe("number");
-  process.kill(pid as number, "SIGKILL");
+  if (typeof pid !== "number") throw new Error("the fake server did not journal its pid");
+  process.kill(pid, "SIGKILL");
 
   await expect
     .poll(async () => (await sessionsOf(api)).find((each) => each.id === session.id)?.state, {
