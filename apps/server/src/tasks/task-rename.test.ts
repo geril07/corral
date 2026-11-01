@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vite-plus/test";
+import { disabledNaming } from "../naming/naming.ts";
 import { ProjectStore } from "../projects/project-store.ts";
 import { openDatabase } from "../storage/database.ts";
 import { BlankTaskTitleError, TaskNotFoundError } from "./errors.ts";
@@ -39,7 +40,11 @@ function serviceWith(sessions: TaskSessions) {
   const store = new TaskStore(db);
   store.insert(storedTask("t"));
   const settings = defaultTaskSettings({ dataDir });
-  return { tasks: new TaskService({ store, projects, sessions, settings }), store, db };
+  return {
+    tasks: new TaskService({ store, projects, sessions, settings, naming: disabledNaming() }),
+    store,
+    db,
+  };
 }
 
 test("a rename queued behind a removal waits for it and fails without writing the removed task", async () => {

@@ -8,6 +8,7 @@ const server = useServer({
   taskSettings: ({ scratchDir }) => ({
     worktreeRoot: () => join(scratchDir, "worktrees"),
     branchPrefix: () => "corral/",
+    slugMode: () => "title",
   }),
 });
 

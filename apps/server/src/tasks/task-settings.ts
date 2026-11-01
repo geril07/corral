@@ -1,4 +1,5 @@
 import { defaultWorktreeRoot } from "@corral/protocol/config";
+import type { SlugMode } from "@corral/protocol/config";
 import type { Project } from "@corral/protocol/rpc";
 
 /**
@@ -14,10 +15,19 @@ export interface TaskSettings {
    * separator and drops empty segments.
    */
   branchPrefix(project: Project): string;
+  /**
+   * Whether a worktree's branch and directory are named from the generated title (`title`) or
+   * from the naming request itself (`generated`); A4 reads it when it decides what to ask for.
+   */
+  slugMode(project: Project): SlugMode;
 }
 
-/** The defaults for callers without config: `<data dir>/worktrees` and no branch prefix. */
+/** The defaults for callers without config: `<data dir>/worktrees`, no branch prefix, title slugs. */
 export function defaultTaskSettings(options: { dataDir: string }): TaskSettings {
   const worktreeRoot = defaultWorktreeRoot(options.dataDir);
-  return { worktreeRoot: () => worktreeRoot, branchPrefix: () => "" };
+  return {
+    worktreeRoot: () => worktreeRoot,
+    branchPrefix: () => "",
+    slugMode: () => "title",
+  };
 }

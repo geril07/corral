@@ -81,6 +81,20 @@ export class TaskStore {
       .run(title, id);
   }
 
+  /**
+   * Stores a generated title unless the user renamed the task first; returns whether it wrote.
+   * The condition is part of the update, so a rename that lands between the naming call and this
+   * write wins instead of being overwritten.
+   */
+  setGeneratedTitle(id: string, title: string): boolean {
+    const result = this.#db
+      .prepare(
+        "UPDATE tasks SET title = ?, title_source = 'generated' WHERE id = ? AND title_source <> 'user'",
+      )
+      .run(title, id);
+    return result.changes > 0;
+  }
+
   setSeenAt(id: string, seenAt: number): void {
     this.#db.prepare("UPDATE tasks SET seen_at = ? WHERE id = ?").run(seenAt, id);
   }

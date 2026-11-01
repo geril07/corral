@@ -21,13 +21,22 @@ import {
 import { HasLiveTerminalsError, ProjectNotFoundError } from "../projects/errors.ts";
 import type { ProjectTasks } from "../projects/project-service.ts";
 import type { ProjectStore } from "../projects/project-store.ts";
+import { logNamingProblem, namingPlan, requestName } from "../naming/naming.ts";
+import type { NamingPlan, NamingSettingsSource } from "../naming/naming.ts";
+import { sanitizeGeneratedSlug } from "../naming/naming-output.ts";
+import type { NamingName } from "../naming/naming-output.ts";
 import { newId } from "../storage/ids.ts";
 import { BlankTaskTitleError, TaskNotFoundError, WorktreeDirtyError } from "./errors.ts";
 import { SerialQueue } from "./serial-queue.ts";
 import { seedTitle } from "./seed-title.ts";
 import type { TaskSettings } from "./task-settings.ts";
 import type { TaskStore } from "./task-store.ts";
-import { isPlanFailure, planWorktree, type WorktreePlan } from "./worktree-plan.ts";
+import {
+  isPlanFailure,
+  normalizedBranchPrefix,
+  planWorktree,
+  type WorktreePlan,
+} from "./worktree-plan.ts";
 
 /** What tasks need from the sessions that run in them. */
 export interface TaskSessions {
@@ -51,6 +60,7 @@ export class TaskService implements ProjectTasks {
   readonly #projects: ProjectStore;
   readonly #sessions: TaskSessions;
   readonly #settings: TaskSettings;
+  readonly #naming: NamingSettingsSource;
   readonly #changes = new ChangeFeed();
   // Branch and directory names are picked, then used, with git calls in between.
   readonly #mutations = new SerialQueue();
@@ -60,11 +70,13 @@ export class TaskService implements ProjectTasks {
     projects: ProjectStore;
     sessions: TaskSessions;
     settings: TaskSettings;
+    naming: NamingSettingsSource;
   }) {
     this.#store = options.store;
     this.#projects = options.projects;
     this.#sessions = options.sessions;
     this.#settings = options.settings;
+    this.#naming = options.naming;
   }
 
   list(): Task[] {
@@ -82,7 +94,7 @@ export class TaskService implements ProjectTasks {
   }
 
   create(input: CreateTaskInput): Promise<Task> {
-    return this.#mutations.run(() => this.#create(input));
+    return this.#create(input);
   }
 
   setState(id: string, state: Task["state"]): Promise<Task> {
@@ -144,13 +156,60 @@ export class TaskService implements ProjectTasks {
     // The contract requires one of the three; this guard keeps direct callers honest too.
     if (title === undefined)
       throw new Error("a title is required unless the task comes from an issue source or a prompt");
-    const task: Task = {
+    const titleSource = named === undefined ? "seed" : "user";
+    // Only a new branch the user did not name can take a generated slug; an existing branch keeps
+    // its name, and the worktree directory follows it.
+    const generatedSlug =
+      workspace.type === "new-branch" &&
+      workspace.branch === undefined &&
+      this.#settings.slugMode(project) === "generated";
+    // Naming runs only for a prompt-only task with a configured runner (decision 16).
+    let naming: { plan: NamingPlan; prompt: string } | undefined;
+    if (named === undefined && prompt !== null) {
+      const plan = namingPlan(this.#naming, { generatedSlug });
+      if (plan !== undefined) naming = { plan, prompt };
+    }
+
+    if (workspace.type === "main-worktree") {
+      return this.#mutations.run(async () => {
+        const task = this.#newTask(input, project, { title, titleSource, prompt });
+        task.branch = (await currentBranch(project.path)) ?? "HEAD";
+        const recorded = await this.#record(task, input.agent);
+        // The task is visible with its seed title now; a slow naming call must not hold the
+        // response or the mutation queue. Its write is queued and never replaces a user's title.
+        if (naming !== undefined)
+          void this.#nameLater(recorded.id, naming.plan, naming.prompt, project.name);
+        return recorded;
+      });
+    }
+
+    const name =
+      naming === undefined
+        ? undefined
+        : await requestName(naming.plan, { prompt: naming.prompt, projectName: project.name });
+    return this.#mutations.run(() =>
+      this.#createInWorktree(input, workspace, project, {
+        title: name?.title ?? title,
+        titleSource: name === undefined ? titleSource : "generated",
+        prompt,
+        name,
+        generatedSlug: naming?.plan.generatedSlug === true,
+      }),
+    );
+  }
+
+  #newTask(
+    input: CreateTaskInput,
+    project: Project,
+    fields: { title: string; titleSource: Task["titleSource"]; prompt: string | null },
+  ): Task {
+    return {
       id: newId(),
       projectId: project.id,
-      title,
-      titleSource: named === undefined ? "seed" : "user",
+      title: fields.title,
+      titleSource: fields.titleSource,
       ...(input.source === undefined ? {} : { source: input.source }),
-      prompt,
+      prompt: fields.prompt,
       primarySessionId: null,
       branch: "",
       workspacePath: project.path,
@@ -159,25 +218,27 @@ export class TaskService implements ProjectTasks {
       seenAt: null,
       createdAt: Date.now(),
     };
+  }
 
-    if (workspace.type === "main-worktree") {
-      task.branch = (await currentBranch(project.path)) ?? "HEAD";
-      return this.#record(task, input.agent);
-    }
-
-    const plan = planWorktree(workspace, {
-      title,
-      branchPrefix: this.#settings.branchPrefix(project),
-      defaultBaseBranch: project.defaultBaseBranch,
-      branches: await listBranches(project.path),
-    });
-    if (isPlanFailure(plan)) throw new GitError(plan.problem);
-    if (plan.kind === "new-branch") {
-      if (!(await isValidBranchName(project.path, plan.branch)))
-        throw new GitError(`'${plan.branch}' is not a valid branch name`);
-      await requireCommit(project.path, plan.base);
-    }
-
+  async #createInWorktree(
+    input: CreateTaskInput,
+    workspace: Exclude<CreateTaskInput["workspace"], { type: "main-worktree" }>,
+    project: Project,
+    fields: {
+      title: string;
+      titleSource: Task["titleSource"];
+      prompt: string | null;
+      name: NamingName | undefined;
+      generatedSlug: boolean;
+    },
+  ): Promise<Task> {
+    const task = this.#newTask(input, project, fields);
+    const branchPrefix = this.#settings.branchPrefix(project);
+    const slug =
+      fields.generatedSlug && fields.name !== undefined
+        ? this.#generatedSlugOf(fields.name, branchPrefix)
+        : undefined;
+    const plan = await this.#planWorktree(workspace, project, fields.title, slug);
     const path = this.#freeWorktreePath(project, plan.slug);
     await mkdir(join(path, ".."), { recursive: true });
     try {
@@ -191,6 +252,91 @@ export class TaskService implements ProjectTasks {
     task.ownsWorktree = true;
     // Outside the undo scope: the worktree is good, and a session that cannot start must not remove it.
     return this.#record(task, input.agent);
+  }
+
+  /**
+   * The generated slug both the branch and the worktree directory are named after. The branch the
+   * agent returned may carry the configured prefix; it must sanitize to the same slug as the
+   * worktree, or the pair is not one name and the title's slug is used instead.
+   */
+  #generatedSlugOf(name: NamingName, branchPrefix: string): string | undefined {
+    const prefix = normalizedBranchPrefix(branchPrefix);
+    const branch = name.branch ?? "";
+    const branchText =
+      prefix !== "" && branch.startsWith(prefix) ? branch.slice(prefix.length) : branch;
+    const worktree = sanitizeGeneratedSlug(name.worktree ?? "");
+    const branchSlug = sanitizeGeneratedSlug(branchText);
+    if (worktree === "" || branchSlug === "") {
+      logNamingProblem(
+        "the generated branch or worktree has no usable slug; using the title's slug",
+      );
+      return undefined;
+    }
+    if (worktree !== branchSlug) {
+      logNamingProblem("the generated branch and worktree disagree; using the title's slug");
+      return undefined;
+    }
+    return worktree;
+  }
+
+  async #planWorktree(
+    workspace: Exclude<CreateTaskInput["workspace"], { type: "main-worktree" }>,
+    project: Project,
+    title: string,
+    generatedSlug: string | undefined,
+  ): Promise<WorktreePlan> {
+    const context = {
+      title,
+      branchPrefix: this.#settings.branchPrefix(project),
+      defaultBaseBranch: project.defaultBaseBranch,
+      branches: await listBranches(project.path),
+    };
+    const planned = (slug: string | undefined) =>
+      planWorktree(workspace, slug === undefined ? context : { ...context, generatedSlug: slug });
+    let plan = planned(generatedSlug);
+    if (isPlanFailure(plan)) throw new GitError(plan.problem);
+    if (plan.kind === "new-branch" && !(await isValidBranchName(project.path, plan.branch))) {
+      // Only a generated name can fall back; a branch the user chose is theirs to fix.
+      if (generatedSlug === undefined || workspace.branch !== undefined)
+        throw new GitError(`'${plan.branch}' is not a valid branch name`);
+      logNamingProblem(
+        `the generated branch '${plan.branch}' is not a valid branch name; using the title's slug`,
+      );
+      plan = planned(undefined);
+      if (isPlanFailure(plan)) throw new GitError(plan.problem);
+      if (plan.kind === "new-branch" && !(await isValidBranchName(project.path, plan.branch)))
+        throw new GitError(`'${plan.branch}' is not a valid branch name`);
+    }
+    if (plan.kind === "new-branch") await requireCommit(project.path, plan.base);
+    return plan;
+  }
+
+  /**
+   * Names a task after it was already recorded (the main working tree): the generated title is
+   * written through the mutation queue, and only while the title is not the user's.
+   */
+  async #nameLater(
+    taskId: string,
+    plan: NamingPlan,
+    prompt: string,
+    projectName: string,
+  ): Promise<void> {
+    try {
+      const name = await requestName(plan, { prompt, projectName });
+      if (name === undefined) return;
+      await this.#mutations.run(async () => {
+        if (this.#store.setGeneratedTitle(taskId, name.title)) {
+          this.#changes.notify();
+          return;
+        }
+        if (this.#store.get(taskId)?.titleSource === "user")
+          logNamingProblem(
+            "the task was renamed while its title was generated; keeping the user's title",
+          );
+      });
+    } catch (error) {
+      logNamingProblem(error instanceof Error ? error.message : String(error));
+    }
   }
 
   #project(id: string) {

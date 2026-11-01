@@ -47,9 +47,10 @@ export function taskSlug(naming: Pick<WorktreeNaming, "title" | "generatedSlug">
 /**
  * `prefix` as ref segments joined by one `/` with one trailing separator; empty segments and
  * surrounding space are dropped, so `corral `, `a//b` and `/corral/` become `corral/`, `a/b/`
- * and `corral/`. Nothing usable means no prefix.
+ * and `corral/`. Nothing usable means no prefix. A4 uses it to compare a generated branch with
+ * the prefix the config adds.
  */
-function branchPrefixOf(prefix: string): string {
+export function normalizedBranchPrefix(prefix: string): string {
   const segments = prefix
     .split("/")
     .map((segment) => segment.trim())
@@ -77,7 +78,7 @@ export function planWorktree(
     const base = workspace.baseBranch ?? context.defaultBaseBranch;
     if (workspace.branch === undefined) {
       const slug = taskSlug(context);
-      const prefix = branchPrefixOf(context.branchPrefix);
+      const prefix = normalizedBranchPrefix(context.branchPrefix);
       // Every candidate shares the prefix, so a branch the prefix would sit under blocks them all.
       const blocking = takenAncestor(`${prefix}${slug}`, local);
       if (blocking !== undefined)

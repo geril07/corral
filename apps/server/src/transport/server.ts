@@ -14,6 +14,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { watchConfigFile } from "../config/config-watcher.ts";
+import { configNaming } from "../config/naming.ts";
 import { configTaskSettings } from "../config/task-settings.ts";
 import { IssueImportService, issueImportTimeoutMs } from "../issues/issue-import.ts";
 import { ProjectService } from "../projects/project-service.ts";
@@ -76,8 +77,10 @@ export function startServer(options: {
     store: taskStore,
     projects: projectStore,
     sessions,
-    // A0's config supplies the worktree root and branch prefix; tests may pass their own.
+    // A0's config supplies the worktree root, branch prefix and slug mode; tests may pass their own.
     settings: options.settings ?? configTaskSettings(config, { home: homedir() }),
+    // `[naming]` and its profiles, read on every create so an edit applies without a restart.
+    naming: configNaming(config),
   });
   const issues = new IssueImportService({ timeoutMs: issueImportTimeoutMs(process.env) });
   const projects = new ProjectService(projectStore, tasks, issues);
