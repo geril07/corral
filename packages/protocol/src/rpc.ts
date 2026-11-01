@@ -483,6 +483,12 @@ export type FileMedia = z.infer<typeof FileMedia>;
 export const FILE_PREVIEW_LIMITS = { image: 4 * 1024 * 1024, video: 8 * 1024 * 1024 } as const;
 
 /**
+ * How many candidates one `files.resolve` call may carry. A chat lane accumulates them across every
+ * message it shows, so a client splits its work into calls of this size (`candidateBatches`).
+ */
+export const FILE_RESOLVE_BATCH = 64;
+
+/**
  * One path a task's workspace holds, as `files.resolve` found it. `requested` is the caller's own
  * text so a client can match its candidate, and `path` is the canonical workspace-relative form
  * every other `files.*` call takes back. Paths outside the workspace never become a target: they
@@ -893,7 +899,7 @@ export const contract = {
         z.object({
           taskId: TaskId,
           /** Candidates as the message wrote them; at most a screenful of them per message. */
-          paths: z.array(z.string().min(1).max(4096)).max(64),
+          paths: z.array(z.string().min(1).max(4096)).max(FILE_RESOLVE_BATCH),
         }),
       )
       .output(z.object({ results: z.array(FileResolution) })),

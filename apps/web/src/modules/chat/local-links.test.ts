@@ -1,6 +1,7 @@
 import * as fc from "fast-check";
 import { expect, test } from "vite-plus/test";
 import {
+  candidateBatches,
   detectLinks,
   fileLinkHref,
   localLinkTransform,
@@ -36,6 +37,14 @@ test("a path token stops at prose punctuation and at a colon that is not a posit
   // `:12x` is not a line number, so the suffix is not consumed and the token stays a path.
   expect(paths("src/app.ts:12x")).toEqual([{ path: "src/app.ts" }]);
   expect(paths("ratio 12:30")).toEqual([]);
+});
+
+test("candidates are split into calls the wire schema accepts, order kept", () => {
+  const many = Array.from({ length: 130 }, (_, index) => `f${index}.ts`);
+  const batches = candidateBatches(many);
+  expect(batches.map((batch) => batch.length)).toEqual([64, 64, 2]);
+  expect(batches.flat()).toEqual(many);
+  expect(candidateBatches([])).toEqual([]);
 });
 
 test("URLs are links and their path segments are not offered as local paths", () => {

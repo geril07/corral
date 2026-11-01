@@ -20,6 +20,7 @@ import {
   type MediaSource,
 } from "../../common/ui/index.ts";
 import {
+  candidateBatches,
   localLinkPlugin,
   parseFileLinkHref,
   pathCandidates,
@@ -73,14 +74,15 @@ export function LocalLinks({
     const missing = [...new Set(candidates)].filter((path) => !requested.current.has(path));
     if (missing.length === 0) return undefined;
     let live = true;
-    files
-      .resolve(missing)
-      .then((results) => {
+    Promise.all(candidateBatches(missing).map((batch) => files.resolve(batch)))
+      .then((pages) => {
         if (!live) return;
         for (const path of missing) requested.current.add(path);
-        const found = results.flatMap((result) =>
-          result.status === "ok" && result.target.kind === "file" ? [result.target] : [],
-        );
+        const found = pages
+          .flat()
+          .flatMap((result) =>
+            result.status === "ok" && result.target.kind === "file" ? [result.target] : [],
+          );
         if (found.length === 0) return;
         setKnown((current) => {
           const next = new Map(current);

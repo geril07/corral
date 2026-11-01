@@ -8,6 +8,7 @@
  * and `files.resolve` answers `missing`, so it stays plain text. A renderer never shows a link the
  * workspace does not hold.
  */
+import { FILE_RESOLVE_BATCH } from "@corral/protocol/rpc";
 
 /** The file (and position) a path-like token names: `src/app.ts:12:3` → `src/app.ts`, line 12, col 3. */
 export interface LocalTarget {
@@ -87,6 +88,18 @@ function plausiblePath(raw: string): boolean {
   if (raw.startsWith("/")) return raw.length > 1;
   if (raw.includes("/")) return !raw.startsWith("/");
   return FILE_NAME.test(raw);
+}
+
+/**
+ * The candidates in as many calls as `files.resolve` accepts, first-seen order kept. A lane asks
+ * about every path its transcript names, which is more than one call may carry in a long chat.
+ */
+export function candidateBatches(paths: readonly string[]): string[][] {
+  const batches: string[][] = [];
+  for (let start = 0; start < paths.length; start += FILE_RESOLVE_BATCH) {
+    batches.push(paths.slice(start, start + FILE_RESOLVE_BATCH));
+  }
+  return batches;
 }
 
 /** Every distinct path a text offers, in first-seen order: the batch `files.resolve` takes. */
