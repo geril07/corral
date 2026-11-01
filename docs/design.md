@@ -135,9 +135,9 @@ Findings (sourced, see research notes below): browsers keep some chords for them
 
 ## Stages
 
-The MVP (server and desktop client, projects and tasks, terminal sessions, agent status and board, prefix keymap and palette) is built; `progress.md` holds the evidence. Next, in order:
+The MVP (server and desktop client, projects and tasks, terminal sessions, agent status and board, prefix keymap and palette) is built; `progress.md` holds the evidence. Then, in order:
 
-- **A. Task model on the terminal**: the shell revised per `layout.md` (task-only sidebar, task header, session tabs); a prompt-first new-task view replaces the form; the primary agent starts with the prompt; title (and optional slug) generation; readable worktree paths; no automatic shell; renaming a task; sidebar flat by status or grouped by project; task status with unread completion. Flows and keys: `ux.md`; placement: `layout.md`.
+- **A. Task model on the terminal** (built, verified end to end, `progress.md`): the shell revised per `layout.md` (task-only sidebar, task header, session tabs); a prompt-first new-task view replaces the form; the primary agent starts with the prompt; title (and optional slug) generation; readable worktree paths; no automatic shell; renaming a task; sidebar flat by status or grouped by project; task status with unread completion. Flows and keys: `ux.md`; placement: `layout.md`. What the run decided on the user's behalf is listed under **Decided for review** in `progress.md`. Limits it left in place: `[naming]` cannot use OpenCode (no ephemeral mode) and Codex's naming run is read-only but can read what the server user can read; a shell takes no prompt; a real provider's generated-title quality is unverified (fakes only).
 - **B. Chat**: the event contract (decision 14), the pi driver, a chat tab with the rendering stack (decision 15), view handoff between chat and terminal, provider/model settings.
 - **C. More**: OpenCode and Claude Code drivers, then Codex; diff, commit and pull request linked to the task; links to local files, images and video in chat.
 
