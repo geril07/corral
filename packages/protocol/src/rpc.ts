@@ -597,6 +597,30 @@ export const contract = {
       .errors(sessionNotFound)
       .input(z.object({ id: SessionId, label: Label.nullable() }))
       .output(Session),
+    /**
+     * Moves the session between its two views (design.md, decision 5): the live frontend is stopped
+     * and its process awaited, then the other view starts on the same agent session id. The session
+     * keeps its id, label and place in the task's tabs; the conversation is the agent's own and
+     * survives, while the in-flight turn and pending requests do not — a working turn is aborted
+     * first. A chat view needs an agent with a chat driver (otherwise `LAUNCH_VIEW_UNSUPPORTED`),
+     * and never a shell. On a stopped session only the stored view changes, so its next start opens
+     * there; a handoff whose second start fails leaves it stopped with `launchError` set.
+     */
+    setView: oc
+      .errors({
+        ...sessionNotFound,
+        AGENT_NOT_FOUND: { data: z.object({ command: z.string() }) },
+        ...launchRefused,
+      })
+      .input(
+        z.object({
+          id: SessionId,
+          view: SessionView,
+          /** The grid a terminal target opens with; a chat target ignores it, as `start` does. */
+          size: TerminalSize,
+        }),
+      )
+      .output(Session),
     /** Yields all sessions now and after every change. */
     watch: oc.output(eventIterator(z.array(Session))),
   },
