@@ -3,7 +3,7 @@ import { DEFAULT_BINDINGS, DEFAULT_PREFIX, defaultClientConfig } from "@corral/p
 import type { ChatSendMode } from "@corral/protocol/rpc";
 import { createConfigKeymap } from "@corral/client/prefix-keymap";
 import { useCallback, useMemo } from "react";
-import { expect, test, vi } from "vite-plus/test";
+import { afterEach, expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { ChatView } from "./chat-view.tsx";
@@ -21,6 +21,12 @@ import {
 
 const ABORT_HINT = `${DEFAULT_PREFIX} .`;
 
+/** Every scripted watch this file opened; closing them ends the iterators before the next file. */
+const chats: Array<ReturnType<typeof scriptedChat>> = [];
+afterEach(() => {
+  for (const chat of chats.splice(0)) chat.close();
+});
+
 interface Sent {
   text: string;
   mode: ChatSendMode;
@@ -28,6 +34,7 @@ interface Sent {
 
 async function renderChat(messages: readonly ChatStreamMessage[] = RECORDED_CHAT) {
   const script = scriptedChat(messages);
+  chats.push(script);
   const sent: Sent[] = [];
   const responded: Array<{ requestId: string; value: ChatAnswer }> = [];
   const aborts: number[] = [];
@@ -328,7 +335,6 @@ test("prefix mode works while the composer has the keyboard: prefix . aborts and
   // The composer still owns plain keys after the chord.
   await userEvent.keyboard("!");
   await expect.element(composer).toHaveValue("keep this!");
-  script.close();
 });
 
 /** The scrollable node LegendList owns, wherever it nests it under its test id. */
@@ -619,7 +625,6 @@ for (const size of [500, 2000, 5000, 10_000]) {
       console.log(JSON.stringify({ size, p95, max, mounted }));
       expect(mounted).toBeLessThan(100);
       expect(p95).toBeLessThan(100);
-      chat.script.close();
     },
   );
 }
