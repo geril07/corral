@@ -9,6 +9,7 @@ import {
   focusedIsTerminal,
   sessionTab,
   taskButton,
+  workspace,
 } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
@@ -92,4 +93,51 @@ test("stopping an agent drops the working status it had", async () => {
   await prefixThen("x");
   await expect.element(sessionTab("claude stopped")).toBeVisible();
   await expect.element(indicators("working")).not.toBeInTheDocument();
+});
+
+/** The color a theme token resolves to, read through a throwaway element. */
+function tokenColor(token: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = `var(${token})`;
+  document.body.append(probe);
+  const value = getComputedStyle(probe).color;
+  probe.remove();
+  return value;
+}
+
+test("working, needs you and done carry the three status colors, and idle stays muted", async () => {
+  await appWithProject(newClient());
+  await createTask("Colored");
+  await startClaude();
+
+  // The task row's glyph is the one every view shares; its color is the theme token's.
+  const glyphColor = (name: string) => {
+    const row = workspace().getByRole("img", { name });
+    const glyph = row.element().querySelector("[data-status]");
+    if (!glyph) throw new Error(`no glyph for ${name}`);
+    return getComputedStyle(glyph).color;
+  };
+
+  await report({ state: "working" });
+  await expect.element(indicators("working")).toHaveLength(3);
+  expect(glyphColor("working")).toBe(tokenColor("--status-working"));
+
+  await report({ state: "blocked", kind: "question", msg: "Which branch?" });
+  await expect.element(indicators("blocked · question")).toHaveLength(3);
+  expect(glyphColor("blocked · question")).toBe(tokenColor("--status-attention"));
+
+  await report({ state: "error", msg: "The agent stopped" });
+  await expect.element(indicators("error")).toHaveLength(2);
+  expect(glyphColor("error")).toBe(tokenColor("--destructive"));
+
+  await report({ state: "done", msg: "All green" });
+  await expect.element(indicators("done")).toHaveLength(2);
+  // The header always shows the done color; a row fades it to muted once the update was seen.
+  const header = page.getByRole("group", { name: "task header" });
+  const headerGlyph = header
+    .getByRole("img", { name: "done" })
+    .element()
+    .querySelector("[data-status]");
+  expect(getComputedStyle(headerGlyph!).color).toBe(tokenColor("--status-done"));
+  expect(glyphColor("done")).toBe(tokenColor("--muted-foreground"));
 });
