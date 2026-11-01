@@ -3,6 +3,7 @@ import {
   DEFAULT_BINDINGS,
   defaultAgentSettings,
   defaultClientConfig,
+  defaultEditorSetting,
   type AgentAvailability,
   type ClientConfig,
   type ConfigProblem,
@@ -28,10 +29,11 @@ export interface ConfigSnapshot {
 export type ConfigStore = WatchStore<ConfigSnapshot>;
 
 /**
- * The wire config as this client understands it. A protocol 9 daemon from before `[agents]` (or
- * before an action) sends no such table and an exhaustive bindings record without the newer
- * actions; nothing parses `ConfigState` on the client (oRPC validates no outputs), so the
- * defaults the schema comments promise are applied here, once, for every later consumer.
+ * The wire config as this client understands it. A daemon from before a table sends none of it —
+ * `[agents]` before B5, `[editor]` before C5 — and one from before an action sends an exhaustive
+ * bindings record without it; nothing parses `ConfigState` on the client (oRPC validates no
+ * outputs), so the defaults the schema comments promise are applied here, once, for every later
+ * consumer. Each `??` is that promise: the daemon's own fallback is the same value.
  */
 function normalizeConfig(config: ClientConfig): ClientConfig {
   const bindings: Record<ActionId, string | null> = { ...DEFAULT_BINDINGS };
@@ -42,6 +44,7 @@ function normalizeConfig(config: ClientConfig): ClientConfig {
   return {
     ...config,
     agents: config.agents ?? defaultAgentSettings(),
+    editor: config.editor ?? defaultEditorSetting(),
     keys: { prefix: config.keys?.prefix ?? "", bindings },
   };
 }

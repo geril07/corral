@@ -2,6 +2,7 @@ import {
   DEFAULT_BINDINGS,
   defaultAgentSettings,
   defaultClientConfig,
+  defaultEditorSetting,
 } from "@corral/protocol/config";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -99,6 +100,31 @@ test("deleting the file goes back to the defaults", async () => {
     expect(state.config).toEqual(defaultClientConfig(server.dataDir));
     expect(state.problems).toEqual([]);
   });
+});
+
+test("a pre-C5 config state gets the editor default, not undefined", async () => {
+  // What a C0–C4 daemon on protocol 10 puts on the wire: `agents` exists, `[editor]` does not.
+  // Without this the lane's editor fallback would read `undefined` and never reach `$VISUAL`.
+  const config = structuredClone(defaultClientConfig("/data"));
+  Reflect.deleteProperty(config, "editor");
+  const state = new Store<ConnectionState>({ status: "connected" });
+  const api = {
+    config: {
+      watch: async () =>
+        (async function* () {
+          yield { path: "/home/me/.config/corral/config.toml", config, profiles: [], problems: [] };
+        })(),
+    },
+  };
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a hand-built wire payload
+  const connection = { state, api } as unknown as RpcConnection;
+  const store = createConfigStore(connection);
+  try {
+    await vi.waitFor(() => expect(store.getSnapshot().loaded).toBe(true));
+    expect(store.getSnapshot().config.editor).toEqual(defaultEditorSetting());
+  } finally {
+    store.close();
+  }
 });
 
 test("a pre-B5 config state gets the agent defaults and the newer bindings", async () => {
