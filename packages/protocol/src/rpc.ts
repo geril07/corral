@@ -27,6 +27,15 @@ export const TaskId = z.string().min(1);
 export const SessionId = z.string().min(1);
 export type SessionId = z.infer<typeof SessionId>;
 
+/**
+ * How a session runs: as a terminal, or as chat through its agent's driver (design.md, decision 5).
+ * One vocabulary with a task's view (`TaskView`). A start may name it and a task's agent carries
+ * it; a stored session always has one, and a shell is always `terminal`, which the server refuses
+ * to violate (`LAUNCH_VIEW_UNSUPPORTED`).
+ */
+export const SessionView = TaskView;
+export type SessionView = z.infer<typeof SessionView>;
+
 export const TerminalInfo = z.object({
   id: TerminalId,
   /** The task the terminal works in; `null` for a terminal outside any task. */
@@ -160,6 +169,8 @@ export const TaskAgent = z.object({
   profileId: z.string().min(1).optional(),
   expectedProfileRevision: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
+  /** How the primary session opens; omissions are `terminal`, as on `sessions.start`. */
+  view: SessionView.optional(),
 });
 export type TaskAgent = z.infer<typeof TaskAgent>;
 
@@ -237,15 +248,6 @@ export { AgentKind } from "./config.ts";
 export const SessionKind = z.enum(["shell", ...AgentKind.options]);
 export type SessionKind = z.infer<typeof SessionKind>;
 
-/**
- * How a session runs: as a terminal, or as chat through its agent's driver (design.md, decision 5).
- * One vocabulary with a task's view (`TaskView`). Input may omit it — stored sessions have no view
- * column until B1's migration — and reads back as `terminal`; output always carries it. A shell is
- * always `terminal`, which the server must refuse to violate when a view becomes a choice (B1).
- */
-export const SessionView = TaskView;
-export type SessionView = z.infer<typeof SessionView>;
-
 export const AgentState = z.enum(["working", "blocked", "done", "error", "idle"]);
 export type AgentState = z.infer<typeof AgentState>;
 
@@ -290,7 +292,10 @@ export const Session = z.object({
   kind: SessionKind,
   /**
    * The view the session is shown in. A `chat` session runs a chat driver instead of a terminal
-   * (`chat.*`); the server's storage carries it from B1 on. `terminal` when the sender omits it.
+   * (`chat.*`) and has no terminal; its live frontend is the agent's RPC child. Persisted, so a
+   * restore resumes the same id in the same view. The default keeps "absent means terminal" one
+   * definition: a protocol 9 server from before B1's migration sends no view, and the version
+   * barrier cannot tell it apart from this one.
    */
   view: SessionView.default("terminal"),
   /**
@@ -396,6 +401,8 @@ const launchRefused = {
   LAUNCH_MODEL_INVALID: { data: z.object({ kind: SessionKind }) },
   LAUNCH_ENV_MISSING: { data: z.object({ profileId: z.string().nullable(), name: z.string() }) },
   LAUNCH_ENV_RESERVED: { data: z.object({ name: z.string() }) },
+  /** The agent has no driver for the view, or a shell was asked to run as chat. */
+  LAUNCH_VIEW_UNSUPPORTED: { data: z.object({ kind: SessionKind, view: SessionView }) },
   /** An unexpected spawn failure; `message` is redacted against referenced environment values. */
   LAUNCH_FAILED: { data: z.object({ kind: SessionKind, message: z.string() }) },
 };
@@ -550,6 +557,8 @@ export const contract = {
           /** Only with `profileId`: the profile revision the caller last saw. */
           expectedProfileRevision: z.string().min(1).optional(),
           model: z.string().min(1).optional(),
+          /** `terminal` when omitted; `chat` needs an agent with a chat driver. */
+          view: SessionView.optional(),
         }),
       )
       .output(Session),

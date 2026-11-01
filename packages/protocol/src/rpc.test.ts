@@ -48,9 +48,11 @@ test("a session's view may be omitted, reads back as terminal, and is only termi
     createdAt: 1,
   };
 
-  // A protocol 9 server before B1's migration has no view column; the default supplies `terminal`,
-  // so every read carries the field and there is one definition of "absent means terminal".
+  // A protocol 9 server from before B1's migration has no view column; the default supplies
+  // `terminal`, so every read carries the field and there is one definition of "absent means
+  // terminal". The server's own rows always name it.
   expect(Session.parse(session).view).toBe("terminal");
+  expect(Session.parse({ ...session, view: "terminal" }).view).toBe("terminal");
   expect(Session.parse({ ...session, view: "chat" }).view).toBe("chat");
   expect(Session.safeParse({ ...session, view: "screen" }).success).toBe(false);
 });
