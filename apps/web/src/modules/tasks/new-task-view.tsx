@@ -173,8 +173,10 @@ export function NewTaskView({
     (current.workspaceKey === undefined && settings.workspace.source === "project") ||
     (current.viewKey === undefined && settings.view.source === "project");
   // A configured chat view that this agent cannot show: the config warning covers a named agent;
-  // this line covers the agent the user picked here.
-  const viewFellBack = settings.view.value === "chat" && view.key !== "chat";
+  // this line covers the agent the user picked here. `chatDrivers` is empty until the server
+  // answers `chat.capabilities`, so the line does not flash before the driver list is known.
+  const viewFellBack =
+    settings.view.value === "chat" && view.key !== "chat" && chatDrivers.length > 0;
 
   const chooseProject = (next: string | null) => {
     if (next === null || next === projectId) return;
