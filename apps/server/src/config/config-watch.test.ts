@@ -178,3 +178,28 @@ test("two project keys that resolve to one repository are reported, not merged",
     },
   ]);
 });
+
+test("task creation takes the worktree root and branch prefix from the config, per project", async () => {
+  const repo = initRepo(join(server.scratchDir, "app"));
+  const root = join(server.scratchDir, "custom-worktrees");
+  const api = await server.rpc();
+  const project = await api.projects.add({ path: repo });
+
+  const watcher = await openWatcher();
+  await mkdir(server.configDir, { recursive: true });
+  await writeFile(
+    configFile(),
+    `[tasks]\nworktree-root = "${root}"\n\n[projects."${project.path}"]\nbranch-prefix = "proj/"\n`,
+  );
+  const state = await watcher.next("the config with a project branch prefix");
+  expect(state.problems).toEqual([]);
+
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Config task",
+    workspace: { type: "new-branch" },
+  });
+
+  expect(task.branch).toBe("proj/config-task");
+  expect(task.workspacePath).toBe(join(root, "app", "config-task"));
+});
