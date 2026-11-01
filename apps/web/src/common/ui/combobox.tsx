@@ -3,6 +3,7 @@ import { Combobox as ComboboxPrimitive } from "@base-ui/react";
 import { cn } from "../lib/cn.ts";
 
 import { Button } from "./button.tsx";
+import { Input } from "./input.tsx";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "./input-group.tsx";
 import { ChevronDownIcon, XIcon, CheckIcon } from "lucide-react";
 
@@ -17,6 +18,26 @@ function ComboboxTrigger({ className, children, ...props }: ComboboxPrimitive.Tr
     <ComboboxPrimitive.Trigger
       data-slot="combobox-trigger"
       className={cn("[&_svg:not([class*='size-'])]:size-4", className)}
+      {...props}
+    >
+      {children}
+      <ChevronDownIcon className="pointer-events-none size-4 text-muted-foreground" />
+    </ComboboxPrimitive.Trigger>
+  );
+}
+
+/**
+ * The trigger alone, as a compact stock button showing the selected value (`layout.md`,
+ * **New task view**). The list opens with a search input inside its popup, so the trigger is the
+ * form control and takes its name from `aria-label` or `Combobox.Label`; keyboard navigation and
+ * type-to-filter then belong to that input.
+ */
+function ComboboxButton({ className, children, ...props }: ComboboxPrimitive.Trigger.Props) {
+  return (
+    <ComboboxPrimitive.Trigger
+      data-slot="combobox-button"
+      render={<Button variant="outline" size="sm" />}
+      className={cn("min-w-0 justify-between font-normal", className)}
       {...props}
     >
       {children}
@@ -67,6 +88,18 @@ function ComboboxInput({
       </InputGroupAddon>
       {children}
     </InputGroup>
+  );
+}
+
+/** The popup's search field: a stock input, for the input-inside-popup combobox pattern. */
+function ComboboxSearch({ className, ...props }: ComboboxPrimitive.Input.Props) {
+  return (
+    <ComboboxPrimitive.Input
+      data-slot="combobox-search"
+      render={<Input />}
+      className={cn(className)}
+      {...props}
+    />
   );
 }
 
@@ -261,6 +294,8 @@ export {
   ComboboxChip,
   ComboboxChipsInput,
   ComboboxTrigger,
+  ComboboxButton,
+  ComboboxSearch,
   ComboboxValue,
   useComboboxAnchor,
 };

@@ -5,11 +5,13 @@ export { BoardList, BoardRow } from "./board.tsx";
 export { Button } from "./button.tsx";
 export {
   Combobox,
+  ComboboxButton,
   ComboboxInput,
   ComboboxContent,
   ComboboxEmpty,
   ComboboxItem,
   ComboboxList,
+  ComboboxSearch,
 } from "./combobox.tsx";
 export {
   Command,
@@ -35,6 +37,7 @@ export { Icon, type IconName, type IconSize } from "./icon.tsx";
 export { IconButton } from "./icon-button.tsx";
 export { Input } from "./input.tsx";
 export { TextLink } from "./text-link.tsx";
+export { Textarea } from "./textarea.tsx";
 export { Kbd } from "./kbd.tsx";
 export { AppShell, MainPanel, Screen, SidebarPanel } from "./layout.tsx";
 export { OverflowMenu } from "./overflow-menu.tsx";
