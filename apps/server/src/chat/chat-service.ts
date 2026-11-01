@@ -1,4 +1,5 @@
 import type { ChatStreamMessage } from "@corral/protocol/chat";
+import { rmSync } from "node:fs";
 import type { AgentKind, AgentStatus, ChatSendMode } from "@corral/protocol/rpc";
 import type { ChatAnswer, ChatModelRef } from "@corral/protocol/chat";
 import { ChatLaunchError, ChatUnavailableError, type ChatSubject } from "./chat-errors.ts";
@@ -140,6 +141,15 @@ export class ChatService {
     const driver = this.#drivers.get(sessionId);
     if (driver === undefined) return;
     await driver.stop();
+  }
+
+  /**
+   * Forgets a removed session's persisted sequence floor and exit state. The writer record belongs
+   * to the live child and is gone once it stopped.
+   */
+  forget(sessionId: string): void {
+    this.#lastExit.delete(sessionId);
+    rmSync(floorPath(this.#chatDir, sessionId), { force: true });
   }
 
   /** Stops every frontend; the server is shutting down and cleans up after itself. */

@@ -285,6 +285,7 @@ export class SessionService {
       this.#store.delete(id);
       this.#statuses.delete(id);
       this.#launchErrors.delete(id);
+      this.#chat.forget(id);
       this.#changes.notify();
       if (wasPrimary) this.#taskEvents.primarySessionRemoved();
     });
@@ -355,6 +356,7 @@ export class SessionService {
         this.#store.delete(stored.id);
         this.#statuses.delete(stored.id);
         this.#launchErrors.delete(stored.id);
+        this.#chat.forget(stored.id);
       }
       if (doomed.length > 0) this.#changes.notify();
     });

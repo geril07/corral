@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vite-plus/test";
+import { floorPath } from "./sequence-floor.ts";
 import { useFakeAgents } from "../../test/fake-agents.ts";
 import { addProject } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
@@ -661,6 +662,16 @@ test("a silent child fails the frontend at the ready deadline and is killed", as
     code: "CHAT_UNAVAILABLE",
     data: { reason: "exited" },
   });
+});
+
+test("removing a chat session forgets its persisted sequence floor", async () => {
+  const { api, session } = await chatTask("Floor");
+  const floor = floorPath(join(server.dataDir, "chat"), session.id);
+  await expect.poll(() => existsSync(floor), { timeout: 10_000, message: "the floor" }).toBe(true);
+
+  await api.sessions.remove({ id: session.id });
+
+  expect(existsSync(floor)).toBe(false);
 });
 
 test("the view is validated, and chat refuses a terminal session, a stopped one and an unknown id", async () => {
