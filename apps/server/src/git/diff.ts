@@ -204,10 +204,7 @@ export async function readChanges(
   options: { worktree: boolean; defaultBaseBranch: string },
 ): Promise<{ base: ChangesBase; files: ChangeFile[]; truncated: boolean }> {
   const base = await resolveBase(workspace, options);
-  const tracked =
-    base.commit === null
-      ? []
-      : await diffFiles(workspace, base.commit, ["--name-status", "--numstat"]);
+  const tracked = base.commit === null ? [] : await trackedChanges(workspace, base.commit);
   const untrackedChanges = await readUntracked(workspace);
   const files = [...tracked, ...untrackedChanges].toSorted((a, b) =>
     a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
@@ -220,14 +217,10 @@ export async function readChanges(
 }
 
 /** The tracked part of a task's changes; two git calls because `--name-status` and `--numstat` do not combine under `-z`. */
-async function diffFiles(
-  workspace: string,
-  commit: string,
-  kinds: string[],
-): Promise<ChangeFile[]> {
-  const common = ["diff", "--no-color", "--no-ext-diff", "--find-renames", commit];
-  const names = parseNameStatus(await git(workspace, [...common, kinds[0]!, "-z"]));
-  const counts = parseNumstat(await git(workspace, [...common, kinds[1]!, "-z"]));
+async function trackedChanges(workspace: string, commit: string): Promise<ChangeFile[]> {
+  const common = ["diff", "--no-color", "--no-ext-diff", "--find-renames", commit, "-z"];
+  const names = parseNameStatus(await git(workspace, [...common, "--name-status"]));
+  const counts = parseNumstat(await git(workspace, [...common, "--numstat"]));
   return mergeChangedFiles(names, counts);
 }
 

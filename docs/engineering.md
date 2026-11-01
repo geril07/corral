@@ -70,7 +70,9 @@ Chat Markdown is **Streamdown 2.7.1** (Apache-2.0); its code highlighter and the
 the one shared **`@pierre/diffs` 1.6.2** instance (Apache-2.0), not `@streamdown/code`'s second
 Shiki (goal D1). The timeline is virtualized by **`@legendapp/list` 3.7.1** (MIT). All three are
 free and permissive; only the kit imports Streamdown and `@pierre/diffs`, and the chat module
-imports the list.
+imports the list. The Changes tab's `DiffPane` and 28 px `ChangeFileRow` live in the kit too, so a
+second `PatchDiff` shape (horizontal scroll, no 20-line fold) never reaches a module directly;
+`DiffView` is untouched by it.
 
 ## Testing
 

@@ -149,6 +149,7 @@ export function ChangesView({ task, changes, failed, store }: ChangesViewProps) 
       </div>
       <div
         className="min-h-0 flex-1 overflow-auto border-t border-border pt-2"
+        role="region"
         aria-label="File diff"
       >
         <DiffBody diff={current?.diff} failure={current?.failure} />
