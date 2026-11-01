@@ -78,8 +78,6 @@ function spawnNaming(
       detached: process.platform !== "win32",
     });
     let stdout = "";
-    let timedOut = false;
-    let tooLarge = false;
     let settled = false;
     const finish = (result: NamingRun) => {
       if (settled) return;
@@ -98,30 +96,30 @@ function spawnNaming(
       }
       child.kill("SIGKILL");
     };
+    // A descendant that left the group can hold the stdio pipes open forever. The answer is
+    // already lost, so the timer finishes on its own instead of waiting for `close`.
+    const abandon = (reason: string) => {
+      stop();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      finish({ ok: false, reason });
+    };
     const timer = setTimeout(
-      () => {
-        timedOut = true;
-        stop();
-      },
+      () => abandon(`no answer within ${seconds(options.timeoutMs)}`),
       Math.max(1, options.timeoutMs),
     );
     child.stdout?.setEncoding("utf8");
     child.stdout?.on("data", (chunk: string) => {
       stdout += chunk;
-      if (stdout.length > MAX_STDOUT_CHARS) {
-        tooLarge = true;
-        stop();
-      }
+      if (stdout.length > MAX_STDOUT_CHARS) abandon("the answer was too large");
     });
     // Drained, never logged: stderr may repeat the prompt or a credential.
     child.stderr?.resume();
     child.once("error", (error) =>
       finish({ ok: false, reason: `could not start ${command}: ${messageOf(error)}` }),
     );
+    // The normal path: `close` fires once the child and every pipe it owns are gone.
     child.once("close", (code, signal) => {
-      if (timedOut)
-        return finish({ ok: false, reason: `no answer within ${seconds(options.timeoutMs)}` });
-      if (tooLarge) return finish({ ok: false, reason: "the answer was too large" });
       if (code !== 0)
         return finish({
           ok: false,
