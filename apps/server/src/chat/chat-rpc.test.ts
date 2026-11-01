@@ -12,7 +12,7 @@ import { floorPath } from "./sequence-floor.ts";
 import { useFakeAgents } from "../../test/fake-agents.ts";
 import { addProject } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
-import { processExists, sessionsOf } from "../../test/session-helpers.ts";
+import { launchesOf, processExists, sessionsOf } from "../../test/session-helpers.ts";
 
 const server = useServer({
   chat: { dialogTimeoutMs: 600, readyTimeoutMs: 1200, exitGraceMs: 400, writerWaitMs: 2000 },
@@ -755,4 +755,223 @@ test("the model and reasoning level switch through the driver and are reported b
   } finally {
     await chat.close();
   }
+});
+
+/** Answers the fake's dialog and waits for the turn to settle, so the conversation has history. */
+async function settleTurn(api: Api, sessionId: string, text = "Add a note to notes.txt") {
+  const chat = follow(api, sessionId);
+  try {
+    await chat.until((view) => view.itemOfKind("user-request") !== undefined, "the dialog");
+    expect(chat.itemOfKind("user-message")).toMatchObject({ text });
+    await api.chat.respond({
+      sessionId,
+      requestId: chat.itemOfKind("user-request")!.id,
+      value: true,
+    });
+    await chat.until((view) => view.state.turn === "settled", "the settled turn");
+  } finally {
+    await chat.close();
+  }
+}
+
+/** Waits until the fake pi has been launched `count` times and returns those launches. */
+function piLaunches(count: number) {
+  return launchesOf(agents, "pi", count);
+}
+
+/** The argv of every fake pi launch, oldest first. */
+async function piArgv(): Promise<string[][]> {
+  return (await agents.launches()).map((launch) => launch.argv);
+}
+
+test("an idle chat session hands over to a terminal and back with its id, label, tab place and history", async () => {
+  const { api, session } = await chatTask("Remember the note");
+  await settleTurn(api, session.id, "Remember the note");
+  const labelled = await api.sessions.setLabel({ id: session.id, label: "Notes" });
+  expect(labelled.label).toBe("Notes");
+  const [chatLaunch] = await agents.launches();
+  expect(processExists(chatLaunch!.pid)).toBe(true);
+  const tabs = (await sessionsOf(api)).map((candidate) => candidate.id);
+
+  // chat → terminal: the chat child goes first, then pi's TUI opens on the same agent session.
+  const handed = await api.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+  expect(handed).toMatchObject({
+    id: session.id,
+    kind: "pi",
+    view: "terminal",
+    state: "running",
+    label: "Notes",
+    agentSessionId: session.agentSessionId,
+    terminalId: expect.any(String),
+  });
+  // No second frontend ever existed: the chat child is gone by the time the terminal is recorded.
+  const [, terminalLaunch] = await piLaunches(2);
+  expect(processExists(chatLaunch!.pid)).toBe(false);
+  expect(await piArgv()).toEqual([
+    ["--mode", "rpc", "--session-id", session.agentSessionId],
+    ["--session-id", session.agentSessionId],
+  ]);
+  expect(processExists(terminalLaunch!.pid)).toBe(true);
+  // The same row, in the same place of the task's tabs.
+  expect((await sessionsOf(api)).map((candidate) => candidate.id)).toEqual(tabs);
+  // The chat procedures agree with the row: this session is a terminal now.
+  await expect(firstMessage(api.chat.watch({ sessionId: session.id }))).rejects.toMatchObject({
+    code: "CHAT_UNAVAILABLE",
+    data: { reason: "no-driver" },
+  });
+  const screen = await server.attach(handed.terminalId!);
+  await screen.waitForScreen("fake pi ready");
+
+  // terminal → chat: the chat is rebuilt from pi's own history, and nothing is prompted again.
+  const back = await api.sessions.setView({ id: session.id, view: "chat", size: SIZE });
+  expect(back).toMatchObject({
+    id: session.id,
+    view: "chat",
+    state: "running",
+    label: "Notes",
+    agentSessionId: session.agentSessionId,
+    terminalId: null,
+  });
+  expect(processExists(terminalLaunch!.pid)).toBe(false);
+  const rebuilt = follow(api, session.id);
+  try {
+    await rebuilt.until(
+      (view) => view.itemOfKind("tool-call")?.status === "done",
+      "the rebuilt history",
+    );
+    expect(rebuilt.itemOfKind("user-message")).toMatchObject({ text: "Remember the note" });
+    expect(rebuilt.itemOfKind("assistant-message")).toMatchObject({
+      text: "Here is the answer.",
+      streaming: false,
+    });
+    expect(rebuilt.itemOfKind("tool-call")).toMatchObject({ diff: { path: "notes.txt" } });
+  } finally {
+    await rebuilt.close();
+  }
+  await piLaunches(3);
+  expect(await piArgv()).toEqual([
+    ["--mode", "rpc", "--session-id", session.agentSessionId],
+    ["--session-id", session.agentSessionId],
+    ["--mode", "rpc", "--session-id", session.agentSessionId],
+  ]);
+  // pi's history holds the prompt once: a resumed frontend does not hand it over again.
+  expect(userMessages(await journalOf(session.agentSessionId!))).toEqual(["Remember the note"]);
+});
+
+test("a handoff while the turn runs aborts it first, so the conversation keeps the aborted turn", async () => {
+  // Long enough that the turn is still running when the handoff arrives, short enough that pi
+  // reports the aborted turn before the stop's grace runs out.
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "150");
+  const { api, session } = await chatTask("Change the note");
+  const [chatLaunch] = await piLaunches(1);
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.state.turn === "working", "the running turn");
+
+    // The handoff aborts the turn before the child goes, and waits for pi to report it ended.
+    const handed = await api.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+    expect(handed).toMatchObject({ view: "terminal", state: "running" });
+    expect(processExists(chatLaunch!.pid)).toBe(false);
+    // What the agent had written stays in its own history, marked as the abort it was.
+    const journal = await journalOf(session.agentSessionId!);
+    expect(userMessages(journal)).toEqual(["Change the note"]);
+    expect(journal.find((message) => message["role"] === "assistant")).toMatchObject({
+      stopReason: "aborted",
+    });
+    await piLaunches(2);
+    expect(await piArgv()).toEqual([
+      ["--mode", "rpc", "--session-id", session.agentSessionId],
+      ["--session-id", session.agentSessionId],
+    ]);
+    // A watching chat client saw the turn end, not a stream that stopped mid-word.
+    await chat.until((view) => view.state.turn !== "working", "the ended turn");
+    expect(chat.itemOfKind("error")).toBeUndefined();
+  } finally {
+    await chat.close();
+  }
+});
+
+test("a handoff whose second start fails leaves the session stopped in the target view, and retries", async () => {
+  const { api, session } = await chatTask("Keep it");
+  await settleTurn(api, session.id, "Keep it");
+  const [chatLaunch] = await agents.launches();
+  const path = process.env["PATH"];
+
+  // Nothing the server can start: the handoff's second launch fails after the first frontend is gone.
+  vi.stubEnv("PATH", "/nonexistent");
+  await expect(
+    api.sessions.setView({ id: session.id, view: "terminal", size: SIZE }),
+  ).rejects.toMatchObject({ code: "AGENT_NOT_FOUND", data: { command: "pi" } });
+  expect(processExists(chatLaunch!.pid)).toBe(false);
+  const stopped = (await sessionsOf(api)).find((candidate) => candidate.id === session.id);
+  expect(stopped).toMatchObject({
+    state: "stopped",
+    view: "terminal",
+    terminalId: null,
+    agentSessionId: session.agentSessionId,
+  });
+  expect(stopped?.launchError).toBe("pi is not on the server's PATH");
+  // Nothing was left running on the session, and no second process was started for it.
+  expect(await agents.launches()).toHaveLength(1);
+
+  // A stopped session only records the view its next start opens in: that is the retry in either
+  // view, without a process to stop.
+  const flipped = await api.sessions.setView({ id: session.id, view: "chat", size: SIZE });
+  expect(flipped).toMatchObject({
+    state: "stopped",
+    view: "chat",
+    launchError: expect.any(String),
+  });
+  expect(await agents.launches()).toHaveLength(1);
+
+  // With the agent back, `restart` is the retry and opens the view the session holds.
+  vi.stubEnv("PATH", path ?? "");
+  const restarted = await api.sessions.restart({ id: session.id, size: SIZE });
+  expect(restarted).toMatchObject({ view: "chat", state: "running", launchError: null });
+  await piLaunches(2);
+  expect(await piArgv()).toEqual([
+    ["--mode", "rpc", "--session-id", session.agentSessionId],
+    ["--mode", "rpc", "--session-id", session.agentSessionId],
+  ]);
+  // The retry resumes the conversation the first frontend wrote; nothing prompts it again.
+  const rebuilt = follow(api, session.id);
+  try {
+    await rebuilt.until(
+      (view) => view.itemOfKind("assistant-message") !== undefined,
+      "the rebuilt history",
+    );
+    expect(rebuilt.itemOfKind("user-message")).toMatchObject({ text: "Keep it" });
+  } finally {
+    await rebuilt.close();
+  }
+});
+
+test("setView refuses a shell and an agent without a driver, and a switch to the current view does nothing", async () => {
+  const { api, task, session } = await chatTask("Same view");
+  await expect(
+    api.sessions.setView({ id: session.id, view: "chat", size: SIZE }),
+  ).resolves.toMatchObject({ id: session.id, view: "chat" });
+  expect(await agents.launches()).toHaveLength(1);
+
+  const shell = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
+  await expect(
+    api.sessions.setView({ id: shell.id, view: "chat", size: SIZE }),
+  ).rejects.toMatchObject({
+    code: "LAUNCH_VIEW_UNSUPPORTED",
+    data: { kind: "shell", view: "chat" },
+  });
+  const claude = await api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE });
+  await expect(
+    api.sessions.setView({ id: claude.id, view: "chat", size: SIZE }),
+  ).rejects.toMatchObject({
+    code: "LAUNCH_VIEW_UNSUPPORTED",
+    data: { kind: "claude", view: "chat" },
+  });
+  await expect(
+    api.sessions.setView({ id: "nope", view: "chat", size: SIZE }),
+  ).rejects.toMatchObject({ code: "SESSION_NOT_FOUND" });
+  // Neither refusal touched a process: the shell and claude sessions still run in their terminals.
+  expect((await sessionsOf(api)).find((each) => each.id === shell.id)?.state).toBe("running");
+  expect((await sessionsOf(api)).find((each) => each.id === claude.id)?.state).toBe("running");
 });
