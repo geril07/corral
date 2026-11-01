@@ -281,14 +281,19 @@ export class SessionService {
    * A working turn is aborted first, so the chat's own transcript settles before the process goes.
    * The conversation is the agent's, so history survives the frontend; in-flight output and pending
    * requests do not, which is what the confirmation in the client says. A handoff whose second
-   * start fails leaves the session `stopped` in the target view with the launch error, so
-   * `restart` (or `setView` back) is the retry; a stopped session only records the view its next
-   * start opens in.
+   * start fails leaves the session `stopped` (and settled, so a dead session does not keep its task
+   * in "working") in the target view with the launch error, so `restart` (or `setView` back) is the
+   * retry; a stopped session only records the view its next start opens in.
+   *
+   * Asking for the view the session already has touches nothing: two windows on one session, or a
+   * second `prefix v` before the first one's answer arrives, would otherwise kill and respawn a
+   * perfectly good frontend.
    */
   setView(id: string, view: SessionView, size: TerminalSize): Promise<Session> {
     return this.#queue.run(async () => {
       const stored = this.#stored(id);
       const target = this.#viewFor(stored.kind, view);
+      if (stored.view === target) return this.#withTerminal(stored);
       if (stored.state === "running") {
         const prompt = this.#taskPrompt(stored) ?? null;
         await this.#chat.abortWorking(id);
@@ -304,8 +309,10 @@ export class SessionService {
         } catch (error) {
           const reason = launchFailureReason(error);
           this.#store.setView(id, target);
-          this.#store.setState(id, "stopped");
           this.#launchErrors.set(id, reason);
+          // The second frontend never started, so what the first one reported no longer holds:
+          // a `working` status on a stopped session would keep its task in "Working" forever.
+          this.#settle(id);
           this.#changes.notify();
           console.error(
             `corral-server: could not hand session ${stored.id} over to ${target} (${stored.kind}): ${reason}`,
@@ -314,7 +321,7 @@ export class SessionService {
           throw error;
         }
       }
-      if (stored.view !== target) this.#store.setView(id, target);
+      this.#store.setView(id, target);
       this.#changes.notify();
       return this.#withTerminal(this.#stored(id));
     });
@@ -608,6 +615,19 @@ export class SessionService {
     }
     const input: CreateTerminalInput = { cwd: task.workspacePath, size };
     if (adapter) {
+      // A chat frontend of this session may still hold pi's session file (a server that died, a
+      // child that outlived its kill): the record is what stops it, and a terminal launch writes
+      // the same file. Released or refused here, as a chat launch does — never two writers.
+      try {
+        await this.#chat.releaseWriterBeforeTerminal(stored.id);
+      } catch (error) {
+        throw new LaunchSpawnError(
+          stored.kind,
+          error instanceof ChatLaunchError
+            ? error.message
+            : redactLaunchError(error, referencedValues),
+        );
+      }
       const command = this.#agentCommand(stored.kind);
       env["CORRAL_STATUS_URL"] = this.#statusUrl(stored.id);
       env["CORRAL_STATUS_TOKEN"] = statusToken;
