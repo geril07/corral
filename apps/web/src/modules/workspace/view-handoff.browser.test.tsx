@@ -18,7 +18,11 @@ const { newClient } = realServerClients();
  * workspace asks for are recorded: `sessions.setView` and the two chat calls. The server's own
  * sessions are untouched, so this file leaves nothing behind on the shared server.
  */
-function seededClient(options: { drivers: "claude" | "pi"; turn: "idle" | "working" }) {
+function seededClient(options: {
+  drivers: "claude" | "pi" | "opencode";
+  turn: "idle" | "working";
+  bothLive?: boolean;
+}) {
   const real = newClient();
   // `sessions.setView` is recorded and answered by the test, which decides when the server's
   // reply lands: in between, the main area is the handoff notice.
@@ -62,7 +66,8 @@ function seededClient(options: { drivers: "claude" | "pi"; turn: "idle" | "worki
         approvals: true,
         modelSwitch: true,
         reasoningLevels: true,
-        terminalView: "handoff-only" as const,
+        terminalView:
+          options.bothLive === true ? ("both-live" as const) : ("handoff-only" as const),
       },
     ],
   } as const;
@@ -117,7 +122,7 @@ function seededTask(projectId: string, workspacePath: string): Task {
 function seededSession(
   id: string,
   taskId: string,
-  kind: "claude" | "pi",
+  kind: "claude" | "pi" | "opencode",
   view: SessionView,
   status: AgentStatus | null = null,
 ): Session {
@@ -263,6 +268,62 @@ test("a busy agent is asked before prefix v switches, and the confirmation says 
       .toBeDisabled();
     releaseSetView();
     await expect.element(confirm).not.toBeInTheDocument();
+  } finally {
+    tasks.set({ loaded: true, tasks: [] });
+    sessions.set({ loaded: true, sessions: [] });
+    chatStore.close();
+    expect(real.sessions.getSnapshot().sessions).toEqual([]);
+  }
+});
+
+test("a both-live agent opens the other view beside the running one: no handoff, no confirmation", async () => {
+  const { client, real, tasks, sessions, setView, chatStore, releaseSetView } = seededClient({
+    drivers: "opencode",
+    bothLive: true,
+    turn: "working",
+  });
+  const { repo } = await appWithProject(client);
+  const project = await vi.waitFor(() => {
+    const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
+    if (found === undefined) throw new Error("the project is not in the list yet");
+    return found;
+  });
+  await vi.waitFor(() => expect(real.sessions.getSnapshot().loaded).toBe(true));
+  const task = seededTask(project.id, project.path);
+
+  try {
+    tasks.set({ loaded: true, tasks: [task] });
+    sessions.set({
+      loaded: true,
+      sessions: [seededSession("agent-oc", task.id, "opencode", "chat")],
+    });
+    await expect.element(page.getByRole("log", { name: "Chat transcript" })).toBeVisible();
+
+    // The palette says what the action does for this driver: it opens, it does not switch.
+    await openPalette();
+    await expect
+      .element(paletteItem(/Open the terminal view/))
+      .not.toHaveAttribute("aria-disabled", "true");
+    await userEvent.keyboard("{Escape}");
+
+    // The turn is working, and still nothing is asked: opening the terminal adds a client of the
+    // agent's server, so the turn is not aborted and no request is cancelled.
+    await prefixThen("v");
+    await vi.waitFor(() =>
+      expect(setView).toHaveBeenCalledWith({
+        id: "agent-oc",
+        view: "terminal",
+        size: expect.objectContaining({ cols: expect.any(Number) }),
+      }),
+    );
+    await expect.element(page.getByRole("alertdialog")).not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("status", { name: /Opening the terminal view/ }))
+      .toBeVisible();
+    releaseSetView();
+    await expect
+      .element(page.getByRole("status", { name: /Opening the terminal view/ }))
+      .not.toBeInTheDocument();
   } finally {
     tasks.set({ loaded: true, tasks: [] });
     sessions.set({ loaded: true, sessions: [] });

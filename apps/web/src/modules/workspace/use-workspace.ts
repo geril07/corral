@@ -133,8 +133,12 @@ export function useWorkspace({
     setDialog(next);
   };
   const [failure, setFailure] = useState<string>();
-  /** The view a handoff in flight is opening; the main area says so instead of showing a pane. */
-  const [handoff, setHandoff] = useState<SessionView>();
+  /**
+   * The view a switch in flight is opening; the main area says so instead of showing a pane. `live`
+   * is a `both-live` driver's switch, which starts a client of the agent's server beside the live
+   * one rather than stopping it (C1).
+   */
+  const [handoff, setHandoff] = useState<{ target: SessionView; live: boolean }>();
   const fitSize = useRef(DEFAULT_SIZE);
 
   // The URL is the source of truth for Back/Forward and for a route search that arrives after
@@ -374,14 +378,20 @@ export function useWorkspace({
    */
   const viewHandoff = (
     session: Session | undefined,
-  ): { target: SessionView } | { reason: string } => {
+  ): { target: SessionView; live: boolean } | { reason: string } => {
     if (session === undefined) return { reason: "Select an agent session." };
     if (handoff !== undefined) return { reason: "This session is switching views now." };
     if (session.kind === "shell") return { reason: "A shell runs in a terminal only." };
     if (!chatCapabilities.loaded) return { reason: "Waiting for the server's chat drivers." };
-    if (chatDriverFor(chatCapabilities.drivers, session.kind) === undefined)
+    const driver = chatDriverFor(chatCapabilities.drivers, session.kind);
+    if (driver === undefined)
       return { reason: `The ${session.kind} agent has no chat driver in this build.` };
-    return { target: session.view === "chat" ? "terminal" : "chat" };
+    // A both-live driver (OpenCode) keeps the other frontend running: this opens a client beside
+    // it, so nothing is lost and no confirmation is needed.
+    return {
+      target: session.view === "chat" ? "terminal" : "chat",
+      live: driver.terminalView === "both-live",
+    };
   };
 
   /**
@@ -407,8 +417,8 @@ export function useWorkspace({
    * Hands the session over: the main area steps aside while the server stops one frontend and
    * starts the other on the same agent session, so no pane shows a half-switched session.
    */
-  const switchView = async (session: Session, target: SessionView) => {
-    setHandoff(target);
+  const switchView = async (session: Session, target: SessionView, live = false) => {
+    setHandoff({ target, live });
     try {
       await api.sessions.setView({ id: session.id, view: target, size: fitSize.current });
       choose({ taskId: session.taskId, entryId: session.id });
@@ -421,6 +431,10 @@ export function useWorkspace({
   const requestSwitchView = (session: Session) => {
     const offered = viewHandoff(session);
     if (!("target" in offered)) return;
+    if (offered.live) {
+      void attempt(() => switchView(session, offered.target, true));
+      return;
+    }
     const busy = agentBusy(session);
     if (busy.working || busy.waiting) {
       openDialog({
@@ -712,7 +726,12 @@ export function useWorkspace({
     "switch-view": (() => {
       const offered = viewHandoff(currentSession);
       return {
-        label: "target" in offered ? `Switch to ${offered.target}` : "Switch view",
+        label:
+          "target" in offered
+            ? offered.live
+              ? `Open the ${offered.target} view`
+              : `Switch to ${offered.target}`
+            : "Switch view",
         group: "Sessions",
         enabled: "target" in offered,
         ...("reason" in offered ? { reason: offered.reason } : {}),

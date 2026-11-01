@@ -321,7 +321,7 @@ export function WorkspaceScreen({
         )}
         <div className="relative min-h-0 flex-1" role="region" aria-label="task content">
           {handoff !== undefined ? (
-            <HandOffNotice target={handoff} />
+            <HandOffNotice target={handoff.target} live={handoff.live} />
           ) : (
             (composer ??
             changesPane ??
@@ -432,21 +432,27 @@ export function WorkspaceScreen({
 }
 
 /**
- * What the task content shows while a session switches views: the two frontends never overlap, so
- * between the stop and the start there is no pane to show, and the old one has already given up the
- * keyboard. The tab strip above keeps the session, its name and its place throughout.
+ * What the task content shows while a session switches views. A `handoff-only` driver's two
+ * frontends never overlap, so between the stop and the start there is no pane to show. A
+ * `both-live` driver starts a second client of the agent's server beside the live one, so the
+ * agent keeps working and nothing is lost. The tab strip keeps the session, its name and its place
+ * throughout.
  */
-function HandOffNotice({ target }: { target: SessionView }) {
+function HandOffNotice({ target, live }: { target: SessionView; live: boolean }) {
   return (
     <div
       className="flex h-full flex-col items-center justify-center gap-1 px-4"
       role="status"
-      aria-label={`Switching this session to ${target}`}
+      aria-label={live ? `Opening the ${target} view` : `Switching this session to ${target}`}
       aria-live="polite"
     >
-      <p className="m-0 text-muted-foreground">Switching this session to {target}…</p>
+      <p className="m-0 text-muted-foreground">
+        {live ? `Opening the ${target} view…` : `Switching this session to ${target}…`}
+      </p>
       <p className="m-0 text-xs text-muted-foreground">
-        The agent keeps its conversation; the frontend starts again.
+        {live
+          ? "The agent keeps running in both views."
+          : "The agent keeps its conversation; the frontend starts again."}
       </p>
     </div>
   );
