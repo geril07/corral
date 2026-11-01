@@ -31,6 +31,16 @@ test("a missing agent names the command, and session errors are explained", () =
   );
 });
 
+test("a typed error is recognized by shape, not only as an ORPCError instance", () => {
+  // A browser can hold a second copy of the client package; the wire error is still this shape.
+  const wire = {
+    defined: true,
+    code: "CHAT_MODEL_UNSUPPORTED",
+    data: { model: { provider: "stub", id: "stub-9" } },
+  };
+  expect(describeError(wire)).toBe("The agent does not offer the model stub-9.");
+});
+
 test("a refused model, level or disabled agent names what the server refused", () => {
   expect(
     describeError(defined("CHAT_MODEL_UNSUPPORTED", { model: { provider: "stub", id: "stub-9" } })),

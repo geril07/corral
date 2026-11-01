@@ -1,11 +1,16 @@
 import type { ChatUnavailableReason } from "@corral/protocol/rpc";
-import { ORPCError } from "@orpc/client";
 
-/** The typed errors of the contract (`rpc.ts`) that the UI explains in its own words. */
+/**
+ * The typed errors of the contract (`rpc.ts`) that the UI explains in its own words. Matched by
+ * shape rather than `instanceof`: a browser can hold more than one copy of the client package,
+ * which is why oRPC itself carries a `Symbol.hasInstance` workaround, and `launch-error.ts`
+ * already matches by shape.
+ */
 function definedError(error: unknown): { code: string; data: unknown } | undefined {
-  return error instanceof ORPCError && error.defined
-    ? { code: error.code, data: error.data }
-    : undefined;
+  if (typeof error !== "object" || error === null) return undefined;
+  if (Reflect.get(error, "defined") !== true) return undefined;
+  const code = Reflect.get(error, "code");
+  return typeof code === "string" ? { code, data: Reflect.get(error, "data") } : undefined;
 }
 
 function field(data: unknown, key: string): unknown {
