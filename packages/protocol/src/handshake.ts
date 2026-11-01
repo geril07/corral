@@ -14,8 +14,8 @@ import { z } from "zod";
  * a version 6 server strips the binding and the fields, has no `seen_at` column and answers
  * `tasks.markSeen` with an unknown procedure. Version 8 adds the toggle-sidebar action: a
  * version 7 server strips that binding from its exhaustive keys. Version 9 adds the `chat.*`
- * contract and `Session.view`: a version 8 server has no chat procedures at all, and its sessions
- * carry no view.
+ * contract and `Session.view`, optional until B1's migration: a version 8 server has no chat
+ * procedures at all, and its sessions carry no view.
  */
 export const PROTOCOL_VERSION = 9;
 

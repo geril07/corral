@@ -5,6 +5,12 @@ import type {
   ChatStreamMessage,
 } from "@corral/protocol/chat";
 
+/** Why a chat stream stopped, when it did; `code` is the RPC error code or a client-side one. */
+export interface ChatFailure {
+  code: string;
+  message: string;
+}
+
 /** What a chat store holds: the session state, the timeline, and the sequence both are at. */
 export interface ChatStoreSnapshot {
   /** False until the first snapshot has been applied; the rest is empty until then. */
@@ -13,6 +19,8 @@ export interface ChatStoreSnapshot {
   sequence: number | null;
   state: ChatSessionState;
   items: readonly ChatItem[];
+  /** Why the last watch stopped, so a frozen view can say so; cleared by the next applied message. */
+  failure: ChatFailure | null;
 }
 
 /** The chat of a session before anything has arrived: idle, no items. */
@@ -29,6 +37,7 @@ export const initialChatSnapshot: ChatStoreSnapshot = {
     reasoningLevels: [],
   },
   items: [],
+  failure: null,
 };
 
 /** `applied` carries the next snapshot; `resync` means the stream was not contiguous. */
@@ -43,7 +52,7 @@ export function applyChatMessage(
   message: ChatStreamMessage,
 ): ChatApply {
   if (message.type === "snapshot") {
-    return { type: "applied", snapshot: { loaded: true, ...message.snapshot } };
+    return { type: "applied", snapshot: { loaded: true, failure: null, ...message.snapshot } };
   }
   if (!current.loaded || current.sequence === null || message.sequence !== current.sequence + 1) {
     return { type: "resync" };
@@ -55,6 +64,7 @@ export function applyChatMessage(
         type: "applied",
         snapshot: {
           loaded: true,
+          failure: null,
           sequence: message.sequence,
           state: applied.state,
           items: applied.items,

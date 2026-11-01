@@ -8,6 +8,7 @@ const session = (state: Session["state"], kind: Session["kind"] = "claude"): Ses
   id: "s1",
   taskId: "t1",
   kind,
+  view: "terminal",
   agentSessionId: null,
   terminalId: null,
   state,

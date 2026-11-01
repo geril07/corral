@@ -1,7 +1,7 @@
 import { eventIterator, oc } from "@orpc/contract";
 import { z } from "zod";
 import { ChatAnswer, ChatItemId, ChatModelRef, ChatStreamMessage } from "./chat.ts";
-import { AgentKind, EnvRef, configContract } from "./config.ts";
+import { AgentKind, EnvRef, TaskView, configContract } from "./config.ts";
 import { Label } from "./label.ts";
 
 /** Control channel, served at `RPC_PATH` over WebSocket with oRPC. Terminal bytes go elsewhere. */
@@ -239,9 +239,11 @@ export type SessionKind = z.infer<typeof SessionKind>;
 
 /**
  * How a session runs: as a terminal, or as chat through its agent's driver (design.md, decision 5).
- * Chat needs a driver for the agent; a shell is always `terminal`.
+ * One vocabulary with a task's view (`TaskView`). Input may omit it — stored sessions have no view
+ * column until B1's migration — and reads back as `terminal`; output always carries it. A shell is
+ * always `terminal`, which the server must refuse to violate when a view becomes a choice (B1).
  */
-export const SessionView = z.enum(["terminal", "chat"]);
+export const SessionView = TaskView;
 export type SessionView = z.infer<typeof SessionView>;
 
 export const AgentState = z.enum(["working", "blocked", "done", "error", "idle"]);
@@ -288,9 +290,9 @@ export const Session = z.object({
   kind: SessionKind,
   /**
    * The view the session is shown in. A `chat` session runs a chat driver instead of a terminal
-   * (`chat.*`); the server's storage carries it from B1 on. Absent means `terminal`.
+   * (`chat.*`); the server's storage carries it from B1 on. `terminal` when the sender omits it.
    */
-  view: SessionView.optional(),
+  view: SessionView.default("terminal"),
   /**
    * The agent's own session id, used to resume it. Set at start for agents that accept one
    * (Claude Code, pi, OpenCode); discovered after start for Codex, so `null` until then.
@@ -399,8 +401,17 @@ const launchRefused = {
 };
 /** Git refused or failed; `message` is git's own stderr, meant for the user. */
 const gitFailed = { GIT_FAILED: { data: z.object({ message: z.string() }) } };
-/** The session has no live chat driver (yet, any more, or for this agent); `message` is safe to show. */
-const chatUnavailable = { CHAT_UNAVAILABLE: { data: z.object({ message: z.string() }) } };
+/** The session has no live chat driver; `message` is safe to show and `reason` says for how long. */
+const chatUnavailable = {
+  CHAT_UNAVAILABLE: {
+    data: z.object({
+      message: z.string(),
+      /** `no-driver`: this build has no chat driver for the agent; `not-started`: the session's
+       * frontend is not running; `exited`: it stopped and its state is what is left. */
+      reason: z.enum(["no-driver", "not-started", "exited"]),
+    }),
+  },
+};
 const issueErrors = {
   /** The URL is not a GitHub or GitLab issue URL, or carries credentials or unsafe parts. */
   ISSUE_URL_INVALID: { data: z.object({ message: z.string() }) },
@@ -569,19 +580,30 @@ export const contract = {
   },
   chat: {
     /**
+     * What this server build can show as chat: the agent kinds with a driver. A build fact, not a
+     * session's state, so a client asks once (a handoff or a disabled picker does not need a probe).
+     */
+    capabilities: oc.output(z.object({ drivers: z.array(AgentKind) })),
+    /**
      * Yields the chat of one session: a snapshot first, then sequenced events. With `after` it
      * yields what the client missed instead, or a fresh snapshot when those events are gone.
      * Sequences are contiguous per session; a hole means the client must watch again without `after`.
+     * The server may end the iterator when the session's frontend stops; a client treats a clean end
+     * as a retry (watch again from its last sequence), not as the end of the chat.
      */
     watch: oc
       .errors({ ...sessionNotFound, ...chatUnavailable })
       .input(ChatWatchInput)
       .output(eventIterator(ChatStreamMessage)),
-    /** Sends a message: starts a turn, steers the running one, or queues one after it. */
+    /**
+     * Sends a message: starts a turn, steers the running one, or queues one after it. Returns the
+     * id of the item it became, so a client can reconcile an optimistic user message with the one
+     * the stream delivers instead of showing it twice.
+     */
     send: oc
       .errors({ ...sessionNotFound, ...chatUnavailable })
       .input(ChatSendInput)
-      .output(z.void()),
+      .output(ChatItemId),
     /** Stops the turn the agent is working on. The session stays usable. */
     abort: oc
       .errors({ ...sessionNotFound, ...chatUnavailable })

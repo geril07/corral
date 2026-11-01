@@ -308,7 +308,7 @@ inputs; version 6 adds the task title source, `tasks.rename`, the rename-task/se
 actions and the required task, naming and project settings; version 7 adds the sidebar-mode
 action, the server-owned task `seenAt` and, while still unreleased, the task's prompt and primary
 session; version 8 adds the toggle-sidebar action; version 9 adds the `chat.*` contract and the
-session's `view`. A protocol 4 daemon would strip task sources, a
+session's `view`, optional until B1's migration. A protocol 4 daemon would strip task sources, a
 protocol 3 daemon sends an exhaustive bindings record without `settings`, and a protocol 2
 daemon would strip launch fields and start the agent natively; a protocol 5 daemon strips the
 title source and its bindings, a protocol 6 daemon strips `seenAt` and the sidebar-mode binding

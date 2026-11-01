@@ -100,6 +100,17 @@ function launchError(
 /** Mapped to `CHAT_UNAVAILABLE` until a driver exists (B1). */
 const CHAT_NOT_AVAILABLE = "This server has no chat driver for any session yet.";
 
+/** The refusal every chat procedure gives in a build without a driver. */
+function chatNotAvailable(errors: {
+  CHAT_UNAVAILABLE: (options: {
+    data: { message: string; reason: "no-driver" | "not-started" | "exited" };
+  }) => Error;
+}): Error {
+  return errors.CHAT_UNAVAILABLE({
+    data: { message: CHAT_NOT_AVAILABLE, reason: "no-driver" },
+  });
+}
+
 export function createRpcRouter({ config, projects, tasks, sessions, terminals }: RpcServices) {
   const os = implement(contract);
   return os.router({
@@ -310,26 +321,27 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
       watch: os.sessions.watch.handler(({ signal }) => sessions.watch(signal)),
     },
     chat: {
-      // Contract-only until B1 adds the pi driver: every call refuses with CHAT_UNAVAILABLE, so a
-      // client sees an honest refusal instead of a procedure that does not exist. B1 replaces these
-      // handlers with a chat service; nothing here is a fallback to keep.
+      // Contract-only until B1 adds the pi driver: no kind has a driver, so every call refuses with
+      // CHAT_UNAVAILABLE (`no-driver`) instead of a procedure that does not exist. B1 fills both the
+      // build fact and the session procedures; nothing here is a fallback to keep.
+      capabilities: os.chat.capabilities.handler(() => ({ drivers: [] })),
       watch: os.chat.watch.handler(({ errors }) => {
-        throw errors.CHAT_UNAVAILABLE({ data: { message: CHAT_NOT_AVAILABLE } });
+        throw chatNotAvailable(errors);
       }),
       send: os.chat.send.handler(({ errors }) => {
-        throw errors.CHAT_UNAVAILABLE({ data: { message: CHAT_NOT_AVAILABLE } });
+        throw chatNotAvailable(errors);
       }),
       abort: os.chat.abort.handler(({ errors }) => {
-        throw errors.CHAT_UNAVAILABLE({ data: { message: CHAT_NOT_AVAILABLE } });
+        throw chatNotAvailable(errors);
       }),
       respond: os.chat.respond.handler(({ errors }) => {
-        throw errors.CHAT_UNAVAILABLE({ data: { message: CHAT_NOT_AVAILABLE } });
+        throw chatNotAvailable(errors);
       }),
       setModel: os.chat.setModel.handler(({ errors }) => {
-        throw errors.CHAT_UNAVAILABLE({ data: { message: CHAT_NOT_AVAILABLE } });
+        throw chatNotAvailable(errors);
       }),
       setReasoning: os.chat.setReasoning.handler(({ errors }) => {
-        throw errors.CHAT_UNAVAILABLE({ data: { message: CHAT_NOT_AVAILABLE } });
+        throw chatNotAvailable(errors);
       }),
     },
     terminals: {

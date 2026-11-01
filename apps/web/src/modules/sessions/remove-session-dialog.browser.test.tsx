@@ -9,6 +9,7 @@ const session: Session = {
   id: "s1",
   taskId: "t1",
   kind: "claude",
+  view: "terminal",
   agentSessionId: "abc",
   terminalId: "term",
   state: "running",

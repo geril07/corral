@@ -50,6 +50,7 @@ const session = (
   id,
   taskId,
   kind: "shell",
+  view: "terminal",
   agentSessionId: null,
   terminalId,
   state,

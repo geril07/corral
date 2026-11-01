@@ -49,6 +49,8 @@ class FakeWatch implements AsyncIterable<ChatStreamMessage> {
   readonly #messages: ChatStreamMessage[] = [];
   #notify: (() => void) | undefined;
   #ended = false;
+  /** Messages the store pulled; the signal a test waits on after `close()`. */
+  pulled = 0;
 
   push(...messages: ChatStreamMessage[]): void {
     this.#messages.push(...messages);
@@ -65,7 +67,10 @@ class FakeWatch implements AsyncIterable<ChatStreamMessage> {
       next: async (): Promise<IteratorResult<ChatStreamMessage>> => {
         for (;;) {
           const message = this.#messages.shift();
-          if (message !== undefined) return { done: false, value: message };
+          if (message !== undefined) {
+            this.pulled += 1;
+            return { done: false, value: message };
+          }
           if (this.#ended) return { done: true, value: undefined };
           // One message at a time, in order: a fake stream, not a batch to run in parallel.
           // oxlint-disable-next-line eslint/no-await-in-loop
@@ -85,16 +90,22 @@ class FakeWatch implements AsyncIterable<ChatStreamMessage> {
 
 /**
  * A store on a fake stream: the server half of `chat.watch` arrives in B1, so these tests drive
- * its messages directly and inspect what the store asks for on each (re)connection.
+ * its messages directly and inspect what the store asks for on each (re)connection. `reject`
+ * makes every watch call fail, which is how a refusal (`CHAT_UNAVAILABLE`) is exercised.
  */
-function fakeChat() {
+function fakeChat(options: { reject?: Error; refusals?: number } = {}) {
   const state = new Store<ConnectionState>({ status: "connected" });
   const calls: ChatWatchInput[] = [];
   const streams: FakeWatch[] = [];
+  let refusals = options.reject ? (options.refusals ?? Number.POSITIVE_INFINITY) : 0;
   const source: ChatSource = {
     state,
     watch: (input) => {
       calls.push(input);
+      if (options.reject && refusals > 0) {
+        refusals -= 1;
+        return Promise.reject(options.reject);
+      }
       const stream = new FakeWatch();
       streams.push(stream);
       return Promise.resolve(stream);
@@ -268,6 +279,91 @@ test("an event before any snapshot is treated as a gap and asks for one", async 
       expect(chat.store.getSnapshot().loaded).toBe(true);
       expect(chat.store.getSnapshot().sequence).toBe(2);
     });
+  } finally {
+    chat.stop();
+  }
+});
+
+test("a clean end of the stream watches again once instead of freezing", async () => {
+  const chat = fakeChat();
+  try {
+    await waitFor(() => expect(chat.calls).toHaveLength(1));
+    chat.streams[0]!.push(snapshot(5, idle, [user]));
+    await waitFor(() => expect(chat.store.getSnapshot().sequence).toBe(5));
+
+    // The server may end a watch; that is not the end of the chat.
+    chat.streams[0]!.end();
+    await waitFor(() => expect(chat.calls).toHaveLength(2));
+    expect(chat.calls[1]).toEqual({ sessionId: SESSION, after: 5 });
+
+    chat.streams[1]!.push(event(6, { type: "item", item: assistant("still here", false) }));
+    await waitFor(() => expect(chat.store.getSnapshot().sequence).toBe(6));
+    expect(chat.store.getSnapshot().failure).toBeNull();
+
+    // The retry ended too: record why and wait for the next connection change, not another call.
+    chat.streams[1]!.end();
+    await waitFor(() => expect(chat.store.getSnapshot().failure?.code).toBe("CHAT_STREAM_ENDED"));
+    expect(chat.calls).toHaveLength(2);
+  } finally {
+    chat.stop();
+  }
+});
+
+test("a refused watch is reported on the store instead of disappearing", async () => {
+  const refusal = Object.assign(new Error("This server has no chat driver for any session yet."), {
+    code: "CHAT_UNAVAILABLE",
+  });
+  const chat = fakeChat({ reject: refusal });
+  try {
+    // One refusal is retried immediately; after the second, the failure stays on the store.
+    await waitFor(() =>
+      expect(chat.store.getSnapshot().failure).toEqual({
+        code: "CHAT_UNAVAILABLE",
+        message: refusal.message,
+      }),
+    );
+    expect(chat.calls).toHaveLength(2);
+  } finally {
+    chat.stop();
+  }
+});
+
+test("a retry that is accepted clears the refusal before any message arrives", async () => {
+  const refusal = Object.assign(new Error("This server has no chat driver for any session yet."), {
+    code: "CHAT_UNAVAILABLE",
+  });
+  const chat = fakeChat({ reject: refusal, refusals: 1 });
+  try {
+    // The first call is refused, the immediate retry is accepted. No message has been applied yet,
+    // so only the accepted call can have cleared the refusal.
+    await waitFor(() => expect(chat.streams).toHaveLength(1));
+    expect(chat.calls).toHaveLength(2);
+    expect(chat.store.getSnapshot().failure).toBeNull();
+    expect(chat.store.getSnapshot().loaded).toBe(false);
+
+    chat.streams[0]!.push(snapshot(1, idle, [user]));
+    await waitFor(() => expect(chat.store.getSnapshot().loaded).toBe(true));
+  } finally {
+    chat.stop();
+  }
+});
+
+test("close stops the watch and no message is applied afterwards", async () => {
+  const chat = fakeChat();
+  try {
+    await waitFor(() => expect(chat.calls).toHaveLength(1));
+    chat.streams[0]!.push(snapshot(5, idle, [user]));
+    await waitFor(() => expect(chat.store.getSnapshot().sequence).toBe(5));
+
+    chat.store.close();
+    const stream = chat.streams[0]!;
+    const pulled = stream.pulled;
+    stream.push(event(6, { type: "item", item: assistant("late", false) }));
+
+    // The store pulls the message and then drops it because the store is closed; no retry either.
+    await waitFor(() => expect(stream.pulled).toBe(pulled + 1));
+    expect(chat.store.getSnapshot().sequence).toBe(5);
+    expect(chat.calls).toHaveLength(1);
   } finally {
     chat.stop();
   }

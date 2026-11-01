@@ -3,6 +3,16 @@ import { ChatItem, ChatStreamMessage } from "./chat.ts";
 
 const assistant = { kind: "assistant-message", id: "a1", text: "Done", streaming: false };
 
+const idle = {
+  turn: "idle",
+  steering: [],
+  followUp: [],
+  model: null,
+  models: [],
+  reasoning: null,
+  reasoningLevels: [],
+} as const;
+
 test("a snapshot carries the whole timeline and the session state", () => {
   const message = ChatStreamMessage.parse({
     type: "snapshot",
@@ -35,11 +45,13 @@ test("a snapshot carries the whole timeline and the session state", () => {
           id: "q1",
           request: "confirm",
           title: "Run the migration?",
+          body: "It writes to the local database.",
           options: [],
           placeholder: null,
           prefill: null,
           expiresAt: 1_700_000_000_000,
-          status: "pending",
+          status: "answered",
+          answer: true,
         },
         { kind: "notice", id: "n1", text: "compacted" },
         { kind: "error", id: "e1", text: "The provider refused the key." },
@@ -75,8 +87,11 @@ test("events are distinguished by type and every item kind is accepted", () => {
     });
     expect(event).toMatchObject({ type: "event", sequence: 4 });
   }
-  // Every kind in the union is a valid item, so a driver cannot emit something the client drops.
-  expect(ChatItem.options).toHaveLength(7);
+});
+
+test("a plan item is not part of the contract yet", () => {
+  // Decision 14 lists a plan; it joins with protocol 10 when a driver emits one (design.md).
+  expect(ChatItem.safeParse({ kind: "plan", id: "p1", steps: [] }).success).toBe(false);
 });
 
 test("a sequence must be a hole-free nonnegative integer where the stream needs one", () => {
@@ -87,10 +102,11 @@ test("a sequence must be a hole-free nonnegative integer where the stream needs 
       event: { type: "item", item: assistant },
     }).success,
   ).toBe(false);
+  // Everything but the negative sequence is valid, so only the sequence can make this fail.
   expect(
     ChatStreamMessage.safeParse({
       type: "snapshot",
-      snapshot: { sequence: -1, state: {}, items: [] },
+      snapshot: { sequence: -1, state: idle, items: [] },
     }).success,
   ).toBe(false);
 });

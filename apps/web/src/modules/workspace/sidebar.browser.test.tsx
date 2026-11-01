@@ -47,6 +47,7 @@ const session = (
   id,
   taskId,
   kind,
+  view: "terminal",
   agentSessionId: null,
   terminalId: state === "running" ? `term-${id}` : null,
   state,

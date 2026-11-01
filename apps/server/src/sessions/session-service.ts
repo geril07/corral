@@ -169,6 +169,8 @@ export class SessionService {
       id: newId(),
       taskId,
       kind,
+      // Every session is a terminal until B1 adds chat launches and the `view` column.
+      view: "terminal",
       agentSessionId: kind === "shell" ? null : AGENTS[kind].newSessionId(),
       state: "running",
       label: null,

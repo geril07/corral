@@ -6,6 +6,7 @@ const shell = (id: string): Session => ({
   id,
   taskId: "t1",
   kind: "shell",
+  view: "terminal",
   agentSessionId: null,
   terminalId: `term-${id}`,
   state: "running",

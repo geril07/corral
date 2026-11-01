@@ -36,7 +36,7 @@ test("a prompt up to the byte limit is accepted, one byte over is not, and paddi
   expect(CreateTaskInput.safeParse(creating(`${twoByte}é`)).success).toBe(false);
 });
 
-test("a session's view is optional until the server stores it, and only terminal or chat", () => {
+test("a session's view may be omitted, reads back as terminal, and is only terminal or chat", () => {
   const session = {
     id: "s1",
     taskId: "t1",
@@ -48,8 +48,9 @@ test("a session's view is optional until the server stores it, and only terminal
     createdAt: 1,
   };
 
-  // A protocol 9 server before B1's migration has no view; clients read that as `terminal`.
-  expect(Session.parse(session).view).toBeUndefined();
+  // A protocol 9 server before B1's migration has no view column; the default supplies `terminal`,
+  // so every read carries the field and there is one definition of "absent means terminal".
+  expect(Session.parse(session).view).toBe("terminal");
   expect(Session.parse({ ...session, view: "chat" }).view).toBe("chat");
   expect(Session.safeParse({ ...session, view: "screen" }).success).toBe(false);
 });

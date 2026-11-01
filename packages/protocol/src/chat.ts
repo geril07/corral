@@ -63,7 +63,9 @@ export type ChatDiff = z.infer<typeof ChatDiff>;
 
 /**
  * A call the agent made. `arguments` stays text: each tool takes its own JSON shape, and the
- * client shows it rather than acting on it. `output` is the result text once it finished.
+ * client shows it rather than acting on it. Render a call by its shape — a `diff` renders as a
+ * diff, any other result as text — never by `name`, which is the driver's label for its tool and
+ * changes with the agent.
  */
 export const ChatToolCall = z.object({
   kind: z.literal("tool-call"),
@@ -71,7 +73,11 @@ export const ChatToolCall = z.object({
   name: z.string().min(1),
   arguments: z.string(),
   status: ChatToolStatus,
-  /** Result text for a finished call; `null` while running or when the tool returns nothing. */
+  /**
+   * Result text; may carry partial output while `status` is `running` and each update replaces it
+   * whole (drivers send replacements, not deltas); `null` while there is none or the tool returns
+   * nothing.
+   */
   output: z.string().nullable(),
   /** The change it made, when it made one; `null` for a read, a command or a failure. */
   diff: ChatDiff.nullable(),
@@ -81,6 +87,10 @@ export type ChatToolCall = z.infer<typeof ChatToolCall>;
 /** What the agent waits for: pick one answer, confirm, type a line, or write a longer text. */
 export const ChatRequestKind = z.enum(["select", "confirm", "input", "editor"]);
 export type ChatRequestKind = z.infer<typeof ChatRequestKind>;
+
+/** The answer to a user request: text or a choice, a boolean for `confirm`, `null` to dismiss. */
+export const ChatAnswer = z.union([z.string(), z.boolean(), z.null()]);
+export type ChatAnswer = z.infer<typeof ChatAnswer>;
 
 /** `pending` until the user answers or the server stops waiting; then the item is replaced. */
 export const ChatRequestStatus = z.enum(["pending", "answered", "expired"]);
@@ -103,7 +113,10 @@ export const ChatUserRequest = z.object({
   id: ChatItemId,
   /** The kind of answer the agent waits for. */
   request: ChatRequestKind,
+  /** The short question, shown as the request's heading. */
   title: z.string(),
+  /** The longer explanation the agent gave (`confirm`'s message, an `input`'s prompt); `null` if none. */
+  body: z.string().nullable(),
   /** The choices of a `select`; empty for the other kinds. */
   options: z.array(ChatRequestOption),
   /** Hint text for `input`; `null` when the request has none. */
@@ -116,6 +129,11 @@ export const ChatUserRequest = z.object({
    */
   expiresAt: z.number().nullable(),
   status: ChatRequestStatus,
+  /**
+   * What the user answered, recorded for a client that watches later; absent until `status` is
+   * `answered`, where `null` means the user dismissed the request. `chat.respond` returns void.
+   */
+  answer: ChatAnswer.optional(),
 });
 export type ChatUserRequest = z.infer<typeof ChatUserRequest>;
 
@@ -168,10 +186,6 @@ export const ChatModel = ChatModelRef.extend({
 });
 export type ChatModel = z.infer<typeof ChatModel>;
 
-/** The answer to a user request: text or a choice, a boolean for `confirm`, `null` to dismiss. */
-export const ChatAnswer = z.union([z.string(), z.boolean(), z.null()]);
-export type ChatAnswer = z.infer<typeof ChatAnswer>;
-
 /** Everything about a session that is not one item of its timeline. */
 export const ChatSessionState = z.object({
   turn: ChatTurnState,
@@ -194,12 +208,18 @@ export type ChatSessionState = z.infer<typeof ChatSessionState>;
 export const ChatEvent = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("item"),
-    /** The new item, or the replacement of the one with the same id. */
+    /**
+     * The new item, or the replacement of the one with the same id. A new item is always appended;
+     * a replacement keeps its place, and the snapshot's order is authoritative.
+     */
     item: ChatItem,
   }),
   z.object({
     type: z.literal("delta"),
-    /** The assistant message or reasoning item the text appends to. */
+    /**
+     * The assistant message or reasoning item the text appends to. A delta whose item is missing
+     * or of another kind is a hole in the client's state, so the client must resnapshot.
+     */
     itemId: ChatItemId,
     text: z.string(),
   }),

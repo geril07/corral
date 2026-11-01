@@ -37,6 +37,7 @@ const session = (
   id,
   taskId,
   kind: reported ? "claude" : "shell",
+  view: "terminal",
   agentSessionId: null,
   terminalId: null,
   state,
