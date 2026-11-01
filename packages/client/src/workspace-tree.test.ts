@@ -31,6 +31,8 @@ const task = (id: string, projectId: string, state: Task["state"] = "active"): T
   projectId,
   title: id,
   titleSource: "user",
+  prompt: null,
+  primarySessionId: null,
   branch: id,
   workspacePath: `/work/${id}`,
   ownsWorktree: true,

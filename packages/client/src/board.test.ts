@@ -19,6 +19,8 @@ const task = (
   projectId,
   title: id,
   titleSource: "user",
+  prompt: null,
+  primarySessionId: null,
   branch: id,
   workspacePath: `/work/${id}`,
   ownsWorktree: true,
