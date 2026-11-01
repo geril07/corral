@@ -4,7 +4,9 @@ import {
   type ResolvedTaskSettings,
   type SettingSource,
 } from "@corral/protocol/config";
+import { useSyncExternalStore } from "react";
 import { Badge } from "../../common/ui/index.ts";
+import { useCorralClient } from "../connection/index.ts";
 import { useConfig } from "../keymap/index.ts";
 
 interface Row {
@@ -15,7 +17,8 @@ interface Row {
 
 /** The values task creation and the composer use, each with the layer it resolved from. */
 export function TaskDefaults() {
-  const { config } = useConfig();
+  const { config, loaded } = useConfig();
+  if (!loaded) return <PendingConfig />;
   return (
     <>
       <SettingRows rows={taskRows(config.tasks)} />
@@ -28,7 +31,8 @@ export function TaskDefaults() {
 
 /** `[naming]`, and the note that an empty section means seed titles only (decision 16). */
 export function TaskNaming() {
-  const { config } = useConfig();
+  const { config, loaded } = useConfig();
+  if (!loaded) return <PendingConfig />;
   return (
     <>
       <SettingRows rows={namingRows(config.naming)} />
@@ -45,7 +49,13 @@ export function TaskNaming() {
 
 /** Every `[projects."<path>"]` table, showing only the values it overrides. */
 export function ProjectOverrides() {
-  const { config } = useConfig();
+  const { config, loaded } = useConfig();
+  const client = useCorralClient();
+  const projectState = useSyncExternalStore(client.projects.subscribe, client.projects.getSnapshot);
+  if (!loaded) return <PendingConfig />;
+  const addedPaths = projectState.loaded
+    ? new Set(projectState.projects.map((project) => project.path))
+    : undefined;
   const projects = Object.entries(config.projects);
   if (projects.length === 0) {
     return (
@@ -60,17 +70,36 @@ export function ProjectOverrides() {
   return (
     <ul className="m-0 list-none p-0">
       {projects.map(([path, settings]) => (
-        <ProjectOverrideRow key={path} path={path} settings={settings} />
+        <ProjectOverrideRow
+          key={path}
+          path={path}
+          settings={settings}
+          added={addedPaths?.has(path)}
+        />
       ))}
     </ul>
   );
 }
 
-function ProjectOverrideRow({ path, settings }: { path: string; settings: ResolvedTaskSettings }) {
+function ProjectOverrideRow({
+  path,
+  settings,
+  added,
+}: {
+  path: string;
+  settings: ResolvedTaskSettings;
+  /** `undefined` while the project list is unknown; false means no added project has this path. */
+  added: boolean | undefined;
+}) {
   const rows = taskRows(settings).filter((row) => row.source === "project");
   return (
     <li className="py-1">
-      <div className="break-all font-mono text-xs">{path}</div>
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className="break-all font-mono text-xs">{path}</span>
+        {added === false && (
+          <span className="text-muted-foreground">no added project has this path</span>
+        )}
+      </div>
       {rows.length === 0 ? (
         <p className="m-0 mt-0.5 text-muted-foreground">No valid overrides.</p>
       ) : (
@@ -128,6 +157,11 @@ function namingRows(naming: NamingSettings): Row[] {
       source: naming.timeoutSeconds.source,
     },
   ];
+}
+
+/** Before the server's first config the built-in values are incomplete, so nothing is shown. */
+function PendingConfig() {
+  return <p className="m-0 text-muted-foreground">waiting for the server's config…</p>;
 }
 
 function SettingRows({ rows, nested = false }: { rows: Row[]; nested?: boolean }) {

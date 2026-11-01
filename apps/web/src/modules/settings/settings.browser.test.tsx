@@ -170,7 +170,16 @@ test("effective task defaults, naming and project overrides appear with the laye
   await expect
     .element(section("Project overrides"))
     .toMatchTextContent(
-      sequence("/repos/app", "Branch prefix", "app/", "project", "View", "terminal", "project"),
+      sequence(
+        "/repos/app",
+        "no added project has this path",
+        "Branch prefix",
+        "app/",
+        "project",
+        "View",
+        "terminal",
+        "project",
+      ),
     );
 });
 
@@ -185,9 +194,57 @@ test("an empty naming section says seed titles stay, and no project entry reads 
   await expect.element(naming).toMatchTextContent("keeps the title derived from its prompt");
 
   await expect.element(section("Project overrides")).toMatchTextContent("No project overrides");
+
+  const root = client.config.getSnapshot().config.tasks.worktreeRoot.value;
+  expect(root.endsWith("worktrees")).toBe(true);
+  const defaults = section("Task defaults");
+  await expect.element(defaults).toMatchTextContent(sequence("Agent", "pi", "global"));
+  await expect.element(defaults).toMatchTextContent(sequence("Worktree root", root, "default"));
+});
+
+test("a project table whose path is not an added project says so, an added one does not", async () => {
+  const client = newClient();
+  await appWithProject(client);
+  const projectPath = client.projects.getSnapshot().projects[0]?.path ?? "";
+  await writeConfig(`
+[projects."${projectPath}"]
+branch-prefix = "app/"
+
+[projects."/repos/not-added"]
+branch-prefix = "nope/"
+`);
+  await settingsButton().click();
+  await expect.element(settingsHeading()).toBeVisible();
+  await vi.waitFor(() =>
+    expect(client.config.getSnapshot().config.projects[projectPath]?.branchPrefix.value).toBe(
+      "app/",
+    ),
+  );
+
+  const projects = section("Project overrides");
+  const added = projects.getByRole("listitem").filter({ hasText: projectPath }).first();
+  await expect.element(added).toMatchTextContent(sequence("Branch prefix", "app/", "project"));
+  await expect.element(added).not.toMatchTextContent("no added project has this path");
+
+  const unknown = projects.getByRole("listitem").filter({ hasText: "/repos/not-added" }).first();
   await expect
-    .element(section("Task defaults"))
-    .toMatchTextContent(sequence("Agent", "pi", "global"));
+    .element(unknown)
+    .toMatchTextContent(
+      sequence("no added project has this path", "Branch prefix", "nope/", "project"),
+    );
+});
+
+test("the task sections wait for the server's config instead of showing built-in values", async () => {
+  const client = newClient({ url: "ws://127.0.0.1:1", capability: "unreachable" });
+  await render(<App client={client} initialEntries={["/settings"]} />);
+  await expect.element(settingsHeading()).toBeVisible();
+
+  const waiting = "waiting for the server's config";
+  const defaults = section("Task defaults");
+  await expect.element(defaults).toMatchTextContent(waiting);
+  await expect.element(defaults).not.toMatchTextContent("Worktree root");
+  await expect.element(section("Task naming")).toMatchTextContent(waiting);
+  await expect.element(section("Project overrides")).toMatchTextContent(waiting);
 });
 
 test("a problem at the profiles table itself is shown, not only per-profile paths", async () => {
