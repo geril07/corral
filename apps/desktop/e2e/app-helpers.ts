@@ -49,8 +49,19 @@ export function createRepo(stateDir: string): string {
   return repo;
 }
 
-/** Adds `repo` as a project from the keyboard and waits for it in the sidebar. */
+/**
+ * The project the workspace route has selected, read from the hash search. Hash history appends
+ * the document query (`?server=…`) to it, so the value stops at the next `?`.
+ */
+function selectedProject(window: Page): string | undefined {
+  const hash = new URL(window.url()).hash;
+  const search = hash.slice(hash.indexOf("?") + 1);
+  return new URLSearchParams(search).get("project")?.split("?")[0] ?? undefined;
+}
+
+/** Adds `repo` as a project from the keyboard and waits until the new project is current. */
 export async function addProject(window: Page, repo: string) {
+  const before = selectedProject(window);
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("Shift+KeyP");
   await expect(
@@ -58,8 +69,10 @@ export async function addProject(window: Page, repo: string) {
   ).toBeFocused();
   await window.keyboard.type(repo);
   await window.keyboard.press("Enter");
-  // Flat mode lists tasks, not projects: the enabled New task button shows the project is current.
-  await expect(workspace(window).getByRole("button", { name: "New task" })).toBeEnabled();
+  // Adding a project selects it: the route names a different project than it did before, which a
+  // second project would not satisfy by leaving the previous one selected.
+  await expect.poll(() => selectedProject(window)).not.toBe(before);
+  expect(selectedProject(window)).toEqual(expect.any(String));
 }
 
 /**
