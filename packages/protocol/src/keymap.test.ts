@@ -20,6 +20,13 @@ describe("parseChord", () => {
     expect(matchesChord({ ...keyEvent("KeyA", { alt: true }) }, prefix)).toBe(true);
   });
 
+  test("the default toggle-sidebar chord is the backslash key", () => {
+    const chord = parseChord("\\");
+    expect(matchesChord(keyEvent("Backslash"), chord)).toBe(true);
+    expect(matchesChord(keyEvent("Backslash", { shift: true }), chord)).toBe(false);
+    expect(formatChord(chord)).toBe("\\");
+  });
+
   test("requires exactly the listed modifiers", () => {
     const prefix = parseChord("alt+a");
     expect(matchesChord(keyEvent("KeyA"), prefix)).toBe(false);
@@ -34,7 +41,7 @@ describe("parseChord", () => {
   const chordText = fc
     .tuple(
       fc.subarray(["ctrl", "alt", "shift", "meta"]),
-      fc.constantFrom("a", "z", "0", "9", "f1", "f12", "enter", "esc", "minus", "slash"),
+      fc.constantFrom("a", "z", "0", "9", "f1", "f12", "enter", "esc", "minus", "slash", "\\"),
     )
     .map(([modifiers, key]) => [...modifiers, key].join("+"));
 

@@ -674,7 +674,7 @@ test("an old protocol 4 client is refused before any profiled session or spawn",
   expect(ProtocolMismatchReason.parse(JSON.parse(closed.reason))).toEqual({
     serverProtocolVersion: PROTOCOL_VERSION,
   });
-  expect(PROTOCOL_VERSION).toBe(7);
+  expect(PROTOCOL_VERSION).toBe(8);
   expect(await agents.launches()).toEqual([]);
   expect(await sessionsOf(api)).toEqual([]);
 

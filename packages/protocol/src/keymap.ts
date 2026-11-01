@@ -25,6 +25,8 @@ const NAMED_CODES: Readonly<Record<string, string>> = {
   period: "Period",
   slash: "Slash",
   backquote: "Backquote",
+  // The key itself, as `toggle-sidebar` defaults to it; formatting gives the same text back.
+  "\\": "Backslash",
 };
 
 /** Parses config syntax like `alt+a`, `ctrl+shift+enter`, `f12`. */

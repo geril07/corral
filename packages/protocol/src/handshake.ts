@@ -11,9 +11,10 @@ import { z } from "zod";
  * tasks have no title source, its config lacks those bindings and it never sends the settings, so
  * a version 5 client and a version 6 client each misread the other's replies. Version 7 adds the
  * sidebar-mode action and the server-owned task `seenAt`: a version 6 server strips the binding,
- * has no `seen_at` column and answers `tasks.markSeen` with an unknown procedure.
+ * has no `seen_at` column and answers `tasks.markSeen` with an unknown procedure. Version 8 adds
+ * the toggle-sidebar action: a version 7 server strips that binding from its exhaustive keys.
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in
