@@ -9,6 +9,7 @@
 // this file is the tracked evidence that the hand-written client still follows the installed pi.
 // Skipped when `pi` is not on the PATH.
 import { createServer, type Server } from "node:http";
+import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -190,6 +191,32 @@ function piEnv(agent: string): Record<string, string> {
   };
 }
 
+/** The CLI frontend (print mode) with stdin closed and the output collected. */
+function runCli(
+  args: readonly string[],
+  options: { cwd: string; env: Record<string, string> },
+): Promise<{ code: number | null; output: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(PI, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => (output += chunk));
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => (output += chunk));
+    const timer = setTimeout(() => child.kill("SIGKILL"), 60_000);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code, output });
+    });
+  });
+}
+
 /** A driver on the isolated pi, warned through `onStatus`/`onExit` so the test can wait on events. */
 async function makeDriver(options: {
   prompt: string | null;
@@ -355,6 +382,60 @@ test.skipIf(!installed)(
         .toBe(level);
     } finally {
       await second.stop();
+    }
+
+    // The handoff direction (B4): the same pi session opened by the CLI frontend — the terminal
+    // view runs `pi` itself; `-p` is its non-interactive mode, which needs no PTY — and then by the
+    // chat driver again. Each frontend sees the conversation the other wrote, on one session id.
+    const cliMessage = "Sum up what changed.";
+    const requestsBeforeCli = requests.length;
+    // The CLI frontend with stdin closed: measured on pi 1.4.0, print mode waits for stdin EOF
+    // (it takes piped input as part of the prompt), so an open pipe is a hang, not a run.
+    // `--no-approve` keeps it from asking about project-local files it has nobody to ask.
+    const cli = await runCli(
+      [
+        "-p",
+        cliMessage,
+        "--no-approve",
+        "--offline",
+        "--provider",
+        "stub",
+        "--model",
+        "stub-1",
+        "--session-id",
+        PI_SESSION_ID,
+      ],
+      { cwd: join(root, "workspace"), env: piEnv(await agentDir()) },
+    );
+    expect(cli.output).toContain("Changed hello.txt");
+    expect(cli.code).toBe(0);
+    await expect
+      .poll(() => requests.length, { timeout: 30_000, message: "the CLI frontend's request" })
+      .toBeGreaterThan(requestsBeforeCli);
+    const handedOver = requests.at(-1)!;
+    // The CLI frontend resumed the chat's session: the whole earlier conversation is in its request.
+    expect(JSON.stringify(handedOver.messages)).toContain("hello there");
+    expect(JSON.stringify(handedOver.messages)).toContain(WORKSPACE_MESSAGE);
+    expect(JSON.stringify(handedOver.messages.at(-1)!.content)).toContain(cliMessage);
+
+    // Back to chat: the driver resumes the session the CLI wrote into, and the turn it added is
+    // part of the rebuilt history — with the task's prompt passed again but not sent again.
+    const third = await makeDriver({ prompt: PROMPT });
+    third.start();
+    try {
+      await expect
+        .poll(() => third.timeline.state.model?.id, {
+          timeout: 30_000,
+          message: "the third frontend's state",
+        })
+        .toBe("stub-1");
+      const userMessages = items(third).filter((item) => item.kind === "user-message");
+      // The prompt, the chat turn and the CLI turn — nothing else, no resent prompt.
+      expect(userMessages).toHaveLength(3);
+      expect(userMessages.at(-1)).toMatchObject({ text: cliMessage });
+      expect(toolCall(third)).toMatchObject({ status: "done", diff: { path: "hello.txt" } });
+    } finally {
+      await third.stop();
     }
   },
   TIMEOUT_MS,
