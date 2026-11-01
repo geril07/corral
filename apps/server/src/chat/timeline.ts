@@ -35,8 +35,10 @@ export class ChatTimeline {
   /**
    * The sequence the timeline starts at. A server restart rebuilds a session's chat from pi, and a
    * client keeps the cursor it had before; replaying a cursor from the timeline this one replaced
-   * would apply events to a stale item list. `after` below `startAt` is therefore a hole and is
-   * answered with a snapshot, and a frontend recreated in this run starts above its predecessor.
+   * would apply events to a stale item list (and duplicate a rebuilt transcript whose item ids are
+   * new). `after` below `startAt` is therefore a hole, answered with a snapshot. The chat service
+   * persists a reserved start for every launch (`sequence-floor.ts`), so the guarantee survives a
+   * crash and covers every watcher, not just the first.
    */
   readonly #startAt: number;
   #sequence: number;

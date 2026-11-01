@@ -70,31 +70,51 @@ export async function releasePreviousWriter(
 ): Promise<void> {
   const raw = readWriterFile(path);
   if (raw === undefined) return;
-  rmSync(path, { force: true });
   const parsed = WriterRecord.safeParse(safeJson(raw));
-  if (!parsed.success) return;
+  if (!parsed.success) {
+    remove(path);
+    return;
+  }
   const { pid, startedAt, identity } = parsed.data;
-  if (!isAlive(pid)) return;
+  // The record is kept until the writer it names is proven gone: a refused launch must leave the
+  // next attempt something to refuse on, or it would spawn beside a live writer.
+  //
+  // A process that started before the last boot cannot be the writer that wrote the record (the
+  // pid was reused, and start-time ticks repeat every boot), so it is never killed — whatever
+  // identity the record names.
+  const bootedAt = Date.now() - uptime() * 1000;
+  if (startedAt < bootedAt - BOOT_MARGIN_MS) {
+    remove(path);
+    return;
+  }
+  if (!isAlive(pid)) {
+    remove(path);
+    return;
+  }
   const identify = options.identityOfPid ?? processStartTicks;
   if (identity !== null && identity !== undefined) {
     const live = identify(pid);
     if (live === null) {
-      // It was alive a moment ago but cannot be identified now: do not guess with a kill.
-      if (!isAlive(pid)) return;
+      // It was alive a moment ago but cannot be identified now: do not guess with a kill, and
+      // keep the record so the next attempt refuses again.
+      if (!isAlive(pid)) {
+        remove(path);
+        return;
+      }
       throw new ChatLaunchError(
         `cannot identify the previous pi process (pid ${pid}) of this session; not starting a second writer`,
       );
     }
-    if (live !== identity) return; // The pid was recycled: the writer it names is already gone.
-  } else {
-    // No recorded identity (a platform without /proc, or a record from before this field): the
-    // boot margin is the only proof that the pid cannot be the writer that wrote this record.
-    const bootedAt = Date.now() - uptime() * 1000;
-    if (startedAt < bootedAt - BOOT_MARGIN_MS) return;
-    await stopRecordedGroup(pid, options.waitMs ?? DEFAULT_WAIT_MS);
-    return;
+    if (live !== identity) {
+      // The pid was recycled: the writer the record names is already gone.
+      remove(path);
+      return;
+    }
   }
+  // No recorded identity (a platform without /proc, or a record from before this field) is killed
+  // on the boot margin above alone; a matching one is killed and awaited.
   await stopRecordedGroup(pid, options.waitMs ?? DEFAULT_WAIT_MS);
+  remove(path);
 }
 
 async function stopRecordedGroup(pid: number, waitMs: number): Promise<void> {
@@ -158,6 +178,10 @@ async function waitUntilGone(pid: number, waitMs: number): Promise<boolean> {
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
   return !isAlive(pid);
+}
+
+function remove(path: string): void {
+  rmSync(path, { force: true });
 }
 
 function readWriterFile(path: string): string | undefined {

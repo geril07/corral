@@ -569,6 +569,47 @@ test("a cursor from before a restarted frontend gets a snapshot instead of a rep
   }
 });
 
+test("two watchers with a cursor from before a server restart both get a snapshot", async () => {
+  const { api, session } = await chatTask("Two watchers");
+  const first = follow(api, session.id);
+  try {
+    await first.until((view) => view.itemOfKind("user-request") !== undefined, "the dialog");
+    await api.chat.respond({
+      sessionId: session.id,
+      requestId: first.itemOfKind("user-request")!.id,
+      value: true,
+    });
+    await first.until((view) => view.state.turn === "settled", "the settled turn");
+  } finally {
+    await first.close();
+  }
+
+  await server.restart();
+  const restarted = await server.rpc();
+  // Past the stale cursor, so a replay is possible at all: the assertion is about the rule.
+  const rebuilt = follow(restarted, session.id);
+  try {
+    await rebuilt.until((view) => view.sequence > 1, "the rebuilt timeline");
+  } finally {
+    await rebuilt.close();
+  }
+
+  const a = (await restarted.chat.watch({ sessionId: session.id, after: 1 }))[
+    Symbol.asyncIterator
+  ]();
+  const b = (await restarted.chat.watch({ sessionId: session.id, after: 1 }))[
+    Symbol.asyncIterator
+  ]();
+  try {
+    const both = await Promise.all([within(a.next(), "watcher a"), within(b.next(), "watcher b")]);
+    expect(both[0].value).toMatchObject({ type: "snapshot" });
+    expect(both[1].value).toMatchObject({ type: "snapshot" });
+  } finally {
+    await a.return?.(undefined);
+    await b.return?.(undefined);
+  }
+});
+
 test("a stop kills the whole process group when pi ignores stdin EOF", async () => {
   vi.stubEnv("FAKE_PI_RPC", "noeof");
   const { api, session } = await chatTask();
@@ -588,10 +629,15 @@ test("a stop kills the whole process group when pi ignores stdin EOF", async () 
   expect(processExists(grandchild)).toBe(true);
 
   // stdin closing does not stop this child; the exit deadline passes and the group is killed.
+  // SIGKILL delivery is asynchronous, so both deaths are polled.
   await api.sessions.stop({ id: session.id });
 
-  expect(processExists(launch!.pid)).toBe(false);
-  expect(processExists(grandchild)).toBe(false);
+  await expect
+    .poll(async () => processExists(launch!.pid), { timeout: 10_000, message: "the child" })
+    .toBe(false);
+  await expect
+    .poll(async () => processExists(grandchild), { timeout: 10_000, message: "the grandchild" })
+    .toBe(false);
 });
 
 test("a silent child fails the frontend at the ready deadline and is killed", async () => {

@@ -3,6 +3,7 @@ import type { AgentKind, AgentStatus, ChatSendMode } from "@corral/protocol/rpc"
 import type { ChatAnswer, ChatModelRef } from "@corral/protocol/chat";
 import { ChatLaunchError, ChatUnavailableError, type ChatSubject } from "./chat-errors.ts";
 import { PiDriver, type PiDriverTimeouts } from "./pi-driver.ts";
+import { floorPath, raiseFloor, reserveFloor } from "./sequence-floor.ts";
 import { releasePreviousWriter, writerPath } from "./writer-claim.ts";
 
 /** The agents this build can show as chat; a build fact, not a session's state (B0's contract). */
@@ -55,18 +56,7 @@ export class ChatService {
    * of racing the first to `spawn`.
    */
   readonly #launching = new Map<string, Promise<void>>();
-  /**
-   * The sequence a session's next frontend starts from. A client keeps its last sequence across a
-   * reconnect, so a new timeline must never replay a cursor that belongs to the one it replaced:
-   * its `startAt` makes such a cursor a hole, which the timeline answers with a fresh snapshot.
-   */
-  readonly #nextSequence = new Map<string, number>();
-  /**
-   * Sessions whose frontend has not answered a watch with `after` yet. The client's cursor can be
-   * from before this frontend (a server restart, a crash, a stop/continue), so the first `after`
-   * watch of a launch is answered with a snapshot instead of replay.
-   */
-  readonly #firstAfter = new Set<string>();
+
   /**
    * How the last frontend of a session ended during this run: a reason string when it crashed or
    * was failed, null when the server stopped it. It is what `chat.watch` reports, so a client that
@@ -115,26 +105,28 @@ export class ChatService {
     }
   }
 
-  /** Stops a previous server's writer, then spawns and registers this frontend. */
+  /** Stops a previous server's writer, reserves this frontend's sequence block and spawns it. */
   async #spawnFrontend(request: ChatLaunchRequest): Promise<void> {
     const { sessionId } = request;
     const claimPath = writerPath(this.#chatDir, sessionId);
     await releasePreviousWriter(claimPath, { waitMs: this.#writerWaitMs });
+    // Reserved before the spawn and persisted, so a cursor from any earlier frontend — including
+    // one a crashed server left behind — is below this timeline's start and gets a snapshot.
+    const floor = floorPath(this.#chatDir, sessionId);
+    const startAt = reserveFloor(floor);
     const driver: PiDriver = new PiDriver({
       ...request,
       ...this.#timeouts,
-      startAt: this.#nextSequence.get(sessionId) ?? 0,
+      startAt,
       claimPath,
       onExit: (reason) => {
         if (this.#drivers.get(sessionId) === driver) this.#drivers.delete(sessionId);
-        this.#nextSequence.set(sessionId, driver.timeline.sequence + 1);
+        raiseFloor(floor, driver.timeline.sequence + 1);
         this.#lastExit.set(sessionId, reason);
         request.onExit(reason);
       },
     });
     this.#drivers.set(sessionId, driver);
-    this.#nextSequence.delete(sessionId);
-    this.#firstAfter.add(sessionId);
     this.#lastExit.delete(sessionId);
     driver.start();
   }
@@ -157,21 +149,16 @@ export class ChatService {
   }
 
   /**
-   * `chat.watch`: the snapshot and events of a session's frontend. A cursor that may predate this
-   * frontend is answered with a snapshot — the client's item ids are from the timeline it
-   * replaced, so replaying into them would be a silently corrupt timeline rather than a hole.
+   * `chat.watch`: the snapshot and events of a session's frontend. A cursor below the timeline's
+   * start — from the frontend this one replaced — is a hole, so the client gets a snapshot; that
+   * holds for every watcher and across a server restart because the start is persisted.
    */
   watch(
     subject: ChatSubject,
     after: number | undefined,
     signal: AbortSignal | undefined,
   ): AsyncGenerator<ChatStreamMessage> {
-    const driver = this.#frontend(subject);
-    if (after !== undefined && this.#firstAfter.has(subject.sessionId)) {
-      this.#firstAfter.delete(subject.sessionId);
-      return driver.timeline.watch(undefined, signal);
-    }
-    return driver.timeline.watch(after, signal);
+    return this.#frontend(subject).timeline.watch(after, signal);
   }
 
   send(subject: ChatSubject, text: string, mode: ChatSendMode): string {

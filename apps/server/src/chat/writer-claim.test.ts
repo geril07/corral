@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vite-plus/test";
@@ -51,6 +51,25 @@ test("a record whose process is gone is removed without touching anything", asyn
   await releasePreviousWriter(path, { waitMs: 100 });
 
   expect(processExists(pid)).toBe(false);
+});
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+test("a record from before the last boot is never killed even when its identity matches", async () => {
+  const innocent = sleeper();
+  const path = writerPath(root, SESSION);
+  // A real record (with the live pid's start time), then aged past the boot: the ticks of a
+  // previous boot can repeat, so a matching identity must not be trusted across one.
+  recordWriter(path, innocent.pid!);
+  const recorded: unknown = JSON.parse(await readFile(path, "utf8"));
+  if (!isRecord(recorded)) throw new Error("the writer record is not an object");
+  await writeFile(path, JSON.stringify({ ...recorded, startedAt: 0 }));
+
+  await releasePreviousWriter(path, { waitMs: 100 });
+
+  expect(processExists(innocent.pid!)).toBe(true);
 });
 
 test("a record from before the last boot is a reused pid and is never killed", async () => {
@@ -108,6 +127,24 @@ test("without a recorded start time the boot margin decides, and a current write
   await releasePreviousWriter(path, { waitMs: 2000 });
 
   expect(processExists(previous.pid!)).toBe(false);
+});
+
+test("a refused claim keeps the record, so the next attempt refuses again until the writer is gone", async () => {
+  const innocent = sleeper();
+  const path = writerPath(root, SESSION);
+  recordWriter(path, innocent.pid!);
+  const refusing = { waitMs: 100, identityOfPid: () => null };
+
+  await expect(releasePreviousWriter(path, refusing)).rejects.toBeInstanceOf(ChatLaunchError);
+  expect(existsSync(path)).toBe(true);
+  await expect(releasePreviousWriter(path, refusing)).rejects.toBeInstanceOf(ChatLaunchError);
+  expect(existsSync(path)).toBe(true);
+
+  // With the writer gone the record is stale, so the claim succeeds and cleans up.
+  innocent.kill("SIGKILL");
+  await new Promise((resolve) => innocent.once("close", resolve));
+  await releasePreviousWriter(path, { waitMs: 100 });
+  expect(existsSync(path)).toBe(false);
 });
 
 test("an unreadable record is removed, and releasing one that is not there is a no-op", async () => {

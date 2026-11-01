@@ -286,7 +286,6 @@ test.skipIf(!installed)(
     // Resume the same pi session id *with the task's prompt again*: the rule is that pi's own
     // history decides it is not a first start, so nothing is handed over and the chat is rebuilt
     // from history. The next turn then proves pi carried the earlier conversation forward.
-    const requestsBeforeResume = requests.length;
     const second = await makeDriver({ prompt: PROMPT });
     second.start();
     try {
@@ -303,8 +302,8 @@ test.skipIf(!installed)(
         text: PROMPT,
       });
       expect(toolCall(second)).toMatchObject({ status: "done", diff: { path: "hello.txt" } });
-      // The resume sent no prompt: the stub saw no new request and pi has one user message.
-      expect(requests).toHaveLength(requestsBeforeResume);
+      // The real guard against a resent prompt: a resend appends a second user-message item at
+      // once, whereas its stub request may not have arrived yet, so counting items cannot race.
       expect(items(second).filter((item) => item.kind === "user-message")).toHaveLength(1);
 
       const requestsBefore = requests.length;
