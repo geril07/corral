@@ -22,6 +22,13 @@ test("a brace that does not start an object is skipped, and braces inside string
   });
 });
 
+test("an unmatched prose brace before the object does not hide the title", () => {
+  expect(parseNamingOutput('I could not { do that. {"title":"Add OAuth"}', TITLE)).toEqual({
+    ok: true,
+    name: { title: "Add OAuth" },
+  });
+});
+
 test("generated mode carries the raw branch and worktree for the caller to check", () => {
   expect(
     parseNamingOutput(
@@ -72,12 +79,14 @@ test("anything that is not a JSON object with a title is a failure with a loggab
   });
 });
 
-test("an unbalanced brace flood fails in one pass", () => {
-  // A scan that restarts at every `{` would take seconds here (100k rescan to the end).
+test("an unbalanced brace flood fails in bounded time", () => {
+  // 64 candidate attempts over 100k braces: linear with a small constant, not one rescan per `{`.
+  const started = Date.now();
   expect(parseNamingOutput("{".repeat(100_000), TITLE)).toEqual({
     ok: false,
     reason: "the response has no JSON object",
   });
+  expect(Date.now() - started).toBeLessThan(1000);
 });
 
 test("a title is one line, without control or format characters, at most 60 characters", () => {
