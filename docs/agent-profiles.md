@@ -75,11 +75,15 @@ workspace = "main-worktree" # the same keys as [tasks]
   them.
 - A project without a `[projects]` table uses `[tasks]`. A project key is the absolute
   repository path as the server stores it — the main working tree's real path, so a symlinked
-  path resolves to its target. A path that does not exist yet is kept as written. Quote keys
-  that contain dots.
+  path resolves to its target. A path that does not exist yet is kept as written; one that
+  exists but cannot be resolved (permissions, a symlink loop) is a problem rather than a key
+  that would never apply. Keys resolve when the file is read, so a repository or symlink that
+  appears later picks its table up on the next save of the file, not before. Quote keys that
+  contain dots.
 - `profile` wins over `agent`, and `model` overrides the profile's model. A model is checked
   against the agent that will run it (the profile's agent when a profile wins), so a model the
-  agent has no flag for is a problem.
+  agent has no flag for is a problem. An `agent` written in the same table as a profile that
+  launches another agent is reported and dropped: a launch refuses that pair.
 - `worktree-root` is an absolute path or below `~` (the server's home directory). A
   `~`-relative root may not climb out with `..`; the server expands `~` when it uses the root,
   and the file keeps the value as written.
