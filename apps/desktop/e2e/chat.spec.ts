@@ -29,6 +29,9 @@ test("a task created in chat view from the composer opens as chat", async ({
   await newTaskView(window)
     .getByRole("combobox", { name: /^Agent / })
     .click();
+  // The popup's search field takes the keyboard; typing before it does would hit the trigger.
+  // The popup is portaled outside the form, so the field is found on the page.
+  await expect(window.getByLabel("Search agents")).toBeFocused();
   await window.keyboard.type("pi");
   await window.keyboard.press("Enter");
   // The view list is built from the agent picked now; wait for the choice to apply before it opens.
@@ -38,6 +41,7 @@ test("a task created in chat view from the composer opens as chat", async ({
   await newTaskView(window)
     .getByRole("combobox", { name: /^View / })
     .click();
+  await expect(window.getByLabel("Search views")).toBeFocused();
   await window.keyboard.type("chat");
   await window.keyboard.press("Enter");
   await expect(newTaskView(window).getByRole("combobox", { name: /^View / })).toHaveAccessibleName(
