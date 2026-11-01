@@ -88,6 +88,9 @@ Current structural needs have named kit variants, not module class overrides:
   because modules may not pass `render` or `className` to a control; the trigger's stock variants,
   shape and focus ring are unchanged, and the popup keeps the stock enter animation and the
   removed exit animation.
+- ContentLane: the centered 46 rem content lane of `layout.md` (**New task view**, and the chat
+  lane in stage B). It is structural like `MainPanel`: modules own the vertical placement and the
+  spacing around it, nothing about its appearance.
 - DialogContent `padding="none"`: the content box keeps no stock `p-4`, so
   DialogFooter drops its `-mx-4 -mb-4` cancellation and pads itself. Without it the
   stock footer overflows an unpadded content box by 16 px on three sides and is

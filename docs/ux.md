@@ -101,7 +101,10 @@ What a user does; replaces the form-first flow below as each stage lands. New ke
 - Errors stay with the form at `role="alert"`; failed submissions preserve input. The composer
   is a view, so it holds no opener: Enter submits, Shift+Enter is a newline in the prompt, Escape
   returns to the previously selected task, and a create that waits for naming (worktree mode)
-  shows "Creating…" with the prompt still editable.
+  shows "Creating…" with the prompt still editable. While a failed create is on screen, Escape
+  stays in the composer: leaving would discard the error and the draft with it, so the user fixes
+  what failed or picks another task in the sidebar. An Enter that confirms an IME composition is
+  never a submission, whichever order the platform reports the composition end and the keydown.
   Connection/protocol mismatch notices remain app-level, not transient success toasts.
 - Clicking navigation must not steal terminal focus. Tooltip content is optional;
   it cannot hold the only copy of a fact. Accessible names identify every icon action.
