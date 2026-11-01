@@ -1,4 +1,4 @@
-import { hasUnseen, taskStatus } from "@corral/client/agent-status";
+import { hasUnseen, sessionStatus, taskStatus } from "@corral/client/agent-status";
 import { buildBoard, mostUrgentBlocked, type BoardRow } from "@corral/client/board";
 import { createConfigKeymap } from "@corral/client/prefix-keymap";
 import { describeError } from "@corral/client/rpc-errors";
@@ -23,13 +23,14 @@ import type {
   Project,
   Session,
   SessionKind,
+  SessionView,
   Task,
   TerminalSize,
 } from "@corral/protocol/rpc";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useDialogFocus } from "../../common/ui/index.ts";
 import { useCorralClient, useConnection } from "../connection/index.ts";
-import { useChatCapabilities, useChatSession, useChatTurn } from "../chat/index.ts";
+import { useChatSession, useChatTurn } from "../chat/index.ts";
 import {
   formatBinding,
   useConfig,
@@ -58,6 +59,13 @@ export type DialogState =
   | { kind: "task-source"; task: Task }
   | { kind: "pick-agent"; taskId: string }
   | { kind: "remove-session"; session: Session }
+  | {
+      kind: "switch-view";
+      session: Session;
+      target: SessionView;
+      working: boolean;
+      waiting: boolean;
+    }
   | { kind: "find-task" }
   | { kind: "rename"; target: RenameTarget }
   | { kind: "command-palette" }
@@ -114,6 +122,8 @@ export function useWorkspace({
     setDialog(next);
   };
   const [failure, setFailure] = useState<string>();
+  /** The view a handoff in flight is opening; the main area says so instead of showing a pane. */
+  const [handoff, setHandoff] = useState<SessionView>();
   const fitSize = useRef(DEFAULT_SIZE);
 
   // The URL is the source of truth for Back/Forward and for a route search that arrives after
@@ -147,9 +157,14 @@ export function useWorkspace({
   // action without subscribing the workspace to every streamed delta.
   const chat = useChatSession(client, currentSession);
   const chatTurn = useChatTurn(chat?.store);
-  // `chat.capabilities`: which agents this server build can show as chat (goal D7), for the
-  // composer's view control and the agent pickers.
-  const chatDrivers = useChatCapabilities();
+  // `chat.capabilities`: which agents this server build can show as chat (goal D7). One store
+  // answers both the handoff offer and the composer's view control, and `loaded` lets the offer
+  // wait instead of claiming no driver before the server has spoken.
+  const chatCapabilities = useSyncExternalStore(
+    client.chatCapabilities.subscribe,
+    client.chatCapabilities.getSnapshot,
+  );
+  const chatDrivers = chatCapabilities.drivers;
   const currentTaskNode =
     selection.taskId === null ? undefined : taskNodeOf(tree, selection.taskId);
   const currentTask = currentTaskNode?.task;
@@ -286,6 +301,74 @@ export function useWorkspace({
       await api.sessions.restart({ id: session.id, size: fitSize.current });
       choose({ taskId: session.taskId, entryId: session.id });
     });
+
+  /**
+   * What `prefix v` can do for a session: the view it moves to, or why it cannot move. Only an
+   * agent whose chat driver this build has can live in both views, and the answer is the server's
+   * (`chat.capabilities`).
+   */
+  const viewHandoff = (
+    session: Session | undefined,
+  ): { target: SessionView } | { reason: string } => {
+    if (session === undefined) return { reason: "Select an agent session." };
+    if (handoff !== undefined) return { reason: "This session is switching views now." };
+    if (session.kind === "shell") return { reason: "A shell runs in a terminal only." };
+    if (!chatCapabilities.loaded) return { reason: "Waiting for the server's chat drivers." };
+    if (!chatCapabilities.drivers.includes(session.kind))
+      return { reason: `The ${session.kind} agent has no chat driver in this build.` };
+    return { target: session.view === "chat" ? "terminal" : "chat" };
+  };
+
+  /**
+   * Whether the selected agent is busy. A chat turn is the contract's own state; a terminal's
+   * comes from the status its program reports, where `blocked` is a request waiting for the user.
+   */
+  const agentBusy = (session: Session) => {
+    if (session.view === "chat") {
+      return {
+        working: chatTurn === "working",
+        waiting:
+          chat?.store
+            .getSnapshot()
+            .items.some((item) => item.kind === "user-request" && item.status === "pending") ??
+          false,
+      };
+    }
+    const state = sessionStatus(session)?.state;
+    return { working: state === "working" || state === "blocked", waiting: state === "blocked" };
+  };
+
+  /**
+   * Hands the session over: the main area steps aside while the server stops one frontend and
+   * starts the other on the same agent session, so no pane shows a half-switched session.
+   */
+  const switchView = async (session: Session, target: SessionView) => {
+    setHandoff(target);
+    try {
+      await api.sessions.setView({ id: session.id, view: target, size: fitSize.current });
+      choose({ taskId: session.taskId, entryId: session.id });
+    } finally {
+      setHandoff(undefined);
+    }
+  };
+
+  /** A busy agent is asked about first: the handoff aborts its turn and cancels what it waits on. */
+  const requestSwitchView = (session: Session) => {
+    const offered = viewHandoff(session);
+    if (!("target" in offered)) return;
+    const busy = agentBusy(session);
+    if (busy.working || busy.waiting) {
+      openDialog({
+        kind: "switch-view",
+        session,
+        target: offered.target,
+        working: busy.working,
+        waiting: busy.waiting,
+      });
+      return;
+    }
+    void attempt(() => switchView(session, offered.target));
+  };
 
   const removeSession = async (session: Session) => {
     const next = activeAfterClose(entryIds, session.id);
@@ -561,6 +644,18 @@ export function useWorkspace({
       enabled: chat !== undefined,
       run: () => openDialog({ kind: "chat-reasoning" }),
     },
+    "switch-view": (() => {
+      const offered = viewHandoff(currentSession);
+      return {
+        label: "target" in offered ? `Switch to ${offered.target}` : "Switch view",
+        group: "Sessions",
+        enabled: "target" in offered,
+        ...("reason" in offered ? { reason: offered.reason } : {}),
+        run: () => {
+          if (currentSession) requestSwitchView(currentSession);
+        },
+      };
+    })(),
     "session-1": goToSession(1),
     "session-2": goToSession(2),
     "session-3": goToSession(3),
@@ -685,6 +780,7 @@ export function useWorkspace({
     currentSession,
     chat,
     chatDrivers,
+    handoff,
     currentTask,
     currentTaskNode,
     currentTaskProject,
@@ -711,6 +807,7 @@ export function useWorkspace({
     closeTerminal,
     stopSession,
     restartSession,
+    switchView,
     removeSession,
     openRenameEntry,
     openRenameTask,

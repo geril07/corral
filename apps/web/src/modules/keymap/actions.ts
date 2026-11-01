@@ -7,6 +7,8 @@ export interface ActionEntry {
   group: ActionGroup;
   /** False when the action cannot do anything in the current state; the palette shows it disabled. */
   enabled: boolean;
+  /** Why a disabled action cannot run; the palette shows it beside the label. */
+  reason?: string;
   run: () => void;
 }
 
@@ -33,8 +35,13 @@ export const ACTION_LABELS: Readonly<Record<ActionId, string>> = {
   "next-session": "Next session",
   "previous-session": "Previous session",
   "abort-turn": "Abort the working turn",
+<<<<<<< HEAD
   "change-model": "Change the chat model",
   "change-reasoning": "Change the reasoning level",
+||||||| parent of d611217 (feat(web): offer prefix v where a chat driver exists)
+=======
+  "switch-view": "Switch view (chat or terminal)",
+>>>>>>> d611217 (feat(web): offer prefix v where a chat driver exists)
   "session-1": "Go to session 1",
   "session-2": "Go to session 2",
   "session-3": "Go to session 3",
@@ -70,8 +77,13 @@ export const ACTION_GROUP_OF: Readonly<Record<ActionId, ActionGroup>> = {
   "next-session": "Sessions",
   "previous-session": "Sessions",
   "abort-turn": "Sessions",
+<<<<<<< HEAD
   "change-model": "Sessions",
   "change-reasoning": "Sessions",
+||||||| parent of d611217 (feat(web): offer prefix v where a chat driver exists)
+=======
+  "switch-view": "Sessions",
+>>>>>>> d611217 (feat(web): offer prefix v where a chat driver exists)
   "session-1": "Sessions",
   "session-2": "Sessions",
   "session-3": "Sessions",

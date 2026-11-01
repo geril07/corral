@@ -1,6 +1,7 @@
 import { describeSessionState } from "@corral/client/session-state";
 import { describeError } from "@corral/client/rpc-errors";
 import { ActionId, type ClientConfig } from "@corral/protocol/config";
+import type { SessionView } from "@corral/protocol/rpc";
 import { useState } from "react";
 import {
   Alert,
@@ -16,7 +17,12 @@ import {
 } from "../../common/ui/index.ts";
 import { AddProjectDialog } from "../projects/index.ts";
 import { ChatChoiceDialog, ChatView } from "../chat/index.ts";
-import { AgentPicker, RemoveSessionDialog, StoppedSession } from "../sessions/index.ts";
+import {
+  AgentPicker,
+  RemoveSessionDialog,
+  StoppedSession,
+  SwitchViewDialog,
+} from "../sessions/index.ts";
 import { NewTaskView, RemoveTaskDialog, TaskSourceDialog } from "../tasks/index.ts";
 import { TerminalView } from "../terminal/index.ts";
 import { ConnectionNotice } from "../connection/index.ts";
@@ -80,6 +86,7 @@ export function WorkspaceScreen({
     currentSession,
     chat,
     chatDrivers,
+    handoff,
     currentTask,
     currentTaskNode,
     currentTaskProject,
@@ -104,6 +111,7 @@ export function WorkspaceScreen({
     closeTerminal,
     stopSession,
     restartSession,
+    switchView,
     removeSession,
     openRenameEntry,
     openRenameTask,
@@ -286,7 +294,10 @@ export function WorkspaceScreen({
           />
         )}
         <div className="relative min-h-0 flex-1" role="region" aria-label="task content">
-          {composer ??
+          {handoff !== undefined ? (
+            <HandOffNotice target={handoff} />
+          ) : (
+            (composer ??
             session ??
             (loaded && (
               <EmptyWorkspace
@@ -298,7 +309,8 @@ export function WorkspaceScreen({
                 onNewTerminal={() => void createTerminal(selection.taskId)}
                 onNewAgent={openAgentPicker}
               />
-            ))}
+            )))
+          )}
         </div>
       </MainPanel>
       {dialog?.kind === "add-project" && (
@@ -322,6 +334,19 @@ export function WorkspaceScreen({
             onClose={() => setDialog(undefined)}
           />
         )}
+      {dialog?.kind === "switch-view" && (
+        <SwitchViewDialog
+          session={dialog.session}
+          target={dialog.target}
+          working={dialog.working}
+          waiting={dialog.waiting}
+          onSwitch={async () => {
+            await switchView(dialog.session, dialog.target);
+            setDialog(undefined);
+          }}
+          onClose={() => setDialog(undefined)}
+        />
+      )}
       {dialog?.kind === "remove-session" && (
         <RemoveSessionDialog
           session={dialog.session}
@@ -376,6 +401,27 @@ export function WorkspaceScreen({
         <ConfigProblemsDialog onClose={() => setDialog(undefined)} />
       )}
     </AppShell>
+  );
+}
+
+/**
+ * What the task content shows while a session switches views: the two frontends never overlap, so
+ * between the stop and the start there is no pane to show, and the old one has already given up the
+ * keyboard. The tab strip above keeps the session, its name and its place throughout.
+ */
+function HandOffNotice({ target }: { target: SessionView }) {
+  return (
+    <div
+      className="flex h-full flex-col items-center justify-center gap-1 px-4"
+      role="status"
+      aria-label={`Switching this session to ${target}`}
+      aria-live="polite"
+    >
+      <p className="m-0 text-muted-foreground">Switching this session to {target}…</p>
+      <p className="m-0 text-xs text-muted-foreground">
+        The agent keeps its conversation; the frontend starts again.
+      </p>
+    </div>
   );
 }
 

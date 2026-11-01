@@ -36,7 +36,7 @@ export function CommandPaletteDialog({ actions, onRun, onClose }: CommandPalette
             return (
               <CommandGroup key={group} heading={group}>
                 {groupActions.map((action) => {
-                  const { label, enabled } = actions[action];
+                  const { label, enabled, reason } = actions[action];
                   return (
                     <CommandItem
                       key={action}
@@ -45,6 +45,9 @@ export function CommandPaletteDialog({ actions, onRun, onClose }: CommandPalette
                       onSelect={() => onRun(action)}
                     >
                       <span className="flex-1 truncate">{label}</span>
+                      {!enabled && reason && (
+                        <span className="truncate text-xs text-muted-foreground">{reason}</span>
+                      )}
                       <Kbd>{formatBinding(config, action)}</Kbd>
                     </CommandItem>
                   );
