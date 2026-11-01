@@ -169,9 +169,13 @@ function runNativeCliResult(
         resolve({ stdout, exitCode: typeof error.code === "number" ? error.code : 1, stderr });
       },
     );
-    // `--body-file -` reads stdin; a call that passes nothing gets EOF at once, so no CLI can block
-    // on a terminal that is not there.
-    child.stdin?.end(stdin ?? "");
+    // `--body-file -`/`--description-file -` read the body from stdin. A call with no body does not
+    // touch the stream at all: writing EOF into a child that never spawned (a missing executable)
+    // is a stream error the `execFile` callback already reports as the call's failure.
+    if (stdin !== undefined && child.pid !== undefined) {
+      child.stdin?.on("error", () => undefined);
+      child.stdin?.end(stdin);
+    }
   });
 }
 

@@ -384,23 +384,9 @@ test("gitlab opens a merge request with mr create and reads it with mr view", as
     // GitLab reports no per-check list to Corral; the row says so instead of inventing one.
     checks: null,
   });
-  const argv = clis.calls().map((call) => [call.command].concat(call.argv));
-  expect(argv).toEqual([
-    [
-      "glab",
-      "mr",
-      "create",
-      "--title",
-      "Ship the change",
-      "--description-file",
-      "-",
-      "--source-branch",
-      branch,
-      "--target-branch",
-      "trunk",
-      "--yes",
-    ],
-    ["glab", "mr", "view", "-F", "json"],
+  expect(clis.calls().map((call) => `${call.command} ${call.argv.join(" ")}`)).toEqual([
+    `glab mr create --title Ship the change --description-file - --source-branch ${branch} --target-branch trunk --yes`,
+    "glab mr view -F json",
   ]);
   expect(clis.calls()[0]?.stdin).toBe("A description.\n");
 });

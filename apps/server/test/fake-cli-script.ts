@@ -15,8 +15,11 @@ export function fakeCliScript(command: "gh" | "glab"): string {
   return `#!${process.execPath}
 const fs = require("node:fs");
 const argv = process.argv.slice(2);
+// Only a call that reads the body from stdin is waited on: a caller that leaves stdin open (the
+// issue import does not write to it) would otherwise block the fake forever.
+const readsStdin = argv.some((arg, index) => (arg === "--body-file" || arg === "--description-file") && argv[index + 1] === "-");
 let stdin = "";
-try { stdin = fs.readFileSync(0, "utf8"); } catch { stdin = ""; }
+if (readsStdin) { try { stdin = fs.readFileSync(0, "utf8"); } catch { stdin = ""; } }
 const log = process.env.FAKE_ISSUE_LOG;
 if (log) fs.appendFileSync(log, JSON.stringify({ command: ${JSON.stringify(command)}, argv, cwd: process.cwd(), ...(stdin === "" ? {} : { stdin }) }) + "\\n");
 if (process.env.GH_DEBUG || process.env.GLAB_DEBUG || process.env.GIT_TRACE || process.env.GIT_CURL_VERBOSE) {
