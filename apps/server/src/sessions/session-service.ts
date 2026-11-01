@@ -271,6 +271,55 @@ export class SessionService {
     });
   }
 
+  /**
+   * Hands the session over between its two views (design.md, decision 5): the live frontend is
+   * stopped through the same path a stop uses — a chat child closes stdin and is waited for, then
+   * killed with its group; a terminal's PTY is closed and awaited — and only then does the other
+   * view start on the same agent session id. One frontend exists at any moment, and the session
+   * keeps its id, label and place in the task's tabs because nothing recreates the row.
+   *
+   * A working turn is aborted first, so the chat's own transcript settles before the process goes.
+   * The conversation is the agent's, so history survives the frontend; in-flight output and pending
+   * requests do not, which is what the confirmation in the client says. A handoff whose second
+   * start fails leaves the session `stopped` in the target view with the launch error, so
+   * `restart` (or `setView` back) is the retry; a stopped session only records the view its next
+   * start opens in.
+   */
+  setView(id: string, view: SessionView, size: TerminalSize): Promise<Session> {
+    return this.#queue.run(async () => {
+      const stored = this.#stored(id);
+      const target = this.#viewFor(stored.kind, view);
+      if (stored.state === "running") {
+        const prompt = this.#taskPrompt(stored) ?? null;
+        await this.#chat.abortWorking(id);
+        await this.#halt(id);
+        try {
+          await this.#launch(
+            { ...stored, view: target },
+            this.#task(stored.taskId),
+            size,
+            "resume",
+            prompt,
+          );
+        } catch (error) {
+          const reason = launchFailureReason(error);
+          this.#store.setView(id, target);
+          this.#store.setState(id, "stopped");
+          this.#launchErrors.set(id, reason);
+          this.#changes.notify();
+          console.error(
+            `corral-server: could not hand session ${stored.id} over to ${target} (${stored.kind}): ${reason}`,
+            launchDiagnostic(error),
+          );
+          throw error;
+        }
+      }
+      if (stored.view !== target) this.#store.setView(id, target);
+      this.#changes.notify();
+      return this.#withTerminal(this.#stored(id));
+    });
+  }
+
   stop(id: string): Promise<Session> {
     return this.#queue.run(async () => {
       const stored = this.#stored(id);

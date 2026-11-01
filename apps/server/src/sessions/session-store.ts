@@ -86,6 +86,11 @@ export class SessionStore {
     this.#db.prepare("UPDATE sessions SET state = ? WHERE id = ?").run(state, id);
   }
 
+  /** The view the session opens in; its next start runs in this one. */
+  setView(id: string, view: StoredSession["view"]): void {
+    this.#db.prepare("UPDATE sessions SET view = ? WHERE id = ?").run(view, id);
+  }
+
   /** `null` takes the user's name away, restoring the natural label. */
   setLabel(id: string, label: string | null): void {
     this.#db.prepare("UPDATE sessions SET label = ? WHERE id = ?").run(label, id);

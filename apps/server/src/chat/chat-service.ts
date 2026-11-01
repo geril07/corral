@@ -175,6 +175,25 @@ export class ChatService {
     return this.#frontend(subject).timeline.watch(after, signal);
   }
 
+  /**
+   * Ends a working turn before its frontend is taken away, as a view handoff does: pi is sent the
+   * abort, any dialog waiting for an answer is cancelled, and the turn is given the same grace a
+   * stop gives to report that it ended. A turn pi closes is written to its own session, so the
+   * conversation keeps it; a child killed mid-turn may write nothing. A frontend that is idle, or
+   * none at all, is left alone. The stop that follows is what removes the frontend, whatever this
+   * wait saw — it never replaces it.
+   */
+  async abortWorking(sessionId: string): Promise<void> {
+    const driver = this.#drivers.get(sessionId);
+    if (driver === undefined || driver.closed || driver.state.turn !== "working") return;
+    await driver.abort().catch(() => undefined);
+    const deadline = Date.now() + this.#timeouts.exitGraceMs;
+    while (!driver.closed && driver.state.turn === "working" && Date.now() < deadline) {
+      // oxlint-disable-next-line no-await-in-loop -- waiting for pi to say the turn ended
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
   send(subject: ChatSubject, text: string, mode: ChatSendMode): string {
     return this.#frontend(subject).send(text, mode);
   }

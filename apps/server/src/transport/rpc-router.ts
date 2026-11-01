@@ -360,6 +360,18 @@ export function createRpcRouter({
           },
         ),
       ),
+      setView: os.sessions.setView.handler(({ input, errors }) =>
+        translating(
+          () => sessions.setView(input.id, input.view, input.size),
+          (error) => {
+            if (error instanceof SessionNotFoundError)
+              return errors.SESSION_NOT_FOUND({ data: { id: error.id } });
+            if (error instanceof AgentNotFoundError)
+              return errors.AGENT_NOT_FOUND({ data: { command: error.command } });
+            return launchError(error, errors);
+          },
+        ),
+      ),
       watch: os.sessions.watch.handler(({ signal }) => sessions.watch(signal)),
     },
     chat: {
