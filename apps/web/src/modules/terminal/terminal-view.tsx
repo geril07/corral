@@ -104,11 +104,25 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
     };
     const observer = new ResizeObserver(proposeSize);
     observer.observe(host);
+    // The PTY has one grid for every attached client, so this one may be showing the size another
+    // client fitted last. Coming back to the terminal (`focusin`) or to the page (`visibilitychange`
+    // to visible) re-proposes its own, which is where its canvas gets its size back. The trigger is
+    // this host, not a document-level `focus`, for attribution: a page or window that regains focus
+    // must refit the one terminal that got the keyboard, not every mounted one. A page that opens
+    // unfocused still fits through the observer above.
+    const refitOnFocus = () => proposeSize();
+    const refitOnVisible = () => {
+      if (document.visibilityState === "visible") proposeSize();
+    };
+    host.addEventListener("focusin", refitOnFocus);
+    document.addEventListener("visibilitychange", refitOnVisible);
     proposeSize();
     xterm.focus();
 
     return () => {
       cancelAnimationFrame(frame);
+      host.removeEventListener("focusin", refitOnFocus);
+      document.removeEventListener("visibilitychange", refitOnVisible);
       observer.disconnect();
       unsubscribe();
       stream.close();
