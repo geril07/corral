@@ -50,8 +50,10 @@ export const test = base.extend<Fixtures>({
             OPENCODE_CONFIG_DIR: `${stateDir}/opencode`,
             OPENCODE_CONFIG_CONTENT: "",
             FAKE_AGENT_LOG: launchLog(stateDir),
-            // The fake pi's RPC journals, one per session, so a resumed chat has its history.
-            FAKE_PI_RPC_HOME: path.join(stateDir, "pi-rpc"),
+            // The fake pi's RPC journal, one file per agent session id: a resumed frontend rebuilds
+            // its history from here, exactly as pi's own session store does. Per test, so no run
+            // inherits another's conversation.
+            FAKE_PI_RPC_HOME: piRpcHome(stateDir),
             FAKE_ISSUE_LOG: issueLaunchLog(stateDir),
             FAKE_ISSUE_RESPONSE_FILE: issueResponseFile(stateDir),
             FAKE_ISSUE_MODE: "ok",
@@ -68,6 +70,33 @@ export const test = base.extend<Fixtures>({
 
 /** Where the fake agents append one JSON line per launch (apps/server/test/fake-agents). */
 export const launchLog = (stateDir: string) => path.join(stateDir, "launches.jsonl");
+
+/** Where the fake pi in RPC mode keeps its session journals (apps/server/test/fake-agents). */
+export const piRpcHome = (stateDir: string) => path.join(stateDir, "pi-rpc");
+
+/** The conversation the fake pi wrote for one agent session id, oldest message first. */
+export function readPiJournal(
+  stateDir: string,
+  agentSessionId: string,
+): { role: string; content: unknown }[] {
+  try {
+    const file = path.join(
+      piRpcHome(stateDir),
+      `${agentSessionId.replace(/[^A-Za-z0-9._-]/g, "_")}.json`,
+    );
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (message: unknown): message is { role: string; content: unknown } =>
+            message !== null &&
+            typeof message === "object" &&
+            typeof Reflect.get(message, "role") === "string",
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 /** Where the fake gh/glab append one JSON line per launch (apps/web/test/issue-clis.ts). */
 export const issueLaunchLog = (stateDir: string) => path.join(stateDir, "issue-launches.jsonl");
