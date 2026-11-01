@@ -36,8 +36,11 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
    shows the action disabled with the reason for a shell or a driverless agent, and pressing the key
    there does nothing. A handoff whose second start fails leaves the session stopped in the target
    view with the launch error and its Start again button, and `prefix v` on a stopped session only
-   chooses the view its next start opens in. OpenCode can keep both live and whether Codex's
-   terminal is view-only while chat writes is measured when its driver starts (stage C).
+   chooses the view its next start opens in. An agent whose driver keeps both views live (OpenCode)
+   does not hand over at all: `prefix v` opens the other frontend beside the running one, nothing is
+   aborted, and the palette says "Open the … view" instead of "Switch to …", so no confirmation is
+   asked for a busy agent (stage C). Whether Codex's terminal is view-only while chat writes is
+   measured when its driver starts.
 5. The sidebar lists tasks either flat by status (sections Needs you, Working and Done, plus a settled shelf; the default) or grouped by project; `prefix l` toggles the mode and the device keeps its choice. A task's status is the most urgent of its sessions', ordered: needs approval or input, error, working, completed and unseen, idle. "Completed and unseen" clears when the task is opened or its status changes while it is selected.
 6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles.
 7. Settings carry the defaults the composer uses: view (global, overridable per project), workspace mode, worktree root, branch prefix, slug mode, naming agent/model; and the agents, whether each is found and which have a chat driver.

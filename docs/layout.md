@@ -61,7 +61,7 @@ The revision: the sidebar lists tasks, the main area shows one task with a heade
 ## Session tabs (32 px)
 
 - One tab per session of the current task, in creation order. A tab: number hint (`1`–`9`, muted, `text-xs`), agent or shell icon (14 px) with the status glyph replacing it while working/blocked, label (session label or natural name: "pi", "shell 2"), close on hover/focus only.
-- Chat and terminal tabs look the same apart from a small chat glyph; `prefix v` (stage B) swaps one in place.
+- Chat and terminal tabs look the same apart from a small chat glyph; `prefix v` (stage B) swaps one in place. For an agent whose driver keeps both views live (OpenCode, stage C) it opens the other frontend beside the running one instead: the tab, its number and its place stay, and the stored view says which frontend the main area shows, so the strip never holds two tabs for one session.
 - A trailing "+" opens a menu: shell, agent…, chat… (stage B); same as `prefix c` / `prefix s`.
 - Tabs take their content width up to 200 px, then truncate; overflow scrolls horizontally with the selected tab kept in view (Orca's model, no fixed width).
 
