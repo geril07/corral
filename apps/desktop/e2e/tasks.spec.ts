@@ -1,7 +1,15 @@
 import { expect } from "@playwright/test";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { createRepo, git, openedWindow, screenText, startShell, workspace } from "./app-helpers.ts";
+import {
+  createRepo,
+  git,
+  openedWindow,
+  screenText,
+  sessionTab,
+  startShell,
+  workspace,
+} from "./app-helpers.ts";
 import { test } from "./fixtures.ts";
 
 const branchesOf = (repo: string) =>
@@ -14,7 +22,7 @@ test("a task gets a worktree and a terminal in it, and removing it leaves the br
 }) => {
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("No projects yet")).toBeVisible();
+  await expect(window.getByText("Add a repository to start")).toBeVisible();
 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("Shift+KeyP");
@@ -36,8 +44,8 @@ test("a task gets a worktree and a terminal in it, and removing it leaves the br
   const task = workspace(window).getByRole("button", { name: /^Fix login/ });
   await expect(task).toHaveAttribute("aria-current", "true");
   // Creating a task starts no shell: the task is listed and its pane says what is missing.
-  await expect(workspace(window).getByRole("button", { name: /^shell/ })).toHaveCount(0);
-  await expect(window.getByText("No sessions in this task.")).toBeVisible();
+  await expect(sessionTab(window, "shell")).toHaveCount(0);
+  await expect(window.getByText("No sessions", { exact: true })).toBeVisible();
 
   // The task got a worktree of its own in the data dir; a shell started there works in it.
   const worktreesRoot = path.join(stateDir, "data", "worktrees");
@@ -74,7 +82,7 @@ test("projects and tasks are still there when the app is opened again", async ({
   const repo = createRepo(stateDir);
   const first = await launchApp();
   const firstWindow = await openedWindow(first);
-  await expect(firstWindow.getByText("No projects yet")).toBeVisible();
+  await expect(firstWindow.getByText("Add a repository to start")).toBeVisible();
   await firstWindow.keyboard.press("Alt+KeyA");
   await firstWindow.keyboard.press("Shift+KeyP");
   await expect(
@@ -101,7 +109,5 @@ test("projects and tasks are still there when the app is opened again", async ({
   await expect(workspace(secondWindow).getByRole("button", { name: /^Keep me/ })).toBeVisible();
   await expect(workspace(secondWindow).getByRole("button", { name: "New task" })).toBeEnabled();
   // The task's shell kept running on the server, so it is listed too.
-  await expect(
-    workspace(secondWindow).getByRole("button", { name: "shell", exact: true }),
-  ).toHaveCount(1);
+  await expect(sessionTab(secondWindow, "shell")).toHaveCount(1);
 });

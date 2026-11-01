@@ -1,7 +1,14 @@
 import { expect } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { addProject, createRepo, createTask, openedWindow, workspace } from "./app-helpers.ts";
+import {
+  addProject,
+  createRepo,
+  createTask,
+  openedWindow,
+  sessionTabs,
+  workspace,
+} from "./app-helpers.ts";
 import { readLaunches, test } from "./fixtures.ts";
 
 function writeConfig(stateDir: string, text: string) {
@@ -30,7 +37,7 @@ env = [{ targetName = "ANTHROPIC_AUTH_TOKEN", fromEnv = "E2E_PROFILE_TOKEN" }]
 
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("No projects yet")).toBeVisible();
+  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Profiles");
 
@@ -44,8 +51,8 @@ env = [{ targetName = "ANTHROPIC_AUTH_TOKEN", fromEnv = "E2E_PROFILE_TOKEN" }]
   await picker.getByRole("button", { name: "Start session" }).click();
   await expect(picker).toBeHidden();
 
-  const row = workspace(window).getByRole("button", { name: /^claude Claude sonnet/ });
-  await expect(row).toHaveAttribute("aria-current", "true");
+  const tab = sessionTabs(window).getByRole("tab", { name: /^claude Claude sonnet/ });
+  await expect(tab).toHaveAttribute("aria-selected", "true");
   await expect
     .poll(() =>
       readLaunches(stateDir)

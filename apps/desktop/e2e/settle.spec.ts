@@ -5,6 +5,7 @@ import {
   createTask,
   openedWindow,
   screenText,
+  sessionTab,
   startShell,
   unwrappedScreenText,
   workspace,
@@ -18,7 +19,7 @@ test("settling a task stops its agent and unsettling resumes the conversation", 
 }) => {
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("No projects yet")).toBeVisible();
+  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Finished");
   await startShell(window);
@@ -29,10 +30,7 @@ test("settling a task stops its agent and unsettling resumes the conversation", 
   const picker = window.getByRole("dialog", { name: "New agent session" });
   await expect(picker.getByRole("radio", { name: "claude" })).toBeFocused();
   await window.keyboard.press("Digit1");
-  await expect(sidebar.getByRole("button", { name: "claude", exact: true })).toHaveAttribute(
-    "aria-current",
-    "true",
-  );
+  await expect(sessionTab(window, "claude")).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
   await window.keyboard.type("first-prompt");
   await window.keyboard.press("Enter");
@@ -46,23 +44,23 @@ test("settling a task stops its agent and unsettling resumes the conversation", 
   await window.keyboard.press("KeyD");
 
   await expect(sidebar.getByRole("button", { name: "Settled (1)" })).toBeVisible();
-  await expect(sidebar.getByRole("button", { name: "claude stopped", exact: true })).toBeVisible();
-  await expect(sidebar.getByRole("button", { name: "shell stopped", exact: true })).toBeVisible();
+  await expect(sessionTab(window, "claude stopped")).toBeVisible();
+  await expect(sessionTab(window, "shell stopped")).toBeVisible();
   await expect.poll(() => isAlive(started!.pid)).toBe(false);
 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyD");
 
   await expect(sidebar.getByRole("button", { name: "Settled (1)" })).toBeHidden();
-  await expect(sidebar.getByRole("button", { name: "claude", exact: true })).toBeVisible();
-  await expect(sidebar.getByRole("button", { name: "shell", exact: true })).toBeVisible();
+  await expect(sessionTab(window, "claude")).toBeVisible();
+  await expect(sessionTab(window, "shell")).toBeVisible();
   await expect
     .poll(() => claudeLaunches().map((launch) => launch.argv))
     .toEqual([
       ["--session-id", claudeId],
       ["--resume", claudeId],
     ]);
-  await sidebar.getByRole("button", { name: "claude", exact: true }).click();
+  await sessionTab(window, "claude").click();
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
   await window.keyboard.type("after-unsettle");
   await window.keyboard.press("Enter");

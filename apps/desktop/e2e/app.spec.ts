@@ -11,7 +11,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { addProject, createRepo, createTask, workspace } from "./app-helpers.ts";
+import { addProject, createRepo, createTask, sessionTabs, workspace } from "./app-helpers.ts";
 
 interface Fixtures {
   stateDir: string;
@@ -129,7 +129,7 @@ test("a reload reconnects through the preload bridge and keeps the hash route", 
 }) => {
   const window = await openedWindow(await launchApp());
   const nav = window.getByRole("navigation", { name: "workspace" });
-  await expect(window.getByText("No projects yet")).toBeVisible();
+  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyC");
   await expect(nav.getByRole("button", { name: /^sh · / })).toHaveCount(1);
@@ -189,7 +189,7 @@ test("a server restart with a new capability reconnects without quitting the app
 }) => {
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("No projects yet")).toBeVisible();
+  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Survives restart");
   const selectedTask = workspace(window).getByRole("button", { name: /^Survives restart/ });
@@ -213,10 +213,11 @@ test("a server restart with a new capability reconnects without quitting the app
     )
     .not.toBe(oldCapability);
 
-  await expect(window.getByRole("status", { name: /^connection:/ })).toContainText("Connected");
+  // The footer only shows connection state while it is not connected.
+  await expect(window.getByRole("status", { name: /^connection:/ })).toHaveCount(0);
   await expect(selectedTask).toHaveAttribute("aria-current", "true");
 
-  const shells = workspace(window).getByRole("button", { name: /^shell(?: \d+)?$/ });
+  const shells = sessionTabs(window).getByRole("tab", { name: /^shell(?: \d+)?$/ });
   const beforeCount = await shells.count();
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyC");

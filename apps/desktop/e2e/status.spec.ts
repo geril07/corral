@@ -5,6 +5,7 @@ import {
   createTask,
   openedWindow,
   screenText,
+  sessionTab,
   workspace,
 } from "./app-helpers.ts";
 import { test } from "./fixtures.ts";
@@ -19,11 +20,11 @@ test("a blocked agent shows in the sidebar and on the board, and Enter jumps to 
 }) => {
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("No projects yet")).toBeVisible();
+  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Alpha");
   const sidebar = workspace(window);
-  const claude = sidebar.getByRole("button", { name: "claude", exact: true });
+  const claude = sessionTab(window, "claude");
 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyS");
@@ -33,14 +34,14 @@ test("a blocked agent shows in the sidebar and on the board, and Enter jumps to 
       .getByRole("radio", { name: "claude" }),
   ).toBeFocused();
   await window.keyboard.press("Digit1");
-  await expect(claude).toHaveAttribute("aria-current", "true");
+  await expect(claude).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
 
   await window.keyboard.type(`osc state=blocked:kind=permission:msg=${b64("Run rm -rf build?")}`);
   await window.keyboard.press("Enter");
 
   const blocked = sidebar.getByRole("img", { name: "blocked · permission" });
-  await expect(blocked).toHaveCount(2);
+  await expect(blocked).toHaveCount(1);
   await expect(sidebar.getByRole("button", { name: /^Alpha/ })).toHaveAttribute(
     "title",
     "Run rm -rf build?",
@@ -67,11 +68,11 @@ test("a blocked agent shows in the sidebar and on the board, and Enter jumps to 
     "aria-current",
     "true",
   );
-  await expect(claude).toHaveAttribute("aria-current", "true");
+  await expect(claude).toHaveAttribute("aria-selected", "true");
   await window.keyboard.type(`osc state=done:msg=${b64("All green")}`);
   await window.keyboard.press("Enter");
 
-  await expect(sidebar.getByRole("img", { name: "done" })).toHaveCount(2);
+  await expect(sidebar.getByRole("img", { name: "done" })).toHaveCount(1);
   await expect(blocked).toHaveCount(0);
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyB");
@@ -88,7 +89,7 @@ test("prefix g jumps to the blocked session from another task and says so when n
 }) => {
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("No projects yet")).toBeVisible();
+  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Alpha");
   const sidebar = workspace(window);
@@ -108,7 +109,7 @@ test("prefix g jumps to the blocked session from another task and says so when n
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
   await window.keyboard.type(`osc state=blocked:kind=question:msg=${b64("Which branch?")}`);
   await window.keyboard.press("Enter");
-  await expect(sidebar.getByRole("img", { name: "blocked · question" })).toHaveCount(2);
+  await expect(sidebar.getByRole("img", { name: "blocked · question" })).toHaveCount(1);
 
   await createTask(window, "Beta");
   await window.keyboard.press("Alt+KeyA");
@@ -118,8 +119,5 @@ test("prefix g jumps to the blocked session from another task and says so when n
     "aria-current",
     "true",
   );
-  await expect(sidebar.getByRole("button", { name: "claude", exact: true })).toHaveAttribute(
-    "aria-current",
-    "true",
-  );
+  await expect(sessionTab(window, "claude")).toHaveAttribute("aria-selected", "true");
 });

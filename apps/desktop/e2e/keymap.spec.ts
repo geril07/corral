@@ -19,7 +19,7 @@ test("a config file rebinds an action before launch, and the old key does nothin
 }) => {
   writeConfig(stateDir, '[keys.bindings]\nnew-terminal = "q"\n');
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("No projects yet")).toBeVisible();
+  await expect(window.getByText("Add a repository to start")).toBeVisible();
 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyQ");
@@ -34,7 +34,7 @@ test("the command palette opens from its key and runs the filtered action", asyn
   launchApp,
 }) => {
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("No projects yet")).toBeVisible();
+  await expect(window.getByText("Add a repository to start")).toBeVisible();
 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("Space");

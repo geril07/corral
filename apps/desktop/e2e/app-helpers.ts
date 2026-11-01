@@ -21,6 +21,10 @@ export const screenText = (page: Page) =>
 export const unwrappedScreenText = (page: Page) =>
   screenText(page).then((text) => text.replaceAll("\n", ""));
 export const workspace = (page: Page) => page.getByRole("navigation", { name: "workspace" });
+/** The current task's session tabs (`layout.md`, **Session tabs**). */
+export const sessionTabs = (page: Page) => page.getByRole("tablist", { name: "Sessions" });
+export const sessionTab = (page: Page, name: string) =>
+  sessionTabs(page).getByRole("tab", { name, exact: true });
 
 export function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, {
@@ -96,7 +100,5 @@ export async function createTask(window: Page, title: string) {
 export async function startShell(window: Page, shellCount = 1) {
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyC");
-  await expect(workspace(window).getByRole("button", { name: "shell", exact: true })).toHaveCount(
-    shellCount,
-  );
+  await expect(sessionTab(window, "shell")).toHaveCount(shellCount);
 }

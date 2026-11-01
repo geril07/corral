@@ -5,6 +5,8 @@ import {
   createTask,
   openedWindow,
   screenText,
+  sessionTab,
+  sessionTabs,
   startShell,
   unwrappedScreenText,
   workspace,
@@ -19,12 +21,11 @@ test("an agent session is started, stopped and restarted, and a running one come
   const repo = createRepo(stateDir);
   const first = await launchApp();
   const window = await openedWindow(first);
-  await expect(window.getByText("No projects yet")).toBeVisible();
+  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Agents");
   await startShell(window);
-  const session = (name: string, exact = true) =>
-    workspace(window).getByRole("button", { name, exact });
+  const session = (name: string) => sessionTab(window, name);
 
   // Claude Code through the picker.
   await window.keyboard.press("Alt+KeyA");
@@ -33,7 +34,7 @@ test("an agent session is started, stopped and restarted, and a running one come
   await expect(picker.getByRole("radio", { name: "claude" })).toBeFocused();
   await window.keyboard.press("Digit1");
   await expect(picker).toBeHidden();
-  await expect(session("claude")).toHaveAttribute("aria-current", "true");
+  await expect(session("claude")).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
   await window.keyboard.type("first-prompt");
   await window.keyboard.press("Enter");
@@ -50,7 +51,7 @@ test("an agent session is started, stopped and restarted, and a running one come
   await expect(window.getByRole("region", { name: "stopped session" })).toBeVisible();
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyR");
-  await expect(session("claude")).toHaveAttribute("aria-current", "true");
+  await expect(session("claude")).toHaveAttribute("aria-selected", "true");
   await expect
     .poll(() =>
       readLaunches(stateDir)
@@ -68,7 +69,7 @@ test("an agent session is started, stopped and restarted, and a running one come
   await window.keyboard.press("KeyS");
   await expect(picker.getByRole("radio", { name: "claude" })).toBeFocused();
   await window.keyboard.press("Digit3");
-  await expect(session("pi")).toHaveAttribute("aria-current", "true");
+  await expect(session("pi")).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => screenText(window)).toContain("fake pi ready");
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyX");
@@ -83,8 +84,7 @@ test("an agent session is started, stopped and restarted, and a running one come
   await expect.poll(() => isAlive(agentPid)).toBe(false);
 
   const secondWindow = await openedWindow(await launchApp());
-  const restored = (name: string, exact = true) =>
-    workspace(secondWindow).getByRole("button", { name, exact });
+  const restored = (name: string) => sessionTab(secondWindow, name);
   await expect(restored("claude")).toBeVisible();
   expect(readEndpoint(stateDir)?.pid).not.toBe(serverPid);
   await expect(restored("shell")).toBeVisible();
@@ -110,4 +110,51 @@ test("an agent session is started, stopped and restarted, and a running one come
   await expect
     .poll(() => unwrappedScreenText(secondWindow))
     .toContain("fake claude got: after-restart");
+});
+
+// A8: the task's sessions are tabs in the main area, not rows in the sidebar.
+test("two sessions of one task are tabs that switch by click and by key, and the header names the task", async ({
+  launchApp,
+  stateDir,
+}) => {
+  const repo = createRepo(stateDir);
+  const window = await openedWindow(await launchApp());
+  // The window takes keys only once the workspace has loaded.
+  await expect(window.getByText("Add a repository to start")).toBeVisible();
+  await addProject(window, repo);
+  await createTask(window, "Tabbed");
+
+  const tabs = sessionTabs(window);
+  await expect(tabs.getByRole("tab")).toHaveCount(1);
+  // Sessions are not sidebar rows any more.
+  await expect(workspace(window).getByRole("tab")).toHaveCount(0);
+
+  await window.keyboard.press("Alt+KeyA");
+  await window.keyboard.press("KeyS");
+  await expect(window.getByRole("radio", { name: "claude" })).toBeFocused();
+  await window.keyboard.press("Digit1");
+  await expect(tabs.getByRole("tab")).toHaveCount(2);
+  await expect(sessionTab(window, "claude")).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => screenText(window)).toContain("fake claude ready");
+
+  // A header names the task, its project, its branch and its agent.
+  const header = window.getByRole("group", { name: "task header" });
+  await expect(header.getByRole("heading", { name: "Tabbed" })).toBeVisible();
+  await expect(header.getByRole("button", { name: /copy workspace path$/ })).toContainText(" › ");
+
+  // Clicking the shell's tab shows that terminal and leaves the keyboard with it.
+  await sessionTab(window, "shell").click();
+  await expect(sessionTab(window, "shell")).toHaveAttribute("aria-selected", "true");
+  await window.keyboard.type("echo shell-tab-$((5*5))");
+  await window.keyboard.press("Enter");
+  await expect.poll(() => screenText(window)).toContain("shell-tab-25");
+
+  // The session count chord moves back to the agent, which keeps the keyboard.
+  await window.keyboard.press("Alt+KeyA");
+  await window.keyboard.press("KeyN");
+  await expect(sessionTab(window, "claude")).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => screenText(window)).toContain("fake claude ready");
+  await window.keyboard.type("back-to-claude");
+  await window.keyboard.press("Enter");
+  await expect.poll(() => unwrappedScreenText(window)).toContain("fake claude got: back-to-claude");
 });

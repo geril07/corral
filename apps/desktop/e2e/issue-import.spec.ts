@@ -20,7 +20,7 @@ test("an imported issue keeps its source when the app is opened again", async ({
 
   const first = await launchApp();
   const window = await openedWindow(first);
-  await expect(window.getByText("No projects yet")).toBeVisible();
+  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
 
   await window.keyboard.press("Alt+KeyA");
