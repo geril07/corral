@@ -14,6 +14,7 @@ import { createGitRepo } from "../../../test/git-repo.ts";
 import {
   appWithProject,
   createTask,
+  createTaskWithShell,
   sessionTab,
   shellTabs,
   taskButton,
@@ -382,7 +383,7 @@ test("the settle action in the header settles the task, and its menu offers rena
 
 test("tabs switch by click and by prefix n without losing the keyboard", async () => {
   await appWithProject(newClient());
-  await createTask("Tabs");
+  await createTaskWithShell("Tabs");
   await prefixThen("s");
   await expect.element(page.getByRole("dialog", { name: "New agent session" })).toBeVisible();
   await userEvent.keyboard("1");
@@ -407,7 +408,7 @@ test("tabs switch by click and by prefix n without losing the keyboard", async (
 
 test("prefix \\ hides the sidebar, gives the window to the terminal, and shows it again", async () => {
   await appWithProject(newClient());
-  await createTask("Full width");
+  await createTaskWithShell("Full width");
   await expect.element(page.getByRole("separator", { name: "Resize sidebar" })).toBeVisible();
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 
@@ -509,7 +510,7 @@ test("the sidebar footer shows the prefix pill while the prefix is armed and the
 
 test("the sidebar Search tasks button opens task search and returns focus to itself", async () => {
   await appWithProject(newClient());
-  await createTask("Search me");
+  await createTaskWithShell("Search me");
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
   const opener = workspace().getByRole("button", { name: "Search tasks" });
 

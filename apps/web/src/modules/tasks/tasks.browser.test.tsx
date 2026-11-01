@@ -69,12 +69,12 @@ test("creating a task starts no session: the task stays empty until one is added
 
   expect(client.sessions.getSnapshot().sessions).toEqual([]);
   expect(client.terminals.getSnapshot().terminals).toEqual([]);
-  await expect.element(page.getByText("No sessions in this task.")).toBeVisible();
-  await expect.element(shellButtons()).toHaveLength(0);
+  await expect.element(page.getByText("No sessions", { exact: true })).toBeVisible();
+  await expect.element(shellTabs()).toHaveLength(0);
 
   // The task is usable: prefix c starts a shell in it.
   await prefixThen("c");
-  await expect.element(shellButtons()).toHaveLength(1);
+  await expect.element(shellTabs()).toHaveLength(1);
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 });
 

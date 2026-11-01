@@ -1,6 +1,11 @@
 import { sessionLabels } from "@corral/client/session-labels";
 import type { SessionEntry } from "@corral/client/workspace-tree";
-import { DEFAULT_BINDINGS, DEFAULT_PREFIX, type ClientConfig } from "@corral/protocol/config";
+import {
+  DEFAULT_BINDINGS,
+  DEFAULT_PREFIX,
+  defaultClientConfig,
+  type ClientConfig,
+} from "@corral/protocol/config";
 import type { AgentStatus, Session } from "@corral/protocol/rpc";
 import { useState } from "react";
 import { expect, test, vi } from "vite-plus/test";
@@ -32,6 +37,7 @@ const entry = (value: Session): SessionEntry => ({
 });
 
 const config: ClientConfig = {
+  ...defaultClientConfig(""),
   keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } },
 };
 

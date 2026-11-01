@@ -123,6 +123,7 @@ test("two sessions of one task are tabs that switch by click and by key, and the
   await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Tabbed");
+  await startShell(window);
 
   const tabs = sessionTabs(window);
   await expect(tabs.getByRole("tab")).toHaveCount(1);

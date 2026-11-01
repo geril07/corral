@@ -80,3 +80,4 @@ export async function startShell(shellCount = 1) {
   await prefixThen("c");
   await expect.element(shellTabs()).toHaveLength(shellCount);
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+}
