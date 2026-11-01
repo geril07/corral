@@ -248,6 +248,90 @@ export const ChangeDiff = z.object({
 export type ChangeDiff = z.infer<typeof ChangeDiff>;
 
 /**
+ * A git remote a write targets: its name for git's own argv, and the URL exactly as the user was
+ * shown it. Every remote write carries the pair back, and the server refuses a remote whose URL is
+ * no longer the one that was confirmed (`CHANGES_REMOTE_MISMATCH`); a `insteadOf` rewrite or an
+ * edited `.git/config` can change a remote between the confirmation and the write.
+ */
+export const ChangesRemote = z.object({
+  name: z.string().min(1).max(200),
+  url: z.string().min(1).max(2048),
+});
+export type ChangesRemote = z.infer<typeof ChangesRemote>;
+
+/**
+ * The finish panel's read model (`layout.md`, **Changes**): what the commit, push and pull-request
+ * controls need to name in their confirmations. Read on mount and after every write; nothing here
+ * writes to the repository or a remote.
+ */
+export const ChangesFinish = z.object({
+  taskId: TaskId,
+  /** The branch checked out in the task's workspace; `null` when HEAD is detached. */
+  branch: z.string().nullable(),
+  /** The branch a pull request would target: the project's default base branch. */
+  base: z.string().nullable(),
+  /**
+   * The remote a push would use: the checked-out branch's configured remote, else `origin`, else
+   * the only remote; `null` when none of those exists and the push is refused instead.
+   */
+  remote: ChangesRemote.nullable(),
+  /** Every configured remote, so a confirmation can name one and a missing remote is visible. */
+  remotes: z.array(ChangesRemote),
+  /** Paths with staged changes, sorted; empty when nothing is in the index. */
+  staged: z.array(z.string()),
+});
+export type ChangesFinish = z.infer<typeof ChangesFinish>;
+
+/**
+ * A linked pull request's state. `unknown` is a state of its own: a read that fails (offline, a
+ * logged-out CLI, an answer Corral cannot read) never reports `closed`, and `stateReason` says why.
+ */
+export const PullRequestState = z.enum(["open", "draft", "merged", "closed", "unknown"]);
+export type PullRequestState = z.infer<typeof PullRequestState>;
+
+/** The check summary a task's badge and the Changes tab show; absent when the provider reports none. */
+export const PullRequestChecks = z.object({
+  total: z.number().int().min(0),
+  passing: z.number().int().min(0),
+  failing: z.number().int().min(0),
+  pending: z.number().int().min(0),
+  skipped: z.number().int().min(0),
+});
+export type PullRequestChecks = z.infer<typeof PullRequestChecks>;
+
+/**
+ * The pull or merge request opened from a task's branch: created by `changes.createPullRequest` and
+ * kept on the task in its own table. The row outlives a state that cannot be read, so the link
+ * stays and only `state`/`stateReason` change.
+ */
+export const PullRequest = z.object({
+  taskId: TaskId,
+  provider: IssueProvider,
+  /** Host the request lives on, as the CLI reported it. */
+  host: z.string().min(1).max(300),
+  number: z.number().int().positive(),
+  url: z.string().min(1).max(2048),
+  title: z.string().max(1024),
+  /** Branch the request was opened from; `null` for a snapshot stored before a refresh had one. */
+  branch: z.string().nullable(),
+  /** Branch it targets. */
+  base: z.string().nullable(),
+  state: PullRequestState,
+  /** Why `state` is `unknown`; `null` for every other state. */
+  stateReason: z.string().nullable(),
+  checks: PullRequestChecks.nullable(),
+  /** Epoch milliseconds of the last read through the CLI; `null` until the first refresh. */
+  fetchedAt: z.number().int().nullable(),
+});
+export type PullRequest = z.infer<typeof PullRequest>;
+
+/** The most a commit message may hold, in characters; git has no limit, the UI does. */
+export const MAX_COMMIT_MESSAGE = 8192;
+
+/** A pull request's title, one line like the task title it defaults to. */
+export const MAX_PULL_REQUEST_TITLE = 256;
+
+/**
  * An agent the task's primary session starts. The shape `sessions.start` takes, without a shell: a
  * task never starts one on its own (design.md, **Domain model → Task → Creation**).
  */
@@ -562,6 +646,40 @@ const launchRefused = {
 };
 /** Git refused or failed; `message` is git's own stderr, meant for the user. */
 const gitFailed = { GIT_FAILED: { data: z.object({ message: z.string() }) } };
+/**
+ * Why a write from the Changes tab was refused before or instead of reaching git or the CLI. Every
+ * one names what the user confirmed and what the server found, so the dialog can show both.
+ */
+const changesRefused = {
+  /** The remote is no longer the one the user confirmed: a `insteadOf` rewrite or an edited config. */
+  CHANGES_REMOTE_MISMATCH: {
+    data: z.object({
+      remote: z.string(),
+      confirmed: z.string(),
+      actual: z.string(),
+    }),
+  },
+  /** No remote would take a push: no upstream, no `origin`, not exactly one remote. */
+  CHANGES_NO_REMOTE: { data: z.object({ branch: z.string() }) },
+  /** The workspace is on another branch than the one the user confirmed. */
+  CHANGES_BRANCH_MISMATCH: {
+    data: z.object({ confirmed: z.string(), actual: z.string().nullable() }),
+  },
+  /** Nothing is in the index, so a commit would fail with git's own sentence anyway. */
+  CHANGES_NOTHING_STAGED: {},
+  /** An empty or blank commit message; the message field keeps what the user typed. */
+  CHANGES_EMPTY_MESSAGE: {},
+  /** The remote does not have the branch yet, and creating a pull request would push as a side effect. */
+  CHANGES_PUSH_REQUIRED: { data: z.object({ remote: z.string(), branch: z.string() }) },
+  /** `gh` or `glab` is not on the server's PATH. */
+  CHANGES_CLI_MISSING: { data: z.object({ command: z.string() }) },
+  /** The host's CLI has no usable login for the request's host. */
+  CHANGES_AUTH_REQUIRED: { data: z.object({ provider: IssueProvider }) },
+  /** The CLI failed for another reason; `message` is a sentence without its output. */
+  CHANGES_CLI_FAILED: { data: z.object({ provider: IssueProvider, message: z.string() }) },
+  /** The CLI answered something Corral cannot read as a pull request. */
+  CHANGES_RESPONSE_INVALID: { data: z.object({ provider: IssueProvider }) },
+};
 /**
  * Why chat is unavailable: `no-driver` — this build has no driver for the agent, so retrying
  * cannot help; `not-started` — the session's frontend is not running and can be started;
@@ -894,6 +1012,97 @@ export const contract = {
       })
       .input(z.object({ taskId: TaskId, path: z.string().min(1) }))
       .output(ChangeDiff),
+    /**
+     * The branch, base, push remote and staged paths of one task: the read the commit, push and
+     * pull-request controls open with, so their confirmations name a remote and a branch the
+     * server can check against the repository when the write arrives.
+     */
+    finish: oc
+      .errors({ ...taskNotFound, ...gitFailed })
+      .input(z.object({ id: TaskId }))
+      .output(ChangesFinish),
+    /**
+     * Stages or unstages exactly the paths the user selected, or every change with `all`. The only
+     * caller-visible way into the index: nothing else in Corral writes it (`changes.*` reads never
+     * do), and the answer is the new `finish` read so the controls move with it.
+     */
+    stage: oc
+      .errors({ ...taskNotFound, ...gitFailed, ...changesRefused })
+      .input(
+        z.object({
+          id: TaskId,
+          /** `all` stages every change in the workspace; a list stages exactly those paths. */
+          paths: z.union([
+            z.literal("all"),
+            z.array(z.string().min(1).max(FILE_PATH_MAX)).min(1).max(1000),
+          ]),
+          /** `false` takes the paths out of the index again. */
+          staged: z.boolean(),
+        }),
+      )
+      .output(ChangesFinish),
+    /**
+     * Commits what is staged, with the message the user typed. A blank message is refused, never
+     * replaced by an empty one: writing a commit message is the user's, and this slice ships no
+     * generator (C6 decision d).
+     */
+    commit: oc
+      .errors({ ...taskNotFound, ...gitFailed, ...changesRefused })
+      .input(z.object({ id: TaskId, message: z.string().max(MAX_COMMIT_MESSAGE) }))
+      .output(
+        z.object({
+          /** Full commit id. */
+          sha: z.string().min(1),
+          shortSha: z.string().min(1),
+          subject: z.string(),
+          finish: ChangesFinish,
+        }),
+      ),
+    /**
+     * Pushes the checked-out branch to the remote the user confirmed. No force, no upstream is set,
+     * and a remote whose URL is not the confirmed one is refused (`CHANGES_REMOTE_MISMATCH`), as is
+     * a workspace that switched branches after the confirmation (`CHANGES_BRANCH_MISMATCH`).
+     */
+    push: oc
+      .errors({ ...taskNotFound, ...gitFailed, ...changesRefused })
+      .input(z.object({ id: TaskId, remote: ChangesRemote, branch: z.string().min(1) }))
+      .output(
+        z.object({
+          remote: ChangesRemote,
+          branch: z.string().min(1),
+          commit: z.string().min(1),
+          finish: ChangesFinish,
+        }),
+      ),
+    /**
+     * Opens a pull or merge request through the server host's own `gh` or `glab`, after checking
+     * that the confirmed remote exists, still has the confirmed URL, and already has the branch: a
+     * create never pushes (`gh` would, when the head branch is missing), so it is refused instead.
+     */
+    createPullRequest: oc
+      .errors({ ...taskNotFound, ...gitFailed, ...changesRefused })
+      .input(
+        z.object({
+          id: TaskId,
+          provider: IssueProvider,
+          remote: ChangesRemote,
+          branch: z.string().min(1),
+          base: z.string().min(1),
+          title: z.string().min(1).max(MAX_PULL_REQUEST_TITLE),
+          body: z.string().max(256 * 1024),
+          draft: z.boolean().optional(),
+        }),
+      )
+      .output(PullRequest),
+    /**
+     * The pull request linked to a task, or `null` when none is. `refresh` asks the CLI for the
+     * current state (the client does that on focus and on its interval); a read that fails keeps
+     * the link and answers `state: "unknown"` with the reason, never `closed`.
+     */
+    pullRequest: oc
+      .errors({ ...taskNotFound })
+      .input(z.object({ id: TaskId, refresh: z.boolean().optional() }))
+      .output(PullRequest.nullable()),
   },
   files: {
     /**

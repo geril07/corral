@@ -13,11 +13,14 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, vi } from "vite-plus/test";
 import { z } from "zod";
+import { fakeCliScript } from "./fake-cli-script.ts";
 
 const IssueCliCall = z.object({
   command: z.enum(["gh", "glab"]),
   argv: z.array(z.string()),
   cwd: z.string(),
+  /** What a `--body-file -`/`--description-file -` call sent on stdin; absent when it sent nothing. */
+  stdin: z.string().optional(),
 });
 export type IssueCliCall = z.infer<typeof IssueCliCall>;
 
@@ -54,6 +57,9 @@ export function useFakeIssueClis() {
     vi.stubEnv("FAKE_ISSUE_STDERR", "");
     vi.stubEnv("FAKE_ISSUE_EXIT", "1");
     vi.stubEnv("FAKE_ISSUE_PID_FILE", join(root, "cli.pid"));
+    vi.stubEnv("FAKE_PR_URL", DEFAULT_PR_URL);
+    vi.stubEnv("FAKE_PR_VIEW", "");
+    vi.stubEnv("FAKE_PR_CHECKS", "[]");
   });
 
   afterEach(() => {
@@ -97,47 +103,25 @@ export function useFakeIssueClis() {
     withoutIssueClis(): void {
       vi.stubEnv("PATH", noIssueClis);
     },
+    /** The URL `pr create`/`mr create` prints; a `.invalid` host, so no real forge name is in play. */
+    createdUrl(url: string): void {
+      vi.stubEnv("FAKE_PR_URL", url);
+    },
+    /** What `gh pr view`/`glab mr view` prints. */
+    view(json: unknown): void {
+      vi.stubEnv("FAKE_PR_VIEW", JSON.stringify(json));
+    },
+    /** What `gh pr checks --json …` prints. */
+    checks(checks: unknown): void {
+      vi.stubEnv("FAKE_PR_CHECKS", JSON.stringify(checks));
+    },
   };
 }
 
+const DEFAULT_PR_URL = "https://forge.invalid/acme/app/pull/7";
+
 function writeFake(bin: string, command: "gh" | "glab"): void {
-  const file = join(bin, command);
-  writeFileSync(
-    file,
-    `#!${process.execPath}
-const fs = require("node:fs");
-const log = process.env.FAKE_ISSUE_LOG;
-if (log) fs.appendFileSync(log, JSON.stringify({ command: ${JSON.stringify(command)}, argv: process.argv.slice(2), cwd: process.cwd() }) + "\\n");
-if (process.env.GH_DEBUG || process.env.GLAB_DEBUG || process.env.GIT_TRACE || process.env.GIT_CURL_VERBOSE) {
-  process.stderr.write("native CLI debug environment leaked\\n");
-  process.exit(2);
-}
-const envNames = (value) => (value || "").split(",").filter(Boolean);
-if (envNames(process.env.FAKE_ISSUE_FORBID_ENV).some((name) => process.env[name])) {
-  process.stderr.write("forbidden environment was forwarded\\n");
-  process.exit(3);
-}
-if (envNames(process.env.FAKE_ISSUE_REQUIRE_ENV).some((name) => !process.env[name])) {
-  process.stderr.write("required environment was stripped\\n");
-  process.exit(3);
-}
-const mode = process.env.FAKE_ISSUE_MODE || "ok";
-if (mode === "slow") {
-  const pidFile = process.env.FAKE_ISSUE_PID_FILE;
-  if (pidFile) fs.writeFileSync(pidFile, String(process.pid));
-  setInterval(() => {}, 1000);
-} else if (mode === "fail") {
-  process.stderr.write(process.env.FAKE_ISSUE_STDERR || "the issue tool failed\\n");
-  process.exit(Number(process.env.FAKE_ISSUE_EXIT || 1));
-} else if (mode === "huge") {
-  process.stdout.write("x".repeat(3 * 1024 * 1024), () => process.exit(0));
-} else {
-  process.stdout.write(process.env.FAKE_ISSUE_RESPONSE || "");
-  process.exit(0);
-}
-`,
-    { mode: 0o755 },
-  );
+  writeFileSync(join(bin, command), fakeCliScript(command), { mode: 0o755 });
 }
 
 function findOnPath(command: string, pathVariable: string | undefined): string | undefined {

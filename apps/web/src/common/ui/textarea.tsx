@@ -13,6 +13,9 @@ const textareaVariants = cva(
         // The chat composer rests at two lines and grows to 13 rem before it scrolls
         // (`layout.md`, **Chat**). Font, padding, border and focus stay stock.
         chat: "min-h-14 max-h-52 overflow-y-auto",
+        // The Changes tab's commit message: one rest line in a toolbar row, growing as it is
+        // typed (`layout.md`, **Changes**). Stock font, padding, border and focus.
+        commit: "min-h-8",
       },
     },
   },

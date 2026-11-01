@@ -30,7 +30,11 @@ import { z } from "zod";
  * grew C5's additions, both optional for a daemon already on 10: the `files.*` procedures
  * (`resolve`, `read`, `openEditor`) behind chat's local links, which an older 10 answers as unknown
  * procedures, and `ClientConfig.editor` (`[editor] command`) with the empty-command default, so a
- * client that reads it from an older 10 falls back to `$VISUAL`/`$EDITOR` exactly as the server does. */
+ * client that reads it from an older 10 falls back to `$VISUAL`/`$EDITOR` exactly as the server does.
+ * C6 grew 10's write path as well, with the same rule: `changes.finish`, `changes.stage`,
+ * `changes.commit`, `changes.push`, `changes.createPullRequest` and `changes.pullRequest` are
+ * procedures a daemon from before C6 answers as unknown, so the Changes tab says the action is
+ * unavailable there and the badge stays absent instead of showing a write that never ran. */
 export const PROTOCOL_VERSION = 10;
 
 /**

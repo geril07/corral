@@ -8,7 +8,19 @@ import {
   ChatUnavailableError,
 } from "../chat/chat-errors.ts";
 import type { ChangesService } from "../changes/changes-service.ts";
-import { ChangeFileUnknownError } from "../changes/errors.ts";
+import {
+  ChangesBranchMismatchError,
+  ChangesEmptyMessageError,
+  ChangesNoRemoteError,
+  ChangesNothingStagedError,
+  ChangesPushRequiredError,
+  ChangesRemoteMismatchError,
+  ChangeFileUnknownError,
+  PullRequestAuthRequiredError,
+  PullRequestCliMissingError,
+  PullRequestFailedError,
+  PullRequestInvalidResponseError,
+} from "../changes/errors.ts";
 import type { ConfigWatcher } from "../config/config-watcher.ts";
 import {
   EditorNotFoundError,
@@ -58,6 +70,7 @@ import {
 import { MissingEnvRefError, ReservedEnvRefError } from "../agents/launch-env.ts";
 import type { SessionKind } from "@corral/protocol/rpc";
 import type { AgentKind } from "@corral/protocol/config";
+import type { IssueProvider } from "@corral/protocol/rpc";
 import type { SessionService } from "../sessions/session-service.ts";
 import { BlankTaskTitleError, TaskNotFoundError, WorktreeDirtyError } from "../tasks/errors.ts";
 import type { TaskService } from "../tasks/task-service.ts";
@@ -84,6 +97,64 @@ async function translating<T>(
   } catch (error) {
     throw translate(error) ?? error;
   }
+}
+
+/**
+ * Maps the Changes tab's write refusals onto the contract's codes: the confirmation's remote or
+ * branch no longer matches, nothing staged, an empty message, the branch not pushed yet, and the
+ * native CLI's own failures. `undefined` lets anything else propagate.
+ */
+function changesWriteError(
+  error: unknown,
+  errors: {
+    TASK_NOT_FOUND: (options: { data: { id: string } }) => Error;
+    GIT_FAILED: (options: { data: { message: string } }) => Error;
+    CHANGES_REMOTE_MISMATCH: (options: {
+      data: { remote: string; confirmed: string; actual: string };
+    }) => Error;
+    CHANGES_NO_REMOTE: (options: { data: { branch: string } }) => Error;
+    CHANGES_BRANCH_MISMATCH: (options: {
+      data: { confirmed: string; actual: string | null };
+    }) => Error;
+    CHANGES_NOTHING_STAGED: (options?: Record<string, never>) => Error;
+    CHANGES_EMPTY_MESSAGE: (options?: Record<string, never>) => Error;
+    CHANGES_PUSH_REQUIRED: (options: { data: { remote: string; branch: string } }) => Error;
+    CHANGES_CLI_MISSING: (options: { data: { command: string } }) => Error;
+    CHANGES_AUTH_REQUIRED: (options: { data: { provider: IssueProvider } }) => Error;
+    CHANGES_CLI_FAILED: (options: { data: { provider: IssueProvider; message: string } }) => Error;
+    CHANGES_RESPONSE_INVALID: (options: { data: { provider: IssueProvider } }) => Error;
+  },
+): Error | undefined {
+  if (error instanceof TaskNotFoundError) return errors.TASK_NOT_FOUND({ data: { id: error.id } });
+  if (error instanceof GitError) return errors.GIT_FAILED({ data: { message: error.message } });
+  if (error instanceof ChangesRemoteMismatchError) {
+    return errors.CHANGES_REMOTE_MISMATCH({
+      data: { remote: error.remote, confirmed: error.confirmed, actual: error.actual },
+    });
+  }
+  if (error instanceof ChangesNoRemoteError)
+    return errors.CHANGES_NO_REMOTE({ data: { branch: error.branch } });
+  if (error instanceof ChangesBranchMismatchError) {
+    return errors.CHANGES_BRANCH_MISMATCH({
+      data: { confirmed: error.confirmed, actual: error.actual },
+    });
+  }
+  if (error instanceof ChangesNothingStagedError) return errors.CHANGES_NOTHING_STAGED();
+  if (error instanceof ChangesEmptyMessageError) return errors.CHANGES_EMPTY_MESSAGE();
+  if (error instanceof ChangesPushRequiredError) {
+    return errors.CHANGES_PUSH_REQUIRED({ data: { remote: error.remote, branch: error.branch } });
+  }
+  if (error instanceof PullRequestCliMissingError)
+    return errors.CHANGES_CLI_MISSING({ data: { command: error.command } });
+  if (error instanceof PullRequestAuthRequiredError)
+    return errors.CHANGES_AUTH_REQUIRED({ data: { provider: error.provider } });
+  if (error instanceof PullRequestFailedError)
+    return errors.CHANGES_CLI_FAILED({
+      data: { provider: error.provider, message: error.message },
+    });
+  if (error instanceof PullRequestInvalidResponseError)
+    return errors.CHANGES_RESPONSE_INVALID({ data: { provider: error.provider } });
+  return undefined;
 }
 
 /** Maps the launch errors shared by start and restart; `undefined` lets anything else propagate. */
@@ -539,6 +610,52 @@ export function createRpcRouter({
               return errors.CHANGES_FILE_UNKNOWN({ data: { path: error.path } });
             if (error instanceof GitError)
               return errors.GIT_FAILED({ data: { message: error.message } });
+            return undefined;
+          },
+        ),
+      ),
+      finish: os.changes.finish.handler(({ input, errors }) =>
+        translating(
+          () => changes.finish(input.id),
+          (error) => {
+            if (error instanceof TaskNotFoundError)
+              return errors.TASK_NOT_FOUND({ data: { id: error.id } });
+            if (error instanceof GitError)
+              return errors.GIT_FAILED({ data: { message: error.message } });
+            return undefined;
+          },
+        ),
+      ),
+      stage: os.changes.stage.handler(({ input, errors }) =>
+        translating(
+          () => changes.stage(input.id, { paths: input.paths, staged: input.staged }),
+          (error) => changesWriteError(error, errors),
+        ),
+      ),
+      commit: os.changes.commit.handler(({ input, errors }) =>
+        translating(
+          () => changes.commit(input.id, input.message),
+          (error) => changesWriteError(error, errors),
+        ),
+      ),
+      push: os.changes.push.handler(({ input, errors }) =>
+        translating(
+          () => changes.push(input.id, { remote: input.remote, branch: input.branch }),
+          (error) => changesWriteError(error, errors),
+        ),
+      ),
+      createPullRequest: os.changes.createPullRequest.handler(({ input, errors }) =>
+        translating(
+          () => changes.createPullRequest(input.id, input),
+          (error) => changesWriteError(error, errors),
+        ),
+      ),
+      pullRequest: os.changes.pullRequest.handler(({ input, errors }) =>
+        translating(
+          () => changes.pullRequest(input.id, input.refresh === true),
+          (error) => {
+            if (error instanceof TaskNotFoundError)
+              return errors.TASK_NOT_FOUND({ data: { id: error.id } });
             return undefined;
           },
         ),

@@ -1,7 +1,7 @@
 import { describeStatus, taskStatus } from "@corral/client/agent-status";
 import type { TaskNode } from "@corral/client/workspace-tree";
 import type { ActionId, ClientConfig } from "@corral/protocol/config";
-import type { Project, Task, TaskChanges } from "@corral/protocol/rpc";
+import type { Project, PullRequest, Task, TaskChanges } from "@corral/protocol/rpc";
 import { useRef } from "react";
 import {
   Badge,
@@ -11,7 +11,7 @@ import {
   OverflowMenu,
   useTruncatedText,
 } from "../../common/ui/index.ts";
-import { changeCounts } from "../changes/index.ts";
+import { changeCounts, PullRequestBadge } from "../changes/index.ts";
 import { formatBinding } from "../keymap/index.ts";
 import { compactLaunchLabel } from "../sessions/index.ts";
 import { StatusIndicator } from "../status/index.ts";
@@ -22,6 +22,8 @@ export interface TaskHeaderProps {
   project: Project | undefined;
   /** The task's changed files, for the `+N −M` beside the status; absent until the server's list. */
   changes?: TaskChanges | undefined;
+  /** The pull or merge request linked to the task; absent until its first read, and when none is. */
+  pullRequest?: PullRequest | undefined;
   /** Effective bindings for the settle hint; absent in a bare header test. */
   config?: ClientConfig | undefined;
   onSettle: (task: Task) => void;
@@ -39,6 +41,7 @@ export function TaskHeader({
   node,
   project,
   changes,
+  pullRequest,
   config,
   onSettle,
   onRename,
@@ -108,6 +111,7 @@ export function TaskHeader({
             {changeCounts(changes)}
           </span>
         )}
+        {pullRequest !== undefined && <PullRequestBadge request={pullRequest} />}
         <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
           <StatusIndicator status={status} size="chrome" />
           <span className="truncate">{status ? describeStatus(status) : "no status"}</span>

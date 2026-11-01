@@ -30,6 +30,7 @@ import type {
 } from "@corral/protocol/rpc";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useDialogFocus } from "../../common/ui/index.ts";
+import { createChangesActions, usePullRequests, type ChangesActions } from "../changes/index.ts";
 import { useCorralClient, useConnection } from "../connection/index.ts";
 import { useChatSession, useChatTurn, type ChatFiles } from "../chat/index.ts";
 import {
@@ -158,6 +159,31 @@ export function useWorkspace({
   }, [search]);
 
   const tree = buildWorkspaceTree(projects, tasks, sessions, terminals);
+  /*
+   * The Changes tab's write controls (C6): one action object per task, rebuilt only when the set of
+   * tasks changes, because the finish bar re-reads `finish` whenever its actions change identity.
+   * The pull requests linked to those tasks are read for the header and the sidebar badges and
+   * refreshed on window focus and on the interval `finish-actions.ts` states.
+   */
+  const finishTaskIds = useMemo(
+    () =>
+      tree.projects
+        .flatMap((project) => [...project.active, ...project.settled])
+        .map((node) => node.task.id),
+    [tree],
+  );
+  const finishTaskKey = finishTaskIds.join("\n");
+  const finishActions = useMemo(() => {
+    const actions = new Map<string, ChangesActions>();
+    for (const id of finishTaskKey === "" ? [] : finishTaskKey.split("\n")) {
+      actions.set(id, createChangesActions(client, id));
+    }
+    return actions;
+  }, [client, finishTaskKey]);
+  const pullRequests = usePullRequests(
+    (taskId) => finishActions.get(taskId),
+    finishTaskKey === "" ? [] : finishTaskKey.split("\n"),
+  );
   const selection = resolveSelection(tree, chosen);
   const [sidebarMode, toggleSidebarMode] = useSidebarMode();
   const sidebar = useSidebarPane();
@@ -877,6 +903,8 @@ export function useWorkspace({
     currentSessionLabels,
     changes,
     changesView,
+    finishActions,
+    pullRequests,
     chatFiles,
     sidebar,
     taskOrder,

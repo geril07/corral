@@ -1,9 +1,11 @@
 import type { ChangesStore } from "@corral/client/changes-store";
 import { describeError } from "@corral/client/rpc-errors";
-import type { ChangeDiff, Task, TaskChanges } from "@corral/protocol/rpc";
+import type { ChangeDiff, PullRequest, Task, TaskChanges } from "@corral/protocol/rpc";
 import { useEffect, useRef, useState } from "react";
 import { ChangeFileRow, DiffPane } from "../../common/ui/index.ts";
 import { totalsArePartial } from "./counts.ts";
+import type { ChangesActions } from "./finish-actions.ts";
+import { FinishBar } from "./finish-bar.tsx";
 
 export interface ChangesViewProps {
   task: Task;
@@ -12,6 +14,14 @@ export interface ChangesViewProps {
   /** The server refused `changes.watch`: a daemon from before C4 has no changes read model. */
   failed: boolean;
   store: ChangesStore;
+  /** The staging, commit, push and pull-request calls, built for this task by the workspace. */
+  actions: ChangesActions;
+  /** The request linked to this task, if one is; absent until its first read. */
+  pullRequest?: PullRequest | undefined;
+  /** A request the finish bar created or refreshed, for the header and the sidebar. */
+  onPullRequest: (request: PullRequest) => void;
+  /** Merged requests offer settle; settling stays the user's action. */
+  onSettle: () => void;
 }
 
 /**
@@ -20,7 +30,16 @@ export interface ChangesViewProps {
  * commits or opens an editor. It refreshes on mount (the tab becoming current), when the window
  * regains focus, and whenever the server's read model changes under it (an agent's tool call).
  */
-export function ChangesView({ task, changes, failed, store }: ChangesViewProps) {
+export function ChangesView({
+  task,
+  changes,
+  failed,
+  store,
+  actions,
+  pullRequest,
+  onPullRequest,
+  onSettle,
+}: ChangesViewProps) {
   const files = changes?.files ?? [];
   const [selectedPath, setSelectedPath] = useState<string>();
   /** The one selection's answer; a diff for another path is not shown while the next one loads. */
@@ -110,7 +129,22 @@ export function ChangesView({ task, changes, failed, store }: ChangesViewProps) 
       </div>
     );
   }
-  if (files.length === 0) return <Notice>No changes yet</Notice>;
+  if (files.length === 0) {
+    // A clean tree still needs the push and pull-request controls: committing everything leaves one.
+    return (
+      <div className="flex h-full min-h-0 flex-col p-2">
+        <FinishBar
+          task={task}
+          actions={actions}
+          selectedPath={undefined}
+          pullRequest={pullRequest}
+          onPullRequest={onPullRequest}
+          onSettle={onSettle}
+        />
+        <Notice>No changes yet</Notice>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col p-2">
@@ -121,6 +155,14 @@ export function ChangesView({ task, changes, failed, store }: ChangesViewProps) 
         {totalsArePartial(changes) ? " · some counts are a lower bound" : ""}
         {changes.base.fallback === null ? "" : ` · ${changes.base.fallback}`}
       </p>
+      <FinishBar
+        task={task}
+        actions={actions}
+        selectedPath={activePath}
+        pullRequest={pullRequest}
+        onPullRequest={onPullRequest}
+        onSettle={onSettle}
+      />
       <div
         ref={list}
         role="listbox"

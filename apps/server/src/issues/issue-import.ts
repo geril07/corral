@@ -1,6 +1,5 @@
 import type { IssueProvider, TaskSource } from "@corral/protocol/rpc";
-import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { isAuthFailure, NativeCliFailure, runNativeCli } from "../cli/native-cli.ts";
 import {
   IssueAuthRequiredError,
   IssueCliMissingError,
@@ -15,23 +14,6 @@ import { issueHostTrust } from "./trusted-hosts.ts";
 export const DEFAULT_ISSUE_TIMEOUT_MS = 10_000;
 const MAX_ISSUE_TIMEOUT_MS = 60_000;
 const MIN_ISSUE_TIMEOUT_MS = 50;
-const MAX_OUTPUT_BYTES = 2 * 1024 * 1024;
-const GITHUB_TOKEN_ENV = [
-  "GH_TOKEN",
-  "GITHUB_TOKEN",
-  "GH_ENTERPRISE_TOKEN",
-  "GITHUB_ENTERPRISE_TOKEN",
-] as const;
-const GITLAB_TOKEN_ENV = ["GITLAB_TOKEN", "GITLAB_ACCESS_TOKEN", "OAUTH_TOKEN"] as const;
-const DEBUG_ENV = [
-  "GH_DEBUG",
-  "GLAB_DEBUG",
-  "DEBUG",
-  "GIT_TRACE",
-  "GIT_TRACE_CURL",
-  "GIT_CURL_VERBOSE",
-  "GIT_TRACE_PACKET",
-] as const;
 
 /** A read-only issue lookup through the server host's own `gh` or `glab` login. */
 export class IssueImportService {
@@ -103,88 +85,38 @@ function runReadOnlyCommand(options: {
   signal: AbortSignal | undefined;
 }): Promise<string> {
   const { command, args, cwd, timeoutMs, provider, stripGitHubTokens, signal } = options;
-  return new Promise((resolve, reject) => {
-    signal?.throwIfAborted();
-    const controller = new AbortController();
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, timeoutMs);
-    const abort = () => controller.abort();
-    signal?.addEventListener("abort", abort, { once: true });
-
-    execFile(
-      command,
-      args,
-      {
-        cwd,
-        // Nothing may wait for a prompt, a pager, an update check or print a token in debug output.
-        env: childEnvironment(provider, stripGitHubTokens),
-        encoding: "utf8",
-        maxBuffer: MAX_OUTPUT_BYTES,
-        killSignal: "SIGKILL",
-        signal: controller.signal,
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        clearTimeout(timer);
-        signal?.removeEventListener("abort", abort);
-        if (!error) {
-          resolve(stdout);
-          return;
+  return runNativeCli({
+    command,
+    args,
+    cwd,
+    timeoutMs,
+    provider,
+    stripGitHubTokens,
+    signal,
+  }).catch((error: unknown) => {
+    if (!(error instanceof NativeCliFailure)) throw error;
+    switch (error.kind) {
+      case "aborted":
+        throw new DOMException("The issue import was cancelled.", "AbortError");
+      case "timeout":
+        throw new IssueFetchTimeoutError(provider);
+      case "overflow":
+        throw new IssueFetchFailedError(provider, "The issue tool returned too much output.");
+      case "missing":
+        throw new IssueCliMissingError(command);
+      case "missing-directory":
+        throw missingDirectory(provider, cwd);
+      case "failed":
+        if (isAuthFailure(provider, error.exitCode, error.stderr)) {
+          throw new IssueAuthRequiredError(provider);
         }
-        if (timedOut) {
-          reject(new IssueFetchTimeoutError(provider));
-          return;
-        }
-        if (signal?.aborted) {
-          // Do not forward execFile's error: it can carry stderr with credentials.
-          reject(new DOMException("The issue import was cancelled.", "AbortError"));
-          return;
-        }
-        if (error.code === "ENOENT") {
-          reject(
-            existsSync(cwd) ? new IssueCliMissingError(command) : missingDirectory(provider, cwd),
-          );
-          return;
-        }
-        if (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-          reject(new IssueFetchFailedError(provider, "The issue tool returned too much output."));
-          return;
-        }
-        const exitCode = typeof error.code === "number" ? error.code : undefined;
-        reject(
-          isAuthFailure(provider, exitCode, stderr)
-            ? new IssueAuthRequiredError(provider)
-            : new IssueFetchFailedError(provider, failureMessage(stderr)),
-        );
-      },
-    );
+        throw new IssueFetchFailedError(provider, failureMessage(error.stderr));
+    }
   });
 }
 
 function missingDirectory(provider: IssueProvider, cwd: string): IssueFetchFailedError {
   return new IssueFetchFailedError(provider, `The project directory is gone: ${cwd}`);
-}
-
-function isAuthFailure(
-  provider: IssueProvider,
-  exitCode: number | undefined,
-  message: string,
-): boolean {
-  if (provider === "github") {
-    // `gh help exit-codes`: 4 is "requires authentication".
-    return (
-      exitCode === 4 ||
-      /gh auth login|authentication required|not logged (?:in|into)|requires authentication|\b401\s+Unauthorized\b|HTTP\s+401\b/i.test(
-        message,
-      )
-    );
-  }
-  return /glab auth login|authentication required|not logged (?:in|into)|requires authentication|\b401\s+Unauthorized\b|HTTP\s+401\b|no token|authenticated host/i.test(
-    message,
-  );
 }
 
 /** Never forward CLI text: it can carry tokens, URLs or host output. */
@@ -198,27 +130,4 @@ function failureMessage(stderr: string): string {
   )
     return "Could not reach the issue host.";
   return "The issue tool failed.";
-}
-
-function childEnvironment(provider: IssueProvider, stripGitHubTokens: boolean): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const name of DEBUG_ENV) delete env[name];
-  if (provider === "gitlab" || stripGitHubTokens) {
-    for (const name of GITHUB_TOKEN_ENV) delete env[name];
-  }
-  if (provider === "github") {
-    for (const name of GITLAB_TOKEN_ENV) delete env[name];
-  }
-  return {
-    ...env,
-    GH_PROMPT_DISABLED: "1",
-    GH_NO_UPDATE_NOTIFIER: "1",
-    GH_NO_EXTENSION_UPDATE_NOTIFIER: "1",
-    GH_PAGER: "cat",
-    GLAB_NO_PROMPT: "1",
-    GLAB_CHECK_UPDATE: "false",
-    GLAB_PAGER: "cat",
-    NO_COLOR: "1",
-    CLICOLOR: "0",
-  };
 }

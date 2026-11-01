@@ -17,7 +17,14 @@ import type {
   WorkspaceTree,
 } from "@corral/client/workspace-tree";
 import type { ActionId, ClientConfig } from "@corral/protocol/config";
-import type { AgentStatus, Project, Task, TaskChanges, TerminalInfo } from "@corral/protocol/rpc";
+import type {
+  AgentStatus,
+  Project,
+  PullRequest,
+  Task,
+  TaskChanges,
+  TerminalInfo,
+} from "@corral/protocol/rpc";
 import { useRef, useState } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
 import { cn } from "../../common/lib/cn.ts";
@@ -34,7 +41,7 @@ import {
   TreeRow,
   useTruncatedText,
 } from "../../common/ui/index.ts";
-import { changeCounts } from "../changes/index.ts";
+import { changeCounts, pullRequestShortText } from "../changes/index.ts";
 import { formatBinding } from "../keymap/index.ts";
 import { StatusIndicator } from "../status/index.ts";
 
@@ -68,6 +75,8 @@ interface SidebarProps {
   flat?: FlatSidebar | undefined;
   /** Each task's changed files; a row shows the compact `+N −M` only when one is non-zero. */
   changes?: ReadonlyMap<string, TaskChanges> | undefined;
+  /** Each task's pull or merge request; a row names it only when one is linked. */
+  pullRequests?: ReadonlyMap<string, PullRequest> | undefined;
   /** Effective bindings for the tooltips and the search hint; absent in a bare sidebar test. */
   config?: ClientConfig | undefined;
   onSelectProject: (project: Project) => void;
@@ -93,7 +102,7 @@ interface SidebarProps {
  * footer the shell draws below it.
  */
 export function Sidebar(props: SidebarProps) {
-  const { tree, selection, config, flat, changes } = props;
+  const { tree, selection, config, flat, changes, pullRequests } = props;
   const [closedProjects, setClosedProjects] = useState<ReadonlySet<string>>(new Set());
   const now = useNow(AGE_REFRESH_MS);
 
@@ -120,6 +129,7 @@ export function Sidebar(props: SidebarProps) {
       node={node}
       selection={selection}
       changes={changes?.get(node.task.id)}
+      pullRequest={pullRequests?.get(node.task.id)}
       now={now}
       onSelect={() => {
         openProject(node.task.projectId);
@@ -142,6 +152,7 @@ export function Sidebar(props: SidebarProps) {
       node={row}
       selection={selection}
       changes={changes?.get(row.task.id)}
+      pullRequest={pullRequests?.get(row.task.id)}
       now={now}
       row={{ projectName: row.project.name, status: row.status, unseen: row.unseen }}
       onSelect={() => props.onSelectTask(row.task)}
@@ -347,6 +358,7 @@ function TaskRow({
   node,
   selection,
   changes,
+  pullRequest,
   now,
   row,
   onSelect,
@@ -358,6 +370,7 @@ function TaskRow({
   node: TaskNode;
   selection: Selection;
   changes: TaskChanges | undefined;
+  pullRequest: PullRequest | undefined;
   now: number;
   /** Absent in project mode, which derives the status and the unseen mark itself. */
   row?: FlatRowFacts | undefined;
@@ -378,8 +391,10 @@ function TaskRow({
       task.ownsWorktree ? task.branch : undefined,
       agent,
       sessions.length > 1 ? `${sessions.length} sessions` : undefined,
-      // The compact counts appear only when the task changed something (`layout.md`, **Sidebar**).
+      // The compact counts appear only when the task changed something (`layout.md`, **Sidebar**),
+      // and the request's state only when one is linked.
       changeCounts(changes),
+      pullRequest === undefined ? undefined : pullRequestShortText(pullRequest),
     ]
       .filter(Boolean)
       .join(" · ") || undefined;

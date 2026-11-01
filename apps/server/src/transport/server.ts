@@ -16,6 +16,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { ChatService } from "../chat/chat-service.ts";
 import type { ChatDriverRegistry, ChatTimeouts } from "../chat/chat-driver.ts";
 import { ChangesService } from "../changes/changes-service.ts";
+import { PullRequestStore } from "../changes/pull-request-store.ts";
 import { OpenCodeServers } from "../chat/opencode-server.ts";
 import { watchConfigFile } from "../config/config-watcher.ts";
 import { configNaming } from "../config/naming.ts";
@@ -60,6 +61,8 @@ export function startServer(options: {
    * exercise the session service's launch wiring without the real agent SDK.
    */
   chat?: Partial<ChatTimeouts> & { writerWaitMs?: number; drivers?: ChatDriverRegistry };
+  /** `gh`/`glab` deadline for the Changes tab's pull-request calls; tests shorten it. */
+  pullRequestTimeoutMs?: number;
 }): Promise<RunningServer> {
   const temporaryDataDir =
     options.dataDir === undefined ? mkdtempSync(join(tmpdir(), "corral-data-")) : undefined;
@@ -72,10 +75,16 @@ export function startServer(options: {
   const sessionStore = new SessionStore(database);
   // Built before the chat service, which tells it when an agent's tool call may have changed a
   // workspace; neither waits for the other, because the changes read model only knows the stores.
+  // The pull request is its own row (C6 decision b), so a link and a state refresh never rewrite
+  // the task.
   const changes = new ChangesService({
     tasks: taskStore,
     projects: projectStore,
     sessions: sessionStore,
+    pullRequests: new PullRequestStore(database),
+    ...(options.pullRequestTimeoutMs === undefined
+      ? {}
+      : { pullRequestTimeoutMs: options.pullRequestTimeoutMs }),
   });
   const { drivers: chatDrivers, ...chatTimeouts } = options.chat ?? {};
   const chat = new ChatService({

@@ -20,3 +20,16 @@ export function createGitRepo(
   const create = (commands as unknown as { createGitRepo: CreateGitRepo }).createGitRepo;
   return create(name, branches, files);
 }
+
+type CreateGitRepoWithRemote = (name: string) => Promise<{ repo: string; origin: string }>;
+
+/**
+ * A repository on `main` whose `origin` is a local bare repository: the remote a browser test's
+ * push reaches and the fake `gh`/`glab` answer for (see `vite.config.ts`).
+ */
+export function createGitRepoWithRemote(name: string): Promise<{ repo: string; origin: string }> {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const create = (commands as unknown as { createGitRepoWithRemote: CreateGitRepoWithRemote })
+    .createGitRepoWithRemote;
+  return create(name);
+}

@@ -25,7 +25,7 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
 
 1. `prefix t` opens the new-task view in the main area (`layout.md`, **New task view**): a prompt field, plus project (current), agent · model, workspace and view, all prefilled from settings and changeable from the keyboard. Enter submits.
 2. The task appears in the sidebar at once under the prompt-derived seed title, which the generated title replaces. Its primary agent opens in the chosen view, already working on the prompt. No shell opens on its own.
-3. Inside a task (header and tab strip: `layout.md`), sessions are equal tabs: agents (terminal or chat) and shells. `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel. `prefix shift+c` opens the task's `Changes` tab after the sessions: a read-only view of what the task changed, with no number hint and no status glyph, and it leaves the current session where it was — the arrow keys in the strip keep moving between sessions, and choosing a session tab returns to it.
+3. Inside a task (header and tab strip: `layout.md`), sessions are equal tabs: agents (terminal or chat) and shells. `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel. `prefix shift+c` opens the task's `Changes` tab after the sessions: what the task changed, and — under the summary row — staging, a commit message and commit, then push and create-pull-request behind one confirmation each, with no number hint and no status glyph; opening it leaves the current session where it was — the arrow keys in the strip keep moving between sessions, and choosing a session tab returns to it.
 4. `prefix v` hands the current agent session over between chat and terminal: one frontend is
    stopped and its process waited for, then the other starts on the same agent conversation, so
    the session keeps its name, its tab and its history. An idle agent switches at once; a working
@@ -67,9 +67,12 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
   kind icon (replaced by the status glyph while working or blocked), its name, and — on hover or
   focus — stop or restart, its menu and close; a trailing "+" offers a shell or an agent.
   `prefix 1`–`9`, `prefix n`/`p` and clicks select tabs, and the selected tab stays in view.
-  After the sessions, a `Changes` tab holds the task's changed files (`layout.md`, **Changes**);
-  while it is open the current session keeps its place in the strip and a `+N −M` count sits in the
-  task header and the sidebar row when the task changed something.
+  After the sessions, a `Changes` tab holds the task's changed files and finishes the task
+  (`layout.md`, **Changes**): stage, commit, push to the named remote and open a pull request
+  through the user's own `gh`/`glab`, every remote write confirmed by name and URL. While it is
+  open the current session keeps its place in the strip and a `+N −M` count sits in the task header
+  and the sidebar row when the task changed something; a linked pull request's name and state sit
+  beside the count, and a merged one offers settle.
 - The main area never goes blank: with no task selected it is the new-task composer, prefilled
   with the current project. `prefix t` shows the composer over the selected task and Escape
   returns to that task, with the keyboard back in its terminal.

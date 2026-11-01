@@ -39,6 +39,20 @@ function providerName(data: unknown): string {
   return field(data, "provider") === "gitlab" ? "GitLab" : "GitHub";
 }
 
+/**
+ * Whether the server does not know the procedure at all: a daemon from before the slice that added
+ * it answers with oRPC's own undefined `NOT_FOUND`, which is not one of the contract's errors. The
+ * UI says the action is unavailable rather than showing it as a failed write.
+ */
+export function procedureMissing(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    Reflect.get(error, "defined") !== true &&
+    Reflect.get(error, "code") === "NOT_FOUND"
+  );
+}
+
 /** A sentence for the user. Git's own message is shown as it is: it is written for people. */
 export function describeError(error: unknown): string {
   const defined = definedError(error);
@@ -125,6 +139,28 @@ export function describeError(error: unknown): string {
         return "The issue tool returned something Corral could not read.";
       case "ISSUE_FETCH_FAILED":
         return String(field(data, "message"));
+      // The Changes tab's writes (C6): each refusal names what the user confirmed and what the
+      // server found, so the dialog can say why it did not run.
+      case "CHANGES_REMOTE_MISMATCH":
+        return `The remote ${String(field(data, "remote"))} is no longer ${String(field(data, "confirmed"))}; it is ${String(field(data, "actual"))}. Reload the tab and confirm the new one.`;
+      case "CHANGES_NO_REMOTE":
+        return `No remote would take the branch ${String(field(data, "branch"))}. Add a remote, or set branch.<name>.remote.`;
+      case "CHANGES_BRANCH_MISMATCH":
+        return `The workspace is on ${String(field(data, "actual")) || "a detached HEAD"}, not the confirmed ${String(field(data, "confirmed"))}.`;
+      case "CHANGES_NOTHING_STAGED":
+        return "Nothing is staged: select files to commit first.";
+      case "CHANGES_EMPTY_MESSAGE":
+        return "A commit needs a message.";
+      case "CHANGES_PUSH_REQUIRED":
+        return `${String(field(data, "remote"))} has no branch ${String(field(data, "branch"))} yet. Push it first.`;
+      case "CHANGES_CLI_MISSING":
+        return `${String(field(data, "command"))} was not found on the server's PATH.`;
+      case "CHANGES_AUTH_REQUIRED":
+        return `The server's ${providerName(data)} CLI is not logged in for this host.`;
+      case "CHANGES_CLI_FAILED":
+        return String(field(data, "message"));
+      case "CHANGES_RESPONSE_INVALID":
+        return `The ${providerName(data)} CLI returned something Corral could not read.`;
     }
   }
   return error instanceof Error ? error.message : String(error);

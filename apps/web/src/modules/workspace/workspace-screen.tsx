@@ -94,6 +94,8 @@ export function WorkspaceScreen({
     currentSessionLabels,
     changes,
     changesView,
+    finishActions,
+    pullRequests,
     chatFiles,
     sidebar,
     dialog,
@@ -171,14 +173,20 @@ export function WorkspaceScreen({
       />
     ) : undefined;
 
+  const currentFinishActions =
+    currentTask === undefined ? undefined : finishActions.get(currentTask.id);
   const changesPane =
-    changesCurrent && currentTask !== undefined ? (
+    changesCurrent && currentTask !== undefined && currentFinishActions !== undefined ? (
       <ChangesView
         key={currentTask.id}
         task={currentTask}
         changes={changes.byTask.get(currentTask.id)}
         failed={changes.failed}
         store={client.changes}
+        actions={currentFinishActions}
+        pullRequest={pullRequests.byTask.get(currentTask.id)}
+        onPullRequest={(request) => pullRequests.remember(request)}
+        onSettle={() => void toggleSettle(currentTask)}
       />
     ) : undefined;
 
@@ -229,6 +237,7 @@ export function WorkspaceScreen({
             flat={flatSidebar}
             config={config}
             changes={changes.byTask}
+            pullRequests={pullRequests.byTask}
             onSelectProject={(project) =>
               choose({ projectId: project.id, taskId: undefined, entryId: undefined })
             }
@@ -292,6 +301,7 @@ export function WorkspaceScreen({
             node={currentTaskNode}
             project={currentTaskProject}
             changes={changes.byTask.get(currentTaskNode.task.id)}
+            pullRequest={pullRequests.byTask.get(currentTaskNode.task.id)}
             config={config}
             onSettle={(task) => void toggleSettle(task)}
             onRename={openRenameTask}

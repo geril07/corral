@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import { fakeCliScript } from "../../server/test/fake-cli-script.ts";
 
 // Named by process, like the repositories and fake agents: the Vite config and the global setup
 // load this module in one process, while browser tests reach it through custom commands.
@@ -46,6 +47,10 @@ export function useFakeIssueClis() {
   process.env["FAKE_ISSUE_RESPONSE"] = "";
   process.env["FAKE_ISSUE_STDERR"] = "";
   process.env["FAKE_ISSUE_EXIT"] = "1";
+  // Pull-request answers; a browser test overrides them through `setServerEnv`.
+  process.env["FAKE_PR_URL"] = "https://forge.invalid/acme/app/pull/7";
+  process.env["FAKE_PR_VIEW"] = "";
+  process.env["FAKE_PR_CHECKS"] = "[]";
   return () => rmSync(root, { recursive: true, force: true });
 }
 
@@ -69,37 +74,7 @@ export function issueCliPath(_context: unknown, kind: "missing" | "with"): strin
 }
 
 function writeFake(binDir: string, command: "gh" | "glab"): void {
-  writeFileSync(
-    join(binDir, command),
-    `#!${process.execPath}
-const fs = require("node:fs");
-const log = process.env.FAKE_ISSUE_LOG;
-if (log) fs.appendFileSync(log, JSON.stringify({ command: ${JSON.stringify(command)}, argv: process.argv.slice(2), cwd: process.cwd() }) + "\\n");
-if (process.env.GH_DEBUG || process.env.GLAB_DEBUG || process.env.GIT_TRACE || process.env.GIT_CURL_VERBOSE) {
-  process.stderr.write("native CLI debug environment leaked\\n");
-  process.exit(2);
-}
-const envNames = (value) => (value || "").split(",").filter(Boolean);
-if (envNames(process.env.FAKE_ISSUE_FORBID_ENV).some((name) => process.env[name])) {
-  process.stderr.write("forbidden environment was forwarded\\n");
-  process.exit(3);
-}
-if (envNames(process.env.FAKE_ISSUE_REQUIRE_ENV).some((name) => !process.env[name])) {
-  process.stderr.write("required environment was stripped\\n");
-  process.exit(3);
-}
-const mode = process.env.FAKE_ISSUE_MODE || "ok";
-if (mode === "fail") {
-  process.stderr.write(process.env.FAKE_ISSUE_STDERR || "the issue tool failed\\n");
-  process.exit(Number(process.env.FAKE_ISSUE_EXIT || 1));
-}
-const responseFile = process.env.FAKE_ISSUE_RESPONSE_FILE;
-const response = responseFile && fs.existsSync(responseFile) ? fs.readFileSync(responseFile, "utf8") : (process.env.FAKE_ISSUE_RESPONSE || "");
-process.stdout.write(response);
-process.exit(0);
-`,
-    { mode: 0o755 },
-  );
+  writeFileSync(join(binDir, command), fakeCliScript(command), { mode: 0o755 });
 }
 
 function findOnPath(command: string, pathVariable: string | undefined): string | undefined {

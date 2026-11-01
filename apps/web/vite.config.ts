@@ -3,7 +3,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite-plus";
 import { playwright } from "vite-plus/test/browser-playwright";
-import { createGitRepo } from "./test/git-repos.ts";
+import { createGitRepo, createGitRepoWithRemote } from "./test/git-repos.ts";
 import { runGitIn } from "./test/run-git.ts";
 import { writeFilesIn } from "./test/write-files.ts";
 import { writeConfigFile } from "./test/config-file.ts";
@@ -40,6 +40,7 @@ export default defineConfig({
       provider: playwright(),
       commands: {
         createGitRepo,
+        createGitRepoWithRemote,
         writeFilesIn,
         runGitIn,
         agentLaunches,

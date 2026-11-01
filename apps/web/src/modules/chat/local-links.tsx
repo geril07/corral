@@ -11,6 +11,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { openWebLink } from "../../common/lib/open-web-link.ts";
 import {
   ActionLink,
   Button,
@@ -219,14 +220,7 @@ function LocalLinkAnchor({ href, children }: { href?: string | undefined; childr
  * An ordinary web link leaves the capability-bearing window: the desktop shell hands it to the OS
  * browser, a plain browser opens a tab. The URL is re-checked here because detection is just text.
  */
-export function openWebLink(url: string): void {
-  const bridge = window.corral;
-  if (bridge !== undefined) {
-    void bridge.openExternal(url).catch(() => undefined);
-    return;
-  }
-  window.open(url, "_blank", "noopener,noreferrer");
-}
+export { openWebLink } from "../../common/lib/open-web-link.ts";
 
 /**
  * An image or video the message pointed at. Bytes come over RPC (`files.read`) and become a

@@ -53,6 +53,24 @@ export const MIGRATIONS: readonly string[] = [
   // How the session runs (design.md, decision 5). The default is what backfills the sessions from
   // before chat: every one of them runs in a terminal. Inserts name the column anyway.
   `ALTER TABLE sessions ADD COLUMN view TEXT NOT NULL DEFAULT 'terminal';`,
+  // The pull or merge request opened from a task's branch (C6). Its own table, not a task column:
+  // a link, a state refresh and a re-link rewrite one row and never touch the task's other fields,
+  // and the state a read could not confirm is stored as `unknown` with the reason. `checks` is the
+  // summary as JSON, `NULL` when the provider reports none.
+  `CREATE TABLE pull_requests (
+     task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+     provider TEXT NOT NULL,
+     host TEXT NOT NULL,
+     number INTEGER NOT NULL,
+     url TEXT NOT NULL,
+     title TEXT NOT NULL,
+     branch TEXT,
+     base TEXT,
+     state TEXT NOT NULL,
+     state_reason TEXT,
+     checks TEXT,
+     fetched_at INTEGER
+   ) STRICT;`,
 ];
 
 export const DATABASE_FILE = "corral.db";

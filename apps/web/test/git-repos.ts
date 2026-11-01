@@ -49,3 +49,28 @@ export function createGitRepo(
 export function removeGitRepos() {
   rmSync(REPOS_DIR, { recursive: true, force: true });
 }
+
+/**
+ * A repository on `main` whose `origin` is a local **bare** repository in the same temp root: the
+ * remote the commit/push/pull-request flow writes to (`docs/plans/stage-c.md`, C6). Nothing here
+ * knows a real forge; the fake `gh`/`glab` stand in for one.
+ */
+export function createGitRepoWithRemote(
+  _context: unknown,
+  name: string,
+): { repo: string; origin: string } {
+  mkdirSync(REPOS_DIR, { recursive: true });
+  const root = mkdtempSync(join(REPOS_DIR, `${name}-`));
+  const seed = join(root, "seed");
+  mkdirSync(seed);
+  git(seed, "init", "-b", "main");
+  writeFileSync(join(seed, "README.md"), "hello\n");
+  git(seed, "add", ".");
+  git(seed, "commit", "-m", "initial commit");
+  const origin = join(root, "origin.git");
+  git(root, "clone", "--bare", seed, origin);
+  git(origin, "symbolic-ref", "HEAD", "refs/heads/main");
+  const repo = join(root, "clone");
+  git(root, "clone", origin, repo);
+  return { repo, origin };
+}
