@@ -175,7 +175,7 @@ export class PiDriver {
     const type = mode === "steer" ? "steer" : mode === "follow-up" ? "follow_up" : "prompt";
     void this.#requestCommand(type, { message: text }).catch((error: unknown) => {
       // The words are in the timeline; the failure is a visible error next to them, not a lost send.
-      this.#projection.fail(`pi did not accept the message: ${messageOf(error)}`);
+      this.#projection.rejectedCommand(`pi did not accept the message: ${messageOf(error)}`);
     });
     return itemId;
   }

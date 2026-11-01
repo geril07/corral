@@ -495,6 +495,25 @@ test("settling the task stops the chat child; making it active again resumes wit
   }
 });
 
+test("a message pi refuses is an error item, and the frontend keeps running", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "reject");
+  const { api, session } = await chatTask();
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.itemOfKind("error") !== undefined, "the refusal");
+    expect(chat.itemOfKind("error")?.text).toBe(
+      "pi did not accept the message: pi refused prompt: the fake pi rejects messages",
+    );
+    expect(chat.itemOfKind("user-message")).toMatchObject({ text: "Add a note to notes.txt" });
+    expect(chat.state.turn).toBe("idle");
+    expect((await sessionsOf(api)).find((candidate) => candidate.id === session.id)?.state).toBe(
+      "running",
+    );
+  } finally {
+    await chat.close();
+  }
+});
+
 test("the view is validated, and chat refuses a terminal session, a stopped one and an unknown id", async () => {
   const { api, task } = await chatTask();
   await expect(

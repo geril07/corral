@@ -15,7 +15,8 @@ import { isRecord } from "../../src/chat/pi-record.ts";
  * - `crash`: one delta and then exit code 3, the shape of a provider crash (after
  *   `$FAKE_PI_RPC_CRASH_DELAY_MS`, default 0, so a test can be watching when it happens);
  * - `badline`: one line that is not JSON, the shape of a broken protocol;
- * - `silent`: start-up commands are never answered, so the ready deadline is exercised.
+ * - `silent`: start-up commands are never answered, so the ready deadline is exercised;
+ * - `reject`: every message command answers `success:false`, the shape of a refused prompt.
  *
  * The journal lives under `$FAKE_PI_RPC_HOME`, keyed by `--session-id`, so a real server restart
  * resumes the same conversation exactly as pi's own session store would.
@@ -116,6 +117,10 @@ export function startFakePiRpc(argv: readonly string[]): void {
       case "steer":
       case "follow_up": {
         const message = typeof record["message"] === "string" ? record["message"] : "";
+        if (mode === "reject") {
+          reply(id, type, { success: false, error: "the fake pi rejects messages" });
+          return;
+        }
         respond(id, type, { disposition: type === "prompt" ? "started" : "queued" });
         if (type !== "prompt" && running) {
           send({ type: "queue_update", steering: type === "steer" ? [message] : [], followUp: [] });

@@ -239,6 +239,14 @@ export class PiProjection {
   }
 
   /**
+   * A command pi refused: one visible error next to the user's words, and nothing else changes.
+   * The frontend is still alive, so its turn and its streaming stay as they are.
+   */
+  rejectedCommand(reason: string): void {
+    this.#error(reason);
+  }
+
+  /**
    * Ends the frontend's part of the chat: no item is left pretending to stream and an error says
    * why. The record is already in the timeline, so a client that was watching has it.
    */
