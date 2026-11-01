@@ -31,10 +31,17 @@ export function SwitchViewDialog({
   onClose,
 }: SwitchViewDialogProps) {
   const attempt = useAttempt();
+  // Only a chat frontend has an abort channel. A terminal is closed with SIGHUP, so its turn is
+  // cut rather than aborted and whatever pi had not written is lost — say which one this is.
+  const fromChat = session.view === "chat";
   const losing = waiting
-    ? "The agent is waiting for your answer. Switching cancels that request with the frontend."
+    ? fromChat
+      ? "The agent is waiting for your answer. Switching cancels that request with the frontend."
+      : "The agent is waiting for your answer. Switching closes its terminal and the request is lost."
     : working
-      ? "The agent is working. Switching aborts the turn first."
+      ? fromChat
+        ? "The agent is working. Switching aborts the turn first."
+        : "The agent is working. Switching closes its terminal first; what it has not written is lost."
       : "";
   return (
     <DestructiveTaskDialog

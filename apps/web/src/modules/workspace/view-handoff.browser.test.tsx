@@ -4,7 +4,7 @@ import type { CorralClient } from "@corral/client/corral-client";
 import type { SessionsSnapshot } from "@corral/client/sessions-store";
 import { Store } from "@corral/client/store";
 import type { TasksSnapshot } from "@corral/client/tasks-store";
-import type { Session, SessionView, Task } from "@corral/protocol/rpc";
+import type { AgentStatus, Session, SessionView, Task } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { prefixThen, realServerClients } from "../../../test/real-client.ts";
@@ -106,6 +106,7 @@ function seededSession(
   taskId: string,
   kind: "claude" | "pi",
   view: SessionView,
+  status: AgentStatus | null = null,
 ): Session {
   return {
     id,
@@ -115,7 +116,7 @@ function seededSession(
     agentSessionId: `${kind}-seeded`,
     terminalId: null,
     state: "running",
-    status: null,
+    status,
     label: null,
     createdAt: 1,
   };
@@ -248,6 +249,54 @@ test("a busy agent is asked before prefix v switches, and the confirmation says 
       .element(confirm.getByRole("button", { name: "Switch to terminal" }))
       .toBeDisabled();
     releaseSetView();
+    await expect.element(confirm).not.toBeInTheDocument();
+  } finally {
+    tasks.set({ loaded: true, tasks: [] });
+    sessions.set({ loaded: true, sessions: [] });
+    chatStore.close();
+    expect(real.sessions.getSnapshot().sessions).toEqual([]);
+  }
+});
+
+test("a busy terminal says its turn is cut, not aborted, because it has no abort channel", async () => {
+  const { client, real, tasks, sessions, setView, chatStore } = seededClient({
+    drivers: "claude",
+    turn: "idle",
+  });
+  const { repo } = await appWithProject(client);
+  const project = await vi.waitFor(() => {
+    const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
+    if (found === undefined) throw new Error("the project is not in the list yet");
+    return found;
+  });
+  await vi.waitFor(() => expect(real.sessions.getSnapshot().loaded).toBe(true));
+  const task = seededTask(project.id, project.path);
+
+  try {
+    tasks.set({ loaded: true, tasks: [task] });
+    sessions.set({
+      loaded: true,
+      sessions: [
+        seededSession("agent-claude", task.id, "claude", "terminal", {
+          state: "working",
+          updatedAt: 1,
+        }),
+      ],
+    });
+    await expect.element(page.getByRole("tab", { name: /^claude/ })).toBeVisible();
+
+    // A terminal's status is what the server hears from the agent; a working one asks first, but
+    // the wording must not promise an abort this direction does not have (the PTY is closed).
+    await prefixThen("v");
+    const confirm = page.getByRole("alertdialog");
+    await expect.element(confirm).toBeVisible();
+    await expect
+      .element(confirm)
+      .toMatchTextContent(
+        "The agent is working. Switching closes its terminal first; what it has not written is lost.",
+      );
+    expect(setView).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
     await expect.element(confirm).not.toBeInTheDocument();
   } finally {
     tasks.set({ loaded: true, tasks: [] });

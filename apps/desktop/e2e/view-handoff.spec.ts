@@ -9,7 +9,7 @@ import {
   screenText,
   sessionTab,
 } from "./app-helpers.ts";
-import { isAlive, readLaunches, readPiJournal, test } from "./fixtures.ts";
+import { isAlive, readLaunches, readPiJournal, readPiOverlap, test } from "./fixtures.ts";
 
 /** The value after `--session-id`, whatever else the launch carried. */
 function sessionIdOf(argv: readonly string[]): string | undefined {
@@ -25,12 +25,13 @@ function writeConfig(stateDir: string, text: string) {
 }
 
 /**
- * B4: `prefix v` hands one agent session between its two views. The session is started in the
- * terminal (the composer's own path), then moved to chat, back to the terminal while the agent is
- * waiting for an answer, and to chat again — always the same agent session id, so the conversation
- * survives and the terminal launch is a resume, not a new conversation.
+ * B4: `prefix v` hands one agent session between its two views, on one agent session id, with the
+ * conversation surviving. The session is started in the terminal — the composer still creates every
+ * task's agent there until B5 wires `view = "chat"` into it — and the run is terminal → chat →
+ * terminal (through the confirmation, while the agent waits for an answer) → chat. Both directions
+ * of the switch are exercised, and the fake-pi test starts in chat for the other order.
  */
-test("prefix v moves a session chat → terminal → chat on one agent session id", async ({
+test("prefix v hands a session between terminal and chat on one agent session id", async ({
   launchApp,
   stateDir,
 }) => {
@@ -133,6 +134,8 @@ test("prefix v moves a session chat → terminal → chat on one agent session i
   ]);
   const journal = readPiJournal(stateDir, agentSessionId);
   expect(journal.filter((message) => message.role === "user")).toHaveLength(1);
+  // The boundary, not just the aftermath: no frontend ever found its predecessor alive.
+  expect(readPiOverlap(stateDir, agentSessionId)).toBeUndefined();
   // The session kept its name and its place: one tab, still called `pi`, still selected.
   await expect(sessionTab(window, "pi")).toHaveAttribute("aria-selected", "true");
 });

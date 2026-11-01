@@ -98,6 +98,31 @@ export function readPiJournal(
   }
 }
 
+/**
+ * The fake pi's overlap marker for one agent session id: written only if a second frontend started
+ * while the previous one was still alive. A handoff must never leave one behind.
+ */
+export function readPiOverlap(
+  stateDir: string,
+  agentSessionId: string,
+): { previous: number; pid: number } | undefined {
+  try {
+    const file = path.join(
+      piRpcHome(stateDir),
+      `${agentSessionId.replace(/[^A-Za-z0-9._-]/g, "_")}.overlap.json`,
+    );
+    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    return parsed !== null && typeof parsed === "object"
+      ? {
+          previous: Number(Reflect.get(parsed, "previous")),
+          pid: Number(Reflect.get(parsed, "pid")),
+        }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Where the fake gh/glab append one JSON line per launch (apps/web/test/issue-clis.ts). */
 export const issueLaunchLog = (stateDir: string) => path.join(stateDir, "issue-launches.jsonl");
 
