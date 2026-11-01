@@ -517,7 +517,6 @@ export function createRpcRouter({
         ),
       ),
     },
-<<<<<<< HEAD
     changes: {
       watch: os.changes.watch.handler(({ signal }) => changes.watch(signal)),
       files: os.changes.files.handler(({ input, errors }) =>
@@ -542,8 +541,9 @@ export function createRpcRouter({
               return errors.GIT_FAILED({ data: { message: error.message } });
             return undefined;
           },
-||||||| parent of e3011be (feat(server): serve workspace files and run the editor for chat links)
-=======
+        ),
+      ),
+    },
     files: {
       resolve: os.files.resolve.handler(({ input, errors }) =>
         translating(
@@ -566,7 +566,6 @@ export function createRpcRouter({
               size: input.size,
             }),
           (error) => localFileError(error, errors),
->>>>>>> e3011be (feat(server): serve workspace files and run the editor for chat links)
         ),
       ),
     },
