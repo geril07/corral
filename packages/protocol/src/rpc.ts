@@ -162,10 +162,27 @@ export const TaskAgent = z.object({
 export type TaskAgent = z.infer<typeof TaskAgent>;
 
 /**
- * The most a prompt may hold. It reaches the agent as one argv word, which Linux caps at 128 KiB
- * (`MAX_ARG_STRLEN`), so a longer one could never be launched.
+ * The most a prompt may hold, in UTF-8 bytes. It reaches the agent as one argv word, which Linux
+ * caps at 128 KiB (`MAX_ARG_STRLEN`), and the adapter puts a space or a flag around it
+ * (`promptArgs`), so half the limit leaves room. Bytes, not characters: an astral character costs
+ * four, so a character count would let a prompt through that no launch can carry.
  */
 export const MAX_TASK_PROMPT = 64 * 1024;
+
+const UTF8 = new TextEncoder();
+
+/** How many bytes `text` takes as UTF-8, the unit an argv limit is counted in. */
+function utf8Length(text: string): number {
+  return UTF8.encode(text).length;
+}
+
+/** A prompt short enough to reach an agent as one argument. Trimmed first, so padding costs nothing. */
+const TaskPrompt = z
+  .string()
+  .trim()
+  .refine((text) => utf8Length(text) <= MAX_TASK_PROMPT, {
+    message: `a task prompt may hold at most ${MAX_TASK_PROMPT} bytes of UTF-8`,
+  });
 
 export const CreateTaskInput = z
   .object({
@@ -177,7 +194,7 @@ export const CreateTaskInput = z
     title: z.string().trim().min(1).optional(),
     source: TaskSource.optional(),
     /** What the primary agent starts working on. Trimmed; blank is the same as absent. */
-    prompt: z.string().trim().max(MAX_TASK_PROMPT).optional(),
+    prompt: TaskPrompt.optional(),
     /** Starts this agent as the task's primary session, with `prompt`; absent starts no session. */
     agent: TaskAgent.optional(),
     workspace: z.discriminatedUnion("type", [
