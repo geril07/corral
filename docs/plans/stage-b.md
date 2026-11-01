@@ -18,13 +18,34 @@ From pi 1.4.0's own docs (`<pi install>/docs/rpc.md`, `rpc-commands.md`, `json.m
 ## Order
 
 ```
+wave 0:  T0                     terminal focus refit (goal D6)
 wave 1:  B0
 wave 2:  B1  B3                 B1 needs B0; B3 needs B0
 wave 3:  B4  B5                 B4 needs B1, B3; B5 needs B1, B3
 final:   B-verify
 ```
 
+Settled before the run and not for a slice to re-decide: the Markdown engine (D1), no Tiptap in stage B (D2), a hand-written pi RPC client (D3), and the fake-plus-real-pi verification stance (D4). Record them where the slice touches them.
+
 Gates for every slice are stage A's (`plans/stage-a.md`, **Gates for every slice**), with a fake pi that speaks the RPC protocol instead of fake TUIs. No paid model calls.
+
+---
+
+## T0. Terminal focus refit
+
+**Goal.** Fix the user-visible half of the multi-client terminal sizing P2 found by the stage A verifier: a client that gains focus or becomes visible refits instead of keeping the grid of whichever client last fitted.
+
+**Where.** `apps/web/src/modules/terminal/terminal-view.tsx` (the existing fit path and its `proposeSize` debounce), a browser test.
+
+**Rules.**
+
+- On focus and on `visibilitychange` to visible, propose the fit again when the host's dimensions no longer match the surface's grid; keep the existing frame debounce.
+- Do not resize the PTY for a client that is merely resizing its window while unfocused.
+- Document the remaining limitation in `docs/design.md` **Terminal**: two clients share one PTY grid, so the unfocused one is stale until it is focused; the shared-grid redesign is an open question, not part of this run.
+
+**Done when.** A browser test with two attached clients at different host sizes shows the newly focused client reporting its own size while the other keeps its canvas; no regression in the single-client fit tests.
+
+**Depends on.** Nothing (stage A's terminal view).
 
 ---
 
@@ -57,8 +78,9 @@ Gates for every slice are stage A's (`plans/stage-a.md`, **Gates for every slice
 
 - Add `view: terminal | chat` to `Session` (migration: existing sessions are `terminal`). A `chat` session has no terminal; its live frontend is the RPC child.
 - Spawn `pi --mode rpc --session-id <id>` with the launch args, profile environment and `CORRAL_*` variables a terminal launch gets, in the task's workspace. Restore after a server restart resumes the same id in the same view.
-- Decide, and record the choice in `engineering.md`: a hand-written JSONL client against the documented protocol (recommended: the protocol is short and specified, and a pi npm dependency would pin a pi version apart from the user's installed binary) or pi's exported `RpcClient`.
+- The client is hand-written (goal D3): JSONL against the documented protocol, no pi npm dependency, so the driver follows the user's installed pi. Record the choice in `engineering.md`.
 - Framing per the facts above; read stdout continuously; correlate responses by id; a parse failure or unexpected exit ends the frontend with a visible reason, like a failed terminal launch.
+- Add the opt-in contract test from goal D4: the real pi binary against the local stub endpoint, start → stream → resume on the same session id.
 - On every (re)start, load history with `get_messages` and turn it into items, then stream events. The in-memory chat state is the server's; it is rebuilt from pi after a restart, and pending user requests are lost then (record this limit).
 - The prompt of a task created in chat view (A3/A5 path) is sent with the `prompt` command once the child is ready, on first start only.
 - Status comes from events instead of OSC 7501: `agent_start` → working, a pending dialog request → blocked (`question`), `agent_settled` → done (or idle when aborted), a provider error → error. Settle stops the child (close stdin, then a deadline and a kill); continue restarts it.
@@ -80,13 +102,13 @@ Moved to stage A as A8 (`plans/stage-a.md`). B3 renders inside an A8 tab.
 
 **Rules.**
 
-- Choose the Markdown engine first (decision 15: Streamdown vs T3 Code's `react-markdown`), with streaming partial Markdown as the deciding case; record the choice in `design.md` decision 15.
+- Markdown engine is settled (decision 15, goal D1): **Streamdown** with `@streamdown/code` for Shiki, including the Tailwind `@source` lines its README asks for. It is not T3's `react-markdown`.
 - Sizes and styling as `layout.md` **Chat** (46 rem lane, user bubbles, folded tool calls, composer bounds).
 - Timeline: virtualized (`@legendapp/list`, as T3 Code), user and assistant messages, reasoning collapsed by default, tool calls as collapsible blocks with arguments and output, code blocks highlighted with Shiki, diffs with `@pierre/diffs` when a tool result carries one (pi's edit tool; check what its result contains). Auto-scroll follows the stream unless the user scrolled up.
 - Composer: Enter sends, Shift+Enter inserts a newline; while working, Enter steers and a modifier queues a follow-up (show which); an abort action with a prefix binding (`prefix .` proposed) and in the palette.
 - User requests render inline at the end of the timeline with keyboard focus; answering sends `chat.respond`. Notices render as quiet timeline lines.
 - Prefix mode keeps working inside the composer (capture phase, as in terminals); the composer owns plain keys.
-- Port T3 Code's rendering pieces where they fit (`apps/web/src/components/ChatMarkdown.tsx`, `chat/MarkdownCodeBlock.tsx`, `chat/MessagesTimeline.tsx` in `../../oss/t3code`, MIT; keep the license notice where code is copied), replacing T3-specific link, file and environment hooks. Links to local files are stage C (C5); here they render as plain links.
+- Take the timeline and code-block structure from T3 Code where it fits (`apps/web/src/components/chat/MarkdownCodeBlock.tsx`, `chat/MessagesTimeline.tsx` in `../../oss/t3code`, MIT; keep the license notice where code is copied), replacing T3-specific link, file and environment hooks. `ChatMarkdown.tsx` is not ported (D1): its streaming story is what Streamdown replaces. Links to local files are stage C (C5); here they render as plain links.
 - Stock kit components and tokens; new structural variants only where `ux.md` allows.
 
 **Done when.** Browser tests render a recorded event stream (streaming text, reasoning, tool call, diff, request), send, steer, follow up, abort and answer by keyboard only; the timeline stays responsive with a long transcript (state the measured size).

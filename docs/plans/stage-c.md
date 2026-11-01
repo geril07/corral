@@ -2,7 +2,7 @@
 
 Plan for stage C (`design.md`, **Stages**). Coarser than stages A and B on purpose: the pi driver (B1) fixes the shape of the driver interface, and the briefs below are refined against it before work starts. The orchestrator that starts stage C first rewrites each brief here against the integrated code, as `plans/stage-a.md` is written, then runs the slices.
 
-Rules: `design.md` decisions 5, 13–15, **Terminal and chat**; `ux.md`; `plans/layout.md` for where things sit. Gates: `plans/stage-a.md`, **Gates for every slice**. No paid model calls and no writes to real remotes in tests or verification.
+Rules: `design.md` decisions 5, 13–15, **Terminal and chat**; `ux.md`; `plans/layout.md` for where things sit. Gates: `plans/stage-a.md`, **Gates for every slice**. No paid model calls and no writes to real remotes in tests or verification. Settled before the run (`goal.md`): C starts with a docs-only `C-prep` slice that rewrites these briefs against the integrated B1 driver (D8); Codex's view capability is measured, never assumed (D7); verification uses fakes plus a real-binary smoke against a local stub endpoint where the CLI allows one (D9); the protocol version changes to 10 in the first slice that changes the contract (D5).
 
 ## Order
 

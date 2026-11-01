@@ -115,7 +115,7 @@ These are the parts stage A could not prove against the real thing, and how they
 
 Detailed reports are saved in their named agent's `result-N.md`; promote durable findings into repo docs when they arrive.
 
-- Stage A was delivered by the autonomous run defined in `goal.md` (orchestrator, DeepSeek agents for every role, one slice per branch, review before each fast-forward). Its rows are in the ledger above; its verification is `.e2e/stage-a/verify/report.md`.
+- Stage A was delivered by the autonomous run defined in `plans/stage-a-run.md` (orchestrator, DeepSeek agents for every role, one slice per branch, review before each fast-forward). Its rows are in the ledger above; its verification is `.e2e/stage-a/verify/report.md`.
 - UI guard landed as `9c54794`, including the review correction to import test helpers from `vite-plus/test`.
 - Settings landed at `82c6ed9`; source, both P3 corrections and the route-ID fix landed together at `b16c5dd` after full566/179/19 PASS. Migrations remain label4, launch5, source6; protocol5.
 - Source correction `0960df9` review: No findings. Router pair/legacy correction `b16c5dd` re-review: P2 closed, no new findings. Red/green and original failure artifacts retained.
