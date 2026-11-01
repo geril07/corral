@@ -163,6 +163,21 @@ test("generated slug mode names the branch and worktree from the response, under
   expect(run!.argv.join("\n")).toContain('"worktree"');
 });
 
+test("a generated-mode reply without branch or worktree keeps the title and uses its slug", async () => {
+  await configure(`${PROFILE}\n[tasks]\nslug-mode = "generated"\n`);
+  const warn = captureWarnings();
+  vi.stubEnv("FAKE_NAMING_OUTPUT", JSON.stringify({ title: "Add OAuth login" }));
+
+  const task = await createWorktreeTask("Add OAuth login to the app");
+
+  expect(task).toMatchObject({
+    title: "Add OAuth login",
+    titleSource: "generated",
+    branch: "add-oauth-login",
+  });
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining("no usable slug"));
+});
+
 test("garbage output keeps the seed title and the title's slug", async () => {
   await configure(`${PROFILE}\n[tasks]\nslug-mode = "generated"\n`);
   const warn = captureWarnings();
@@ -178,6 +193,21 @@ test("garbage output keeps the seed title and the title's slug", async () => {
   expect(warn).toHaveBeenCalledWith(expect.stringContaining("no JSON object"));
   // The reason is logged; the prompt never is.
   expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("Fix the login bug"));
+});
+
+test("an echoed placeholder title is refused and the seed title stays", async () => {
+  await configure(`${PROFILE}\n[tasks]\nslug-mode = "generated"\n`);
+  const warn = captureWarnings();
+  vi.stubEnv("FAKE_NAMING_OUTPUT", JSON.stringify({ title: "…" }));
+
+  const task = await createWorktreeTask("Fix the login bug");
+
+  expect(task).toMatchObject({
+    title: "Fix the login bug",
+    titleSource: "seed",
+    branch: "fix-the-login-bug",
+  });
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining("no letters or digits"));
 });
 
 test("a generated branch with no usable slug falls back to the title's slug", async () => {
@@ -221,6 +251,26 @@ test("a naming run that outlives the timeout keeps the seed and the worktree is 
   const warn = captureWarnings();
   // The configured timeout is 1s; the fake would take 5s.
   vi.stubEnv("FAKE_NAMING_DELAY_MS", "5000");
+
+  const started = Date.now();
+  const task = await within(createWorktreeTask("Fix the login bug"), "the task");
+
+  expect(Date.now() - started).toBeLessThan(5000);
+  expect(task).toMatchObject({
+    title: "Fix the login bug",
+    titleSource: "seed",
+    branch: "fix-the-login-bug",
+  });
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining("no answer within 1s"));
+});
+
+test("a timeout returns even when a descendant outside the group keeps stdout open", async () => {
+  await configure(PROFILE);
+  const warn = captureWarnings();
+  vi.stubEnv("FAKE_NAMING_DELAY_MS", "5000");
+  // The fake starts a detached grandchild that inherits stdout/stderr and sleeps for 10s, so
+  // killing the naming child's process group does not close the pipes.
+  vi.stubEnv("FAKE_NAMING_ESCAPE", "1");
 
   const started = Date.now();
   const task = await within(createWorktreeTask("Fix the login bug"), "the task");

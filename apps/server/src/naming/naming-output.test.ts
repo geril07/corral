@@ -34,11 +34,14 @@ test("generated mode carries the raw branch and worktree for the caller to check
   });
 });
 
-test("generated mode refuses a response without both a branch and a worktree", () => {
+test("generated mode keeps a good title when the reply names no branch or worktree", () => {
   expect(parseNamingOutput('{"title": "Add OAuth login"}', GENERATED)).toEqual({
-    ok: false,
-    reason: "the response has no branch and worktree",
+    ok: true,
+    name: { title: "Add OAuth login" },
   });
+  expect(
+    parseNamingOutput('{"title": "Add OAuth login", "branch": "oauth-sso"}', GENERATED),
+  ).toEqual({ ok: true, name: { title: "Add OAuth login", branch: "oauth-sso" } });
 });
 
 test("anything that is not a JSON object with a title is a failure with a loggable reason", () => {
@@ -54,14 +57,33 @@ test("anything that is not a JSON object with a title is a failure with a loggab
     ok: false,
     reason: "the response's title is empty",
   });
+  // The prompt's own placeholder, echoed back, is not a name.
+  expect(parseNamingOutput('{"title": "…"}', TITLE)).toEqual({
+    ok: false,
+    reason: "the response's title has no letters or digits",
+  });
+  expect(parseNamingOutput('{"title": "!!!"}', TITLE)).toEqual({
+    ok: false,
+    reason: "the response's title has no letters or digits",
+  });
   expect(parseNamingOutput("[1, 2]", TITLE)).toEqual({
     ok: false,
     reason: "the response has no JSON object",
   });
 });
 
-test("a title is one line, without control characters, at most 60 characters", () => {
+test("an unbalanced brace flood fails in one pass", () => {
+  // A scan that restarts at every `{` would take seconds here (100k rescan to the end).
+  expect(parseNamingOutput("{".repeat(100_000), TITLE)).toEqual({
+    ok: false,
+    reason: "the response has no JSON object",
+  });
+});
+
+test("a title is one line, without control or format characters, at most 60 characters", () => {
   expect(sanitizeTitle("  Add\u0007 OAuth\nsecond line  ")).toBe("Add OAuth second line");
+  // U+202E (right-to-left override) and U+202C (pop) can visually reorder a row.
+  expect(sanitizeTitle("Fix \u202Eevil\u202C login")).toBe("Fix evil login");
   expect(sanitizeTitle("x".repeat(80))).toBe(`${"x".repeat(59)}…`);
   expect(sanitizeTitle(" \n\t ")).toBe("");
 });
