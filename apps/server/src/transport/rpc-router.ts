@@ -10,6 +10,17 @@ import {
 import type { ChangesService } from "../changes/changes-service.ts";
 import { ChangeFileUnknownError } from "../changes/errors.ts";
 import type { ConfigWatcher } from "../config/config-watcher.ts";
+import {
+  EditorNotFoundError,
+  EditorUnsetError,
+  FileIsDirectoryError,
+  FileNotFoundError,
+  FileOutsideWorkspaceError,
+  FileTooLargeError,
+  FileTypeUnsupportedError,
+  FileUnreadableError,
+} from "../files/errors.ts";
+import type { FilesService } from "../files/files-service.ts";
 import { GitError } from "../git/git.ts";
 import {
   InvalidIssueUrlError,
@@ -59,6 +70,7 @@ export interface RpcServices {
   chat: ChatService;
   changes: ChangesService;
   terminals: TerminalRegistry;
+  files: FilesService;
 }
 
 /** Runs `run`; a domain error becomes the typed RPC error `translate` returns for it, anything else propagates. */
@@ -148,6 +160,49 @@ function chatError(
   return undefined;
 }
 
+/**
+ * Maps the path refusals of `files.*` (`packages/protocol/src/rpc.ts`, `fileErrors`). Each procedure
+ * declares only its own codes, so a constructor the caller's contract lacks stays undefined and the
+ * error propagates as a server bug rather than as a wire answer.
+ */
+interface FileHandlerErrors {
+  readonly TASK_NOT_FOUND?: (options: { data: { id: string } }) => Error;
+  readonly FILE_OUTSIDE_WORKSPACE?: (options: { data: { path: string } }) => Error;
+  readonly FILE_NOT_FOUND?: (options: { data: { path: string } }) => Error;
+  readonly FILE_IS_DIRECTORY?: (options: { data: { path: string } }) => Error;
+  readonly FILE_TOO_LARGE?: (options: {
+    data: { path: string; size: number; limit: number };
+  }) => Error;
+  readonly FILE_TYPE_UNSUPPORTED?: (options: { data: { path: string } }) => Error;
+  readonly FILE_UNREADABLE?: (options: { data: { path: string } }) => Error;
+  readonly EDITOR_UNSET?: (options: { data: { reason: string } }) => Error;
+  readonly EDITOR_NOT_FOUND?: (options: { data: { command: string } }) => Error;
+}
+
+function localFileError(error: unknown, errors: FileHandlerErrors): Error | undefined {
+  if (error instanceof TaskNotFoundError)
+    return errors.TASK_NOT_FOUND?.({ data: { id: error.id } });
+  if (error instanceof FileOutsideWorkspaceError)
+    return errors.FILE_OUTSIDE_WORKSPACE?.({ data: { path: error.path } });
+  if (error instanceof FileNotFoundError)
+    return errors.FILE_NOT_FOUND?.({ data: { path: error.path } });
+  if (error instanceof FileIsDirectoryError)
+    return errors.FILE_IS_DIRECTORY?.({ data: { path: error.path } });
+  if (error instanceof FileTooLargeError)
+    return errors.FILE_TOO_LARGE?.({
+      data: { path: error.path, size: error.size, limit: error.limit },
+    });
+  if (error instanceof FileTypeUnsupportedError)
+    return errors.FILE_TYPE_UNSUPPORTED?.({ data: { path: error.path } });
+  if (error instanceof FileUnreadableError)
+    return errors.FILE_UNREADABLE?.({ data: { path: error.path } });
+  if (error instanceof EditorUnsetError)
+    return errors.EDITOR_UNSET?.({ data: { reason: error.reason } });
+  if (error instanceof EditorNotFoundError)
+    return errors.EDITOR_NOT_FOUND?.({ data: { command: error.command } });
+  return undefined;
+}
+
 export function createRpcRouter({
   config,
   projects,
@@ -156,6 +211,7 @@ export function createRpcRouter({
   chat,
   changes,
   terminals,
+  files,
 }: RpcServices) {
   const os = implement(contract);
   return os.router({
@@ -457,6 +513,7 @@ export function createRpcRouter({
         ),
       ),
     },
+<<<<<<< HEAD
     changes: {
       watch: os.changes.watch.handler(({ signal }) => changes.watch(signal)),
       files: os.changes.files.handler(({ input, errors }) =>
@@ -481,6 +538,31 @@ export function createRpcRouter({
               return errors.GIT_FAILED({ data: { message: error.message } });
             return undefined;
           },
+||||||| parent of e3011be (feat(server): serve workspace files and run the editor for chat links)
+=======
+    files: {
+      resolve: os.files.resolve.handler(({ input, errors }) =>
+        translating(
+          () => files.resolve(input.taskId, input.paths),
+          (error) => localFileError(error, errors),
+        ).then((results) => ({ results })),
+      ),
+      read: os.files.read.handler(({ input, errors }) =>
+        translating(
+          () => files.read(input.taskId, input.path),
+          (error) => localFileError(error, errors),
+        ),
+      ),
+      openEditor: os.files.openEditor.handler(({ input, errors }) =>
+        translating(
+          () =>
+            files.openEditor(input.taskId, input.path, {
+              line: input.line,
+              column: input.column,
+              size: input.size,
+            }),
+          (error) => localFileError(error, errors),
+>>>>>>> e3011be (feat(server): serve workspace files and run the editor for chat links)
         ),
       ),
     },

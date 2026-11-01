@@ -24,6 +24,7 @@ import { parse as parseToml, TomlError } from "smol-toml";
 import { launchChoiceProblems, modelIdProblem } from "../agents/launch-capabilities.ts";
 import { ENV_NAME, isReservedEnvName } from "../agents/launch-env.ts";
 import { hasChatDriver } from "../chat/chat-drivers.ts";
+import { placeholderProblem, splitCommand } from "../files/editor-command.ts";
 import { worktreeRootProblem } from "./worktree-root.ts";
 
 const PREFIX_PATH = "keys.prefix";
@@ -32,6 +33,7 @@ const PROFILES_PATH = "profiles";
 const TASKS_PATH = "tasks";
 const NAMING_PATH = "naming";
 const AGENTS_PATH = "agents";
+const EDITOR_PATH = "editor";
 const PROJECTS_PATH = "projects";
 const SECTIONS = new Set([
   "keys",
@@ -39,11 +41,13 @@ const SECTIONS = new Set([
   TASKS_PATH,
   NAMING_PATH,
   AGENTS_PATH,
+  EDITOR_PATH,
   PROJECTS_PATH,
 ]);
 const PROFILE_KEYS = new Set(["name", "agent", "model", "provider", "env"]);
 const ENV_KEYS = new Set(["targetName", "fromEnv"]);
 const AGENT_KEYS = new Set(["enabled", "command"]);
+const EDITOR_KEYS = new Set(["command"]);
 const PROFILE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MAX_PROFILE_NAME = 80;
 const MAX_ENV_REFS = 32;
@@ -88,6 +92,11 @@ type NamingLayer = { [K in keyof NamingValues]?: NamingValues[K] };
 /** The entries one `[agents.<kind>]` table sets; a missing key falls through to the default. */
 interface AgentLayer {
   enabled?: boolean;
+  command?: string;
+}
+
+/** The entries `[editor]` sets; a missing key falls through to the default (nothing configured). */
+interface EditorLayer {
   command?: string;
 }
 
@@ -139,6 +148,9 @@ export function parseConfigFile(text: string, dataDir: string): ParsedConfigFile
   const disabled: DisabledAgents = new Set(
     AgentKind.options.filter((kind) => !config.agents[kind].enabled.value),
   );
+  const editor = editorLayer(document[EDITOR_PATH], problems);
+  if (editor.command !== undefined)
+    config.editor.command = { value: editor.command, source: "global" };
   const profiles = validProfiles(document["profiles"], problems, disabled);
   const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
   const tasks = taskLayer(document[TASKS_PATH], TASKS_PATH, problems, profilesById, disabled);
@@ -325,6 +337,49 @@ function agentLayer(value: unknown, problems: ConfigProblem[]): Map<AgentKind, A
     layers.set(kind.data, layer);
   }
   return layers;
+}
+
+/**
+ * `[editor]`: the command a local file link in chat runs. An invalid value drops only itself (the
+ * server then falls back to `$VISUAL`/`$EDITOR`), so a typo in one key never takes the rest of the
+ * file with it.
+ */
+function editorLayer(value: unknown, problems: ConfigProblem[]): EditorLayer {
+  if (value === undefined) return {};
+  if (!isTable(value)) {
+    problems.push(errorAt(EDITOR_PATH, `expected a table, got ${describe(value)}`));
+    return {};
+  }
+  for (const key of Object.keys(value)) {
+    if (!EDITOR_KEYS.has(key))
+      problems.push(errorAt(`${EDITOR_PATH}.${key}`, `unknown key "${key}"`));
+  }
+  const command = value["command"];
+  if (command === undefined) return {};
+  if (typeof command !== "string") {
+    problems.push(errorAt(`${EDITOR_PATH}.command`, `expected a string, got ${describe(command)}`));
+    return {};
+  }
+  const problem = editorCommandProblem(command);
+  if (problem !== undefined) {
+    problems.push(errorAt(`${EDITOR_PATH}.command`, problem));
+    return {};
+  }
+  return { command };
+}
+
+/**
+ * A command line that has to parse and use only the placeholders this build fills. Unlike an agent
+ * command it may be a bare name: `$EDITOR=nvim` is the same shape, so a lookup on the server's
+ * `PATH` is what the user expects.
+ */
+function editorCommandProblem(value: string): string | undefined {
+  if (value.trim() === "") return "the command may not be empty";
+  // oxlint-disable-next-line no-control-regex -- rejecting control characters is the point
+  if (/[\u0000-\u001f\u007f]/.test(value)) return "the command may not hold control characters";
+  const split = splitCommand(value);
+  if ("problem" in split) return split.problem;
+  return placeholderProblem(split.argv);
 }
 
 /**

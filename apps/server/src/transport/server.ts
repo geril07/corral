@@ -19,6 +19,7 @@ import { ChangesService } from "../changes/changes-service.ts";
 import { watchConfigFile } from "../config/config-watcher.ts";
 import { configNaming } from "../config/naming.ts";
 import { configTaskSettings } from "../config/task-settings.ts";
+import { FilesService } from "../files/files-service.ts";
 import { IssueImportService, issueImportTimeoutMs } from "../issues/issue-import.ts";
 import { ProjectService } from "../projects/project-service.ts";
 import { ProjectStore } from "../projects/project-store.ts";
@@ -103,8 +104,16 @@ export function startServer(options: {
   });
   const issues = new IssueImportService({ timeoutMs: issueImportTimeoutMs(process.env) });
   const projects = new ProjectService(projectStore, tasks, issues);
+  // Local links in chat: the allow-list is a task's workspace, so the service needs the tasks.
+  const files = new FilesService({ tasks, terminals, config });
   const rpc = new RPCHandler(
+<<<<<<< HEAD
     createRpcRouter({ config, projects, tasks, sessions, chat, changes, terminals }),
+||||||| parent of e3011be (feat(server): serve workspace files and run the editor for chat links)
+    createRpcRouter({ config, projects, tasks, sessions, chat, terminals }),
+=======
+    createRpcRouter({ config, projects, tasks, sessions, chat, terminals, files }),
+>>>>>>> e3011be (feat(server): serve workspace files and run the editor for chat links)
   );
   const http = createServer((request, response) => {
     const sessionId = statusReportSessionId(

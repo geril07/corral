@@ -11,6 +11,8 @@ import { isRecord } from "../../src/chat/pi-record.ts";
  * Modes, all through `$FAKE_PI_RPC`:
  * - `normal` (default): assistant text deltas, an `edit` tool call with a unified diff, a
  *   `confirm` dialog that waits for the client's answer, then `agent_settled`;
+ * - `links`: the same answer, naming a workspace path with a line and an ordinary web URL, so a
+ *   test can click what chat's local-link rendering produces;
  * - `slow`: the same, after `$FAKE_PI_RPC_DELAY_MS` (default 500) mid-turn, so a test can abort,
  *   stop or restart while the agent works;
  * - `crash`: one delta and then exit code 3, the shape of a provider crash (after
@@ -229,7 +231,12 @@ export function startFakePiRpc(argv: readonly string[]): void {
     if (mode === "slow") await sleep(delayMs);
     if (aborted) return settleAborted();
 
-    const text = "Here is the answer.";
+    // `links` keeps the first sentence identical, so a test that only wants the answer still finds
+    // it, and adds what chat renders as a file link and a web link.
+    const text =
+      mode === "links"
+        ? "Here is the answer.\nSee src/app.ts:12 and https://example.com/docs for the details."
+        : "Here is the answer.";
     for (const [index, word] of text.split(" ").entries()) {
       if (aborted) return settleAborted();
       const delta = index === 0 ? word : ` ${word}`;

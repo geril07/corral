@@ -143,6 +143,35 @@ command = "/opt/pi/bin/pi" # absolute path replacing the PATH lookup; default th
 - Settings names every agent, the command a launch would run and where it came from, whether the
   server found it, and whether this build has a chat driver for it (`ConfigState.agents`).
 
+### The editor for local file links
+
+A path in chat opens in the user's editor (`docs/ux.md`, **Local links in chat**). `[editor]` names
+that editor. Like `[agents.<kind>]` it describes the machine, not a repository, so it has **no
+per-project layer**.
+
+```toml
+[editor]
+command = "code --goto {file}:{line}:{column}" # default "": $VISUAL, then $EDITOR decide
+```
+
+- The precedence is **`[editor] command`, else `$VISUAL`, else `$EDITOR`** (the order X11 and most
+  CLIs use), and a value that is empty or only whitespace opts out of its layer. Nothing
+  configured — or nothing usable — is a refusal with a reason, `EDITOR_UNSET { reason }`, not a
+  silent fallback: Corral does not hand a source file to the desktop's file association, which is
+  usually not the user's editor and cannot carry a line.
+- `command` is a command line, split like a shell would for quoting and backslashes, with no
+  expansion: `command = "'/opt/My Editor/edit' --wait"`. A bare name is looked up on the server's
+  `PATH`, because `$EDITOR=nvim` is the same shape.
+- `{file}`, `{line}` and `{column}` are filled in from the link (`src/app.ts:12:3`); a command with
+  no placeholder gets the file's absolute path appended, which is what `$EDITOR=nvim` relies on.
+  Any other placeholder is a problem, and the entry is dropped rather than run wrong.
+- The editor runs as a terminal in the task's workspace, so a terminal editor has a PTY and a GUI
+  editor detaches from it. It is a loose terminal (Scratch), not a session: a task's terminals
+  keep one owner (`design.md`, **Session**).
+- An invalid entry drops **only itself**, is reported at `editor.command`, and the environment
+  decides instead. A command that is not executable fails the click with
+  `EDITOR_NOT_FOUND { command }`.
+
 ### Safe examples per agent
 
 Claude Code has `--model` and no provider flag. Route it with environment references:

@@ -879,7 +879,8 @@ export const contract = {
       })
       .input(z.object({ taskId: TaskId, path: z.string().min(1) }))
       .output(ChangeDiff),
-files: {
+  },
+  files: {
     /**
      * Resolves path candidates of a chat message against the task's workspace, which is the only
      * root a link may reach (symlinks are resolved, so a link cannot leave it). A batch lookup is
