@@ -122,7 +122,7 @@ test("two sessions of one task are tabs that switch by click and by key, and the
   // The window takes keys only once the workspace has loaded.
   await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
-  await createTask(window, "Tabbed");
+  await createTask(window, "Tabbed", { workspace: "new-worktree" });
   await startShell(window);
 
   const tabs = sessionTabs(window);

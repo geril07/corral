@@ -79,16 +79,32 @@ export async function addProject(window: Page, repo: string) {
   expect(selectedProject(window)).toEqual(expect.any(String));
 }
 
+/** The new-task composer in the main area (`layout.md`, **New task view**): a view, not a dialog. */
+export const newTaskView = (window: Page) => window.getByRole("form", { name: "New task" });
+export const promptField = (window: Page) =>
+  newTaskView(window).getByRole("textbox", { name: "Prompt" });
+
+export interface CreateTaskOptions {
+  /** Where the task works; absent keeps the configured default (the project's main tree). */
+  workspace?: "new-worktree" | "main-worktree";
+}
+
 /**
- * Creates a task with a new branch from the keyboard. Creating a task starts no session: a task
- * without an agent stays empty until one is added (design.md, **Domain model → Task → Creation**).
+ * Creates a task from the composer's optional title, with no prompt, so it starts no session
+ * (design.md, **Domain model → Task → Creation**); a prompt-created task starts its agent.
  */
-export async function createTask(window: Page, title: string) {
+export async function createTask(window: Page, title: string, options: CreateTaskOptions = {}) {
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyT");
-  await expect(
-    window.getByRole("dialog", { name: "New task" }).getByRole("textbox", { name: "Title" }),
-  ).toBeFocused();
+  await expect(promptField(window)).toBeFocused();
+  if (options.workspace === "new-worktree") {
+    await newTaskView(window)
+      .getByRole("combobox", { name: /^Workspace / })
+      .click();
+    await window.keyboard.type("new worktree");
+    await window.keyboard.press("Enter");
+  }
+  await newTaskView(window).getByRole("button", { name: "Title (optional)" }).click();
   await window.keyboard.type(title);
   await window.keyboard.press("Enter");
   await expect(

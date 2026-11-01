@@ -1,6 +1,13 @@
 import { expect } from "@playwright/test";
 import { writeFileSync } from "node:fs";
-import { addProject, createRepo, openedWindow, workspace } from "./app-helpers.ts";
+import {
+  addProject,
+  createRepo,
+  newTaskView,
+  openedWindow,
+  promptField,
+  workspace,
+} from "./app-helpers.ts";
 import { issueResponseFile, test } from "./fixtures.ts";
 
 test("an imported issue keeps its source when the app is opened again", async ({
@@ -25,16 +32,20 @@ test("an imported issue keeps its source when the app is opened again", async ({
 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyT");
-  const newTask = window.getByRole("dialog", { name: "New task" });
-  await expect(newTask.getByRole("textbox", { name: "Title" })).toBeFocused();
-  await newTask
+  const composer = newTaskView(window);
+  await expect(promptField(window)).toBeFocused();
+  // "From issue…" expands its field in place; the import fills the prompt, not a separate title.
+  await composer.getByRole("button", { name: "From issue…" }).click();
+  await composer
     .getByRole("textbox", { name: "Issue URL" })
     .fill("https://github.com/acme/app/issues/7");
-  await newTask.getByRole("button", { name: "Import issue" }).click();
-  await expect(newTask.getByRole("status")).toContainText("Imported GitHub issue acme/app#7");
-  await expect(newTask.getByRole("textbox", { name: "Title" })).toHaveValue("Imported issue");
-  await newTask.getByRole("button", { name: "Create task" }).click();
-  await expect(newTask).toBeHidden();
+  await composer.getByRole("button", { name: "Import issue" }).click();
+  await expect(composer.getByRole("status")).toContainText("Imported GitHub issue acme/app#7");
+  await expect(promptField(window)).toHaveValue(
+    "Imported issue\n\nhttps://github.com/acme/app/issues/7",
+  );
+  await composer.getByRole("button", { name: "Create task" }).click();
+  await expect(composer).toBeHidden();
 
   const openSource = async () => {
     await workspace(window)
