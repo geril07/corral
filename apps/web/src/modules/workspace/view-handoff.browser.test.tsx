@@ -52,7 +52,20 @@ function seededClient(options: { drivers: "claude" | "pi"; turn: "idle" | "worki
       return Reflect.get(target, property, receiver);
     },
   });
-  const capabilities = { loaded: true, drivers: [options.drivers] } as const;
+  const capabilities = {
+    loaded: true,
+    drivers: [
+      {
+        kind: options.drivers,
+        steer: true,
+        followUp: true,
+        approvals: true,
+        modelSwitch: true,
+        reasoningLevels: true,
+        terminalView: "handoff-only" as const,
+      },
+    ],
+  } as const;
   const tasks = new Store<TasksSnapshot>({ loaded: true, tasks: [] });
   const sessions = new Store<SessionsSnapshot>({ loaded: true, sessions: [] });
   const chatState = new Store<ChatStoreSnapshot>({

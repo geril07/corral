@@ -1,6 +1,12 @@
 import { eventIterator, oc } from "@orpc/contract";
 import { z } from "zod";
-import { ChatAnswer, ChatItemId, ChatModelRef, ChatStreamMessage } from "./chat.ts";
+import {
+  ChatAnswer,
+  ChatDriverCapabilities,
+  ChatItemId,
+  ChatModelRef,
+  ChatStreamMessage,
+} from "./chat.ts";
 import { AgentKind, EnvRef, TaskView, configContract } from "./config.ts";
 import { Label } from "./label.ts";
 
@@ -626,10 +632,13 @@ export const contract = {
   },
   chat: {
     /**
-     * What this server build can show as chat: the agent kinds with a driver. A build fact, not a
-     * session's state, so a client asks once per connection (the list changes when a driver lands).
+     * What this server build can show as chat, and what each agent's driver can do (protocol 10). A
+     * build fact, not a session's state, so a client asks once per connection (the list changes when
+     * a driver lands). `kind` is the agent; the flags enable or disable the controls that would use
+     * them, and `terminalView` says whether a terminal can be open beside the chat or only instead
+     * of it (design.md, **Terminal and chat**).
      */
-    capabilities: oc.output(z.object({ drivers: z.array(AgentKind) })),
+    capabilities: oc.output(z.object({ drivers: z.array(ChatDriverCapabilities) })),
     /**
      * Yields the chat of one session: a snapshot first, then sequenced events. With `after` it
      * yields what the client missed instead, or a fresh snapshot when those events are gone.

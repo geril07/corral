@@ -491,8 +491,11 @@ test("a session's terminal is named through its session, not as a loose terminal
 test("chat reports the pi driver and refuses an unknown session with SESSION_NOT_FOUND", async () => {
   const { api } = await addTask(server, "Chat refusal");
 
-  // A build fact: the driver list comes from the server, not from a client-side agent check.
-  expect(await api.chat.capabilities()).toEqual({ drivers: ["pi"] });
+  // A build fact: the driver list comes from the server, not from a client-side agent check. The
+  // record's full shape is pinned in `chat-rpc.test.ts`; here only that it answers with the kind.
+  expect(await api.chat.capabilities()).toEqual({
+    drivers: [expect.objectContaining({ kind: "pi", terminalView: "handoff-only" })],
+  });
 
   await expect(api.chat.watch({ sessionId: "missing" })).rejects.toMatchObject({
     code: "SESSION_NOT_FOUND",

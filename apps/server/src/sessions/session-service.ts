@@ -13,7 +13,6 @@ import type {
 import { normalizeLabel } from "@corral/protocol/label";
 import type { StatusReport } from "@corral/protocol/status-report";
 import { AGENTS } from "../agents/agents.ts";
-import type { AgentAdapter } from "../agents/agent-adapter.ts";
 import type { ChatService } from "../chat/chat-service.ts";
 import { ChatLaunchError, type ChatSubject } from "../chat/chat-errors.ts";
 import {
@@ -600,11 +599,11 @@ export class SessionService {
     const { env, referencedValues } = this.#launchEnv(stored);
     if (stored.view === "chat") {
       // A chat view is only created for an agent with a driver, and a shell never has one.
-      if (!adapter) throw new LaunchViewUnsupportedError(stored.kind, stored.view);
+      if (stored.kind === "shell") throw new LaunchViewUnsupportedError(stored.kind, stored.view);
       await this.#launchChat(
         stored,
+        stored.kind,
         task,
-        adapter,
         env,
         statusToken,
         how,
@@ -699,33 +698,26 @@ export class SessionService {
   }
 
   /**
-   * Starts one chat session's pi process in RPC mode: the same executable, launch arguments,
-   * profile environment and `CORRAL_*` variables as a terminal launch, plus `--mode rpc` and no
-   * prompt argument (RPC rejects `@file` prompts; the prompt travels as a command once the child
-   * has said whether it has a conversation).
+   * Starts one chat session's frontend through its agent's driver. The executable, launch
+   * environment and `CORRAL_*` variables are the same a terminal launch gets; the chat argv
+   * (`--mode rpc`, the model flags, the session id) belongs to the driver, so this service knows no
+   * agent's flags and a new driver adds no branch here. The prompt travels with the launch, not as
+   * an argument: a driver hands it over only when the conversation turns out to be empty.
    */
   async #launchChat(
     stored: StoredSession,
+    kind: AgentKind,
     task: Task,
-    adapter: AgentAdapter,
     env: Record<string, string>,
     statusToken: string,
     how: "start" | "resume",
     prompt: string | null,
     referencedValues: readonly string[],
   ): Promise<void> {
-    const command = this.#agentCommand(stored.kind);
+    const command = this.#agentCommand(kind);
     env["CORRAL_STATUS_URL"] = this.#statusUrl(stored.id);
     env["CORRAL_STATUS_TOKEN"] = statusToken;
     if (!isExecutable(command, env["PATH"])) throw new AgentNotFoundError(command);
-    const id = stored.agentSessionId;
-    const resumable = how === "resume" && id !== null;
-    const args = [
-      "--mode",
-      "rpc",
-      ...adapter.launchArgs(stored.launch?.model ?? null, stored.launch?.provider ?? null),
-      ...(resumable ? adapter.resumeArgs(id) : adapter.startArgs(id)),
-    ];
     const live: Live = {
       terminalId: null,
       chat: true,
@@ -736,10 +728,15 @@ export class SessionService {
     try {
       await this.#chat.launch({
         sessionId: stored.id,
+        kind,
         command,
-        args,
         cwd: task.workspacePath,
         env,
+        model: stored.launch?.model ?? null,
+        provider: stored.launch?.provider ?? null,
+        agentSessionId: stored.agentSessionId,
+        // A session that has an id but no conversation to resume starts one under that id.
+        how: how === "resume" && stored.agentSessionId !== null ? "resume" : "start",
         prompt,
         onStatus: (status) => {
           const current = this.#live.get(stored.id);

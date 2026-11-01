@@ -1,12 +1,16 @@
+import type { ChatDriverCapabilities } from "@corral/protocol/chat";
 import type { AgentKind } from "@corral/protocol/rpc";
 import type { ConnectionState } from "./connection-state.ts";
 import { Store, type ReadableStore } from "./store.ts";
 
-/** What this server build can show as chat; a build fact, not a session's state (B0's contract). */
+/**
+ * What this server build can show as chat, and what each agent's driver declared it can do
+ * (protocol 10): a build fact, not a session's state (B0's contract, decision 13).
+ */
 export interface ChatCapabilitiesSnapshot {
   /** False until this server has answered; until then nothing may claim a driver exists. */
   loaded: boolean;
-  drivers: readonly AgentKind[];
+  drivers: readonly ChatDriverCapabilities[];
 }
 
 export interface ChatCapabilitiesStore extends ReadableStore<ChatCapabilitiesSnapshot> {
@@ -19,7 +23,15 @@ export interface ChatCapabilitiesStore extends ReadableStore<ChatCapabilitiesSna
  */
 export interface ChatCapabilitiesSource {
   readonly state: ReadableStore<ConnectionState>;
-  capabilities(): Promise<{ drivers: AgentKind[] }>;
+  capabilities(): Promise<{ drivers: ChatDriverCapabilities[] }>;
+}
+
+/** The declared capabilities of one agent's driver, or `undefined` when this build has none. */
+export function chatDriverFor(
+  drivers: readonly ChatDriverCapabilities[],
+  kind: AgentKind,
+): ChatDriverCapabilities | undefined {
+  return drivers.find((driver) => driver.kind === kind);
 }
 
 /**

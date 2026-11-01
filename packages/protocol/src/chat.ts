@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentKind } from "./config.ts";
 
 /**
  * Corral's own chat contract (design.md, decision 14): the server owns the state of an agent
@@ -252,3 +253,30 @@ export const ChatStreamMessage = z.discriminatedUnion("type", [
   }),
 ]);
 export type ChatStreamMessage = z.infer<typeof ChatStreamMessage>;
+
+/**
+ * How a terminal view can live next to chat, declared per driver (design.md, **Terminal and chat**).
+ * `both-live`: the terminal and the chat are two clients of one live agent (OpenCode, Codex);
+ * `view-only-terminal`: chat works, and a terminal may watch but not write (none yet);
+ * `handoff-only`: one writer at a time, so switching view stops the frontend (pi, Claude Code).
+ */
+export const ChatTerminalView = z.enum(["both-live", "view-only-terminal", "handoff-only"]);
+export type ChatTerminalView = z.infer<typeof ChatTerminalView>;
+
+/**
+ * One agent's chat driver and what it can do, as declared by the driver (protocol 10). It is data,
+ * not a runtime question to the agent: the UI enables a control from it instead of offering one
+ * that would be refused. `steer`/`followUp` are the two modes of `chat.send` while a turn runs,
+ * `approvals` whether the agent's requests arrive as user requests, `modelSwitch` and
+ * `reasoningLevels` whether `chat.setModel`/`chat.setReasoning` have anything to offer.
+ */
+export const ChatDriverCapabilities = z.object({
+  kind: AgentKind,
+  steer: z.boolean(),
+  followUp: z.boolean(),
+  approvals: z.boolean(),
+  modelSwitch: z.boolean(),
+  reasoningLevels: z.boolean(),
+  terminalView: ChatTerminalView,
+});
+export type ChatDriverCapabilities = z.infer<typeof ChatDriverCapabilities>;

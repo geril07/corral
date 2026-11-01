@@ -1,5 +1,6 @@
 import { hasUnseen, sessionStatus, taskStatus } from "@corral/client/agent-status";
 import { buildBoard, mostUrgentBlocked, type BoardRow } from "@corral/client/board";
+import { chatDriverFor } from "@corral/client/chat-capabilities-store";
 import { createConfigKeymap } from "@corral/client/prefix-keymap";
 import { describeError } from "@corral/client/rpc-errors";
 import { sessionLabels } from "@corral/client/session-labels";
@@ -157,14 +158,19 @@ export function useWorkspace({
   // action without subscribing the workspace to every streamed delta.
   const chat = useChatSession(client, currentSession);
   const chatTurn = useChatTurn(chat?.store);
-  // `chat.capabilities`: which agents this server build can show as chat (goal D7). One store
-  // answers both the handoff offer and the composer's view control, and `loaded` lets the offer
-  // wait instead of claiming no driver before the server has spoken.
+  // `chat.capabilities`: which agents this server build can show as chat (goal D7) and what each
+  // driver declared (protocol 10). One store answers the handoff offer, the composer's view control
+  // and the palette, and `loaded` lets an offer wait instead of claiming no driver before the
+  // server has spoken. The view controls read the kinds; the declared flags are in
+  // `chatCapabilities.drivers` for the action a `both-live` driver needs (C1).
   const chatCapabilities = useSyncExternalStore(
     client.chatCapabilities.subscribe,
     client.chatCapabilities.getSnapshot,
   );
-  const chatDrivers = chatCapabilities.drivers;
+  const chatDrivers = useMemo(
+    () => chatCapabilities.drivers.map((driver) => driver.kind),
+    [chatCapabilities.drivers],
+  );
   const currentTaskNode =
     selection.taskId === null ? undefined : taskNodeOf(tree, selection.taskId);
   const currentTask = currentTaskNode?.task;
@@ -305,7 +311,7 @@ export function useWorkspace({
   /**
    * What `prefix v` can do for a session: the view it moves to, or why it cannot move. Only an
    * agent whose chat driver this build has can live in both views, and the answer is the server's
-   * (`chat.capabilities`).
+   * (`chat.capabilities`, protocol 10).
    */
   const viewHandoff = (
     session: Session | undefined,
@@ -314,7 +320,7 @@ export function useWorkspace({
     if (handoff !== undefined) return { reason: "This session is switching views now." };
     if (session.kind === "shell") return { reason: "A shell runs in a terminal only." };
     if (!chatCapabilities.loaded) return { reason: "Waiting for the server's chat drivers." };
-    if (!chatCapabilities.drivers.includes(session.kind))
+    if (chatDriverFor(chatCapabilities.drivers, session.kind) === undefined)
       return { reason: `The ${session.kind} agent has no chat driver in this build.` };
     return { target: session.view === "chat" ? "terminal" : "chat" };
   };

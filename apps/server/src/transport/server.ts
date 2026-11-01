@@ -14,7 +14,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { ChatService } from "../chat/chat-service.ts";
-import type { PiDriverTimeouts } from "../chat/pi-driver.ts";
+import type { ChatTimeouts } from "../chat/chat-driver.ts";
 import { watchConfigFile } from "../config/config-watcher.ts";
 import { configNaming } from "../config/naming.ts";
 import { configTaskSettings } from "../config/task-settings.ts";
@@ -52,7 +52,7 @@ export function startServer(options: {
   /** Task settings; A0 supplies the config-backed ones, tests may pass their own. */
   settings?: TaskSettings;
   /** Chat driver deadlines; tests shorten them, production runs the defaults. */
-  chat?: Partial<PiDriverTimeouts> & { writerWaitMs?: number };
+  chat?: Partial<ChatTimeouts> & { writerWaitMs?: number };
 }): Promise<RunningServer> {
   const temporaryDataDir =
     options.dataDir === undefined ? mkdtempSync(join(tmpdir(), "corral-data-")) : undefined;

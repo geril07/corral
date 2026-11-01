@@ -1,5 +1,5 @@
 import type { ChatAnswer, ChatModelRef, ChatSessionState } from "@corral/protocol/chat";
-import type { AgentStatus, ChatSendMode } from "@corral/protocol/rpc";
+import type { ChatSendMode } from "@corral/protocol/rpc";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import {
   ChatModelUnsupportedError,
@@ -11,6 +11,14 @@ import {
   messageOf,
 } from "./chat-errors.ts";
 import { PiProjection, type PiAction } from "./pi-projection.ts";
+import { pi } from "../agents/pi.ts";
+import type {
+  ChatDriver,
+  ChatDriverLaunch,
+  ChatDriverRegistration,
+  ChatLaunchFacts,
+  ChatTimeouts,
+} from "./chat-driver.ts";
 import {
   PiLineReader,
   command,
@@ -24,33 +32,8 @@ import {
 import { ChatTimeline } from "./timeline.ts";
 import { recordWriter, releaseWriter } from "./writer-claim.ts";
 
-/** How an unanswered dialog request and an unresponsive child are bounded. */
-export interface PiDriverTimeouts {
-  /** A dialog the server stops waiting for; pi's own extension timeout may be shorter. */
-  dialogTimeoutMs: number;
-  /** How long pi gets to answer the start-up commands before the frontend is failed. */
-  readyTimeoutMs: number;
-  /** How long the child gets to exit after stdin closes before its group is killed. */
-  exitGraceMs: number;
-}
-
-export interface PiDriverRequest extends PiDriverTimeouts {
-  sessionId: string;
-  command: string;
-  args: string[];
-  cwd: string;
-  env: Record<string, string>;
-  /** Sent as the first prompt only when pi reports no user message yet; null for none. */
-  prompt: string | null;
-  /** Where this process's pid is recorded, so a later server can stop it before spawning. */
-  claimPath: string;
-  /** The sequence this frontend's timeline starts at; above a predecessor it replaces. */
-  startAt: number;
-  /** The agent's status, from pi's events instead of OSC 7501. */
-  onStatus(status: AgentStatus): void;
-  /** The child is gone; `reason` is null for a stop the server asked for. */
-  onExit(reason: string | null): void;
-}
+/** What pi's chat frontend is started with: the resolved launch and the supervision deadlines. */
+export interface PiDriverRequest extends ChatDriverLaunch, ChatTimeouts {}
 
 /**
  * One chat session's live frontend: the pi RPC child, the JSONL client (hand-written against
@@ -62,7 +45,7 @@ export interface PiDriverRequest extends PiDriverTimeouts {
  * the group killed on stop, and the pid recorded so a restarted server never leaves two writers
  * on one pi session.
  */
-export class PiDriver {
+export class PiDriver implements ChatDriver {
   readonly timeline: ChatTimeline;
   readonly #request: PiDriverRequest;
   readonly #projection: PiProjection;
@@ -535,3 +518,38 @@ function exitOf(code: number | null, signal: NodeJS.Signals | null): string {
 function seconds(milliseconds: number): string {
   return `${Math.max(1, Math.round(milliseconds / 1000))}s`;
 }
+
+/**
+ * pi's chat argv: RPC mode, the profile's model and provider flags, and the session id. pi's
+ * `--session-id` opens the conversation or creates it, so a resume and a start name the same flag;
+ * there is no prompt argument, because RPC rejects the TUI's `@file` prompt shape — the prompt
+ * travels as a `prompt` command once the child has said whether it has a conversation.
+ */
+export function piChatArgs(facts: ChatLaunchFacts): string[] {
+  const id = facts.agentSessionId;
+  return [
+    "--mode",
+    "rpc",
+    ...pi.launchArgs(facts.model, facts.provider),
+    ...(facts.how === "resume" && id !== null ? pi.resumeArgs(id) : pi.startArgs(id)),
+  ];
+}
+
+/**
+ * pi as one chat driver. Its terminal view is `handoff-only`: pi has no session-file lock, so a
+ * chat frontend and a TUI on one session would corrupt the file (design.md, **Terminal and chat**).
+ * Its dialogs are the contract's user requests, its events carry status, and the model in effect
+ * reports the thinking levels it takes.
+ */
+export const piChatDriver: ChatDriverRegistration = {
+  capabilities: {
+    steer: true,
+    followUp: true,
+    approvals: true,
+    modelSwitch: true,
+    reasoningLevels: true,
+    terminalView: "handoff-only",
+  },
+  args: piChatArgs,
+  create: (launch) => new PiDriver(launch),
+};

@@ -1,5 +1,7 @@
+import type { ChatDriverCapabilities } from "@corral/protocol/chat";
 import { expect, test, vi } from "vite-plus/test";
 import {
+  chatDriverFor,
   createChatCapabilitiesStore,
   type ChatCapabilitiesSource,
   type ChatCapabilitiesStore,
@@ -7,8 +9,24 @@ import {
 import type { ConnectionState } from "./connection-state.ts";
 import { Store } from "./store.ts";
 
+/** One driver's record, as `chat.capabilities` reports it (protocol 10). */
+function driver(kind: "pi" | "claude"): ChatDriverCapabilities {
+  return {
+    kind,
+    steer: kind === "pi",
+    followUp: kind === "pi",
+    approvals: true,
+    modelSwitch: kind === "pi",
+    reasoningLevels: kind === "pi",
+    terminalView: "handoff-only",
+  };
+}
+
+const PI = driver("pi");
+const CLAUDE = driver("claude");
+
 /** A source whose socket state the test drives and whose one call it counts. */
-function fakeSource(capabilities: () => Promise<{ drivers: ("pi" | "claude")[] }>): {
+function fakeSource(capabilities: () => Promise<{ drivers: ChatDriverCapabilities[] }>): {
   source: ChatCapabilitiesSource;
   state: Store<ConnectionState>;
   calls: () => number;
@@ -29,7 +47,7 @@ function fakeSource(capabilities: () => Promise<{ drivers: ("pi" | "claude")[] }
 }
 
 test("the drivers are asked for once per connection and kept while the socket is down", async () => {
-  const { source, state, calls } = fakeSource(async () => ({ drivers: ["pi"] }));
+  const { source, state, calls } = fakeSource(async () => ({ drivers: [PI] }));
   const store: ChatCapabilitiesStore = createChatCapabilitiesStore(source);
   // Connecting, not connected yet: nothing is asked and nothing is claimed.
   expect(store.getSnapshot()).toEqual({ loaded: false, drivers: [] });
@@ -37,13 +55,13 @@ test("the drivers are asked for once per connection and kept while the socket is
   // Two connected notifications for one connection ask once.
   state.set({ status: "connected" });
   state.set({ status: "connected" });
-  await vi.waitFor(() => expect(store.getSnapshot()).toEqual({ loaded: true, drivers: ["pi"] }));
+  await vi.waitFor(() => expect(store.getSnapshot()).toEqual({ loaded: true, drivers: [PI] }));
   expect(calls()).toBe(1);
 
-  // A reconnect asks the new server: within protocol 9 the list changes when a driver lands.
+  // A reconnect asks the new server: within one protocol version the list changes with a driver.
   state.set({ status: "disconnected" });
   // The answer already received is kept, so a reconnecting client keeps the offer it showed.
-  expect(store.getSnapshot()).toEqual({ loaded: true, drivers: ["pi"] });
+  expect(store.getSnapshot()).toEqual({ loaded: true, drivers: [PI] });
   state.set({ status: "connected" });
   await vi.waitFor(() => expect(calls()).toBe(2));
   store.close();
@@ -51,7 +69,7 @@ test("the drivers are asked for once per connection and kept while the socket is
 
 test("a failed question is asked again at the next connection, and a late answer is ignored", async () => {
   let fail = true;
-  let settle: ((answer: { drivers: ("pi" | "claude")[] }) => void) | undefined;
+  let settle: ((answer: { drivers: ChatDriverCapabilities[] }) => void) | undefined;
   const { source, state, calls } = fakeSource(() => {
     if (fail) return Promise.reject(new Error("the server is not there"));
     return new Promise((resolve) => (settle = resolve));
@@ -68,14 +86,19 @@ test("a failed question is asked again at the next connection, and a late answer
   state.set({ status: "connected" });
   await vi.waitFor(() => expect(calls()).toBe(2));
   state.set({ status: "disconnected" });
-  settle?.({ drivers: ["claude"] });
+  settle?.({ drivers: [CLAUDE] });
   await new Promise((resolve) => setTimeout(resolve, 10));
   expect(store.getSnapshot()).toEqual({ loaded: false, drivers: [] });
 
   // The connection that is current asks again and is what the store reports.
   state.set({ status: "connected" });
   await vi.waitFor(() => expect(calls()).toBe(3));
-  settle?.({ drivers: ["pi"] });
-  await vi.waitFor(() => expect(store.getSnapshot()).toEqual({ loaded: true, drivers: ["pi"] }));
+  settle?.({ drivers: [PI] });
+  await vi.waitFor(() => expect(store.getSnapshot()).toEqual({ loaded: true, drivers: [PI] }));
   store.close();
+});
+
+test("a driver is found by its agent kind, and an agent without one is not claimed", () => {
+  expect(chatDriverFor([PI, CLAUDE], "claude")).toEqual(CLAUDE);
+  expect(chatDriverFor([PI], "claude")).toBeUndefined();
 });

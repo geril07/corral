@@ -1,10 +1,16 @@
-import type { ChatStreamMessage } from "@corral/protocol/chat";
+import type { ChatDriverCapabilities, ChatStreamMessage } from "@corral/protocol/chat";
 import { rmSync } from "node:fs";
-import type { AgentKind, AgentStatus, ChatSendMode } from "@corral/protocol/rpc";
+import { AgentKind, type ChatSendMode } from "@corral/protocol/rpc";
 import type { ChatAnswer, ChatModelRef } from "@corral/protocol/chat";
-import { CHAT_DRIVERS } from "./chat-drivers.ts";
+import { CHAT_DRIVER_REGISTRY, CHAT_DRIVERS } from "./chat-drivers.ts";
+import type {
+  ChatDriver,
+  ChatDriverRegistration,
+  ChatDriverRegistry,
+  ChatLaunchRequest,
+  ChatTimeouts,
+} from "./chat-driver.ts";
 import { ChatLaunchError, ChatUnavailableError, type ChatSubject } from "./chat-errors.ts";
-import { PiDriver, type PiDriverTimeouts } from "./pi-driver.ts";
 import { floorPath, raiseFloor, reserveFloor } from "./sequence-floor.ts";
 import { releasePreviousWriter, writerPath } from "./writer-claim.ts";
 
@@ -15,36 +21,24 @@ import { releasePreviousWriter, writerPath } from "./writer-claim.ts";
 export { CHAT_DRIVERS };
 
 /**
- * The server's own deadline for a dialog pi left open. An extension may set a shorter `timeout`
- * on its request, which pi resolves locally; this is the backstop for a request without one, so a
- * blocked session is not blocked forever. The contract's `expiresAt` carries it to the client.
+ * The server's own deadline for a dialog a driver left open. An extension may set a shorter
+ * `timeout` on its request, which the agent resolves locally; this is the backstop for a request
+ * without one, so a blocked session is not blocked forever. The contract's `expiresAt` carries it
+ * to the client.
  */
 const DIALOG_TIMEOUT_MS = 10 * 60 * 1000;
 /** Start-up commands (history, state, models) must answer within this or the frontend fails. */
 const READY_TIMEOUT_MS = 15_000;
-/** After stdin closes: pi exits in order; this is how long it gets before its group is killed. */
+/** After a stop request the agent exits in order; this is how long it gets before its group dies. */
 const EXIT_GRACE_MS = 2000;
-
-export interface ChatLaunchRequest {
-  sessionId: string;
-  /** The agent executable to run; the argument list already carries `--mode rpc`. */
-  command: string;
-  args: string[];
-  cwd: string;
-  /** The launch environment, exactly as a terminal launch of this session would get it. */
-  env: Record<string, string>;
-  /** Sent with the `prompt` command when pi reports no conversation yet; null for none. */
-  prompt: string | null;
-  onStatus(status: AgentStatus): void;
-  /** The frontend is gone; `reason` is null for a stop the server asked for. */
-  onExit(reason: string | null): void;
-}
 
 export interface ChatServiceOptions {
   /** Where the per-session writer records live; inside the server's data directory. */
   dataDir: string;
   /** Test seam; the defaults are what production runs. */
-  timeouts?: Partial<PiDriverTimeouts> & { writerWaitMs?: number };
+  timeouts?: Partial<ChatTimeouts> & { writerWaitMs?: number };
+  /** Test seam; production runs the build's registry (`CHAT_DRIVER_REGISTRY`). */
+  drivers?: ChatDriverRegistry;
 }
 
 /**
@@ -54,7 +48,12 @@ export interface ChatServiceOptions {
  * own mutations through one queue.
  */
 export class ChatService {
-  readonly #drivers = new Map<string, PiDriver>();
+  readonly #drivers = new Map<string, ChatDriver>();
+  /**
+   * The drivers this service can start, by agent kind. Production passes the build's registry;
+   * the seam is what lets a test register a driver without a line of service code behind it.
+   */
+  readonly #registry: ChatDriverRegistry;
   /**
    * Launches between their claim and their spawn, by session id. The claim is taken synchronously,
    * before the previous writer is awaited, so a second `launch` of the same id is refused instead
@@ -69,11 +68,12 @@ export class ChatService {
    */
   readonly #lastExit = new Map<string, string | null>();
   readonly #chatDir: string;
-  readonly #timeouts: PiDriverTimeouts;
+  readonly #timeouts: ChatTimeouts;
   readonly #writerWaitMs: number;
 
   constructor(options: ChatServiceOptions) {
     this.#chatDir = `${options.dataDir}/chat`;
+    this.#registry = options.drivers ?? CHAT_DRIVER_REGISTRY;
     this.#timeouts = {
       dialogTimeoutMs: options.timeouts?.dialogTimeoutMs ?? DIALOG_TIMEOUT_MS,
       readyTimeoutMs: options.timeouts?.readyTimeoutMs ?? READY_TIMEOUT_MS,
@@ -82,26 +82,36 @@ export class ChatService {
     this.#writerWaitMs = options.timeouts?.writerWaitMs ?? 3000;
   }
 
-  /** The agent kinds with a chat driver in this build. */
-  capabilities(): AgentKind[] {
-    return [...CHAT_DRIVERS];
+  /** What `chat.capabilities` answers: one declared capability record per driver in this build. */
+  capabilities(): ChatDriverCapabilities[] {
+    const records: ChatDriverCapabilities[] = [];
+    for (const kind of AgentKind.options) {
+      const registration = this.#registry[kind];
+      if (registration !== undefined) records.push({ kind, ...registration.capabilities });
+    }
+    return records;
   }
 
   /** Whether this build can run the agent as chat at all. */
   hasDriver(kind: ChatSubject["kind"]): boolean {
-    return kind !== "shell" && CHAT_DRIVERS.includes(kind);
+    return kind !== "shell" && this.#registry[kind] !== undefined;
   }
 
   /**
-   * Spawns a session's chat frontend. A writer recorded by a previous server is stopped first:
-   * two writers corrupt one pi session, so the launch fails rather than race one.
+   * Spawns a session's chat frontend through its agent's registered driver. A writer recorded by a
+   * previous server is stopped first: two writers corrupt one agent session, so the launch fails
+   * rather than race one.
    */
   async launch(request: ChatLaunchRequest): Promise<void> {
     const { sessionId } = request;
+    // An agent this build has no driver for is refused here, before anything is claimed or read.
+    const registration = this.#registry[request.kind];
+    if (registration === undefined)
+      throw new ChatLaunchError(`the ${request.kind} agent has no chat driver in this build`);
     if (this.#drivers.has(sessionId) || this.#launching.has(sessionId))
       throw new ChatLaunchError(`session ${sessionId} already has a chat frontend`);
     // Claimed synchronously: the await below is what two concurrent launches used to race over.
-    const launching = this.#spawnFrontend(request);
+    const launching = this.#spawnFrontend(request, registration);
     this.#launching.set(sessionId, launching);
     try {
       await launching;
@@ -110,8 +120,15 @@ export class ChatService {
     }
   }
 
-  /** Stops a previous server's writer, reserves this frontend's sequence block and spawns it. */
-  async #spawnFrontend(request: ChatLaunchRequest): Promise<void> {
+  /**
+   * Stops a previous server's writer, reserves this frontend's sequence block, builds the agent's
+   * chat argv through the driver and spawns it. The argv is the driver's; the writer record's
+   * identity and the floor's value are the service's, and neither writes the other's.
+   */
+  async #spawnFrontend(
+    request: ChatLaunchRequest,
+    registration: ChatDriverRegistration,
+  ): Promise<void> {
     const { sessionId } = request;
     const claimPath = writerPath(this.#chatDir, sessionId);
     await releasePreviousWriter(claimPath, { waitMs: this.#writerWaitMs });
@@ -119,11 +136,22 @@ export class ChatService {
     // one a crashed server left behind — is below this timeline's start and gets a snapshot.
     const floor = floorPath(this.#chatDir, sessionId);
     const startAt = reserveFloor(floor);
-    const driver: PiDriver = new PiDriver({
-      ...request,
-      ...this.#timeouts,
-      startAt,
+    const driver: ChatDriver = registration.create({
+      sessionId,
+      command: request.command,
+      args: registration.args({
+        model: request.model,
+        provider: request.provider,
+        agentSessionId: request.agentSessionId,
+        how: request.how,
+      }),
+      cwd: request.cwd,
+      env: request.env,
+      prompt: request.prompt,
       claimPath,
+      startAt,
+      ...this.#timeouts,
+      onStatus: (status) => request.onStatus(status),
       onExit: (reason) => {
         if (this.#drivers.get(sessionId) === driver) this.#drivers.delete(sessionId);
         raiseFloor(floor, driver.timeline.sequence + 1);
@@ -137,8 +165,9 @@ export class ChatService {
   }
 
   /**
-   * Closes stdin, waits for pi to exit, then kills its group; resolves once it is gone. A launch
-   * still in flight is awaited first, so a stop cannot return while a child is being spawned.
+   * Stops the session's driver through the interface (stdin closed, exit awaited, group killed for
+   * a child); resolves once the frontend is gone. A launch still in flight is awaited first, so a
+   * stop cannot return while a child is being spawned.
    */
   async stop(sessionId: string): Promise<void> {
     await this.#launching.get(sessionId)?.catch(() => undefined);
@@ -176,18 +205,18 @@ export class ChatService {
   }
 
   /**
-   * Ends a working turn before its frontend is taken away, as a view handoff does: pi is sent the
-   * abort (which cancels any dialog waiting for an answer) and the turn is given the same grace a
-   * stop gives to report that it ended.
+   * Ends a working turn before its frontend is taken away, as a view handoff does: the driver is
+   * sent the abort (which cancels any dialog waiting for an answer) and the turn is given the same
+   * grace a stop gives to report that it ended.
    *
-   * Both waits are bounded, the abort itself included: a pi that is alive but never answers would
+   * Both waits are bounded, the abort itself included: an agent that is alive but never answers would
    * otherwise park the handoff inside the session queue and keep `stop`, `restart`, `remove` and
    * the server's shutdown queued behind it forever. The race and the poll share one deadline, so
    * this call costs at most one grace; the stop that follows then allows its own grace for the exit
    * before it kills the group, so a child that ignores both the abort and stdin EOF costs about two
-   * graces in all — bounded, which is what keeps the queue moving, not one grace exactly. A turn pi
-   * closes is written to its own session, so the conversation keeps it; a child killed mid-turn may
-   * write nothing. A frontend that is idle, or none at all, is left alone. The stop that follows is
+   * graces in all — bounded, which is what keeps the queue moving, not one grace exactly. A turn the
+   * agent closes is written to its own session, so the conversation keeps it; a child killed
+   * mid-turn may write nothing. A frontend that is idle, or none at all, is left alone. The stop that follows is
    * what removes the frontend, whatever these waits saw — they never replace it.
    */
   async abortWorking(sessionId: string): Promise<void> {
@@ -196,15 +225,15 @@ export class ChatService {
     const deadline = Date.now() + this.#timeouts.exitGraceMs;
     await Promise.race([driver.abort().catch(() => undefined), delay(deadline - Date.now())]);
     while (!driver.closed && driver.state.turn === "working" && Date.now() < deadline) {
-      // oxlint-disable-next-line no-await-in-loop -- waiting for pi to say the turn ended
+      // oxlint-disable-next-line no-await-in-loop -- waiting for the agent to say the turn ended
       await delay(25);
     }
   }
 
   /**
-   * Before an agent starts in a terminal: a chat frontend of this session may still hold pi's
-   * session file — a server that died, or a child that outlived its kill, leaves the record — and a
-   * terminal launch writes the same file. The record is honoured here too, so the one-writer rule
+   * Before an agent starts in a terminal: a chat frontend of this session may still hold the
+   * agent's session file — a server that died, or a child that outlived its kill, leaves the
+   * record — and a terminal launch writes the same file. The record is honoured here too, so the one-writer rule
    * covers chat → terminal and not only chat → chat. A shell never had a chat frontend; nothing to
    * check.
    */
@@ -240,8 +269,8 @@ export class ChatService {
    * in this run says how (`exited`); one that the server stopped, or that never ran since the
    * server started, can be started (`not-started`).
    */
-  #frontend(subject: ChatSubject): PiDriver {
-    if (subject.kind === "shell" || !CHAT_DRIVERS.includes(subject.kind)) {
+  #frontend(subject: ChatSubject): ChatDriver {
+    if (subject.kind === "shell" || this.#registry[subject.kind] === undefined) {
       const agent = subject.kind === "shell" ? "a shell" : `the ${subject.kind} agent`;
       throw new ChatUnavailableError(`${agent} has no chat driver`, "no-driver");
     }

@@ -233,7 +233,19 @@ test("a task created in chat view starts pi in RPC mode with its prompt, and the
 
   expect(session).toMatchObject({ view: "chat", kind: "pi", state: "running", terminalId: null });
   expect(await api.terminals.list()).toEqual([]);
-  expect(await api.chat.capabilities()).toEqual({ drivers: ["pi"] });
+  expect(await api.chat.capabilities()).toEqual({
+    drivers: [
+      {
+        kind: "pi",
+        steer: true,
+        followUp: true,
+        approvals: true,
+        modelSwitch: true,
+        reasoningLevels: true,
+        terminalView: "handoff-only",
+      },
+    ],
+  });
 
   await expect
     .poll(async () => (await agents.launches()).length, { timeout: 10_000, message: "the launch" })

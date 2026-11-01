@@ -19,9 +19,12 @@ import { z } from "zod";
  * actions, `[tasks] view = "chat"`, `[agents.<kind>]` with its `AGENT_DISABLED` refusal, and
  * `ConfigState.agents`: a version 8 server has no chat procedures at all, its sessions carry no
  * view, it strips those bindings from its exhaustive keys and its config has neither the agent
- * tables nor the availability list.
+ * tables nor the availability list. Version 10 adds the per-agent capability record in
+ * `chat.capabilities` (goal D7, decision 13): a version 9 server answers `{ drivers: AgentKind[] }`,
+ * so a version 10 client asking for the record would receive a list of bare strings whose fields it
+ * reads as absent, and its controls would claim a capability no driver declared.
  */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in

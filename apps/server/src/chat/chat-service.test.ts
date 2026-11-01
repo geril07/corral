@@ -5,7 +5,8 @@ import { afterEach, beforeEach, expect, test } from "vite-plus/test";
 import { useFakeAgents } from "../../test/fake-agents.ts";
 import { processExists } from "../../test/session-helpers.ts";
 import { ChatLaunchError } from "./chat-errors.ts";
-import { ChatService, type ChatLaunchRequest } from "./chat-service.ts";
+import type { ChatLaunchRequest } from "./chat-driver.ts";
+import { ChatService } from "./chat-service.ts";
 
 const agents = useFakeAgents();
 let root: string;
@@ -27,14 +28,18 @@ afterEach(async () => {
 function launchRequest(sessionId: string): ChatLaunchRequest {
   return {
     sessionId,
+    kind: "pi",
     command: "pi",
-    args: ["--mode", "rpc", "--session-id", "service-contract"],
     cwd: root,
     env: Object.fromEntries(
       Object.entries(process.env).filter(
         (entry): entry is [string, string] => entry[1] !== undefined,
       ),
     ),
+    model: null,
+    provider: null,
+    agentSessionId: "service-contract",
+    how: "start",
     prompt: null,
     onStatus: () => undefined,
     onExit: () => undefined,
