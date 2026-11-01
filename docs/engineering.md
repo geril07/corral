@@ -74,18 +74,6 @@ imports the list.
 
 ## Testing
 
-### Iterating versus gating
-
-The full suites are the evidence; they are not the edit loop. Costs on this machine (16 cores): `pnpm check` ~30 s, `pnpm test:browser` ~2 min (one real server, files serial), `pnpm test:e2e` ~15 s, `pnpm test:contracts` ~6 s.
-
-- While changing a file, run only what that file can break: `pnpm exec vp test run src/modules/chat/chat-rows.test.ts` (Node), `pnpm exec vp test run --project browser src/modules/chat/chat-view.browser.test.tsx` (one browser file), or the contracts file directly. A Node-only run is seconds; a single browser file is ~10–15 s.
-- Before a slice is integrated, run the full gate the plan names (`pnpm check`, plus `pnpm test:browser` for web slices and `pnpm test:e2e` for user-visible flows) — once, on the final tree. A targeted run is never the evidence for a slice.
-- **Targeted runs do not prove isolation.** Tests share one real server per browser run and each test tears down what it created; a test can pass alone and fail in the suite when another file leaves state behind. That happened in stage B: four chat tests left a task on the shared server and a tasks test timed out two files later, invisible to single-file runs. Any file you add or change must be seen green in at least one full run.
-- Chasing a flake: state the hypothesis before the second reproduction; if it passes alone, the next full run is a hypothesis test, not a retry. Do not compare against a base commit with only half the change reverted — the control is void. Budget the hunt: a P3-class flake may be recorded with a reason instead of fixed. Under load, a 15 s Vitest timeout is itself the failure mode, so check for competing heavy suites before believing a red run.
-- Heavy suites serialize across worktrees through `flock /tmp/corral-heavy-tests.lock …`, so a run can wait for another agent; take the lock only around the suite, not around the edits.
-
-## Testing (reference)
-
 Philosophy: test observable behavior through real dependencies. Fakes only where the real thing is expensive or nondeterministic.
 
 | Layer              | What                                                                                                                                    | Tool                                                                                                                 | Where                                                     |
@@ -111,6 +99,16 @@ Guidelines:
 9. Visual assertions (screenshots) only in a pinned browser and OS environment.
 10. Native-module suites run in forks. No retries by default; a test that passes on retry is a bug to fix, not a pass.
 11. A test that restates the implementation is deleted, not maintained.
+
+### Iterating versus gating
+
+The full suites are the evidence; they are not the edit loop. Costs on this machine (16 cores): `pnpm check` ~30 s, `pnpm test:browser` ~2 min (one real server, files serial), `pnpm test:e2e` ~15 s, `pnpm test:contracts` ~6 s.
+
+- While changing a file, run only what that file can break: `pnpm exec vp test run src/modules/chat/chat-rows.test.ts` (Node), `pnpm exec vp test run --project browser src/modules/chat/chat-view.browser.test.tsx` (one browser file), or the contracts file directly. A Node-only run is seconds; a single browser file is ~10–15 s.
+- Before a slice is integrated, run the full gate the plan names (`pnpm check`, plus `pnpm test:browser` for web slices and `pnpm test:e2e` for user-visible flows) — once, on the final tree. A targeted run is never the evidence for a slice.
+- **Targeted runs do not prove isolation.** Tests share one real server per browser run and each test tears down what it created; a test can pass alone and fail in the suite when another file leaves state behind. That happened in stage B: four chat tests left a task on the shared server and a tasks test timed out two files later, invisible to single-file runs. Any file you add or change must be seen green in at least one full run.
+- Chasing a flake: state the hypothesis before the second reproduction; if it passes alone, the next full run is a hypothesis test, not a retry. Do not compare against a base commit with only half the change reverted — the control is void. Budget the hunt: a P3-class flake may be recorded with a reason instead of fixed. Under load, a 15 s Vitest timeout is itself the failure mode, so check for competing heavy suites before believing a red run.
+- Heavy suites serialize across worktrees through `flock /tmp/corral-heavy-tests.lock …`, so a run can wait for another agent; take the lock only around the suite, not around the edits.
 
 ## Open
 
