@@ -68,21 +68,48 @@ export type ChatLaunchFacts = Pick<
 >;
 
 /**
- * A launch with its argv built and the service's own bookkeeping resolved. `claimPath` and
- * `startAt` are the service's (the writer record and the sequence floor); a driver writes through
- * them and never decides either.
+ * The persisted writer record of one launch: which process holds this session's agent
+ * conversation, so a server that starts again stops it before spawning its own. The service owns
+ * it — the path, the pid's identity (`writer-claim.ts`) and the rule that a refused launch keeps
+ * the record — and hands the driver this pair; the driver only knows which process it started.
+ *
+ * - `record(pid)` after the process exists, and again if a driver replaces it (a restarted child).
+ * - `release()` when that process is gone; a process that outlived the driver keeps its record, so
+ *   the next launch refuses rather than spawning beside it.
+ *
+ * **A process shared by several sessions is not recorded here.** C1's `opencode serve` holds many
+ * sessions' conversations; one per-session record per attached session would let the next launch
+ * of session A kill the process session B is using, and the first stop would forget it while it
+ * still runs. A shared writer is recorded **once, keyed by the process rather than a session**, and
+ * released when the last session using it stops — a shape the service grows with its first
+ * `both-live` driver (see C1's brief), not something a driver may fake with this per-session pair.
+ */
+export interface ChatWriterClaim {
+  record(pid: number): void;
+  release(): void;
+}
+
+/**
+ * A launch with its argv built and the service's own bookkeeping resolved. The timeline and the
+ * writer claim are the service's: the driver gets the timeline it must stream into (its start is
+ * the reserved sequence floor) and the record pair it reports its process through. It decides
+ * neither.
  */
 export interface ChatDriverLaunch {
   sessionId: string;
+  /**
+   * The chat timeline every event of this frontend goes through. The service built it from the
+   * reserved sequence floor, so a cursor held from a replaced frontend is a hole and gets a
+   * snapshot; a driver must stream into this instance, never its own.
+   */
+  timeline: ChatTimeline;
   command: string;
   args: string[];
   cwd: string;
   env: Record<string, string>;
   prompt: string | null;
-  /** Where this process's pid is recorded, so a later server can stop it before spawning. */
-  claimPath: string;
-  /** The sequence this frontend's timeline starts at; above a predecessor it replaces. */
-  startAt: number;
+  /** The record of the process holding this session's conversation; see `ChatWriterClaim`. */
+  writer: ChatWriterClaim;
   onStatus(status: AgentStatus): void;
   onExit(reason: string | null): void;
 }
@@ -97,11 +124,17 @@ export interface ChatDriverStart extends ChatDriverLaunch, ChatTimeouts {}
  *
  * Rules a driver inherits rather than re-implements:
  * - it never starts a second frontend on one session id (the service refuses the launch first);
- * - it never writes the sequence floor or the writer record's identity (it calls the shared
- *   `writer-claim`/`sequence-floor` functions with the paths the service hands it);
- * - it never invents a client-visible code: refusals are `ChatUnavailableError`, `ChatModelUnsupportedError`,
- *   `ChatReasoningUnsupportedError` and `ChatRequestUnknownError` from `chat-errors.ts`, which the
- *   RPC layer maps, and a driver-specific failure is an `error` item or an exit reason, not a code.
+ * - it streams into the `timeline` it was handed, whose start is the reserved sequence floor; the
+ *   service refuses a driver whose `timeline` is not the one it passed, so a driver cannot put a
+ *   stale cursor back on top of a rebuilt conversation;
+ * - it reports its process through the launch's `writer` pair and never writes the record's path or
+ *   identity itself; a process it shares with other sessions is not this pair's business (see
+ *   `ChatWriterClaim`: shared writers are recorded once, keyed by the process, and C1 adds that);
+ * - it never invents a client-visible code: a refusal is one of the agent-neutral classes in
+ *   `chat-errors.ts` (`ChatUnavailableError`, `ChatModelUnsupportedError`,
+ *   `ChatReasoningUnsupportedError`, `ChatRequestUnknownError`) and the RPC layer maps it; a
+ *   driver's own text never becomes a code, and a driver-specific failure is an `error` item or an
+ *   exit reason.
  */
 export interface ChatDriver {
   /** The session this frontend serves; the service's map key and the timeline's owner. */
@@ -112,7 +145,10 @@ export interface ChatDriver {
   readonly state: ChatSessionState;
   /** True once the frontend is gone and will not report again. */
   readonly closed: boolean;
-  /** Starts the frontend. Never throws for a spawn: a failure is `onExit` with a reason. */
+  /**
+   * Starts the frontend. A failure is `onExit` with a reason, not a throw: a driver that throws
+   * anyway is treated as one that exited (`ChatService` reports the reason and frees the id).
+   */
   start(): void;
   /** Stops it and resolves once it is gone. Called again after a stop, it just awaits. */
   stop(): Promise<void>;

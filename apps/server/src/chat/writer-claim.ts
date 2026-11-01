@@ -29,9 +29,10 @@ export interface WriterReleaseOptions {
 }
 
 /**
- * Where the live pi process of a chat session is recorded, so a server that starts again can stop
- * the previous one before it spawns its own. Two writers corrupt a pi session file, so the launch
- * refuses to proceed if the recorded process cannot be proven gone.
+ * Where the live process holding a chat session is recorded, so a server that starts again can stop
+ * the previous one before it spawns its own. Two writers corrupt one agent session, so the launch
+ * refuses to proceed if the recorded process cannot be proven gone. The module is agent-neutral: the
+ * driver reports which process holds the session, the record keeps the pid and its identity.
  */
 export function writerPath(chatDir: string, sessionId: string): string {
   return join(chatDir, `${sessionId.replace(/[^A-Za-z0-9._-]/g, "_")}.json`);
@@ -55,9 +56,10 @@ export function releaseWriter(path: string): void {
 
 /**
  * Stops the writer a previous server left behind, or waits until it is gone, before this server
- * spawns its own. Closing stdin is how pi is asked to shut down and it exits on EOF even mid-turn
- * (measured on pi 1.4.0, see the B1 report), but a server that died without closing its pipes, or a
- * pi that is stuck in a tool, still holds the session file: that process is killed with its group.
+ * spawns its own. A driver's stop asks politely first (pi closes stdin and exits on EOF even
+ * mid-turn; measured on pi 1.4.0, see the B1 report), but a server that died without closing its
+ * pipes, or an agent stuck in a tool, still holds the session file: that process is killed with its
+ * group.
  *
  * A pid alone is not an identity — the number is reused. The record carries the process's start
  * time, so a live pid whose start time differs is somebody else and is never killed. When the start
@@ -102,7 +104,7 @@ export async function releasePreviousWriter(
         return;
       }
       throw new ChatLaunchError(
-        `cannot identify the previous pi process (pid ${pid}) of this session; not starting a second writer`,
+        `cannot identify the previous agent process (pid ${pid}) of this session; not starting a second writer`,
       );
     }
     if (live !== identity) {
@@ -122,7 +124,7 @@ async function stopRecordedGroup(pid: number, waitMs: number): Promise<void> {
   const gone = await waitUntilGone(pid, waitMs);
   if (!gone)
     throw new ChatLaunchError(
-      `the previous pi process (pid ${pid}) of this session did not stop; not starting a second writer`,
+      `the previous agent process (pid ${pid}) of this session did not stop; not starting a second writer`,
     );
 }
 
@@ -166,7 +168,7 @@ function killGroup(pid: number): void {
     process.kill(pid, "SIGKILL");
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ESRCH"))
-      throw new ChatLaunchError(`cannot stop the previous pi process: ${messageOf(error)}`);
+      throw new ChatLaunchError(`cannot stop the previous agent process: ${messageOf(error)}`);
   }
 }
 

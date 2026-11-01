@@ -2,23 +2,24 @@ import type { ChatDriverCapabilities, ChatStreamMessage } from "@corral/protocol
 import { rmSync } from "node:fs";
 import { AgentKind, type ChatSendMode } from "@corral/protocol/rpc";
 import type { ChatAnswer, ChatModelRef } from "@corral/protocol/chat";
-import { CHAT_DRIVER_REGISTRY, CHAT_DRIVERS } from "./chat-drivers.ts";
+import { CHAT_DRIVER_REGISTRY } from "./chat-drivers.ts";
 import type {
   ChatDriver,
   ChatDriverRegistration,
   ChatDriverRegistry,
   ChatLaunchRequest,
   ChatTimeouts,
+  ChatWriterClaim,
 } from "./chat-driver.ts";
-import { ChatLaunchError, ChatUnavailableError, type ChatSubject } from "./chat-errors.ts";
+import {
+  ChatLaunchError,
+  ChatUnavailableError,
+  messageOf,
+  type ChatSubject,
+} from "./chat-errors.ts";
 import { floorPath, raiseFloor, reserveFloor } from "./sequence-floor.ts";
-import { releasePreviousWriter, writerPath } from "./writer-claim.ts";
-
-/**
- * The agents this build can show as chat (B0's contract); the list itself is in `chat-drivers.ts`,
- * which the config file also reads to fall a `chat` view back to the terminal.
- */
-export { CHAT_DRIVERS };
+import { ChatTimeline } from "./timeline.ts";
+import { recordWriter, releasePreviousWriter, releaseWriter, writerPath } from "./writer-claim.ts";
 
 /**
  * The server's own deadline for a dialog a driver left open. An extension may set a shorter
@@ -122,8 +123,12 @@ export class ChatService {
 
   /**
    * Stops a previous server's writer, reserves this frontend's sequence block, builds the agent's
-   * chat argv through the driver and spawns it. The argv is the driver's; the writer record's
-   * identity and the floor's value are the service's, and neither writes the other's.
+   * chat argv through the driver and spawns it.
+   *
+   * What is the driver's and what is the service's is deliberately asymmetric: the argv is the
+   * driver's; the timeline (its start is the reserved floor), the writer record (its path, and the
+   * pid identity inside it), the exit bookkeeping and the refusal vocabulary are the service's. A
+   * driver receives the timeline and a `record`/`release` pair and cannot pick either.
    */
   async #spawnFrontend(
     request: ChatLaunchRequest,
@@ -133,11 +138,25 @@ export class ChatService {
     const claimPath = writerPath(this.#chatDir, sessionId);
     await releasePreviousWriter(claimPath, { waitMs: this.#writerWaitMs });
     // Reserved before the spawn and persisted, so a cursor from any earlier frontend — including
-    // one a crashed server left behind — is below this timeline's start and gets a snapshot.
+    // one a crashed server left behind — is below this timeline's start and gets a snapshot. The
+    // timeline is built here rather than by the driver: a driver that chose its own start would
+    // silently replay a stale cursor instead of snapshotting (a second frontend of one session).
     const floor = floorPath(this.#chatDir, sessionId);
-    const startAt = reserveFloor(floor);
+    const timeline = new ChatTimeline(reserveFloor(floor));
+    const writer: ChatWriterClaim = {
+      record: (pid) => recordWriter(claimPath, pid),
+      release: () => releaseWriter(claimPath),
+    };
+    /** Every way out of a frontend, including a driver that threw where it promised `onExit`. */
+    const exit = (reason: string | null) => {
+      if (this.#drivers.get(sessionId) === driver) this.#drivers.delete(sessionId);
+      raiseFloor(floor, timeline.sequence + 1);
+      this.#lastExit.set(sessionId, reason);
+      request.onExit(reason);
+    };
     const driver: ChatDriver = registration.create({
       sessionId,
+      timeline,
       command: request.command,
       args: registration.args({
         model: request.model,
@@ -148,20 +167,27 @@ export class ChatService {
       cwd: request.cwd,
       env: request.env,
       prompt: request.prompt,
-      claimPath,
-      startAt,
+      writer,
       ...this.#timeouts,
       onStatus: (status) => request.onStatus(status),
-      onExit: (reason) => {
-        if (this.#drivers.get(sessionId) === driver) this.#drivers.delete(sessionId);
-        raiseFloor(floor, driver.timeline.sequence + 1);
-        this.#lastExit.set(sessionId, reason);
-        request.onExit(reason);
-      },
+      onExit: exit,
     });
+    // A driver that streams into its own timeline would put a stale cursor back on the floor.
+    if (driver.timeline !== timeline) {
+      raiseFloor(floor, timeline.sequence + 1);
+      throw new ChatLaunchError(
+        `the ${request.kind} chat driver did not use the timeline it was given`,
+      );
+    }
     this.#drivers.set(sessionId, driver);
     this.#lastExit.delete(sessionId);
-    driver.start();
+    try {
+      driver.start();
+    } catch (error) {
+      // A driver that throws instead of reporting through `onExit` is treated as one that exited:
+      // the id is freed, the floor is raised and the reason is visible, exactly as a crash is.
+      exit(messageOf(error));
+    }
   }
 
   /**

@@ -29,8 +29,7 @@ import {
   typeOf,
   type PiRecord,
 } from "./pi-record.ts";
-import { ChatTimeline } from "./timeline.ts";
-import { recordWriter, releaseWriter } from "./writer-claim.ts";
+import type { ChatTimeline } from "./timeline.ts";
 
 /** What pi's chat frontend is started with: the resolved launch and the supervision deadlines. */
 export interface PiDriverRequest extends ChatDriverLaunch, ChatTimeouts {}
@@ -68,7 +67,8 @@ export class PiDriver implements ChatDriver {
 
   constructor(request: PiDriverRequest) {
     this.#request = request;
-    this.timeline = new ChatTimeline(request.startAt);
+    // The service's timeline, built from the reserved sequence floor (its start is not ours).
+    this.timeline = request.timeline;
     this.#projection = new PiProjection(this.timeline, {
       now: () => Date.now(),
       dialogTimeoutMs: request.dialogTimeoutMs,
@@ -100,7 +100,7 @@ export class PiDriver implements ChatDriver {
       return;
     }
     this.#child = child;
-    if (child.pid !== undefined) recordWriter(this.#request.claimPath, child.pid);
+    if (child.pid !== undefined) this.#request.writer.record(child.pid);
     child.stdin.on("error", () => {
       // The child stopped reading: treated like a closed stdin, not an uncaught stream error.
       this.#stdinEnded = true;
@@ -442,7 +442,7 @@ export class PiDriver implements ChatDriver {
       this.#child.exitCode !== null ||
       this.#child.signalCode !== null
     )
-      releaseWriter(this.#request.claimPath);
+      this.#request.writer.release();
     this.timeline.close();
     this.#resolveExited?.();
     this.#request.onExit(reason);

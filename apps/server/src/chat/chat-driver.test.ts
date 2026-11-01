@@ -7,7 +7,7 @@ import type {
 } from "@corral/protocol/chat";
 import type { AgentKind, ChatSendMode } from "@corral/protocol/rpc";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vite-plus/test";
@@ -26,25 +26,35 @@ import { ChatTimeline } from "./timeline.ts";
 import { recordWriter, writerPath } from "./writer-claim.ts";
 
 /**
- * A second driver, deliberately trivial: a timeline that echoes and nothing else — no child, no
- * provider protocol, no supervision of its own. It exists to prove the extraction: a new agent is
- * a `ChatDriver` implementation plus one registry line, and the one writer claim, the sequence
- * floor, the exit bookkeeping and the refusal vocabulary stay in `ChatService`, where a driver
- * cannot get them wrong. `claude` is C2's kind, which this build ships no product driver for.
+ * A second driver, deliberately trivial: a timeline that echoes, one sleeping child and nothing
+ * else — no provider protocol, no supervision of its own. It exists to prove the extraction: a new
+ * agent is a `ChatDriver` implementation plus one registry line, while the launch claim, the
+ * timeline's start, the writer record, the exit bookkeeping and the refusal vocabulary stay in
+ * `ChatService`, where a driver cannot get them wrong. `claude` is C2's kind, which this build
+ * ships no product driver for.
  */
 class EchoDriver implements ChatDriver {
   readonly timeline: ChatTimeline;
   readonly #launch: ChatDriverStart;
+  #child: ChildProcess | undefined;
   #closed = false;
   #items = 0;
 
   constructor(launch: ChatDriverStart) {
     this.#launch = launch;
-    this.timeline = new ChatTimeline(launch.startAt);
+    this.timeline = launch.timeline;
   }
 
   get sessionId(): string {
     return this.#launch.sessionId;
+  }
+
+  get pid(): number | undefined {
+    return this.#child?.pid;
+  }
+
+  get args(): string[] {
+    return this.#launch.args;
   }
 
   get state(): ChatSessionState {
@@ -55,15 +65,14 @@ class EchoDriver implements ChatDriver {
     return this.#closed;
   }
 
-  get startAt(): number {
-    return this.#launch.startAt;
-  }
-
-  get args(): string[] {
-    return this.#launch.args;
-  }
-
   start(): void {
+    // A real, trivial process: the point is that the persisted record names the process this
+    // driver holds, as pi's child does, while the record's path and identity stay the service's.
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      stdio: "ignore",
+    });
+    this.#child = child;
+    if (child.pid !== undefined) this.#launch.writer.record(child.pid);
     this.#launch.onStatus({ state: "idle", updatedAt: Date.now() });
     // The launch prompt, if any, is the first user message — the driver's own rule, as pi's is.
     if (this.#launch.prompt !== null) this.send(this.#launch.prompt, "prompt");
@@ -72,6 +81,12 @@ class EchoDriver implements ChatDriver {
   async stop(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
+    const child = this.#child;
+    if (child !== undefined && !hasExited(child)) {
+      child.kill("SIGKILL");
+      await new Promise<void>((resolve) => child.once("close", () => resolve()));
+    }
+    this.#launch.writer.release();
     this.timeline.close();
     this.#launch.onExit(null);
   }
@@ -104,12 +119,10 @@ interface Harness {
   registry: ChatDriverRegistry;
   /** Every frontend this registry built, in order: a launch can be counted without a child. */
   started: EchoDriver[];
-  registryOf(facts: ChatLaunchFacts): ChatDriverRegistration;
 }
 
-function echoRegistry(): Harness {
-  const started: EchoDriver[] = [];
-  const registration: ChatDriverRegistration = {
+function echoRegistration(started: EchoDriver[]): ChatDriverRegistration {
+  return {
     capabilities: {
       steer: false,
       followUp: false,
@@ -118,17 +131,20 @@ function echoRegistry(): Harness {
       reasoningLevels: false,
       terminalView: "both-live",
     },
-    args: (facts) => ["--echo", facts.how, facts.agentSessionId ?? "new"],
+    args: (facts: ChatLaunchFacts) => ["--echo", facts.how, facts.agentSessionId ?? "new"],
     create: (launch) => {
       const driver = new EchoDriver(launch);
       started.push(driver);
       return driver;
     },
   };
+}
+
+function echoRegistry(): Harness {
+  const started: EchoDriver[] = [];
   return {
-    registry: { ...CHAT_DRIVER_REGISTRY, claude: registration },
+    registry: { ...CHAT_DRIVER_REGISTRY, claude: echoRegistration(started) },
     started,
-    registryOf: () => registration,
   };
 }
 
@@ -172,15 +188,18 @@ function subject(sessionId: string, kind: "pi" | "claude"): ChatSubject {
   return { sessionId, view: "chat", kind, state: "running" };
 }
 
-async function firstWatch(
+/** The first message of a watch, or `done` when the deadline passed with no event at all. */
+async function firstMessage(
   service: ChatService,
   sessionId: string,
   kind: "pi" | "claude",
-): Promise<ChatStreamMessage> {
-  const watch = service.watch(subject(sessionId, kind), undefined, undefined);
+  after?: number,
+): Promise<ChatStreamMessage | undefined> {
+  const signal = AbortSignal.timeout(2000);
+  const watch = service.watch(subject(sessionId, kind), after, signal);
   const first = await watch.next();
   await watch.return(undefined);
-  return first.value!;
+  return first.done === true ? undefined : first.value;
 }
 
 test("a driver is one registry entry: it answers chat.capabilities and starts through the service", async () => {
@@ -200,9 +219,9 @@ test("a driver is one registry entry: it answers chat.capabilities and starts th
     // The service built the launch: the driver only shapes its own argv, and it saw ours.
     expect(harness.started[0]!.args).toEqual(["--echo", "resume", "conversation-1"]);
     // The release of the prompt is the driver's own rule, as pi's is.
-    const first = await firstWatch(chat, "echo-1", "claude");
-    expect(first.type).toBe("snapshot");
-    expect(first.type === "snapshot" ? first.snapshot.items : []).toMatchObject([
+    const first = await firstMessage(chat, "echo-1", "claude");
+    expect(first?.type).toBe("snapshot");
+    expect(first?.type === "snapshot" ? first.snapshot.items : []).toMatchObject([
       { kind: "user-message", id: "echo-1", text: "hello" },
       { kind: "assistant-message", text: "echo: hello" },
     ]);
@@ -233,7 +252,7 @@ test("the registry refuses an agent kind this build has no driver for", async ()
   }
 });
 
-test("one writer per session is the service's, not the driver's", async () => {
+test("one writer per session is the service's, and the driver only reports its process", async () => {
   const harness = echoRegistry();
   const chat = chatService(harness);
   // A writer record a previous server left, naming a live process with no readable identity: the
@@ -244,6 +263,18 @@ test("one writer per session is the service's, not the driver's", async () => {
     await chat.launch(request("echo-3", "claude"));
     expect(await gone(sleeper)).toBe(true);
     expect(harness.started).toHaveLength(1);
+
+    // The record this frontend lives under is the service's path, written by the service's
+    // `record` with the pid the driver reported — the trivial driver has no record code of its own.
+    const record: unknown = JSON.parse(
+      await readFile(writerPath(`${root}/chat`, "echo-3"), "utf8"),
+    );
+    // The pid the driver reported and the start time the service read: one record, two facts.
+    expect(record).toEqual({
+      pid: harness.started[0]!.pid,
+      startedAt: expect.any(Number),
+      identity: expect.any(String),
+    });
 
     // Two concurrent launches of one id: one frontend, one typed refusal, however the driver is
     // written — the claim is taken before the first await, inside the service.
@@ -256,19 +287,25 @@ test("one writer per session is the service's, not the driver's", async () => {
       reason: expect.any(ChatLaunchError),
     });
     expect(harness.started).toHaveLength(2);
+
+    // A stop releases the record through the same pair, so the next launch has nothing to kill.
+    await chat.stop("echo-3");
+    await expect(readFile(writerPath(`${root}/chat`, "echo-3"), "utf8")).rejects.toThrow(
+      "no such file or directory",
+    );
   } finally {
     kill(sleeper);
     await chat.closeAll();
   }
 });
 
-test("the sequence floor and the exit bookkeeping stay outside the driver", async () => {
+test("the timeline's start and the exit bookkeeping stay outside the driver", async () => {
   const harness = echoRegistry();
   const chat = chatService(harness);
   try {
     await chat.launch(request("echo-5", "claude"));
-    // Reserved and persisted before the driver existed, and handed to it as its timeline's start.
-    expect(harness.started[0]!.startAt).toBe(0);
+    // The service built the timeline from the reservation it persisted before the driver existed.
+    expect(harness.started[0]!.timeline.sequence).toBe(0);
     expect(readFloor(floorPath(`${root}/chat`, "echo-5"))).toBe(SEQUENCE_BLOCK);
 
     chat.send(subject("echo-5", "claude"), "one", "prompt");
@@ -287,7 +324,95 @@ test("the sequence floor and the exit bookkeeping stay outside the driver", asyn
   }
 });
 
-/** Each capability record as one sorted line, so a diff shows which driver changed what. */
+test("a cursor held from a replaced frontend gets a snapshot, not a replay", async () => {
+  const harness = echoRegistry();
+  const chat = chatService(harness);
+  try {
+    await chat.launch(request("echo-6", "claude"));
+    chat.send(subject("echo-6", "claude"), "one", "prompt");
+    chat.send(subject("echo-6", "claude"), "two", "prompt");
+    const cursor = harness.started[0]!.timeline.sequence;
+    expect(cursor).toBeGreaterThan(0);
+    await chat.stop("echo-6");
+
+    // The session starts again (a restart, a handoff back, a server that came back): this timeline
+    // is above the floor the first one reserved, so the old cursor is a hole — a snapshot.
+    await chat.launch(request("echo-6", "claude"));
+    // The client's symptom first: the stale cursor is answered with a snapshot, never silence.
+    const first = await firstMessage(chat, "echo-6", "claude", cursor);
+    expect(first?.type).toBe("snapshot");
+    expect(first?.type === "snapshot" ? first.snapshot.sequence : -1).toBeGreaterThan(cursor);
+    // And the mechanism: the new timeline starts above the floor the first frontend reserved.
+    expect(harness.started[1]!.timeline.sequence).toBeGreaterThanOrEqual(SEQUENCE_BLOCK);
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("a driver that brings its own timeline is refused instead of replaying a stale cursor", async () => {
+  const started: EchoDriver[] = [];
+  const rogue: ChatDriverRegistration = {
+    ...echoRegistration(started),
+    // Ignores the timeline it was handed, as a driver that copied the old `startAt` would.
+    create: (launch) => {
+      const driver = new EchoDriver({ ...launch, timeline: new ChatTimeline(0) });
+      started.push(driver);
+      return driver;
+    },
+  };
+  const chat = chatService({ registry: { ...CHAT_DRIVER_REGISTRY, claude: rogue }, started });
+  try {
+    await expect(chat.launch(request("echo-7", "claude"))).rejects.toThrow(
+      "the claude chat driver did not use the timeline it was given",
+    );
+    // A refused launch leaves nothing behind: the same id may be launched again.
+    await expect(chat.launch(request("echo-7", "claude"))).rejects.toThrow(
+      "the claude chat driver did not use the timeline it was given",
+    );
+    expect(started).toHaveLength(2);
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("a driver whose start throws frees the session id and reports the reason", async () => {
+  const broken: ChatDriverRegistration = {
+    capabilities: {
+      steer: false,
+      followUp: false,
+      approvals: false,
+      modelSwitch: false,
+      reasoningLevels: false,
+      terminalView: "handoff-only",
+    },
+    args: () => [],
+    create: (launch) => {
+      const driver = new EchoDriver(launch);
+      return Object.assign(driver, {
+        start: () => {
+          throw new Error("the driver fell over");
+        },
+      });
+    },
+  };
+  const chat = chatService({ registry: { ...CHAT_DRIVER_REGISTRY, claude: broken }, started: [] });
+  try {
+    // A start that throws is an exit, not a stuck claim: the launch settles and the id is free.
+    await chat.launch(request("echo-8", "claude"));
+    await chat.launch(request("echo-8", "claude"));
+    // The reason is what a client reads, with the service's own `exited` vocabulary.
+    expect(() => chat.send(subject("echo-8", "claude"), "hello", "prompt")).toThrow(
+      "the driver fell over",
+    );
+    expect(() => chat.send(subject("echo-8", "claude"), "hello", "prompt")).toThrow(
+      ChatUnavailableError,
+    );
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+/** Each capability record as one line, so a diff shows which driver changed what. */
 function recordsOf(records: ChatDriverCapabilities[]): string[] {
   return records.map(({ kind, terminalView, ...flags }) => {
     const on = Object.entries(flags)
@@ -295,6 +420,10 @@ function recordsOf(records: ChatDriverCapabilities[]): string[] {
       .map(([name]) => name);
     return `${kind}:${terminalView}:${on.join(",")}`;
   });
+}
+
+function hasExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
 }
 
 function kill(child: ChildProcess): void {
@@ -307,7 +436,7 @@ function kill(child: ChildProcess): void {
 
 /** Whether the process is gone, polling briefly: the service awaits the exit itself. */
 async function gone(child: ChildProcess): Promise<boolean> {
-  if (child.exitCode !== null || child.signalCode !== null) return true;
+  if (hasExited(child)) return true;
   return new Promise<boolean>((resolve) => {
     const timer = setTimeout(() => resolve(false), 1000);
     child.once("close", () => {

@@ -1149,3 +1149,28 @@ test("a handoff to a pi that never answers abort does not block the server's shu
     })
     .toBe("terminal");
 }, 20_000);
+
+test("a chat task's native model reaches pi's RPC argv, not just the terminal's", async () => {
+  // The chat argv moved out of the session service into the driver (C0): the model a profile or
+  // the user chose must still be a pi flag before `--session-id`, as a terminal launch passes it.
+  const { project } = await addProject(server, "chat argv");
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "Check the model flag",
+    agent: { kind: "pi", view: "chat", model: "stub-2" },
+    workspace: { type: "main-worktree" },
+  });
+  const session = (await sessionsOf(api)).find(
+    (candidate) => candidate.id === task.primarySessionId,
+  )!;
+  const [launch] = await piLaunches(1);
+  expect(launch!.argv).toEqual([
+    "--mode",
+    "rpc",
+    "--model",
+    "stub-2",
+    "--session-id",
+    session.agentSessionId,
+  ]);
+});

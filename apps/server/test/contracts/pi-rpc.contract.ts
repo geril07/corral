@@ -24,8 +24,9 @@ import type { ChatItem } from "@corral/protocol/chat";
 import type { AgentStatus } from "@corral/protocol/rpc";
 import { isExecutable } from "../../src/agents/executable-lookup.ts";
 import { PiDriver } from "../../src/chat/pi-driver.ts";
+import { ChatTimeline } from "../../src/chat/timeline.ts";
 import { isRecord } from "../../src/chat/pi-record.ts";
-import { writerPath } from "../../src/chat/writer-claim.ts";
+import { recordWriter, releaseWriter, writerPath } from "../../src/chat/writer-claim.ts";
 import { createClientTerminal, screenLines, writeAndWait } from "../client-terminal.ts";
 
 const PI = "pi";
@@ -361,6 +362,7 @@ async function makeDriver(options: {
   onStatus?: (status: AgentStatus) => void;
 }): Promise<PiDriver> {
   const agent = await agentDir();
+  const claimPath = writerPath(join(root, "chat"), "corral-contract-session");
   return new PiDriver({
     sessionId: "corral-contract-session",
     command: PI,
@@ -377,8 +379,13 @@ async function makeDriver(options: {
     cwd: join(root, "workspace"),
     env: piEnv(agent),
     prompt: options.prompt,
-    claimPath: writerPath(join(root, "chat"), "corral-contract-session"),
-    startAt: 0,
+    // The driver is handed the timeline (its start is the service's floor) and a record pair; the
+    // contract test plays the service's part, as `ChatService` does.
+    timeline: new ChatTimeline(0),
+    writer: {
+      record: (pid) => recordWriter(claimPath, pid),
+      release: () => releaseWriter(claimPath),
+    },
     dialogTimeoutMs: 30_000,
     readyTimeoutMs: 30_000,
     exitGraceMs: 5_000,
