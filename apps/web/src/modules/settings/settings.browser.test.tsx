@@ -5,7 +5,7 @@ import { render } from "vitest-browser-react";
 import { writeConfig } from "../../../test/config-command.ts";
 import { prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
-import { appWithProject, createTask, taskButton } from "../../../test/task-flows.tsx";
+import { appWithProject, createTaskWithShell, taskButton } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 
@@ -284,7 +284,7 @@ provider = "anthropic"
 test("the sidebar entry opens settings; Escape and Back return to the same task with focus on the entry", async () => {
   const client = newClient();
   await appWithProject(client);
-  await createTask("Settings trip");
+  await createTaskWithShell("Settings trip");
 
   await settingsButton().click();
   await expect.element(settingsHeading()).toBeVisible();

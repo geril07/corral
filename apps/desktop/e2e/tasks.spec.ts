@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { createRepo, git, openedWindow, screenText, workspace } from "./app-helpers.ts";
+import { createRepo, git, openedWindow, screenText, startShell, workspace } from "./app-helpers.ts";
 import { test } from "./fixtures.ts";
 
 const branchesOf = (repo: string) =>
@@ -35,15 +35,16 @@ test("a task gets a worktree and a terminal in it, and removing it leaves the br
   await expect(newTask).toBeHidden();
   const task = workspace(window).getByRole("button", { name: /^Fix login/ });
   await expect(task).toHaveAttribute("aria-current", "true");
-  await expect(workspace(window).getByRole("button", { name: "shell", exact: true })).toHaveCount(
-    1,
-  );
+  // Creating a task starts no shell: the task is listed and its pane says what is missing.
+  await expect(workspace(window).getByRole("button", { name: /^shell/ })).toHaveCount(0);
+  await expect(window.getByText("No sessions in this task.")).toBeVisible();
 
-  // The terminal started inside the task's worktree, which lives in the data dir.
+  // The task got a worktree of its own in the data dir; a shell started there works in it.
   const worktreesRoot = path.join(stateDir, "data", "worktrees");
   const [projectDir] = readdirSync(worktreesRoot);
   const [taskDir] = readdirSync(path.join(worktreesRoot, projectDir ?? ""));
   const worktree = path.join(worktreesRoot, projectDir ?? "", taskDir ?? "");
+  await startShell(window);
   await window.keyboard.type("pwd");
   await window.keyboard.press("Enter");
   // The path can be longer than the terminal is wide, so the screen wraps it.
@@ -93,6 +94,7 @@ test("projects and tasks are still there when the app is opened again", async ({
     "aria-current",
     "true",
   );
+  await startShell(firstWindow);
   await first.close();
 
   const secondWindow = await openedWindow(await launchApp());

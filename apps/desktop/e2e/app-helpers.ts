@@ -76,10 +76,10 @@ export async function addProject(window: Page, repo: string) {
 }
 
 /**
- * Creates a task with a new branch from the keyboard; its shell session starts with it.
- * `shellCount` is how many shell sessions the sidebar lists afterwards, all tasks together.
+ * Creates a task with a new branch from the keyboard. Creating a task starts no session: a task
+ * without an agent stays empty until one is added (design.md, **Domain model → Task → Creation**).
  */
-export async function createTask(window: Page, title: string, shellCount = 1) {
+export async function createTask(window: Page, title: string) {
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyT");
   await expect(
@@ -90,6 +90,12 @@ export async function createTask(window: Page, title: string, shellCount = 1) {
   await expect(
     workspace(window).getByRole("button", { name: new RegExp(`^${title}`) }),
   ).toHaveAttribute("aria-current", "true");
+}
+
+/** Adds a shell session to the current task with the new-terminal binding. */
+export async function startShell(window: Page, shellCount = 1) {
+  await window.keyboard.press("Alt+KeyA");
+  await window.keyboard.press("KeyC");
   await expect(workspace(window).getByRole("button", { name: "shell", exact: true })).toHaveCount(
     shellCount,
   );

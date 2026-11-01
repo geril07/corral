@@ -13,6 +13,7 @@ import {
   addProjectDialog,
   appWithProject as openProject,
   createTask,
+  createTaskWithShell,
   focusedIsTerminal,
   newTaskDialog,
   shellButtons,
@@ -61,10 +62,26 @@ test("a path outside any repository, or a repository added twice, is explained i
   await expect.element(addProjectDialog()).toBeVisible();
 });
 
+test("creating a task starts no session: the task stays empty until one is added", async () => {
+  const { client } = await appWithProject();
+
+  await createTask("Quiet start");
+
+  expect(client.sessions.getSnapshot().sessions).toEqual([]);
+  expect(client.terminals.getSnapshot().terminals).toEqual([]);
+  await expect.element(page.getByText("No sessions in this task.")).toBeVisible();
+  await expect.element(shellButtons()).toHaveLength(0);
+
+  // The task is usable: prefix c starts a shell in it.
+  await prefixThen("c");
+  await expect.element(shellButtons()).toHaveLength(1);
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+});
+
 test("a new task gets its own worktree and a terminal opens in it", async () => {
   const { client } = await appWithProject();
 
-  await createTask("Fix login");
+  await createTaskWithShell("Fix login");
 
   const task = taskNamed(client, "Fix login");
   expect(task).toMatchObject({ ownsWorktree: true, state: "active" });
@@ -75,8 +92,8 @@ test("a new task gets its own worktree and a terminal opens in it", async () => 
 
 test("prefix c adds a shell session to the current task, j and k move between tasks, n and p between its sessions", async () => {
   const { client } = await appWithProject();
-  await createTask("First");
-  await createTask("Second");
+  await createTaskWithShell("First");
+  await createTaskWithShell("Second");
   const first = taskNamed(client, "First");
   const second = taskNamed(client, "Second");
 
@@ -102,7 +119,7 @@ test("prefix c adds a shell session to the current task, j and k move between ta
 
 test("prefix d settles the current task, which stops its shell, and again unsettles it, which starts a new one", async () => {
   const { client } = await appWithProject();
-  await createTask("Old news");
+  await createTaskWithShell("Old news");
   const shell = client.sessions.getSnapshot().sessions[0]!;
   expect(shell.state).toBe("running");
 
@@ -133,7 +150,7 @@ test("prefix d settles the current task, which stops its shell, and again unsett
 
 test("New task starts on the selected project and can create the task in another project", async () => {
   const { client } = await appWithProject();
-  await createTask("Here");
+  await createTaskWithShell("Here");
   const first = client.projects.getSnapshot().projects[0]!;
   const otherRepo = await createGitRepo("second");
   await prefixShifted("p");
@@ -202,7 +219,7 @@ test("git's own message is shown in the dialog when it refuses, and the form sta
 
 test("shift+t removes a clean task after a confirmation, and Escape keeps it", async () => {
   const { client } = await appWithProject();
-  await createTask("Short lived");
+  await createTaskWithShell("Short lived");
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 
   await prefixShifted("t");
@@ -224,7 +241,7 @@ test("shift+t removes a clean task after a confirmation, and Escape keeps it", a
 
 test("a worktree with uncommitted files lists them and is only removed by Remove anyway", async () => {
   const { client } = await appWithProject();
-  await createTask("Messy");
+  await createTaskWithShell("Messy");
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
   await userEvent.keyboard("echo scribble > notes.txt; echo done-$((3+4)){Enter}");
   await expect.poll(screenText).toContain("done-7");
@@ -245,7 +262,7 @@ test("a worktree with uncommitted files lists them and is only removed by Remove
 
 test("terminals outside any task are listed under No task, apart from the tasks", async () => {
   const { client } = await appWithProject();
-  await createTask("Work");
+  await createTaskWithShell("Work");
   await client.connection.api.terminals.create({ size: { cols: 80, rows: 24 } });
 
   await expect.element(workspace().getByRole("button", { name: "No task" })).toBeVisible();

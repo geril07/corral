@@ -7,6 +7,7 @@ import {
   createTask,
   openedWindow,
   screenText,
+  startShell,
   unwrappedScreenText,
   workspace,
 } from "./app-helpers.ts";
@@ -39,6 +40,7 @@ test("a renamed task session keeps its name, its process and its conversation ac
   await expect(window.getByText("No projects yet")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Labels");
+  await startShell(window);
 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyS");

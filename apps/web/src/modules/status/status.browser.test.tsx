@@ -5,6 +5,7 @@ import { prefixThen, realServerClients, screenText } from "../../../test/real-cl
 import {
   appWithProject,
   createTask,
+  createTaskWithShell,
   focusedIsTerminal,
   taskButton,
   workspace,
@@ -33,7 +34,7 @@ async function startClaude() {
 
 test("a blocked agent shows on its session and task; the board and prefix g jump to it, and done updates both", async () => {
   await appWithProject(newClient());
-  await createTask("Alpha");
+  await createTaskWithShell("Alpha");
   await startClaude();
 
   await report({ state: "blocked", kind: "permission", msg: "Run rm -rf build?" });
@@ -81,7 +82,7 @@ test("a blocked agent shows on its session and task; the board and prefix g jump
 
 test("stopping an agent drops the working status it had", async () => {
   await appWithProject(newClient());
-  await createTask("Alpha");
+  await createTaskWithShell("Alpha");
   await startClaude();
   await report({ state: "working" });
   await expect.element(indicators("working")).toHaveLength(2);

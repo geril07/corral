@@ -11,6 +11,7 @@ import { FindTaskDialog } from "./find-task-dialog.tsx";
 import {
   appWithProject,
   createTask,
+  createTaskWithShell,
   focusedIsTerminal,
   taskButton,
   workspace,
@@ -44,6 +45,8 @@ const settledTask = (id: string, title: string, createdAt: number): Task => ({
   projectId: repoProject.id,
   title,
   titleSource: "user",
+  prompt: null,
+  primarySessionId: null,
   branch: `branch-${id}`,
   workspacePath: `/work/${id}`,
   ownsWorktree: true,
@@ -102,8 +105,8 @@ test("removing the selected task while the search is open falls back to the firs
 
 test("prefix f opens the search, filters, Enter opens the task and Escape returns to the terminal", async () => {
   await appWithProject(newClient());
-  await createTask("Fix login");
-  await createTask("Write docs");
+  await createTaskWithShell("Fix login");
+  await createTaskWithShell("Write docs");
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 
   await prefixThen("f");
@@ -127,7 +130,7 @@ test("prefix f opens the search, filters, Enter opens the task and Escape return
 
 test("a settled result shows its project and state; Enter inspects it, Continue resumes the same task and session", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Old work");
+  await createTaskWithShell("Old work");
   const task = taskNamed(client, "Old work");
   const project = client.projects.getSnapshot().projects.find((each) => each.id === task.projectId);
   const [session] = client.sessions.getSnapshot().sessions;

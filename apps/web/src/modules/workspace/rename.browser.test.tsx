@@ -10,7 +10,7 @@ import {
 import { App, renderApp } from "../../../test/render-app.tsx";
 import {
   appWithProject,
-  createTask,
+  createTaskWithShell,
   focusedIsTerminal,
   workspace,
 } from "../../../test/task-flows.tsx";
@@ -86,7 +86,7 @@ test("a renamed terminal keeps its name when the app is opened again", async () 
 
 test("a task session is renamed without restarting it, and custom names keep the duplicate numbering intact", async () => {
   await appWithProject(newClient());
-  await createTask("Named");
+  await createTaskWithShell("Named");
   await prefixThen("c");
   await expect.element(row("shell 2")).toBeVisible();
   await userEvent.keyboard("echo before-$((6*7)){Enter}");
@@ -119,7 +119,7 @@ test("the rename action is disabled while no session or terminal is selected", a
 
 test("a task is renamed from its key, and its branch and worktree stay as they were", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Old name");
+  await createTaskWithShell("Old name");
   const before = client.tasks.getSnapshot().tasks[0]!;
 
   await prefixThen("e");
@@ -144,7 +144,7 @@ test("a task is renamed from its key, and its branch and worktree stay as they w
 
 test("the palette lists the task rename and the session numbers with their keys", async () => {
   await appWithProject(newClient());
-  await createTask("Palette");
+  await createTaskWithShell("Palette");
 
   await prefixThen(" ");
 
@@ -158,7 +158,7 @@ test("the palette lists the task rename and the session numbers with their keys"
 
 test("a keyboard rename after a button-opened dialog returns focus to the terminal", async () => {
   await appWithProject(newClient());
-  await createTask("Rename focus");
+  await createTaskWithShell("Rename focus");
   const find = workspace().getByRole("button", { name: "Find task" });
 
   await find.click();

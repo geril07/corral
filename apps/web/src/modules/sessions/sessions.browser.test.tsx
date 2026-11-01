@@ -12,7 +12,7 @@ import {
 import { App } from "../../../test/render-app.tsx";
 import {
   appWithProject,
-  createTask,
+  createTaskWithShell,
   focusedIsTerminal,
   shellButtons,
   workspace,
@@ -67,7 +67,7 @@ async function startAgent(kind: string, keys: string) {
 
 test("prefix s opens the picker; a digit starts that agent in the task and the keyboard goes to it", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Agents");
+  await createTaskWithShell("Agents");
   const task = client.tasks.getSnapshot().tasks[0]!;
 
   await startAgent("claude", "1");
@@ -86,7 +86,7 @@ test("prefix s opens the picker; a digit starts that agent in the task and the k
 
 test("arrows and Enter pick an agent in the picker too", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Agents");
+  await createTaskWithShell("Agents");
 
   await startAgent("codex", "{ArrowDown}{Enter}");
 
@@ -95,7 +95,7 @@ test("arrows and Enter pick an agent in the picker too", async () => {
 
 test("prefix x stops the session, which stays in the list; prefix r starts it again resuming the conversation", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Agents");
+  await createTaskWithShell("Agents");
   await startAgent("claude", "1");
   await userEvent.keyboard("remember-me{Enter}");
   await expect.poll(wrappedScreen).toContain("fake claude got: remember-me");
@@ -122,7 +122,7 @@ test("prefix x stops the session, which stays in the list; prefix r starts it ag
 
 test("prefix d settles the task, stopping its agent, and unsettling resumes the conversation", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Agents");
+  await createTaskWithShell("Agents");
   await startAgent("claude", "1");
   await userEvent.keyboard("remember-me{Enter}");
   await expect.poll(wrappedScreen).toContain("fake claude got: remember-me");
@@ -146,7 +146,7 @@ test("prefix d settles the task, stopping its agent, and unsettling resumes the 
 
 test("Enter on the stopped session's pane starts it again", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Agents");
+  await createTaskWithShell("Agents");
   await startAgent("pi", "3");
   await prefixThen("x");
   await expect.element(stoppedPane().getByRole("button", { name: "Start again" })).toHaveFocus();
@@ -160,7 +160,7 @@ test("Enter on the stopped session's pane starts it again", async () => {
 
 test("an agent that ends by itself shows its last screen and is stopped until prefix r", async () => {
   await appWithProject(newClient());
-  await createTask("Agents");
+  await createTaskWithShell("Agents");
   await startAgent("opencode", "4");
 
   await userEvent.keyboard("exit{Enter}");
@@ -177,7 +177,7 @@ test("an agent that ends by itself shows its last screen and is stopped until pr
 test("a Codex session whose conversation was never identified is unresumable and says it starts a new one", async () => {
   await withServerEnv("FAKE_CODEX_ROLLOUT", "never");
   await appWithProject(newClient());
-  await createTask("Agents");
+  await createTaskWithShell("Agents");
   await startAgent("codex", "2");
 
   await userEvent.keyboard("exit{Enter}");
@@ -188,7 +188,7 @@ test("a Codex session whose conversation was never identified is unresumable and
 
 test("an agent missing from the server's PATH keeps the picker open with the reason", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Agents");
+  await createTaskWithShell("Agents");
   await withServerEnv("PATH", "/nonexistent");
 
   await prefixThen("s");
@@ -219,7 +219,7 @@ test("prefix s without a task says so instead of opening the picker", async () =
 
 test("prefix n and p cycle through the task's shells and agents", async () => {
   await appWithProject(newClient());
-  await createTask("Agents");
+  await createTaskWithShell("Agents");
   await startAgent("claude", "1");
 
   await prefixThen("n");
@@ -235,7 +235,7 @@ test("prefix n and p cycle through the task's shells and agents", async () => {
 
 test("prefix shift+x asks first, starts on Cancel, and removes the session for good", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Agents");
+  await createTaskWithShell("Agents");
   await startAgent("claude", "1");
 
   await prefixShifted("x");

@@ -391,8 +391,14 @@ export function useWorkspace({
   const createTask = async (input: CreateTaskInput) => {
     const task = await api.tasks.create(input);
     setDialog(undefined);
-    showTask(task);
-    void startSession(task.id, "shell");
+    // The task's primary session is where the prompt went, when the composer named an agent; a
+    // task created without one stays empty until the user adds a session (design.md, **Domain
+    // model → Task → Creation**). Creating a task starts no shell.
+    choose({
+      projectId: task.projectId,
+      taskId: task.id,
+      entryId: task.primarySessionId ?? undefined,
+    });
   };
 
   const resolveIssue = (

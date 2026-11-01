@@ -8,7 +8,7 @@ import { prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
 import {
   appWithProject,
-  createTask,
+  createTaskWithShell,
   focusedIsTerminal,
   taskButton,
   workspace,
@@ -30,7 +30,7 @@ async function applyConfig(client: CorralClient, text: string, applied: () => vo
 
 test("number keys select the n-th session of the current task in sidebar order", async () => {
   await appWithProject(newClient());
-  await createTask("Numbers");
+  await createTaskWithShell("Numbers");
   await prefixThen("c");
   await prefixThen("c");
   await expect.element(shell("shell 3")).toHaveAttribute("aria-current", "true");
@@ -49,7 +49,7 @@ test("number keys select the n-th session of the current task in sidebar order",
 
 test("a config file rebinds an action and the key hint follows it", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Keymap");
+  await createTaskWithShell("Keymap");
   await applyConfig(client, '[keys.bindings]\nnew-agent = "a"\n', () =>
     expect(client.config.getSnapshot().config.keys.bindings["new-agent"]).toBe("a"),
   );
@@ -94,7 +94,7 @@ test("a config file changes the prefix and every action follows it", async () =>
 
 test("from a loose terminal the palette navigates to the one task in both directions", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Only");
+  await createTaskWithShell("Only");
   await client.connection.api.terminals.create({ size: { cols: 80, rows: 24 } });
   const noTask = workspace().getByRole("button", { name: "No task" });
   await expect.element(noTask).toBeVisible();
@@ -138,7 +138,7 @@ test("config problems show as a notice whose dialog lists each one with the file
 
 test("the palette opened from a sidebar button returns focus there, not to the terminal", async () => {
   await appWithProject(newClient());
-  await createTask("Focus");
+  await createTaskWithShell("Focus");
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
   const opener = workspace().getByRole("button", { name: "Command palette" });
 

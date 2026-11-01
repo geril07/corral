@@ -5,6 +5,7 @@ import {
   createTask,
   openedWindow,
   screenText,
+  startShell,
   unwrappedScreenText,
   workspace,
 } from "./app-helpers.ts";
@@ -21,6 +22,7 @@ test("an agent session is started, stopped and restarted, and a running one come
   await expect(window.getByText("No projects yet")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Agents");
+  await startShell(window);
   const session = (name: string, exact = true) =>
     workspace(window).getByRole("button", { name, exact });
 

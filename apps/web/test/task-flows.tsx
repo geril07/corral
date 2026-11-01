@@ -49,14 +49,29 @@ export async function appWithProject(client: CorralClient, branches: string[] = 
 }
 
 /**
- * Creates a task from the keyboard with a new branch and waits for its shell. `shellCount` is
- * how many shell sessions the current task shows afterwards.
+ * Creates a task from the keyboard with a new branch. Creating a task starts no session: a task
+ * without an agent stays empty until one is added (design.md, **Domain model → Task → Creation**).
  */
-export async function createTask(title: string, shellCount = 1) {
+export async function createTask(title: string) {
   await prefixThen("t");
   await expect.element(newTaskDialog().getByRole("textbox", { name: "Title" })).toHaveFocus();
   await userEvent.keyboard(`${title}{Enter}`);
   await expect.element(newTaskDialog()).not.toBeInTheDocument();
   await expect.element(taskButton(title)).toHaveAttribute("aria-current", "true");
+}
+
+/**
+ * The same, then a terminal to type in. `shellCount` is how many shell sessions the sidebar lists
+ * afterwards, of the current task: a task that is not current shows none.
+ */
+export async function createTaskWithShell(title: string, shellCount = 1) {
+  await createTask(title);
+  await startShell(shellCount);
+}
+
+/** Adds a shell session to the current task with prefix c. */
+export async function startShell(shellCount = 1) {
+  await prefixThen("c");
   await expect.element(shellButtons()).toHaveLength(shellCount);
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 }

@@ -8,7 +8,7 @@ import { createGitRepo } from "../../../test/git-repo.ts";
 import { writeConfig } from "../../../test/config-command.ts";
 import { prefixThen, realServerClients, screenText } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
-import { appWithProject, createTask, workspace } from "../../../test/task-flows.tsx";
+import { appWithProject, createTaskWithShell, workspace } from "../../../test/task-flows.tsx";
 import { describeLaunchError } from "./launch-error.ts";
 
 const { newClient } = realServerClients();
@@ -70,7 +70,7 @@ async function startedAgent(client: CorralClient, kind: Session["kind"]): Promis
 
 test("a named profile and a typed model reach the fake CLI and stay on the session", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Profiled");
+  await createTaskWithShell("Profiled");
   await applyConfig(client, PROFILES, 2);
 
   await prefixThen("s");
@@ -122,7 +122,7 @@ model = "claude-haiku-4"
 
 test("a native-default start carries no profile or model and never borrows the file's model", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Native");
+  await createTaskWithShell("Native");
   await applyConfig(client, PROFILES, 2);
 
   await prefixThen("s");
@@ -141,7 +141,7 @@ test("a native-default start carries no profile or model and never borrows the f
 test("a missing environment reference keeps the picker draft and says which variable is missing", async () => {
   await withServerEnv("PROFILE_MISSING_TOKEN", null);
   const { client } = await appWithProject(newClient());
-  await createTask("Env");
+  await createTaskWithShell("Env");
   await applyConfig(client, ENV_PROFILE, 1);
   const shells = client.sessions.getSnapshot().sessions.length;
 
@@ -165,7 +165,7 @@ test("a missing environment reference keeps the picker draft and says which vari
 
 test("a profile removed from the live config cannot fall back to a native launch", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Live config");
+  await createTaskWithShell("Live config");
   await applyConfig(client, PROFILES, 2);
 
   await prefixThen("s");
@@ -207,7 +207,7 @@ test("a profile removed from the live config cannot fall back to a native launch
 
 test("a profile revision change requires explicit reselect and launches the new choice", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Revision");
+  await createTaskWithShell("Revision");
   await applyConfig(client, PROFILES, 2);
 
   await prefixThen("s");
@@ -254,7 +254,7 @@ test("a profile revision change requires explicit reselect and launches the new 
 
 test("a revision pinned before a config edit is refused by the real RPC with no session", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Revision race");
+  await createTaskWithShell("Revision race");
   await applyConfig(client, PROFILES, 2);
   const task = client.tasks.getSnapshot().tasks[0]!;
   const revisionA = client.config

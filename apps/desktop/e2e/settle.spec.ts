@@ -5,6 +5,7 @@ import {
   createTask,
   openedWindow,
   screenText,
+  startShell,
   unwrappedScreenText,
   workspace,
 } from "./app-helpers.ts";
@@ -20,6 +21,7 @@ test("settling a task stops its agent and unsettling resumes the conversation", 
   await expect(window.getByText("No projects yet")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Finished");
+  await startShell(window);
   const sidebar = workspace(window);
 
   await window.keyboard.press("Alt+KeyA");
