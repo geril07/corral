@@ -10,8 +10,13 @@ export interface NamingLaunch {
 
 /**
  * argv for one unattended naming request: the agent's own model/provider flags, its
- * non-interactive mode with no session saved and no tools, then the prompt. Each flag was checked
- * against the installed CLI's `--help` (see docs/agent-profiles.md).
+ * non-interactive mode with no session saved and no tools where the agent has such a mode, then
+ * the prompt. Each flag was checked against the installed CLI's `--help` (see
+ * docs/agent-profiles.md).
+ *
+ * Codex has no flag that removes its read-only tools, so it runs with the read-only sandbox and
+ * approvals disabled: it can read inside the empty temporary directory, and cannot write or ask
+ * to. Claude and pi disable tools outright.
  *
  * `undefined` for OpenCode: `opencode run` has no way to avoid saving a session (2.2.5), and a
  * naming run must leave nothing behind. The config refuses it before this point; this keeps a
@@ -35,10 +40,16 @@ export function namingArgs(launch: NamingLaunch, prompt: string): string[] | und
     case "pi":
       return ["-p", "--no-session", "--no-tools", ...model, ...adapter.promptArgs(prompt)];
     case "codex":
+      // `-s read-only` overrides the user's `~/.codex/config.toml`; `approval_policy=never`
+      // keeps an unattended run from waiting on an approval prompt.
       return [
         "exec",
         "--ephemeral",
         "--skip-git-repo-check",
+        "-s",
+        "read-only",
+        "-c",
+        "approval_policy=never",
         ...model,
         ...adapter.promptArgs(prompt),
       ];

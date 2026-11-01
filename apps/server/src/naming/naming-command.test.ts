@@ -33,11 +33,15 @@ test("pi runs print mode with no session or tools and passes its provider and mo
   ]);
 });
 
-test("codex runs an ephemeral exec outside a git repository, with the prompt after --", () => {
+test("codex runs read-only, unapproved and ephemeral outside a git repository, with the prompt after --", () => {
   expect(namingArgs({ kind: "codex", model: "gpt-5-codex", provider: "work" }, "Name it")).toEqual([
     "exec",
     "--ephemeral",
     "--skip-git-repo-check",
+    "-s",
+    "read-only",
+    "-c",
+    "approval_policy=never",
     "-m",
     "gpt-5-codex",
     "-c",

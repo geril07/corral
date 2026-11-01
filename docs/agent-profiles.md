@@ -92,11 +92,14 @@ workspace = "main-worktree" # the same keys as [tasks]
   and the file keeps the value as written.
 - `[naming]` needs a profile or an agent (with an optional model). A missing or empty section
   means no generation: tasks keep the prompt-derived seed title (`design.md` decision 16). It
-  runs that agent in its non-interactive mode, with no session saved and no tools, in a temporary
-  directory: claude `-p --no-session-persistence --tools ""`, pi `-p --no-session --no-tools`,
-  codex `exec --ephemeral --skip-git-repo-check`. OpenCode cannot be a naming runner: `opencode
-  run` always saves a session (2.2.5), so an OpenCode profile or agent in `[naming]` is a
-  `ConfigProblem` and naming stays off.
+  runs that agent in its non-interactive mode, with no session saved, in a temporary directory:
+  claude `-p --no-session-persistence --tools ""`, pi `-p --no-session --no-tools`, codex
+  `exec --ephemeral --skip-git-repo-check -s read-only -c approval_policy=never`. Claude and pi
+  disable tools outright. Codex has no flag that removes its read-only tools, so the read-only
+  sandbox and disabled approvals confine it to reading inside the empty temporary directory; it
+  cannot write or ask for approval. OpenCode cannot be a naming runner: `opencode run` always
+  saves a session (2.2.5), so an OpenCode profile or agent in `[naming]` is a `ConfigProblem` and
+  naming stays off.
 - `view = "chat"` is a problem until stage B; `terminal` is the only valid view in stage A.
 - Unknown keys and invalid values are `ConfigProblem`s that drop only that entry; the rest of
   the table still applies. A `profile` that names no valid profile is such a problem, and two
