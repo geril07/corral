@@ -20,6 +20,8 @@ const DEADLINE_MS = 15_000;
 export function useServer(
   fixture: {
     taskSettings?: (dirs: { dataDir: string; scratchDir: string }) => TaskSettings;
+    /** Shortened chat driver deadlines for tests that watch one; production runs the defaults. */
+    chat?: Parameters<typeof startServer>[0]["chat"];
   } = {},
 ) {
   let server: RunningServer;
@@ -37,6 +39,7 @@ export function useServer(
       ...(fixture.taskSettings === undefined
         ? {}
         : { settings: fixture.taskSettings({ dataDir: dataDir(), scratchDir: scratchDir() }) }),
+      ...(fixture.chat === undefined ? {} : { chat: fixture.chat }),
     });
   const disconnectClients = () => {
     for (const stream of streams) stream.close();

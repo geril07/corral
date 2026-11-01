@@ -22,6 +22,7 @@ import { appendFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { claudeTranscriptExists, writeClaudeTranscript } from "../claude-transcripts.ts";
 import { writeRollout } from "../rollouts.ts";
+import { startFakePiRpc } from "./fake-pi-rpc.ts";
 
 const [name, ...argv] = process.argv.slice(2);
 const codexHome = process.env["CODEX_HOME"];
@@ -104,62 +105,76 @@ function writeTranscriptOnce(): void {
 }
 if (transcriptMode === "eager") writeTranscriptOnce();
 
-console.log(`fake ${name} ready`);
+if (name === "pi" && rpcModeRequested(argv)) {
+  startFakePiRpc(argv);
+} else {
+  startTuiFake();
+}
 
-// oxlint-disable-next-line no-control-regex -- the reply is an escape sequence
-const PROBE_REPLY = /\x1b\]7501;\?:states=[a-z,]+:kinds=[a-z,]+\x1b\\/;
-let awaitingProbeReply: string | undefined;
-let pending = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk: string) => {
-  if (awaitingProbeReply !== undefined) {
+/** `--mode rpc`, wherever it stands among the launch arguments. */
+function rpcModeRequested(launchArgs: readonly string[]): boolean {
+  const index = launchArgs.indexOf("--mode");
+  return index >= 0 && launchArgs[index + 1] === "rpc";
+}
+
+function startTuiFake(): void {
+  console.log(`fake ${name} ready`);
+
+  // oxlint-disable-next-line no-control-regex -- the reply is an escape sequence
+  const PROBE_REPLY = /\x1b\]7501;\?:states=[a-z,]+:kinds=[a-z,]+\x1b\\/;
+  let awaitingProbeReply: string | undefined;
+  let pending = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk: string) => {
+    if (awaitingProbeReply !== undefined) {
+      pending += chunk;
+      if (!PROBE_REPLY.test(pending)) return;
+      pending = "";
+      process.stdin.setRawMode(false);
+      console.log(`fake ${name} probe answered`);
+      process.stdout.write(`\x1b]7501;${awaitingProbeReply}\x1b\\`);
+      awaitingProbeReply = undefined;
+      return;
+    }
     pending += chunk;
-    if (!PROBE_REPLY.test(pending)) return;
-    pending = "";
-    process.stdin.setRawMode(false);
-    console.log(`fake ${name} probe answered`);
-    process.stdout.write(`\x1b]7501;${awaitingProbeReply}\x1b\\`);
-    awaitingProbeReply = undefined;
-    return;
-  }
-  pending += chunk;
-  for (let newline = pending.indexOf("\n"); newline >= 0; newline = pending.indexOf("\n")) {
-    const line = pending.slice(0, newline).replace(/\r$/, "");
-    pending = pending.slice(newline + 1);
-    const exit = /^exit(?: (\d+))?$/.exec(line);
-    if (exit) process.exit(Number(exit[1] ?? 0));
-    const osc = /^osc (\S+)$/.exec(line);
-    if (osc) {
-      process.stdout.write(`\x1b]7501;${osc[1]}\x1b\\`);
-      continue;
+    for (let newline = pending.indexOf("\n"); newline >= 0; newline = pending.indexOf("\n")) {
+      const line = pending.slice(0, newline).replace(/\r$/, "");
+      pending = pending.slice(newline + 1);
+      const exit = /^exit(?: (\d+))?$/.exec(line);
+      if (exit) process.exit(Number(exit[1] ?? 0));
+      const osc = /^osc (\S+)$/.exec(line);
+      if (osc) {
+        process.stdout.write(`\x1b]7501;${osc[1]}\x1b\\`);
+        continue;
+      }
+      const probe = /^probe (\S+)$/.exec(line);
+      if (probe) {
+        // Raw mode, so the reply (which has no newline) reaches us unbuffered and unechoed.
+        process.stdin.setRawMode(true);
+        awaitingProbeReply = probe[1];
+        process.stdout.write("\x1b]7501;?\x1b\\");
+        continue;
+      }
+      const post = /^post (.+)$/.exec(line);
+      if (post) {
+        void postStatus(post[1]!);
+        continue;
+      }
+      if (rolloutMode === "lazy") writeRolloutOnce();
+      if (transcriptMode === "lazy") writeTranscriptOnce();
+      console.log(`fake ${name} got: ${line}`);
     }
-    const probe = /^probe (\S+)$/.exec(line);
-    if (probe) {
-      // Raw mode, so the reply (which has no newline) reaches us unbuffered and unechoed.
-      process.stdin.setRawMode(true);
-      awaitingProbeReply = probe[1];
-      process.stdout.write("\x1b]7501;?\x1b\\");
-      continue;
-    }
-    const post = /^post (.+)$/.exec(line);
-    if (post) {
-      void postStatus(post[1]!);
-      continue;
-    }
-    if (rolloutMode === "lazy") writeRolloutOnce();
-    if (transcriptMode === "lazy") writeTranscriptOnce();
-    console.log(`fake ${name} got: ${line}`);
-  }
-});
-
-async function postStatus(json: string): Promise<void> {
-  const response = await fetch(process.env["CORRAL_STATUS_URL"]!, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${process.env["CORRAL_STATUS_TOKEN"]}`,
-      "content-type": "application/json",
-    },
-    body: json,
   });
-  console.log(`fake ${name} posted ${response.status}`);
+
+  async function postStatus(json: string): Promise<void> {
+    const response = await fetch(process.env["CORRAL_STATUS_URL"]!, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${process.env["CORRAL_STATUS_TOKEN"]}`,
+        "content-type": "application/json",
+      },
+      body: json,
+    });
+    console.log(`fake ${name} posted ${response.status}`);
+  }
 }

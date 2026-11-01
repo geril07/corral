@@ -1,6 +1,8 @@
 // Keeps the fake agents and the adapters (`src/agents/`) honest against the real CLIs installed
 // on this machine. Cheap and offline: `--help` output and a read of an existing Codex rollout;
-// no agent conversation is ever started. An agent that is not installed is skipped.
+// this file starts no agent conversation. The one contract suite that does is `pi-rpc.contract.ts`:
+// the real pi binary in RPC mode against a local OpenAI-compatible stub on port 0, no paid calls
+// and no writes to the user's pi directory. An agent that is not installed is skipped.
 import { execFile } from "node:child_process";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

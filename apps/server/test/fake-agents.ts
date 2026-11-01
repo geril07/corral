@@ -44,6 +44,8 @@ export function useFakeAgents() {
     vi.stubEnv("OPENCODE_CONFIG_DIR", join(root, "opencode"));
     vi.stubEnv("OPENCODE_CONFIG_CONTENT", "");
     vi.stubEnv("FAKE_AGENT_LOG", logFile);
+    // The fake pi's RPC journal: a resumed process rebuilds its history from here.
+    vi.stubEnv("FAKE_PI_RPC_HOME", join(root, "pi-rpc"));
     vi.stubEnv("FAKE_CODEX_ROLLOUT", "eager");
     vi.stubEnv("FAKE_CLAUDE_TRANSCRIPT", "lazy");
   });
@@ -60,6 +62,10 @@ export function useFakeAgents() {
     /** What `CLAUDE_CONFIG_DIR` is for the server under test. */
     get claudeConfigDir() {
       return join(root, "claude");
+    },
+    /** Where the fake pi's RPC journals live, one per session id. */
+    get piRpcHome() {
+      return join(root, "pi-rpc");
     },
     /** Every launch so far, oldest first. */
     async launches(): Promise<Launch[]> {
