@@ -13,6 +13,7 @@ const IGNORED = [
 
 const WEB_MODULES = [
   "board",
+  "chat",
   "connection",
   "keymap",
   "projects",

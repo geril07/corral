@@ -27,6 +27,12 @@ describe("parseChord", () => {
     expect(formatChord(chord)).toBe("\\");
   });
 
+  test("the abort turn chord is the period key, written prefix .", () => {
+    const chord = parseChord(".");
+    expect(matchesChord(keyEvent("Period"), chord)).toBe(true);
+    expect(formatChord(chord)).toBe(".");
+  });
+
   test("requires exactly the listed modifiers", () => {
     const prefix = parseChord("alt+a");
     expect(matchesChord(keyEvent("KeyA"), prefix)).toBe(false);
@@ -41,7 +47,7 @@ describe("parseChord", () => {
   const chordText = fc
     .tuple(
       fc.subarray(["ctrl", "alt", "shift", "meta"]),
-      fc.constantFrom("a", "z", "0", "9", "f1", "f12", "enter", "esc", "minus", "slash", "\\"),
+      fc.constantFrom("a", "z", "0", "9", "f1", "f12", "enter", "esc", "minus", "slash", "\\", "."),
     )
     .map(([modifiers, key]) => [...modifiers, key].join("+"));
 

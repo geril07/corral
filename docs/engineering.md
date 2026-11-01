@@ -54,7 +54,7 @@ Internal packages export TypeScript source (no build step). The server runs that
 - **Terminals stay imperative.** Output goes from the stream client straight into `terminal.write()`, never through React state.
 - **Names are concrete.** No `utils`, `helpers`, `common`, `misc` (Orca's rule): a module is named after what it does.
 - **The local capability is part of the transport contract.** `ServerEndpoint` carries the per-run capability; clients take a `ServerTarget` and present it as a WebSocket subprotocol (`packages/protocol/src/handshake.ts`). Desktop re-reads the endpoint file for every preload IPC request and clients ask for the current `ServerTarget` before each reconnect, so a restarted server is picked up without an app restart. Browser/dev stores the URL and capability together and only reuses the pair for the same server URL (`packages/client/src/bootstrap.ts`). Never append the capability to a URL or log it.
-- **Protocol changes are versioned.** Client and server exchange `PROTOCOL_VERSION` on connect and refuse a mismatch; new fields are optional within a version, but a release barrier bumps the version when an older daemon would silently ignore them (version 3 adds launch profiles/model fields; version 4 adds the settings action and its exhaustive bindings key; version 5 prevents older daemons stripping task-source inputs; version 6 adds the task title source, the rename-task/session-number actions with their exhaustive bindings, and the required task/naming/project settings; version 7 adds the sidebar-mode action, the server-owned task `seenAt` and the task's prompt and primary session; version 7 never left the trunk, so the task's new required fields joined it instead of waiting for a version of their own; version 8 adds the toggle-sidebar action and its binding; version 9 adds the `chat.*` contract and `Session.view`, optional until B1's migration).
+- **Protocol changes are versioned.** Client and server exchange `PROTOCOL_VERSION` on connect and refuse a mismatch; new fields are optional within a version, but a release barrier bumps the version when an older daemon would silently ignore them (version 3 adds launch profiles/model fields; version 4 adds the settings action and its exhaustive bindings key; version 5 prevents older daemons stripping task-source inputs; version 6 adds the task title source, the rename-task/session-number actions with their exhaustive bindings, and the required task/naming/project settings; version 7 adds the sidebar-mode action, the server-owned task `seenAt` and the task's prompt and primary session; version 7 never left the trunk, so the task's new required fields joined it instead of waiting for a version of their own; version 8 adds the toggle-sidebar action and its binding; version 9 adds the `chat.*` contract, `Session.view` (optional until B1's migration) and the abort-turn binding).
 
 ## Web UI kit
 
@@ -65,6 +65,12 @@ gate covers imported aliases, namespaces, field/command wrappers and opaque prop
 Generation commands, provenance, token mapping and intentional adaptations:
 [`ui-kit.md`](ui-kit.md). Modules compose the kit; they do not import Base UI,
 cmdk or icons directly. Keep the UI-boundary lint and class/token gates active.
+
+Chat Markdown is **Streamdown 2.7.1** (Apache-2.0); its code highlighter and the diff renderer are
+the one shared **`@pierre/diffs` 1.6.2** instance (Apache-2.0), not `@streamdown/code`'s second
+Shiki (goal D1). The timeline is virtualized by **`@legendapp/list` 3.7.1** (MIT). All three are
+free and permissive; only the kit imports Streamdown and `@pierre/diffs`, and the chat module
+imports the list.
 
 ## Testing
 

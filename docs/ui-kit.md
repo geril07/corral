@@ -82,6 +82,20 @@ Current structural needs have named kit variants, not module class overrides:
 - Textarea `layout="prompt"`: the new-task composer's prompt has a four-line minimum and grows to
   half the view (`layout.md`, **New task view**). Font, padding, border, radius and focus treatment
   stay stock; only the field's bounds are named, because a module may not size a kit control.
+- Textarea `layout="chat"`: the chat composer keeps the stock four-line rest, grows to 13 rem and
+  then scrolls (`layout.md`, **Chat**). Font, padding, border, radius and focus treatment stay stock;
+  the same bounds serve a request's `editor` answer.
+- Markdown: Streamdown 2.7.1 wrapped in `common/ui/streamdown.tsx` with its own UI off
+  (`controls={false}`, `linkSafety` off, `animated={false}`) and its code plugin backed by
+  `@pierre/diffs`' `getSharedHighlighter`, so code blocks and diffs share one engine and the
+  `pierre-light`/`pierre-dark` theme pair. `streamdown/styles.css` is imported and
+  `app/global.css` carries the `@source` line; the B3 build greps a Streamdown-only utility out of
+  the built CSS to prove the pnpm symlink is followed. Modules pass `text` and `streaming`, no
+  classes. Streaming Markdown replaces T3's `ChatMarkdown.tsx` (goal D1).
+- DiffView: `@pierre/diffs`' `PatchDiff` in `common/ui/diff-view.tsx`, unified, wrapping in the
+  46 rem lane, no file header (the tool row names the path), dark pierre theme, no worker pool.
+  More than 20 unified-diff lines fold behind "Show all N lines" (`layout.md`, **Chat**). Modules
+  pass the diff text and optional path.
 - Combobox `ComboboxButton` / `ComboboxSearch`: the composer's row of compact pickers is a stock
   combobox trigger rendered as an outline `Button` showing its value, with the list's search field
   (Base UI's input-inside-popup pattern) inside the popup. The kit owns the `render` composition
@@ -104,7 +118,8 @@ Current structural needs have named kit variants, not module class overrides:
 - StatusGlyph takes the row (12 px) or chrome (14 px) glyph size of `layout.md` **Status
   visuals** and fades a `done` update the user has already seen to muted. `Icon` carries the
   same `size="row"`/`size="chrome"` steps, so a tab's kind icon and its status glyph stay one
-  size and the tab does not shift when a session starts working.
+  size and the tab does not shift when a session starts working. `Icon` also carries the chat
+  glyph a chat-view session tab shows instead of its agent glyph (`layout.md`, **Session tabs**).
 - BoardRow uses exported official Item variants for its appearance and focus,
   retaining only the board's five-column grid as structural layout. Issue text
   and dirty-file lists use stock outlined Item containers; terminal notices use

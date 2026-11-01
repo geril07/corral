@@ -160,6 +160,11 @@ test("the palette opens from its key, shows bindings, filters, runs an action an
   await expect.element(palette().getByRole("combobox", { name: "Commands" })).toHaveFocus();
   await expect.element(paletteItem(/New terminal/)).toMatchTextContent("alt+a c");
   await expect.element(paletteItem(/Stop session/)).toHaveAttribute("aria-disabled", "true");
+  // The chat abort action is in the same table; with no chat session it is listed but disabled.
+  await expect.element(paletteItem(/Abort the working turn/)).toMatchTextContent("alt+a .");
+  await expect
+    .element(paletteItem(/Abort the working turn/))
+    .toHaveAttribute("aria-disabled", "true");
 
   await userEvent.keyboard("new terminal");
   await expect.element(paletteItem(/New terminal/)).toBeVisible();

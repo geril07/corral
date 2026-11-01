@@ -2,6 +2,10 @@
 @import "tw-animate-css";
 @import "../common/ui/shadcn.css";
 @import "@fontsource-variable/geist";
+/* Streamdown renders its own DOM, so Tailwind must scan the utilities in its dist. The path goes
+   through the pnpm symlink in `apps/web/node_modules`; the B3 build greps a Streamdown-only
+   utility out of the built CSS to prove it (goal D1). */
+@source "../../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 

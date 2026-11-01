@@ -15,7 +15,8 @@ import { z } from "zod";
  * `tasks.markSeen` with an unknown procedure. Version 8 adds the toggle-sidebar action: a
  * version 7 server strips that binding from its exhaustive keys. Version 9 adds the `chat.*`
  * contract, `Session.view` and the pi chat driver (B1's migration gives every stored session a
- * view): a version 8 server has no chat procedures at all, and its sessions carry no view.
+ * view), and the abort-turn action: a version 8 server has no chat procedures at all, its sessions
+ * carry no view and it strips the abort-turn binding from its exhaustive keys.
  */
 export const PROTOCOL_VERSION = 9;
 

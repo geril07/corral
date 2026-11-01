@@ -110,6 +110,13 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
   composition is never a submission, whichever order the platform reports the keydown and the
   composition end; the user's next plain Enter submits normally.
   Connection/protocol mismatch notices remain app-level, not transient success toasts.
+- Chat keeps the composer semantics of the new-task view: Enter sends, Shift+Enter is a newline,
+  and while a turn runs Enter steers and Ctrl/Cmd+Enter queues a follow-up (the composer says
+  which). `prefix .` aborts the working turn and the palette lists the same action. A user request
+  arrives as the last timeline item with the keyboard: arrows and Enter answer `select` and
+  `confirm`, Enter answers `input`, Ctrl/Cmd+Enter answers `editor`, and Escape dismisses any of
+  them. Prefix mode is the window capture-phase handler, so it works while the composer has the
+  keyboard and plain keys stay in the field.
 - Clicking navigation must not steal terminal focus. Tooltip content is optional;
   it cannot hold the only copy of a fact. Accessible names identify every icon action.
 - Status is a named state plus a distinct glyph, with stock semantic theme colors.

@@ -15,6 +15,7 @@ import {
   SidebarPanel,
 } from "../../common/ui/index.ts";
 import { AddProjectDialog } from "../projects/index.ts";
+import { ChatView } from "../chat/index.ts";
 import { AgentPicker, RemoveSessionDialog, StoppedSession } from "../sessions/index.ts";
 import { NewTaskView, RemoveTaskDialog, TaskSourceDialog } from "../tasks/index.ts";
 import { TerminalView } from "../terminal/index.ts";
@@ -77,6 +78,7 @@ export function WorkspaceScreen({
     loaded,
     current,
     currentSession,
+    chat,
     currentTask,
     currentTaskNode,
     currentTaskProject,
@@ -166,6 +168,16 @@ export function WorkspaceScreen({
               }`.trim()
             : undefined
         }
+      />
+    ) : currentSession?.view === "chat" && chat !== undefined ? (
+      <ChatView
+        key={currentSession.id}
+        store={chat.store}
+        agent={currentSession.kind}
+        abortHint={keyHint(config, "abort-turn")}
+        onSend={chat.send}
+        onAbort={chat.abort}
+        onRespond={chat.respond}
       />
     ) : currentSession && currentSession.state !== "running" ? (
       <StoppedSession

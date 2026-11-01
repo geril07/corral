@@ -178,7 +178,12 @@ function SessionTab({
             {glyphState ? (
               <StatusIndicator status={glyphState} size="chrome" />
             ) : (
-              <Icon name={session.kind === "shell" ? "terminal" : "agent"} size="chrome" />
+              <Icon
+                name={
+                  session.view === "chat" ? "chat" : session.kind === "shell" ? "terminal" : "agent"
+                }
+                size="chrome"
+              />
             )}
           </span>
           <span className={running ? "min-w-0 truncate" : "min-w-0 truncate text-muted-foreground"}>

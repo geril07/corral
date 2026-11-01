@@ -29,6 +29,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useDialogFocus } from "../../common/ui/index.ts";
 import { useCorralClient, useConnection } from "../connection/index.ts";
+import { useChatSession, useChatTurn } from "../chat/index.ts";
 import {
   formatBinding,
   useConfig,
@@ -140,6 +141,10 @@ export function useWorkspace({
   const sessionEntries = selection.taskId === null ? [] : entriesOf(tree, selection.taskId);
   const current = currentEntry(tree, selection);
   const currentSession = current?.type === "session" ? current.session : undefined;
+  // The chat of the selected session, when it is a running chat view; its turn drives the abort
+  // action without subscribing the workspace to every streamed delta.
+  const chat = useChatSession(client, currentSession);
+  const chatTurn = useChatTurn(chat?.store);
   const currentTaskNode =
     selection.taskId === null ? undefined : taskNodeOf(tree, selection.taskId);
   const currentTask = currentTaskNode?.task;
@@ -526,6 +531,12 @@ export function useWorkspace({
       enabled: entryIds.length > 1,
       run: () => stepEntry(-1),
     },
+    "abort-turn": {
+      label: "Abort the working turn",
+      group: "Sessions",
+      enabled: chat !== undefined && chatTurn === "working",
+      run: () => void attempt(() => chat?.abort() ?? Promise.resolve()),
+    },
     "session-1": goToSession(1),
     "session-2": goToSession(2),
     "session-3": goToSession(3),
@@ -648,6 +659,7 @@ export function useWorkspace({
     loaded,
     current,
     currentSession,
+    chat,
     currentTask,
     currentTaskNode,
     currentTaskProject,
