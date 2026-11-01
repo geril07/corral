@@ -13,7 +13,7 @@ export const StoredSession = Session.omit({
 }).extend({ launch: LaunchSnapshot.nullable() });
 export type StoredSession = z.infer<typeof StoredSession>;
 
-const COLUMNS = `id, task_id AS taskId, kind, agent_session_id AS agentSessionId, state, label,
+const COLUMNS = `id, task_id AS taskId, kind, view, agent_session_id AS agentSessionId, state, label,
   created_at AS createdAt, launch_spec AS launchSpec`;
 
 function fromRow(row: unknown): StoredSession {
@@ -66,13 +66,14 @@ export class SessionStore {
     this.#db
       .prepare(
         `INSERT INTO sessions
-           (id, task_id, kind, agent_session_id, state, label, created_at, launch_spec)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, task_id, kind, view, agent_session_id, state, label, created_at, launch_spec)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         session.id,
         session.taskId,
         session.kind,
+        session.view,
         session.agentSessionId,
         session.state,
         session.label ?? null,

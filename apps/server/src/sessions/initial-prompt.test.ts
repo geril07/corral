@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { afterEach, beforeEach, expect, test, vi } from "vite-plus/test";
+import { ChatService } from "../chat/chat-service.ts";
 import { useFakeAgents } from "../../test/fake-agents.ts";
 import { launchesOf } from "../../test/session-helpers.ts";
 import { ProjectStore } from "../projects/project-store.ts";
@@ -34,6 +35,7 @@ function openServer(): void {
     store: new SessionStore(database),
     tasks: new TaskStore(database),
     terminals,
+    chat: new ChatService({ dataDir }),
     statusUrl: (sessionId) => `http://127.0.0.1:9${sessionId}/report`,
     openCode: OpenCodeIntegration.install(dataDir),
     // A start and a resume read no profile; asking for one here is a bug in this test.

@@ -4,6 +4,7 @@ import type {
   CreateTerminalInput,
   Session,
   SessionKind,
+  SessionView,
   Task,
   TaskAgent,
   TerminalInfo,
@@ -12,6 +13,9 @@ import type {
 import { normalizeLabel } from "@corral/protocol/label";
 import type { StatusReport } from "@corral/protocol/status-report";
 import { AGENTS } from "../agents/agents.ts";
+import type { AgentAdapter } from "../agents/agent-adapter.ts";
+import type { ChatService } from "../chat/chat-service.ts";
+import { ChatLaunchError, type ChatSubject } from "../chat/chat-errors.ts";
 import {
   codexHome,
   watchForCodexSession,
@@ -36,6 +40,7 @@ import {
   LaunchProfileRevisionWithoutProfileError,
   LaunchProfileUnknownError,
   LaunchSpawnError,
+  LaunchViewUnsupportedError,
   SessionNotFoundError,
   ShellPromptError,
 } from "./errors.ts";
@@ -60,16 +65,22 @@ export interface SessionStartChoice {
   profileId?: string | undefined;
   expectedProfileRevision?: string | undefined;
   model?: string | undefined;
-  /** What the agent's TUI starts working on; the first launch is the only one that gets it. */
+  /** What the agent starts working on; the first launch is the only one that gets it. */
   prompt?: string | undefined;
+  /** `terminal` when omitted; `chat` needs an agent with a chat driver. */
+  view?: SessionView | undefined;
 }
 
 /**
- * The terminal a session runs in, the search for the Codex id while there is none yet, and the
- * token this launch of the agent reports status with.
+ * What a session runs in: a terminal, or for a chat session the RPC child and its chat timeline;
+ * the search for the Codex id while there is none yet; and the token this launch reports status
+ * with.
  */
 interface Live {
-  terminalId: string;
+  /** The terminal of a `terminal` session; null while a chat session is the live frontend. */
+  terminalId: string | null;
+  /** Whether the live frontend is a chat child rather than a terminal. */
+  chat: boolean;
   discovery: CodexSessionWatch | undefined;
   statusToken: string;
   /** Once this launch has had an HTTP report accepted, its OSC 7501 reports no longer change the status. */
@@ -82,6 +93,7 @@ export class SessionService {
   readonly #store: SessionStore;
   readonly #tasks: TaskStore;
   readonly #terminals: TerminalRegistry;
+  readonly #chat: ChatService;
   readonly #live = new Map<string, Live>();
   readonly #statusUrl: (sessionId: string) => string;
   readonly #openCode: OpenCodeIntegration;
@@ -100,6 +112,8 @@ export class SessionService {
     store: SessionStore;
     tasks: TaskStore;
     terminals: TerminalRegistry;
+    /** The chat frontends; a `view: "chat"` session launches here instead of a PTY. */
+    chat: ChatService;
     /** Where an agent of this session POSTs its status; resolved at launch, when the server is listening. */
     statusUrl: (sessionId: string) => string;
     openCode: OpenCodeIntegration;
@@ -112,6 +126,7 @@ export class SessionService {
     this.#tasks = options.tasks;
     this.#taskEvents = options.taskEvents;
     this.#terminals = options.terminals;
+    this.#chat = options.chat;
     this.#statusUrl = options.statusUrl;
     this.#openCode = options.openCode;
     this.#config = options.config;
@@ -151,6 +166,7 @@ export class SessionService {
           expectedProfileRevision: agent.expectedProfileRevision,
           model: agent.model,
           prompt: prompt ?? undefined,
+          view: agent.view,
         },
         true,
       ),
@@ -165,12 +181,12 @@ export class SessionService {
     keepFailedLaunch: boolean,
   ): Promise<Session> {
     const task = this.#task(taskId);
+    const view = this.#viewFor(kind, choice.view);
     const stored: StoredSession = {
       id: newId(),
       taskId,
       kind,
-      // Every session is a terminal until B1 adds chat launches and the `view` column.
-      view: "terminal",
+      view,
       agentSessionId: kind === "shell" ? null : AGENTS[kind].newSessionId(),
       state: "running",
       label: null,
@@ -180,7 +196,7 @@ export class SessionService {
     try {
       stored.launch = this.#launchSnapshot(kind, choice);
       const prompt = this.#promptFor(kind, choice.prompt);
-      this.#launch(stored, task, size, "start", prompt);
+      await this.#launch(stored, task, size, "start", prompt);
     } catch (error) {
       if (!keepFailedLaunch) throw error;
       const reason = launchFailureReason(error);
@@ -226,10 +242,12 @@ export class SessionService {
       const stored = this.#stored(id);
       if (stored.state === "running") throw new AlreadyRunningError(id);
       const prompt = this.#promptFor(stored.kind, choice.prompt ?? this.#taskPrompt(stored));
-      // The exited terminal of a session that stopped by itself stays listed until now.
+      // The exited terminal of a session that stopped by itself stays listed until now; a chat
+      // session is stopped before anything new spawns, so one session never has two writers.
       const previous = this.#live.get(id);
+      if (previous?.chat) await this.#chat.stop(id);
       try {
-        this.#launch(stored, this.#task(stored.taskId), size, "resume", prompt);
+        await this.#launch(stored, this.#task(stored.taskId), size, "resume", prompt);
       } catch (error) {
         const reason = launchFailureReason(error);
         this.#launchErrors.set(id, reason);
@@ -240,7 +258,7 @@ export class SessionService {
         );
         throw error;
       }
-      if (previous) await this.#terminals.close(previous.terminalId);
+      if (previous?.terminalId) await this.#terminals.close(previous.terminalId);
       this.#store.setState(id, "running");
       this.#store.setResumeOnUnsettle(id, false);
       this.#changes.notify();
@@ -283,11 +301,25 @@ export class SessionService {
     return this.#withTerminal(this.#stored(id));
   }
 
+  /**
+   * What the chat procedures need to know about a session, or undefined for an unknown id. The
+   * chat drivers stay in `chat/`; this is the session facts they are keyed by.
+   */
+  chatSubject(id: string): ChatSubject | undefined {
+    const stored = this.#store.get(id);
+    return stored === undefined
+      ? undefined
+      : { sessionId: stored.id, kind: stored.kind, view: stored.view, state: stored.state };
+  }
+
   /** An agent's HTTP status report. Only the launch that got the token can report, and only while its process runs. */
   reportStatus(id: string, token: string, report: StatusReport): StatusReportOutcome {
     if (!this.#store.get(id)) return "unknown-session";
     const live = this.#live.get(id);
-    const running = live !== undefined && this.#terminals.get(live.terminalId)?.info.exit === null;
+    const running =
+      live !== undefined &&
+      live.terminalId !== null &&
+      this.#terminals.get(live.terminalId)?.info.exit === null;
     if (!live || !running || !tokensEqual(live.statusToken, token)) return "forbidden";
     live.reportedOverHttp = true;
     this.#setStatus(id, statusFromReport(report, Date.now()));
@@ -353,7 +385,7 @@ export class SessionService {
       const remembered = this.#store.listResumableOnUnsettle(taskId);
       for (const stored of remembered) {
         this.#store.setResumeOnUnsettle(stored.id, false);
-        if (stored.state !== "running") this.#relaunch(stored);
+        if (stored.state !== "running") void this.#relaunch(stored);
       }
       if (remembered.length > 0) this.#changes.notify();
     });
@@ -372,7 +404,7 @@ export class SessionService {
         this.#settle(stored.id);
         this.#store.setResumeOnUnsettle(stored.id, true);
       } else {
-        this.#relaunch(stored);
+        void this.#relaunch(stored);
       }
     }
   }
@@ -381,6 +413,9 @@ export class SessionService {
   async shutDown(): Promise<void> {
     await this.#queue.run(async () => undefined);
     this.#shuttingDown = true;
+    // Closing stdin is pi's orderly shutdown; a child that outlives the server is killed with its
+    // group, so no chat frontend keeps writing a session file after this server is gone.
+    await this.#chat.closeAll();
     await Promise.all(
       [...this.#live.values()].flatMap((live) => (live.discovery ? [live.discovery.finish()] : [])),
     );
@@ -430,25 +465,20 @@ export class SessionService {
     return prompt;
   }
 
+  /** The view a start runs in; a chat view needs an agent with a chat driver in this build. */
+  #viewFor(kind: SessionKind, view: SessionView | undefined): SessionView {
+    const resolved = view ?? "terminal";
+    if (resolved === "chat" && !this.#chat.hasDriver(kind))
+      throw new LaunchViewUnsupportedError(kind, resolved);
+    return resolved;
+  }
+
   /**
-   * Spawns the session's process in a new terminal; throws, changing nothing, when it cannot.
-   * `prompt` is a candidate initial prompt, used only when this launch starts a conversation: the
-   * first start, or a start under the same id that falls back here because the conversation was
-   * never written (Claude Code that failed before its transcript). A resume of an existing
-   * conversation drops it, or the agent would redo the work. Nothing stores the prompt text, so
-   * whether to pass it again after such a fallback is the caller's decision.
+   * The effective environment of one launch: the server's own, the profile's resolved references,
+   * and the server-owned `CORRAL_*` variables, which win over references. A missing reference fails
+   * here, before anything is spawned.
    */
-  #launch(
-    stored: StoredSession,
-    task: Task,
-    size: TerminalSize,
-    how: "start" | "resume",
-    prompt: string | null = null,
-  ): void {
-    const adapter = stored.kind === "shell" ? undefined : AGENTS[stored.kind];
-    const statusToken = newStatusToken();
-    // One effective environment for the spawn, the executable check, transcript/rollout discovery
-    // and the OpenCode plugin. A missing reference fails here, before anything is spawned.
+  #launchEnv(stored: StoredSession): { env: Record<string, string>; referencedValues: string[] } {
     const env = stringEnv({ ...process.env });
     let referencedValues: string[] = [];
     if (stored.launch !== null) {
@@ -460,9 +490,47 @@ export class SessionService {
       referencedValues = Object.values(resolved);
       Object.assign(env, resolved);
     }
-    // Server-owned variables win over profile references.
     env["CORRAL_SESSION_ID"] = stored.id;
     env["CORRAL_TASK_ID"] = stored.taskId;
+    return { env, referencedValues };
+  }
+
+  /**
+   * Starts the session's frontend in the view it was created with; throws, changing nothing, when
+   * it cannot. A terminal gets a PTY; a chat session gets its agent in RPC mode, whose live state is
+   * the chat timeline and whose only writer is that child.
+   *
+   * `prompt` is a candidate initial prompt, used only when the launch starts a conversation: the
+   * first start, or a start under the same id that falls back here because the conversation was
+   * never written (Claude Code that failed before its transcript, pi with no user message yet). A
+   * resume of an existing conversation drops it, or the agent would redo the work. Nothing stores
+   * the prompt text, so whether to pass it again after such a fallback is the caller's decision.
+   */
+  async #launch(
+    stored: StoredSession,
+    task: Task,
+    size: TerminalSize,
+    how: "start" | "resume",
+    prompt: string | null = null,
+  ): Promise<void> {
+    const adapter = stored.kind === "shell" ? undefined : AGENTS[stored.kind];
+    const statusToken = newStatusToken();
+    const { env, referencedValues } = this.#launchEnv(stored);
+    if (stored.view === "chat") {
+      // A chat view is only created for an agent with a driver, and a shell never has one.
+      if (!adapter) throw new LaunchViewUnsupportedError(stored.kind, stored.view);
+      await this.#launchChat(
+        stored,
+        task,
+        adapter,
+        env,
+        statusToken,
+        how,
+        prompt,
+        referencedValues,
+      );
+      return;
+    }
     const input: CreateTerminalInput = { cwd: task.workspacePath, size };
     if (adapter) {
       env["CORRAL_STATUS_URL"] = this.#statusUrl(stored.id);
@@ -498,8 +566,8 @@ export class SessionService {
         // The token names this launch: a terminal being replaced must not write over the new one's status.
         // OSC 7501 fills in only until the launch's first accepted HTTP report (Orca's rule: the plugin wins).
         (status) => {
-          const live = this.#live.get(stored.id);
-          if (live?.statusToken === statusToken && !live.reportedOverHttp)
+          const current = this.#live.get(stored.id);
+          if (current?.statusToken === statusToken && !current.reportedOverHttp)
             this.#setStatus(stored.id, status);
         },
       );
@@ -520,32 +588,102 @@ export class SessionService {
             },
           })
         : undefined;
-    this.#live.set(stored.id, {
+    const live: Live = {
       terminalId: info.id,
+      chat: false,
       discovery,
       statusToken,
       reportedOverHttp: false,
-    });
+    };
+    this.#live.set(stored.id, live);
     this.#launchErrors.delete(stored.id);
     void this.#terminals
       .get(info.id)
       ?.whenExitRecorded()
-      .then(() => this.#exitedByItself(stored.id, info.id));
+      .then(() => this.#exitedByItself(stored.id, live));
   }
 
-  #exitedByItself(sessionId: string, terminalId: string): Promise<void> {
+  /**
+   * Starts one chat session's pi process in RPC mode: the same executable, launch arguments,
+   * profile environment and `CORRAL_*` variables as a terminal launch, plus `--mode rpc` and no
+   * prompt argument (RPC rejects `@file` prompts; the prompt travels as a command once the child
+   * has said whether it has a conversation).
+   */
+  async #launchChat(
+    stored: StoredSession,
+    task: Task,
+    adapter: AgentAdapter,
+    env: Record<string, string>,
+    statusToken: string,
+    how: "start" | "resume",
+    prompt: string | null,
+    referencedValues: readonly string[],
+  ): Promise<void> {
+    env["CORRAL_STATUS_URL"] = this.#statusUrl(stored.id);
+    env["CORRAL_STATUS_TOKEN"] = statusToken;
+    if (!isExecutable(adapter.command, env["PATH"])) throw new AgentNotFoundError(adapter.command);
+    const id = stored.agentSessionId;
+    const resumable = how === "resume" && id !== null;
+    const args = [
+      "--mode",
+      "rpc",
+      ...adapter.launchArgs(stored.launch?.model ?? null, stored.launch?.provider ?? null),
+      ...(resumable ? adapter.resumeArgs(id) : adapter.startArgs(id)),
+    ];
+    const live: Live = {
+      terminalId: null,
+      chat: true,
+      discovery: undefined,
+      statusToken,
+      reportedOverHttp: false,
+    };
+    try {
+      await this.#chat.launch({
+        sessionId: stored.id,
+        command: adapter.command,
+        args,
+        cwd: task.workspacePath,
+        env,
+        prompt,
+        onStatus: (status) => {
+          const current = this.#live.get(stored.id);
+          if (current?.statusToken === statusToken) this.#setStatus(stored.id, status);
+        },
+        onExit: (reason) => {
+          if (reason !== null) this.#launchErrors.set(stored.id, reason);
+          void this.#exitedByItself(stored.id, live);
+        },
+      });
+    } catch (error) {
+      throw new LaunchSpawnError(
+        stored.kind,
+        error instanceof ChatLaunchError
+          ? error.message
+          : redactLaunchError(error, referencedValues),
+      );
+    }
+    this.#statuses.delete(stored.id);
+    this.#live.set(stored.id, live);
+    this.#launchErrors.delete(stored.id);
+  }
+
+  /**
+   * The session's process ended on its own: no status change from the server, only what the agent
+   * reported. A chat session's frontend is gone with it; a terminal stays listed until it is closed.
+   */
+  #exitedByItself(sessionId: string, live: Live): Promise<void> {
     return this.#queue.run(async () => {
-      const live = this.#live.get(sessionId);
-      if (this.#shuttingDown || live?.terminalId !== terminalId) return;
+      if (this.#shuttingDown || this.#live.get(sessionId) !== live) return;
       await live.discovery?.finish();
       live.discovery = undefined;
+      if (live.chat) this.#live.delete(sessionId);
       this.#settle(sessionId);
       this.#changes.notify();
     });
   }
 
   /** Starts a stopped session again, an agent resumed; one that cannot start becomes `stopped`. */
-  #relaunch(stored: StoredSession): void {
+  async #relaunch(stored: StoredSession): Promise<void> {
     try {
       // Starting it again would open a new conversation, which the user did not ask for.
       if (stored.kind === "codex" && stored.agentSessionId === null) {
@@ -554,7 +692,7 @@ export class SessionService {
       }
       // A restored primary session whose agent never wrote a conversation starts one, and only
       // that launch takes the prompt; a real resume drops it inside `#launch`.
-      this.#launch(
+      await this.#launch(
         stored,
         this.#task(stored.taskId),
         UNATTACHED_SIZE,
@@ -573,11 +711,12 @@ export class SessionService {
     }
   }
 
-  /** Kills the session's process, closes its terminal and ends the search for its id. */
+  /** Kills the session's frontend, closes its terminal and ends the search for its id. */
   async #halt(id: string): Promise<void> {
     const live = this.#live.get(id);
     if (!live) return;
-    await this.#terminals.close(live.terminalId);
+    if (live.terminalId === null) await this.#chat.stop(id);
+    else await this.#terminals.close(live.terminalId);
     await live.discovery?.finish();
     this.#live.delete(id);
   }

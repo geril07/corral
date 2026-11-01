@@ -93,3 +93,17 @@ export class LaunchSpawnError extends Error {
     this.summary = diagnostic.split("\n", 1)[0] ?? "the session could not be launched";
   }
 }
+
+export class LaunchViewUnsupportedError extends Error {
+  readonly kind: SessionKind;
+  readonly view: "terminal" | "chat";
+  constructor(kind: SessionKind, view: "terminal" | "chat") {
+    super(
+      kind === "shell"
+        ? "a shell runs in a terminal, not in chat"
+        : `${kind} has no chat driver; start it in a terminal`,
+    );
+    this.kind = kind;
+    this.view = view;
+  }
+}

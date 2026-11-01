@@ -8,6 +8,7 @@ import {
   LaunchProfileRevisionWithoutProfileError,
   LaunchProfileUnknownError,
   LaunchSpawnError,
+  LaunchViewUnsupportedError,
 } from "./errors.ts";
 
 const SAFE_CODE = /^[A-Z][A-Z0-9_]{0,31}$/;
@@ -49,6 +50,7 @@ export function launchFailureReason(error: unknown): string {
   if (error instanceof LaunchSpawnError) return error.summary;
   if (
     error instanceof AgentNotFoundError ||
+    error instanceof LaunchViewUnsupportedError ||
     error instanceof LaunchProfileUnknownError ||
     error instanceof LaunchProfileChangedError ||
     error instanceof LaunchProfileRevisionWithoutProfileError ||
@@ -68,6 +70,7 @@ export function launchDiagnostic(error: unknown): string {
     error instanceof MissingEnvRefError ||
     error instanceof ReservedEnvRefError ||
     error instanceof AgentNotFoundError ||
+    error instanceof LaunchViewUnsupportedError ||
     error instanceof LaunchProfileChangedError ||
     error instanceof LaunchProfileRevisionWithoutProfileError ||
     error instanceof LaunchProfileKindMismatchError ||

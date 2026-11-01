@@ -50,6 +50,9 @@ export const MIGRATIONS: readonly string[] = [
   // column defaults to NULL.
   `ALTER TABLE tasks ADD COLUMN prompt TEXT;
    ALTER TABLE tasks ADD COLUMN primary_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL;`,
+  // How the session runs (design.md, decision 5). The default is what backfills the sessions from
+  // before chat: every one of them runs in a terminal. Inserts name the column anyway.
+  `ALTER TABLE sessions ADD COLUMN view TEXT NOT NULL DEFAULT 'terminal';`,
 ];
 
 export const DATABASE_FILE = "corral.db";

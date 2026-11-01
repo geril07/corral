@@ -1,5 +1,12 @@
 import { contract } from "@corral/protocol/rpc";
 import { implement } from "@orpc/server";
+import type { ChatService } from "../chat/chat-service.ts";
+import {
+  ChatModelUnsupportedError,
+  ChatReasoningUnsupportedError,
+  ChatRequestUnknownError,
+  ChatUnavailableError,
+} from "../chat/chat-errors.ts";
 import type { ConfigWatcher } from "../config/config-watcher.ts";
 import { GitError } from "../git/git.ts";
 import {
@@ -30,10 +37,11 @@ import {
   LaunchProfileRevisionWithoutProfileError,
   LaunchProfileUnknownError,
   LaunchSpawnError,
+  LaunchViewUnsupportedError,
   SessionNotFoundError,
 } from "../sessions/errors.ts";
 import { MissingEnvRefError, ReservedEnvRefError } from "../agents/launch-env.ts";
-import type { ChatUnavailableReason, SessionKind } from "@corral/protocol/rpc";
+import type { SessionKind } from "@corral/protocol/rpc";
 import type { SessionService } from "../sessions/session-service.ts";
 import { BlankTaskTitleError, TaskNotFoundError, WorktreeDirtyError } from "../tasks/errors.ts";
 import type { TaskService } from "../tasks/task-service.ts";
@@ -44,6 +52,7 @@ export interface RpcServices {
   projects: ProjectService;
   tasks: TaskService;
   sessions: SessionService;
+  chat: ChatService;
   terminals: TerminalRegistry;
 }
 
@@ -71,6 +80,9 @@ function launchError(
     LAUNCH_MODEL_INVALID: (options: { data: { kind: SessionKind } }) => Error;
     LAUNCH_ENV_MISSING: (options: { data: { profileId: string | null; name: string } }) => Error;
     LAUNCH_ENV_RESERVED: (options: { data: { name: string } }) => Error;
+    LAUNCH_VIEW_UNSUPPORTED: (options: {
+      data: { kind: SessionKind; view: "terminal" | "chat" };
+    }) => Error;
     LAUNCH_FAILED: (options: { data: { kind: SessionKind; message: string } }) => Error;
   },
 ): Error | undefined {
@@ -92,26 +104,50 @@ function launchError(
     });
   if (error instanceof ReservedEnvRefError)
     return errors.LAUNCH_ENV_RESERVED({ data: { name: error.variable } });
+  if (error instanceof LaunchViewUnsupportedError)
+    return errors.LAUNCH_VIEW_UNSUPPORTED({ data: { kind: error.kind, view: error.view } });
   if (error instanceof LaunchSpawnError)
     return errors.LAUNCH_FAILED({ data: { kind: error.kind, message: error.summary } });
   return undefined;
 }
 
-/** Mapped to `CHAT_UNAVAILABLE` until a driver exists (B1). */
-const CHAT_NOT_AVAILABLE = "This server has no chat driver for any session yet.";
-
-/** The refusal every chat procedure gives in a build without a driver. */
-function chatNotAvailable(errors: {
-  CHAT_UNAVAILABLE: (options: {
-    data: { message: string; reason: ChatUnavailableReason };
-  }) => Error;
-}): Error {
-  return errors.CHAT_UNAVAILABLE({
-    data: { message: CHAT_NOT_AVAILABLE, reason: "no-driver" },
-  });
+/**
+ * Maps the chat driver's refusals to the typed errors of the `chat.*` contract. Each procedure
+ * declares only its own codes, so a constructor that the caller's contract lacks stays undefined
+ * and the error propagates instead (a driver bug, not a wire answer).
+ */
+function chatError(
+  error: unknown,
+  errors: {
+    CHAT_UNAVAILABLE?: (options: {
+      data: { message: string; reason: "no-driver" | "not-started" | "exited" };
+    }) => Error;
+    CHAT_REQUEST_UNKNOWN?: (options: { data: { requestId: string } }) => Error;
+    CHAT_MODEL_UNSUPPORTED?: (options: {
+      data: { model: { provider: string | null; id: string } };
+    }) => Error;
+    CHAT_REASONING_UNSUPPORTED?: (options: { data: { level: string } }) => Error;
+  },
+): Error | undefined {
+  if (error instanceof ChatUnavailableError)
+    return errors.CHAT_UNAVAILABLE?.({ data: { message: error.message, reason: error.reason } });
+  if (error instanceof ChatRequestUnknownError)
+    return errors.CHAT_REQUEST_UNKNOWN?.({ data: { requestId: error.requestId } });
+  if (error instanceof ChatModelUnsupportedError)
+    return errors.CHAT_MODEL_UNSUPPORTED?.({ data: { model: error.model } });
+  if (error instanceof ChatReasoningUnsupportedError)
+    return errors.CHAT_REASONING_UNSUPPORTED?.({ data: { level: error.level } });
+  return undefined;
 }
 
-export function createRpcRouter({ config, projects, tasks, sessions, terminals }: RpcServices) {
+export function createRpcRouter({
+  config,
+  projects,
+  tasks,
+  sessions,
+  chat,
+  terminals,
+}: RpcServices) {
   const os = implement(contract);
   return os.router({
     config: {
@@ -265,6 +301,7 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
               profileId: input.profileId,
               expectedProfileRevision: input.expectedProfileRevision,
               model: input.model,
+              view: input.view,
             }),
           (error) => {
             if (error instanceof TaskNotFoundError)
@@ -321,28 +358,83 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
       watch: os.sessions.watch.handler(({ signal }) => sessions.watch(signal)),
     },
     chat: {
-      // Contract-only until B1 adds the pi driver: no kind has a driver, so every call refuses with
-      // CHAT_UNAVAILABLE (`no-driver`) instead of a procedure that does not exist. B1 fills both the
-      // build fact and the session procedures; nothing here is a fallback to keep.
-      capabilities: os.chat.capabilities.handler(() => ({ drivers: [] })),
-      watch: os.chat.watch.handler(({ errors }) => {
-        throw chatNotAvailable(errors);
+      // The pi driver (B1). The build fact comes from the chat service, so this router never
+      // decides by agent kind; a session without a live frontend gets `CHAT_UNAVAILABLE` with the
+      // reason a client can act on, never an ended iterator (B0's contract).
+      capabilities: os.chat.capabilities.handler(() => ({ drivers: chat.capabilities() })),
+      watch: os.chat.watch.handler(({ input, errors, signal }) => {
+        const subject = sessions.chatSubject(input.sessionId);
+        if (!subject) throw errors.SESSION_NOT_FOUND({ data: { id: input.sessionId } });
+        return translating(
+          () => chat.watch(subject, input.after, signal),
+          (error) => chatError(error, errors),
+        );
       }),
-      send: os.chat.send.handler(({ errors }) => {
-        throw chatNotAvailable(errors);
-      }),
-      abort: os.chat.abort.handler(({ errors }) => {
-        throw chatNotAvailable(errors);
-      }),
-      respond: os.chat.respond.handler(({ errors }) => {
-        throw chatNotAvailable(errors);
-      }),
-      setModel: os.chat.setModel.handler(({ errors }) => {
-        throw chatNotAvailable(errors);
-      }),
-      setReasoning: os.chat.setReasoning.handler(({ errors }) => {
-        throw chatNotAvailable(errors);
-      }),
+      send: os.chat.send.handler(({ input, errors }) =>
+        translating(
+          () => {
+            const subject = sessions.chatSubject(input.sessionId);
+            if (!subject) throw new SessionNotFoundError(input.sessionId);
+            return chat.send(subject, input.text, input.mode);
+          },
+          (error) =>
+            error instanceof SessionNotFoundError
+              ? errors.SESSION_NOT_FOUND({ data: { id: error.id } })
+              : chatError(error, errors),
+        ),
+      ),
+      abort: os.chat.abort.handler(({ input, errors }) =>
+        translating(
+          async () => {
+            const subject = sessions.chatSubject(input.sessionId);
+            if (!subject) throw new SessionNotFoundError(input.sessionId);
+            await chat.abort(subject);
+          },
+          (error) =>
+            error instanceof SessionNotFoundError
+              ? errors.SESSION_NOT_FOUND({ data: { id: error.id } })
+              : chatError(error, errors),
+        ),
+      ),
+      respond: os.chat.respond.handler(({ input, errors }) =>
+        translating(
+          () => {
+            const subject = sessions.chatSubject(input.sessionId);
+            if (!subject) throw new SessionNotFoundError(input.sessionId);
+            chat.respond(subject, input.requestId, input.value);
+          },
+          (error) =>
+            error instanceof SessionNotFoundError
+              ? errors.SESSION_NOT_FOUND({ data: { id: error.id } })
+              : chatError(error, errors),
+        ),
+      ),
+      setModel: os.chat.setModel.handler(({ input, errors }) =>
+        translating(
+          async () => {
+            const subject = sessions.chatSubject(input.sessionId);
+            if (!subject) throw new SessionNotFoundError(input.sessionId);
+            await chat.setModel(subject, input.model);
+          },
+          (error) =>
+            error instanceof SessionNotFoundError
+              ? errors.SESSION_NOT_FOUND({ data: { id: error.id } })
+              : chatError(error, errors),
+        ),
+      ),
+      setReasoning: os.chat.setReasoning.handler(({ input, errors }) =>
+        translating(
+          async () => {
+            const subject = sessions.chatSubject(input.sessionId);
+            if (!subject) throw new SessionNotFoundError(input.sessionId);
+            await chat.setReasoning(subject, input.level);
+          },
+          (error) =>
+            error instanceof SessionNotFoundError
+              ? errors.SESSION_NOT_FOUND({ data: { id: error.id } })
+              : chatError(error, errors),
+        ),
+      ),
     },
     terminals: {
       list: os.terminals.list.handler(() => terminals.list()),

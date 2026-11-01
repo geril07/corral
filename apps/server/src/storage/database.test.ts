@@ -313,3 +313,46 @@ test("the task store keeps where a title came from, and a rename stores the user
   expect(store.get("b")).toEqual(storedTask("b", "user"));
   db.close();
 });
+
+test("migrating a database from before chat keeps every existing session in a terminal", () => {
+  const db = new DatabaseSync(":memory:");
+  // Every migration but the view column, which is the one this test is about.
+  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
+  db.exec(
+    `INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
+     INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
+       VALUES ('t', 'p', 'title', 'branch', '/work/t', 0, 'active', 1);
+     INSERT INTO sessions (id, task_id, kind, agent_session_id, state, created_at)
+       VALUES ('s', 't', 'claude', 'conversation', 'running', 2);`,
+  );
+
+  migrate(db, MIGRATIONS);
+
+  expect(schemaVersion(db)).toBe(MIGRATIONS.length);
+  expect(new SessionStore(db).get("s")).toMatchObject({ id: "s", view: "terminal" });
+  db.close();
+});
+
+test("the session store writes the view of a chat session and reads it back", () => {
+  const db = openDatabase(dataDir);
+  db.exec(
+    `INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
+     INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
+       VALUES ('t', 'p', 'title', 'branch', '/work/t', 0, 'active', 1);`,
+  );
+  const sessions = new SessionStore(db);
+  sessions.insert({
+    id: "s",
+    taskId: "t",
+    kind: "pi",
+    view: "chat",
+    agentSessionId: "agent-session",
+    state: "running",
+    label: null,
+    createdAt: 2,
+    launch: null,
+  });
+
+  expect(sessions.get("s")).toMatchObject({ id: "s", view: "chat", kind: "pi" });
+  db.close();
+});

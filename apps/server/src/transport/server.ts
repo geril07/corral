@@ -13,6 +13,8 @@ import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
+import { ChatService } from "../chat/chat-service.ts";
+import type { PiDriverTimeouts } from "../chat/pi-driver.ts";
 import { watchConfigFile } from "../config/config-watcher.ts";
 import { configNaming } from "../config/naming.ts";
 import { configTaskSettings } from "../config/task-settings.ts";
@@ -49,6 +51,8 @@ export function startServer(options: {
   dataDir?: string;
   /** Task settings; A0 supplies the config-backed ones, tests may pass their own. */
   settings?: TaskSettings;
+  /** Chat driver deadlines; tests shorten them, production runs the defaults. */
+  chat?: Partial<PiDriverTimeouts> & { writerWaitMs?: number };
 }): Promise<RunningServer> {
   const temporaryDataDir =
     options.dataDir === undefined ? mkdtempSync(join(tmpdir(), "corral-data-")) : undefined;
@@ -56,6 +60,10 @@ export function startServer(options: {
   const capability = newCapability();
   const database = openDatabase(dataDir);
   const terminals = new TerminalRegistry();
+  const chat = new ChatService({
+    dataDir,
+    ...(options.chat === undefined ? {} : { timeouts: options.chat }),
+  });
   const projectStore = new ProjectStore(database);
   const taskStore = new TaskStore(database);
   const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, homedir())), {
@@ -67,6 +75,7 @@ export function startServer(options: {
     store: new SessionStore(database),
     tasks: taskStore,
     terminals,
+    chat,
     statusUrl: (sessionId) => `${httpOrigin}${statusReportPath(sessionId)}`,
     openCode: OpenCodeIntegration.install(dataDir),
     config,
@@ -84,7 +93,9 @@ export function startServer(options: {
   });
   const issues = new IssueImportService({ timeoutMs: issueImportTimeoutMs(process.env) });
   const projects = new ProjectService(projectStore, tasks, issues);
-  const rpc = new RPCHandler(createRpcRouter({ config, projects, tasks, sessions, terminals }));
+  const rpc = new RPCHandler(
+    createRpcRouter({ config, projects, tasks, sessions, chat, terminals }),
+  );
   const http = createServer((request, response) => {
     const sessionId = statusReportSessionId(
       new URL(request.url ?? "/", "http://localhost").pathname,
