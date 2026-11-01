@@ -1,5 +1,6 @@
 import { eventIterator, oc } from "@orpc/contract";
 import { z } from "zod";
+import { ChatAnswer, ChatItemId, ChatModelRef, ChatStreamMessage } from "./chat.ts";
 import { AgentKind, EnvRef, configContract } from "./config.ts";
 import { Label } from "./label.ts";
 
@@ -24,6 +25,7 @@ export const ProjectId = z.string().min(1);
 export const TaskId = z.string().min(1);
 
 export const SessionId = z.string().min(1);
+export type SessionId = z.infer<typeof SessionId>;
 
 export const TerminalInfo = z.object({
   id: TerminalId,
@@ -235,6 +237,13 @@ export { AgentKind } from "./config.ts";
 export const SessionKind = z.enum(["shell", ...AgentKind.options]);
 export type SessionKind = z.infer<typeof SessionKind>;
 
+/**
+ * How a session runs: as a terminal, or as chat through its agent's driver (design.md, decision 5).
+ * Chat needs a driver for the agent; a shell is always `terminal`.
+ */
+export const SessionView = z.enum(["terminal", "chat"]);
+export type SessionView = z.infer<typeof SessionView>;
+
 export const AgentState = z.enum(["working", "blocked", "done", "error", "idle"]);
 export type AgentState = z.infer<typeof AgentState>;
 
@@ -278,6 +287,11 @@ export const Session = z.object({
   taskId: TaskId,
   kind: SessionKind,
   /**
+   * The view the session is shown in. A `chat` session runs a chat driver instead of a terminal
+   * (`chat.*`); the server's storage carries it from B1 on. Absent means `terminal`.
+   */
+  view: SessionView.optional(),
+  /**
    * The agent's own session id, used to resume it. Set at start for agents that accept one
    * (Claude Code, pi, OpenCode); discovered after start for Codex, so `null` until then.
    * Always `null` for a shell.
@@ -318,6 +332,52 @@ export const Session = z.object({
 });
 export type Session = z.infer<typeof Session>;
 
+/** How `chat.send` treats a message. */
+export const ChatSendMode = z.enum(["prompt", "steer", "follow-up"]);
+export type ChatSendMode = z.infer<typeof ChatSendMode>;
+
+/** What `chat.watch` takes: the session, and the last sequence the client applied when resuming. */
+export const ChatWatchInput = z.object({
+  sessionId: SessionId,
+  /**
+   * The last sequence the client applied. The server replays the events after it, or starts with a
+   * fresh snapshot when it no longer has them; omit it to ask for a snapshot outright.
+   */
+  after: z.number().int().nonnegative().optional(),
+});
+export type ChatWatchInput = z.infer<typeof ChatWatchInput>;
+
+export const ChatSendInput = z.object({
+  sessionId: SessionId,
+  text: z.string().trim().min(1),
+  /** `prompt` starts a turn, `steer` joins the running one, `follow-up` queues after it. */
+  mode: ChatSendMode,
+});
+export type ChatSendInput = z.infer<typeof ChatSendInput>;
+
+export const ChatRespondInput = z.object({
+  sessionId: SessionId,
+  /** The `id` of the `user-request` item to answer. */
+  requestId: ChatItemId,
+  /** A string for `input`, `editor` and `select`, a boolean for `confirm`, `null` to dismiss. */
+  value: ChatAnswer,
+});
+export type ChatRespondInput = z.infer<typeof ChatRespondInput>;
+
+export const ChatSetModelInput = z.object({
+  sessionId: SessionId,
+  /** One of the session's `models`. */
+  model: ChatModelRef,
+});
+export type ChatSetModelInput = z.infer<typeof ChatSetModelInput>;
+
+export const ChatSetReasoningInput = z.object({
+  sessionId: SessionId,
+  /** One of the session's `reasoningLevels`. */
+  level: z.string().min(1),
+});
+export type ChatSetReasoningInput = z.infer<typeof ChatSetReasoningInput>;
+
 const terminalNotFound = { NOT_FOUND: { data: z.object({ id: TerminalId }) } };
 const projectNotFound = { PROJECT_NOT_FOUND: { data: z.object({ id: ProjectId }) } };
 const taskNotFound = { TASK_NOT_FOUND: { data: z.object({ id: TaskId }) } };
@@ -339,6 +399,8 @@ const launchRefused = {
 };
 /** Git refused or failed; `message` is git's own stderr, meant for the user. */
 const gitFailed = { GIT_FAILED: { data: z.object({ message: z.string() }) } };
+/** The session has no live chat driver (yet, any more, or for this agent); `message` is safe to show. */
+const chatUnavailable = { CHAT_UNAVAILABLE: { data: z.object({ message: z.string() }) } };
 const issueErrors = {
   /** The URL is not a GitHub or GitLab issue URL, or carries credentials or unsafe parts. */
   ISSUE_URL_INVALID: { data: z.object({ message: z.string() }) },
@@ -504,6 +566,54 @@ export const contract = {
       .output(Session),
     /** Yields all sessions now and after every change. */
     watch: oc.output(eventIterator(z.array(Session))),
+  },
+  chat: {
+    /**
+     * Yields the chat of one session: a snapshot first, then sequenced events. With `after` it
+     * yields what the client missed instead, or a fresh snapshot when those events are gone.
+     * Sequences are contiguous per session; a hole means the client must watch again without `after`.
+     */
+    watch: oc
+      .errors({ ...sessionNotFound, ...chatUnavailable })
+      .input(ChatWatchInput)
+      .output(eventIterator(ChatStreamMessage)),
+    /** Sends a message: starts a turn, steers the running one, or queues one after it. */
+    send: oc
+      .errors({ ...sessionNotFound, ...chatUnavailable })
+      .input(ChatSendInput)
+      .output(z.void()),
+    /** Stops the turn the agent is working on. The session stays usable. */
+    abort: oc
+      .errors({ ...sessionNotFound, ...chatUnavailable })
+      .input(z.object({ sessionId: SessionId }))
+      .output(z.void()),
+    /** Answers a user request the agent waits on; `null` dismisses it. */
+    respond: oc
+      .errors({
+        ...sessionNotFound,
+        ...chatUnavailable,
+        CHAT_REQUEST_UNKNOWN: { data: z.object({ requestId: ChatItemId }) },
+      })
+      .input(ChatRespondInput)
+      .output(z.void()),
+    /** Runs the session on another model from its `models` list. */
+    setModel: oc
+      .errors({
+        ...sessionNotFound,
+        ...chatUnavailable,
+        CHAT_MODEL_UNSUPPORTED: { data: z.object({ model: ChatModelRef }) },
+      })
+      .input(ChatSetModelInput)
+      .output(z.void()),
+    /** Sets the reasoning level to one from `reasoningLevels`. */
+    setReasoning: oc
+      .errors({
+        ...sessionNotFound,
+        ...chatUnavailable,
+        CHAT_REASONING_UNSUPPORTED: { data: z.object({ level: z.string() }) },
+      })
+      .input(ChatSetReasoningInput)
+      .output(z.void()),
   },
   terminals: {
     list: oc.output(z.array(TerminalInfo)),

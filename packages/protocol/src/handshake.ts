@@ -13,9 +13,11 @@ import { z } from "zod";
  * sidebar-mode action, the server-owned task `seenAt` and the task's prompt and primary session:
  * a version 6 server strips the binding and the fields, has no `seen_at` column and answers
  * `tasks.markSeen` with an unknown procedure. Version 8 adds the toggle-sidebar action: a
- * version 7 server strips that binding from its exhaustive keys.
+ * version 7 server strips that binding from its exhaustive keys. Version 9 adds the `chat.*`
+ * contract and `Session.view`: a version 8 server has no chat procedures at all, and its sessions
+ * carry no view.
  */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in

@@ -121,6 +121,10 @@ Rules this implies: one writer per agent session at a time, enforced by our serv
 - **Re-check before relying on live Codex**: research on 2026-10-31 (Codex docs and `codex-rs/tui/src/chatwidget/input_flow.rs`) found that the TUI treats a thread opened by another writer as an external-writer view and blocks input until that writer closes, which contradicts "live in both views" above. Codex is the last chat driver (decision 13), so this is verified when it starts.
 - **Claude Code, stop-and-resume only**: no supported live attach between the SDK and the TUI. `claude attach` is for its own `--bg` sessions; Remote Control goes through claude.ai and needs a subscription login, so it is out.
 
+### The chat contract
+
+`packages/protocol/src/chat.ts` is Corral's own, provider-neutral chat shape (decision 14): items with stable ids (user and assistant messages, reasoning, tool calls with an optional diff, user requests, notices, errors) and session-level state (turn, queued steering and follow-up messages, the current and available models, the reasoning level and levels). The server owns that state and streams it as one snapshot plus sequenced events; a client that reconnects with its last sequence gets the missing events, or a fresh snapshot when they are gone. `chat.send` (prompt, steer, follow-up), `chat.abort`, `chat.respond`, `chat.setModel` and `chat.setReasoning` are the only writes. No client sees a provider protocol, and the contract keeps no transcript of its own: the agent's own session is the conversation.
+
 ## Keyboard
 
 Findings (sourced, see research notes below): browsers keep some chords for themselves, and Electron can capture almost everything.

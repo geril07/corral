@@ -97,6 +97,9 @@ function launchError(
   return undefined;
 }
 
+/** Mapped to `CHAT_UNAVAILABLE` until a driver exists (B1). */
+const CHAT_NOT_AVAILABLE = "This server has no chat driver for any session yet.";
+
 export function createRpcRouter({ config, projects, tasks, sessions, terminals }: RpcServices) {
   const os = implement(contract);
   return os.router({
@@ -305,6 +308,29 @@ export function createRpcRouter({ config, projects, tasks, sessions, terminals }
         ),
       ),
       watch: os.sessions.watch.handler(({ signal }) => sessions.watch(signal)),
+    },
+    chat: {
+      // Contract-only until B1 adds the pi driver: every call refuses with CHAT_UNAVAILABLE, so a
+      // client sees an honest refusal instead of a procedure that does not exist. B1 replaces these
+      // handlers with a chat service; nothing here is a fallback to keep.
+      watch: os.chat.watch.handler(({ errors }) => {
+        throw errors.CHAT_UNAVAILABLE({ data: { message: CHAT_NOT_AVAILABLE } });
+      }),
+      send: os.chat.send.handler(({ errors }) => {
+        throw errors.CHAT_UNAVAILABLE({ data: { message: CHAT_NOT_AVAILABLE } });
+      }),
+      abort: os.chat.abort.handler(({ errors }) => {
+        throw errors.CHAT_UNAVAILABLE({ data: { message: CHAT_NOT_AVAILABLE } });
+      }),
+      respond: os.chat.respond.handler(({ errors }) => {
+        throw errors.CHAT_UNAVAILABLE({ data: { message: CHAT_NOT_AVAILABLE } });
+      }),
+      setModel: os.chat.setModel.handler(({ errors }) => {
+        throw errors.CHAT_UNAVAILABLE({ data: { message: CHAT_NOT_AVAILABLE } });
+      }),
+      setReasoning: os.chat.setReasoning.handler(({ errors }) => {
+        throw errors.CHAT_UNAVAILABLE({ data: { message: CHAT_NOT_AVAILABLE } });
+      }),
     },
     terminals: {
       list: os.terminals.list.handler(() => terminals.list()),

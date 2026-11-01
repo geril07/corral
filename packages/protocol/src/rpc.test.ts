@@ -1,5 +1,5 @@
 import { expect, test } from "vite-plus/test";
-import { CreateTaskInput, MAX_TASK_PROMPT } from "./rpc.ts";
+import { CreateTaskInput, MAX_TASK_PROMPT, Session } from "./rpc.ts";
 
 const utf8 = (text: string) => new TextEncoder().encode(text).length;
 const creating = (prompt: string) => ({
@@ -34,4 +34,22 @@ test("a prompt up to the byte limit is accepted, one byte over is not, and paddi
   expect(utf8(twoByte)).toBe(MAX_TASK_PROMPT);
   expect(CreateTaskInput.safeParse(creating(twoByte)).success).toBe(true);
   expect(CreateTaskInput.safeParse(creating(`${twoByte}é`)).success).toBe(false);
+});
+
+test("a session's view is optional until the server stores it, and only terminal or chat", () => {
+  const session = {
+    id: "s1",
+    taskId: "t1",
+    kind: "shell",
+    agentSessionId: null,
+    terminalId: null,
+    state: "stopped",
+    status: null,
+    createdAt: 1,
+  };
+
+  // A protocol 9 server before B1's migration has no view; clients read that as `terminal`.
+  expect(Session.parse(session).view).toBeUndefined();
+  expect(Session.parse({ ...session, view: "chat" }).view).toBe("chat");
+  expect(Session.safeParse({ ...session, view: "screen" }).success).toBe(false);
 });
