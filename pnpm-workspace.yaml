@@ -47,3 +47,16 @@ minimumReleaseAgeExclude:
 overrides:
   vite: npm:@voidzero-dev/vite-plus-core@1.4.0
   vitest: 5.0.5
+
+# @anthropic-ai/claude-agent-sdk's eight optional platform packages each carry a copy of the
+# 328 MB Claude Code CLI (goal D9/C2 decision b): the SDK always runs pathToClaudeCodeExecutable,
+# which the driver sets to the user's own install, so the copies are never used.
+ignoredOptionalDependencies:
+  - "@anthropic-ai/claude-agent-sdk-linux-x64"
+  - "@anthropic-ai/claude-agent-sdk-linux-arm64"
+  - "@anthropic-ai/claude-agent-sdk-linux-x64-musl"
+  - "@anthropic-ai/claude-agent-sdk-linux-arm64-musl"
+  - "@anthropic-ai/claude-agent-sdk-darwin-x64"
+  - "@anthropic-ai/claude-agent-sdk-darwin-arm64"
+  - "@anthropic-ai/claude-agent-sdk-win32-x64"
+  - "@anthropic-ai/claude-agent-sdk-win32-arm64"

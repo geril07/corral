@@ -139,11 +139,11 @@ test("a task opens in its project's chat view, and in the terminal for an agent 
   const terminalTask = await api.tasks.create({
     projectId: project.id,
     prompt: "Say hello too",
-    agent: { kind: "claude" },
+    agent: { kind: "codex" },
     workspace: { type: "main-worktree" },
   });
   const terminalSession = await primarySession(terminalTask.primarySessionId);
-  expect(terminalSession).toMatchObject({ kind: "claude", view: "terminal", state: "running" });
+  expect(terminalSession).toMatchObject({ kind: "codex", view: "terminal", state: "running" });
 
   // No config warning: the file named no agent, so the composer (or this request) chooses one.
   const config = await api.config.watch();

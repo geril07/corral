@@ -153,8 +153,12 @@ test("a project's chat view default opens the new task as chat", async () => {
   );
 
   await prefixThen("t");
-  // The configured view needs a driver: the default agent has none, so it reads as the terminal
-  // until pi is picked — the composer never offers a view the server would refuse.
+  // The configured view needs a driver: with an agent that has one it is chat, and picking codex
+  // (no driver in this build) reads as the terminal — the composer never offers a view the server
+  // would refuse. Picking pi again restores the configured view.
+  await expect.element(picker(/^View /)).toHaveAccessibleName("View chat");
+  await userEvent.click(picker(/^Agent /));
+  await page.getByRole("option", { name: /^codex/ }).click();
   await expect.element(picker(/^View /)).toHaveAccessibleName("View terminal");
   await expect.element(page.getByText(/needs an agent with a chat driver/)).toBeVisible();
   await userEvent.click(picker(/^Agent /));

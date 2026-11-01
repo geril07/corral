@@ -19,12 +19,12 @@ const agents = useFakeAgents();
 const configFile = () => join(server.configDir, "config.toml");
 /** The defaults of this server's data directory, including its worktree root. */
 const defaults = () => defaultClientConfig(server.dataDir);
-/** The host facts the fake agents on `PATH` give: all found, pi and OpenCode the chat drivers. */
+/** The host facts the fake agents on `PATH` give: all found, claude/pi/OpenCode the chat drivers. */
 const availability = () =>
   AgentKind.options.map((kind) => ({
     kind,
     found: true,
-    chatDriver: kind === "pi" || kind === "opencode",
+    chatDriver: kind === "claude" || kind === "pi" || kind === "opencode",
   }));
 
 /** Subscribes and consumes the state the server yields on subscription. */

@@ -51,6 +51,12 @@ export function useFakeAgents() {
     vi.stubEnv("XDG_STATE_HOME", join(root, "xdg", "state"));
     vi.stubEnv("OPENROUTER_API_KEY", undefined);
     vi.stubEnv("OPENCODE_API_KEY", undefined);
+    // A chat driver must never inherit a real provider credential: the Claude SDK would use an API
+    // key in place of the isolated config dir, which is the user's login this suite must not touch.
+    vi.stubEnv("ANTHROPIC_API_KEY", undefined);
+    vi.stubEnv("ANTHROPIC_AUTH_TOKEN", undefined);
+    vi.stubEnv("ANTHROPIC_BASE_URL", undefined);
+    vi.stubEnv("CLAUDE_CODE_OAUTH_TOKEN", undefined);
     vi.stubEnv("FAKE_AGENT_LOG", logFile);
     // The fake `opencode serve`: its own journal and the directory that makes sessions survive a
     // restart of the process, as OpenCode's data directory does.

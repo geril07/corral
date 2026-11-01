@@ -253,13 +253,16 @@ enabled = false
   await expect
     .element(agents)
     .toMatchTextContent(sequence("pi", "/nonexistent/pi", "global", "not found", "chat", "driver"));
-  // Disabled in the file, found on the host, and no chat driver in this build.
+  // Disabled in the file, found on the host, and shown as chat by this build's driver.
   await expect
     .element(agents)
     .toMatchTextContent(
-      sequence("claude", "claude", "default", "found", "chat", "terminal only", "disabled"),
+      sequence("claude", "claude", "default", "found", "chat", "driver", "disabled"),
     );
-  await expect.element(agents).toMatchTextContent(sequence("codex", "codex", "default", "found"));
+  // Codex has no driver in this build, so it stays terminal only.
+  await expect
+    .element(agents)
+    .toMatchTextContent(sequence("codex", "codex", "default", "found", "chat", "terminal only"));
   await expect.element(agents).toMatchTextContent("an absolute path that replaces the PATH lookup");
 
   await writeConfig(null);

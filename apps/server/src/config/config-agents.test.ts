@@ -128,7 +128,7 @@ view = "chat"
 test("a chat view for an agent without a driver opens in the terminal with a warning", () => {
   const { config, problems } = parse(`
 [tasks]
-agent = "claude"
+agent = "codex"
 view = "chat"
 `);
 
@@ -137,7 +137,7 @@ view = "chat"
     {
       severity: "warning",
       path: "tasks.view",
-      message: "the claude agent has no chat driver, so this view opens in the terminal",
+      message: "the codex agent has no chat driver, so this view opens in the terminal",
     },
   ]);
 });
@@ -149,7 +149,7 @@ agent = "pi"
 view = "chat"
 
 [projects."${REPO}"]
-agent = "claude"
+agent = "codex"
 `);
 
   expect(config.tasks.view).toEqual({ value: "chat", source: "global" });
@@ -158,7 +158,7 @@ agent = "claude"
     {
       severity: "warning",
       path: `projects."${REPO}"`,
-      message: "the claude agent has no chat driver, so this view opens in the terminal",
+      message: "the codex agent has no chat driver, so this view opens in the terminal",
     },
   ]);
 });
@@ -166,7 +166,7 @@ agent = "claude"
 test("a project that inherits an unusable chat view is covered by the [tasks] warning once", () => {
   const { config, problems } = parse(`
 [tasks]
-agent = "claude"
+agent = "codex"
 view = "chat"
 
 [projects."${REPO}"]

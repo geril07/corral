@@ -1,5 +1,6 @@
 import { AgentKind } from "@corral/protocol/config";
 import type { ChatDriverRegistration, ChatDriverRegistry } from "./chat-driver.ts";
+import { claudeChatDriver } from "./claude-driver.ts";
 import { openCodeChatDriver } from "./opencode-driver.ts";
 import { piChatDriver } from "./pi-driver.ts";
 
@@ -11,6 +12,7 @@ import { piChatDriver } from "./pi-driver.ts";
  * and `SessionService` need no branch for it.
  */
 export const CHAT_DRIVER_REGISTRY: ChatDriverRegistry = {
+  claude: claudeChatDriver,
   pi: piChatDriver,
   opencode: openCodeChatDriver,
 };

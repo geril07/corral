@@ -378,8 +378,10 @@ async function makeDriver(options: {
     ],
     cwd: join(root, "workspace"),
     env: piEnv(agent),
-    agentSessionId: PI_SESSION_ID,
+    model: null,
+    how: "start",
     prompt: options.prompt,
+    agentSessionId: PI_SESSION_ID,
     // The driver is handed the timeline (its start is the service's floor) and a record pair; the
     // contract test plays the service's part, as `ChatService` does.
     timeline: new ChatTimeline(0),

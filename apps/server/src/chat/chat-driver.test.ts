@@ -244,8 +244,9 @@ test("the registry refuses an agent kind this build has no driver for", async ()
       "the codex agent has no chat driver in this build",
     );
     expect(harness.started).toHaveLength(0);
-    // The build's own registry ships pi and opencode; the seam is what added claude.
+    // The build's own registry ships claude, pi and opencode; the seam is what replaced claude.
     expect(recordsOf(chatService().capabilities())).toEqual([
+      "claude:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "pi:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "opencode:both-live:steer,followUp,approvals",
     ]);

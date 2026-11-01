@@ -38,6 +38,17 @@ import { runFakeOpenCodeServer } from "./fake-opencode-server.ts";
 import { startFakePiRpc } from "./fake-pi-rpc.ts";
 
 const [name, ...argv] = process.argv.slice(2);
+
+// `--version` answers the driver's version gate and is not a launch: it exits before the journal,
+// so a handoff test counts frontends rather than probes. FAKE_CLAUDE_VERSION lets a test install an
+// untested claude and see the refusal.
+if (argv.includes("--version")) {
+  console.log(
+    `${process.env["FAKE_CLAUDE_VERSION"] ?? "2.1.316"} (${name === "claude" ? "Claude Code" : `fake ${name}`})`,
+  );
+  process.exit(0);
+}
+
 const codexHome = process.env["CODEX_HOME"];
 
 // One frontend per pi session id, checked at the boundary: the driver has its own writer record,

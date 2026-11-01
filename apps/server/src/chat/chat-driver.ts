@@ -116,6 +116,13 @@ export interface ChatDriverLaunch {
   args: string[];
   cwd: string;
   env: Record<string, string>;
+  /**
+   * The native model a profile or the user chose — the same fact `args(facts)` receives, for a
+   * driver whose frontend is constructed (Claude's SDK `Options.model`) instead of spawned.
+   */
+  model: string | null;
+  /** The conversation this frontend opens, new or resumed (`Options.sessionId`/`resume`). */
+  how: "start" | "resume";
   prompt: string | null;
   /**
    * The agent's own conversation id this frontend opens, after the driver's argv was built from it

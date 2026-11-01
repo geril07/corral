@@ -163,6 +163,14 @@ Conflicts are mechanical and expected: C0–C3 touch `apps/server/src/chat/`, `a
 
 **Decisions this slice settles.** (a) **Executable override**: always the user's binary (recommended, with the version gate) vs the SDK's bundled binary vs "prefer the user's, fall back to bundled when `[agents.claude].command` is unset". (b) **Dependency weight**: install the SDK with its optional platform packages (328 MB per platform, duplicated CLI) or with `--omit=optional` and `pathToClaudeCodeExecutable` always set — record the choice and why in `engineering.md`. (c) The **"stop if the SDK cannot use the user's login" rule**: measure `accountInfo()` at slice start; if it is not first-party, stop, record the evidence and leave Claude as terminal-only (the option the coarse plan allowed). (d) `settingSources`: default (user settings and CLAUDE.md load, matching the CLI) versus `[]` isolation — recommend the default, because chat and TUI must see one environment, and record the consequence that the user's global settings apply.
 
+**C2 corrections (measured 2026-11-02, `claude` 2.1.316, SDK 0.3.316, probes in `.e2e/stage-c/c2/probe/`).**
+
+- **`system:init` arrives with the first turn, not at launch.** A stream-json launch with an empty prompt answers `supportedModels()` (`initialize`) but yields no `system:init` frame. The driver therefore prepares at launch (`supportedModels()` + `getSessionMessages`) and does not gate the task prompt on init; readiness is models + transcript, and the init frame updates the resolved model/effort when the first turn sends it. A driver that waited for init before prompting would deadlock.
+- **`getSessionMessages` resolves `CLAUDE_CONFIG_DIR` from the server's environment, not the launch's.** The SDK passes the launch env only to the CLI subprocess. So a profile that points a launch at another config dir would read an empty history for an existing conversation; the driver refuses to send the task prompt when the two effective config dirs differ (and when the read throws), with a visible notice, rather than risk a duplicate.
+- **The login probe's write footprint (this machine):** it created `~/.claude/session-env/<uuid>/` and refreshed `plugins/store`/`sessions/` mtimes; `.credentials.json` did **not** change this time. No transcript (`persistSession: false`).
+- **A permission request and its tool call need different item ids.** `toolUseID` as the request's id would overwrite the tool-call row it is asking about; the driver uses `permission:<toolUseID>` for the request and `tool:<toolUseID>` for the call, keeping the answer's in-place replacement.
+- **The SDK spawns the CLI privately, so it exposes no pid.** The driver spawns through the documented `spawnClaudeCodeProcess` hook to record the writer (pid + `/proc` start time) and to kill the process group, as pi's driver does.
+
 ---
 
 ## C3. Codex driver

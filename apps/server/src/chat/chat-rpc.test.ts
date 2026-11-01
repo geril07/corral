@@ -236,6 +236,15 @@ test("a task created in chat view starts pi in RPC mode with its prompt, and the
   expect(await api.chat.capabilities()).toEqual({
     drivers: [
       {
+        kind: "claude",
+        steer: true,
+        followUp: true,
+        approvals: true,
+        modelSwitch: true,
+        reasoningLevels: true,
+        terminalView: "handoff-only",
+      },
+      {
         kind: "pi",
         steer: true,
         followUp: true,
@@ -706,10 +715,10 @@ test("the view is validated, and chat refuses a terminal session, a stopped one 
     data: { kind: "shell", view: "chat" },
   });
   await expect(
-    api.sessions.start({ taskId: task.id, kind: "claude", view: "chat", size: SIZE }),
+    api.sessions.start({ taskId: task.id, kind: "codex", view: "chat", size: SIZE }),
   ).rejects.toMatchObject({
     code: "LAUNCH_VIEW_UNSUPPORTED",
-    data: { kind: "claude", view: "chat" },
+    data: { kind: "codex", view: "chat" },
   });
 
   const terminal = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
@@ -1002,19 +1011,19 @@ test("setView refuses a shell and an agent without a driver, and a switch to the
     code: "LAUNCH_VIEW_UNSUPPORTED",
     data: { kind: "shell", view: "chat" },
   });
-  const claude = await api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE });
+  const codex = await api.sessions.start({ taskId: task.id, kind: "codex", size: SIZE });
   await expect(
-    api.sessions.setView({ id: claude.id, view: "chat", size: SIZE }),
+    api.sessions.setView({ id: codex.id, view: "chat", size: SIZE }),
   ).rejects.toMatchObject({
     code: "LAUNCH_VIEW_UNSUPPORTED",
-    data: { kind: "claude", view: "chat" },
+    data: { kind: "codex", view: "chat" },
   });
   await expect(
     api.sessions.setView({ id: "nope", view: "chat", size: SIZE }),
   ).rejects.toMatchObject({ code: "SESSION_NOT_FOUND" });
-  // Neither refusal touched a process: the shell and claude sessions still run in their terminals.
+  // Neither refusal touched a process: the shell and codex sessions still run in their terminals.
   expect((await sessionsOf(api)).find((each) => each.id === shell.id)?.state).toBe("running");
-  expect((await sessionsOf(api)).find((each) => each.id === claude.id)?.state).toBe("running");
+  expect((await sessionsOf(api)).find((each) => each.id === codex.id)?.state).toBe("running");
 });
 
 test("a terminal launch stops a chat frontend's recorded writer before it spawns", async () => {

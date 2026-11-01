@@ -521,6 +521,7 @@ test("chat reports the pi driver and refuses an unknown session with SESSION_NOT
   // record's full shape is pinned in `chat-rpc.test.ts`; here only that it answers with the kind.
   expect(await api.chat.capabilities()).toEqual({
     drivers: [
+      expect.objectContaining({ kind: "claude", terminalView: "handoff-only" }),
       expect.objectContaining({ kind: "pi", terminalView: "handoff-only" }),
       expect.objectContaining({ kind: "opencode", terminalView: "both-live" }),
     ],

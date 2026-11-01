@@ -178,6 +178,8 @@ export class ChatService {
       }),
       cwd: request.cwd,
       env: request.env,
+      model: request.model,
+      how: request.how,
       prompt: request.prompt,
       agentSessionId: request.agentSessionId,
       ...(request.server === undefined ? {} : { server: request.server }),
