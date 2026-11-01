@@ -31,7 +31,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useDialogFocus } from "../../common/ui/index.ts";
 import { useCorralClient, useConnection } from "../connection/index.ts";
-import { useChatSession, useChatTurn } from "../chat/index.ts";
+import { useChatSession, useChatTurn, type ChatFiles } from "../chat/index.ts";
 import {
   formatBinding,
   useConfig,
@@ -216,16 +216,19 @@ export function useWorkspace({
     });
   }, [client, selectedNode, selectedStatus]);
 
-  const choose = (next: Chosen) => {
-    const merged = { ...chosenRef.current, ...next };
-    chosenRef.current = merged;
-    setChosen(merged);
-    // Picking a task (or a loose terminal) leaves the composer; Escape has nothing to undo then.
-    setComposing(undefined);
-    // Any entry choice is a session choice: it also leaves the task's Changes tab.
-    setChangesView(false);
-    onChange(chosenToSearch(merged));
-  };
+  const choose = useCallback(
+    (next: Chosen) => {
+      const merged = { ...chosenRef.current, ...next };
+      chosenRef.current = merged;
+      setChosen(merged);
+      // Picking a task (or a loose terminal) leaves the composer; Escape has nothing to undo then.
+      setComposing(undefined);
+      // Any entry choice is a session choice: it also leaves the task's Changes tab.
+      setChangesView(false);
+      onChange(chosenToSearch(merged));
+    },
+    [onChange],
+  );
 
   /**
    * Opens the task's `Changes` tab: the route says `entry=changes` and the current session, the
@@ -241,6 +244,32 @@ export function useWorkspace({
     setChangesView(true);
     onChange(changesSearch(chosenRef.current));
   };
+
+  // Chat's local links (`docs/ux.md`): the workspace is the allow-list, so every call carries the
+  // chat session's task. Stable while the session and connection are, or a streaming message would
+  // restart its own candidate lookup on every delta.
+  const chatTaskId = currentSession?.view === "chat" ? currentSession.taskId : undefined;
+  const chatFiles = useMemo<ChatFiles | undefined>(() => {
+    if (chatTaskId === undefined) return undefined;
+    return {
+      resolve: async (paths) =>
+        (await api.files.resolve({ taskId: chatTaskId, paths: [...paths] })).results,
+      read: (path) => api.files.read({ taskId: chatTaskId, path }),
+      open: async (path, line, column) => {
+        const opened = await api.files.openEditor({
+          taskId: chatTaskId,
+          path,
+          size: fitSize.current,
+          ...(line === undefined ? {} : { line }),
+          ...(column === undefined ? {} : { column }),
+        });
+        // The editor is a terminal in the task's workspace; showing it is what makes the click do
+        // something the user can see (`files.openEditor` runs it as a loose terminal).
+        choose({ taskId: null, entryId: opened.terminalId });
+      },
+    };
+  }, [api, choose, chatTaskId]);
+
   const showTask = (task: Task | undefined) =>
     choose({ projectId: task?.projectId, taskId: task?.id, entryId: undefined });
 
@@ -829,6 +858,7 @@ export function useWorkspace({
     currentSessionLabels,
     changes,
     changesView,
+    chatFiles,
     sidebar,
     taskOrder,
     board,

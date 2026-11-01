@@ -7,6 +7,7 @@ import { afterEach, expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { ChatView } from "./chat-view.tsx";
+import type { ChatFiles } from "./local-links.tsx";
 import { usePrefixMode } from "../keymap/index.ts";
 import { prefixThen } from "../../../test/real-client.ts";
 import {
@@ -20,6 +21,15 @@ import {
 } from "../../../test/recorded-chat.ts";
 
 const ABORT_HINT = `${DEFAULT_PREFIX} .`;
+
+/** Chat links in these tests: nothing resolves, nothing opens (the lane's own file covers links). */
+const NO_FILES: ChatFiles = {
+  resolve: async () => [],
+  read: async () => {
+    throw new Error("no file reads in this test");
+  },
+  open: async () => undefined,
+};
 
 /** Every scripted watch this file opened; closing them ends the iterators before the next file. */
 const chats: Array<ReturnType<typeof scriptedChat>> = [];
@@ -45,6 +55,7 @@ async function renderChat(messages: readonly ChatStreamMessage[] = RECORDED_CHAT
       <ChatView
         store={script.store}
         agent="pi"
+        files={NO_FILES}
         abortHint={ABORT_HINT}
         onSend={async (text, mode) => {
           sent.push({ text, mode });
@@ -302,6 +313,7 @@ function PrefixHarness({
       <ChatView
         store={store}
         agent="pi"
+        files={NO_FILES}
         abortHint={ABORT_HINT}
         onSend={async () => {}}
         onAbort={onAbort}
@@ -658,6 +670,7 @@ test("a refused watch shows the store's failure and the view does not retry it i
       <ChatView
         store={store}
         agent="pi"
+        files={NO_FILES}
         abortHint={ABORT_HINT}
         onSend={async () => {}}
         onAbort={async () => {}}

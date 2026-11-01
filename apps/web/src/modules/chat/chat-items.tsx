@@ -10,6 +10,7 @@ import type {
 import type { AgentState } from "@corral/protocol/rpc";
 import { useEffect, useRef, useState } from "react";
 import { Button, DiffView, Icon, Markdown, StatusGlyph } from "../../common/ui/index.ts";
+import { useMarkdownLinks } from "./local-links.tsx";
 import { toolSummary } from "./chat-rows.ts";
 
 /** User text is what the user typed; it is not Markdown and keeps its line breaks. */
@@ -26,9 +27,11 @@ export function UserMessageItem({ item }: { item: ChatUserMessage }) {
 
 /** The agent's answer, rendered as streaming Markdown by the kit's Streamdown wrapper. */
 export function AssistantMessageItem({ item }: { item: ChatAssistantMessage }) {
+  // Local file paths and web links behave as the lane's `LocalLinks` resolved them; `docs/ux.md`.
+  const links = useMarkdownLinks();
   return (
     <article aria-label="Agent message">
-      <Markdown text={item.text} streaming={item.streaming} />
+      <Markdown text={item.text} streaming={item.streaming} links={links} />
     </article>
   );
 }

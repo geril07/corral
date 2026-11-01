@@ -143,6 +143,27 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
   Home/End and the arrow keys scroll it without a pointer; moving up releases the end follow and
   End takes it again. A fold that expands while the user reads above the end does not drag the
   view back to the tail.
+
+### Local links in chat
+
+- A path an agent writes in an answer is a link when the task's workspace actually holds it:
+  absolute paths, workspace-relative paths and `file.ts:12[:3]` are recognised, and the server
+  resolves them through the workspace (`files.resolve`) — a `..` path, an absolute path elsewhere,
+  a symlink out of the workspace and a path that does not exist all stay plain text rather than
+  becoming a dead link. Code spans and fenced blocks are never linkified.
+- A file link opens in the editor: `[editor] command`, else `$VISUAL`, else `$EDITOR`
+  (`agent-profiles.md`, **The editor for local file links**), run as a terminal in the task's
+  workspace, which is then selected. The line and column the message named travel only through a
+  `{line}`/`{column}` placeholder. A refusal (nothing configured, the executable is missing) is a
+  sentence above the composer, not silence.
+- Images and videos in the workspace preview inline, bounded by size and type (4 MB images,
+  8 MB video). The preview is a button: Enter or Space opens a lightbox, Escape closes it, and the
+  video plays there. A media file past the bound is one row with its size and an Open button — never
+  a broken frame. Any other file, binary or not, is a link that opens the editor.
+- An ordinary web link never loads in the app window (`design.md`, **Local trust boundary**): the
+  desktop app hands it to the OS browser over the preload bridge, and in a browser it opens a new
+  tab. The app's own URL — and the task being looked at — stay where they were.
+
 - Clicking navigation must not steal terminal focus. Tooltip content is optional;
   it cannot hold the only copy of a fact. Accessible names identify every icon action.
 - Status is a named state plus a distinct glyph, with stock semantic theme colors.

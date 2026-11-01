@@ -8,6 +8,7 @@ import { runGitIn } from "./test/run-git.ts";
 import { writeFilesIn } from "./test/write-files.ts";
 import { writeConfigFile } from "./test/config-file.ts";
 import { clearIssueCliCalls, issueCliCalls, issueCliPath } from "./test/issue-clis.ts";
+import { writeRepoFile } from "./test/repo-files.ts";
 import { agentLaunches, serverEnv } from "./test/server-agents.ts";
 
 export default defineConfig({
@@ -43,6 +44,7 @@ export default defineConfig({
         runGitIn,
         agentLaunches,
         serverEnv,
+        writeRepoFile,
         writeConfig: writeConfigFile,
         issueCliCalls,
         clearIssueCliCalls,

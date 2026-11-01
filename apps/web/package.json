@@ -38,6 +38,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "@vitest/browser-playwright": "catalog:",
+    "fast-check": "catalog:",
     "oxc-transform-react": "catalog:",
     "playwright": "catalog:",
     "vitest-browser-react": "2.3.0"

@@ -94,6 +94,7 @@ export function WorkspaceScreen({
     currentSessionLabels,
     changes,
     changesView,
+    chatFiles,
     sidebar,
     dialog,
     composing,
@@ -196,10 +197,11 @@ export function WorkspaceScreen({
             : undefined
         }
       />
-    ) : currentSession?.view === "chat" && chat !== undefined ? (
+    ) : currentSession?.view === "chat" && chat !== undefined && chatFiles !== undefined ? (
       <ChatView
         key={currentSession.id}
         store={chat.store}
+        files={chatFiles}
         agent={currentSession.kind}
         abortHint={keyHint(config, "abort-turn")}
         onSend={chat.send}
