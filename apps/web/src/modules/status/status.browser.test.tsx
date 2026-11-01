@@ -139,5 +139,6 @@ test("working, needs you and done carry the three status colors, and idle stays 
     .element()
     .querySelector("[data-status]");
   expect(getComputedStyle(headerGlyph!).color).toBe(tokenColor("--status-done"));
-  expect(glyphColor("done")).toBe(tokenColor("--muted-foreground"));
+  // The mark that clears "unseen" comes back from the server after the status arrives.
+  await expect.poll(() => glyphColor("done")).toBe(tokenColor("--muted-foreground"));
 });
