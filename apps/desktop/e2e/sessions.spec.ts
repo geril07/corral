@@ -125,8 +125,10 @@ test("two sessions of one task are tabs that switch by click and by key, and the
   await createTask(window, "Tabbed", { workspace: "new-worktree" });
   await startShell(window);
 
+  // The strip holds the task's sessions and, after them, its Changes tab (`layout.md`, **Changes**).
   const tabs = sessionTabs(window);
-  await expect(tabs.getByRole("tab")).toHaveCount(1);
+  await expect(tabs.getByRole("tab", { name: "Changes" })).toHaveCount(1);
+  await expect(tabs.getByRole("tab")).toHaveCount(2);
   // Sessions are not sidebar rows any more.
   await expect(workspace(window).getByRole("tab")).toHaveCount(0);
 
@@ -134,7 +136,7 @@ test("two sessions of one task are tabs that switch by click and by key, and the
   await window.keyboard.press("KeyS");
   await expect(window.getByRole("radio", { name: "claude" })).toBeFocused();
   await window.keyboard.press("Digit1");
-  await expect(tabs.getByRole("tab")).toHaveCount(2);
+  await expect(tabs.getByRole("tab")).toHaveCount(3);
   await expect(sessionTab(window, "claude")).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
 
@@ -158,4 +160,15 @@ test("two sessions of one task are tabs that switch by click and by key, and the
   await window.keyboard.type("back-to-claude");
   await window.keyboard.press("Enter");
   await expect.poll(() => unwrappedScreenText(window)).toContain("fake claude got: back-to-claude");
+
+  // The Changes tab opens by key and is not a session: the current session stays the agent's,
+  // and the clean task shows the empty state (`layout.md`, **Changes**).
+  await window.keyboard.press("Alt+KeyA");
+  await window.keyboard.press("Shift+KeyC");
+  await expect(window.getByRole("tab", { name: "Changes" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(sessionTab(window, "claude")).toHaveAttribute("aria-current", "true");
+  await expect(window.getByText("No changes yet")).toBeVisible();
 });
