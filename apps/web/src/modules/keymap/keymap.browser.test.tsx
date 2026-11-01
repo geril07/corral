@@ -3,20 +3,20 @@ import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { writeConfig } from "../../../test/config-command.ts";
-import { createGitRepo } from "../../../test/git-repo.ts";
 import { prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
 import {
   appWithProject,
   createTaskWithShell,
   focusedIsTerminal,
+  sessionTab,
   taskButton,
   workspace,
 } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 const terminalButtons = () => workspace().getByRole("button", { name: /^sh · / });
-const shell = (name: string) => workspace().getByRole("button", { name });
+const shell = (name: string) => sessionTab(name);
 const picker = () => page.getByRole("dialog", { name: "New agent session" });
 const palette = () => page.getByRole("dialog", { name: "Command palette" });
 const paletteItem = (name: RegExp) => palette().getByRole("option", { name });
@@ -33,18 +33,18 @@ test("number keys select the n-th session of the current task in sidebar order",
   await createTaskWithShell("Numbers");
   await prefixThen("c");
   await prefixThen("c");
-  await expect.element(shell("shell 3")).toHaveAttribute("aria-current", "true");
+  await expect.element(shell("shell 3")).toHaveAttribute("aria-selected", "true");
 
   await prefixThen("2");
-  await expect.element(shell("shell 2")).toHaveAttribute("aria-current", "true");
-  await expect.element(shell("shell 3")).not.toHaveAttribute("aria-current");
+  await expect.element(shell("shell 2")).toHaveAttribute("aria-selected", "true");
+  await expect.element(shell("shell 3")).toHaveAttribute("aria-selected", "false");
 
   await prefixThen("1");
-  await expect.element(shell("shell")).toHaveAttribute("aria-current", "true");
+  await expect.element(shell("shell")).toHaveAttribute("aria-selected", "true");
 
   // A number past the task's sessions keeps the current one.
   await prefixThen("9");
-  await expect.element(shell("shell")).toHaveAttribute("aria-current", "true");
+  await expect.element(shell("shell")).toHaveAttribute("aria-selected", "true");
 });
 
 test("a config file rebinds an action and the key hint follows it", async () => {
@@ -96,7 +96,7 @@ test("from a loose terminal the palette navigates to the one task in both direct
   const { client } = await appWithProject(newClient());
   await createTaskWithShell("Only");
   await client.connection.api.terminals.create({ size: { cols: 80, rows: 24 } });
-  const noTask = workspace().getByRole("button", { name: "No task" });
+  const noTask = workspace().getByRole("button", { name: "Scratch" });
   await expect.element(noTask).toBeVisible();
 
   await noTask.click();
@@ -136,17 +136,18 @@ test("config problems show as a notice whose dialog lists each one with the file
   await expect.element(dialog).not.toBeInTheDocument();
 });
 
-test("the palette opened from a sidebar button returns focus there, not to the terminal", async () => {
+test("the search dialog opened from the sidebar button returns focus there, not to the terminal", async () => {
   await appWithProject(newClient());
   await createTaskWithShell("Focus");
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
-  const opener = workspace().getByRole("button", { name: "Command palette" });
+  const opener = workspace().getByRole("button", { name: "Search tasks" });
 
   await opener.click();
-  await expect.element(palette()).toBeVisible();
+  const find = page.getByRole("dialog", { name: "Find task" });
+  await expect.element(find).toBeVisible();
   await userEvent.keyboard("{Escape}");
 
-  await expect.element(palette()).not.toBeInTheDocument();
+  await expect.element(find).not.toBeInTheDocument();
   await expect.element(opener).toHaveFocus();
 });
 
@@ -182,22 +183,24 @@ test("the palette opens from its key, shows bindings, filters, runs an action an
 });
 
 test("a focus tooltip does not block the sidebar row underneath it", async () => {
-  await render(<App client={newClient()} />);
-  const repo = await createGitRepo("tooltip");
-  const add = workspace().getByRole("button", { name: "Add project" });
+  const { client } = await appWithProject(newClient());
+  const project = client.projects.getSnapshot().projects[0]!;
+  await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "Under the tooltip",
+    workspace: { type: "new-branch" },
+  });
 
-  await add.click();
-  await expect
-    .element(page.getByRole("dialog", { name: "Add project" }).getByRole("textbox"))
-    .toHaveFocus();
-  await userEvent.keyboard(`${repo}{Enter}`);
-  await expect.element(page.getByRole("dialog", { name: "Add project" })).not.toBeInTheDocument();
-  await expect.element(add).toHaveFocus();
+  // The new-task icon always explains itself; focus opens its tooltip over the list below.
+  workspace().getByRole("button", { name: "New task" }).element().focus();
   await expect.element(page.getByRole("tooltip")).toBeVisible();
 
   // The project header is a project-mode row; the flat default lists tasks, not projects.
   await prefixThen("l");
-  const project = workspace().getByRole("button", { name: /^tooltip-/ });
-  await project.click();
-  await expect.element(project).toHaveAttribute("aria-current", "true");
+  const header = workspace().getByRole("button", { name: project.name });
+  await header.click();
+  await expect.element(header).toHaveAttribute("aria-current", "true");
+
+  await taskButton("Under the tooltip").click();
+  await expect.element(taskButton("Under the tooltip")).toHaveAttribute("aria-current", "true");
 });

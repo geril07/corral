@@ -1,6 +1,17 @@
 import { describeSessionState } from "@corral/client/session-state";
+import { describeError } from "@corral/client/rpc-errors";
 import { ActionId, type ClientConfig } from "@corral/protocol/config";
-import { AppShell, Button, Kbd, MainPanel, SidebarPanel, Hint } from "../../common/ui/index.ts";
+import { useState } from "react";
+import {
+  AppShell,
+  Badge,
+  Button,
+  IconButton,
+  Input,
+  Kbd,
+  MainPanel,
+  SidebarPanel,
+} from "../../common/ui/index.ts";
 import { AddProjectDialog } from "../projects/index.ts";
 import { AgentPicker, RemoveSessionDialog, StoppedSession } from "../sessions/index.ts";
 import { NewTaskDialog, RemoveTaskDialog, TaskSourceDialog } from "../tasks/index.ts";
@@ -15,7 +26,10 @@ import {
 import { SETTINGS_BUTTON_ID, useRestoreSettingsFocus } from "../settings/index.ts";
 import { FindTaskDialog } from "./find-task-dialog.tsx";
 import { RenameDialog } from "./rename-dialog.tsx";
+import { SessionTabs } from "./session-tabs.tsx";
 import { Sidebar } from "./sidebar.tsx";
+import { SidebarResizeHandle } from "./sidebar-resize-handle.tsx";
+import { TaskHeader } from "./task-header.tsx";
 import { useWorkspace } from "./use-workspace.ts";
 import type { WorkspaceSearch } from "./workspace-search.ts";
 
@@ -35,6 +49,11 @@ export interface WorkspaceScreenProps {
   onOpenSettings: (search: WorkspaceSearch) => void;
 }
 
+/**
+ * The workspace shell (`layout.md`, **Shell**): a resizable sidebar of tasks and a main area that
+ * shows one task — header, its sessions as tabs and the selected session's terminal — or the
+ * empty states.
+ */
 export function WorkspaceScreen({
   search,
   onChange,
@@ -56,6 +75,11 @@ export function WorkspaceScreen({
     loaded,
     current,
     currentSession,
+    currentTask,
+    currentTaskNode,
+    currentTaskProject,
+    currentSessionLabels,
+    sidebar,
     dialog,
     failure,
     armed,
@@ -83,8 +107,6 @@ export function WorkspaceScreen({
     openRemoveTask,
     openRemoveSession,
     openTaskSource,
-    openAddProject,
-    openPalette,
     openFindTask,
     openConfigProblems,
     addProject,
@@ -95,107 +117,131 @@ export function WorkspaceScreen({
   } = useWorkspace({ search, onChange, onOpenBoard, onOpenSettings });
   const restartKey = keyHint(config, "restart-session");
   const settingsBinding = formatBinding(config, "settings");
-  const terminalHint = pressHint(config, "new-terminal");
-  const agentHint = pressHint(config, "new-agent");
+
+  const session =
+    current?.terminal !== undefined ? (
+      <TerminalView
+        key={current.terminal.id}
+        client={client}
+        terminal={current.terminal}
+        onFit={rememberFitSize}
+        exitHint={
+          currentSession
+            ? `${describeSessionState(currentSession).note ?? ""} ${
+                restartKey ? `Press ${restartKey}.` : ""
+              }`.trim()
+            : undefined
+        }
+      />
+    ) : currentSession && currentSession.state !== "running" ? (
+      <StoppedSession
+        key={currentSession.id}
+        session={currentSession}
+        restartHint={restartKey}
+        onRestart={() => void restartSession(currentSession)}
+      />
+    ) : undefined;
 
   return (
-    <AppShell>
-      <SidebarPanel>
-        <Sidebar
-          tree={tree}
-          selection={selection}
-          flat={flatSidebar}
-          config={config}
-          onSelectProject={(project) =>
-            choose({ projectId: project.id, taskId: undefined, entryId: undefined })
-          }
-          onSelectTask={showTask}
-          onSelectLoose={() => choose({ taskId: null, entryId: undefined })}
-          onSelectEntry={selectEntry}
-          onRenameEntry={openRenameEntry}
-          onRenameTask={openRenameTask}
-          onCloseTerminal={(id) => void closeTerminal(id)}
-          onStopSession={(session) => void stopSession(session)}
-          onRestartSession={(session) => void restartSession(session)}
-          onRemoveSession={openRemoveSession}
-          onViewSource={openTaskSource}
-          onToggleSettle={(task) => void toggleSettle(task)}
-          onRemoveTask={openRemoveTask}
-          onAddProject={openAddProject}
-          onNewTask={openNewTask}
-          onNewTerminal={() => void createTerminal(selection.taskId)}
-          onNewAgent={openAgentPicker}
-          onFindTask={openFindTask}
-          onOpenPalette={openPalette}
-          onOpenBoard={() => actions.board.run()}
-        />
-        <footer className="border-t border-border">
-          {failure && (
-            <p className="m-0 border-b border-border px-2.5 py-1 text-destructive" role="alert">
-              {failure}
-            </p>
-          )}
-          <div className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 px-2.5 py-1">
-            <ConnectionNotice state={connection} />
-            <span
-              className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground"
-              role={armed ? "status" : undefined}
-              aria-label={armed ? "prefix mode" : undefined}
-            >
-              <span className={armed ? "text-primary" : undefined}>
-                {armed ? "prefix armed" : "prefix"}
-              </span>
-              <Kbd>{prefix}</Kbd>
-            </span>
-            <ConfigProblemsNotice onOpen={openConfigProblems} />
-            <Hint content={`Settings · ${settingsBinding}`}>
-              <Button
-                id={SETTINGS_BUTTON_ID}
-                variant="ghost"
-                onClick={(event) => openSettings(event.currentTarget)}
-              >
-                Settings
-              </Button>
-            </Hint>
-          </div>
-        </footer>
-      </SidebarPanel>
-      <MainPanel>
-        {current?.terminal ? (
-          <TerminalView
-            key={current.terminal.id}
-            client={client}
-            terminal={current.terminal}
-            onFit={rememberFitSize}
-            exitHint={
-              currentSession
-                ? `${describeSessionState(currentSession).note ?? ""} ${
-                    restartKey ? `Press ${restartKey}.` : ""
-                  }`.trim()
-                : undefined
+    <AppShell sidebarWidth={sidebar.hidden ? 0 : sidebar.width}>
+      {!sidebar.hidden && (
+        <SidebarPanel>
+          <Sidebar
+            tree={tree}
+            selection={selection}
+            flat={flatSidebar}
+            config={config}
+            onSelectProject={(project) =>
+              choose({ projectId: project.id, taskId: undefined, entryId: undefined })
             }
+            onSelectTask={showTask}
+            onSelectLoose={() => choose({ taskId: null, entryId: undefined })}
+            onSelectTerminal={selectEntry}
+            onRenameTerminal={openRenameEntry}
+            onCloseTerminal={(id) => void closeTerminal(id)}
+            onRenameTask={openRenameTask}
+            onToggleSettle={(task) => void toggleSettle(task)}
+            onRemoveTask={openRemoveTask}
+            onViewSource={openTaskSource}
+            onNewTask={openNewTask}
+            onFindTask={openFindTask}
           />
-        ) : currentSession && currentSession.state !== "running" ? (
-          <StoppedSession
-            key={currentSession.id}
-            session={currentSession}
-            restartHint={restartKey}
-            onRestart={() => void restartSession(currentSession)}
+          <SidebarResizeHandle
+            width={sidebar.width}
+            onResize={sidebar.setWidth}
+            onReset={sidebar.resetWidth}
           />
-        ) : (
-          loaded &&
-          !currentSession && (
-            <EmptyWorkspace
-              hasProjects={projects.length > 0}
-              hasTask={selection.taskId !== null}
-              terminalHint={terminalHint}
-              agentHint={agentHint}
-              onAddProject={openAddProject}
-              onNewTerminal={() => void createTerminal(selection.taskId)}
-              onNewAgent={openAgentPicker}
-            />
-          )
+          <footer className="shrink-0 border-t border-border">
+            {failure && (
+              <p
+                className="m-0 border-b border-border px-2 py-1 text-xs text-destructive"
+                role="alert"
+              >
+                {failure}
+              </p>
+            )}
+            <div className="flex h-9 items-center gap-1 px-2">
+              <ConnectionNotice state={connection} />
+              <span
+                className="ml-auto flex items-center gap-1 text-xs text-muted-foreground"
+                role={armed ? "status" : undefined}
+                aria-label={armed ? "prefix mode" : undefined}
+              >
+                {armed ? <Badge variant="secondary">prefix…</Badge> : <Kbd>{prefix}</Kbd>}
+              </span>
+              <ConfigProblemsNotice onOpen={openConfigProblems} />
+              <IconButton
+                id={SETTINGS_BUTTON_ID}
+                label="Settings"
+                tooltip={`Settings · ${settingsBinding}`}
+                icon="settings"
+                onClick={(event) => openSettings(event.currentTarget)}
+              />
+            </div>
+          </footer>
+        </SidebarPanel>
+      )}
+      <MainPanel className="flex min-h-0 flex-col bg-background">
+        {currentTaskNode && (
+          <TaskHeader
+            node={currentTaskNode}
+            project={currentTaskProject}
+            config={config}
+            onSettle={(task) => void toggleSettle(task)}
+            onRename={openRenameTask}
+            onRemove={openRemoveTask}
+            onViewSource={openTaskSource}
+          />
         )}
+        {currentTaskNode && (
+          <SessionTabs
+            entries={currentTaskNode.sessions}
+            labels={currentSessionLabels}
+            currentId={selection.entryId}
+            config={config}
+            onSelect={selectEntry}
+            onStop={(each) => void stopSession(each)}
+            onRestart={(each) => void restartSession(each)}
+            onRemove={openRemoveSession}
+            onRename={openRenameEntry}
+            onNewShell={() => void createTerminal(selection.taskId)}
+            onNewAgent={openAgentPicker}
+          />
+        )}
+        <div className="relative min-h-0 flex-1" role="region" aria-label="task content">
+          {session ??
+            (loaded && (
+              <EmptyWorkspace
+                hasProjects={projects.length > 0}
+                task={currentTask}
+                terminalHint={pressHint(config, "new-terminal")}
+                agentHint={pressHint(config, "new-agent")}
+                onAddProject={addProject}
+                onNewTerminal={() => void createTerminal(selection.taskId)}
+                onNewAgent={openAgentPicker}
+              />
+            ))}
+        </div>
       </MainPanel>
       {dialog?.kind === "add-project" && (
         <AddProjectDialog onAdd={addProject} onClose={() => setDialog(undefined)} />
@@ -274,9 +320,13 @@ export function WorkspaceScreen({
   );
 }
 
+/**
+ * The main area's empty states (`layout.md`, **Empty states**). The no-task-selected view keeps
+ * today's behavior until the new-task view replaces it.
+ */
 function EmptyWorkspace({
   hasProjects,
-  hasTask,
+  task,
   terminalHint,
   agentHint,
   onAddProject,
@@ -284,40 +334,94 @@ function EmptyWorkspace({
   onNewAgent,
 }: {
   hasProjects: boolean;
-  hasTask: boolean;
+  task: { id: string; title: string } | undefined;
   terminalHint: string | undefined;
   agentHint: string | undefined;
-  onAddProject: (opener?: HTMLElement) => void;
+  onAddProject: (path: string) => Promise<void>;
   onNewTerminal: () => void;
   onNewAgent: (opener?: HTMLElement) => void;
 }) {
-  if (!hasProjects) {
+  if (!hasProjects) return <NoProjectState onAdd={onAddProject} />;
+  if (task !== undefined && task.id !== undefined) {
     return (
-      <div className="px-4 py-6">
-        <p className="mb-3">No projects yet.</p>
-        <Button variant="default" onClick={(event) => onAddProject(event.currentTarget)}>
-          Add project
-        </Button>
-        <p className="mt-3 text-muted-foreground">{terminalHint}</p>
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-4">
+        <p className="m-0 text-muted-foreground">No sessions</p>
+        <div className="flex flex-wrap justify-center gap-2">
+          <Button variant="default" onClick={(event) => onNewAgent(event.currentTarget)}>
+            Start agent
+          </Button>
+          <Button variant="outline" onClick={onNewTerminal}>
+            Open shell
+          </Button>
+        </div>
+        <p className="m-0 text-xs text-muted-foreground">
+          {[agentHint, terminalHint].filter(Boolean).join(" ")}
+        </p>
       </div>
     );
   }
   return (
     <div className="px-4 py-6">
-      <p className="mb-3">{hasTask ? "No sessions in this task." : "No terminals."}</p>
+      <p className="mb-3">No terminals.</p>
       <div className="flex gap-2">
         <Button variant="default" onClick={onNewTerminal}>
           New terminal
         </Button>
-        {hasTask && (
-          <Button variant="outline" onClick={(event) => onNewAgent(event.currentTarget)}>
-            New agent
-          </Button>
-        )}
       </div>
-      <p className="mt-3 text-muted-foreground">
-        {[terminalHint, hasTask ? agentHint : undefined].filter(Boolean).join(" ")}
-      </p>
+      <p className="mt-3 text-muted-foreground">{terminalHint}</p>
     </div>
+  );
+}
+
+/** "Add a repository to start": the path field is inline, not a dialog (`layout.md`). */
+function NoProjectState({ onAdd }: { onAdd: (path: string) => Promise<void> }) {
+  const [path, setPath] = useState("");
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (path.trim() === "") return;
+    setError(undefined);
+    setBusy(true);
+    try {
+      await onAdd(path);
+      setPath("");
+    } catch (failure) {
+      setError(describeError(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form
+      className="mx-auto flex h-full w-full max-w-lg flex-col items-center justify-center gap-3 px-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void submit();
+      }}
+    >
+      <h2 className="m-0 text-base font-medium">Add a repository to start</h2>
+      <div className="flex w-full items-center gap-2">
+        <Input
+          aria-label="Repository path"
+          placeholder="/path/to/repository"
+          value={path}
+          disabled={busy}
+          onChange={(event) => setPath(event.target.value)}
+        />
+        <Button type="submit" variant="default" disabled={busy || path.trim() === ""}>
+          Add
+        </Button>
+      </div>
+      {error && (
+        <p className="m-0 text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+      <p className="m-0 text-center text-xs text-muted-foreground">
+        Defaults such as the worktree root live in config.toml.
+      </p>
+    </form>
   );
 }

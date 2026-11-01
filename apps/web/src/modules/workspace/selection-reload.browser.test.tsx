@@ -8,7 +8,8 @@ import { renderApp } from "../../../test/render-app.tsx";
 const { newClient } = realServerClients();
 const SIZE = { cols: 80, rows: 24 };
 const workspace = () => page.getByRole("navigation", { name: "workspace" });
-const sessionButton = (name: string) => workspace().getByRole("button", { name, exact: true });
+const sessionTabs = () => page.getByRole("tablist", { name: "Sessions" });
+const sessionButton = (name: string) => sessionTabs().getByRole("tab", { name, exact: true });
 
 interface Seeded {
   project: Project;
@@ -47,8 +48,8 @@ test("a fresh client at a non-first natural session URL selects it after the sto
   const { secondHref } = await seed("claude");
   await renderApp(newClient(), [secondHref]);
 
-  await expect.element(sessionButton("claude")).toHaveAttribute("aria-current", "true");
-  await expect.element(sessionButton("shell")).not.toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton("claude")).toHaveAttribute("aria-selected", "true");
+  await expect.element(sessionButton("shell")).not.toHaveAttribute("aria-selected", "true");
   await vi.waitFor(() => expect(screenText()).toContain("fake claude ready"));
 });
 
@@ -56,23 +57,23 @@ test("a fresh client at a renamed non-first session URL selects the row by its l
   const { secondHref } = await seed("shell", "deploy shell");
   await renderApp(newClient(), [secondHref]);
 
-  await expect.element(sessionButton("deploy shell")).toHaveAttribute("aria-current", "true");
-  await expect.element(sessionButton("shell")).not.toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton("deploy shell")).toHaveAttribute("aria-selected", "true");
+  await expect.element(sessionButton("shell")).not.toHaveAttribute("aria-selected", "true");
 });
 
 test("route search changes and Back/Forward follow the URL intent", async () => {
   const { firstHref, secondHref } = await seed("shell");
   const screen = await renderApp(newClient(), [firstHref]);
 
-  await expect.element(sessionButton("shell")).toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton("shell")).toHaveAttribute("aria-selected", "true");
   screen.history.push(secondHref);
-  await expect.element(sessionButton("shell 2")).toHaveAttribute("aria-current", "true");
-  await expect.element(sessionButton("shell")).not.toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton("shell 2")).toHaveAttribute("aria-selected", "true");
+  await expect.element(sessionButton("shell")).not.toHaveAttribute("aria-selected", "true");
 
   screen.history.back();
-  await expect.element(sessionButton("shell")).toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton("shell")).toHaveAttribute("aria-selected", "true");
   screen.history.forward();
-  await expect.element(sessionButton("shell 2")).toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton("shell 2")).toHaveAttribute("aria-selected", "true");
 });
 
 test("a URL whose entry was really removed falls back to the first remaining session", async () => {
@@ -83,7 +84,7 @@ test("a URL whose entry was really removed falls back to the first remaining ses
 
   await renderApp(newClient(), [secondHref]);
 
-  await expect.element(sessionButton("shell")).toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton("shell")).toHaveAttribute("aria-selected", "true");
   await expect.element(sessionButton("shell 2")).not.toBeInTheDocument();
 });
 
@@ -101,5 +102,5 @@ test("a fresh client at a non-first loose terminal URL selects it", async () => 
     .toHaveAttribute("aria-current", "true");
   await expect
     .element(workspace().getByRole("button", { name: /^sh · / }))
-    .not.toHaveAttribute("aria-current", "true");
+    .not.toHaveAttribute("aria-current");
 });

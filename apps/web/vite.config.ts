@@ -31,6 +31,9 @@ export default defineConfig({
     browser: {
       enabled: true,
       headless: true,
+      // The desktop minimum (`ux.md`, **Known limits**); a phone-sized iframe tests a layout
+      // the app does not support and hides the ones it does.
+      viewport: { width: 1024, height: 640 },
       provider: playwright(),
       commands: {
         createGitRepo,

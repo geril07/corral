@@ -16,7 +16,7 @@ import {
   createTaskWithShell,
   focusedIsTerminal,
   newTaskDialog,
-  shellButtons,
+  shellTabs,
   taskButton,
   workspace,
 } from "../../../test/task-flows.tsx";
@@ -98,7 +98,7 @@ test("prefix c adds a shell session to the current task, j and k move between ta
   const second = taskNamed(client, "Second");
 
   await prefixThen("c");
-  await expect.element(shellButtons()).toHaveLength(2);
+  await expect.element(shellTabs()).toHaveLength(2);
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
   await userEvent.keyboard("pwd{Enter}");
   await expect.poll(wrappedScreen).toContain(second.workspacePath);
@@ -235,7 +235,7 @@ test("shift+t removes a clean task after a confirmation, and Escape keeps it", a
 
   await expect.element(removeTaskDialog()).not.toBeInTheDocument();
   await expect.element(taskButton("Short lived")).not.toBeInTheDocument();
-  await expect.element(shellButtons()).toHaveLength(0);
+  await expect.element(shellTabs()).toHaveLength(0);
   expect(client.tasks.getSnapshot().tasks).toHaveLength(0);
 });
 
@@ -265,13 +265,13 @@ test("terminals outside any task are listed under No task, apart from the tasks"
   await createTaskWithShell("Work");
   await client.connection.api.terminals.create({ size: { cols: 80, rows: 24 } });
 
-  await expect.element(workspace().getByRole("button", { name: "No task" })).toBeVisible();
-  await workspace().getByRole("button", { name: "No task" }).click();
-  await expect.element(workspace().getByRole("button", { name: "No task" })).toBeVisible();
+  await expect.element(workspace().getByRole("button", { name: "Scratch" })).toBeVisible();
+  await workspace().getByRole("button", { name: "Scratch" }).click();
+  await expect.element(workspace().getByRole("button", { name: "Scratch" })).toBeVisible();
 
   await prefixThen("c");
   await expect.element(looseButtons()).toHaveLength(2);
   await taskButton("Work").click();
   await expect.element(taskButton("Work")).toHaveAttribute("aria-current", "true");
-  await expect.element(shellButtons()).toHaveLength(1);
+  await expect.element(shellTabs()).toHaveLength(1);
 });

@@ -40,6 +40,7 @@ import { describeLaunchError, type AgentLaunchChoice } from "../sessions/index.t
 import type { RenameTarget } from "./rename-dialog.tsx";
 import { terminalLabel } from "./sidebar.tsx";
 import { useSidebarMode } from "./sidebar-mode.ts";
+import { useSidebarPane } from "./sidebar-pane.ts";
 import {
   chosenToSearch,
   searchToChosen,
@@ -115,6 +116,7 @@ export function useWorkspace({
   const tree = buildWorkspaceTree(projects, tasks, sessions, terminals);
   const selection = resolveSelection(tree, chosen);
   const [sidebarMode, toggleSidebarMode] = useSidebarMode();
+  const sidebar = useSidebarPane();
   // Built once here and handed to the sidebar: project mode has no flat list at all, and the
   // sidebar must not build a second one.
   const flatSidebar = sidebarMode === "flat" ? buildFlatSidebar(tree) : undefined;
@@ -125,8 +127,15 @@ export function useWorkspace({
   const sessionEntries = selection.taskId === null ? [] : entriesOf(tree, selection.taskId);
   const current = currentEntry(tree, selection);
   const currentSession = current?.type === "session" ? current.session : undefined;
-  const currentTask = taskOrder.find((task) => task.id === selection.taskId);
+  const currentTaskNode =
+    selection.taskId === null ? undefined : taskNodeOf(tree, selection.taskId);
+  const currentTask = currentTaskNode?.task;
   const currentProject = projects.find((project) => project.id === selection.projectId);
+  const currentTaskProject = projects.find((project) => project.id === currentTask?.projectId);
+  // Session names and tabs read from the same source, so a renamed session keeps its tab name.
+  const currentSessionLabels = sessionLabels(
+    currentTaskNode?.sessions.map((entry) => entry.session) ?? [],
+  );
 
   // The server owns `seenAt`, so opening a task or watching its status change clears the same
   // completion on every client. One mark per update: the next watched task carries the new time.
@@ -264,16 +273,19 @@ export function useWorkspace({
           entry.session.id,
         ) ?? entry.session.kind);
 
-  const openRenameEntry = (entry: Entry) =>
-    openDialog({
-      kind: "rename",
-      target: {
-        type: entry.type,
-        id: entry.type === "terminal" ? entry.terminal.id : entry.session.id,
-        name: displayedName(entry),
-        value: (entry.type === "terminal" ? entry.terminal.label : entry.session.label) ?? "",
+  const openRenameEntry = (entry: Entry, opener?: HTMLElement) =>
+    openDialog(
+      {
+        kind: "rename",
+        target: {
+          type: entry.type,
+          id: entry.type === "terminal" ? entry.terminal.id : entry.session.id,
+          name: displayedName(entry),
+          value: (entry.type === "terminal" ? entry.terminal.label : entry.session.label) ?? "",
+        },
       },
-    });
+      opener,
+    );
 
   const openRenameTask = (task: Task | undefined, opener?: HTMLElement) => {
     if (task) {
@@ -354,8 +366,10 @@ export function useWorkspace({
       });
     });
 
-  const openNewTask = (opener?: HTMLElement) => {
-    if (!currentProject) {
+  /** A project group's "new task here" names its project; the header button uses the current one. */
+  const openNewTask = (project?: Project, opener?: HTMLElement) => {
+    const target = project ?? currentTaskProject ?? currentProject;
+    if (!target) {
       const addProject = formatBinding(config, "add-project");
       setFailure(
         addProject === "unbound" ? "Add a project first." : `Add a project first: ${addProject}.`,
@@ -363,7 +377,7 @@ export function useWorkspace({
       return;
     }
     setFailure(undefined);
-    openDialog({ kind: "new-task", project: currentProject }, opener);
+    openDialog({ kind: "new-task", project: target }, opener);
   };
   const loadBranches = useCallback(
     (projectId: string) => api.projects.branches({ id: projectId }),
@@ -501,7 +515,7 @@ export function useWorkspace({
       label: "New task",
       group: "Tasks",
       enabled: currentProject !== undefined,
-      run: openNewTask,
+      run: () => openNewTask(),
     },
     "remove-task": {
       label: "Remove task",
@@ -552,6 +566,12 @@ export function useWorkspace({
       group: "Navigation",
       enabled: true,
       run: toggleSidebarMode,
+    },
+    "toggle-sidebar": {
+      label: "Toggle sidebar",
+      group: "Navigation",
+      enabled: true,
+      run: sidebar.toggle,
     },
     board: {
       label: "Open board",
@@ -604,6 +624,11 @@ export function useWorkspace({
     loaded,
     current,
     currentSession,
+    currentTask,
+    currentTaskNode,
+    currentTaskProject,
+    currentSessionLabels,
+    sidebar,
     taskOrder,
     board,
     dialog,

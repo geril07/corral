@@ -17,6 +17,9 @@ export function ConnectionNotice({ state }: { state: ConnectionState }) {
       </div>
     );
   }
+  // The sidebar footer carries the little status there is: only an unconnected state shows
+  // (`layout.md`, **Sidebar** footer).
+  if (state.status === "connected") return null;
   return (
     <>
       <span

@@ -14,7 +14,8 @@ import {
   appWithProject,
   createTaskWithShell,
   focusedIsTerminal,
-  shellButtons,
+  sessionTabs,
+  shellTabs,
   workspace,
 } from "../../../test/task-flows.tsx";
 
@@ -24,9 +25,9 @@ const { newClient } = realServerClients();
 const wrappedScreen = () => screenText().replaceAll("\n", "");
 const picker = () => page.getByRole("dialog", { name: "New agent session" });
 const removeDialog = () => page.getByRole("alertdialog");
-/** A session row: `claude`, or `claude stopped` once it is not running. */
+/** A session tab: `claude`, or `claude stopped` once it is not running. */
 const sessionButton = (kind: string, state?: string) =>
-  workspace().getByRole("button", { name: state ? `${kind} ${state}` : new RegExp(`^${kind}$`) });
+  sessionTabs().getByRole("tab", { name: state ? `${kind} ${state}` : new RegExp(`^${kind}$`) });
 const stoppedPane = () => page.getByRole("region", { name: "stopped session" });
 const exitedNotice = () => page.getByRole("status", { name: "terminal exited" });
 
@@ -61,7 +62,7 @@ async function startAgent(kind: string, keys: string) {
   await expect.element(picker().getByRole("radio", { name: "claude" })).toHaveFocus();
   await userEvent.keyboard(keys);
   await expect.element(picker()).not.toBeInTheDocument();
-  await expect.element(sessionButton(kind)).toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton(kind)).toHaveAttribute("aria-selected", "true");
   await expect.poll(wrappedScreen).toContain(`fake ${kind} ready`);
 }
 
@@ -102,14 +103,14 @@ test("prefix x stops the session, which stays in the list; prefix r starts it ag
   const { id, agentSessionId } = sessionOf(client, "claude");
 
   await prefixThen("x");
-  await expect.element(sessionButton("claude", "stopped")).toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton("claude", "stopped")).toHaveAttribute("aria-selected", "true");
   await expect.element(stoppedPane()).toMatchTextContent("resumes");
   await expect.element(stoppedPane()).toMatchTextContent("Enter, or alt+a r.");
-  await expect.element(workspace().getByRole("button", { name: "restart claude" })).toBeVisible();
+  await expect.element(sessionTabs().getByRole("button", { name: "restart claude" })).toBeVisible();
   expect(sessionOf(client, "claude")).toMatchObject({ state: "stopped", terminalId: null });
 
   await prefixThen("r");
-  await expect.element(sessionButton("claude")).toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton("claude")).toHaveAttribute("aria-selected", "true");
   await expect.poll(screenText).toContain("fake claude ready");
   await vi.waitFor(async () =>
     expect(await argvOf(id)).toEqual([
@@ -153,7 +154,7 @@ test("Enter on the stopped session's pane starts it again", async () => {
 
   await userEvent.keyboard("{Enter}");
 
-  await expect.element(sessionButton("pi")).toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton("pi")).toHaveAttribute("aria-selected", "true");
   await expect.poll(screenText).toContain("fake pi ready");
   expect(sessionOf(client, "pi").state).toBe("running");
 });
@@ -205,7 +206,7 @@ test("an agent missing from the server's PATH keeps the picker open with the rea
 
   await userEvent.keyboard("{Escape}");
   await expect.element(picker()).not.toBeInTheDocument();
-  await expect.element(shellButtons()).toHaveLength(1);
+  await expect.element(shellTabs()).toHaveLength(1);
 });
 
 test("prefix s without a task says so instead of opening the picker", async () => {
@@ -223,13 +224,13 @@ test("prefix n and p cycle through the task's shells and agents", async () => {
   await startAgent("claude", "1");
 
   await prefixThen("n");
-  await expect.element(shellButtons().first()).toHaveAttribute("aria-current", "true");
+  await expect.element(shellTabs().first()).toHaveAttribute("aria-selected", "true");
   await prefixThen("p");
-  await expect.element(sessionButton("claude")).toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton("claude")).toHaveAttribute("aria-selected", "true");
   await prefixThen("c");
-  await expect.element(shellButtons()).toHaveLength(2);
+  await expect.element(shellTabs()).toHaveLength(2);
   await prefixThen("p");
-  await expect.element(sessionButton("claude")).toHaveAttribute("aria-current", "true");
+  await expect.element(sessionButton("claude")).toHaveAttribute("aria-selected", "true");
   await expect.poll(screenText).toContain("fake claude ready");
 });
 
@@ -252,7 +253,7 @@ test("prefix shift+x asks first, starts on Cancel, and removes the session for g
   await expect.element(removeDialog()).not.toBeInTheDocument();
   await expect.element(sessionButton("claude")).not.toBeInTheDocument();
   expect(client.sessions.getSnapshot().sessions.map((session) => session.kind)).toEqual(["shell"]);
-  await expect.element(shellButtons()).toHaveAttribute("aria-current", "true");
+  await expect.element(shellTabs()).toHaveAttribute("aria-selected", "true");
 });
 
 test("prefix x on a loose terminal closes it; r and shift+x leave it alone", async () => {

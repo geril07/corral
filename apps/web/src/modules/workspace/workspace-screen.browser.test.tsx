@@ -10,6 +10,15 @@ import {
 } from "../../../test/real-client.ts";
 import { serverTarget } from "../../../test/server-url.ts";
 import { App, renderApp } from "../../../test/render-app.tsx";
+import { createGitRepo } from "../../../test/git-repo.ts";
+import {
+  appWithProject,
+  createTask,
+  sessionTab,
+  shellTabs,
+  taskButton,
+  taskHeader,
+} from "../../../test/task-flows.tsx";
 
 const claimNextProtocolVersion: (url: string, protocols: string[]) => WebSocket = (
   url,
@@ -50,7 +59,7 @@ const selectButton = (index: number) => terminalButtons().nth(index);
 
 test("prefix then c opens a terminal that takes the keyboard straight away", async () => {
   await render(<App client={newClient()} />);
-  await expect.element(page.getByText(/No projects yet/)).toBeVisible();
+  await expect.element(page.getByText("Add a repository to start")).toBeVisible();
 
   await prefixThen("c");
   await expect.element(terminalButtons()).toHaveLength(1);
@@ -118,7 +127,7 @@ test("prefix x closes the active terminal and the neighbour takes over", async (
   await expect.element(selectButton(0)).toHaveAttribute("aria-current", "true");
 
   await prefixThen("x");
-  await expect.element(page.getByText(/No projects yet/)).toBeVisible();
+  await expect.element(page.getByText("Add a repository to start")).toBeVisible();
 });
 
 test("clicking a terminal in the list shows it and keeps typing going to the terminal", async () => {
@@ -149,7 +158,7 @@ test("a terminal whose process ended stays listed as exited until it is closed",
   await expect.poll(screenText).toContain("bye");
 
   await prefixThen("x");
-  await expect.element(page.getByText(/No projects yet/)).toBeVisible();
+  await expect.element(page.getByText("Add a repository to start")).toBeVisible();
 });
 
 test("a server on another protocol version gets a clear message instead of the workspace", async () => {
@@ -243,7 +252,7 @@ test("the first character typed after Escape reaches the terminal", async () => 
 
 test("prefix t without a project says so instead of opening the task dialog", async () => {
   await render(<App client={newClient()} />);
-  await expect.element(page.getByText(/No projects yet/)).toBeVisible();
+  await expect.element(page.getByText("Add a repository to start")).toBeVisible();
 
   await prefixThen("t");
   await expect.element(page.getByText(/Add a project first/)).toBeVisible();
@@ -290,4 +299,178 @@ test("prefix g with no blocked session says so and leaves the selection alone", 
   await expect.element(page.getByText("No blocked sessions.")).toBeVisible();
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
   await expect.element(selectButton(0)).toHaveAttribute("aria-current", "true");
+});
+
+test("the empty state adds a project from an inline path field", async () => {
+  const client = newClient();
+  await render(<App client={client} />);
+  await expect.element(page.getByText("Add a repository to start")).toBeVisible();
+
+  const repo = await createGitRepo("inline");
+  await userEvent.type(page.getByRole("textbox", { name: "Repository path" }), repo);
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+
+  await expect.element(page.getByText("No terminals.")).toBeVisible();
+  await expect.element(workspace().getByRole("button", { name: "New task" })).toBeEnabled();
+  expect(workspace().getByRole("textbox").elements()).toHaveLength(0);
+});
+
+test("a refused path keeps the field and says why", async () => {
+  await render(<App client={newClient()} />);
+
+  const field = page.getByRole("textbox", { name: "Repository path" });
+  await userEvent.type(field, "/not/a/repository");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+
+  await expect.element(page.getByRole("alert")).toBeVisible();
+  await expect.element(field).toHaveValue("/not/a/repository");
+  await expect.element(page.getByText("Add a repository to start")).toBeVisible();
+});
+
+test("a task without sessions shows the empty state with its two ways to start one", async () => {
+  const { client } = await appWithProject(newClient());
+  const project = client.projects.getSnapshot().projects[0]!;
+  await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "Untouched",
+    workspace: { type: "new-branch" },
+  });
+
+  await expect.element(taskButton("Untouched")).toHaveAttribute("aria-current", "true");
+  await expect.element(page.getByText("No sessions")).toBeVisible();
+  await page.getByRole("button", { name: "Open shell" }).click();
+  await expect.element(shellTabs()).toHaveLength(1);
+});
+
+test("the task header names the task, its project and branch, and its agent", async () => {
+  await appWithProject(newClient());
+  await createTask("Header facts");
+
+  await expect.element(taskHeader().getByRole("heading", { name: "Header facts" })).toBeVisible();
+  const where = await vi.waitFor(() => {
+    const button = taskHeader()
+      .getByRole("button", { name: /copy workspace path$/ })
+      .element();
+    if (!button.textContent?.includes(" › ")) throw new Error("the branch is not named yet");
+    return button.textContent ?? "";
+  });
+  expect(where).toMatch(/^repo-[^ ]+ › /);
+  await expect
+    .element(taskHeader().getByText(/no status|blocked|working|done|error|idle/))
+    .toBeVisible();
+  await expect.element(taskHeader().getByRole("button", { name: "Settle task" })).toBeVisible();
+  await expect
+    .element(taskHeader().getByRole("button", { name: "Task menu for Header facts" }))
+    .toBeVisible();
+});
+
+test("the settle action in the header settles the task, and its menu offers rename and copy", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Settle me");
+  const task = client.tasks.getSnapshot().tasks[0]!;
+
+  await taskHeader().getByRole("button", { name: "Settle task" }).click();
+  await expect.poll(() => client.tasks.getSnapshot().tasks[0]?.state).toBe("settled");
+  await expect.element(taskHeader().getByRole("button", { name: "Unsettle task" })).toBeVisible();
+
+  await taskHeader().getByRole("button", { name: "Task menu for Settle me" }).click();
+  await expect.element(page.getByRole("menuitem", { name: "Rename task…" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Copy workspace path" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  expect(task.title).toBe("Settle me");
+});
+
+test("tabs switch by click and by prefix n without losing the keyboard", async () => {
+  await appWithProject(newClient());
+  await createTask("Tabs");
+  await prefixThen("s");
+  await expect.element(page.getByRole("dialog", { name: "New agent session" })).toBeVisible();
+  await userEvent.keyboard("1");
+  await expect.element(sessionTab("claude")).toHaveAttribute("aria-selected", "true");
+  await expect.poll(screenText).toContain("fake claude ready");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  await sessionTab("shell").click();
+  await expect.element(sessionTab("shell")).toHaveAttribute("aria-selected", "true");
+  await expect.element(sessionTab("claude")).toHaveAttribute("aria-selected", "false");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  await userEvent.keyboard("echo shell-tab-$((2*3)){Enter}");
+  await expect.poll(screenText).toContain("shell-tab-6");
+
+  await prefixThen("n");
+  await expect.element(sessionTab("claude")).toHaveAttribute("aria-selected", "true");
+  await expect.poll(screenText).toContain("fake claude ready");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  await userEvent.keyboard("next-tab{Enter}");
+  await expect.poll(screenText).toContain("fake claude got: next-tab");
+});
+
+test("prefix \\ hides the sidebar, gives the window to the terminal, and shows it again", async () => {
+  await appWithProject(newClient());
+  await createTask("Full width");
+  await expect.element(page.getByRole("separator", { name: "Resize sidebar" })).toBeVisible();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  await prefixThen("\\");
+  await expect.element(page.getByRole("navigation", { name: "workspace" })).not.toBeInTheDocument();
+  // The main area takes the whole window and keeps the keyboard.
+  const main = page.getByRole("region", { name: "task content" }).element();
+  expect(main.getBoundingClientRect().width).toBeGreaterThan(window.innerWidth - 1);
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  await userEvent.keyboard("echo full-width-$((8+8)){Enter}");
+  await expect.poll(screenText).toContain("full-width-16");
+
+  await prefixThen("\\");
+  await expect.element(page.getByRole("navigation", { name: "workspace" })).toBeVisible();
+});
+
+test("the sidebar edge resizes, keeps its width, and double-click resets it", async () => {
+  const client = newClient();
+  const first = await renderApp(client);
+  const handle = page.getByRole("separator", { name: "Resize sidebar" });
+  // Below 1180 px the device starts at 232 px instead of 264 (`layout.md`, **Shell**).
+  const initial = window.innerWidth < 1180 ? 232 : 264;
+  await expect.element(handle).toHaveAttribute("aria-valuenow", String(initial));
+
+  handle.element().focus();
+  await userEvent.keyboard("{ArrowRight}");
+  await expect.element(handle).toHaveAttribute("aria-valuenow", String(initial + 16));
+  await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
+  await expect.element(handle).toHaveAttribute("aria-valuenow", String(initial - 16));
+
+  // The device keeps the width: a fresh app on the same page reads it back.
+  await first.unmount();
+  await renderApp(client);
+  const again = page.getByRole("separator", { name: "Resize sidebar" });
+  await expect.element(again).toHaveAttribute("aria-valuenow", String(initial - 16));
+
+  again.element().dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+  await expect.element(again).toHaveAttribute("aria-valuenow", String(initial));
+});
+
+test("the sidebar footer shows the prefix pill while the prefix is armed and the settings icon", async () => {
+  await render(<App client={newClient()} />);
+
+  await expect.element(page.getByRole("button", { name: "Settings" })).toBeVisible();
+  await userEvent.keyboard("{Alt>}a{/Alt}");
+  await expect.element(page.getByRole("status", { name: "prefix mode" })).toBeVisible();
+  await expect
+    .element(page.getByRole("status", { name: "prefix mode" }))
+    .toMatchTextContent(/prefix…/);
+  await userEvent.keyboard("q");
+  await expect.element(page.getByRole("status", { name: "prefix mode" })).not.toBeInTheDocument();
+});
+
+test("the sidebar Search tasks button opens task search and returns focus to itself", async () => {
+  await appWithProject(newClient());
+  await createTask("Search me");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  const opener = workspace().getByRole("button", { name: "Search tasks" });
+
+  await opener.click();
+  await expect.element(page.getByRole("dialog", { name: "Find task" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+
+  await expect.element(page.getByRole("dialog", { name: "Find task" })).not.toBeInTheDocument();
+  await expect.element(opener).toHaveFocus();
 });

@@ -3,8 +3,8 @@ import {
   buildWorkspaceTree,
   resolveSelection,
   type Chosen,
-  type Entry,
   type SidebarMode,
+  type TerminalEntry,
 } from "@corral/client/workspace-tree";
 import {
   DEFAULT_BINDINGS,
@@ -14,7 +14,7 @@ import {
 } from "@corral/protocol/config";
 import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
-import { page, userEvent } from "vite-plus/test/browser";
+import { page } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { Sidebar } from "./sidebar.tsx";
 
@@ -82,6 +82,20 @@ const config: ClientConfig = {
   keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } },
 };
 
+const handlers = () => ({
+  onSelectProject: vi.fn<(project: Project) => void>(),
+  onSelectTask: vi.fn<(task: Task) => void>(),
+  onSelectLoose: vi.fn<() => void>(),
+  onSelectTerminal: vi.fn<(entry: TerminalEntry) => void>(),
+  onCloseTerminal: vi.fn<(id: string) => void>(),
+  onRenameTerminal: vi.fn<(entry: TerminalEntry) => void>(),
+  onRenameTask: vi.fn<(task: Task, opener?: HTMLElement) => void>(),
+  onToggleSettle: vi.fn<(task: Task) => void>(),
+  onRemoveTask: vi.fn<(task: Task) => void>(),
+  onNewTask: vi.fn<(project?: Project, opener?: HTMLElement) => void>(),
+  onFindTask: vi.fn<(opener?: HTMLElement) => void>(),
+});
+
 function renderSidebar(
   chosen: Chosen = {},
   sessions: Session[] = defaultSessions,
@@ -94,27 +108,7 @@ function renderSidebar(
     terminal("term-s2", "a", "s2"),
     terminal("loose", null, null),
   ]);
-  const handlers = {
-    onSelectProject: vi.fn<(project: Project) => void>(),
-    onSelectTask: vi.fn<(task: Task) => void>(),
-    onSelectLoose: vi.fn<() => void>(),
-    onSelectEntry: vi.fn<(entry: Entry) => void>(),
-    onCloseTerminal: vi.fn<(id: string) => void>(),
-    onStopSession: vi.fn<(session: Session) => void>(),
-    onRestartSession: vi.fn<(session: Session) => void>(),
-    onRemoveSession: vi.fn<(session: Session) => void>(),
-    onRenameEntry: vi.fn<(entry: Entry) => void>(),
-    onToggleSettle: vi.fn<(task: Task) => void>(),
-    onRemoveTask: vi.fn<(task: Task) => void>(),
-    onRenameTask: vi.fn<(task: Task) => void>(),
-    onAddProject: vi.fn<() => void>(),
-    onNewTask: vi.fn<() => void>(),
-    onNewTerminal: vi.fn<() => void>(),
-    onNewAgent: vi.fn<() => void>(),
-    onOpenPalette: vi.fn<() => void>(),
-    onOpenBoard: vi.fn<() => void>(),
-    onFindTask: vi.fn<() => void>(),
-  };
+  const spies = handlers();
   const rendered = render(
     <div className={narrow ? "w-60" : undefined}>
       <Sidebar
@@ -122,47 +116,40 @@ function renderSidebar(
         selection={resolveSelection(tree, chosen)}
         flat={mode === "flat" ? buildFlatSidebar(tree) : undefined}
         config={config}
-        {...handlers}
+        {...spies}
       />
     </div>,
   );
-  return { rendered, handlers };
+  return { rendered, handlers: spies };
 }
 
 const nav = () => page.getByRole("navigation", { name: "workspace" });
+const row = (title: string) => nav().getByRole("button", { name: new RegExp(`^${title}`) });
 
-const sessionButton = (kind: string, state?: string) =>
-  nav().getByRole("button", { name: state ? `${kind} ${state}` : new RegExp(`^${kind}$`) });
-
-test("projects list their active tasks, each with its sessions; loose terminals sit under No task", async () => {
+test("tasks are the only rows; loose terminals sit under Scratch", async () => {
   await renderSidebar().rendered;
 
   await expect.element(nav().getByRole("button", { name: "repo-p1" })).toBeVisible();
   await expect.element(nav().getByRole("button", { name: "repo-p2" })).toBeVisible();
-  await expect.element(nav().getByRole("button", { name: /^task a/ })).toBeVisible();
-  await expect.element(nav().getByRole("button", { name: /^task b/ })).toBeVisible();
-  await expect.element(sessionButton("shell")).toBeVisible();
-  await expect.element(sessionButton("claude")).toBeVisible();
-  await expect.element(nav().getByRole("button", { name: "No task" })).toBeVisible();
+  await expect.element(row("task a")).toBeVisible();
+  await expect.element(row("task b")).toBeVisible();
+
+  // Sessions are tabs in the main area now, not sidebar rows.
+  await expect
+    .element(nav().getByRole("button", { name: /^shell|^claude|^codex/ }))
+    .not.toBeInTheDocument();
+  await expect.element(nav().getByRole("button", { name: "Scratch" })).toBeVisible();
   await expect.element(nav().getByRole("button", { name: /^sh · / })).toBeVisible();
 });
 
-test("two sessions of one kind in a task are numbered after the first", async () => {
-  await renderSidebar({}, [session("s1", "a", "shell"), session("s2", "a", "shell")]).rendered;
-
-  await expect.element(sessionButton("shell")).toBeVisible();
-  await expect.element(nav().getByRole("button", { name: "shell 2" })).toBeVisible();
-});
-
-test("a session that is not running says so, and an unresumable one says why on hover", async () => {
+test("a two-line task row names its branch, agent and session count on the second line", async () => {
   await renderSidebar().rendered;
-  await nav().getByRole("button", { name: "Expand sessions for task b" }).click();
 
-  await expect.element(sessionButton("codex", "stopped")).toBeVisible();
-  await expect
-    .element(sessionButton("pi", "unresumable"))
-    .toHaveAttribute("title", expect.stringContaining("new conversation"));
-  await expect.element(sessionButton("claude")).not.toHaveAttribute("title");
+  const first = nav().getByRole("button", { name: /^task a/ });
+  await expect.element(first).toMatchTextContent(/branch-a · claude · 3 sessions/);
+  expect(first.element().getBoundingClientRect().height).toBeGreaterThanOrEqual(52);
+  // Project mode already groups by project, so the row does not repeat its name.
+  expect(first.element().textContent).not.toContain("repo-p1");
 });
 
 test("settled tasks stay collapsed until the group is opened", async () => {
@@ -170,170 +157,121 @@ test("settled tasks stay collapsed until the group is opened", async () => {
   const toggle = nav().getByRole("button", { name: "Settled (1)" });
 
   // The toggle is one full-width row like a task row, not a shrink-wrapped label.
-  const row = toggle.element().parentElement;
-  if (!row) throw new Error("the settled toggle has no row");
+  const parent = toggle.element().parentElement;
+  if (!parent) throw new Error("the settled toggle has no row");
   expect(toggle.element().getBoundingClientRect().width).toBeCloseTo(
-    row.getBoundingClientRect().width,
+    parent.getBoundingClientRect().width,
     0,
   );
 
   await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect.element(nav().getByRole("button", { name: /^task old/ })).not.toBeInTheDocument();
+  await expect.element(row("task old")).not.toBeInTheDocument();
 
   await toggle.click();
   await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect.element(nav().getByRole("button", { name: /^task old/ })).toBeVisible();
+  await expect.element(row("task old")).toBeVisible();
 
   await toggle.click();
-  await expect.element(nav().getByRole("button", { name: /^task old/ })).not.toBeInTheDocument();
+  await expect.element(row("task old")).not.toBeInTheDocument();
 });
 
 test("the group opens by itself while it holds the current task", async () => {
   await renderSidebar({ taskId: "old" }).rendered;
 
-  await expect
-    .element(nav().getByRole("button", { name: /^task old/ }))
-    .toHaveAttribute("aria-current", "true");
+  await expect.element(row("task old")).toHaveAttribute("aria-current", "true");
 });
 
-test("the current task and session are marked", async () => {
+test("the current task is marked", async () => {
   await renderSidebar({ taskId: "a", entryId: "s2" }).rendered;
 
+  await expect.element(row("task a")).toHaveAttribute("aria-current", "true");
+});
+
+test("the header offers task search with its chord and a new task button", async () => {
+  const { rendered, handlers: spies } = renderSidebar();
+  await rendered;
+
   await expect
-    .element(nav().getByRole("button", { name: /^task a/ }))
-    .toHaveAttribute("aria-current", "true");
-  await expect.element(sessionButton("claude")).toHaveAttribute("aria-current", "true");
-  await expect.element(sessionButton("shell")).not.toHaveAttribute("aria-current");
+    .element(nav().getByRole("button", { name: "Search tasks" }))
+    .toMatchTextContent("alt+a f");
+  await nav().getByRole("button", { name: "Search tasks" }).click();
+  expect(spies.onFindTask).toHaveBeenCalledOnce();
+
+  await nav().getByRole("button", { name: "New task" }).click();
+  expect(spies.onNewTask).toHaveBeenCalledOnce();
+});
+
+test("a project group's header offers a new task in that project", async () => {
+  const { rendered, handlers: spies } = renderSidebar();
+  await rendered;
+
+  await nav().getByRole("button", { name: "New task in repo-p2" }).click();
+  expect(spies.onNewTask).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ id: "p2" }),
+    expect.any(HTMLButtonElement),
+  );
 });
 
 test("clicking reports what was picked", async () => {
-  const { rendered, handlers } = renderSidebar();
+  const { rendered, handlers: spies } = renderSidebar();
   await rendered;
 
-  await sessionButton("claude").click();
-  expect(handlers.onSelectEntry).toHaveBeenCalledWith(
-    expect.objectContaining({ type: "session", id: "s2" }),
-  );
+  await row("task b").click();
+  expect(spies.onSelectTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
+
+  await nav().getByRole("button", { name: "repo-p2" }).click();
+  expect(spies.onSelectProject).toHaveBeenCalledWith(expect.objectContaining({ id: "p2" }));
+
+  await row("task a").click();
+  await nav().getByRole("button", { name: "Task actions for task a" }).click();
+  await page.getByRole("menuitem", { name: "Settle task" }).click();
+  expect(spies.onToggleSettle).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
+
+  await nav().getByRole("button", { name: "Task actions for task b" }).click();
+  await page.getByRole("menuitem", { name: "Remove task…" }).click();
+  expect(spies.onRemoveTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
 
   await nav()
     .getByRole("button", { name: /^sh · / })
     .click();
-  expect(handlers.onSelectEntry).toHaveBeenLastCalledWith(
+  expect(spies.onSelectTerminal).toHaveBeenLastCalledWith(
     expect.objectContaining({ type: "terminal", id: "loose" }),
   );
-
-  await nav()
-    .getByRole("button", { name: /^task b/ })
-    .click();
-  expect(handlers.onSelectTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
-
-  await nav().getByRole("button", { name: "repo-p2" }).click();
-  expect(handlers.onSelectProject).toHaveBeenCalledWith(expect.objectContaining({ id: "p2" }));
-
-  await nav().getByRole("button", { name: "Task actions for task a" }).click();
-  await page.getByRole("menuitem", { name: "Settle task" }).click();
-  expect(handlers.onToggleSettle).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
-
-  // Opening the next row's menu must leave exactly one: the settled task's popup is gone by then.
-  await nav().getByRole("button", { name: "Task actions for task b" }).click();
-  expect(page.getByRole("menu").elements()).toHaveLength(1);
-  await page.getByRole("menuitem", { name: "Remove task…" }).click();
-  expect(handlers.onRemoveTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
-
-  await nav().getByRole("button", { name: "stop claude" }).click();
-  expect(handlers.onStopSession).toHaveBeenCalledWith(expect.objectContaining({ id: "s2" }));
-
-  await nav().getByRole("button", { name: "restart codex" }).click();
-  expect(handlers.onRestartSession).toHaveBeenCalledWith(expect.objectContaining({ id: "s3" }));
-
-  await nav().getByRole("button", { name: "Session actions for shell" }).click();
-  await page.getByRole("menuitem", { name: "Remove session…" }).click();
-  expect(handlers.onRemoveSession).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
 
   await nav()
     .getByRole("button", { name: /^Terminal actions for sh · / })
     .click();
   await page.getByRole("menuitem", { name: "Close terminal…" }).click();
-  expect(handlers.onCloseTerminal).toHaveBeenCalledWith("loose");
-
-  const toolbar = nav().getByRole("toolbar", { name: "Workspace actions" });
-  await toolbar.getByRole("button", { name: "Add project" }).click();
-  await toolbar.getByRole("button", { name: "New task" }).click();
-  await toolbar.getByRole("button", { name: "New terminal" }).click();
-  await toolbar.getByRole("button", { name: "New agent session" }).click();
-  await toolbar.getByRole("button", { name: "Find task" }).click();
-  await toolbar.getByRole("button", { name: "Command palette" }).click();
-  await toolbar.getByRole("button", { name: "Open board" }).click();
-  expect(handlers.onAddProject).toHaveBeenCalledOnce();
-  expect(handlers.onNewTask).toHaveBeenCalledOnce();
-  expect(handlers.onNewTerminal).toHaveBeenCalledOnce();
-  expect(handlers.onNewAgent).toHaveBeenCalledOnce();
-  expect(handlers.onFindTask).toHaveBeenCalledOnce();
-  expect(handlers.onOpenPalette).toHaveBeenCalledOnce();
-  expect(handlers.onOpenBoard).toHaveBeenCalledOnce();
+  expect(spies.onCloseTerminal).toHaveBeenCalledWith("loose");
 });
 
 test("a task's menu offers rename with the menu button as the dialog's opener", async () => {
-  const { rendered, handlers } = renderSidebar();
+  const { rendered, handlers: spies } = renderSidebar();
   await rendered;
   const menu = nav().getByRole("button", { name: "Task actions for task a" });
 
   await menu.click();
   await page.getByRole("menuitem", { name: "Rename task…" }).click();
 
-  expect(handlers.onRenameTask).toHaveBeenCalledExactlyOnceWith(
+  expect(spies.onRenameTask).toHaveBeenCalledExactlyOnceWith(
     expect.objectContaining({ id: "a" }),
     menu.element(),
   );
 });
 
 test("a row's menu is gone before the next row opens its own", async () => {
-  const { rendered, handlers } = renderSidebar();
+  const { rendered, handlers: spies } = renderSidebar();
   await rendered;
 
   await nav().getByRole("button", { name: "Task actions for task a" }).click();
   await page.getByRole("menuitem", { name: "Settle task" }).click();
-  expect(handlers.onToggleSettle).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
+  expect(spies.onToggleSettle).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
 
   // Deliberately no wait for the first popup to leave the document before the next one opens.
   await nav().getByRole("button", { name: "Task actions for task b" }).click();
   expect(page.getByRole("menu").elements()).toHaveLength(1);
   await page.getByRole("menuitem", { name: "Remove task…" }).click();
-  expect(handlers.onRemoveTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
-});
-
-test("Enter on the selected session that is not running starts it again; on a running one it does not", async () => {
-  const { rendered, handlers } = renderSidebar({ taskId: "a", entryId: "s3" });
-  await rendered;
-
-  const stopped = sessionButton("codex", "stopped");
-  await expect.element(stopped).toHaveAttribute("aria-current", "true");
-  stopped.element().focus();
-  await userEvent.keyboard("{Enter}");
-  expect(handlers.onRestartSession).toHaveBeenCalledExactlyOnceWith(
-    expect.objectContaining({ id: "s3" }),
-  );
-
-  const running = sessionButton("claude");
-  running.element().focus();
-  await userEvent.keyboard("{Enter}");
-  expect(handlers.onRestartSession).toHaveBeenCalledOnce();
-  expect(handlers.onSelectEntry).toHaveBeenCalledWith(
-    expect.objectContaining({ type: "session", id: "s2" }),
-  );
-});
-
-test("Enter on a stopped session that is not the selected one only selects it", async () => {
-  const { rendered, handlers } = renderSidebar({ taskId: "a", entryId: "s1" });
-  await rendered;
-
-  sessionButton("codex", "stopped").element().focus();
-  await userEvent.keyboard("{Enter}");
-
-  expect(handlers.onRestartSession).not.toHaveBeenCalled();
-  expect(handlers.onSelectEntry).toHaveBeenCalledWith(
-    expect.objectContaining({ type: "session", id: "s3" }),
-  );
+  expect(spies.onRemoveTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
 });
 
 const reporting = (base: Session, status: NonNullable<Session["status"]>): Session => ({
@@ -341,7 +279,7 @@ const reporting = (base: Session, status: NonNullable<Session["status"]>): Sessi
   status,
 });
 
-test("sessions and tasks show their agent status with a text alternative and the message on hover", async () => {
+test("a task shows its most urgent session status with a text alternative and the message on hover", async () => {
   await renderSidebar({}, [
     session("s1", "a", "shell"),
     reporting(session("s2", "a", "claude"), {
@@ -351,29 +289,23 @@ test("sessions and tasks show their agent status with a text alternative and the
       updatedAt: 1,
     }),
     reporting(session("s3", "a", "codex"), { state: "working", updatedAt: 2 }),
-    reporting(session("s4", "b", "pi"), { state: "idle", updatedAt: 3 }),
+    reporting(session("s4", "b", "pi"), { state: "working", updatedAt: 3 }),
   ]).rendered;
-  await nav().getByRole("button", { name: "Expand sessions for task b" }).click();
 
-  // The task takes the most urgent of its sessions' statuses; the sessions show their own.
-  const status = (name: string) => nav().getByRole("img", { name });
-  await expect.element(status("blocked · permission")).toHaveLength(2);
-  await expect.element(status("working")).toHaveLength(1);
-  await expect.element(status("idle")).toHaveLength(2);
-  await expect.element(sessionButton("claude")).toHaveAttribute("title", "Run rm -rf build?");
-  await expect
-    .element(nav().getByRole("button", { name: /^task a/ }))
-    .toHaveAttribute("title", "Run rm -rf build?");
-  await expect.element(sessionButton("shell")).not.toHaveAttribute("title");
+  // Task a takes blocked, the most urgent of its sessions; task b is working.
+  await expect.element(nav().getByRole("img", { name: "blocked · permission" })).toHaveLength(1);
+  await expect.element(nav().getByRole("img", { name: "working" })).toHaveLength(1);
+  await expect.element(row("task a")).toHaveAttribute("title", "Run rm -rf build?");
+  await expect.element(row("task b")).not.toHaveAttribute("title");
 });
 
-test("a stopped session shows only the done or error it kept, and a stale working is dropped", async () => {
+test("a stopped session keeps only the done or error status it had", async () => {
   await renderSidebar({}, [
     reporting(session("s1", "a", "claude", "stopped"), { state: "done", updatedAt: 1 }),
-    reporting(session("s3", "a", "codex", "stopped"), { state: "working", updatedAt: 2 }),
+    reporting(session("s3", "b", "codex", "stopped"), { state: "working", updatedAt: 2 }),
   ]).rendered;
 
-  await expect.element(nav().getByRole("img", { name: "done" })).toHaveLength(2);
+  await expect.element(nav().getByRole("img", { name: "done" })).toHaveLength(1);
   await expect.element(nav().getByRole("img", { name: "working" })).not.toBeInTheDocument();
 });
 
@@ -384,46 +316,29 @@ test("a collapsed project shows its count and expands again from its header", as
   await expect
     .element(nav().getByRole("button", { name: "Expand repo-p2" }))
     .toHaveAttribute("aria-expanded", "false");
-  await expect.element(nav().getByRole("button", { name: /^task b/ })).not.toBeInTheDocument();
+  await expect.element(row("task b")).not.toBeInTheDocument();
   await expect.element(nav().getByRole("button", { name: "repo-p2" })).toMatchTextContent("1");
 
   await nav().getByRole("button", { name: "repo-p2" }).click();
-  await expect.element(nav().getByRole("button", { name: /^task b/ })).toBeVisible();
-});
-
-test("the current task's sessions stay open and another task's expand on demand", async () => {
-  await renderSidebar({ taskId: "a", entryId: "s1" }).rendered;
-  await expect.element(sessionButton("shell")).toBeVisible();
-  await expect.element(sessionButton("pi", "unresumable")).not.toBeInTheDocument();
-
-  await nav().getByRole("button", { name: "Expand sessions for task b" }).click();
-  await expect.element(sessionButton("pi", "unresumable")).toBeVisible();
-  await nav().getByRole("button", { name: "Collapse sessions for task b" }).click();
-  await expect.element(sessionButton("pi", "unresumable")).not.toBeInTheDocument();
-
-  // The selected task's disclosure stays open and cannot be collapsed under the selection.
-  await expect
-    .element(nav().getByRole("button", { name: "Collapse sessions for task a" }))
-    .toBeDisabled();
+  await expect.element(row("task b")).toBeVisible();
 });
 
 test("every icon action is named and its tooltip carries the effective binding", async () => {
   await renderSidebar().rendered;
-  const toolbar = nav().getByRole("toolbar", { name: "Workspace actions" });
-  const terminalButton = toolbar.getByRole("button", { name: "New terminal" });
-  terminalButton.element().focus();
+  const newTask = nav().getByRole("button", { name: "New task" });
+  newTask.element().focus();
 
   await expect.element(page.getByRole("tooltip")).toHaveLength(1);
-  await expect.element(page.getByRole("tooltip")).toMatchTextContent("New terminal · alt+a c");
+  await expect.element(page.getByRole("tooltip")).toMatchTextContent("New task · alt+a t");
   await expect
-    .element(toolbar.getByRole("button", { name: "Command palette" }))
-    .toHaveAttribute("aria-label", "Command palette");
+    .element(nav().getByRole("button", { name: "New task in repo-p1" }))
+    .toHaveAttribute("aria-label", "New task in repo-p1");
 
   const text = nav().element().textContent ?? "";
   for (const glyph of ["▾", "▴", "×", "■", "▶"]) expect(text).not.toContain(glyph);
 });
 
-test("a long task title end-truncates and a long branch middle-truncates, with the full value on focus", async () => {
+test("a long task title truncates, and the full title and second line stay on focus", async () => {
   const longTitle =
     "Investigate the very long running login regression across every environment and browser " +
     "while keeping every previous task title, branch and session readable in a narrow sidebar";
@@ -435,36 +350,17 @@ test("a long task title end-truncates and a long branch middle-truncates, with t
     true,
   ).rendered;
 
-  const button = nav().getByRole("button", { name: longTitle });
-  await expect.element(button).toMatchTextContent(/…/);
-  const spans = button.element().querySelectorAll("span");
-  const titleSpan = spans[0];
-  const branchSpan = spans[1];
-  if (!titleSpan || !branchSpan) throw new Error("task row spans are missing");
-  expect(branchSpan.textContent?.length).toBeGreaterThan(2);
-  expect(branchSpan.getBoundingClientRect().width).toBeGreaterThan(20);
-  expect(titleSpan.getBoundingClientRect().width).toBeGreaterThan(
-    branchSpan.getBoundingClientRect().width,
+  const button = nav().getByRole("button", { name: new RegExp(`^${longTitle}`) });
+  // The title and the second line are wider than their spans: both clip instead of wrapping.
+  const clipped = [...button.element().querySelectorAll(".truncate")].filter(
+    (element) => element.scrollWidth > element.clientWidth,
   );
+  expect(clipped).toHaveLength(2);
+  expect(button.element().textContent).toContain(longBranch);
 
   button.element().focus();
   await expect.element(page.getByRole("tooltip")).toMatchTextContent(longTitle);
   await expect.element(page.getByRole("tooltip")).toMatchTextContent(longBranch);
-});
-
-test("only the selected entry offers rename, in its overflow, and it names the entry", async () => {
-  const { rendered, handlers } = renderSidebar({ taskId: "a", entryId: "s2" });
-  await rendered;
-
-  await nav().getByRole("button", { name: "Session actions for shell" }).click();
-  await expect.element(page.getByRole("menuitem", { name: "Rename…" })).not.toBeInTheDocument();
-  await userEvent.keyboard("{Escape}");
-
-  await nav().getByRole("button", { name: "Session actions for claude" }).click();
-  await page.getByRole("menuitem", { name: "Rename…" }).click();
-  expect(handlers.onRenameEntry).toHaveBeenCalledWith(
-    expect.objectContaining({ type: "session", id: "s2" }),
-  );
 });
 
 test("a loose terminal shows the name the user gave it instead of its command and folder", async () => {
@@ -474,33 +370,12 @@ test("a loose terminal shows the name the user gave it instead of its command an
     [],
     [terminal("loose", null, null, "build logs")],
   );
-  const handlers = {
-    onSelectProject: vi.fn<(project: Project) => void>(),
-    onSelectTask: vi.fn<(task: Task) => void>(),
-    onSelectLoose: vi.fn<() => void>(),
-    onSelectEntry: vi.fn<(entry: Entry) => void>(),
-    onCloseTerminal: vi.fn<(id: string) => void>(),
-    onStopSession: vi.fn<(session: Session) => void>(),
-    onRestartSession: vi.fn<(session: Session) => void>(),
-    onRemoveSession: vi.fn<(session: Session) => void>(),
-    onRenameEntry: vi.fn<(entry: Entry) => void>(),
-    onToggleSettle: vi.fn<(task: Task) => void>(),
-    onRemoveTask: vi.fn<(task: Task) => void>(),
-    onRenameTask: vi.fn<(task: Task) => void>(),
-    onAddProject: vi.fn<() => void>(),
-    onNewTask: vi.fn<() => void>(),
-    onNewTerminal: vi.fn<() => void>(),
-    onNewAgent: vi.fn<() => void>(),
-    onOpenPalette: vi.fn<() => void>(),
-    onOpenBoard: vi.fn<() => void>(),
-    onFindTask: vi.fn<() => void>(),
-  };
   await render(
     <Sidebar
       tree={tree}
       selection={resolveSelection(tree, { taskId: null, entryId: "loose" })}
       config={config}
-      {...handlers}
+      {...handlers()}
     />,
   );
 
@@ -579,39 +454,27 @@ test("flat mode lists every project's tasks by status, each row naming its proje
   await expect.element(nav().getByRole("img", { name: "unseen" })).toHaveLength(1);
 });
 
-test("a flat row is the two-line 52 px task row, with its sessions under the selected task only", async () => {
-  await renderSidebar({ taskId: "a", entryId: "s1" }, defaultSessions, undefined, false, "flat")
-    .rendered;
-
-  const row = nav()
-    .getByRole("button", { name: /^task a/ })
-    .element();
-  expect(row.getBoundingClientRect().height).toBeGreaterThanOrEqual(52);
-
-  await expect.element(sessionButton("shell")).toBeVisible();
-  await expect
-    .element(nav().getByRole("button", { name: /Expand sessions/ }))
-    .not.toBeInTheDocument();
-  await expect.element(sessionButton("pi", "unresumable")).not.toBeInTheDocument();
-});
-
 test("flat mode keeps settled tasks on a collapsed shelf that opens itself for the current one", async () => {
   await renderSidebar({}, defaultSessions, undefined, false, "flat").rendered;
 
   const toggle = nav().getByRole("button", { name: "Settled (1)" });
   await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
-  await expect.element(nav().getByRole("button", { name: /^task old/ })).not.toBeInTheDocument();
+  await expect.element(row("task old")).not.toBeInTheDocument();
 
   await toggle.click();
-  await expect.element(nav().getByRole("button", { name: /^task old/ })).toBeVisible();
+  await expect.element(row("task old")).toBeVisible();
 });
 
 test("clicking a flat row reports the task it names", async () => {
-  const { rendered, handlers } = renderSidebar({}, defaultSessions, undefined, false, "flat");
+  const { rendered, handlers: spies } = renderSidebar(
+    {},
+    defaultSessions,
+    undefined,
+    false,
+    "flat",
+  );
   await rendered;
 
-  await nav()
-    .getByRole("button", { name: /^task b/ })
-    .click();
-  expect(handlers.onSelectTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
+  await row("task b").click();
+  expect(spies.onSelectTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
 });

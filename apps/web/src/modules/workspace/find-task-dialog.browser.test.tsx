@@ -211,7 +211,7 @@ test("the find-task binding is configurable and in the palette, and unbinding it
   await prefixThen("q");
   await expect.element(findDialog()).not.toBeInTheDocument();
 
-  await workspace().getByRole("button", { name: "Find task" }).click();
+  await workspace().getByRole("button", { name: "Search tasks" }).click();
   await expect.element(findDialog()).toBeVisible();
   await expect.element(searchInput()).toHaveFocus();
   await userEvent.keyboard("no-such-task");

@@ -12,6 +12,7 @@ import {
   appWithProject,
   createTaskWithShell,
   focusedIsTerminal,
+  sessionTab,
   workspace,
 } from "../../../test/task-flows.tsx";
 
@@ -88,22 +89,22 @@ test("a task session is renamed without restarting it, and custom names keep the
   await appWithProject(newClient());
   await createTaskWithShell("Named");
   await prefixThen("c");
-  await expect.element(row("shell 2")).toBeVisible();
+  await expect.element(sessionTab("shell 2")).toBeVisible();
   await userEvent.keyboard("echo before-$((6*7)){Enter}");
   await expect.poll(screenText).toContain("before-42");
 
-  await row("shell").click();
+  await sessionTab("shell").click();
   await renameCurrent("build");
 
-  await expect.element(row("build")).toHaveAttribute("aria-current", "true");
-  await expect.element(row("shell 2")).toBeVisible();
+  await expect.element(sessionTab("build")).toHaveAttribute("aria-selected", "true");
+  await expect.element(sessionTab("shell 2")).toBeVisible();
   await userEvent.keyboard("echo after-$((7*7)){Enter}");
   await expect.poll(screenText).toContain("after-49");
 
-  await row("build").click();
+  await sessionTab("build").click();
   await renameCurrent("");
-  await expect.element(row("shell")).toBeVisible();
-  await expect.element(row("shell 2")).toBeVisible();
+  await expect.element(sessionTab("shell")).toBeVisible();
+  await expect.element(sessionTab("shell 2")).toBeVisible();
   await expect.element(dialog()).not.toBeInTheDocument();
 });
 
@@ -159,7 +160,7 @@ test("the palette lists the task rename and the session numbers with their keys"
 test("a keyboard rename after a button-opened dialog returns focus to the terminal", async () => {
   await appWithProject(newClient());
   await createTaskWithShell("Rename focus");
-  const find = workspace().getByRole("button", { name: "Find task" });
+  const find = workspace().getByRole("button", { name: "Search tasks" });
 
   await find.click();
   await expect.element(page.getByRole("dialog", { name: "Find task" })).toBeVisible();

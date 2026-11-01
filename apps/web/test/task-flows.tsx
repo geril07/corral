@@ -8,7 +8,13 @@ import { renderApp } from "./render-app.tsx";
 export const workspace = () => page.getByRole("navigation", { name: "workspace" });
 export const taskButton = (title: string) =>
   workspace().getByRole("button", { name: new RegExp(`^${title}`) });
-export const shellButtons = () => workspace().getByRole("button", { name: /^shell/ });
+/** The current task's session tabs (`layout.md`, **Session tabs**). */
+export const sessionTabs = () => page.getByRole("tablist", { name: "Sessions" });
+export const sessionTab = (name: string | RegExp) => sessionTabs().getByRole("tab", { name });
+export const selectedTab = () => sessionTabs().getByRole("tab", { selected: true });
+export const shellTabs = () => sessionTabs().getByRole("tab", { name: /^shell/ });
+/** The 40 px task header above the tabs. */
+export const taskHeader = () => page.getByRole("group", { name: "task header" });
 export const focusedIsTerminal = () =>
   document.activeElement?.classList.contains("xterm-helper-textarea");
 
@@ -61,8 +67,8 @@ export async function createTask(title: string) {
 }
 
 /**
- * The same, then a terminal to type in. `shellCount` is how many shell sessions the sidebar lists
- * afterwards, of the current task: a task that is not current shows none.
+ * The same, then a terminal to type in. `shellCount` is how many shell tabs the current task
+ * shows afterwards.
  */
 export async function createTaskWithShell(title: string, shellCount = 1) {
   await createTask(title);
@@ -72,6 +78,5 @@ export async function createTaskWithShell(title: string, shellCount = 1) {
 /** Adds a shell session to the current task with prefix c. */
 export async function startShell(shellCount = 1) {
   await prefixThen("c");
-  await expect.element(shellButtons()).toHaveLength(shellCount);
+  await expect.element(shellTabs()).toHaveLength(shellCount);
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
-}

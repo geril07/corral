@@ -7,17 +7,17 @@ import {
   createTask,
   createTaskWithShell,
   focusedIsTerminal,
+  sessionTab,
   taskButton,
-  workspace,
 } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 
 const board = () => page.getByRole("region", { name: "Board" });
 const boardRow = (title: string) => board().getByRole("option", { name: new RegExp(title) });
-/** The glyphs of the sidebar that carry `name` as their text alternative. */
-const indicators = (name: string) => workspace().getByRole("img", { name });
-const claudeButton = () => workspace().getByRole("button", { name: /^claude/ });
+/** Every glyph that carries `name` as its text alternative: task rows, tabs and the header. */
+const indicators = (name: string) => page.getByRole("img", { name });
+const claudeButton = () => sessionTab(/^claude/);
 
 /** What the agent in the focused terminal is told to print: an OSC 7501 report. */
 const report = (fields: Parameters<typeof reportBody>[0]) =>
@@ -27,7 +27,7 @@ async function startClaude() {
   await prefixThen("s");
   await expect.element(page.getByRole("dialog", { name: "New agent session" })).toBeVisible();
   await userEvent.keyboard("1");
-  await expect.element(claudeButton()).toHaveAttribute("aria-current", "true");
+  await expect.element(claudeButton()).toHaveAttribute("aria-selected", "true");
   await expect.poll(screenText).toContain("fake claude ready");
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 }
@@ -38,7 +38,8 @@ test("a blocked agent shows on its session and task; the board and prefix g jump
   await startClaude();
 
   await report({ state: "blocked", kind: "permission", msg: "Run rm -rf build?" });
-  await expect.element(indicators("blocked · permission")).toHaveLength(2);
+  // The sidebar row, the session tab and the task header all say what the task needs.
+  await expect.element(indicators("blocked · permission")).toHaveLength(3);
   await expect.element(taskButton("Alpha")).toHaveAttribute("title", "Run rm -rf build?");
 
   // A second task, which becomes current and has nothing to report; Alpha's sessions stay with
@@ -48,7 +49,7 @@ test("a blocked agent shows on its session and task; the board and prefix g jump
 
   await prefixThen("g");
   await expect.element(taskButton("Alpha")).toHaveAttribute("aria-current", "true");
-  await expect.element(claudeButton()).toHaveAttribute("aria-current", "true");
+  await expect.element(claudeButton()).toHaveAttribute("aria-selected", "true");
 
   await prefixThen("j");
   await expect.element(taskButton("Beta")).toHaveAttribute("aria-current", "true");
@@ -63,10 +64,11 @@ test("a blocked agent shows on its session and task; the board and prefix g jump
 
   await expect.element(board()).not.toBeInTheDocument();
   await expect.element(taskButton("Alpha")).toHaveAttribute("aria-current", "true");
-  await expect.element(claudeButton()).toHaveAttribute("aria-current", "true");
+  await expect.element(claudeButton()).toHaveAttribute("aria-selected", "true");
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 
   await report({ state: "done", msg: "All green" });
+  // A done tab keeps its kind icon; the row and the header carry the status.
   await expect.element(indicators("done")).toHaveLength(2);
   await expect.element(indicators("blocked · permission")).not.toBeInTheDocument();
   await prefixThen("b");
@@ -85,9 +87,9 @@ test("stopping an agent drops the working status it had", async () => {
   await createTaskWithShell("Alpha");
   await startClaude();
   await report({ state: "working" });
-  await expect.element(indicators("working")).toHaveLength(2);
+  await expect.element(indicators("working")).toHaveLength(3);
 
   await prefixThen("x");
-  await expect.element(workspace().getByRole("button", { name: "claude stopped" })).toBeVisible();
+  await expect.element(sessionTab("claude stopped")).toBeVisible();
   await expect.element(indicators("working")).not.toBeInTheDocument();
 });

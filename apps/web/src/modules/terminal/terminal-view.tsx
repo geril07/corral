@@ -103,7 +103,7 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
 
   return (
     <section className="absolute inset-0 flex flex-col" aria-label="active terminal">
-      <div className="terminal-host min-h-0 flex-1 overflow-hidden px-2 pt-1.5" ref={hostRef} />
+      <div className="terminal-host min-h-0 flex-1 overflow-hidden p-2" ref={hostRef} />
       <TerminalNotice terminal={terminal} streamState={streamState} exitHint={exitHint} />
     </section>
   );

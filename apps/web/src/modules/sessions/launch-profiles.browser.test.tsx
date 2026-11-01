@@ -8,7 +8,7 @@ import { createGitRepo } from "../../../test/git-repo.ts";
 import { writeConfig } from "../../../test/config-command.ts";
 import { prefixThen, realServerClients, screenText } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
-import { appWithProject, createTaskWithShell, workspace } from "../../../test/task-flows.tsx";
+import { appWithProject, createTaskWithShell, sessionTabs } from "../../../test/task-flows.tsx";
 import { describeLaunchError } from "./launch-error.ts";
 
 const { newClient } = realServerClients();
@@ -92,11 +92,10 @@ test("a named profile and a typed model reach the fake CLI and stay on the sessi
     .toEqual([["--model", "claude-opus-4-1", "--session-id", session.agentSessionId]]);
   await expect.poll(screenText).toContain("fake claude ready");
 
-  // The sidebar shows the profile it was actually started with.
-  await expect
-    .element(workspace().getByRole("button", { name: /^claude Claude gateway/ }))
-    .toBeVisible();
-  await expect.element(workspace().getByText("Claude gateway")).toBeVisible();
+  // The tab names the profile it was actually started with, and its hint carries the model.
+  const tab = sessionTabs().getByRole("tab", { name: /^claude Claude gateway/ });
+  await expect.element(tab).toBeVisible();
+  await expect.element(tab).toHaveAttribute("title", expect.stringContaining("claude-opus-4-1"));
 
   // Stop, then change the profile in the file: the conversation keeps its snapshot.
   await prefixThen("x");
