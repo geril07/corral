@@ -16,6 +16,7 @@ import { isRecord } from "../../src/chat/pi-record.ts";
  * - `crash`: one delta and then exit code 3, the shape of a provider crash (after
  *   `$FAKE_PI_RPC_CRASH_DELAY_MS`, default 0, so a test can be watching when it happens);
  * - `badline`: one line that is not JSON, the shape of a broken protocol;
+ * - `truncate`: a valid record cut off without LF, then exit 0, the shape of a lost tail;
  * - `silent`: start-up commands are never answered, so the ready deadline is exercised;
  * - `reject`: every message command answers `success:false`, the shape of a refused prompt;
  * - `noeof`: ignores stdin EOF and keeps a `sleep` in its process group (its pid is written to
@@ -90,6 +91,10 @@ export function startFakePiRpc(argv: readonly string[]): void {
     if (mode === "silent" && type !== "abort") return;
     switch (type) {
       case "get_state":
+        if (mode === "truncate") {
+          process.stdout.write('{"type":"agent_start"');
+          process.exit(0);
+        }
         respond(id, "get_state", {
           model: models[0],
           thinkingLevel: "medium",

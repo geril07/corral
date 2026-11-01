@@ -450,6 +450,24 @@ test("a line that is not a record ends the frontend with the parse failure as th
     .toBe("stopped");
 });
 
+test("a record cut off without LF fails the frontend with the parse reason", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "truncate");
+  const { api, session } = await chatTask();
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.itemOfKind("error") !== undefined, "the parse failure");
+    expect(chat.itemOfKind("error")?.text).toMatch(/not a JSON record/);
+  } finally {
+    await chat.close();
+  }
+  await expect
+    .poll(async () => (await sessionsOf(api)).find((candidate) => candidate.id === session.id), {
+      timeout: 10_000,
+      message: "the stopped session",
+    })
+    .toMatchObject({ state: "stopped", launchError: expect.stringContaining("not a JSON record") });
+});
+
 test("settling the task stops the chat child; making it active again resumes with its history", async () => {
   const { api, task, session } = await chatTask("Keep it");
   const first = follow(api, session.id);
