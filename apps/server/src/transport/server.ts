@@ -93,8 +93,6 @@ export function startServer(options: {
             : { exitGraceMs: options.chat.exitGraceMs }),
         }),
   });
-  const projectStore = new ProjectStore(database);
-  const taskStore = new TaskStore(database);
   const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, homedir())), {
     dataDir,
   });
