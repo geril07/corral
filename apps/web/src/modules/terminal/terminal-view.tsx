@@ -80,12 +80,27 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
     // Legacy mouse reports arrive as a binary string: one byte per character.
     xterm.onBinary((data) => stream.input(Uint8Array.from(data, (char) => char.charCodeAt(0))));
 
-    // The terminal follows the server's size; the container only proposes one.
-    const proposeSize = () => {
+    // The terminal follows the server's size; the container only proposes one. A window that is
+    // still being laid out (or dragged) walks through a chain of sizes, and resizing the shell
+    // for each of them reflows the restored screen for nothing, so only a size that holds for
+    // a frame is proposed.
+    let frame = 0;
+    let held = "";
+    const applySize = () => {
       const size = fit.proposeDimensions();
       if (!size || !(size.cols > 0 && size.rows > 0)) return;
       stream.resize(size);
       onFit(size);
+    };
+    const proposeSize = () => {
+      const size = `${host.clientWidth}x${host.clientHeight}`;
+      cancelAnimationFrame(frame);
+      if (size === held) {
+        applySize();
+        return;
+      }
+      held = size;
+      frame = requestAnimationFrame(() => proposeSize());
     };
     const observer = new ResizeObserver(proposeSize);
     observer.observe(host);
@@ -93,6 +108,7 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
     xterm.focus();
 
     return () => {
+      cancelAnimationFrame(frame);
       observer.disconnect();
       unsubscribe();
       stream.close();

@@ -474,3 +474,35 @@ test("the sidebar Search tasks button opens task search and returns focus to its
   await expect.element(page.getByRole("dialog", { name: "Find task" })).not.toBeInTheDocument();
   await expect.element(opener).toHaveFocus();
 });
+
+test("the terminal fills the padded main area and refits when the sidebar is dragged", async () => {
+  const client = newClient();
+  await render(<App client={client} />);
+  await prefixThen("c");
+  await expect.element(terminalButtons()).toHaveLength(1);
+
+  const sizeOf = async () => (await client.connection.api.terminals.list())[0]!.size;
+  // The terminal starts at its creation size and takes the fitted box once it is mounted.
+  await vi.waitFor(async () => expect((await sizeOf()).cols).toBeGreaterThan(85));
+
+  // The 8 px frame belongs to the tab area, and xterm fits inside it (`layout.md`, **Terminal**).
+  const pane = page.getByRole("region", { name: "active terminal" }).element();
+  expect(getComputedStyle(pane).padding).toBe("8px");
+  const host = pane.querySelector(".terminal-host");
+  const screen = pane.querySelector(".xterm-screen");
+  if (!host || !screen) throw new Error("the terminal is not mounted");
+  expect(host.getBoundingClientRect().width).toBeCloseTo(
+    pane.getBoundingClientRect().width - 16,
+    0,
+  );
+  expect(screen.getBoundingClientRect().width).toBeLessThanOrEqual(
+    host.getBoundingClientRect().width,
+  );
+
+  // A narrower box means fewer columns, and the server learns the new size.
+  const before = await sizeOf();
+  const handle = page.getByRole("separator", { name: "Resize sidebar" });
+  handle.element().focus();
+  await userEvent.keyboard("{ArrowRight}".repeat(8));
+  await vi.waitFor(async () => expect((await sizeOf()).cols).toBeLessThan(before.cols));
+});
