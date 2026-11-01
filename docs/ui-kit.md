@@ -79,6 +79,15 @@ Current structural needs have named kit variants, not module class overrides:
   class strings are hand-written.
 - Badge `layout="truncate"`: bounded flex allocation for a saved launch summary;
   the badge's stock variant, shape and sizing are unchanged.
+- Textarea `layout="prompt"`: the new-task composer's prompt has a four-line minimum and grows to
+  half the view (`layout.md`, **New task view**). Font, padding, border, radius and focus treatment
+  stay stock; only the field's bounds are named, because a module may not size a kit control.
+- Combobox `ComboboxButton` / `ComboboxSearch`: the composer's row of compact pickers is a stock
+  combobox trigger rendered as an outline `Button` showing its value, with the list's search field
+  (Base UI's input-inside-popup pattern) inside the popup. The kit owns the `render` composition
+  because modules may not pass `render` or `className` to a control; the trigger's stock variants,
+  shape and focus ring are unchanged, and the popup keeps the stock enter animation and the
+  removed exit animation.
 - DialogContent `padding="none"`: the content box keeps no stock `p-4`, so
   DialogFooter drops its `-mx-4 -mb-4` cancellation and pads itself. Without it the
   stock footer overflows an unpadded content box by 16 px on three sides and is

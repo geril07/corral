@@ -53,6 +53,9 @@ What a user does; replaces the form-first flow below as each stage lands. New ke
   kind icon (replaced by the status glyph while working or blocked), its name, and — on hover or
   focus — stop or restart, its menu and close; a trailing "+" offers a shell or an agent.
   `prefix 1`–`9`, `prefix n`/`p` and clicks select tabs, and the selected tab stays in view.
+- The main area never goes blank: with no task selected it is the new-task composer, prefilled
+  with the current project. `prefix t` shows the composer over the selected task and Escape
+  returns to that task, with the keyboard back in its terminal.
 - Clicking navigation, tabs or the task header must not take the keyboard from the terminal; a
   dialog returns focus to its opener and, failing that, to the terminal (see **Focus, keyboard
   and errors**).
@@ -65,11 +68,14 @@ What a user does; replaces the form-first flow below as each stage lands. New ke
 
 ## Tasks, sessions and sources
 
-- Add project is a path dialog with inline errors. Current (until A5 replaces it): new task is
-  a form with a title, an optional issue import and a workspace; creating from it starts no
-  session, so the task stays empty until a shell or an agent is added, and project changes
-  clear project-specific import/branch state safely. The task's prompt, agent and prefill
-  arrive with the composer; issue import then feeds the composer's prompt and seed title.
+- Add project is a path dialog with inline errors. New task is the composer view in the main
+  area (`layout.md`, **New task view**), not a form dialog: a prompt, then project, agent · model
+  and workspace pickers prefilled from the effective settings, with an optional title and an
+  issue import that expand in place. Enter creates the task and starts its primary agent with the
+  prompt as its launch argument; a task created from the optional title alone starts no session,
+  so it stays empty until a shell or an agent is added. Project changes clear project-specific
+  import and branch state safely; issue import feeds the composer's prompt (the issue's title and
+  link) and keeps its source snapshot as the task's title context.
 - Radio groups retain the stock stacked default. Provider/agent/workspace choices
   use stock fields and labels, not custom selectable cards or row skins.
 - Remove task retains the dirty-worktree second confirmation; keyed buttons prevent
@@ -92,7 +98,10 @@ What a user does; replaces the form-first flow below as each stage lands. New ke
   no exit animation delays its unmount. Tests then assert one live popup or the
   terminal's first character instead of waiting for a transition. The prefix never
   handles keys while a task dialog is open.
-- Errors stay with the form at `role="alert"`; failed submissions preserve input.
+- Errors stay with the form at `role="alert"`; failed submissions preserve input. The composer
+  is a view, so it holds no opener: Enter submits, Shift+Enter is a newline in the prompt, Escape
+  returns to the previously selected task, and a create that waits for naming (worktree mode)
+  shows "Creating…" with the prompt still editable.
   Connection/protocol mismatch notices remain app-level, not transient success toasts.
 - Clicking navigation must not steal terminal focus. Tooltip content is optional;
   it cannot hold the only copy of a fact. Accessible names identify every icon action.
