@@ -1,9 +1,9 @@
-import { DEFAULT_BINDINGS, DEFAULT_PREFIX } from "@corral/protocol/config";
+import { DEFAULT_BINDINGS, DEFAULT_PREFIX, defaultClientConfig } from "@corral/protocol/config";
 import { expect, test } from "vite-plus/test";
-import { defaultConfig, parseConfigFile } from "./config-file.ts";
+import { parseConfigFile } from "./config-file.ts";
 
 const DATA_DIR = "/data";
-const defaults = defaultConfig(DATA_DIR);
+const defaults = defaultClientConfig(DATA_DIR);
 const parseText = (text: string) => parseConfigFile(text, DATA_DIR);
 
 function onlyProfile(text: string) {

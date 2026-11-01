@@ -8,10 +8,11 @@ import {
 import { formatChord, parseChord } from "@corral/protocol/keymap";
 import * as fc from "fast-check";
 import { expect, test } from "vite-plus/test";
-import { defaultConfig, parseConfigFile } from "./config-file.ts";
+import { defaultClientConfig } from "@corral/protocol/config";
+import { parseConfigFile } from "./config-file.ts";
 
 const DATA_DIR = "/data";
-const defaults = defaultConfig(DATA_DIR);
+const defaults = defaultClientConfig(DATA_DIR);
 const parseText = (text: string) => parseConfigFile(text, DATA_DIR);
 
 test("an empty file is the defaults, without problems", () => {

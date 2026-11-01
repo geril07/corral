@@ -9,7 +9,7 @@ import { parseConfigFile } from "./config-file.ts";
 const DATA_DIR = "/data";
 const WORKTREES = "/data/worktrees";
 const parse = (text: string) => parseConfigFile(text, DATA_DIR);
-const defaults = () => defaultClientConfig(WORKTREES);
+const defaults = () => defaultClientConfig(DATA_DIR);
 const REPO = "/repos/app";
 
 const PROFILE = `
@@ -105,6 +105,69 @@ test.for(rejectedTasks)("%s is rejected at %s", ([file, path, message]) => {
   expect(problems[0]?.message).toContain(message);
 });
 
+test("a ~-relative worktree root is kept as written, and climbing out of home is a problem", () => {
+  const home = parse('[tasks]\nworktree-root = "~"\n');
+  expect(home.problems).toEqual([]);
+  expect(home.config.tasks.worktreeRoot).toEqual({ value: "~", source: "global" });
+
+  const doubled = parse('[tasks]\nworktree-root = "~//corral"\n');
+  expect(doubled.problems).toEqual([]);
+  expect(doubled.config.tasks.worktreeRoot).toEqual({ value: "~//corral", source: "global" });
+
+  const climbing = parse('[tasks]\nworktree-root = "~/../wt"\n');
+  expect(climbing.config.tasks.worktreeRoot.source).toBe("default");
+  expect(climbing.problems).toEqual([
+    {
+      severity: "error",
+      path: "tasks.worktree-root",
+      message: 'a ~-relative worktree root may not hold ".."',
+    },
+  ]);
+});
+
+test("a model is checked against the profile's agent when a profile wins", () => {
+  const claude = parse(`${PROFILE}
+[tasks]
+agent = "opencode"
+profile = "gateway"
+model = "claude-sonnet-4-5"
+`);
+  expect(claude.problems).toEqual([]);
+  expect(claude.config.tasks.agent).toEqual({ value: "opencode", source: "global" });
+  expect(claude.config.tasks.model).toEqual({ value: "claude-sonnet-4-5", source: "global" });
+
+  const opencode = parse(`
+[profiles.oc]
+name = "OpenCode team"
+agent = "opencode"
+
+[tasks]
+agent = "claude"
+profile = "oc"
+model = "gpt-5"
+`);
+  expect(opencode.config.tasks.model.source).toBe("default");
+  expect(opencode.problems).toEqual([
+    {
+      severity: "error",
+      path: "tasks.model",
+      message: "opencode has no model flag on its launch command; a profile for it is env-only",
+    },
+  ]);
+});
+
+test("a naming model is checked against the winning profile's agent", () => {
+  const { config, problems } = parse(`${PROFILE}
+[naming]
+profile = "gateway"
+model = "claude-haiku-4-5"
+`);
+
+  expect(problems).toEqual([]);
+  expect(config.naming.profile).toEqual({ value: "gateway", source: "global" });
+  expect(config.naming.model).toEqual({ value: "claude-haiku-4-5", source: "global" });
+});
+
 test("a model its agent has no flag for is dropped while the agent applies", () => {
   const { config, problems } = parse('[tasks]\nagent = "opencode"\nmodel = "gpt-5"\n');
 
@@ -114,7 +177,7 @@ test("a model its agent has no flag for is dropped while the agent applies", () 
     {
       severity: "error",
       path: "tasks.model",
-      message: "opencode has no model flag on its launch command",
+      message: "opencode has no model flag on its launch command; a profile for it is env-only",
     },
   ]);
 });
@@ -202,11 +265,17 @@ test.for(rejectedNaming)("%s is rejected at %s", ([file, path, message]) => {
   expect(problems[0]?.message).toContain(message);
 });
 
-test("a [naming] with an invalid agent still reports the orphaned model", () => {
+test("an invalid [naming] agent is reported instead of an orphaned model", () => {
   const { config, problems } = parse('[naming]\nagent = "grok"\nmodel = "claude-haiku-4-5"\n');
 
   expect(config.naming).toEqual(defaults().naming);
-  expect(problems.map((problem) => problem.path)).toEqual(["naming.agent", "naming.model"]);
+  expect(problems).toEqual([
+    {
+      severity: "error",
+      path: "naming.agent",
+      message: "must be one of claude, codex, pi, opencode",
+    },
+  ]);
 });
 
 test("resolution runs built-in default, then [tasks], then the project's table", () => {

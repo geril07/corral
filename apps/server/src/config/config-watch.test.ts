@@ -4,15 +4,17 @@ import {
   DEFAULT_BINDINGS,
   defaultClientConfig,
 } from "@corral/protocol/config";
+import { symlinkSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
+import { initRepo } from "../../test/git-repo.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
 
 const server = useServer();
 const configFile = () => join(server.configDir, "config.toml");
 /** The defaults of this server's data directory, including its worktree root. */
-const defaults = () => defaultClientConfig(join(server.dataDir, "worktrees"));
+const defaults = () => defaultClientConfig(server.dataDir);
 
 /** Subscribes and consumes the state the server yields on subscription. */
 async function openWatcher() {
@@ -126,4 +128,53 @@ test("deleting the file goes back to the defaults", async () => {
     profiles: [],
     problems: [],
   });
+});
+
+test("a project key resolves a symlink to the path the server stored", async () => {
+  const repo = initRepo(join(server.scratchDir, "real"));
+  const link = join(server.scratchDir, "link");
+  symlinkSync(repo, link);
+  const api = await server.rpc();
+  const project = await api.projects.add({ path: link });
+  expect(project.path).toBe(repo);
+
+  const watcher = await openWatcher();
+  await mkdir(server.configDir, { recursive: true });
+  await writeFile(configFile(), `[projects."${link}"]\nbranch-prefix = "linked/"\n`);
+
+  const state = await watcher.next("the config with a symlinked project key");
+  expect(state.problems).toEqual([]);
+  expect(state.config.projects[repo]?.branchPrefix).toEqual({
+    value: "linked/",
+    source: "project",
+  });
+  expect(state.config.projects[link]).toBeUndefined();
+});
+
+test("two project keys that resolve to one repository are reported, not merged", async () => {
+  const repo = initRepo(join(server.scratchDir, "real"));
+  const first = join(server.scratchDir, "first");
+  const second = join(server.scratchDir, "second");
+  symlinkSync(repo, first);
+  symlinkSync(repo, second);
+
+  const watcher = await openWatcher();
+  await mkdir(server.configDir, { recursive: true });
+  await writeFile(
+    configFile(),
+    `[projects."${first}"]\nbranch-prefix = "first/"\n\n[projects."${second}"]\nbranch-prefix = "second/"\n`,
+  );
+
+  const state = await watcher.next("the config with two keys for one repository");
+  expect(state.config.projects[repo]?.branchPrefix).toEqual({
+    value: "first/",
+    source: "project",
+  });
+  expect(state.problems).toEqual([
+    {
+      severity: "error",
+      path: `projects."${second}"`,
+      message: "another project table already resolves to this path",
+    },
+  ]);
 });

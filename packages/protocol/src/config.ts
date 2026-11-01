@@ -223,11 +223,20 @@ export function defaultNamingSettings(): NamingSettings {
   };
 }
 
+/** Corral's default worktree root: `<data dir>/worktrees`, where the server keeps its data. */
+export function defaultWorktreeRoot(dataDir: string): string {
+  if (dataDir === "") return "";
+  const separator = dataDir.includes("\\") && !dataDir.includes("/") ? "\\" : "/";
+  const base = dataDir.endsWith(separator) ? dataDir.slice(0, -separator.length) : dataDir;
+  return `${base}${separator}worktrees`;
+}
+
 /**
  * The configuration before the file: keys, and the built-in layer of every task and naming
- * value. `worktreeRoot` is `<data dir>/worktrees`, which only the server knows.
+ * value. This is the only definition of Corral's defaults; the server passes its data dir, and
+ * a client that has no state yet passes `""` (it renders defaults only once loaded).
  */
-export function defaultClientConfig(worktreeRoot: string): ClientConfig {
+export function defaultClientConfig(dataDir: string): ClientConfig {
   return {
     keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } },
     tasks: {
@@ -235,7 +244,7 @@ export function defaultClientConfig(worktreeRoot: string): ClientConfig {
       profile: builtin<string | null>(null),
       model: builtin<string | null>(null),
       workspace: builtin<WorkspaceMode>("main-worktree"),
-      worktreeRoot: builtin(worktreeRoot),
+      worktreeRoot: builtin(defaultWorktreeRoot(dataDir)),
       branchPrefix: builtin(""),
       slugMode: builtin<SlugMode>("title"),
       view: builtin<TaskView>("terminal"),
@@ -266,6 +275,42 @@ export type ClientConfig = z.infer<typeof ClientConfig>;
 /** The effective task settings for `path`: its own table, else the global `[tasks]` values. */
 export function taskSettingsFor(config: ClientConfig, path: string): ResolvedTaskSettings {
   return config.projects[path] ?? config.tasks;
+}
+
+/**
+ * What is wrong with a worktree root as written, or `undefined` when it is usable: an absolute
+ * path or one below `~`, and a `~`-relative root may not climb out of the home directory.
+ * Paths here are POSIX paths; the server's data directory and home are absolute already.
+ */
+export function worktreeRootProblem(root: string): string | undefined {
+  if (root === "~") return undefined;
+  if (root.startsWith("~/")) {
+    const climbs = root
+      .slice(1)
+      .split("/")
+      .some((segment) => segment === "..");
+    return climbs ? 'a ~-relative worktree root may not hold ".."' : undefined;
+  }
+  if (root.startsWith("/")) return undefined;
+  return "the worktree root must be an absolute path or start with ~/";
+}
+
+/**
+ * The absolute directory a worktree root names, with `~` expanded and separators collapsed.
+ * Consumers call this before touching the filesystem, so a root has one meaning everywhere;
+ * an unusable root throws the message `worktreeRootProblem` reports.
+ */
+export function expandWorktreeRoot(root: string, home: string): string {
+  const problem = worktreeRootProblem(root);
+  if (problem !== undefined) throw new Error(problem);
+  const absolute = root === "~" || root.startsWith("~/") ? `${home}${root.slice(1)}` : root;
+  const segments: string[] = [];
+  for (const segment of absolute.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") segments.pop();
+    else segments.push(segment);
+  }
+  return `/${segments.join("/")}`;
 }
 
 /**

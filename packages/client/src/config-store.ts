@@ -8,14 +8,6 @@ import {
 import type { RpcConnection } from "./rpc-connection.ts";
 import { createWatchStore, type WatchStore } from "./watch-store.ts";
 
-/**
- * The config the client uses before the server has sent one. The data directory, and with it
- * the default worktree root, is only known to the server, so that root starts empty here.
- */
-export function defaultConfig(): ClientConfig {
-  return defaultClientConfig("");
-}
-
 export interface ConfigSnapshot {
   /** False until the server has sent the config once; the defaults apply until then. */
   loaded: boolean;
@@ -34,7 +26,8 @@ export function createConfigStore(connection: RpcConnection): ConfigStore {
   const initial: ConfigSnapshot = {
     loaded: false,
     path: "",
-    config: defaultConfig(),
+    // The data dir is only known to the server; nothing renders these values before `loaded`.
+    config: defaultClientConfig(""),
     profiles: [],
     problems: [],
   };

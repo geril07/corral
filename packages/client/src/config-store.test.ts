@@ -2,7 +2,6 @@ import { DEFAULT_BINDINGS, defaultClientConfig } from "@corral/protocol/config";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
-import { defaultConfig } from "./config-store.ts";
 import { eventually, useServer } from "../test/server-fixture.ts";
 
 const server = useServer();
@@ -19,7 +18,7 @@ test("starts with the defaults, before the server has sent the config and withou
   expect(client.config.getSnapshot()).toEqual({
     loaded: false,
     path: "",
-    config: defaultConfig(),
+    config: defaultClientConfig(""),
     profiles: [],
     problems: [],
   });
@@ -28,7 +27,7 @@ test("starts with the defaults, before the server has sent the config and withou
   expect(client.config.getSnapshot()).toEqual({
     loaded: true,
     path: configFile(),
-    config: defaultClientConfig(join(server.dataDir, "worktrees")),
+    config: defaultClientConfig(server.dataDir),
     profiles: [],
     problems: [],
   });
@@ -78,7 +77,7 @@ test("deleting the file goes back to the defaults", async () => {
 
   await eventually(() => {
     const state = client.config.getSnapshot();
-    expect(state.config).toEqual(defaultClientConfig(join(server.dataDir, "worktrees")));
+    expect(state.config).toEqual(defaultClientConfig(server.dataDir));
     expect(state.problems).toEqual([]);
   });
 });

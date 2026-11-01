@@ -8,6 +8,7 @@ import {
   SlugMode,
   defaultClientConfig,
   defaultNamingSettings,
+  worktreeRootProblem,
   type ClientConfig,
   type ConfigProblem,
   type EnvRef,
@@ -18,9 +19,10 @@ import {
 } from "@corral/protocol/config";
 import { formatChord, parseChord, type Chord } from "@corral/protocol/keymap";
 import { createHash } from "node:crypto";
-import { isAbsolute, join, normalize, sep } from "node:path";
+import { realpathSync } from "node:fs";
+import { isAbsolute, normalize, sep } from "node:path";
 import { parse as parseToml, TomlError } from "smol-toml";
-import { MODEL_ID, launchChoiceProblems, supportsModel } from "../agents/launch-capabilities.ts";
+import { launchChoiceProblems, modelIdProblem } from "../agents/launch-capabilities.ts";
 import { ENV_NAME, isReservedEnvName } from "../agents/launch-env.ts";
 
 const PREFIX_PATH = "keys.prefix";
@@ -79,22 +81,18 @@ export interface ParsedConfigFile {
   problems: ConfigProblem[];
 }
 
-/** The configuration before the file; the worktree root default is below the server's data dir. */
-export function defaultConfig(dataDir: string): ClientConfig {
-  return defaultClientConfig(join(dataDir, "worktrees"));
-}
-
 /** A binding the file set: a chord, or no chord (`""` unbinds the action). */
 type FileBinding = { text: string; chord: Chord } | { text: null };
 
 /**
  * File text to the effective config: the defaults with every valid entry applied, and one
- * problem per rejected entry. Pure: no file access, the caller reads the text. `dataDir` only
- * supplies the default worktree root (`<data dir>/worktrees`).
+ * problem per rejected entry. The caller reads the text; the only file access here is resolving
+ * a project key through a symlink (`realpathSync`), so it matches the path the server stored.
+ * `dataDir` only supplies the built-in worktree root (`<data dir>/worktrees`).
  */
 export function parseConfigFile(text: string, dataDir: string): ParsedConfigFile {
   const problems: ConfigProblem[] = [];
-  const config = defaultConfig(dataDir);
+  const config = defaultClientConfig(dataDir);
   let document: unknown;
   try {
     document = parseToml(text);
@@ -109,12 +107,18 @@ export function parseConfigFile(text: string, dataDir: string): ParsedConfigFile
     if (!SECTIONS.has(key)) problems.push(errorAt(key, `unknown section "${key}"`));
   }
   const profiles = validProfiles(document["profiles"], problems);
-  const profileIds = new Set(profiles.map((profile) => profile.id));
-  const tasks = taskLayer(document[TASKS_PATH], TASKS_PATH, problems, profileIds);
-  const naming = namingLayer(document[NAMING_PATH], problems, profileIds);
+  const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const tasks = taskLayer(document[TASKS_PATH], TASKS_PATH, problems, profilesById);
+  const naming = namingLayer(document[NAMING_PATH], problems, profilesById);
   config.tasks = resolveTaskSettings(tasks, undefined, dataDir);
   config.naming = resolvedNaming(naming);
-  config.projects = resolvedProjects(document[PROJECTS_PATH], tasks, dataDir, problems, profileIds);
+  config.projects = resolvedProjects(
+    document[PROJECTS_PATH],
+    tasks,
+    dataDir,
+    problems,
+    profilesById,
+  );
   if (keys !== undefined && !isTable(keys)) {
     problems.push(errorAt("keys", `expected a table, got ${describe(keys)}`));
   } else if (keys !== undefined) {
@@ -368,7 +372,7 @@ function taskLayer(
   value: unknown,
   base: string,
   problems: ConfigProblem[],
-  profileIds: ReadonlySet<string>,
+  profilesById: ReadonlyMap<string, LaunchProfile>,
 ): TaskLayer {
   if (value === undefined) return {};
   if (!isTable(value)) {
@@ -381,9 +385,10 @@ function taskLayer(
   const layer: TaskLayer = {};
   const agent = choiceField(AgentKind.options, value["agent"], `${base}.agent`, problems);
   if (agent !== undefined) layer.agent = agent;
-  const profile = profileRef(value["profile"], `${base}.profile`, problems, profileIds);
-  if (profile !== undefined) layer.profile = profile;
-  const model = modelField(value["model"], `${base}.model`, agent, problems);
+  const profile = profileRef(value["profile"], `${base}.profile`, problems, profilesById);
+  if (profile !== undefined) layer.profile = profile.id;
+  // A profile wins over the agent, so its agent is the one the model has to fit.
+  const model = modelField(value["model"], `${base}.model`, profile?.agent ?? agent, problems);
   if (model !== undefined) layer.model = model;
   const workspace = choiceField(
     WorkspaceMode.options,
@@ -407,7 +412,7 @@ function taskLayer(
 function namingLayer(
   value: unknown,
   problems: ConfigProblem[],
-  profileIds: ReadonlySet<string>,
+  profilesById: ReadonlyMap<string, LaunchProfile>,
 ): NamingLayer {
   if (value === undefined) return {};
   if (!isTable(value)) {
@@ -419,19 +424,26 @@ function namingLayer(
       problems.push(errorAt(`${NAMING_PATH}.${key}`, `unknown key "${key}"`));
   }
   const layer: NamingLayer = {};
-  const profile = profileRef(value["profile"], `${NAMING_PATH}.profile`, problems, profileIds);
-  if (profile !== undefined) layer.profile = profile;
+  const profile = profileRef(value["profile"], `${NAMING_PATH}.profile`, problems, profilesById);
+  if (profile !== undefined) layer.profile = profile.id;
   const agent = choiceField(AgentKind.options, value["agent"], `${NAMING_PATH}.agent`, problems);
   if (agent !== undefined) layer.agent = agent;
-  const model = modelField(value["model"], `${NAMING_PATH}.model`, agent, problems);
+  // A profile wins over the agent, so its agent is the one the model has to fit.
+  const model = modelField(
+    value["model"],
+    `${NAMING_PATH}.model`,
+    profile?.agent ?? agent,
+    problems,
+  );
   if (model !== undefined) {
-    // Unlike `[tasks]`, naming runs unattended: a model nobody names an agent or profile for
-    // would never be used, so it is a problem of its own.
-    if (agent === undefined && profile === undefined) {
+    // Unlike `[tasks]`, naming runs unattended: a model the file names no agent or profile for
+    // would never run, so it is a problem of its own. A runner that was written but rejected is
+    // reported as itself, and the model waits until it is fixed.
+    if (value["agent"] === undefined && value["profile"] === undefined) {
       problems.push(
         errorAt(`${NAMING_PATH}.model`, "naming needs a profile or an agent to use that model"),
       );
-    } else {
+    } else if (layer.profile !== undefined || layer.agent !== undefined) {
       layer.model = model;
     }
   }
@@ -450,7 +462,7 @@ function resolvedProjects(
   global: TaskLayer,
   dataDir: string,
   problems: ConfigProblem[],
-  profileIds: ReadonlySet<string>,
+  profilesById: ReadonlyMap<string, LaunchProfile>,
 ): Record<string, ResolvedTaskSettings> {
   if (value === undefined) return {};
   if (!isTable(value)) {
@@ -469,13 +481,29 @@ function resolvedProjects(
       problems.push(errorAt(base, `expected a table, got ${describe(entry)}`));
       continue;
     }
-    projects[path] = resolveTaskSettings(
+    // Projects are stored by the main working tree's real path, so a symlinked key has to
+    // become that path too or its overrides would never apply.
+    const key = canonicalProjectPath(path);
+    if (projects[key] !== undefined) {
+      problems.push(errorAt(base, "another project table already resolves to this path"));
+      continue;
+    }
+    projects[key] = resolveTaskSettings(
       global,
-      taskLayer(entry, base, problems, profileIds),
+      taskLayer(entry, base, problems, profilesById),
       dataDir,
     );
   }
   return projects;
+}
+
+/** The real path of an existing key, else the key as written (the project may not exist yet). */
+function canonicalProjectPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
 }
 
 /**
@@ -483,21 +511,12 @@ function resolvedProjects(
  * project's own table. The result says which layer each value came from, so no client has to
  * look it up.
  */
-export function resolveTaskSettings(
+function resolveTaskSettings(
   global: TaskLayer,
   project: TaskLayer | undefined,
   dataDir: string,
 ): ResolvedTaskSettings {
-  const builtin: TaskValues = {
-    agent: null,
-    profile: null,
-    model: null,
-    workspace: "main-worktree",
-    worktreeRoot: join(dataDir, "worktrees"),
-    branchPrefix: "",
-    slugMode: "title",
-    view: "terminal",
-  };
+  const builtin = builtinTaskValues(dataDir);
   const resolved = <K extends keyof TaskValues>(key: K) => {
     const source: SettingSource =
       project?.[key] !== undefined ? "project" : global[key] !== undefined ? "global" : "default";
@@ -512,6 +531,21 @@ export function resolveTaskSettings(
     branchPrefix: resolved("branchPrefix"),
     slugMode: resolved("slugMode"),
     view: resolved("view"),
+  };
+}
+
+/** The protocol's built-in layer, without the sources: the one default definition, reused. */
+function builtinTaskValues(dataDir: string): TaskValues {
+  const { tasks } = defaultClientConfig(dataDir);
+  return {
+    agent: tasks.agent.value,
+    profile: tasks.profile.value,
+    model: tasks.model.value,
+    workspace: tasks.workspace.value,
+    worktreeRoot: tasks.worktreeRoot.value,
+    branchPrefix: tasks.branchPrefix.value,
+    slugMode: tasks.slugMode.value,
+    view: tasks.view.value,
   };
 }
 
@@ -568,21 +602,25 @@ function profileRef(
   value: unknown,
   path: string,
   problems: ConfigProblem[],
-  profileIds: ReadonlySet<string>,
-): string | undefined {
+  profilesById: ReadonlyMap<string, LaunchProfile>,
+): LaunchProfile | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string") {
     problems.push(errorAt(path, `expected a string, got ${describe(value)}`));
     return undefined;
   }
-  if (!profileIds.has(value)) {
+  const profile = profilesById.get(value);
+  if (profile === undefined) {
     problems.push(errorAt(path, `there is no valid profile with id "${value}"`));
     return undefined;
   }
-  return value;
+  return profile;
 }
 
-/** A model is validated against the agent of its own table; alone it only has to be a model id. */
+/**
+ * A model is checked against the agent that will run it: the profile's agent when a profile
+ * wins, else the table's agent. With no agent yet, only the model id syntax can be checked.
+ */
 function modelField(
   value: unknown,
   path: string,
@@ -594,26 +632,35 @@ function modelField(
     problems.push(errorAt(path, `expected a string, got ${describe(value)}`));
     return undefined;
   }
-  const issues =
-    agent === undefined || supportsModel(agent)
-      ? MODEL_ID.test(value)
-        ? []
-        : ["the model is not a valid native model id (letters, digits, . _ : / @ + -)"]
-      : [`${agent} has no model flag on its launch command`];
-  for (const issue of issues) problems.push(errorAt(path, issue));
-  return issues.length === 0 ? value : undefined;
+  const issue =
+    agent === undefined
+      ? modelIdProblem(value)
+      : launchChoiceProblems({ kind: agent, model: value, provider: null }).find(
+          (problem) => problem.field === "model",
+        )?.message;
+  if (issue !== undefined) {
+    problems.push(errorAt(path, issue));
+    return undefined;
+  }
+  return value;
 }
 
-/** An absolute path, or one under `~`; the server expands `~` when it creates a worktree there. */
+/**
+ * An absolute path or one below `~`, validated with the same rule that expands it for use.
+ * The value stays as written so Settings shows what the user typed.
+ */
 function worktreeRoot(value: unknown, path: string, problems: ConfigProblem[]): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string") {
     problems.push(errorAt(path, `expected a string, got ${describe(value)}`));
     return undefined;
   }
-  if (value.startsWith("~/") || isAbsolute(value)) return value;
-  problems.push(errorAt(path, "the worktree root must be an absolute path or start with ~/"));
-  return undefined;
+  const problem = worktreeRootProblem(value);
+  if (problem !== undefined) {
+    problems.push(errorAt(path, problem));
+    return undefined;
+  }
+  return value;
 }
 
 /** A prefix `<branch-prefix><slug>` has to stay usable as a branch name. */

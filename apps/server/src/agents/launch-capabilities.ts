@@ -20,6 +20,13 @@ export interface LaunchChoiceProblem {
   message: string;
 }
 
+/** What is wrong with a model id on its own, before any agent's flag capability is applied. */
+export function modelIdProblem(model: string): string | undefined {
+  return MODEL_ID.test(model)
+    ? undefined
+    : "the model is not a valid native model id (letters, digits, . _ : / @ + -)";
+}
+
 /**
  * What each agent CLI in `docs/agent-profiles.md` accepts on its launch command. The same rules
  * validate a profile in the config file and a model override on `sessions.start`, so neither can
@@ -40,16 +47,14 @@ export function launchChoiceProblems({
   const problems: LaunchChoiceProblem[] = [];
   const capability: AgentLaunchCapability = AGENT_LAUNCH_CAPABILITY[kind];
   if (model !== undefined && model !== null) {
+    const syntax = modelIdProblem(model);
     if (!capability.model) {
       problems.push({
         field: "model",
         message: `${kind} has no model flag on its launch command; a profile for it is env-only`,
       });
-    } else if (!MODEL_ID.test(model)) {
-      problems.push({
-        field: "model",
-        message: "the model is not a valid native model id (letters, digits, . _ : / @ + -)",
-      });
+    } else if (syntax !== undefined) {
+      problems.push({ field: "model", message: syntax });
     }
   }
   if (provider !== undefined && provider !== null) {

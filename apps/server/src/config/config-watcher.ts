@@ -1,8 +1,8 @@
 import { existsSync, readFileSync, watch, type FSWatcher, type WatchEventType } from "node:fs";
 import { basename, dirname, relative, sep } from "node:path";
-import type { ConfigState } from "@corral/protocol/config";
+import { defaultClientConfig, type ConfigState } from "@corral/protocol/config";
 import { ChangeFeed } from "../changes/change-feed.ts";
-import { defaultConfig, parseConfigFile } from "./config-file.ts";
+import { parseConfigFile } from "./config-file.ts";
 
 /** Editors write a file in several steps; one read after the last step is enough. */
 const DEBOUNCE_MS = 50;
@@ -130,11 +130,11 @@ function readConfigFile(filePath: string, dataDir: string): ConfigState {
   } catch (error) {
     const code = errnoCode(error);
     if (code === "ENOENT" || code === "ENOTDIR") {
-      return { path: filePath, config: defaultConfig(dataDir), profiles: [], problems: [] };
+      return { path: filePath, config: defaultClientConfig(dataDir), profiles: [], problems: [] };
     }
     return {
       path: filePath,
-      config: defaultConfig(dataDir),
+      config: defaultClientConfig(dataDir),
       profiles: [],
       problems: [
         {
