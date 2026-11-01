@@ -83,7 +83,10 @@ workspace = "main-worktree" # the same keys as [tasks]
 - `profile` wins over `agent`, and `model` overrides the profile's model. A model is checked
   against the agent that will run it (the profile's agent when a profile wins), so a model the
   agent has no flag for is a problem. An `agent` written in the same table as a profile that
-  launches another agent is reported and dropped: a launch refuses that pair.
+  launches another agent is reported and dropped: a launch refuses that pair. The same check
+  runs after the layers are applied, so a profile from one layer that meets a contradicting
+  agent from another (say `[tasks] agent` plus a project `profile`) is reported at the
+  project's key and the agent is dropped.
 - `worktree-root` is an absolute path or below `~` (the server's home directory). A
   `~`-relative root may not climb out with `..`; the server expands `~` when it uses the root,
   and the file keeps the value as written.

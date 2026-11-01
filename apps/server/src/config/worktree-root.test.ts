@@ -18,6 +18,8 @@ test("a root must be absolute or below ~, and a ~-relative root may not climb ou
     "the worktree root must be an absolute path or start with ~/",
   );
   expect(worktreeRootProblem("~/../etc")).toBe('a ~-relative worktree root may not hold ".."');
+  // Windows treats `\` as a separator too, so this climbs even though it has no `/` after `~`.
+  expect(worktreeRootProblem("~/..\\etc")).toBe('a ~-relative worktree root may not hold ".."');
   expect(() => expandWorktreeRoot("worktrees", "/home/me")).toThrow(/absolute path/);
   expect(() => expandWorktreeRoot("~/../etc", "/home/me")).toThrow('may not hold ".."');
 });
@@ -27,4 +29,7 @@ test.runIf(process.platform === "win32")("a Windows drive path is an absolute ro
   expect(worktreeRootProblem("C:\\wt")).toBeUndefined();
   expect(expandWorktreeRoot("C:\\wt", "C:\\Users\\me")).toBe("C:\\wt");
   expect(expandWorktreeRoot("~/wt", "C:\\Users\\me")).toBe("C:\\Users\\me\\wt");
+  // The climb check must not be fooled by a backslash separator.
+  expect(worktreeRootProblem("~/..\\etc")).toBe('a ~-relative worktree root may not hold ".."');
+  expect(() => expandWorktreeRoot("~/..\\etc", "C:\\Users\\me")).toThrow('may not hold ".."');
 });

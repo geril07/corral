@@ -192,6 +192,58 @@ agent = "codex"
   ]);
 });
 
+test("a profile from another layer that contradicts the project's agent is reported there", () => {
+  const projectProfile = parse(`${PROFILE}
+[tasks]
+agent = "codex"
+
+[projects."${REPO}"]
+profile = "gateway"
+`);
+  expect(projectProfile.config.tasks.agent).toEqual({ value: "codex", source: "global" });
+  expect(projectProfile.config.projects[REPO]?.agent).toEqual({
+    value: null,
+    source: "default",
+  });
+  expect(projectProfile.config.projects[REPO]?.profile).toEqual({
+    value: "gateway",
+    source: "project",
+  });
+  expect(projectProfile.problems).toEqual([
+    {
+      severity: "error",
+      path: `projects."${REPO}"`,
+      message:
+        'the profile "gateway" launches claude, but this project resolves to the codex agent',
+    },
+  ]);
+
+  // The other direction: the profile is global, the contradicting agent is the project's.
+  const projectAgent = parse(`${PROFILE}
+[tasks]
+profile = "gateway"
+
+[projects."${REPO}"]
+agent = "codex"
+`);
+  expect(projectAgent.config.projects[REPO]?.agent).toEqual({
+    value: null,
+    source: "default",
+  });
+  expect(projectAgent.config.projects[REPO]?.profile).toEqual({
+    value: "gateway",
+    source: "global",
+  });
+  expect(projectAgent.problems).toEqual([
+    {
+      severity: "error",
+      path: `projects."${REPO}"`,
+      message:
+        'the profile "gateway" launches claude, but this project resolves to the codex agent',
+    },
+  ]);
+});
+
 test("a naming model is checked against its profile's agent, not a table agent", () => {
   // Before the profile's agent decided the check, a model here only had to look like a model id.
   const { config, problems } = parse(`

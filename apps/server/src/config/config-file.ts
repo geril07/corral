@@ -500,13 +500,38 @@ function resolvedProjects(
       problems.push(errorAt(base, "another project table already resolves to this path"));
       continue;
     }
-    projects[key] = resolveTaskSettings(
+    const resolved = resolveTaskSettings(
       global,
       taskLayer(entry, base, problems, profilesById),
       dataDir,
     );
+    projects[key] = launchConsistentSettings(resolved, base, problems, profilesById);
   }
   return projects;
+}
+
+/**
+ * The post-layering half of the profile/agent rule: a profile from one layer (say the project's)
+ * can meet an agent from another (say `[tasks]`). A launch refuses that pair, so it is reported
+ * at the project's key and the agent is dropped; the profile's agent is the one that launches.
+ */
+function launchConsistentSettings(
+  settings: ResolvedTaskSettings,
+  base: string,
+  problems: ConfigProblem[],
+  profilesById: ReadonlyMap<string, LaunchProfile>,
+): ResolvedTaskSettings {
+  const profile =
+    settings.profile.value === null ? undefined : profilesById.get(settings.profile.value);
+  const agent = settings.agent.value;
+  if (profile === undefined || agent === null || agent === profile.agent) return settings;
+  problems.push(
+    errorAt(
+      base,
+      `the profile "${profile.id}" launches ${profile.agent}, but this project resolves to the ${agent} agent`,
+    ),
+  );
+  return { ...settings, agent: { value: null, source: "default" } };
 }
 
 /**
