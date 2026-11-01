@@ -70,6 +70,9 @@ Current structural needs have named kit variants, not module class overrides:
 - Button `size="row"`: the two-line 52 px task row of `layout.md` **Sidebar** needs a
   minimum height and vertical padding above the stock `h-8`; font, radius, color,
   variants and hover/focus treatment stay stock.
+- Button `layout="tab"`: a session tab takes its content width up to 200 px and then
+  truncates (`layout.md`, **Session tabs**); the tab's own appearance is stock `secondary`
+  when selected and stock `ghost` otherwise.
 - Badge `layout="truncate"`: bounded flex allocation for a saved launch summary;
   the badge's stock variant, shape and sizing are unchanged.
 - DialogContent `padding="none"`: the content box keeps no stock `p-4`, so
@@ -78,7 +81,12 @@ Current structural needs have named kit variants, not module class overrides:
   clipped. `CommandDialog` (and therefore `TaskCommandDialog`) selects it; the footer
   learns about the padding through kit context, not from the module.
 - OverflowMenu keeps `min-w-44`: stock menu content is as narrow as its icon-only
-  trigger (`min-w-32`) and "Remove session…" wrapped in the row overflow menu.
+  trigger (`min-w-32`) and "Remove session…" wrapped in the row overflow menu. It takes the
+  trigger's glyph and tooltip so the tab strip's trailing "+" is the same stock menu.
+- AppShell takes the sidebar's width (including 0 while it is hidden) for its two-column
+  grid; the stock 16 rem column remains the default.
+- StatusGlyph takes the row (12 px) or chrome (14 px) glyph size of `layout.md` **Status
+  visuals** and fades a `done` update the user has already seen to muted.
 - BoardRow uses exported official Item variants for its appearance and focus,
   retaining only the board's five-column grid as structural layout. Issue text
   and dirty-file lists use stock outlined Item containers; terminal notices use
@@ -104,11 +112,17 @@ mobile/collapse state and cookies, so installing that behavior would expand the
 product scope. The fixed pane/tree therefore compose stock Buttons instead of
 introducing that provider. No custom sidebar control skin is maintained.
 
-Status names plus distinct Lucide glyphs distinguish agent states; colors are
-stock `muted-foreground` / `destructive`, not a second palette. Planned change (`layout.md`, **Status visuals**; stage A slice A8): three
-status tokens (working, attention, done) join the theme; until A8 lands this paragraph is current. xterm resolves the
-stock body's foreground/background to sRGB via canvas because its parser does not
-support OKLCH; no terminal theme tokens or UI font-size changes are introduced.
+Status names plus distinct Lucide glyphs distinguish agent states, and three status
+colors make a list scannable (`layout.md`, **Status visuals**). The one deliberate theme
+addition is `--status-working` (blue), `--status-attention` (amber) and `--status-done`
+(green), defined for dark and light next to the stock tokens in
+`apps/web/src/app/global.css` and exposed as `--color-status-*` utilities. `error` keeps
+the stock `destructive` and `idle` the stock `muted-foreground`; no other palette,
+status or terminal token is added. The tokens are named only inside `common/ui`
+(`StatusGlyph`), never in a module: the retired-token gate still rejects
+`bg-/text-status-*` class names outside the kit. xterm resolves the stock body's
+foreground/background to sRGB via canvas because its parser does not support OKLCH; no
+terminal theme tokens or UI font-size changes are introduced.
 
 ## Boundary and tests
 

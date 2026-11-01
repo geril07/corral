@@ -302,18 +302,20 @@ and optionally `model`; the server validates them and returns the snapshot.
 
 ## Protocol and old daemons
 
-The combined client/server contract is protocol version 7. Version 3 added launch profiles
+The combined client/server contract is protocol version 8. Version 3 added launch profiles
 and their revision pin; version 4 added the settings action; version 5 protects task-source
 inputs; version 6 adds the task title source, `tasks.rename`, the rename-task/session-number
 actions and the required task, naming and project settings; version 7 adds the sidebar-mode
-action and the server-owned task `seenAt`. A protocol 4 daemon would strip task sources, a
+action, the server-owned task `seenAt` and, while still unreleased, the task's prompt and primary
+session; version 8 adds the toggle-sidebar action. A protocol 4 daemon would strip task sources, a
 protocol 3 daemon sends an exhaustive bindings record without `settings`, and a protocol 2
 daemon would strip launch fields and start the agent natively; a protocol 5 daemon strips the
-title source and its bindings, and a protocol 6 daemon strips `seenAt` and the sidebar-mode
-binding and has no `tasks.markSeen`. Clients must therefore refuse older versions: the endpoint
-check reports a protocol mismatch, and a WebSocket handshake on an older version closes with
-`4001` and the server's version before any route, keymap or session mutation. The old daemon is
-left running with its sessions; nothing bypasses the version barrier.
+title source and its bindings, a protocol 6 daemon strips `seenAt` and the sidebar-mode binding
+and has no `tasks.markSeen`, and a protocol 7 daemon strips the toggle-sidebar binding. Clients
+must therefore refuse older versions: the endpoint check reports a protocol mismatch, and a
+WebSocket handshake on an older version closes with `4001` and the server's version before any
+route, keymap or session mutation. The old daemon is left running with its sessions; nothing
+bypasses the version barrier.
 
 ## Security
 

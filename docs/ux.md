@@ -33,21 +33,34 @@ What a user does; replaces the form-first flow below as each stage lands. New ke
 
 ## Layout and navigation
 
-- Current (until stage A): the two-pane hierarchy project → task → session, one main terminal,
-  board, task search, command palette and settings. Splits and a store redesign are not planned.
-- The sidebar remains a fixed pane; the terminal takes the available main space.
-  Rows use stock Buttons with a structural tree layout variant; selection uses
-  stock secondary appearance plus `aria-current`, not a bespoke colored left bar.
-- Task order is creation order, not status order, in the project-grouped mode; the flat mode
-  orders by status (Target flow 5) and shows the project on each row's second line. The selected
-  task's sessions stay open in both modes; another task's sessions expand on demand in project
-  mode, while flat mode lists no sessions of other tasks until A8 turns them into tabs.
-  Titles/paths truncate without losing accessible names.
-- Row actions use named icon buttons and menus. Frequent session stop/restart remains
-  inline; rename/remove remain menu actions. Icons are Lucide's standard glyphs.
-- One scrolling region per pane. At 1024×640 and above all controls must be reachable.
-  Long forms may scroll inside the stock dialog with a viewport-relative height cap;
-  do not shrink/reposition stock controls to recreate the former density.
+- Three places: the sidebar of tasks, the main area's task header and session tabs, and the
+  session below them (`layout.md`). The sidebar is a fixed pane the user resizes; the terminal
+  takes the rest of the main area. There is no title bar of our own and no global status bar.
+- The sidebar lists tasks only. Its 44 px header is task search with its chord plus a new-task
+  button; its 36 px footer carries the connection state while it is not connected, the
+  prefix-armed pill, config problems and Settings. It is 264 px by default (232 px below
+  1180 px), dragged between 208 and 420 px with the edge handle, kept per device, reset by a
+  double click, and hidden or shown by `prefix \`.
+- Flat mode by status is the default (`prefix l` switches to project groups and the device keeps
+  the choice). Rows are the two-line 52 px task rows of `layout.md`; selection uses stock
+  secondary appearance plus `aria-current`, not a bespoke colored left bar. Titles and paths
+  truncate without losing accessible names. Loose terminals sit in the Scratch section, one line
+  each, and only while some exist.
+- The main area shows one task: a 40 px header (title, `project › branch`, status word with its
+  glyph, the primary agent and model, settle and the task menu), a 32 px tab strip with one tab
+  per session in creation order, and the selected session below. A tab shows its number hint, its
+  kind icon (replaced by the status glyph while working or blocked), its name, and — on hover or
+  focus — stop or restart, its menu and close; a trailing "+" offers a shell or an agent.
+  `prefix 1`–`9`, `prefix n`/`p` and clicks select tabs, and the selected tab stays in view.
+- Clicking navigation, tabs or the task header must not take the keyboard from the terminal; a
+  dialog returns focus to its opener and, failing that, to the terminal (see **Focus, keyboard
+  and errors**).
+- Row actions use named icon buttons and menus. Session stop/restart, rename and remove live on
+  the session's tab and in the palette; renaming a session keeps `prefix shift+r`, removing it
+  asks first. Icons are Lucide's standard glyphs.
+- One scrolling region per pane. At 1024×640 and above all controls must be reachable. Long
+  forms may scroll inside the stock dialog with a viewport-relative height cap; do not
+  shrink/reposition stock controls to recreate the former density.
 
 ## Tasks, sessions and sources
 

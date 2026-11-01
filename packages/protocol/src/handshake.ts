@@ -10,9 +10,10 @@ import { z } from "zod";
  * and the required task, naming and project settings in the config state: a version 5 server's
  * tasks have no title source, its config lacks those bindings and it never sends the settings, so
  * a version 5 client and a version 6 client each misread the other's replies. Version 7 adds the
- * sidebar-mode action and the server-owned task `seenAt`: a version 6 server strips the binding,
- * has no `seen_at` column and answers `tasks.markSeen` with an unknown procedure. Version 8 adds
- * the toggle-sidebar action: a version 7 server strips that binding from its exhaustive keys.
+ * sidebar-mode action, the server-owned task `seenAt` and the task's prompt and primary session:
+ * a version 6 server strips the binding and the fields, has no `seen_at` column and answers
+ * `tasks.markSeen` with an unknown procedure. Version 8 adds the toggle-sidebar action: a
+ * version 7 server strips that binding from its exhaustive keys.
  */
 export const PROTOCOL_VERSION = 8;
 
