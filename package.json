@@ -9,7 +9,8 @@
     "lint": "vp lint",
     "typecheck": "vp run -r typecheck",
     "test": "vp test run --project node",
-    "test:browser": "vp test run --project browser",
+    "test:browser": "node scripts/test-browser.mjs",
+    "test:browser:one": "vp test run --project browser",
     "test:e2e": "vp run -r test:e2e",
     "test:contracts": "vp run -r test:contracts",
     "dev": "vp run --parallel dev"
