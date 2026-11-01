@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { Badge, Button, Icon, Screen } from "../../common/ui/index.ts";
 import { useConfig } from "../keymap/index.ts";
+import { AgentsSection } from "./agents.tsx";
 import { ConfigFileSection } from "./config-file-section.tsx";
 import { EffectiveKeys } from "./effective-keys.tsx";
 import { ProfileList } from "./profile-list.tsx";
@@ -8,8 +9,8 @@ import { requestSettingsFocus } from "./settings-focus.ts";
 import { ProjectOverrides, TaskDefaults, TaskNaming } from "./task-defaults.tsx";
 
 /**
- * The read-only settings route: effective keys, task defaults and their layers, the config's
- * profiles and its problems.
+ * The read-only settings route: effective keys, task defaults and their layers, naming, the
+ * config's profiles, the agents with their availability, and the file's problems.
  */
 export function SettingsScreen({ onClose }: { onClose: () => void }) {
   const { profiles } = useConfig();
@@ -68,6 +69,12 @@ export function SettingsScreen({ onClose }: { onClose: () => void }) {
             Agent profiles
           </h2>
           <ProfileList profiles={profiles} />
+        </section>
+        <section aria-labelledby="settings-agents" className="mb-5">
+          <h2 id="settings-agents" className="mt-0 mb-1 text-sm font-semibold">
+            Agents
+          </h2>
+          <AgentsSection />
         </section>
         <section aria-labelledby="settings-config">
           <h2 id="settings-config" className="mt-0 mb-1 text-sm font-semibold">

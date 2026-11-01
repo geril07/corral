@@ -1,4 +1,11 @@
-import type { CreateTaskInput, Project, Session, Task, TaskAgent } from "@corral/protocol/rpc";
+import type {
+  CreateTaskInput,
+  Project,
+  Session,
+  SessionView,
+  Task,
+  TaskAgent,
+} from "@corral/protocol/rpc";
 import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -53,6 +60,8 @@ export interface TaskSessions {
    * user can start it again.
    */
   startPrimary(taskId: string, agent: TaskAgent, prompt: string | null): Promise<Session>;
+  /** Whether this build has a chat driver for the agent, so a configured `chat` view can apply. */
+  hasChatDriver(kind: TaskAgent["kind"]): boolean;
 }
 
 export class TaskService implements ProjectTasks {
@@ -353,11 +362,29 @@ export class TaskService implements ProjectTasks {
   async #record(task: Task, agent: TaskAgent | undefined): Promise<Task> {
     this.#store.insert(task);
     if (agent !== undefined) {
-      const session = await this.#sessions.startPrimary(task.id, agent, task.prompt);
+      const project = this.#project(task.projectId);
+      const session = await this.#sessions.startPrimary(
+        task.id,
+        { ...agent, view: this.#viewFor(project, agent) },
+        task.prompt,
+      );
       this.#store.setPrimarySession(task.id, session.id);
     }
     this.#changes.notify();
     return this.get(task.id);
+  }
+
+  /**
+   * The view a task's primary session opens in when the request names none: the project's
+   * configured view. A `chat` view needs a driver in this build, so for any other agent it opens
+   * in the terminal — the config file already warned when it named that agent itself.
+   */
+  #viewFor(project: Project, agent: TaskAgent): SessionView {
+    if (agent.view !== undefined) return agent.view;
+    const configured = this.#settings.view(project);
+    return configured === "chat" && !this.#sessions.hasChatDriver(agent.kind)
+      ? "terminal"
+      : configured;
   }
 
   /** `<worktree root>/<repo>/<slug>`, in a directory that does not exist yet. */

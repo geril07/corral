@@ -1,5 +1,10 @@
 import { AGENTS } from "@corral/client/session-state";
-import type { LaunchProfile, ResolvedTaskSettings } from "@corral/protocol/config";
+import type {
+  AgentSettings,
+  LaunchProfile,
+  ResolvedTaskSettings,
+  TaskView,
+} from "@corral/protocol/config";
 import type { AgentKind, CreateTaskInput } from "@corral/protocol/rpc";
 import type { AgentLaunchChoice } from "../sessions/index.ts";
 
@@ -16,30 +21,50 @@ export interface ComposerAgent {
   choice: AgentLaunchChoice;
 }
 
-/** Native agents first, then the config's profiles in file order. */
-export function agentChoices(profiles: readonly LaunchProfile[]): ComposerAgent[] {
+/**
+ * Native agents first, then the config's profiles in file order. A `[agents.<kind>]` table that
+ * disabled an agent takes it — and every profile that launches it — out of every picker.
+ */
+export function agentChoices(
+  profiles: readonly LaunchProfile[],
+  agents: AgentSettings,
+): ComposerAgent[] {
   return [
-    ...AGENTS.map((kind) => nativeAgent(kind, undefined)),
-    ...profiles.map((profile) => profileAgent(profile, undefined)),
+    ...AGENTS.filter((kind) => agents[kind].enabled.value).map((kind) =>
+      nativeAgent(kind, undefined),
+    ),
+    ...profiles
+      .filter((profile) => agents[profile.agent].enabled.value)
+      .map((profile) => profileAgent(profile, undefined)),
   ];
 }
 
 /**
  * What A0's resolved settings mean for the composer, honoring the server's precedence: a profile
  * wins over an agent, and the model setting overrides the profile's model. A profile the config
- * no longer carries falls back to the configured agent, so a request never carries a stale id.
+ * no longer carries falls back to the configured agent, so a request never carries a stale id;
+ * `undefined` means every agent is disabled, and the composer starts no agent at all.
  */
 export function defaultAgent(
   settings: ResolvedTaskSettings,
   profiles: readonly LaunchProfile[],
-): ComposerAgent {
+  agents: AgentSettings,
+): ComposerAgent | undefined {
   const model = settings.model.value ?? undefined;
   const profile =
     settings.profile.value === null
       ? undefined
-      : profiles.find((candidate) => candidate.id === settings.profile.value);
+      : profiles.find(
+          (candidate) =>
+            candidate.id === settings.profile.value && agents[candidate.agent].enabled.value,
+        );
   if (profile !== undefined) return profileAgent(profile, model);
-  return nativeAgent(settings.agent.value ?? AGENTS[0] ?? "claude", model);
+  const configured = settings.agent.value;
+  const kind =
+    configured !== null && agents[configured].enabled.value
+      ? configured
+      : AGENTS.find((candidate) => agents[candidate].enabled.value);
+  return kind === undefined ? undefined : nativeAgent(kind, model);
 }
 
 function nativeAgent(kind: AgentKind, model: string | undefined): ComposerAgent {
@@ -61,6 +86,37 @@ function profileAgent(profile: LaunchProfile, model: string | undefined): Compos
       ...(model === undefined ? {} : { model }),
     },
   };
+}
+
+/** One entry of the composer's view picker (`layout.md`, **New task view**). */
+export interface ComposerView {
+  key: TaskView;
+  label: string;
+}
+
+/**
+ * The views the composer may offer for the agent picked now: the terminal always, chat only when
+ * `chat.capabilities` reports a driver for it (goal D7). A configured `chat` view for another
+ * agent therefore shows as the terminal here, not as a choice that would be refused.
+ */
+export function viewChoices(
+  kind: AgentKind | undefined,
+  chatDrivers: readonly AgentKind[],
+): ComposerView[] {
+  const views: ComposerView[] = [{ key: "terminal", label: "terminal" }];
+  if (kind !== undefined && chatDrivers.includes(kind)) views.push({ key: "chat", label: "chat" });
+  return views;
+}
+
+/** The settings' view when it applies to this agent, else the terminal. */
+export function defaultView(
+  settings: ResolvedTaskSettings,
+  kind: AgentKind | undefined,
+  chatDrivers: readonly AgentKind[],
+): ComposerView {
+  const choices = viewChoices(kind, chatDrivers);
+  const wanted = settings.view.value === "chat" ? "chat" : "terminal";
+  return choices.find((choice) => choice.key === wanted) ?? choices[0]!;
 }
 
 /** One entry of the workspace picker (`layout.md`: "main tree" / "new worktree" / branch). */

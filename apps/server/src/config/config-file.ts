@@ -23,6 +23,7 @@ import { isAbsolute, normalize, sep } from "node:path";
 import { parse as parseToml, TomlError } from "smol-toml";
 import { launchChoiceProblems, modelIdProblem } from "../agents/launch-capabilities.ts";
 import { ENV_NAME, isReservedEnvName } from "../agents/launch-env.ts";
+import { hasChatDriver } from "../chat/chat-drivers.ts";
 import { worktreeRootProblem } from "./worktree-root.ts";
 
 const PREFIX_PATH = "keys.prefix";
@@ -30,10 +31,19 @@ const BINDINGS_PATH = "keys.bindings";
 const PROFILES_PATH = "profiles";
 const TASKS_PATH = "tasks";
 const NAMING_PATH = "naming";
+const AGENTS_PATH = "agents";
 const PROJECTS_PATH = "projects";
-const SECTIONS = new Set(["keys", PROFILES_PATH, TASKS_PATH, NAMING_PATH, PROJECTS_PATH]);
+const SECTIONS = new Set([
+  "keys",
+  PROFILES_PATH,
+  TASKS_PATH,
+  NAMING_PATH,
+  AGENTS_PATH,
+  PROJECTS_PATH,
+]);
 const PROFILE_KEYS = new Set(["name", "agent", "model", "provider", "env"]);
 const ENV_KEYS = new Set(["targetName", "fromEnv"]);
+const AGENT_KEYS = new Set(["enabled", "command"]);
 const PROFILE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MAX_PROFILE_NAME = 80;
 const MAX_ENV_REFS = 32;
@@ -75,6 +85,18 @@ interface NamingValues {
 
 type NamingLayer = { [K in keyof NamingValues]?: NamingValues[K] };
 
+/** The entries one `[agents.<kind>]` table sets; a missing key falls through to the default. */
+interface AgentLayer {
+  enabled?: boolean;
+  command?: string;
+}
+
+/**
+ * A kind the file disabled. Naming one from a profile or a task default is a problem rather than
+ * a launch the pickers never offered, so the entry is dropped like any other invalid one.
+ */
+type DisabledAgents = ReadonlySet<AgentKind>;
+
 export interface ParsedConfigFile {
   config: ClientConfig;
   profiles: LaunchProfile[];
@@ -106,11 +128,27 @@ export function parseConfigFile(text: string, dataDir: string): ParsedConfigFile
   for (const key of Object.keys(document)) {
     if (!SECTIONS.has(key)) problems.push(errorAt(key, `unknown section "${key}"`));
   }
-  const profiles = validProfiles(document["profiles"], problems);
+  // Agents first: a profile or a default may not name a disabled one.
+  const agents = agentLayer(document[AGENTS_PATH], problems);
+  for (const [kind, layer] of agents) {
+    if (layer.enabled !== undefined)
+      config.agents[kind].enabled = { value: layer.enabled, source: "global" };
+    if (layer.command !== undefined)
+      config.agents[kind].command = { value: layer.command, source: "global" };
+  }
+  const disabled: DisabledAgents = new Set(
+    AgentKind.options.filter((kind) => !config.agents[kind].enabled.value),
+  );
+  const profiles = validProfiles(document["profiles"], problems, disabled);
   const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
-  const tasks = taskLayer(document[TASKS_PATH], TASKS_PATH, problems, profilesById);
-  const naming = namingLayer(document[NAMING_PATH], problems, profilesById);
-  config.tasks = resolveTaskSettings(tasks, undefined, dataDir);
+  const tasks = taskLayer(document[TASKS_PATH], TASKS_PATH, problems, profilesById, disabled);
+  const naming = namingLayer(document[NAMING_PATH], problems, profilesById, disabled);
+  config.tasks = chatViewKeepingAgent(
+    resolveTaskSettings(tasks, undefined, dataDir),
+    TASKS_PATH,
+    problems,
+    profilesById,
+  );
   config.naming = resolvedNaming(naming);
   config.projects = resolvedProjects(
     document[PROJECTS_PATH],
@@ -118,6 +156,7 @@ export function parseConfigFile(text: string, dataDir: string): ParsedConfigFile
     dataDir,
     problems,
     profilesById,
+    disabled,
   );
   if (keys !== undefined && !isTable(keys)) {
     problems.push(errorAt("keys", `expected a table, got ${describe(keys)}`));
@@ -240,11 +279,78 @@ function validPrefix(
 }
 
 /**
+ * `[agents.<kind>]`: every valid entry, and one problem per rejected one. An invalid value drops
+ * only itself, so a bad `command` does not take `enabled` with it. Unlike a profile, the table is
+ * not all-or-nothing: each agent is independent.
+ */
+function agentLayer(value: unknown, problems: ConfigProblem[]): Map<AgentKind, AgentLayer> {
+  const layers = new Map<AgentKind, AgentLayer>();
+  if (value === undefined) return layers;
+  if (!isTable(value)) {
+    problems.push(errorAt(AGENTS_PATH, `expected a table, got ${describe(value)}`));
+    return layers;
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    const path = `${AGENTS_PATH}.${key}`;
+    const kind = AgentKind.safeParse(key);
+    if (!kind.success) {
+      problems.push(
+        errorAt(path, `unknown agent "${key}"; use one of ${AgentKind.options.join(", ")}`),
+      );
+      continue;
+    }
+    if (!isTable(entry)) {
+      problems.push(errorAt(path, `expected a table, got ${describe(entry)}`));
+      continue;
+    }
+    const layer: AgentLayer = {};
+    for (const field of Object.keys(entry)) {
+      if (!AGENT_KEYS.has(field))
+        problems.push(errorAt(`${path}.${field}`, `unknown key "${field}"`));
+    }
+    const enabled = entry["enabled"];
+    if (enabled !== undefined) {
+      if (typeof enabled === "boolean") layer.enabled = enabled;
+      else
+        problems.push(
+          errorAt(`${path}.enabled`, `expected true or false, got ${describe(enabled)}`),
+        );
+    }
+    const command = entry["command"];
+    if (command !== undefined) {
+      const problem = agentCommandProblem(command);
+      if (problem !== undefined) problems.push(errorAt(`${path}.command`, problem));
+      else if (typeof command === "string") layer.command = command;
+    }
+    layers.set(kind.data, layer);
+  }
+  return layers;
+}
+
+/**
+ * An absolute executable path, because it replaces a lookup that starts from the server's `PATH`:
+ * a bare name or a relative path would only be found from the server's own working directory, not
+ * from the workspace a launch runs in.
+ */
+function agentCommandProblem(value: unknown): string | undefined {
+  if (typeof value !== "string") return `expected a string, got ${describe(value)}`;
+  if (value === "") return "the command may not be empty";
+  if (!isAbsolute(value)) return "the command must be an absolute path";
+  // oxlint-disable-next-line no-control-regex -- rejecting control characters is the point
+  if (/[\u0000-\u001f\u007f]/.test(value)) return "the command may not hold control characters";
+  return undefined;
+}
+
+/**
  * Profiles are all-or-nothing: one unknown key, bad type, reserved variable or unsupported
  * model/provider drops the whole profile, so a selectable profile always describes the launch
  * that will happen. Messages never quote a file value, which may be a secret.
  */
-function validProfiles(value: unknown, problems: ConfigProblem[]): LaunchProfile[] {
+function validProfiles(
+  value: unknown,
+  problems: ConfigProblem[],
+  disabled: DisabledAgents,
+): LaunchProfile[] {
   if (value === undefined) return [];
   if (!isTable(value)) {
     problems.push(errorAt(PROFILES_PATH, `expected a table, got ${describe(value)}`));
@@ -274,6 +380,7 @@ function validProfiles(value: unknown, problems: ConfigProblem[]): LaunchProfile
     const parsedAgent = AgentKind.safeParse(entry["agent"]);
     const agent = parsedAgent.success ? parsedAgent.data : null;
     if (agent === null) issues.push(`agent must be one of ${AgentKind.options.join(", ")}`);
+    else if (disabled.has(agent)) issues.push(`the ${agent} agent is disabled in [${AGENTS_PATH}]`);
     const model = textField(entry["model"], "model", issues);
     const provider = textField(entry["provider"], "provider", issues);
     const env = profileEnv(entry["env"], issues);
@@ -373,6 +480,7 @@ function taskLayer(
   base: string,
   problems: ConfigProblem[],
   profilesById: ReadonlyMap<string, LaunchProfile>,
+  disabled: DisabledAgents,
 ): TaskLayer {
   if (value === undefined) return {};
   if (!isTable(value)) {
@@ -383,7 +491,12 @@ function taskLayer(
     if (!TASK_KEYS.has(key)) problems.push(errorAt(`${base}.${key}`, `unknown key "${key}"`));
   }
   const layer: TaskLayer = {};
-  const agent = choiceField(AgentKind.options, value["agent"], `${base}.agent`, problems);
+  const agent = enabledAgent(
+    choiceField(AgentKind.options, value["agent"], `${base}.agent`, problems),
+    `${base}.agent`,
+    problems,
+    disabled,
+  );
   const profile = profileRef(value["profile"], `${base}.profile`, problems, profilesById);
   const launchedAgent = agentKeepingProfile(agent, profile, `${base}.agent`, problems);
   if (launchedAgent !== undefined) layer.agent = launchedAgent;
@@ -419,6 +532,7 @@ function namingLayer(
   value: unknown,
   problems: ConfigProblem[],
   profilesById: ReadonlyMap<string, LaunchProfile>,
+  disabled: DisabledAgents,
 ): NamingLayer {
   if (value === undefined) return {};
   if (!isTable(value)) {
@@ -431,7 +545,12 @@ function namingLayer(
   }
   const layer: NamingLayer = {};
   const profile = profileRef(value["profile"], `${NAMING_PATH}.profile`, problems, profilesById);
-  const agent = choiceField(AgentKind.options, value["agent"], `${NAMING_PATH}.agent`, problems);
+  const agent = enabledAgent(
+    choiceField(AgentKind.options, value["agent"], `${NAMING_PATH}.agent`, problems),
+    `${NAMING_PATH}.agent`,
+    problems,
+    disabled,
+  );
   const launchedAgent = agentKeepingProfile(agent, profile, `${NAMING_PATH}.agent`, problems);
   // Naming runs unattended and must leave no session behind. OpenCode 2.2.5 has no such mode
   // (`opencode run` always persists a session), so it cannot name; the entry is dropped whole.
@@ -486,6 +605,7 @@ function resolvedProjects(
   dataDir: string,
   problems: ConfigProblem[],
   profilesById: ReadonlyMap<string, LaunchProfile>,
+  disabled: DisabledAgents,
 ): Record<string, ResolvedTaskSettings> {
   if (value === undefined) return {};
   if (!isTable(value)) {
@@ -518,12 +638,54 @@ function resolvedProjects(
     }
     const resolved = resolveTaskSettings(
       global,
-      taskLayer(entry, base, problems, profilesById),
+      taskLayer(entry, base, problems, profilesById, disabled),
       dataDir,
     );
-    projects[key] = launchConsistentSettings(resolved, base, problems, profilesById);
+    projects[key] = chatViewKeepingAgent(
+      launchConsistentSettings(resolved, base, problems, profilesById),
+      base,
+      problems,
+      profilesById,
+    );
   }
   return projects;
+}
+
+/**
+ * Decision 5's view rule: a `chat` view is only usable by an agent with a chat driver. When the
+ * resolved settings name such an agent, the effective view is the terminal and the file says so —
+ * a warning, never a silent downgrade. With no agent configured the view stays `chat` here; the
+ * composer applies the rule to the agent the user picks, and `tasks.create` does the same for a
+ * request that names none.
+ *
+ * The warning goes where the fix is: the table that set the view, or the project whose own agent
+ * made an inherited view unusable. A project that inherits both from `[tasks]` is covered by the
+ * warning `[tasks]` already got.
+ */
+function chatViewKeepingAgent(
+  settings: ResolvedTaskSettings,
+  base: string,
+  problems: ConfigProblem[],
+  profilesById: ReadonlyMap<string, LaunchProfile>,
+): ResolvedTaskSettings {
+  if (settings.view.value !== "chat") return settings;
+  const profile =
+    settings.profile.value === null ? undefined : profilesById.get(settings.profile.value);
+  const kind = profile?.agent ?? settings.agent.value;
+  if (kind === null || hasChatDriver(kind)) return settings;
+  const viewOwnedHere = base === TASKS_PATH || settings.view.source === "project";
+  if (
+    viewOwnedHere ||
+    settings.agent.source === "project" ||
+    settings.profile.source === "project"
+  ) {
+    problems.push({
+      severity: "warning",
+      path: viewOwnedHere ? `${base}.view` : base,
+      message: `the ${kind} agent has no chat driver, so this view opens in the terminal`,
+    });
+  }
+  return { ...settings, view: { value: "terminal", source: settings.view.source } };
 }
 
 /**
@@ -667,16 +829,27 @@ function choiceField<T extends string>(
   return match;
 }
 
-/** Only the terminal view exists in stage A; `chat` is named here so its problem reads as such. */
+/**
+ * `view`: both values are accepted here; whether `chat` is usable depends on the agent that will
+ * run, so the fallback is applied after the layers are resolved (`chatViewKeepingAgent`).
+ */
 function taskView(value: unknown, path: string, problems: ConfigProblem[]): TaskView | undefined {
-  const view = choiceField(TaskView.options, value, path, problems);
-  if (view === "chat") {
-    problems.push(
-      errorAt(path, "the chat view arrives with stage B; a task opens in the terminal"),
-    );
-    return undefined;
-  }
-  return view;
+  return choiceField(TaskView.options, value, path, problems);
+}
+
+/**
+ * The agent a table names, unless `[agents.<kind>]` disabled it: a disabled agent is not offered
+ * anywhere, so a default or a naming runner pointing at it is reported and dropped.
+ */
+function enabledAgent(
+  kind: AgentKind | undefined,
+  path: string,
+  problems: ConfigProblem[],
+  disabled: DisabledAgents,
+): AgentKind | undefined {
+  if (kind === undefined || !disabled.has(kind)) return kind;
+  problems.push(errorAt(path, `the ${kind} agent is disabled in [${AGENTS_PATH}]`));
+  return undefined;
 }
 
 /** A profile a setting may name: a profile that is in the file and valid, so a launch can use it. */

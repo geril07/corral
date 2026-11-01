@@ -1,4 +1,5 @@
 import {
+  AgentKind,
   ClientConfig,
   ConfigState,
   DEFAULT_BINDINGS,
@@ -18,6 +19,9 @@ const agents = useFakeAgents();
 const configFile = () => join(server.configDir, "config.toml");
 /** The defaults of this server's data directory, including its worktree root. */
 const defaults = () => defaultClientConfig(server.dataDir);
+/** The host facts the fake agents on `PATH` give: all found, pi the only chat driver. */
+const availability = () =>
+  AgentKind.options.map((kind) => ({ kind, found: true, chatDriver: kind === "pi" }));
 
 /** Subscribes and consumes the state the server yields on subscription. */
 async function openWatcher() {
@@ -38,6 +42,7 @@ test("yields the defaults when there is no file and no config directory", async 
     path: configFile(),
     config: defaults(),
     profiles: [],
+    agents: availability(),
     problems: [],
   });
 });
@@ -129,6 +134,7 @@ test("deleting the file goes back to the defaults", async () => {
     path: configFile(),
     config: defaults(),
     profiles: [],
+    agents: availability(),
     problems: [],
   });
 });

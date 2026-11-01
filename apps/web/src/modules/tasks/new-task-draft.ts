@@ -1,3 +1,4 @@
+import type { TaskView } from "@corral/protocol/config";
 import type { TaskSource } from "@corral/protocol/rpc";
 import { isBranchKey } from "./new-task-defaults.ts";
 
@@ -20,6 +21,8 @@ export interface ComposerDraft {
   agentKey: string | undefined;
   /** The workspace the user picked; `undefined` follows the project's settings. */
   workspaceKey: string | undefined;
+  /** The view the user picked; `undefined` follows the project's settings. */
+  viewKey: TaskView | undefined;
 }
 
 /** A draft for `projectId` with nothing typed: what a created task and a fresh app start with. */
@@ -34,6 +37,7 @@ export function emptyDraft(projectId: string): ComposerDraft {
     issueOpen: false,
     agentKey: undefined,
     workspaceKey: undefined,
+    viewKey: undefined,
   };
 }
 

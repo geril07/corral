@@ -134,6 +134,70 @@ test("each project's own defaults prefill the composer and name the agent the ta
   await vi.waitFor(() => expect(client.config.getSnapshot().config.tasks.agent.value).toBeNull());
 });
 
+test("a project's chat view default opens the new task as chat", async () => {
+  const { client, repo } = await appWithProject(newClient());
+  const before = (await agentLaunches()).length;
+  await writeConfig(`[projects."${repo}"]\nview = "chat"\n`);
+  await vi.waitFor(() =>
+    expect(client.config.getSnapshot().config.projects[repo]?.view.value).toBe("chat"),
+  );
+
+  await prefixThen("t");
+  // The configured view needs a driver: the default agent has none, so it reads as the terminal
+  // until pi is picked — the composer never offers a view the server would refuse.
+  await expect.element(picker(/^View /)).toHaveAccessibleName("View terminal");
+  await expect.element(page.getByText(/needs an agent with a chat driver/)).toBeVisible();
+  await userEvent.click(picker(/^Agent /));
+  await page.getByRole("option", { name: /^pi/ }).click();
+  await expect.element(picker(/^View /)).toHaveAccessibleName("View chat");
+
+  await userEvent.click(promptField());
+  await userEvent.keyboard("Chat from the composer{Enter}");
+
+  // The primary session opens as chat: pi's tab, the chat lane, and no terminal for it.
+  await expect.element(sessionTab(/^pi/)).toHaveAttribute("aria-selected", "true");
+  await expect.element(page.getByRole("log", { name: "Chat transcript" })).toBeVisible();
+  await expect.element(page.getByRole("textbox", { name: "Message" })).toBeVisible();
+  await vi.waitFor(async () => {
+    const fresh = (await agentLaunches()).slice(before);
+    expect(fresh).toHaveLength(1);
+    expect(fresh[0]?.agent).toBe("pi");
+    expect(fresh[0]?.argv).toContain("rpc");
+  });
+
+  // The config file is the server's for the whole suite: leave the other files their defaults.
+  await writeConfig(null);
+  await vi.waitFor(() => expect(client.config.getSnapshot().config.projects[repo]).toBeUndefined());
+});
+
+test("a disabled agent disappears from the pickers and the task starts one still enabled", async () => {
+  const { client } = await appWithProject(newClient());
+  const before = (await agentLaunches()).length;
+  await writeConfig("[agents.claude]\nenabled = false\n");
+  await vi.waitFor(() =>
+    expect(client.config.getSnapshot().config.agents.claude.enabled.value).toBe(false),
+  );
+
+  await prefixThen("t");
+  // The default falls to the first agent still offered; claude is not in the list at all.
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · native default");
+  await userEvent.click(picker(/^Agent /));
+  await expect.element(page.getByRole("option", { name: /^claude/ })).not.toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
+  await userEvent.click(promptField());
+  await userEvent.keyboard("Enabled agent only{Enter}");
+
+  await vi.waitFor(async () => {
+    const fresh = (await agentLaunches()).slice(before);
+    expect(fresh.map((launch) => launch.agent)).toEqual(["codex"]);
+  });
+
+  await writeConfig(null);
+  await vi.waitFor(() =>
+    expect(client.config.getSnapshot().config.agents.claude.enabled.value).toBe(true),
+  );
+});
+
 test("Escape leaves the composer and returns the keyboard to the task that was selected", async () => {
   await appWithProject(newClient());
   await createTaskWithShell("Back here");

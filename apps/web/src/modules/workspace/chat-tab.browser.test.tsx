@@ -1,3 +1,4 @@
+import type { ChatSessionState } from "@corral/protocol/chat";
 import type { ChatStoreSnapshot } from "@corral/client/chat-state";
 import type { ChatStore } from "@corral/client/chat-store";
 import type { CorralClient } from "@corral/client/corral-client";
@@ -8,7 +9,7 @@ import type { Session, Task } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { agentLaunches } from "../../../test/fake-agents.ts";
-import { prefixThen, realServerClients } from "../../../test/real-client.ts";
+import { prefixShifted, prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { appWithProject } from "../../../test/task-flows.tsx";
 import { workingChat } from "../../../test/recorded-chat.ts";
 
@@ -19,10 +20,21 @@ const { newClient } = realServerClients();
  * sessions and has no driver before B1, and a real task here would outlive this file on the shared
  * server; `openChat` returns a working chat so the abort action is enabled.
  */
-function seededClient() {
+function seededClient(state: ChatSessionState = workingChat()) {
   const real = newClient();
   const abort = vi
     .fn<(input: { sessionId: string }) => Promise<void>>()
+    .mockResolvedValue(undefined);
+  const setModel = vi
+    .fn<
+      (input: {
+        sessionId: string;
+        model: { provider: string | null; id: string };
+      }) => Promise<void>
+    >()
+    .mockResolvedValue(undefined);
+  const setReasoning = vi
+    .fn<(input: { sessionId: string; level: string }) => Promise<void>>()
     .mockResolvedValue(undefined);
   const api = new Proxy(real.connection.api, {
     get(target, property, receiver) {
@@ -31,6 +43,8 @@ function seededClient() {
       return new Proxy(chat, {
         get(chatTarget, chatProperty, chatReceiver) {
           if (chatProperty === "abort") return abort;
+          if (chatProperty === "setModel") return setModel;
+          if (chatProperty === "setReasoning") return setReasoning;
           return Reflect.get(chatTarget, chatProperty, chatReceiver);
         },
       });
@@ -42,7 +56,7 @@ function seededClient() {
   const chatState = new Store<ChatStoreSnapshot>({
     loaded: true,
     sequence: 0,
-    state: workingChat(),
+    state,
     items: [],
     failure: null,
   });
@@ -66,7 +80,17 @@ function seededClient() {
     connection,
     openChat: () => chatStore,
   };
-  return { client, real, tasks, sessions, abort, chatStore, chatSession: "chat-seeded" };
+  return {
+    client,
+    real,
+    tasks,
+    sessions,
+    abort,
+    setModel,
+    setReasoning,
+    chatStore,
+    chatSession: "chat-seeded",
+  };
 }
 
 test("a chat session renders its tab and lane, and prefix . reaches chat.abort", async () => {
@@ -147,5 +171,103 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
     // The seeded chat never reached B1's driver: no fake pi child was launched for it.
     const launches = await agentLaunches();
     expect(launches.some((launch) => launch.argv.includes("pi-seeded"))).toBe(false);
+  }
+});
+
+test("the chat model and reasoning controls apply what the driver reports, from the row and the palette", async () => {
+  const state = workingChat({
+    model: { provider: "stub", id: "stub-1", name: "Stub One" },
+    models: [
+      { provider: "stub", id: "stub-1", name: "Stub One" },
+      { provider: "stub", id: "stub-2", name: "Stub Two" },
+    ],
+    reasoning: "medium",
+    reasoningLevels: ["off", "low", "medium", "high"],
+  });
+  const { client, real, tasks, sessions, setModel, setReasoning, chatStore, chatSession } =
+    seededClient(state);
+  const { repo } = await appWithProject(client);
+  const project = await vi.waitFor(() => {
+    const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
+    if (found === undefined) throw new Error("the project is not in the list yet");
+    return found;
+  });
+  await vi.waitFor(() => expect(real.sessions.getSnapshot().loaded).toBe(true));
+
+  const task: Task = {
+    id: "task-chat-settings",
+    projectId: project.id,
+    title: "Chat settings",
+    titleSource: "user",
+    prompt: null,
+    primarySessionId: chatSession,
+    branch: "main",
+    workspacePath: project.path,
+    ownsWorktree: false,
+    state: "active",
+    seenAt: null,
+    createdAt: 1,
+  };
+  const session: Session = {
+    id: chatSession,
+    taskId: task.id,
+    kind: "pi",
+    view: "chat",
+    agentSessionId: "pi-seeded",
+    terminalId: null,
+    state: "running",
+    status: null,
+    createdAt: 1,
+  };
+
+  try {
+    tasks.set({ loaded: true, tasks: [task] });
+    sessions.set({ loaded: true, sessions: [session] });
+
+    // The row shows what the driver reported, not a client guess.
+    await expect.element(page.getByRole("button", { name: "Model Stub One" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Reasoning medium" })).toBeVisible();
+
+    // The palette lists both actions for a running chat and opens the model chooser.
+    await prefixThen(" ");
+    await userEvent.keyboard("chat model");
+    await expect
+      .element(page.getByRole("option", { name: /Change the chat model/ }))
+      .not.toHaveAttribute("aria-disabled", "true");
+    await userEvent.keyboard("{Enter}");
+    const modelDialog = page.getByRole("dialog", { name: "Chat model" });
+    await expect.element(modelDialog).toBeVisible();
+    await expect.element(modelDialog).toMatchTextContent("Stub Two");
+    await userEvent.keyboard("{ArrowDown}{Enter}");
+    await vi.waitFor(() =>
+      expect(setModel).toHaveBeenCalledExactlyOnceWith({
+        sessionId: chatSession,
+        model: { provider: "stub", id: "stub-2" },
+      }),
+    );
+    await expect.element(modelDialog).not.toBeInTheDocument();
+
+    // The row's reasoning picker opens the level list; the driver's own values are what it offers.
+    await page.getByRole("button", { name: "Reasoning medium" }).click();
+    const levelDialog = page.getByRole("dialog", { name: "Reasoning level" });
+    await expect.element(levelDialog).toBeVisible();
+    await userEvent.keyboard("high{Enter}");
+    await vi.waitFor(() =>
+      expect(setReasoning).toHaveBeenCalledExactlyOnceWith({
+        sessionId: chatSession,
+        level: "high",
+      }),
+    );
+    await expect.element(levelDialog).not.toBeInTheDocument();
+
+    // `prefix shift+m` reaches the same reasoning action from the keyboard.
+    await prefixShifted("m");
+    await expect.element(levelDialog).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(levelDialog).not.toBeInTheDocument();
+  } finally {
+    tasks.set({ loaded: true, tasks: [] });
+    sessions.set({ loaded: true, sessions: [] });
+    chatStore.close();
   }
 });

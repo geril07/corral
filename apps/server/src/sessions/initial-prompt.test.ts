@@ -1,3 +1,4 @@
+import { defaultClientConfig } from "@corral/protocol/config";
 import { Project, Task } from "@corral/protocol/rpc";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -38,11 +39,16 @@ function openServer(): void {
     chat: new ChatService({ dataDir }),
     statusUrl: (sessionId) => `http://127.0.0.1:9${sessionId}/report`,
     openCode: OpenCodeIntegration.install(dataDir),
-    // A start and a resume read no profile; asking for one here is a bug in this test.
+    // A start and a resume read no profile; a config without profiles makes asking for one
+    // fail loudly. The launch reads `[agents]` for the command, which is the empty defaults.
     config: {
-      state: () => {
-        throw new Error("a session launch read the config");
-      },
+      state: () => ({
+        path: "",
+        config: defaultClientConfig(""),
+        profiles: [],
+        agents: [],
+        problems: [],
+      }),
     },
     // Removing a session is not what this test is about; the tasks feed is elsewhere.
     taskEvents: { primarySessionRemoved: () => undefined },

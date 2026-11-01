@@ -42,6 +42,7 @@ test("a profile supplies agent, model and environment; the section's model wins"
     ),
   ).toEqual({
     launch: { kind: "claude", model: "claude-haiku-4-5", provider: null },
+    command: "claude",
     env: profile.env,
     profileId: "gateway",
     timeoutMs: 3000,

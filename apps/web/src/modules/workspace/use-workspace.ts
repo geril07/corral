@@ -16,7 +16,7 @@ import {
   type Chosen,
   type Entry,
 } from "@corral/client/workspace-tree";
-import type { ActionId } from "@corral/protocol/config";
+import { AgentKind, type ActionId } from "@corral/protocol/config";
 import type {
   CreateTaskInput,
   IssueProvider,
@@ -29,7 +29,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useDialogFocus } from "../../common/ui/index.ts";
 import { useCorralClient, useConnection } from "../connection/index.ts";
-import { useChatSession, useChatTurn } from "../chat/index.ts";
+import { useChatCapabilities, useChatSession, useChatTurn } from "../chat/index.ts";
 import {
   formatBinding,
   useConfig,
@@ -61,7 +61,9 @@ export type DialogState =
   | { kind: "find-task" }
   | { kind: "rename"; target: RenameTarget }
   | { kind: "command-palette" }
-  | { kind: "config-problems" };
+  | { kind: "config-problems" }
+  | { kind: "chat-model" }
+  | { kind: "chat-reasoning" };
 
 interface UseWorkspaceOptions {
   search: WorkspaceSearch;
@@ -145,6 +147,9 @@ export function useWorkspace({
   // action without subscribing the workspace to every streamed delta.
   const chat = useChatSession(client, currentSession);
   const chatTurn = useChatTurn(chat?.store);
+  // `chat.capabilities`: which agents this server build can show as chat (goal D7), for the
+  // composer's view control and the agent pickers.
+  const chatDrivers = useChatCapabilities();
   const currentTaskNode =
     selection.taskId === null ? undefined : taskNodeOf(tree, selection.taskId);
   const currentTask = currentTaskNode?.task;
@@ -226,6 +231,10 @@ export function useWorkspace({
   const openAgentPicker = (opener?: HTMLElement) => {
     if (selection.taskId === null) {
       setFailure("Select a task to start an agent in.");
+      return;
+    }
+    if (!AgentKind.options.some((kind) => config.agents[kind].enabled.value)) {
+      setFailure("Every agent is disabled in the config file.");
       return;
     }
     setFailure(undefined);
@@ -482,7 +491,10 @@ export function useWorkspace({
     "new-agent": {
       label: "New agent session",
       group: "Sessions",
-      enabled: selection.taskId !== null,
+      // Every agent disabled in `[agents]` leaves nothing to start.
+      enabled:
+        selection.taskId !== null &&
+        AgentKind.options.some((kind) => config.agents[kind].enabled.value),
       run: openAgentPicker,
     },
     "stop-session": {
@@ -536,6 +548,18 @@ export function useWorkspace({
       group: "Sessions",
       enabled: chat !== undefined && chatTurn === "working",
       run: () => void attempt(() => chat?.abort() ?? Promise.resolve()),
+    },
+    "change-model": {
+      label: "Change the chat model",
+      group: "Sessions",
+      enabled: chat !== undefined,
+      run: () => openDialog({ kind: "chat-model" }),
+    },
+    "change-reasoning": {
+      label: "Change the reasoning level",
+      group: "Sessions",
+      enabled: chat !== undefined,
+      run: () => openDialog({ kind: "chat-reasoning" }),
     },
     "session-1": goToSession(1),
     "session-2": goToSession(2),
@@ -660,6 +684,7 @@ export function useWorkspace({
     current,
     currentSession,
     chat,
+    chatDrivers,
     currentTask,
     currentTaskNode,
     currentTaskProject,

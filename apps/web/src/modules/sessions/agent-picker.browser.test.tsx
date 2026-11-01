@@ -1,4 +1,4 @@
-import type { LaunchProfile } from "@corral/protocol/config";
+import { defaultClientConfig, type LaunchProfile } from "@corral/protocol/config";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
@@ -47,7 +47,14 @@ const profiles: LaunchProfile[] = [claude, codex, opencode];
 async function opened(list: LaunchProfile[] = []) {
   const onStart = vi.fn<(choice: AgentLaunchChoice) => Promise<void>>(async () => undefined);
   const onClose = vi.fn<() => void>();
-  const screen = await render(<AgentPicker profiles={list} onStart={onStart} onClose={onClose} />);
+  const screen = await render(
+    <AgentPicker
+      profiles={list}
+      agents={defaultClientConfig("").agents}
+      onStart={onStart}
+      onClose={onClose}
+    />,
+  );
   await expect.element(dialog().getByRole("radio", { name: "claude" })).toHaveFocus();
   return { screen, onStart, onClose };
 }
@@ -150,7 +157,14 @@ test("a refused launch keeps the picker open with the draft and the typed reason
     };
   });
   const onClose = vi.fn<() => void>();
-  await render(<AgentPicker profiles={profiles} onStart={onStart} onClose={onClose} />);
+  await render(
+    <AgentPicker
+      profiles={profiles}
+      agents={defaultClientConfig("").agents}
+      onStart={onStart}
+      onClose={onClose}
+    />,
+  );
   await expect.element(dialog().getByRole("radio", { name: "claude" })).toHaveFocus();
 
   await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}");
@@ -171,7 +185,12 @@ test("a profile dropped from the live config disables Start and never starts nat
   await expect.element(dialog().getByRole("radio", { name: "Claude gateway" })).toBeChecked();
 
   await screen.rerender(
-    <AgentPicker profiles={[codex]} onStart={onStart} onClose={() => undefined} />,
+    <AgentPicker
+      profiles={[codex]}
+      agents={defaultClientConfig("").agents}
+      onStart={onStart}
+      onClose={() => undefined}
+    />,
   );
 
   await expect
@@ -200,6 +219,7 @@ test("a profile whose revision changed needs an explicit reselect before it can 
   await screen.rerender(
     <AgentPicker
       profiles={[changed, codex, opencode]}
+      agents={defaultClientConfig("").agents}
       onStart={onStart}
       onClose={() => undefined}
     />,
@@ -238,7 +258,12 @@ test("a server-side revision conflict keeps the draft and needs an explicit rese
   });
   const onClose = vi.fn<() => void>();
   const screen = await render(
-    <AgentPicker profiles={profiles} onStart={onStart} onClose={onClose} />,
+    <AgentPicker
+      profiles={profiles}
+      agents={defaultClientConfig("").agents}
+      onStart={onStart}
+      onClose={onClose}
+    />,
   );
   await expect.element(dialog().getByRole("radio", { name: "claude" })).toHaveFocus();
 
@@ -263,7 +288,12 @@ test("a server-side revision conflict keeps the draft and needs an explicit rese
 
   const changed = profile({ revision: "ffffffffffff", model: "claude-haiku-4" });
   await screen.rerender(
-    <AgentPicker profiles={[changed, codex, opencode]} onStart={onStart} onClose={onClose} />,
+    <AgentPicker
+      profiles={[changed, codex, opencode]}
+      agents={defaultClientConfig("").agents}
+      onStart={onStart}
+      onClose={onClose}
+    />,
   );
   await expect
     .element(dialog().getByRole("alert"))

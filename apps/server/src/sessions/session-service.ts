@@ -1,4 +1,5 @@
 import type { LaunchProfile } from "@corral/protocol/config";
+import type { AgentKind } from "@corral/protocol/config";
 import type {
   AgentStatus,
   CreateTerminalInput,
@@ -34,6 +35,7 @@ import type { OpenCodeIntegration } from "../status/opencode-integration.ts";
 import { newStatusToken, tokensEqual } from "../status/status-token.ts";
 import type { TerminalRegistry } from "../terminals/terminal-registry.ts";
 import {
+  AgentDisabledError,
   AgentNotFoundError,
   AlreadyRunningError,
   LaunchProfileChangedError,
@@ -194,6 +196,10 @@ export class SessionService {
       launch: null,
     };
     try {
+      // A disabled agent is not offered anywhere; a new launch of it is refused rather than run
+      // behind the pickers' back. An existing session can still be stopped and resumed. Inside
+      // the try, so a task created with one keeps its stopped session like any failed launch.
+      if (kind !== "shell" && !this.#agentEnabled(kind)) throw new AgentDisabledError(kind);
       stored.launch = this.#launchSnapshot(kind, choice);
       const prompt = this.#promptFor(kind, choice.prompt);
       await this.#launch(stored, task, size, "start", prompt);
@@ -471,6 +477,21 @@ export class SessionService {
     return prompt;
   }
 
+  /** Whether this build can run the agent as chat at all; task creation asks before applying a view. */
+  hasChatDriver(kind: SessionKind): boolean {
+    return this.#chat.hasDriver(kind);
+  }
+
+  /** The executable a launch of `kind` runs: `[agents.<kind>].command`, else the agent's name. */
+  #agentCommand(kind: SessionKind): string {
+    if (kind === "shell") throw new Error("a shell has no agent command");
+    return this.#config.state().config.agents[kind].command.value;
+  }
+
+  #agentEnabled(kind: AgentKind): boolean {
+    return this.#config.state().config.agents[kind].enabled.value;
+  }
+
   /** The view a start runs in; a chat view needs an agent with a chat driver in this build. */
   #viewFor(kind: SessionKind, view: SessionView | undefined): SessionView {
     const resolved = view ?? "terminal";
@@ -539,11 +560,11 @@ export class SessionService {
     }
     const input: CreateTerminalInput = { cwd: task.workspacePath, size };
     if (adapter) {
+      const command = this.#agentCommand(stored.kind);
       env["CORRAL_STATUS_URL"] = this.#statusUrl(stored.id);
       env["CORRAL_STATUS_TOKEN"] = statusToken;
-      if (!isExecutable(adapter.command, env["PATH"]))
-        throw new AgentNotFoundError(adapter.command);
-      input.command = adapter.command;
+      if (!isExecutable(command, env["PATH"])) throw new AgentNotFoundError(command);
+      input.command = command;
       const id = stored.agentSessionId;
       const resumable =
         how === "resume" && id !== null && (adapter.hasConversation?.(id, env) ?? true);
@@ -625,9 +646,10 @@ export class SessionService {
     prompt: string | null,
     referencedValues: readonly string[],
   ): Promise<void> {
+    const command = this.#agentCommand(stored.kind);
     env["CORRAL_STATUS_URL"] = this.#statusUrl(stored.id);
     env["CORRAL_STATUS_TOKEN"] = statusToken;
-    if (!isExecutable(adapter.command, env["PATH"])) throw new AgentNotFoundError(adapter.command);
+    if (!isExecutable(command, env["PATH"])) throw new AgentNotFoundError(command);
     const id = stored.agentSessionId;
     const resumable = how === "resume" && id !== null;
     const args = [
@@ -646,7 +668,7 @@ export class SessionService {
     try {
       await this.#chat.launch({
         sessionId: stored.id,
-        command: adapter.command,
+        command,
         args,
         cwd: task.workspacePath,
         env,

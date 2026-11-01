@@ -1,5 +1,6 @@
 import {
   defaultClientConfig,
+  type AgentAvailability,
   type ClientConfig,
   type ConfigProblem,
   type ConfigState,
@@ -16,6 +17,8 @@ export interface ConfigSnapshot {
   config: ClientConfig;
   /** Valid profiles only; an invalid profile is dropped whole and reported in `problems`. */
   profiles: readonly LaunchProfile[];
+  /** What the server host has for each agent: found on the machine, and a chat driver or not. */
+  agents: readonly AgentAvailability[];
   problems: readonly ConfigProblem[];
 }
 
@@ -29,6 +32,7 @@ export function createConfigStore(connection: RpcConnection): ConfigStore {
     // The data dir is only known to the server; nothing renders these values before `loaded`.
     config: defaultClientConfig(""),
     profiles: [],
+    agents: [],
     problems: [],
   };
   return createWatchStore<ConfigState, ConfigSnapshot>(connection, {
@@ -48,6 +52,7 @@ export function createConfigStore(connection: RpcConnection): ConfigStore {
             path: state.path,
             config: state.config,
             profiles: state.profiles ?? [],
+            agents: state.agents ?? [],
             problems: state.problems,
           }
         : initial,

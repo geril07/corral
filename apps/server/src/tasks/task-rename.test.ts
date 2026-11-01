@@ -63,6 +63,7 @@ test("a rename queued behind a removal waits for it and fails without writing th
     startPrimary: () => {
       throw new Error("a rename starts no session");
     },
+    hasChatDriver: () => false,
   };
   const { tasks, store, db } = serviceWith(sessions);
 
@@ -89,6 +90,7 @@ test("a blank title is refused before anything is written, so the task list stil
     startPrimary: () => {
       throw new Error("a rename starts no session");
     },
+    hasChatDriver: () => false,
   };
   const { tasks, store, db } = serviceWith(sessions);
 
@@ -108,6 +110,7 @@ test("a rename that runs before a removal applies, and the removal then takes th
     startPrimary: () => {
       throw new Error("a rename starts no session");
     },
+    hasChatDriver: () => false,
   };
   const { tasks, store, db } = serviceWith(sessions);
 

@@ -8,6 +8,8 @@ import {
   workspaceChoices,
 } from "./new-task-defaults.ts";
 
+const agents = defaultClientConfig("/data").agents;
+
 const gateway: LaunchProfile = {
   id: "gateway",
   revision: "3",
@@ -38,13 +40,19 @@ function settings(overrides: {
 }
 
 test("a configured profile wins over the agent and the model setting overrides its model", () => {
-  expect(defaultAgent(settings({ agent: "codex", profile: "gateway" }), [gateway])).toEqual({
-    key: "profile:gateway:3",
-    label: "Gateway · claude-sonnet-4-5",
-    choice: { kind: "claude", profileId: "gateway", expectedProfileRevision: "3" },
-  });
+  expect(defaultAgent(settings({ agent: "codex", profile: "gateway" }), [gateway], agents)).toEqual(
+    {
+      key: "profile:gateway:3",
+      label: "Gateway · claude-sonnet-4-5",
+      choice: { kind: "claude", profileId: "gateway", expectedProfileRevision: "3" },
+    },
+  );
   expect(
-    defaultAgent(settings({ agent: "codex", profile: "gateway", model: "gpt-5-codex" }), [gateway]),
+    defaultAgent(
+      settings({ agent: "codex", profile: "gateway", model: "gpt-5-codex" }),
+      [gateway],
+      agents,
+    ),
   ).toEqual({
     key: "profile:gateway:3",
     label: "Gateway · gpt-5-codex",
@@ -58,21 +66,23 @@ test("a configured profile wins over the agent and the model setting overrides i
 });
 
 test("without a profile the configured agent wins, and a missing profile falls back to it", () => {
-  expect(defaultAgent(settings({ agent: "pi", model: "pi-large" }), [])).toMatchObject({
+  expect(defaultAgent(settings({ agent: "pi", model: "pi-large" }), [], agents)).toMatchObject({
     key: "native:pi",
     label: "pi · pi-large",
     choice: { kind: "pi", model: "pi-large" },
   });
-  expect(defaultAgent(settings({ agent: "codex", profile: "gone" }), [gateway])).toMatchObject({
+  expect(
+    defaultAgent(settings({ agent: "codex", profile: "gone" }), [gateway], agents),
+  ).toMatchObject({
     key: "native:codex",
     choice: { kind: "codex" },
   });
   // Nothing configured: the first native agent, so a prompt always has an agent to start.
-  expect(defaultAgent(settings({}), []).choice.kind).toBe("claude");
+  expect(defaultAgent(settings({}), [], agents)?.choice.kind).toBe("claude");
 });
 
 test("the picker lists native agents first, then the config's profiles", () => {
-  expect(agentChoices([gateway]).map((choice) => choice.key)).toEqual([
+  expect(agentChoices([gateway], agents).map((choice) => choice.key)).toEqual([
     "native:claude",
     "native:codex",
     "native:pi",

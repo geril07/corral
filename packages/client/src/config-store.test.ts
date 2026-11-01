@@ -20,6 +20,7 @@ test("starts with the defaults, before the server has sent the config and withou
     path: "",
     config: defaultClientConfig(""),
     profiles: [],
+    agents: [],
     problems: [],
   });
 
@@ -29,8 +30,17 @@ test("starts with the defaults, before the server has sent the config and withou
     path: configFile(),
     config: defaultClientConfig(server.dataDir),
     profiles: [],
+    agents: expect.any(Array),
     problems: [],
   });
+  // Every agent comes with the host's answer: whether the command is executable and whether
+  // this build can show it as chat.
+  expect(client.config.getSnapshot().agents.map((agent) => agent.kind)).toEqual([
+    "claude",
+    "codex",
+    "pi",
+    "opencode",
+  ]);
 });
 
 test("a written config file changes the store", async () => {

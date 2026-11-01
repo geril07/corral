@@ -4,7 +4,7 @@ import {
   type LaunchProfile,
   type ResolvedTaskSettings,
 } from "@corral/protocol/config";
-import type { CreateTaskInput, Project, TaskSource } from "@corral/protocol/rpc";
+import type { AgentKind, CreateTaskInput, Project, TaskSource } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { useState } from "react";
@@ -72,6 +72,7 @@ function renderView({
   project = repo,
   config = configWith(),
   profiles = [] as LaunchProfile[],
+  chatDrivers = ["pi"] as AgentKind[],
   branches = Promise.resolve(["main", "feature/x"]),
   opened = 0,
   onCreate = vi.fn<(input: CreateTaskInput) => Promise<void>>(() => Promise.resolve()),
@@ -91,6 +92,7 @@ function renderView({
       project={project}
       config={config}
       profiles={profiles}
+      chatDrivers={chatDrivers}
       loadBranches={loadBranches}
       onCreate={onCreate}
       onResolveIssue={onResolveIssue}
@@ -131,7 +133,7 @@ test("the prompt takes the keyboard and Enter creates the task from it", async (
     expect(onCreate).toHaveBeenCalledExactlyOnceWith({
       projectId: "p1",
       prompt: "Fix the login bug\nthen the tests",
-      agent: { kind: "claude" },
+      agent: { kind: "claude", view: "terminal" },
       workspace: { type: "main-worktree" },
     }),
   );
@@ -210,6 +212,7 @@ test("a configured profile wins over the agent and carries its revision", async 
         kind: "claude",
         profileId: "gateway",
         expectedProfileRevision: "1",
+        view: "terminal",
       },
       workspace: { type: "main-worktree" },
     }),
@@ -238,7 +241,7 @@ test("an existing branch is picked from the workspace list with the keyboard", a
     expect(onCreate).toHaveBeenCalledExactlyOnceWith({
       projectId: "p1",
       prompt: "Continue there",
-      agent: { kind: "claude" },
+      agent: { kind: "claude", view: "terminal" },
       workspace: { type: "existing-branch", branch: "feature/x" },
     }),
   );
@@ -316,7 +319,7 @@ test("re-picking the agent already shown keeps the configured model", async () =
     expect(onCreate).toHaveBeenCalledExactlyOnceWith({
       projectId: "p1",
       prompt: "Model kept",
-      agent: { kind: "codex", model: "gpt-5-codex" },
+      agent: { kind: "codex", model: "gpt-5-codex", view: "terminal" },
       workspace: { type: "main-worktree" },
     }),
   );
@@ -459,7 +462,7 @@ test("an imported issue fills the prompt with its title and link and keeps the s
       projectId: "p1",
       prompt: `Issue title\n\n${issue.url}`,
       source: issue,
-      agent: { kind: "claude" },
+      agent: { kind: "claude", view: "terminal" },
       workspace: { type: "main-worktree" },
     }),
   );
@@ -483,7 +486,7 @@ test("a prompt the user typed is not overwritten by an import", async () => {
       projectId: "p1",
       prompt: "My own wording",
       source: issue,
-      agent: { kind: "claude" },
+      agent: { kind: "claude", view: "terminal" },
       workspace: { type: "main-worktree" },
     }),
   );
@@ -518,4 +521,83 @@ test("an imported prompt is dropped when the project changes", async () => {
 
   await pick(/^Project /, /^other/);
   await expect.element(prompt()).toHaveValue("");
+});
+
+test("the view picker offers chat only for an agent with a chat driver", async () => {
+  const config = configWith({ agent: { value: "claude", source: "global" } });
+  const { rendered, onCreate } = renderView({ config, chatDrivers: ["pi"] });
+  await rendered;
+
+  await expect.element(picker(/^View /)).toHaveAccessibleName("View terminal");
+  await userEvent.click(picker(/^View /));
+  await expect.element(page.getByRole("option", { name: "chat" })).not.toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
+
+  // pi reports a chat driver, so the same picker offers it and the task can open there.
+  await pick(/^Agent /, /^pi/);
+  await userEvent.click(picker(/^View /));
+  await page.getByRole("option", { name: "chat" }).click();
+  await expect.element(picker(/^View /)).toHaveAccessibleName("View chat");
+
+  await prompt().click();
+  await userEvent.keyboard("Say hello{Enter}");
+  await vi.waitFor(() =>
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith({
+      projectId: "p1",
+      prompt: "Say hello",
+      agent: { kind: "pi", view: "chat" },
+      workspace: { type: "main-worktree" },
+    }),
+  );
+});
+
+test("a configured chat view applies, and an agent without a driver falls back to the terminal", async () => {
+  const config = configWith({
+    agent: { value: "pi", source: "global" },
+    view: { value: "chat", source: "global" },
+  });
+  const { rendered, onCreate } = renderView({ config, chatDrivers: ["pi"] });
+  await rendered;
+
+  await expect.element(picker(/^View /)).toHaveAccessibleName("View chat");
+  await expect.element(form()).not.toMatchTextContent("needs an agent with a chat driver");
+
+  // The picked agent has no driver: the view control moves to the terminal and says why.
+  await pick(/^Agent /, /^claude/);
+  await expect.element(picker(/^View /)).toHaveAccessibleName("View terminal");
+  await expect.element(form()).toMatchTextContent("needs an agent with a chat driver");
+
+  await prompt().click();
+  await userEvent.keyboard("Terminal please{Enter}");
+  await vi.waitFor(() =>
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith({
+      projectId: "p1",
+      prompt: "Terminal please",
+      agent: { kind: "claude", view: "terminal" },
+      workspace: { type: "main-worktree" },
+    }),
+  );
+});
+
+test("a disabled agent and its profiles disappear from the composer's pickers", async () => {
+  const base = configWith();
+  const config = {
+    ...base,
+    agents: {
+      ...base.agents,
+      claude: {
+        enabled: { value: false, source: "global" as const },
+        command: { value: "claude", source: "default" as const },
+      },
+    },
+  };
+  const { rendered } = renderView({ config, profiles: [gateway] });
+  await rendered;
+
+  // The default falls to the first agent still offered, and neither claude nor its profile is listed.
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · native default");
+  await userEvent.click(picker(/^Agent /));
+  await expect.element(page.getByRole("option", { name: /^claude/ })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("option", { name: /^Gateway/ })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("option", { name: /^codex/ })).toBeVisible();
 });

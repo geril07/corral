@@ -20,5 +20,6 @@ export function configTaskSettings(
       expandWorktreeRoot(effective(project).worktreeRoot.value, options.home),
     branchPrefix: (project) => effective(project).branchPrefix.value,
     slugMode: (project) => effective(project).slugMode.value,
+    view: (project) => effective(project).view.value,
   };
 }

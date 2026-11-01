@@ -1,4 +1,4 @@
-import type { SessionKind } from "@corral/protocol/rpc";
+import type { AgentKind, SessionKind } from "@corral/protocol/rpc";
 
 export class SessionNotFoundError extends Error {
   readonly id: string;
@@ -19,6 +19,15 @@ export class AgentNotFoundError extends Error {
   constructor(command: string) {
     super(`${command} is not on the server's PATH`);
     this.command = command;
+  }
+}
+
+/** `[agents.<kind>].enabled = false`: a new launch is refused; an existing session can be resumed. */
+export class AgentDisabledError extends Error {
+  readonly kind: AgentKind;
+  constructor(kind: AgentKind) {
+    super(`the ${kind} agent is disabled in the config file`);
+    this.kind = kind;
   }
 }
 

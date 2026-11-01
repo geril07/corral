@@ -50,6 +50,8 @@ export const test = base.extend<Fixtures>({
             OPENCODE_CONFIG_DIR: `${stateDir}/opencode`,
             OPENCODE_CONFIG_CONTENT: "",
             FAKE_AGENT_LOG: launchLog(stateDir),
+            // The fake pi's RPC journals, one per session, so a resumed chat has its history.
+            FAKE_PI_RPC_HOME: path.join(stateDir, "pi-rpc"),
             FAKE_ISSUE_LOG: issueLaunchLog(stateDir),
             FAKE_ISSUE_RESPONSE_FILE: issueResponseFile(stateDir),
             FAKE_ISSUE_MODE: "ok",

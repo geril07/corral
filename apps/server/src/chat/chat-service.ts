@@ -2,13 +2,17 @@ import type { ChatStreamMessage } from "@corral/protocol/chat";
 import { rmSync } from "node:fs";
 import type { AgentKind, AgentStatus, ChatSendMode } from "@corral/protocol/rpc";
 import type { ChatAnswer, ChatModelRef } from "@corral/protocol/chat";
+import { CHAT_DRIVERS } from "./chat-drivers.ts";
 import { ChatLaunchError, ChatUnavailableError, type ChatSubject } from "./chat-errors.ts";
 import { PiDriver, type PiDriverTimeouts } from "./pi-driver.ts";
 import { floorPath, raiseFloor, reserveFloor } from "./sequence-floor.ts";
 import { releasePreviousWriter, writerPath } from "./writer-claim.ts";
 
-/** The agents this build can show as chat; a build fact, not a session's state (B0's contract). */
-export const CHAT_DRIVERS: readonly AgentKind[] = ["pi"];
+/**
+ * The agents this build can show as chat (B0's contract); the list itself is in `chat-drivers.ts`,
+ * which the config file also reads to fall a `chat` view back to the terminal.
+ */
+export { CHAT_DRIVERS };
 
 /**
  * The server's own deadline for a dialog pi left open. An extension may set a shorter `timeout`

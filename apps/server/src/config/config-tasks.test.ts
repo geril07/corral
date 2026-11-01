@@ -86,7 +86,6 @@ const rejectedTasks: [file: string, path: string, message: string][] = [
   ['[tasks]\nbranch-prefix = "a..b"\n', "tasks.branch-prefix", "may not hold"],
   ['[tasks]\nbranch-prefix = "/lead"\n', "tasks.branch-prefix", "may not start with /, . or -"],
   ['[tasks]\nslug-mode = "random"\n', "tasks.slug-mode", "must be one of title, generated"],
-  ['[tasks]\nview = "chat"\n', "tasks.view", "arrives with stage B"],
   ['[tasks]\nview = "board"\n', "tasks.view", "must be one of terminal, chat"],
   ["[tasks]\nagent = 5\n", "tasks.agent", "expected a string, got a number"],
   ["[tasks]\nworkspace = 5\n", "tasks.workspace", "expected a string, got a number"],

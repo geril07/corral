@@ -1,6 +1,6 @@
 import type { ChatStore } from "@corral/client/chat-store";
 import type { CorralClient } from "@corral/client/corral-client";
-import type { ChatAnswer } from "@corral/protocol/chat";
+import type { ChatAnswer, ChatModelRef } from "@corral/protocol/chat";
 import type { ChatSendMode, Session } from "@corral/protocol/rpc";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
@@ -10,6 +10,10 @@ export interface ChatSessionHandle {
   send: (text: string, mode: ChatSendMode) => Promise<void>;
   abort: () => Promise<void>;
   respond: (requestId: string, value: ChatAnswer) => Promise<void>;
+  /** Runs the session on another model from its `models` list. */
+  setModel: (model: ChatModelRef) => Promise<void>;
+  /** Sets the reasoning level to one from `reasoningLevels`. */
+  setReasoning: (level: string) => Promise<void>;
 }
 
 /**
@@ -46,9 +50,23 @@ export function useChatSession(
     },
     [client, sessionId],
   );
+  const setModel = useCallback(
+    async (model: ChatModelRef) => {
+      if (sessionId === undefined) return;
+      await client.connection.api.chat.setModel({ sessionId, model });
+    },
+    [client, sessionId],
+  );
+  const setReasoning = useCallback(
+    async (level: string) => {
+      if (sessionId === undefined) return;
+      await client.connection.api.chat.setReasoning({ sessionId, level });
+    },
+    [client, sessionId],
+  );
   return store === undefined || sessionId === undefined
     ? undefined
-    : { store, send, abort, respond };
+    : { store, send, abort, respond, setModel, setReasoning };
 }
 
 const NEVER_SUBSCRIBE = () => () => {};

@@ -38,6 +38,8 @@ async function renderChat(messages: readonly ChatStreamMessage[] = RECORDED_CHAT
   const sent: Sent[] = [];
   const responded: Array<{ requestId: string; value: ChatAnswer }> = [];
   const aborts: number[] = [];
+  const openModel = vi.fn<() => void>();
+  const openReasoning = vi.fn<() => void>();
   const screen = await render(
     <div className="h-screen w-full">
       <ChatView
@@ -53,10 +55,12 @@ async function renderChat(messages: readonly ChatStreamMessage[] = RECORDED_CHAT
         onRespond={async (requestId, value) => {
           responded.push({ requestId, value });
         }}
+        onChangeModel={openModel}
+        onChangeReasoning={openReasoning}
       />
     </div>,
   );
-  return { ...screen, script, sent, responded, aborts };
+  return { ...screen, script, sent, responded, aborts, openModel, openReasoning };
 }
 
 test("renders a recorded stream: text, reasoning, folded tools, a diff, a notice, an error and a focused request", async () => {
@@ -302,6 +306,8 @@ function PrefixHarness({
         onSend={async () => {}}
         onAbort={onAbort}
         onRespond={async () => {}}
+        onChangeModel={() => {}}
+        onChangeReasoning={() => {}}
       />
     </div>
   );
@@ -656,6 +662,8 @@ test("a refused watch shows the store's failure and the view does not retry it i
         onSend={async () => {}}
         onAbort={async () => {}}
         onRespond={async () => {}}
+        onChangeModel={() => {}}
+        onChangeReasoning={() => {}}
       />
     </div>,
   );
@@ -665,4 +673,34 @@ test("a refused watch shows the store's failure and the view does not retry it i
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(attempts).toBe(2);
   store.close();
+});
+
+test("the composer row shows the driver's model and reasoning and opens their choosers", async () => {
+  const state = workingChat({
+    model: { provider: "stub", id: "stub-1", name: "Stub One" },
+    models: [
+      { provider: "stub", id: "stub-1", name: "Stub One" },
+      { provider: "stub", id: "stub-2", name: "Stub Two" },
+    ],
+    reasoning: "medium",
+    reasoningLevels: ["off", "low", "medium", "high"],
+  });
+  const { openModel, openReasoning } = await renderChat(recorded([], { state }));
+
+  const model = page.getByRole("button", { name: "Model Stub One" });
+  const reasoning = page.getByRole("button", { name: "Reasoning medium" });
+  await expect.element(model).toBeEnabled();
+  await expect.element(reasoning).toBeEnabled();
+
+  await userEvent.click(model);
+  await userEvent.click(reasoning);
+  expect(openModel).toHaveBeenCalledTimes(1);
+  expect(openReasoning).toHaveBeenCalledTimes(1);
+});
+
+test("without a driver list the row's model and reasoning controls are disabled", async () => {
+  await renderChat(recorded([], { state: IDLE_CHAT }));
+
+  await expect.element(page.getByRole("button", { name: "Model none" })).toBeDisabled();
+  await expect.element(page.getByRole("button", { name: "Reasoning none" })).toBeDisabled();
 });

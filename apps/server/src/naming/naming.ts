@@ -1,6 +1,7 @@
 import {
   defaultNamingSettings,
   namingConfigured,
+  type AgentKind,
   type LaunchProfile,
   type NamingSettings,
 } from "@corral/protocol/config";
@@ -9,12 +10,15 @@ import type { NamingLaunch } from "./naming-command.ts";
 import type { NamingName } from "./naming-output.ts";
 import { namingPrompt } from "./naming-prompt.ts";
 import { parseNamingOutput } from "./naming-output.ts";
+import { AGENTS } from "../agents/agents.ts";
 import { runNaming } from "./naming-run.ts";
 
 /** What task creation needs from the config to name a task: `[naming]` and the profiles it may use. */
 export interface NamingSettingsSource {
   settings(): NamingSettings;
   profiles(): readonly LaunchProfile[];
+  /** The executable `[agents.<kind>].command` names, when the source knows it. */
+  command?(kind: AgentKind): string;
 }
 
 /** Naming that runs nothing: the seed title stays (decision 16). */
@@ -25,6 +29,8 @@ export function disabledNaming(): NamingSettingsSource {
 /** One resolved naming run: who to start, with what environment, and how long to wait. */
 export interface NamingPlan {
   launch: NamingLaunch;
+  /** The executable the run spawns: `[agents.<kind>].command`, else the agent's own name. */
+  command: string;
   env: readonly EnvRef[];
   profileId: string | null;
   timeoutMs: number;
@@ -65,6 +71,7 @@ export function namingPlan(
       model: settings.model.value ?? profile?.model ?? null,
       provider: profile?.provider ?? null,
     },
+    command: source.command?.(kind) ?? AGENTS[kind].command,
     env: profile?.env ?? [],
     profileId: profile?.id ?? null,
     timeoutMs: Math.round(settings.timeoutSeconds.value * 1000),
@@ -87,6 +94,7 @@ export async function requestName(
   });
   const run = await runNaming({
     launch: plan.launch,
+    command: plan.command,
     env: plan.env,
     profileId: plan.profileId,
     timeoutMs: plan.timeoutMs,

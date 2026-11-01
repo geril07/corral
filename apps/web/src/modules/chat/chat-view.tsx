@@ -20,6 +20,10 @@ export interface ChatViewProps {
   onSend: ChatSend;
   onAbort: () => Promise<void>;
   onRespond: (requestId: string, value: ChatAnswer) => Promise<void>;
+  /** Opens the model chooser; the workspace owns the dialog so the palette can open it too. */
+  onChangeModel: () => void;
+  /** Opens the reasoning-level chooser, likewise. */
+  onChangeReasoning: () => void;
 }
 
 /**
@@ -27,7 +31,16 @@ export interface ChatViewProps {
  * request the agent waits on, and the composer that overlays the lane's end. The view renders the
  * B0 store; the workspace owns the connection calls (goal D4: no driver is needed here).
  */
-export function ChatView({ store, agent, abortHint, onSend, onAbort, onRespond }: ChatViewProps) {
+export function ChatView({
+  store,
+  agent,
+  abortHint,
+  onSend,
+  onAbort,
+  onRespond,
+  onChangeModel,
+  onChangeReasoning,
+}: ChatViewProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -177,9 +190,28 @@ export function ChatView({ store, agent, abortHint, onSend, onAbort, onRespond }
               }}
             />
             <div className="flex flex-wrap items-center gap-2">
-              <span className="min-w-0 truncate text-xs text-muted-foreground">
-                {[snapshot.state.model?.name, snapshot.state.reasoning].filter(Boolean).join(" · ")}
-              </span>
+              {/* The two pickers `layout.md` puts on the left; each opens the same chooser the
+                  palette's actions open, so the driver's list is one component. */}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={`Model ${snapshot.state.model?.name ?? "none"}`}
+                disabled={snapshot.state.models.length === 0}
+                onClick={onChangeModel}
+              >
+                <span className="min-w-0 truncate">{snapshot.state.model?.name ?? "no model"}</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={`Reasoning ${snapshot.state.reasoning ?? "none"}`}
+                disabled={snapshot.state.reasoningLevels.length === 0}
+                onClick={onChangeReasoning}
+              >
+                <span className="min-w-0 truncate">
+                  {snapshot.state.reasoning ?? "no reasoning level"}
+                </span>
+              </Button>
               <span className="ml-auto text-xs text-muted-foreground">
                 {working
                   ? `Enter steer · ⌘/Ctrl+Enter follow-up · ${abortHint ?? "no key"} abort`

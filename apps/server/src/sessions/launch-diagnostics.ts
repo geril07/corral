@@ -1,5 +1,6 @@
 import { MissingEnvRefError, ReservedEnvRefError } from "../agents/launch-env.ts";
 import {
+  AgentDisabledError,
   AgentNotFoundError,
   LaunchModelInvalidError,
   LaunchModelUnsupportedError,
@@ -49,6 +50,7 @@ export function launchFailureReason(error: unknown): string {
   }
   if (error instanceof LaunchSpawnError) return error.summary;
   if (
+    error instanceof AgentDisabledError ||
     error instanceof AgentNotFoundError ||
     error instanceof LaunchViewUnsupportedError ||
     error instanceof LaunchProfileUnknownError ||
@@ -69,6 +71,7 @@ export function launchDiagnostic(error: unknown): string {
   if (
     error instanceof MissingEnvRefError ||
     error instanceof ReservedEnvRefError ||
+    error instanceof AgentDisabledError ||
     error instanceof AgentNotFoundError ||
     error instanceof LaunchViewUnsupportedError ||
     error instanceof LaunchProfileChangedError ||

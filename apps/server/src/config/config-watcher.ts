@@ -1,6 +1,14 @@
 import { existsSync, readFileSync, watch, type FSWatcher, type WatchEventType } from "node:fs";
 import { basename, dirname, relative, sep } from "node:path";
-import { defaultClientConfig, type ConfigState } from "@corral/protocol/config";
+import {
+  AgentKind,
+  defaultClientConfig,
+  type AgentAvailability,
+  type ClientConfig,
+  type ConfigState,
+} from "@corral/protocol/config";
+import { isExecutable } from "../agents/executable-lookup.ts";
+import { hasChatDriver } from "../chat/chat-drivers.ts";
 import { ChangeFeed } from "../changes/change-feed.ts";
 import { parseConfigFile } from "./config-file.ts";
 
@@ -130,12 +138,21 @@ function readConfigFile(filePath: string, dataDir: string): ConfigState {
   } catch (error) {
     const code = errnoCode(error);
     if (code === "ENOENT" || code === "ENOTDIR") {
-      return { path: filePath, config: defaultClientConfig(dataDir), profiles: [], problems: [] };
+      const config = defaultClientConfig(dataDir);
+      return {
+        path: filePath,
+        config,
+        profiles: [],
+        agents: agentAvailability(config),
+        problems: [],
+      };
     }
+    const config = defaultClientConfig(dataDir);
     return {
       path: filePath,
-      config: defaultClientConfig(dataDir),
+      config,
       profiles: [],
+      agents: agentAvailability(config),
       problems: [
         {
           severity: "error",
@@ -145,7 +162,25 @@ function readConfigFile(filePath: string, dataDir: string): ConfigState {
       ],
     };
   }
-  return { path: filePath, ...parseConfigFile(text, dataDir) };
+  const parsed = parseConfigFile(text, dataDir);
+  return {
+    path: filePath,
+    ...parsed,
+    agents: agentAvailability(parsed.config),
+  };
+}
+
+/**
+ * What this host has for each agent, read on every file change: whether the effective command is
+ * executable (with the same lookup a launch uses) and whether this build can show it as chat.
+ * Settings renders it; nothing else needs it.
+ */
+function agentAvailability(config: ClientConfig): AgentAvailability[] {
+  return AgentKind.options.map((kind) => ({
+    kind,
+    found: isExecutable(config.agents[kind].command.value, process.env["PATH"]),
+    chatDriver: hasChatDriver(kind),
+  }));
 }
 
 /** Both states come from the same code, so key order is stable and JSON equality is state equality. */

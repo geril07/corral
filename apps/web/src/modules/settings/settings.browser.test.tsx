@@ -234,6 +234,40 @@ branch-prefix = "nope/"
     );
 });
 
+test("the Agents section names each agent, its command, whether it is found and its chat driver", async () => {
+  const client = newClient();
+  await writeConfig(`
+[agents.pi]
+command = "/nonexistent/pi"
+
+[agents.claude]
+enabled = false
+`);
+  await renderSettings(client);
+  await vi.waitFor(() =>
+    expect(client.config.getSnapshot().config.agents.pi.command.value).toBe("/nonexistent/pi"),
+  );
+
+  const agents = section("Agents");
+  // A command that is not there is reported, and Settings says so instead of claiming a launch.
+  await expect
+    .element(agents)
+    .toMatchTextContent(sequence("pi", "/nonexistent/pi", "global", "not found", "chat", "driver"));
+  // Disabled in the file, found on the host, and no chat driver in this build.
+  await expect
+    .element(agents)
+    .toMatchTextContent(
+      sequence("claude", "claude", "default", "found", "chat", "terminal only", "disabled"),
+    );
+  await expect.element(agents).toMatchTextContent(sequence("codex", "codex", "default", "found"));
+  await expect.element(agents).toMatchTextContent("an absolute path that replaces the PATH lookup");
+
+  await writeConfig(null);
+  await vi.waitFor(() =>
+    expect(client.config.getSnapshot().config.agents.claude.enabled.value).toBe(true),
+  );
+});
+
 test("the task sections wait for the server's config instead of showing built-in values", async () => {
   const client = newClient({ url: "ws://127.0.0.1:1", capability: "unreachable" });
   await render(<App client={client} initialEntries={["/settings"]} />);

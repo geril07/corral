@@ -3,7 +3,6 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENTS } from "../agents/agents.ts";
 import { isExecutable } from "../agents/executable-lookup.ts";
 import { resolveEnvRefs } from "../agents/launch-env.ts";
 import { namingArgs, type NamingLaunch } from "./naming-command.ts";
@@ -11,6 +10,8 @@ import { namingArgs, type NamingLaunch } from "./naming-command.ts";
 /** A naming request as the config resolved it. */
 export interface NamingRunRequest {
   launch: NamingLaunch;
+  /** The executable to spawn; a `[agents.<kind>].command` override, else the agent's name. */
+  command: string;
   /** The profile's environment references, resolved as for a launch. */
   env: readonly EnvRef[];
   profileId: string | null;
@@ -46,7 +47,7 @@ export async function runNaming(request: NamingRunRequest): Promise<NamingRun> {
   } catch (error) {
     return { ok: false, reason: messageOf(error) };
   }
-  const command = AGENTS[request.launch.kind].command;
+  const command = request.command;
   if (!isExecutable(command, env["PATH"]))
     return { ok: false, reason: `no executable ${command} on the server's PATH` };
   let cwd: string;

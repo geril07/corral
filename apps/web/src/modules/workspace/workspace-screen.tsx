@@ -15,7 +15,7 @@ import {
   SidebarPanel,
 } from "../../common/ui/index.ts";
 import { AddProjectDialog } from "../projects/index.ts";
-import { ChatView } from "../chat/index.ts";
+import { ChatChoiceDialog, ChatView } from "../chat/index.ts";
 import { AgentPicker, RemoveSessionDialog, StoppedSession } from "../sessions/index.ts";
 import { NewTaskView, RemoveTaskDialog, TaskSourceDialog } from "../tasks/index.ts";
 import { TerminalView } from "../terminal/index.ts";
@@ -79,6 +79,7 @@ export function WorkspaceScreen({
     current,
     currentSession,
     chat,
+    chatDrivers,
     currentTask,
     currentTaskNode,
     currentTaskProject,
@@ -144,6 +145,7 @@ export function WorkspaceScreen({
         project={composerProject}
         config={config}
         profiles={profiles}
+        chatDrivers={chatDrivers}
         draft={composerDraft}
         onDraftChange={setComposerDraft}
         loadBranches={loadBranches}
@@ -178,6 +180,8 @@ export function WorkspaceScreen({
         onSend={chat.send}
         onAbort={chat.abort}
         onRespond={chat.respond}
+        onChangeModel={() => setDialog({ kind: "chat-model" })}
+        onChangeReasoning={() => setDialog({ kind: "chat-reasoning" })}
       />
     ) : currentSession && currentSession.state !== "running" ? (
       <StoppedSession
@@ -303,10 +307,21 @@ export function WorkspaceScreen({
       {dialog?.kind === "pick-agent" && (
         <AgentPicker
           profiles={profiles}
+          agents={config.agents}
           onStart={(choice) => startAgent(dialog.taskId, choice)}
           onClose={() => setDialog(undefined)}
         />
       )}
+      {(dialog?.kind === "chat-model" || dialog?.kind === "chat-reasoning") &&
+        chat !== undefined && (
+          <ChatChoiceDialog
+            store={chat.store}
+            kind={dialog.kind === "chat-model" ? "model" : "reasoning"}
+            onSetModel={chat.setModel}
+            onSetReasoning={chat.setReasoning}
+            onClose={() => setDialog(undefined)}
+          />
+        )}
       {dialog?.kind === "remove-session" && (
         <RemoveSessionDialog
           session={dialog.session}

@@ -1,5 +1,5 @@
 import { defaultWorktreeRoot } from "@corral/protocol/config";
-import type { SlugMode } from "@corral/protocol/config";
+import type { SlugMode, TaskView } from "@corral/protocol/config";
 import type { Project } from "@corral/protocol/rpc";
 
 /**
@@ -20,6 +20,12 @@ export interface TaskSettings {
    * from the naming request itself (`generated`); A4 reads it when it decides what to ask for.
    */
   slugMode(project: Project): SlugMode;
+  /**
+   * The view a task's primary agent opens in when the request names none (`[tasks] view`, or the
+   * project's). A `chat` view is applied only when the agent has a chat driver; otherwise the
+   * task opens in the terminal.
+   */
+  view(project: Project): TaskView;
 }
 
 /** The defaults for callers without config: `<data dir>/worktrees`, no branch prefix, title slugs. */
@@ -29,5 +35,6 @@ export function defaultTaskSettings(options: { dataDir: string }): TaskSettings 
     worktreeRoot: () => worktreeRoot,
     branchPrefix: () => "",
     slugMode: () => "title",
+    view: () => "terminal",
   };
 }

@@ -169,7 +169,10 @@ export const TaskAgent = z.object({
   profileId: z.string().min(1).optional(),
   expectedProfileRevision: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
-  /** How the primary session opens; omissions are `terminal`, as on `sessions.start`. */
+  /**
+   * How the primary session opens. Omitted takes the project's configured view (`[tasks] view`,
+   * overridable per project); a `chat` view the agent has no driver for opens in the terminal.
+   */
   view: SessionView.optional(),
 });
 export type TaskAgent = z.infer<typeof TaskAgent>;
@@ -403,6 +406,8 @@ const launchRefused = {
   LAUNCH_ENV_RESERVED: { data: z.object({ name: z.string() }) },
   /** The agent has no driver for the view, or a shell was asked to run as chat. */
   LAUNCH_VIEW_UNSUPPORTED: { data: z.object({ kind: SessionKind, view: SessionView }) },
+  /** `[agents.<kind>].enabled = false`: the agent is not offered, so a new launch is refused. */
+  AGENT_DISABLED: { data: z.object({ kind: AgentKind }) },
   /** An unexpected spawn failure; `message` is redacted against referenced environment values. */
   LAUNCH_FAILED: { data: z.object({ kind: SessionKind, message: z.string() }) },
 };
@@ -533,8 +538,10 @@ export const contract = {
   },
   sessions: {
     /**
-     * Starts a shell or an agent in the task's workspace, in a new terminal. The agent CLI is
-     * looked up on the server's `PATH`; a missing one fails with `AGENT_NOT_FOUND`.
+     * Starts a shell or an agent in the task's workspace, in a new terminal or, for `view: "chat"`,
+     * as a chat session with a driver. The agent CLI is looked up on the server's `PATH`, unless
+     * `[agents.<kind>].command` names an executable; a disabled agent is refused with
+     * `AGENT_DISABLED` and a missing one fails with `AGENT_NOT_FOUND`.
      *
      * `profileId` selects a profile from the server's config file. `expectedProfileRevision`
      * pins the definition the caller showed; a profile that changed since then is refused with

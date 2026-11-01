@@ -1,6 +1,6 @@
 import { describeError } from "@corral/client/rpc-errors";
 import { AGENTS } from "@corral/client/session-state";
-import type { LaunchProfile } from "@corral/protocol/config";
+import type { AgentSettings, LaunchProfile } from "@corral/protocol/config";
 import type { AgentKind } from "@corral/protocol/rpc";
 import { useState } from "react";
 import {
@@ -25,6 +25,8 @@ import { describeLaunchError, launchErrorCode } from "./launch-error.ts";
 interface AgentPickerProps {
   /** The valid profiles of the config file, in file order. */
   profiles: readonly LaunchProfile[];
+  /** `[agents.<kind>]`: a disabled agent, and the profiles that launch it, are not offered. */
+  agents: AgentSettings;
   /** Starts the chosen launch; rejects when the server refuses it, so the draft stays. */
   onStart: (choice: AgentLaunchChoice) => Promise<void>;
   onClose: () => void;
@@ -59,15 +61,21 @@ function choiceKey(selection: Selection): string {
     : `profile:${selection.id}:${selection.revision}`;
 }
 
-function choicesOf(profiles: readonly LaunchProfile[]): Choice[] {
+function choicesOf(profiles: readonly LaunchProfile[], agents: AgentSettings): Choice[] {
   return [
-    ...AGENTS.map((kind): Choice => ({ key: `native:${kind}`, kind, native: true })),
-    ...profiles.map((profile): Choice => ({
-      key: `profile:${profile.id}:${profile.revision}`,
-      kind: profile.agent,
-      native: false,
-      profile,
+    ...AGENTS.filter((kind) => agents[kind].enabled.value).map((kind): Choice => ({
+      key: `native:${kind}`,
+      kind,
+      native: true,
     })),
+    ...profiles
+      .filter((profile) => agents[profile.agent].enabled.value)
+      .map((profile): Choice => ({
+        key: `profile:${profile.id}:${profile.revision}`,
+        kind: profile.agent,
+        native: false,
+        profile,
+      })),
   ];
 }
 
@@ -118,12 +126,15 @@ function profileModelText(agent: AgentKind, model: string | null): string {
 }
 
 /** A native agent or a named profile, plus an optional native model override where supported. */
-export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
-  const choices = choicesOf(profiles);
-  const [selection, setSelection] = useState<Selection>(() => ({
-    kind: "native",
-    agent: AGENTS[0] ?? "claude",
-  }));
+export function AgentPicker({ profiles, agents, onStart, onClose }: AgentPickerProps) {
+  const choices = choicesOf(profiles, agents);
+  const natives = choices.filter((candidate) => candidate.native);
+  const [selection, setSelection] = useState<Selection>(() => {
+    const first = choices[0];
+    return first === undefined
+      ? { kind: "native", agent: AGENTS[0] ?? "claude" }
+      : selectionOfChoice(first);
+  });
   const [model, setModel] = useState("");
   const [failure, setFailure] = useState<string>();
   const [conflictedSelection, setConflictedSelection] = useState<string>();
@@ -220,13 +231,13 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
           if (isTextEntryTarget(event.target)) return;
           // A digit is a quick native choice only: it never discards a profile or a typed model.
           if (selection.kind !== "native" || modelOverride(model) !== undefined) return;
-          const picked = AGENTS[Number(event.key) - 1];
+          const picked = natives[Number(event.key) - 1];
           if (picked === undefined) return;
           event.preventDefault();
-          submit({ kind: "native", agent: picked }, false);
+          submit(selectionOfChoice(picked), false);
         }}
       >
-        {choices.map((candidate, index) => (
+        {choices.map((candidate) => (
           <RadioChoice
             key={candidate.key}
             value={candidate.key}
@@ -234,7 +245,7 @@ export function AgentPicker({ profiles, onStart, onClose }: AgentPickerProps) {
           >
             {candidate.native ? (
               <>
-                <Kbd aria-hidden>{index + 1}</Kbd>
+                <Kbd aria-hidden>{natives.indexOf(candidate) + 1}</Kbd>
                 {candidate.kind}
                 <span className="text-muted-foreground">native default</span>
               </>

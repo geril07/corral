@@ -1,6 +1,12 @@
 import { describeError } from "@corral/client/rpc-errors";
 import { taskSettingsFor, type ClientConfig, type LaunchProfile } from "@corral/protocol/config";
-import type { CreateTaskInput, IssueProvider, Project, TaskSource } from "@corral/protocol/rpc";
+import type {
+  AgentKind,
+  CreateTaskInput,
+  IssueProvider,
+  Project,
+  TaskSource,
+} from "@corral/protocol/rpc";
 import { useEffect, useRef, useState } from "react";
 import { useAttempt } from "../../common/hooks/use-attempt.ts";
 import { useEnterGuard } from "../../common/hooks/use-enter-guard.ts";
@@ -25,9 +31,12 @@ import { draftForProject, movedDraft, type ComposerDraft } from "./new-task-draf
 import {
   agentChoices,
   defaultAgent,
+  defaultView,
   defaultWorkspace,
+  viewChoices,
   workspaceChoices,
   type ComposerAgent,
+  type ComposerView,
   type ComposerWorkspace,
 } from "./new-task-defaults.ts";
 
@@ -47,6 +56,8 @@ export interface NewTaskViewProps {
   config: ClientConfig;
   /** The valid launch profiles, in file order. */
   profiles: readonly LaunchProfile[];
+  /** The agents this server build can show as chat (`chat.capabilities`); the view control reads it. */
+  chatDrivers: readonly AgentKind[];
   /** The branches "new worktree"'s neighbours offer, fetched again when the project changes. */
   loadBranches: (projectId: string) => Promise<string[]>;
   /** Creates the task and its primary agent; a rejection stays in the view with its input. */
@@ -76,6 +87,7 @@ export function NewTaskView({
   project,
   config,
   profiles,
+  chatDrivers,
   draft,
   onDraftChange,
   loadBranches,
@@ -129,16 +141,22 @@ export function NewTaskView({
   const branchState: BranchState =
     branches.projectId === projectId ? branches : { status: "loading" };
 
-  const settingsAgent = defaultAgent(settings, profiles);
+  const settingsAgent = defaultAgent(settings, profiles, config.agents);
   // The entry the settings pick carries the configured model, so re-picking the agent already
   // shown keeps the model instead of falling back to the agent's native default.
-  const agents = agentChoices(profiles).map((choice) =>
-    choice.key === settingsAgent.key ? settingsAgent : choice,
+  const agents = agentChoices(profiles, config.agents).map((choice) =>
+    choice.key === settingsAgent?.key ? settingsAgent : choice,
   );
   const agent =
     (current.agentKey === undefined
       ? undefined
       : agents.find((choice) => choice.key === current.agentKey)) ?? settingsAgent;
+  const views = viewChoices(agent?.choice.kind, chatDrivers);
+  const view =
+    (current.viewKey === undefined
+      ? undefined
+      : views.find((choice) => choice.key === current.viewKey)) ??
+    defaultView(settings, agent?.choice.kind, chatDrivers);
   const workspaces = workspaceChoices(branchState.status === "loaded" ? branchState.names : []);
   const workspace =
     (current.workspaceKey === undefined
@@ -152,7 +170,11 @@ export function NewTaskView({
       [settings.agent, settings.profile, settings.model].some(
         (each) => each.source === "project",
       )) ||
-    (current.workspaceKey === undefined && settings.workspace.source === "project");
+    (current.workspaceKey === undefined && settings.workspace.source === "project") ||
+    (current.viewKey === undefined && settings.view.source === "project");
+  // A configured chat view that this agent cannot show: the config warning covers a named agent;
+  // this line covers the agent the user picked here.
+  const viewFellBack = settings.view.value === "chat" && view.key !== "chat";
 
   const chooseProject = (next: string | null) => {
     if (next === null || next === projectId) return;
@@ -180,7 +202,9 @@ export function NewTaskView({
         ...(titleText === "" ? {} : { title: titleText }),
         ...(current.source === undefined ? {} : { source: current.source }),
         // A task without a prompt starts no agent yet (`design.md`, **Domain model → Task**).
-        ...(promptText === "" ? {} : { agent: agent.choice }),
+        ...(promptText === "" || agent === undefined
+          ? {}
+          : { agent: { ...agent.choice, view: view.key } }),
         workspace: workspace.input,
       }),
     );
@@ -255,15 +279,22 @@ export function NewTaskView({
           />
           <div className="flex flex-wrap items-center gap-1.5">
             <ProjectPicker projects={projects} value={projectId} onChange={chooseProject} />
-            <AgentPicker
-              choices={agents}
-              value={agent}
-              onChange={(choice) => onDraftChange({ ...current, agentKey: choice.key })}
-            />
+            {agent !== undefined && (
+              <AgentPicker
+                choices={agents}
+                value={agent}
+                onChange={(choice) => onDraftChange({ ...current, agentKey: choice.key })}
+              />
+            )}
             <WorkspacePicker
               choices={workspaces}
               value={workspace}
               onChange={(choice) => onDraftChange({ ...current, workspaceKey: choice.key })}
+            />
+            <ViewPicker
+              choices={views}
+              value={view}
+              onChange={(choice) => onDraftChange({ ...current, viewKey: choice.key })}
             />
             <div className="ml-auto">
               <Button type="submit" disabled={!ready}>
@@ -273,6 +304,16 @@ export function NewTaskView({
           </div>
           {fromProject && (
             <p className="m-0 text-xs text-muted-foreground">defaults from project settings</p>
+          )}
+          {agent === undefined && (
+            <p className="m-0 text-xs text-muted-foreground">
+              Every agent is disabled in the config file, so this task starts no agent.
+            </p>
+          )}
+          {viewFellBack && (
+            <p className="m-0 text-xs text-muted-foreground">
+              The chat view needs an agent with a chat driver, so this task opens in the terminal.
+            </p>
           )}
           {branchState.status === "failed" && (
             <p className="m-0 text-xs text-muted-foreground">
@@ -456,6 +497,49 @@ function WorkspacePicker({
           <ComboboxSearch aria-label="Search workspaces" placeholder="Search workspaces…" />
         </div>
         <ComboboxEmpty>No matching workspace.</ComboboxEmpty>
+        <ComboboxList>
+          {(key: string) => {
+            const choice = choices.find((candidate) => candidate.key === key);
+            if (choice === undefined) return null;
+            return (
+              <ComboboxItem key={key} value={key}>
+                <span className="min-w-0 flex-1 truncate">{choice.label}</span>
+              </ComboboxItem>
+            );
+          }}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
+  );
+}
+
+function ViewPicker({
+  choices,
+  value,
+  onChange,
+}: {
+  choices: readonly ComposerView[];
+  value: ComposerView;
+  onChange: (choice: ComposerView) => void;
+}) {
+  return (
+    <Combobox
+      items={choices.map((choice) => choice.key)}
+      value={value.key}
+      onValueChange={(next) => {
+        const picked = choices.find((choice) => choice.key === next);
+        if (picked !== undefined) onChange(picked);
+      }}
+      autoHighlight
+    >
+      <ComboboxButton aria-label={`View ${value.label}`}>
+        <span className="min-w-0 truncate">{value.label}</span>
+      </ComboboxButton>
+      <ComboboxContent>
+        <div className="p-1">
+          <ComboboxSearch aria-label="Search views" placeholder="Search views…" />
+        </div>
+        <ComboboxEmpty>No matching view.</ComboboxEmpty>
         <ComboboxList>
           {(key: string) => {
             const choice = choices.find((candidate) => candidate.key === key);

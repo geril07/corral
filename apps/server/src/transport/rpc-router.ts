@@ -28,6 +28,7 @@ import {
 } from "../projects/errors.ts";
 import type { ProjectService } from "../projects/project-service.ts";
 import {
+  AgentDisabledError,
   AgentNotFoundError,
   AlreadyRunningError,
   LaunchModelInvalidError,
@@ -42,6 +43,7 @@ import {
 } from "../sessions/errors.ts";
 import { MissingEnvRefError, ReservedEnvRefError } from "../agents/launch-env.ts";
 import type { SessionKind } from "@corral/protocol/rpc";
+import type { AgentKind } from "@corral/protocol/config";
 import type { SessionService } from "../sessions/session-service.ts";
 import { BlankTaskTitleError, TaskNotFoundError, WorktreeDirtyError } from "../tasks/errors.ts";
 import type { TaskService } from "../tasks/task-service.ts";
@@ -83,6 +85,7 @@ function launchError(
     LAUNCH_VIEW_UNSUPPORTED: (options: {
       data: { kind: SessionKind; view: "terminal" | "chat" };
     }) => Error;
+    AGENT_DISABLED: (options: { data: { kind: AgentKind } }) => Error;
     LAUNCH_FAILED: (options: { data: { kind: SessionKind; message: string } }) => Error;
   },
 ): Error | undefined {
@@ -106,6 +109,8 @@ function launchError(
     return errors.LAUNCH_ENV_RESERVED({ data: { name: error.variable } });
   if (error instanceof LaunchViewUnsupportedError)
     return errors.LAUNCH_VIEW_UNSUPPORTED({ data: { kind: error.kind, view: error.view } });
+  if (error instanceof AgentDisabledError)
+    return errors.AGENT_DISABLED({ data: { kind: error.kind } });
   if (error instanceof LaunchSpawnError)
     return errors.LAUNCH_FAILED({ data: { kind: error.kind, message: error.summary } });
   return undefined;

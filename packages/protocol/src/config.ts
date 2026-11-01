@@ -23,10 +23,15 @@ import { z } from "zod";
  * [tasks]             # what a new task starts with
  * workspace = "new-worktree"
  * branch-prefix = "corral/"
+ * view = "chat"       # terminal (default) | chat, where the agent has a driver
  *
  * [naming]            # title generation; absent means seed titles
  * agent = "claude"
  * model = "claude-haiku-4-5"
+ *
+ * [agents.pi]         # per agent; no per-project layer
+ * enabled = true      # false hides it from every picker and refuses a new launch
+ * command = "/opt/pi/bin/pi"  # an absolute path overriding the PATH lookup
  *
  * [projects."/home/me/code/app"]  # the same keys, for that project only
  * workspace = "main-worktree"
@@ -62,6 +67,8 @@ export const ActionId = z.enum([
   "next-session",
   "previous-session",
   "abort-turn",
+  "change-model",
+  "change-reasoning",
   "session-1",
   "session-2",
   "session-3",
@@ -100,6 +107,8 @@ export const DEFAULT_BINDINGS: Readonly<Record<ActionId, string>> = {
   "next-session": "n",
   "previous-session": "p",
   "abort-turn": ".",
+  "change-model": "m",
+  "change-reasoning": "shift+m",
   "session-1": "1",
   "session-2": "2",
   "session-3": "3",
@@ -158,6 +167,50 @@ export type LaunchProfile = z.infer<typeof LaunchProfile>;
 export const SettingSource = z.enum(["default", "global", "project"]);
 export type SettingSource = z.infer<typeof SettingSource>;
 
+/**
+ * `[agents.<kind>]`: what Corral offers and runs for one agent. It has no per-project layer — an
+ * agent is a property of the machine, not of a repository — so a value is either the built-in
+ * default or the file's global one. Launch profiles stay the place for a model, a provider and
+ * environment references (`docs/agent-profiles.md`); this table does not repeat them.
+ */
+export const AgentSetting = z.object({
+  /** False hides the agent from every picker and refuses a new launch of it. */
+  enabled: sourced(z.boolean()),
+  /**
+   * The executable a launch runs. Built in it is the agent's own name, looked up on the server's
+   * `PATH`; the file may name an absolute path instead. Naming runs use it too.
+   */
+  command: sourced(z.string()),
+});
+export type AgentSetting = z.infer<typeof AgentSetting>;
+
+/** Every agent's setting, keyed by kind. */
+export type AgentSettings = Readonly<Record<AgentKind, AgentSetting>>;
+
+/** The command a launch of `kind` runs: the configured override, else the agent's own name. */
+export function agentCommand(config: ClientConfig, kind: AgentKind): string {
+  return config.agents[kind].command.value;
+}
+
+/** Whether the agent is offered: `[agents.<kind>].enabled`, true by default. */
+export function agentEnabled(config: ClientConfig, kind: AgentKind): boolean {
+  return config.agents[kind].enabled.value;
+}
+
+/**
+ * What this server host has for one agent, for Settings. It is a fact about the machine and the
+ * build, not a configured value: `found` comes from the server's executable lookup and
+ * `chatDriver` from the same list `chat.capabilities` reports.
+ */
+export const AgentAvailability = z.object({
+  kind: AgentKind,
+  /** Whether the effective command (`[agents.<kind>].command`, else the agent's name) is executable. */
+  found: z.boolean(),
+  /** Whether this server build can show the agent as chat (`chat.capabilities`). */
+  chatDriver: z.boolean(),
+});
+export type AgentAvailability = z.infer<typeof AgentAvailability>;
+
 /** How a new task gets its workspace (`design.md`, **Domain model → Task → Workspace**). */
 export const WorkspaceMode = z.enum(["main-worktree", "new-worktree"]);
 export type WorkspaceMode = z.infer<typeof WorkspaceMode>;
@@ -166,7 +219,7 @@ export type WorkspaceMode = z.infer<typeof WorkspaceMode>;
 export const SlugMode = z.enum(["title", "generated"]);
 export type SlugMode = z.infer<typeof SlugMode>;
 
-/** The view a task's primary agent opens in; `chat` arrives with stage B (decision 5). */
+/** The view a task's primary agent opens in (decision 5). */
 export const TaskView = z.enum(["terminal", "chat"]);
 export type TaskView = z.infer<typeof TaskView>;
 
@@ -217,6 +270,16 @@ function builtin<T>(value: T): { value: T; source: SettingSource } {
   return { value, source: "default" };
 }
 
+/** The agents before the file: every one offered, each launched by its own name on `PATH`. */
+export function defaultAgentSettings(): Record<AgentKind, AgentSetting> {
+  return {
+    claude: { enabled: builtin(true), command: builtin<string>("claude") },
+    codex: { enabled: builtin(true), command: builtin<string>("codex") },
+    pi: { enabled: builtin(true), command: builtin<string>("pi") },
+    opencode: { enabled: builtin(true), command: builtin<string>("opencode") },
+  };
+}
+
 /** The naming defaults before the file: nothing to run, the standard timeout. */
 export function defaultNamingSettings(): NamingSettings {
   return {
@@ -254,6 +317,7 @@ export function defaultClientConfig(dataDir: string): ClientConfig {
       view: builtin<TaskView>("terminal"),
     },
     naming: defaultNamingSettings(),
+    agents: defaultAgentSettings(),
     projects: {},
   };
 }
@@ -268,6 +332,12 @@ export const ClientConfig = z.object({
   /** The `[tasks]` values every project without an override gets. */
   tasks: ResolvedTaskSettings,
   naming: NamingSettings,
+  /**
+   * `[agents.<kind>]`: every agent's `enabled` and `command`, with the layer each came from. The
+   * default keeps "absent means every agent offered by its own name" one definition for a
+   * protocol 9 daemon from before this table existed, like `Session.view`'s default.
+   */
+  agents: z.record(AgentKind, AgentSetting).default(() => defaultAgentSettings()),
   /**
    * `[projects."<absolute repository path>"]` resolved against `[tasks]`, keyed by the canonical
    * repository path: the real path when it exists (so a symlinked key matches `Project.path`),
@@ -301,6 +371,11 @@ export const ConfigState = z.object({
   config: ClientConfig,
   /** The profiles whose every field is valid; an invalid profile is dropped whole. */
   profiles: z.array(LaunchProfile),
+  /**
+   * What this host has for each agent: whether it is found, and whether it has a chat driver.
+   * Empty for a protocol 9 daemon from before the list existed; Settings then says it is unknown.
+   */
+  agents: z.array(AgentAvailability).default([]),
   problems: z.array(ConfigProblem),
 });
 export type ConfigState = z.infer<typeof ConfigState>;

@@ -9,6 +9,7 @@ const server = useServer({
     worktreeRoot: () => join(scratchDir, "worktrees"),
     branchPrefix: () => "corral/",
     slugMode: () => "title",
+    view: () => "terminal",
   }),
 });
 
