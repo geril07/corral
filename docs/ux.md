@@ -19,17 +19,17 @@ allowed. UI-boundary, AST class/control and token gates enforce this separation.
 A required variant must solve a current structural need, not hide the old skin.
 Stock primitive appearance remains identifiable; the permitted adaptations (no popup exit animations, one unpadded dialog footer, a wider row overflow menu, the hint delay) are listed in `ui-kit.md`.
 
-## Target flow (stage A built; stage B ahead)
+## Target flow (stage A and stage B's chat built; stage B's handoff ahead)
 
-What a user does. Items 1–3, 5–7 are built and verified end to end (stage A, `progress.md`); item 4 (chat handoff) and the chat halves of items 2–3 are stage B. Keys listed here are the effective defaults.
+What a user does. Items 1–3, 5–7 are built and verified end to end (stage A, `progress.md`); item 3's chat view and the chat halves of items 1–2 are stage B (B1, B3, B5). Item 4 (chat handoff) is B4. Keys listed here are the effective defaults.
 
-1. `prefix t` opens the new-task view in the main area (`layout.md`, **New task view**): a prompt field, plus project (current), agent or profile, model/reasoning, view and workspace, all prefilled from settings and changeable from the keyboard. Enter submits.
+1. `prefix t` opens the new-task view in the main area (`layout.md`, **New task view**): a prompt field, plus project (current), agent · model, workspace and view, all prefilled from settings and changeable from the keyboard. Enter submits.
 2. The task appears in the sidebar at once under the prompt-derived seed title, which the generated title replaces. Its primary agent opens in the chosen view, already working on the prompt. No shell opens on its own.
-3. Inside a task (header and tab strip: `layout.md`), sessions are equal tabs: agents and shells (chat arrives with stage B). `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel.
+3. Inside a task (header and tab strip: `layout.md`), sessions are equal tabs: agents (terminal or chat) and shells. `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel.
 4. `prefix v` hands the current agent session over between chat and terminal (stop one frontend, resume the same conversation in the other). OpenCode can keep both live; whether Codex's terminal is view-only while chat writes is measured when its driver starts (stage C).
 5. The sidebar lists tasks either flat by status (sections Needs you, Working and Done, plus a settled shelf; the default) or grouped by project; `prefix l` toggles the mode and the device keeps its choice. A task's status is the most urgent of its sessions', ordered: needs approval or input, error, working, completed and unseen, idle. "Completed and unseen" clears when the task is opened or its status changes while it is selected.
 6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles.
-7. Settings carry the defaults the composer uses: view (global, overridable per project), workspace mode, worktree root, branch prefix, slug mode, naming agent/model.
+7. Settings carry the defaults the composer uses: view (global, overridable per project), workspace mode, worktree root, branch prefix, slug mode, naming agent/model; and the agents, whether each is found and which have a chat driver.
 
 ## Layout and navigation
 
@@ -112,7 +112,16 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
   Connection/protocol mismatch notices remain app-level, not transient success toasts.
 - Chat keeps the composer semantics of the new-task view: Enter sends, Shift+Enter is a newline,
   and while a turn runs Enter steers and Ctrl/Cmd+Enter queues a follow-up (the composer says
-  which). `prefix .` aborts the working turn and the palette lists the same action. A user request
+  which). `prefix .` aborts the working turn and the palette lists the same action.
+- The chat's control row shows the model and reasoning level the driver reported; each opens a
+  keyboard-first list of what the driver offers (type to filter, Enter applies) and the same two
+  choosers are palette actions, `prefix m` for the model and `prefix shift+m` for the level. A
+  refused choice keeps the list open with the server's sentence. A terminal session has no model
+  or level control.
+- The composer's view control offers `terminal` always and `chat` only for an agent
+  `chat.capabilities` reports a driver for. A `[tasks] view = "chat"` (or a project's) that names
+  an agent without a driver is reported as a config warning and opens in the terminal; when the
+  user picks such an agent in the composer the view control moves to `terminal` and says why. A user request
   arrives as the last timeline item with the keyboard: arrows and Enter answer `select` and
   `confirm`, Enter answers `input`, Ctrl/Cmd+Enter answers `editor`, and Escape dismisses any of
   them. Prefix mode is the window capture-phase handler, so it works while the composer has the
@@ -135,7 +144,9 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
 - Task search shares cmdk and the watched client task set. Enter inspects a result;
   inspecting settled history does not continue it. Continue is explicit.
 - Settings is read-only: actual config path, effective bindings, problems, profile
-  descriptors, the effective task defaults and naming, and each project's overrides.
+  descriptors, the effective task defaults and naming, each project's overrides, and the agents
+  (`[agents.<kind>]`: enabled, the command a launch runs, whether it is found, and whether this
+  build has a chat driver).
   `config.toml` remains the source of truth; no write controls are added.
   Composer defaults (Target flow 7) are config entries too, overridable per project
   (`design.md` decision 17); Settings shows each effective value and where it came from
@@ -152,4 +163,5 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
 - Font +/-/reset exists in playtest but not Corral. Terminal text remains fixed at
   14px; adding controls is separate scope. UI typography itself is stock shadcn.
 - Hover-only row actions and settings writes are not implied by this kit migration.
-  Chat is stage B; mid-session model switching comes with the chat drivers, not the terminal.
+  Mid-session model and reasoning switching belongs to a chat driver; a terminal session has no
+  such control.

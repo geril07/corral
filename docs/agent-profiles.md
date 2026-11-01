@@ -60,7 +60,7 @@ workspace = "new-worktree" # main-worktree (default) | new-worktree
 worktree-root = "~/corral-worktrees" # absolute or ~-relative; default <data dir>/worktrees
 branch-prefix = "corral/" # prefix of a branch a task creates; default empty
 slug-mode = "title" # title (default) | generated
-view = "terminal" # terminal only until stage B
+view = "terminal" # terminal (default) | chat, where the agent has a driver
 
 [naming]
 profile = "claude-gateway" # or agent, plus its optional model
@@ -106,6 +106,36 @@ workspace = "main-worktree" # the same keys as [tasks]
 - Unknown keys and invalid values are `ConfigProblem`s that drop only that entry; the rest of
   the table still applies. A `profile` that names no valid profile is such a problem, and two
   project keys that resolve to one repository are reported rather than merged.
+
+### Agent settings
+
+`[agents.<kind>]` says what Corral offers and runs for one agent. It has **no per-project layer**:
+an agent is a property of the machine, not of a repository. It does not repeat a launch profile's
+model, provider or environment references; those stay in `[profiles.<id>]` and `[tasks]`.
+
+```toml
+[agents.pi]
+enabled = true # false hides it from every picker and refuses a new launch; default true
+command = "/opt/pi/bin/pi" # absolute path replacing the PATH lookup; default the agent's name
+```
+
+- `enabled` (default `true`) takes the agent out of the composer's agent picker, the new-session
+  agent picker and every profile that launches it. `sessions.start` refuses a new launch of a
+  disabled agent with `AGENT_DISABLED { kind }`; an existing session of it can still be stopped
+  and resumed. `[tasks] agent`, `[naming] agent` and a profile that name a disabled agent are
+  reported and dropped, like any other invalid entry, so no default points at an agent nobody can
+  pick.
+- `command` (default the agent's own name) is the executable a launch runs: sessions in either
+  view, and a `[naming]` run. It must be an **absolute path** — a bare name or a relative path
+  would be resolved from the server's own working directory, not from the task's workspace — and
+  may not contain control characters. An invalid `command` is reported at
+  `agents.<kind>.command` and dropped alone; `enabled` beside it still applies.
+- Unknown agent kinds and unknown keys are problems too (`agents.grok`, `agents.pi.model`). The
+  table is not all-or-nothing: each agent and each key is independent.
+- The executable is checked before every launch with the same lookup the spawn uses. A command
+  that is not executable fails the launch with `AGENT_NOT_FOUND { command }`.
+- Settings names every agent, the command a launch would run and where it came from, whether the
+  server found it, and whether this build has a chat driver for it (`ConfigState.agents`).
 
 ### Safe examples per agent
 
@@ -236,9 +266,9 @@ Model override rules:
 
 Other start/restart errors: `LAUNCH_PROFILE_UNKNOWN { id }` (unknown or dropped profile),
 `LAUNCH_PROFILE_CHANGED { id }`, `LAUNCH_PROFILE_REVISION_UNSUPPORTED`,
-`LAUNCH_PROFILE_KIND_MISMATCH { id, kind }`, `AGENT_NOT_FOUND { command }`, and
-`LAUNCH_FAILED { kind, message }` for an unexpected spawn failure (a missing workspace,
-resource limits). `LAUNCH_FAILED.message` is the first diagnostic line, prefixed with the OS
+`LAUNCH_PROFILE_KIND_MISMATCH { id, kind }`, `AGENT_DISABLED { kind }`,
+`AGENT_NOT_FOUND { command }`, and `LAUNCH_FAILED { kind, message }` for an unexpected spawn
+failure (a missing workspace, resource limits). `LAUNCH_FAILED.message` is the first diagnostic line, prefixed with the OS
 error code when there is one (for example `E2BIG`). Every non-empty value referenced by the
 profile is replaced with `[redacted]` before the line is taken, so short and multiline values
 are covered too. The log gets the full diagnostic, redacted the same way; a raw error object is
@@ -290,13 +320,24 @@ after a successful launch.
       revision: "a1b2c3d4e5f6",
     },
   ],
+  agents: [
+    { kind: "claude", found: true, chatDriver: false },
+    { kind: "pi", found: true, chatDriver: true },
+    // one entry per AgentKind
+  ],
   problems: [{ severity: "error", path: "profiles.broken", message: "..." }],
 }
 ```
 
+`ConfigState.agents` adds one entry per agent: `{ kind, found, chatDriver }` — whether the
+effective command is executable on the server host, and whether this build can show the agent as
+chat (the same list `chat.capabilities` reports). The command and its `enabled` flag are in
+`config.agents[kind]`, with the layer each came from.
+
 The settings surface can therefore show effective profiles, display names, native
 model/provider, environment **reference names**, capability hints from
-`AGENT_LAUNCH_CAPABILITY` (`@corral/protocol/config`) and configuration problems. It must not ask
+`AGENT_LAUNCH_CAPABILITY` (`@corral/protocol/config`), the agents and their availability, and
+configuration problems. It must not ask
 for or display resolved values; the server never sends them. To start a session, send `profileId`
 and optionally `model`; the server validates them and returns the snapshot.
 
@@ -308,7 +349,9 @@ inputs; version 6 adds the task title source, `tasks.rename`, the rename-task/se
 actions and the required task, naming and project settings; version 7 adds the sidebar-mode
 action, the server-owned task `seenAt` and, while still unreleased, the task's prompt and primary
 session; version 8 adds the toggle-sidebar action; version 9 adds the `chat.*` contract, the
-session's `view`, optional until B1's migration, and the abort-turn binding. A protocol 4 daemon would strip task sources, a
+session's `view` (optional until B1's migration), the abort-turn/change-model/change-reasoning
+bindings, `[tasks] view = "chat"`, `[agents.<kind>]` with `AGENT_DISABLED`, and
+`ConfigState.agents`. A protocol 4 daemon would strip task sources, a
 protocol 3 daemon sends an exhaustive bindings record without `settings`, and a protocol 2
 daemon would strip launch fields and start the agent natively; a protocol 5 daemon strips the
 title source and its bindings, a protocol 6 daemon strips `seenAt` and the sidebar-mode binding
@@ -335,8 +378,11 @@ page is a separate, per-server transport capability (another change), not a prop
 ## Not supported
 
 - Model/provider discovery or listing; Corral takes a native id and does not ask a provider.
-- Model or provider changes for an existing conversation. Start a new session instead.
+- Model or provider changes for an existing terminal conversation. A chat session changes its
+  model and reasoning level mid-session through its driver (`chat.setModel`/`chat.setReasoning`);
+  a terminal session has no such control.
 - OpenCode launch-time model/provider (2.1.4 has no root flags; Corral does not switch to `run`).
-- Literal environment values, shell snippets, extra arguments, a custom executable, `--api-key`
-  on argv, `-p/--profile`, credential managers, or direct-API chat providers.
+- Literal environment values, shell snippets, extra arguments, `--api-key` on argv, `-p/--profile`,
+  credential managers, or direct-API chat providers. A custom executable is only
+  `[agents.<kind>].command`; it takes no extra arguments.
 - A DeepSeek or any other product preset. Providers and models are the user's choice.
