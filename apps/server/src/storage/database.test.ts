@@ -149,7 +149,7 @@ test("migrating a labelled database adds the task source without touching labels
 test("migrating a database from before title sources makes every existing title the user's", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
-  // Every migration before the title source and the two that followed it.
+  // Every migration before the title source; it and the later seen-at one are left out.
   migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 2));
   db.exec(`
     INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
