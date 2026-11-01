@@ -91,7 +91,12 @@ workspace = "main-worktree" # the same keys as [tasks]
   `~`-relative root may not climb out with `..`; the server expands `~` when it uses the root,
   and the file keeps the value as written.
 - `[naming]` needs a profile or an agent (with an optional model). A missing or empty section
-  means no generation: tasks keep the prompt-derived seed title (`design.md` decision 16).
+  means no generation: tasks keep the prompt-derived seed title (`design.md` decision 16). It
+  runs that agent in its non-interactive mode, with no session saved and no tools, in a temporary
+  directory: claude `-p --no-session-persistence --tools ""`, pi `-p --no-session --no-tools`,
+  codex `exec --ephemeral --skip-git-repo-check`. OpenCode cannot be a naming runner: `opencode
+  run` always saves a session (2.2.5), so an OpenCode profile or agent in `[naming]` is a
+  `ConfigProblem` and naming stays off.
 - `view = "chat"` is a problem until stage B; `terminal` is the only valid view in stage A.
 - Unknown keys and invalid values are `ConfigProblem`s that drop only that entry; the rest of
   the table still applies. A `profile` that names no valid profile is such a problem, and two
