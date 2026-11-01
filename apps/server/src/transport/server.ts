@@ -107,13 +107,7 @@ export function startServer(options: {
   // Local links in chat: the allow-list is a task's workspace, so the service needs the tasks.
   const files = new FilesService({ tasks, terminals, config });
   const rpc = new RPCHandler(
-<<<<<<< HEAD
-    createRpcRouter({ config, projects, tasks, sessions, chat, changes, terminals }),
-||||||| parent of e3011be (feat(server): serve workspace files and run the editor for chat links)
-    createRpcRouter({ config, projects, tasks, sessions, chat, terminals }),
-=======
-    createRpcRouter({ config, projects, tasks, sessions, chat, terminals, files }),
->>>>>>> e3011be (feat(server): serve workspace files and run the editor for chat links)
+    createRpcRouter({ config, projects, tasks, sessions, chat, changes, terminals, files }),
   );
   const http = createServer((request, response) => {
     const sessionId = statusReportSessionId(
