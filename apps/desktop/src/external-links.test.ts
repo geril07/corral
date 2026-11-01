@@ -1,5 +1,6 @@
 import { expect, test } from "vite-plus/test";
-import { externalUrl, isAppNavigation } from "./external-links.ts";
+import { externalUrl } from "@corral/protocol/external-url";
+import { isAppNavigation } from "./external-links.ts";
 
 test("http and https links go to the OS browser; everything else is refused", () => {
   expect(externalUrl("https://github.com/acme/app/issues/7")).toBe(

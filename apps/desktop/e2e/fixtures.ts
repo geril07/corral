@@ -9,7 +9,8 @@ const FAKE_AGENTS_BIN = path.join(import.meta.dirname, "../../server/test/fake-a
 
 interface Fixtures {
   stateDir: string;
-  launchApp: () => Promise<ElectronApplication>;
+  /** Starts the app; `env` overrides reach the app and the server it starts. */
+  launchApp: (env?: Record<string, string>) => Promise<ElectronApplication>;
 }
 
 /** Each test gets its own state directory, hence its own server, which the test stops at the end. */
@@ -30,7 +31,7 @@ export const test = base.extend<Fixtures>({
     const issueBin = path.join(stateDir, "issue-clis");
     createFakeIssueCliBin(issueBin);
     try {
-      await use(async () => {
+      await use(async (extraEnv: Record<string, string> = {}) => {
         const app = await electron.launch({
           args: [path.join(import.meta.dirname, ".."), `--user-data-dir=${stateDir}/electron`],
           // A plain sh keeps the prompt of terminals created without a command predictable. The
@@ -57,6 +58,7 @@ export const test = base.extend<Fixtures>({
             FAKE_ISSUE_LOG: issueLaunchLog(stateDir),
             FAKE_ISSUE_RESPONSE_FILE: issueResponseFile(stateDir),
             FAKE_ISSUE_MODE: "ok",
+            ...extraEnv,
           },
         });
         apps.push(app);

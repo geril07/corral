@@ -1,11 +1,16 @@
 import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import os from "node:os";
 import path from "node:path";
-import { DESKTOP_SERVER_CHANNEL } from "@corral/protocol/desktop-bridge";
+import {
+  DESKTOP_OPEN_EXTERNAL_CHANNEL,
+  DESKTOP_SERVER_CHANNEL,
+} from "@corral/protocol/desktop-bridge";
+import { externalUrl } from "@corral/protocol/external-url";
 import { resolveStateDir } from "@corral/protocol/server-endpoint";
 import { currentServerTarget, ensureServer } from "./server-connection.ts";
 import { errorPageUrl } from "./window-pages.ts";
-import { externalUrl, isAppNavigation } from "./external-links.ts";
+import { isAppNavigation } from "./external-links.ts";
+import { openExternalRequest } from "./bridge.ts";
 
 // No application menu: on Linux and Windows a lone Alt would otherwise reveal the menu bar
 // and swallow Alt chords such as the default prefix (docs/design.md, Keyboard).
@@ -30,6 +35,18 @@ ipcMain.handle(DESKTOP_SERVER_CHANNEL, async (event) => {
     return null;
   }
   return (await currentServerTarget(stateDir)) ?? null;
+});
+// A link in chat asks for the OS browser instead of loading in this window. Same trusted-frame rule:
+// a pop-up or sub-frame gets nothing, and the URL is re-validated before it leaves the app.
+ipcMain.handle(DESKTOP_OPEN_EXTERNAL_CHANNEL, (event, value: unknown) => {
+  if (
+    mainWindow === undefined ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== mainWindow.webContents.mainFrame
+  ) {
+    return;
+  }
+  openExternalRequest(value, { openExternal: (url) => openExternal(url) });
 });
 
 async function openWindow() {
