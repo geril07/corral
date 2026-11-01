@@ -17,8 +17,20 @@
 // - the fake codex, when it starts a new conversation, writes a rollout file into
 //   $CODEX_HOME/sessions as the real one does, per $FAKE_CODEX_ROLLOUT: `eager` (the default)
 //   at start, `lazy` on the first line that is not a command, `never` not at all.
+// - the fake pi, in either mode, records its pid per `--session-id` under $FAKE_PI_RPC_HOME and,
+//   when a frontend of the same session id is still alive at its start, writes `<id>.overlap.json`.
+//   A test asserts that file never appears: it is the boundary check that "one frontend at a time"
+//   holds, not just the aftermath of the launch journal.
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeTranscriptExists, writeClaudeTranscript } from "../claude-transcripts.ts";
 import { writeRollout } from "../rollouts.ts";
@@ -26,6 +38,11 @@ import { startFakePiRpc } from "./fake-pi-rpc.ts";
 
 const [name, ...argv] = process.argv.slice(2);
 const codexHome = process.env["CODEX_HOME"];
+
+// One frontend per pi session id, checked at the boundary: the driver has its own writer record,
+// and this is what lets a handoff test see a second frontend that started too early.
+const piSessionId = name === "pi" ? argumentValue(argv, "--session-id") : undefined;
+if (piSessionId !== undefined) notePiFrontend(piSessionId);
 if (name === "codex" && !codexHome) {
   console.error("fake codex: refusing to run without CODEX_HOME, it would use the real ~/.codex");
   process.exit(99);
@@ -176,5 +193,54 @@ function startTuiFake(): void {
       body: json,
     });
     console.log(`fake ${name} posted ${response.status}`);
+  }
+}
+
+/** The value after `name`, or undefined; pi's launch flags put it wherever the adapter chose. */
+function argumentValue(args: readonly string[], flag: string): string | undefined {
+  const index = args.indexOf(flag);
+  return index < 0 ? undefined : args[index + 1];
+}
+
+/**
+ * Records this fake pi frontend and flags a predecessor that is still alive, the shape of B1's
+ * writer claim: `<id>.live.json` names the frontend that should be the only one, and
+ * `<id>.overlap.json` appears only if a second one starts while it can still be signalled.
+ */
+function notePiFrontend(sessionId: string): void {
+  const home = process.env["FAKE_PI_RPC_HOME"] ?? join(tmpdir(), "fake-pi-rpc");
+  const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "_");
+  mkdirSync(home, { recursive: true });
+  const livePath = join(home, `${safe}.live.json`);
+  const previous = livePid(livePath);
+  if (previous !== undefined && pidIsAlive(previous)) {
+    writeFileSync(
+      join(home, `${safe}.overlap.json`),
+      JSON.stringify({ previous, pid: process.pid }),
+    );
+  }
+  writeFileSync(livePath, JSON.stringify({ pid: process.pid }));
+  process.once("exit", () => {
+    if (livePid(livePath) === process.pid) rmSync(livePath, { force: true });
+  });
+}
+
+function livePid(path: string): number | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    if (parsed === null || typeof parsed !== "object") return undefined;
+    const pid = Reflect.get(parsed, "pid");
+    return typeof pid === "number" ? pid : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function pidIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !(error instanceof Error && "code" in error && error.code === "ESRCH");
   }
 }

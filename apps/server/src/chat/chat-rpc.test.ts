@@ -4,13 +4,15 @@ import type {
   ChatSessionState,
   ChatStreamMessage,
 } from "@corral/protocol/chat";
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vite-plus/test";
 import { floorPath } from "./sequence-floor.ts";
+import { recordWriter, writerPath } from "./writer-claim.ts";
 import { useFakeAgents } from "../../test/fake-agents.ts";
-import { addProject } from "../../test/project-fixture.ts";
+import { addProject, addTask } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
 import { launchesOf, processExists, sessionsOf } from "../../test/session-helpers.ts";
 
@@ -784,6 +786,14 @@ async function piArgv(): Promise<string[][]> {
   return (await agents.launches()).map((launch) => launch.argv);
 }
 
+/**
+ * The marker the fake pi writes when a second frontend of one session id starts while the previous
+ * one is alive. A handoff must never produce it: the test asserts at the boundary, not only after.
+ */
+function overlapMarker(agentSessionId: string): string {
+  return join(agents.piRpcHome, `${agentSessionId.replace(/[^A-Za-z0-9._-]/g, "_")}.overlap.json`);
+}
+
 test("an idle chat session hands over to a terminal and back with its id, label, tab place and history", async () => {
   const { api, session } = await chatTask("Remember the note");
   await settleTurn(api, session.id, "Remember the note");
@@ -856,6 +866,8 @@ test("an idle chat session hands over to a terminal and back with its id, label,
   ]);
   // pi's history holds the prompt once: a resumed frontend does not hand it over again.
   expect(userMessages(await journalOf(session.agentSessionId!))).toEqual(["Remember the note"]);
+  // No frontend ever found its predecessor alive, in any of the three switches.
+  expect(existsSync(overlapMarker(session.agentSessionId!))).toBe(false);
 });
 
 test("a handoff while the turn runs aborts it first, so the conversation keeps the aborted turn", async () => {
@@ -884,6 +896,7 @@ test("a handoff while the turn runs aborts it first, so the conversation keeps t
       ["--mode", "rpc", "--session-id", session.agentSessionId],
       ["--session-id", session.agentSessionId],
     ]);
+    expect(existsSync(overlapMarker(session.agentSessionId!))).toBe(false);
     // A watching chat client saw the turn end, not a stream that stopped mid-word.
     await chat.until((view) => view.state.turn !== "working", "the ended turn");
     expect(chat.itemOfKind("error")).toBeUndefined();
@@ -949,10 +962,16 @@ test("a handoff whose second start fails leaves the session stopped in the targe
 
 test("setView refuses a shell and an agent without a driver, and a switch to the current view does nothing", async () => {
   const { api, task, session } = await chatTask("Same view");
+  // The first fake process must be counted before the call, or a restart would pass unnoticed.
+  const [started] = await piLaunches(1);
   await expect(
     api.sessions.setView({ id: session.id, view: "chat", size: SIZE }),
-  ).resolves.toMatchObject({ id: session.id, view: "chat" });
+  ).resolves.toMatchObject({ id: session.id, view: "chat", state: "running" });
+  // The same frontend, still alive: no stop and no second spawn for the view it already has.
+  expect(processExists(started!.pid)).toBe(true);
+  await new Promise((resolve) => setTimeout(resolve, 150));
   expect(await agents.launches()).toHaveLength(1);
+  expect(existsSync(overlapMarker(session.agentSessionId!))).toBe(false);
 
   const shell = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
   await expect(
@@ -975,3 +994,114 @@ test("setView refuses a shell and an agent without a driver, and a switch to the
   expect((await sessionsOf(api)).find((each) => each.id === shell.id)?.state).toBe("running");
   expect((await sessionsOf(api)).find((each) => each.id === claude.id)?.state).toBe("running");
 });
+
+test("a terminal launch stops a chat frontend's recorded writer before it spawns", async () => {
+  const { api, session } = await chatTask("Stale writer");
+  await settleTurn(api, session.id, "Stale writer");
+  // Move the session to its terminal view, then stop it: the live frontend is gone but the terminal
+  // launch is the one that will run next.
+  await api.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+  // The terminal fake announces itself at start; waiting for it keeps the stop below from closing
+  // the PTY before the launch was ever recorded.
+  await piLaunches(2);
+  await api.sessions.stop({ id: session.id });
+  const launchesBefore = (await agents.launches()).length;
+
+  // A record a previous server could have left behind: its pid is alive and is the writer the
+  // record names, so a launch that ignored it would write the same pi session beside a live process.
+  const stale = spawn("sleep", ["60"], { stdio: "ignore", detached: true });
+  const claimPath = writerPath(join(server.dataDir, "chat"), session.id);
+  recordWriter(claimPath, stale.pid!);
+  try {
+    const restarted = await api.sessions.restart({ id: session.id, size: SIZE });
+    expect(restarted).toMatchObject({ state: "running", view: "terminal" });
+  } finally {
+    try {
+      process.kill(-stale.pid!, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }
+  expect(processExists(stale.pid!)).toBe(false);
+  // The terminal launch never records a writer of its own, so the record is gone, not replaced.
+  expect(existsSync(claimPath)).toBe(false);
+  // The PTY announces itself after `restart` returns; the point is that it is the next launch.
+  await piLaunches(launchesBefore + 1);
+}, 20_000);
+
+test("a failed handoff into chat fails asynchronously and leaves the session stopped and settled", async () => {
+  const { api, task } = await addTask(server, "Terminal first");
+  const terminal = await api.sessions.start({ taskId: task.id, kind: "pi", size: SIZE });
+  expect(terminal).toMatchObject({ view: "terminal", state: "running" });
+  const [terminalLaunch] = await piLaunches(1);
+  expect(terminalLaunch!.argv).not.toContain("--mode");
+
+  // `silent`: the child spawns and never answers a start-up command, so the ready deadline is what
+  // fails it — the asynchronous second-start failure, unlike the PATH case above.
+  vi.stubEnv("FAKE_PI_RPC", "silent");
+  const handed = await api.sessions.setView({ id: terminal.id, view: "chat", size: SIZE });
+  expect(handed).toMatchObject({ view: "chat", state: "running", terminalId: null });
+
+  await expect
+    .poll(async () => (await sessionsOf(api)).find((each) => each.id === terminal.id), {
+      timeout: 10_000,
+      message: "the failed chat frontend",
+    })
+    .toMatchObject({
+      state: "stopped",
+      view: "chat",
+      launchError: expect.stringContaining("did not answer"),
+    });
+  const failed = (await sessionsOf(api)).find((each) => each.id === terminal.id);
+  // A stopped session must not keep the task in "working" through a stale status.
+  expect(failed?.status?.state).not.toBe("working");
+  expect(processExists(terminalLaunch!.pid)).toBe(false);
+  expect(await agents.launches()).toHaveLength(2);
+});
+
+test("a pi that never answers abort cannot hold the session queue: handoff then queued stop both finish", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "stuck-abort");
+  const { api, session } = await chatTask("Ignored abort");
+  const [chatLaunch] = await piLaunches(1);
+  await waitForStatus(api, session.id, "working");
+
+  // Both issued in one tick: the stop queues behind the handoff, as a user's `prefix x` would.
+  const handed = within(
+    api.sessions.setView({ id: session.id, view: "terminal", size: SIZE }),
+    "the handoff to a pi that ignores abort",
+  );
+  const stopped = within(api.sessions.stop({ id: session.id }), "the queued stop");
+  await expect(handed).resolves.toMatchObject({ view: "terminal" });
+  await expect(stopped).resolves.toMatchObject({ state: "stopped" });
+  // The queued stop may close the terminal before its fake even logs its launch, so the count is
+  // not the claim here: both calls finished, the session settled, and no frontend overlapped.
+  expect((await sessionsOf(api)).find((each) => each.id === session.id)?.state).toBe("stopped");
+  expect(processExists(chatLaunch!.pid)).toBe(false);
+  expect(existsSync(overlapMarker(session.agentSessionId!))).toBe(false);
+}, 20_000);
+
+test("a handoff to a pi that never answers abort does not block the server's shutdown", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "stuck-abort");
+  const { api, session } = await chatTask("Ignored abort again");
+  await waitForStatus(api, session.id, "working");
+  // The handoff is in flight (its abort is the only thing that could park the queue) when the
+  // server is asked to shut down; the RPC itself may die with the socket, so only restart's own
+  // completion is asserted. The fake marks the abort it is ignoring, which is the moment to ask.
+  const handed = api.sessions
+    .setView({ id: session.id, view: "terminal", size: SIZE })
+    .catch(() => undefined);
+  const abortSeen = join(agents.piRpcHome, `${session.agentSessionId!}.abort-seen`);
+  await expect
+    .poll(() => existsSync(abortSeen), { timeout: 10_000, message: "the ignored abort" })
+    .toBe(true);
+  await within(server.restart(), "the server restart behind a stuck handoff");
+  await handed;
+  // The handoff completed before the shutdown, so the restore opens the view it recorded.
+  const restarted = await server.rpc();
+  await expect
+    .poll(async () => (await sessionsOf(restarted)).find((each) => each.id === session.id)?.view, {
+      timeout: 10_000,
+      message: "the restored view",
+    })
+    .toBe("terminal");
+}, 20_000);

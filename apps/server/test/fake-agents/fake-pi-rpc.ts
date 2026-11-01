@@ -18,6 +18,8 @@ import { isRecord } from "../../src/chat/pi-record.ts";
  * - `badline`: one line that is not JSON, the shape of a broken protocol;
  * - `truncate`: a valid record cut off without LF, then exit 0, the shape of a lost tail;
  * - `silent`: start-up commands are never answered, so the ready deadline is exercised;
+ * - `stuck-abort`: a prompt starts a turn that never settles, and `abort` is never answered — a pi
+ *   that is alive but silent, which is what bounds a handoff's abort rather than a child's exit;
  * - `reject`: every message command answers `success:false`, the shape of a refused prompt;
  * - `noeof`: ignores stdin EOF and keeps a `sleep` in its process group (its pid is written to
  *   `<home>/<session>.grandchild`), so a test can prove the group is killed on stop.
@@ -91,6 +93,13 @@ export function startFakePiRpc(argv: readonly string[]): void {
       return;
     }
     if (mode === "silent" && type !== "abort") return;
+    // Alive, but never answers the abort: the handoff's wait must be bounded by it, not by it.
+    // The marker lets a test know the abort arrived before it asks the server to shut down.
+    if (mode === "stuck-abort" && type === "abort") {
+      mkdirSync(home, { recursive: true });
+      writeFileSync(join(home, `${safeSessionId}.abort-seen`), String(Date.now()));
+      return;
+    }
     switch (type) {
       case "get_state":
         if (mode === "truncate") {
@@ -198,6 +207,8 @@ export function startFakePiRpc(argv: readonly string[]): void {
     currentUser = user;
     send({ type: "agent_start" });
     send({ type: "turn_start" });
+    // Working forever: no delta, no settle, and the abort above is ignored.
+    if (mode === "stuck-abort") return;
     if (mode === "badline") {
       process.stdout.write("this is not a pi record\n");
       return;
