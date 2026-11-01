@@ -116,7 +116,10 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
   arrives as the last timeline item with the keyboard: arrows and Enter answer `select` and
   `confirm`, Enter answers `input`, Ctrl/Cmd+Enter answers `editor`, and Escape dismisses any of
   them. Prefix mode is the window capture-phase handler, so it works while the composer has the
-  keyboard and plain keys stay in the field.
+  keyboard and plain keys stay in the field. The transcript is a focusable `log`: PageUp/PageDown,
+  Home/End and the arrow keys scroll it without a pointer; moving up releases the end follow and
+  End takes it again. A fold that expands while the user reads above the end does not drag the
+  view back to the tail.
 - Clicking navigation must not steal terminal focus. Tooltip content is optional;
   it cannot hold the only copy of a fact. Accessible names identify every icon action.
 - Status is a named state plus a distinct glyph, with stock semantic theme colors.

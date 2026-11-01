@@ -82,20 +82,22 @@ Current structural needs have named kit variants, not module class overrides:
 - Textarea `layout="prompt"`: the new-task composer's prompt has a four-line minimum and grows to
   half the view (`layout.md`, **New task view**). Font, padding, border, radius and focus treatment
   stay stock; only the field's bounds are named, because a module may not size a kit control.
-- Textarea `layout="chat"`: the chat composer keeps the stock four-line rest, grows to 13 rem and
-  then scrolls (`layout.md`, **Chat**). Font, padding, border, radius and focus treatment stay stock;
-  the same bounds serve a request's `editor` answer.
+- Textarea `layout="chat"`: the chat composer rests at two lines (`min-h-14` over the stock
+  padding), grows to 13 rem and then scrolls (`layout.md`, **Chat**). Font, padding, border, radius
+  and focus treatment stay stock; the same bounds serve a request's `editor` answer.
 - Markdown: Streamdown 2.7.1 wrapped in `common/ui/streamdown.tsx` with its own UI off
-  (`controls={false}`, `linkSafety` off, `animated={false}`) and its code plugin backed by
-  `@pierre/diffs`' `getSharedHighlighter`, so code blocks and diffs share one engine and the
-  `pierre-light`/`pierre-dark` theme pair. `streamdown/styles.css` is imported and
-  `app/global.css` carries the `@source` line; the B3 build greps a Streamdown-only utility out of
-  the built CSS to prove the pnpm symlink is followed. Modules pass `text` and `streaming`, no
-  classes. Streaming Markdown replaces T3's `ChatMarkdown.tsx` (goal D1).
+  (`controls={false}`, `linkSafety` off, `animated={false}`, `lineNumbers={false}`) and its code
+  plugin backed by `@pierre/diffs`' `getSharedHighlighter`, so code blocks and diffs share one
+  engine and the `pierre-light`/`pierre-dark` theme pair. The two Streamdown caps are explicit:
+  code blocks at 400 px and tables at 300 px, each scrolling inside itself. `streamdown/styles.css`
+  is imported and `app/global.css` carries the `@source` line; the B3 build greps a Streamdown-only
+  utility out of the built CSS to prove the pnpm symlink is followed. Modules pass `text` and
+  `streaming`, no classes. Streaming Markdown replaces T3's `ChatMarkdown.tsx` (goal D1).
 - DiffView: `@pierre/diffs`' `PatchDiff` in `common/ui/diff-view.tsx`, unified, wrapping in the
-  46 rem lane, no file header (the tool row names the path), dark pierre theme, no worker pool.
-  More than 20 unified-diff lines fold behind "Show all N lines" (`layout.md`, **Chat**). Modules
-  pass the diff text and optional path.
+  46 rem lane, no file header (the tool row names the path), the pierre theme chosen from the
+  document's `dark` class, no worker pool. More than 20 unified content lines fold at exactly 20
+  line boxes (the kit's 400 px cap) behind "Show all N lines" (`layout.md`, **Chat**); headers and
+  the trailing newline are not counted. Modules pass the diff text and optional path.
 - Combobox `ComboboxButton` / `ComboboxSearch`: the composer's row of compact pickers is a stock
   combobox trigger rendered as an outline `Button` showing its value, with the list's search field
   (Base UI's input-inside-popup pattern) inside the popup. The kit owns the `render` composition

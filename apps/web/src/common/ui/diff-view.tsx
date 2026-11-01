@@ -1,9 +1,39 @@
 import { PatchDiff } from "@pierre/diffs/react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "./button.tsx";
 
-/** The changed-file preview folds after this many unified-diff lines (`layout.md`, **Chat**). */
+/** The changed-file preview folds after this many diff line boxes (`layout.md`, **Chat**). */
 const FOLD_LINES = 20;
+/**
+ * Counts the lines a unified diff will render inside its hunks. File headers, `@@` headers and
+ * the trailing newline are not line boxes; a blank content line is a single space in a unified
+ * diff and still counts.
+ */
+function diffContentLines(text: string): number {
+  const lines = text.split("\n");
+  const firstHunk = lines.findIndex((line) => line.startsWith("@@"));
+  if (firstHunk === -1) return 0;
+  let count = 0;
+  for (let index = firstHunk + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line === undefined || line === "" || line.startsWith("@@")) continue;
+    count += 1;
+  }
+  return count;
+}
+
+/** The app switches no theme, but the diff reads the same `dark` class the tokens do. */
+function useDarkTheme(): boolean {
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
+  useEffect(() => {
+    const observer = new MutationObserver(() =>
+      setDark(document.documentElement.classList.contains("dark")),
+    );
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return dark;
+}
 
 /**
  * A tool result's unified diff, rendered by `@pierre/diffs` on the highlighter Streamdown uses
@@ -12,34 +42,34 @@ const FOLD_LINES = 20;
  */
 export function DiffView({ text, path }: { text: string; path: string | null }) {
   const [expanded, setExpanded] = useState(false);
-  const lines = useMemo(() => text.split("\n").length, [text]);
+  const lines = useMemo(() => diffContentLines(text), [text]);
   const folded = lines > FOLD_LINES && !expanded;
+  const dark = useDarkTheme();
   return (
     <div className="flex min-w-0 flex-col gap-1">
       {path !== null && (
         <p className="m-0 truncate font-mono text-xs text-muted-foreground">{path}</p>
       )}
-      <div
-        className={
-          folded
-            ? "max-h-96 min-w-0 overflow-hidden rounded-md border border-border"
-            : "min-w-0 overflow-hidden rounded-md border border-border"
-        }
-      >
-        <PatchDiff
-          patch={text}
-          disableWorkerPool
-          options={{
-            theme: { light: "pierre-light", dark: "pierre-dark" },
-            themeType: "dark",
-            diffStyle: "unified",
-            diffIndicators: "classic",
-            disableFileHeader: true,
-            // The chat lane is 46 rem, so a long line wraps instead of scrolling sideways.
-            overflow: "wrap",
-            hunkSeparators: "line-info",
-          }}
-        />
+      <div className="min-w-0 overflow-hidden rounded-md border border-border">
+        <div
+          data-testid="diff-body"
+          className={folded ? "max-h-[25rem] min-w-0 overflow-hidden" : "min-w-0 overflow-hidden"}
+        >
+          <PatchDiff
+            patch={text}
+            disableWorkerPool
+            options={{
+              theme: { light: "pierre-light", dark: "pierre-dark" },
+              themeType: dark ? "dark" : "light",
+              diffStyle: "unified",
+              diffIndicators: "classic",
+              disableFileHeader: true,
+              // The chat lane is 46 rem, so a long line wraps instead of scrolling sideways.
+              overflow: "wrap",
+              hunkSeparators: "line-info",
+            }}
+          />
+        </div>
       </div>
       {folded && (
         <div>

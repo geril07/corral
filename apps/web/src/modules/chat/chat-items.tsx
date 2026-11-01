@@ -98,9 +98,9 @@ export function ToolCallItem({ item }: { item: ChatToolCall }) {
           onClick={() => setOpen((value) => !value)}
         >
           <StatusGlyph state={TOOL_STATE[item.status]} size="row" />
-          <span className="max-w-48 shrink-0 truncate font-mono text-xs">{item.name}</span>
+          <span className="max-w-48 shrink-0 truncate font-mono text-sm">{item.name}</span>
           {summary !== "" && (
-            <span className="max-w-80 truncate text-xs text-muted-foreground">{summary}</span>
+            <span className="max-w-80 truncate text-sm text-muted-foreground">{summary}</span>
           )}
         </Button>
       </div>

@@ -1,4 +1,4 @@
-import type { ChatAnswer, ChatStreamMessage } from "@corral/protocol/chat";
+import type { ChatAnswer, ChatItem, ChatStreamMessage } from "@corral/protocol/chat";
 import { DEFAULT_BINDINGS, DEFAULT_PREFIX, defaultClientConfig } from "@corral/protocol/config";
 import type { ChatSendMode } from "@corral/protocol/rpc";
 import { createConfigKeymap } from "@corral/client/prefix-keymap";
@@ -89,7 +89,22 @@ test("renders a recorded stream: text, reasoning, folded tools, a diff, a notice
     .toBeVisible();
   await userEvent.click(page.getByRole("button", { name: /^edit src\/auth\.test\.ts/ }));
   await expect.element(page.getByText("src/auth.test.ts").last()).toBeVisible();
-  await vi.waitFor(() => expect(document.querySelector("diffs-container")).not.toBeNull());
+  // The diff is a real rendered diff, not just a `diffs-container` error shell: the shadow root
+  // carries the addition and deletion rows with their `+`/`-` gutter markers.
+  const shadow = await vi.waitFor(() => {
+    const root = document.querySelector("diffs-container")?.shadowRoot;
+    if (root === null || root === undefined) throw new Error("the diff has not rendered yet");
+    return root;
+  });
+  await vi.waitFor(() =>
+    expect(shadow.querySelectorAll("[data-line-type][data-line]").length).toBeGreaterThan(0),
+  );
+  const added = [...shadow.querySelectorAll('[data-line-type="change-addition"][data-line]')];
+  const removed = [...shadow.querySelectorAll('[data-line-type="change-deletion"][data-line]')];
+  expect(added.some((node) => node.textContent?.includes("vi.waitFor"))).toBe(true);
+  expect(removed.some((node) => node.textContent?.includes("setTimeout"))).toBe(true);
+  expect(getComputedStyle(added[0]!, "::before").content).toBe('"+"');
+  expect(getComputedStyle(removed[0]!, "::before").content).toBe('"-"');
 
   // A notice is a quiet line; an error is an alert.
   await expect.element(page.getByRole("note")).toMatchTextContent(/Compacted 12 earlier messages/);
@@ -248,7 +263,8 @@ function PrefixHarness({
   );
   usePrefixMode(keymap, handle, true);
   return (
-    <div className="h-screen w-full">
+    // Swallow keydown at the bubble phase: only a capture-phase handler can still see the chord.
+    <div className="h-screen w-full" onKeyDown={(event) => event.stopPropagation()}>
       <ChatView
         store={store}
         agent="pi"
@@ -327,7 +343,7 @@ test("auto-scroll follows the stream at the end and stays put after the user scr
   expect(scrollNode().scrollTop).toBeLessThan(before - 100);
 
   // Back at the end, the follow resumes for the next update.
-  await userEvent.wheel(page.getByTestId("chat-timeline"), { delta: { y: 100_000 } });
+  await userEvent.wheel(page.getByTestId("chat-timeline"), { delta: { y: 2000 }, times: 10 });
   await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
   chat.script.push({
     type: "event",
@@ -339,6 +355,144 @@ test("auto-scroll follows the stream at the end and stays put after the user scr
   });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(2));
   await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+});
+
+test("expanding a fold near the end does not drag the tail back into view", async () => {
+  const items: ChatItem[] = Array.from({ length: 40 }, (_, index) => ({
+    kind: "assistant-message" as const,
+    id: `fold-${index}`,
+    streaming: false,
+    text: `Answer ${index}.`,
+  }));
+  items.push(
+    {
+      kind: "tool-call",
+      id: "fold-tool-1",
+      name: "read",
+      arguments: '{"path":"src/a.ts"}',
+      status: "done",
+      output: "a",
+      diff: null,
+    },
+    {
+      kind: "tool-call",
+      id: "fold-tool-2",
+      name: "read",
+      arguments: '{"path":"src/b.ts"}',
+      status: "done",
+      output: "b",
+      diff: null,
+    },
+    {
+      kind: "assistant-message",
+      id: "fold-last",
+      streaming: true,
+      text: "Still streaming.",
+    },
+  );
+  const chat = await renderChat(recorded([], { state: workingChat(), items }));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+
+  // The user is reading above the end: a fold expanding under them must not re-pin the tail.
+  const end = scrollNode().scrollTop;
+  await userEvent.wheel(page.getByTestId("chat-timeline"), { delta: { y: -160 } });
+  await vi.waitFor(() => expect(scrollNode().scrollTop).toBeLessThan(end - 20));
+  const before = scrollNode().scrollTop;
+  const group = page.getByRole("button", { name: "2 tool calls" });
+  await expect.element(group).toBeVisible();
+  // A native click: `userEvent.click` scrolls the row into view first, which would move the list.
+  const groupElement = group.element();
+  if (!(groupElement instanceof HTMLElement)) throw new Error("the tool group is not a button");
+  groupElement.click();
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  // A layout change is not a data append: the tail must not re-pin over the user's position.
+  expect(Math.abs(scrollNode().scrollTop - before)).toBeLessThan(2);
+});
+
+test("the transcript scrolls from the keyboard and the end follow is released and re-taken", async () => {
+  const chat = await renderChat(longChat(160));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+
+  const log = page.getByRole("log", { name: "Chat transcript" });
+  log.element().focus();
+  await expect.element(log).toHaveFocus();
+
+  const before = scrollNode().scrollTop;
+  await userEvent.keyboard("{PageUp}");
+  await vi.waitFor(() => expect(scrollNode().scrollTop).toBeLessThan(before - 100));
+  const afterPageUp = scrollNode().scrollTop;
+
+  // An appended row must not drag the view back while the user is reading above the end.
+  chat.script.push({
+    type: "event",
+    sequence: 1,
+    event: { type: "item", item: { kind: "notice", id: "n-key", text: "Typed while reading." } },
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(1));
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  expect(scrollNode().scrollTop).toBeLessThan(afterPageUp + 2);
+  expect(atEnd(scrollNode())).toBe(false);
+
+  // End takes the follow again, and the next row does arrive at the bottom.
+  await userEvent.keyboard("{End}");
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+  chat.script.push({
+    type: "event",
+    sequence: 2,
+    event: {
+      type: "item",
+      item: { kind: "user-message", id: "u-key", text: "Back at the end." },
+    },
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(2));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+
+  // Home and the arrow keys move without a pointer.
+  await userEvent.keyboard("{Home}");
+  await vi.waitFor(() => expect(scrollNode().scrollTop).toBe(0));
+  await userEvent.keyboard("{ArrowDown}");
+  await vi.waitFor(() => expect(scrollNode().scrollTop).toBeGreaterThan(20));
+});
+
+test("a composition-confirming Enter never sends; the next real Enter sends once", async () => {
+  const chat = await renderChat(recorded([], { state: IDLE_CHAT }));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  composer.element().focus();
+  await userEvent.keyboard("hello");
+  const field = composer.element();
+  if (!(field instanceof HTMLTextAreaElement)) throw new Error("the composer is not a textarea");
+
+  const keydown = (isComposing: boolean) =>
+    field.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        isComposing,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+  // Chrome/Firefox order: the confirming keydown comes inside the composition.
+  field.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  keydown(true);
+  field.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(chat.sent).toHaveLength(0);
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "hello", mode: "prompt" }]));
+
+  // Safari order: the composition ends first, so the next Enter is the confirming one.
+  await userEvent.keyboard("world");
+  field.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  field.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+  keydown(false);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(chat.sent).toHaveLength(1);
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(chat.sent[1]).toEqual({ text: "world", mode: "prompt" }));
 });
 
 for (const size of [500, 2000, 5000, 10_000]) {
@@ -366,9 +520,7 @@ for (const size of [500, 2000, 5000, 10_000]) {
           event: { type: "delta", itemId, text: " more" },
         });
         // oxlint-disable-next-line eslint/no-await-in-loop -- one measured update at a time
-        await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-        );
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         samples.push(performance.now() - start);
       }
       samples.sort((left, right) => left - right);

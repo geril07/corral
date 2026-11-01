@@ -1,5 +1,6 @@
 import type { ChatAnswer, ChatUserRequest } from "@corral/protocol/chat";
 import { describeError } from "@corral/client/rpc-errors";
+import { useEnterGuard } from "../../common/hooks/use-enter-guard.ts";
 import { useEffect, useRef, useState } from "react";
 import { Badge, Button, Input, StatusGlyph, Textarea } from "../../common/ui/index.ts";
 
@@ -32,6 +33,7 @@ export function ChatRequestItem({
   const [text, setText] = useState(item.prefill ?? "");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string>();
+  const guard = useEnterGuard();
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const fieldRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const pending = item.status === "pending";
@@ -59,6 +61,7 @@ export function ChatRequestItem({
   };
 
   const step = (offset: 1 | -1, count: number) => {
+    if (count === 0) return;
     setActive((current) => (current + offset + count) % count);
   };
 
@@ -144,6 +147,7 @@ export function ChatRequestItem({
               )}
             </Button>
           ))}
+          {choices.length === 0 && <p className="m-0 text-xs text-muted-foreground">No options.</p>}
         </div>
       ) : item.request === "input" ? (
         <div className="flex flex-col gap-2">
@@ -156,9 +160,17 @@ export function ChatRequestItem({
             value={text}
             disabled={busy}
             onChange={(event) => setText(event.target.value)}
+            onCompositionStart={guard.start}
+            onCompositionEnd={guard.end}
             onKeyDown={(event) => {
-              if (event.key !== "Enter") return;
-              if (event.nativeEvent.isComposing) return;
+              if (event.key !== "Enter") {
+                guard.noteKey(event.key);
+                return;
+              }
+              if (guard.isComposition(event)) {
+                event.preventDefault();
+                return;
+              }
               event.preventDefault();
               if (text.trim() !== "") void answer(text);
             }}
@@ -186,8 +198,18 @@ export function ChatRequestItem({
             value={text}
             disabled={busy}
             onChange={(event) => setText(event.target.value)}
+            onCompositionStart={guard.start}
+            onCompositionEnd={guard.end}
             onKeyDown={(event) => {
-              if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+              if (event.key !== "Enter") {
+                guard.noteKey(event.key);
+                return;
+              }
+              if (guard.isComposition(event)) {
+                if (event.metaKey || event.ctrlKey) event.preventDefault();
+                return;
+              }
+              if (!(event.metaKey || event.ctrlKey)) return;
               event.preventDefault();
               if (text.trim() !== "") void answer(text);
             }}

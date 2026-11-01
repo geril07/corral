@@ -3,6 +3,7 @@ import { describeError } from "@corral/client/rpc-errors";
 import type { ChatAnswer } from "@corral/protocol/chat";
 import type { ChatSendMode } from "@corral/protocol/rpc";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEnterGuard } from "../../common/hooks/use-enter-guard.ts";
 import { Alert, AlertDescription, Button, ContentLane, Textarea } from "../../common/ui/index.ts";
 import { pendingRequest } from "./chat-rows.ts";
 import { ChatTimeline } from "./chat-timeline.tsx";
@@ -35,6 +36,7 @@ export function ChatView({ store, agent, abortHint, onSend, onAbort, onRespond }
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [panelHeight, setPanelHeight] = useState(0);
+  const guard = useEnterGuard();
   const request = pendingRequest(snapshot.items);
   const requestId = request?.id;
   const working = snapshot.state.turn === "working";
@@ -154,9 +156,18 @@ export function ChatView({ store, agent, abortHint, onSend, onAbort, onRespond }
               spellCheck={false}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
+              onCompositionStart={guard.start}
+              onCompositionEnd={guard.end}
               onKeyDown={(event) => {
-                if (event.key !== "Enter") return;
-                if (event.nativeEvent.isComposing) return;
+                if (event.key !== "Enter") {
+                  guard.noteKey(event.key);
+                  return;
+                }
+                // An IME commit is not a send, in either platform ordering.
+                if (guard.isComposition(event)) {
+                  event.preventDefault();
+                  return;
+                }
                 // Shift+Enter stays a newline; the textarea's own default does that.
                 if (event.shiftKey) return;
                 event.preventDefault();

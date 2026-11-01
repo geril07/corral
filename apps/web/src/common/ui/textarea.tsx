@@ -10,9 +10,9 @@ const textareaVariants = cva(
         // The new-task composer's prompt: a four-line rest and a half-view growth cap
         // (`layout.md`, **New task view**). Font, padding, border and focus stay stock.
         prompt: "min-h-24 max-h-[50vh]",
-        // The chat composer rests at the stock four-line height and grows to 13 rem before it
-        // scrolls (`layout.md`, **Chat**). Font, padding, border and focus stay stock.
-        chat: "max-h-52 overflow-y-auto",
+        // The chat composer rests at two lines and grows to 13 rem before it scrolls
+        // (`layout.md`, **Chat**). Font, padding, border and focus stay stock.
+        chat: "min-h-14 max-h-52 overflow-y-auto",
       },
     },
   },

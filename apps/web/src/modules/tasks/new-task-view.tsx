@@ -3,6 +3,7 @@ import { taskSettingsFor, type ClientConfig, type LaunchProfile } from "@corral/
 import type { CreateTaskInput, IssueProvider, Project, TaskSource } from "@corral/protocol/rpc";
 import { useEffect, useRef, useState } from "react";
 import { useAttempt } from "../../common/hooks/use-attempt.ts";
+import { useEnterGuard } from "../../common/hooks/use-enter-guard.ts";
 import {
   Button,
   Combobox,
@@ -96,10 +97,8 @@ export function NewTaskView({
   const [importing, setImporting] = useState(false);
   const [branches, setBranches] = useState<Branches>({ projectId, status: "loading" });
   const attempt = useAttempt();
-  // An IME commit is not a submission: Enter belongs to the composition while it runs, and Safari
-  // ends the composition before that keydown. `enterSeen` records the Chrome/Firefox order, where
-  // the confirming keydown comes first, so the user's next, real Enter still submits.
-  const ime = useRef({ composing: false, ended: false, enterSeen: false });
+  // An IME commit is not a submission (`docs/ux.md`), in either platform ordering.
+  const guard = useEnterGuard();
 
   // `autoFocus` only runs on mount. `prefix t` must also hand the keyboard to the prompt of a
   // composer that is already open (the no-task state, or one shown over a task), so it counts.
@@ -155,15 +154,6 @@ export function NewTaskView({
       )) ||
     (current.workspaceKey === undefined && settings.workspace.source === "project");
 
-  const startComposition = () => {
-    ime.current = { composing: true, ended: false, enterSeen: false };
-  };
-  const endComposition = () => {
-    // Chrome and Firefox deliver the confirming keydown inside the composition; Safari ends the
-    // composition first, so only that order needs the next Enter suppressed.
-    ime.current = { composing: false, ended: !ime.current.enterSeen, enterSeen: false };
-  };
-
   const chooseProject = (next: string | null) => {
     if (next === null || next === projectId) return;
     setProjectId(next);
@@ -213,8 +203,8 @@ export function NewTaskView({
             event.preventDefault();
             submit();
           }}
-          onCompositionStart={startComposition}
-          onCompositionEnd={endComposition}
+          onCompositionStart={guard.start}
+          onCompositionEnd={guard.end}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               event.preventDefault();
@@ -228,14 +218,11 @@ export function NewTaskView({
             }
             if (event.key !== "Enter") {
               // Any other key ends the Safari window in which an Enter would confirm a composition.
-              ime.current = { composing: ime.current.composing, ended: false, enterSeen: false };
+              guard.noteKey(event.key);
               return;
             }
             // Stop the implicit submission an Enter in the title field would otherwise trigger.
-            if (event.nativeEvent.isComposing || ime.current.composing || ime.current.ended) {
-              ime.current = { composing: ime.current.composing, ended: false, enterSeen: true };
-              event.preventDefault();
-            }
+            if (guard.isComposition(event)) event.preventDefault();
           }}
         >
           <Textarea
@@ -251,10 +238,9 @@ export function NewTaskView({
               onDraftChange({ ...current, prompt: event.target.value, promptTyped: true })
             }
             onKeyDown={(event) => {
-              if (event.key !== "Enter" || event.shiftKey) return;
+              if (event.key !== "Enter") return;
               // A composition's Enter is handled by the form; only a plain Enter submits here.
-              if (event.nativeEvent.isComposing || ime.current.composing || ime.current.ended)
-                return;
+              if (guard.isComposition(event) || event.shiftKey) return;
               event.preventDefault();
               submit();
             }}

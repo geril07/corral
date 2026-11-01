@@ -22,6 +22,9 @@ export function Markdown({ text, streaming }: { text: string; streaming: boolean
         animated={false}
         controls={false}
         linkSafety={{ enabled: false }}
+        lineNumbers={false}
+        codeBlockMaxHeight={400}
+        tableMaxHeight={300}
         plugins={{ code: pierreCodePlugin }}
         shikiTheme={[MARKDOWN_THEMES[0], MARKDOWN_THEMES[1]]}
       >

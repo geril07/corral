@@ -1,6 +1,6 @@
 import type { ChatAnswer, ChatItem } from "@corral/protocol/chat";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { chatRows, type ChatRow } from "./chat-rows.ts";
 import {
   AssistantMessageItem,
@@ -23,6 +23,10 @@ export interface ChatTimelineProps {
   onAnswered: () => void;
 }
 
+function atEnd(node: HTMLElement): boolean {
+  return node.scrollTop + node.clientHeight >= node.scrollHeight - 2;
+}
+
 /**
  * The virtualized timeline (`@legendapp/list`): only the rows in and around the viewport are in
  * the DOM, and a streamed delta re-renders the list without mounting the transcript. It follows
@@ -37,6 +41,65 @@ export function ChatTimeline({
 }: ChatTimelineProps) {
   const rows = useMemo(() => chatRows(items), [items]);
   const list = useRef<LegendListRef>(null);
+  /** False after the user moved up, so a layout change below does not drag the view back. */
+  const [follow, setFollow] = useState(true);
+  const followConfig = useMemo(() => ({ on: { dataAppend: true, dataChange: true } }), []);
+
+  const scrollNode = (): HTMLElement | null => {
+    const node = list.current?.getScrollableNode();
+    return node instanceof HTMLElement ? node : null;
+  };
+
+  /** Keyboard scrolling: a move up releases the end follow, reaching the end takes it again. */
+  const scrollBy = async (delta: number) => {
+    const node = scrollNode();
+    if (node === null) return;
+    const before = node.scrollTop;
+    const max = Math.max(0, node.scrollHeight - node.clientHeight);
+    const target = Math.max(0, Math.min(max, before + delta));
+    await list.current?.scrollToOffset({ offset: target, animated: false });
+    const after = node.scrollTop;
+    if (after < before - 1) setFollow(false);
+    else if (atEnd(node)) setFollow(true);
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    // Rows carry their own buttons; arrows in a row must not scroll the transcript.
+    if (event.target !== event.currentTarget) return;
+    const node = scrollNode();
+    if (node === null) return;
+    switch (event.key) {
+      case "PageUp":
+        event.preventDefault();
+        void scrollBy(-node.clientHeight * 0.9);
+        return;
+      case "PageDown":
+        event.preventDefault();
+        void scrollBy(node.clientHeight * 0.9);
+        return;
+      case "ArrowUp":
+        event.preventDefault();
+        void scrollBy(-48);
+        return;
+      case "ArrowDown":
+        event.preventDefault();
+        void scrollBy(48);
+        return;
+      case "Home":
+        event.preventDefault();
+        setFollow(false);
+        void list.current?.scrollToOffset({ offset: 0, animated: false }).then(() => {
+          if (atEnd(node)) setFollow(true);
+        });
+        return;
+      case "End":
+        event.preventDefault();
+        void list.current?.scrollToEnd({ animated: false }).then(() => setFollow(true));
+        return;
+      default:
+        return;
+    }
+  };
 
   // A new request is the last item and takes focus; make sure virtualization made it visible.
   useEffect(() => {
@@ -61,10 +124,14 @@ export function ChatTimeline({
       estimatedListSize={{ width: 720, height: 480 }}
       initialScrollAtEnd
       alignItemsAtEnd
-      maintainScrollAtEnd
+      maintainScrollAtEnd={follow ? followConfig : false}
       recycleItems={false}
       className="h-full"
       data-testid="chat-timeline"
+      tabIndex={0}
+      role="log"
+      aria-label="Chat transcript"
+      onKeyDown={onKeyDown}
       contentContainerStyle={{ paddingTop: 8, paddingBottom: endSpace + 8 }}
     />
   );
