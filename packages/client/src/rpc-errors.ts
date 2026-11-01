@@ -101,6 +101,8 @@ export function describeError(error: unknown): string {
         return `${String(field(data, "path"))} is not an image or a video.`;
       case "FILE_UNREADABLE":
         return `${String(field(data, "path"))} could not be read.`;
+      case "FILE_CHANGED":
+        return `${String(field(data, "path"))} changed while Corral was reading it. Try again.`;
       case "EDITOR_UNSET":
         return String(field(data, "reason"));
       case "EDITOR_NOT_FOUND":

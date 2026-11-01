@@ -482,6 +482,9 @@ export type FileMedia = z.infer<typeof FileMedia>;
 /** How many bytes a path lookup may hand back for an inline preview, per media kind. */
 export const FILE_PREVIEW_LIMITS = { image: 4 * 1024 * 1024, video: 8 * 1024 * 1024 } as const;
 
+/** The longest path a `files.*` call carries; a longer token is text, not a candidate. */
+export const FILE_PATH_MAX = 4096;
+
 /**
  * How many candidates one `files.resolve` call may carry. A chat lane accumulates them across every
  * message it shows, so a client splits its work into calls of this size (`candidateBatches`).
@@ -567,7 +570,6 @@ const gitFailed = { GIT_FAILED: { data: z.object({ message: z.string() }) } };
 export const ChatUnavailableReason = z.enum(["no-driver", "not-started", "exited"]);
 export type ChatUnavailableReason = z.infer<typeof ChatUnavailableReason>;
 
-/** The session has no live chat driver; `message` is safe to show and `reason` says whether a retry can help. */
 /**
  * Reading or opening a local path behind a chat link. The allow-list is the security boundary, so
  * a refusal says why (outside the workspace, missing, a directory, too large) instead of hiding as
@@ -587,11 +589,18 @@ const fileErrors = {
   FILE_TYPE_UNSUPPORTED: { data: z.object({ path: z.string() }) },
   /** It exists but could not be read, e.g. permissions. */
   FILE_UNREADABLE: { data: z.object({ path: z.string() }) },
+  /**
+   * The path was replaced between the allow-list check and the read: a different inode, or a
+   * symlink where the checked file was. Refused rather than followed, so a swap cannot serve
+   * bytes the workspace check never saw.
+   */
+  FILE_CHANGED: { data: z.object({ path: z.string() }) },
   /** No `[editor] command`, `$VISUAL` or `$EDITOR` on the server; `reason` is a sentence. */
   EDITOR_UNSET: { data: z.object({ reason: z.string() }) },
   /** The configured editor is not an executable the server can run. */
   EDITOR_NOT_FOUND: { data: z.object({ command: z.string() }) },
 };
+/** The session has no live chat driver; `message` is safe to show and `reason` says whether a retry can help. */
 const chatUnavailable = {
   CHAT_UNAVAILABLE: {
     data: z.object({
@@ -899,7 +908,7 @@ export const contract = {
         z.object({
           taskId: TaskId,
           /** Candidates as the message wrote them; at most a screenful of them per message. */
-          paths: z.array(z.string().min(1).max(4096)).max(FILE_RESOLVE_BATCH),
+          paths: z.array(z.string().min(1).max(FILE_PATH_MAX)).max(FILE_RESOLVE_BATCH),
         }),
       )
       .output(z.object({ results: z.array(FileResolution) })),

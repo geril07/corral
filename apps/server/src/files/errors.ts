@@ -49,6 +49,18 @@ export class FileTypeUnsupportedError extends Error {
   }
 }
 
+/**
+ * The path was replaced between the allow-list check and the read: another inode, or a symlink
+ * where the checked file was. Refused rather than followed.
+ */
+export class FileChangedError extends Error {
+  readonly path: string;
+  constructor(path: string) {
+    super(`${path} changed while it was being read`);
+    this.path = path;
+  }
+}
+
 export class FileUnreadableError extends Error {
   readonly path: string;
   constructor(path: string) {

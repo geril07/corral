@@ -9,7 +9,6 @@ import {
   type Task,
   type TerminalSize,
 } from "@corral/protocol/rpc";
-import { readFile } from "node:fs/promises";
 import { isExecutable } from "../agents/executable-lookup.ts";
 import type { TerminalRegistry } from "../terminals/terminal-registry.ts";
 import { editorSources, editorUnsetReason, resolveEditorCommand } from "./editor-command.ts";
@@ -20,10 +19,9 @@ import {
   FileOutsideWorkspaceError,
   FileTooLargeError,
   FileTypeUnsupportedError,
-  FileUnreadableError,
-  FileNotFoundError,
 } from "./errors.ts";
 import { resolveWorkspaceEntry, type WorkspaceEntry } from "./file-access.ts";
+import { readVerifiedBytes } from "./verified-read.ts";
 
 export interface FilesServiceOptions {
   /** The task whose workspace is the allow-list; `get` throws the task-not-found refusal. */
@@ -99,18 +97,9 @@ export class FilesService {
     if (entry.media === undefined || entry.mime === undefined)
       throw new FileTypeUnsupportedError(path);
     const limit = FILE_PREVIEW_LIMITS[entry.media];
+    // Refuse early with the resolved size; `readVerifiedBytes` bounds the bytes it actually reads.
     if (entry.size > limit) throw new FileTooLargeError(path, entry.size, limit);
-    let bytes: Buffer;
-    try {
-      bytes = await readFile(entry.absolutePath);
-    } catch (error) {
-      if (typeof error === "object" && error !== null && "code" in error) {
-        if (String(error.code) === "ENOENT") throw new FileNotFoundError(path);
-      }
-      throw new FileUnreadableError(path);
-    }
-    // The stat above and this read are two moments: a file that grew in between is still past the bound.
-    if (bytes.byteLength > limit) throw new FileTooLargeError(path, bytes.byteLength, limit);
+    const bytes = await readVerifiedBytes(entry, limit);
     return {
       path: entry.relativePath,
       name: entry.name,

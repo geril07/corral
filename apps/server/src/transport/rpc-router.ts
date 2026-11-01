@@ -13,6 +13,7 @@ import type { ConfigWatcher } from "../config/config-watcher.ts";
 import {
   EditorNotFoundError,
   EditorUnsetError,
+  FileChangedError,
   FileIsDirectoryError,
   FileNotFoundError,
   FileOutsideWorkspaceError,
@@ -175,6 +176,7 @@ interface FileHandlerErrors {
   }) => Error;
   readonly FILE_TYPE_UNSUPPORTED?: (options: { data: { path: string } }) => Error;
   readonly FILE_UNREADABLE?: (options: { data: { path: string } }) => Error;
+  readonly FILE_CHANGED?: (options: { data: { path: string } }) => Error;
   readonly EDITOR_UNSET?: (options: { data: { reason: string } }) => Error;
   readonly EDITOR_NOT_FOUND?: (options: { data: { command: string } }) => Error;
 }
@@ -196,6 +198,8 @@ function localFileError(error: unknown, errors: FileHandlerErrors): Error | unde
     return errors.FILE_TYPE_UNSUPPORTED?.({ data: { path: error.path } });
   if (error instanceof FileUnreadableError)
     return errors.FILE_UNREADABLE?.({ data: { path: error.path } });
+  if (error instanceof FileChangedError)
+    return errors.FILE_CHANGED?.({ data: { path: error.path } });
   if (error instanceof EditorUnsetError)
     return errors.EDITOR_UNSET?.({ data: { reason: error.reason } });
   if (error instanceof EditorNotFoundError)

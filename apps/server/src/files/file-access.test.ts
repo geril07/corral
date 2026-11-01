@@ -87,6 +87,38 @@ test("a symlink pointing out of the workspace cannot escape the allow-list", asy
   );
 });
 
+test("a `..` after a symlink is lexical: it names the link's own parent, not its target's", async () => {
+  // `link/../app.ts` is `app.ts` beside `link`, which is what `path.resolve` (and this allow-list)
+  // means. A shell would follow `link` first and reach the target's parent instead; that
+  // component-wise reading is not built (see `resolveWorkspaceEntry`).
+  mkdirSync(join(outside, "nested"), { recursive: true });
+  writeFileSync(join(outside, "nested", "app.ts"), "outside\n");
+  symlinkSync(join(outside, "nested"), join(workspace, "linkdir"));
+  writeFileSync(join(workspace, "app.ts"), "inside\n");
+
+  const entry = await resolveWorkspaceEntry(workspace, "linkdir/../app.ts");
+  expect(entry).toMatchObject({ relativePath: "app.ts", absolutePath: join(workspace, "app.ts") });
+  // The target's own parent is out of reach, and a `..` that leaves through the link is refused.
+  await expect(resolveWorkspaceEntry(workspace, "linkdir/../../outside/app.ts")).rejects.toThrow(
+    FileOutsideWorkspaceError,
+  );
+});
+
+test("a workspace that is itself a symlink confines reads to its target", async () => {
+  // The root is the workspace's `realpath`, not the lexical path a task row holds: a sibling of
+  // the link is outside even though it looks adjacent.
+  writeFileSync(join(root, "sibling.txt"), "sibling\n");
+  symlinkSync(outside, join(workspace, "root-link"));
+  writeFileSync(join(outside, "inside.txt"), "inside\n");
+
+  expect(await resolveWorkspaceEntry(join(workspace, "root-link"), "inside.txt")).toMatchObject({
+    relativePath: "inside.txt",
+  });
+  await expect(
+    resolveWorkspaceEntry(join(workspace, "root-link"), "../sibling.txt"),
+  ).rejects.toThrow(FileOutsideWorkspaceError);
+});
+
 test("a symlink that stays inside resolves to the file it names", async () => {
   symlinkSync(join(workspace, "src", "app.ts"), join(workspace, "alias.ts"));
   expect(await resolveWorkspaceEntry(workspace, "alias.ts")).toMatchObject({
