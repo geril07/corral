@@ -20,11 +20,11 @@ import {
 } from "../../common/ui/index.ts";
 import { describeLaunchError } from "../sessions/index.ts";
 import { IssueImportSection } from "./issue-import.tsx";
+import { draftForProject, movedDraft, type ComposerDraft } from "./new-task-draft.ts";
 import {
   agentChoices,
   defaultAgent,
   defaultWorkspace,
-  isBranchKey,
   workspaceChoices,
   type ComposerAgent,
   type ComposerWorkspace,
@@ -56,8 +56,11 @@ export interface NewTaskViewProps {
     input: { url: string; provider?: IssueProvider | undefined },
     signal: AbortSignal,
   ) => Promise<TaskSource>;
-  /** True while `prefix t` (or a sidebar button) opened the view over a selected task. */
-  opened: boolean;
+  /** The composer's text and picks, owned by the workspace so a project navigation keeps them. */
+  draft: ComposerDraft;
+  onDraftChange: (draft: ComposerDraft) => void;
+  /** How many times `prefix t` (or a sidebar button) opened the view; 0 means it was not opened. */
+  opened: number;
   /** Escape: back to the task that was selected before the view opened. */
   onCancel: () => void;
 }
@@ -72,6 +75,8 @@ export function NewTaskView({
   project,
   config,
   profiles,
+  draft,
+  onDraftChange,
   loadBranches,
   onCreate,
   onResolveIssue,
@@ -82,39 +87,42 @@ export function NewTaskView({
   const selected = projects.find((candidate) => candidate.id === projectId) ?? project;
   const settings = taskSettingsFor(config, selected.path);
 
-  const [prompt, setPrompt] = useState("");
-  const [title, setTitle] = useState("");
-  const [source, setSource] = useState<TaskSource>();
-  const [importing, setImporting] = useState(false);
-  const [titleOpen, setTitleOpen] = useState(false);
-  const [issueOpen, setIssueOpen] = useState(false);
-  // A prompt the user typed stays across project switches; one an import filled does not.
-  const promptTyped = useRef(false);
+  // The draft may still belong to the project the composer showed a moment ago (a remount after a
+  // sidebar project pick): reading it through here drops only what that project owned.
+  const current = draftForProject(draft, projectId);
   const promptRef = useRef<HTMLTextAreaElement>(null);
-  const [agentKey, setAgentKey] = useState<string>();
-  const [workspaceKey, setWorkspaceKey] = useState<string>();
+  const issueUrlRef = useRef<HTMLInputElement>(null);
+  const issueWasOpen = useRef(current.issueOpen);
+  const [importing, setImporting] = useState(false);
   const [branches, setBranches] = useState<Branches>({ projectId, status: "loading" });
   const attempt = useAttempt();
   // An IME commit is not a submission: Enter belongs to the composition while it runs, and Safari
-  // ends the composition before that keydown. The mark is consumed by the next Enter, or cleared
-  // by any other key, so a later Enter submits as usual.
-  const ime = useRef({ composing: false, ended: false });
+  // ends the composition before that keydown. `enterSeen` records the Chrome/Firefox order, where
+  // the confirming keydown comes first, so the user's next, real Enter still submits.
+  const ime = useRef({ composing: false, ended: false, enterSeen: false });
 
-  // `autoFocus` only runs on mount. `prefix t` on an already-open composer (the no-task state)
-  // must still hand the keyboard to the prompt, so the open transition focuses it again.
+  // `autoFocus` only runs on mount. `prefix t` must also hand the keyboard to the prompt of a
+  // composer that is already open (the no-task state, or one shown over a task), so it counts.
   useEffect(() => {
-    if (!opened) return;
+    if (opened === 0) return;
     promptRef.current?.focus();
   }, [opened]);
 
+  // The issue field takes the keyboard when its section is first expanded, not when the section is
+  // remounted for another project: the project picker keeps the focus it had.
   useEffect(() => {
-    let current = true;
+    if (current.issueOpen && !issueWasOpen.current) issueUrlRef.current?.focus();
+    issueWasOpen.current = current.issueOpen;
+  }, [current.issueOpen]);
+
+  useEffect(() => {
+    let live = true;
     loadBranches(projectId).then(
-      (names) => current && setBranches({ projectId, status: "loaded", names }),
-      (error: unknown) => current && setBranches({ projectId, status: "failed", error }),
+      (names) => live && setBranches({ projectId, status: "loaded", names }),
+      (error: unknown) => live && setBranches({ projectId, status: "failed", error }),
     );
     return () => {
-      current = false;
+      live = false;
     };
   }, [projectId, loadBranches]);
 
@@ -129,56 +137,48 @@ export function NewTaskView({
     choice.key === settingsAgent.key ? settingsAgent : choice,
   );
   const agent =
-    (agentKey === undefined ? undefined : agents.find((choice) => choice.key === agentKey)) ??
-    settingsAgent;
+    (current.agentKey === undefined
+      ? undefined
+      : agents.find((choice) => choice.key === current.agentKey)) ?? settingsAgent;
   const workspaces = workspaceChoices(branchState.status === "loaded" ? branchState.names : []);
   const workspace =
-    (workspaceKey === undefined
+    (current.workspaceKey === undefined
       ? undefined
-      : workspaces.find((choice) => choice.key === workspaceKey)) ?? defaultWorkspace(settings);
+      : workspaces.find((choice) => choice.key === current.workspaceKey)) ??
+    defaultWorkspace(settings);
 
   // Only the values still taken from settings can claim to come from the project's overrides.
   const fromProject =
-    (agentKey === undefined &&
+    (current.agentKey === undefined &&
       [settings.agent, settings.profile, settings.model].some(
         (each) => each.source === "project",
       )) ||
-    (workspaceKey === undefined && settings.workspace.source === "project");
+    (current.workspaceKey === undefined && settings.workspace.source === "project");
 
   const startComposition = () => {
-    ime.current = { composing: true, ended: false };
+    ime.current = { composing: true, ended: false, enterSeen: false };
   };
   const endComposition = () => {
-    ime.current = { composing: false, ended: true };
-  };
-  /** Whether this Enter confirms a composition; consumes the one keydown that follows its end. */
-  const compositionTakesEnter = () => {
-    const busy = ime.current.composing || ime.current.ended;
-    ime.current = { composing: ime.current.composing, ended: false };
-    return busy;
+    // Chrome and Firefox deliver the confirming keydown inside the composition; Safari ends the
+    // composition first, so only that order needs the next Enter suppressed.
+    ime.current = { composing: false, ended: !ime.current.enterSeen, enterSeen: false };
   };
 
   const chooseProject = (next: string | null) => {
     if (next === null || next === projectId) return;
     setProjectId(next);
-    // An existing branch, an issue snapshot and an imported prompt belong to the old project.
-    if (workspaceKey !== undefined && isBranchKey(workspaceKey)) setWorkspaceKey(undefined);
-    setSource(undefined);
     setImporting(false);
-    if (!promptTyped.current) setPrompt("");
+    // One rule for every project change (this picker or a navigation remount): keep the user's
+    // text, drop what only the old project owned (`movedDraft`).
+    onDraftChange(movedDraft(current, next));
   };
 
-  const fillPrompt = (value: string) => {
-    promptTyped.current = false;
-    setPrompt(value);
-  };
-
-  const promptText = prompt.trim();
-  const titleText = title.trim();
+  const promptText = current.prompt.trim();
+  const titleText = current.title.trim();
   const ready =
     !attempt.pending &&
     !importing &&
-    (promptText !== "" || titleText !== "" || source !== undefined);
+    (promptText !== "" || titleText !== "" || current.source !== undefined);
 
   const submit = () => {
     if (!ready) return;
@@ -188,7 +188,7 @@ export function NewTaskView({
         ...(promptText === "" ? {} : { prompt: promptText }),
         // An explicit title and an imported one are the user's; a prompt-only task gets the seed.
         ...(titleText === "" ? {} : { title: titleText }),
-        ...(source === undefined ? {} : { source }),
+        ...(current.source === undefined ? {} : { source: current.source }),
         // A task without a prompt starts no agent yet (`design.md`, **Domain model → Task**).
         ...(promptText === "" ? {} : { agent: agent.choice }),
         workspace: workspace.input,
@@ -219,18 +219,23 @@ export function NewTaskView({
             if (event.key === "Escape") {
               event.preventDefault();
               event.stopPropagation();
-              // A failed create keeps its error and the draft in view (`ux.md`: failed submissions
-              // preserve input); leaving now would throw both away.
+              // A failed create keeps its error in view (`ux.md`: failed submissions preserve
+              // input); leaving with Escape would hide what went wrong. The sidebar is the way out,
+              // and the draft lives in the workspace, so it survives either path.
               if (attempt.failed) return;
               onCancel();
               return;
             }
             if (event.key !== "Enter") {
-              ime.current = { composing: ime.current.composing, ended: false };
+              // Any other key ends the Safari window in which an Enter would confirm a composition.
+              ime.current = { composing: ime.current.composing, ended: false, enterSeen: false };
               return;
             }
             // Stop the implicit submission an Enter in the title field would otherwise trigger.
-            if (event.nativeEvent.isComposing || compositionTakesEnter()) event.preventDefault();
+            if (event.nativeEvent.isComposing || ime.current.composing || ime.current.ended) {
+              ime.current = { composing: ime.current.composing, ended: false, enterSeen: true };
+              event.preventDefault();
+            }
           }}
         >
           <Textarea
@@ -241,14 +246,13 @@ export function NewTaskView({
             rows={4}
             autoFocus
             spellCheck={false}
-            value={prompt}
-            onChange={(event) => {
-              promptTyped.current = true;
-              setPrompt(event.target.value);
-            }}
+            value={current.prompt}
+            onChange={(event) =>
+              onDraftChange({ ...current, prompt: event.target.value, promptTyped: true })
+            }
             onKeyDown={(event) => {
               if (event.key !== "Enter" || event.shiftKey) return;
-              // The form's handler consumes the composition mark, so only check it here.
+              // A composition's Enter is handled by the form; only a plain Enter submits here.
               if (event.nativeEvent.isComposing || ime.current.composing || ime.current.ended)
                 return;
               event.preventDefault();
@@ -260,12 +264,12 @@ export function NewTaskView({
             <AgentPicker
               choices={agents}
               value={agent}
-              onChange={(choice) => setAgentKey(choice.key)}
+              onChange={(choice) => onDraftChange({ ...current, agentKey: choice.key })}
             />
             <WorkspacePicker
               choices={workspaces}
               value={workspace}
-              onChange={(choice) => setWorkspaceKey(choice.key)}
+              onChange={(choice) => onDraftChange({ ...current, workspaceKey: choice.key })}
             />
             <div className="ml-auto">
               <Button type="submit" disabled={!ready}>
@@ -282,41 +286,55 @@ export function NewTaskView({
             </p>
           )}
           <div className="flex flex-wrap items-center gap-1">
-            {!titleOpen && (
-              <Button variant="ghost" size="sm" onClick={() => setTitleOpen(true)}>
+            {!current.titleOpen && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onDraftChange({ ...current, titleOpen: true })}
+              >
                 Title (optional)
               </Button>
             )}
-            {!issueOpen && (
-              <Button variant="ghost" size="sm" onClick={() => setIssueOpen(true)}>
+            {!current.issueOpen && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onDraftChange({ ...current, issueOpen: true })}
+              >
                 From issue…
               </Button>
             )}
           </div>
-          {titleOpen && (
+          {current.titleOpen && (
             <FormField label="Title (optional)">
               <Input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
+                value={current.title}
+                onChange={(event) => onDraftChange({ ...current, title: event.target.value })}
                 autoComplete="off"
                 autoFocus
               />
             </FormField>
           )}
-          {issueOpen && (
+          {current.issueOpen && (
             <IssueImportSection
               key={projectId}
+              inputRef={issueUrlRef}
               onResolveIssue={(input, signal) => onResolveIssue(projectId, input, signal)}
-              source={source}
+              source={current.source}
               onImported={(imported) => {
-                setSource(imported);
                 // The prompt carries the issue's title and link; a prompt the user typed stays.
-                if (!promptTyped.current) fillPrompt(`${imported.title}\n\n${imported.url}`);
+                onDraftChange({
+                  ...current,
+                  source: imported,
+                  ...(current.promptTyped
+                    ? {}
+                    : { prompt: `${imported.title}\n\n${imported.url}`, promptTyped: false }),
+                });
                 // The next thing the user does is submit or edit that prompt, so it takes back the
                 // keyboard from the import buttons.
                 promptRef.current?.focus();
               }}
-              onCleared={() => setSource(undefined)}
+              onCleared={() => onDraftChange({ ...current, source: undefined })}
               onImportingChange={setImporting}
             />
           )}
@@ -324,7 +342,7 @@ export function NewTaskView({
             <>
               <FormError>{failure}</FormError>
               <p className="m-0 text-xs text-muted-foreground">
-                Escape stays here until this is fixed.
+                Fix what failed, or pick another task in the sidebar.
               </p>
             </>
           )}

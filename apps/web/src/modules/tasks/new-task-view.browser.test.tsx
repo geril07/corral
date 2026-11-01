@@ -7,8 +7,10 @@ import {
 import type { CreateTaskInput, Project, TaskSource } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
+import { useState } from "react";
 import { render } from "vitest-browser-react";
-import { NewTaskView } from "./new-task-view.tsx";
+import { emptyDraft, type ComposerDraft } from "./new-task-draft.ts";
+import { NewTaskView, type NewTaskViewProps } from "./new-task-view.tsx";
 
 const repo: Project = {
   id: "p1",
@@ -71,7 +73,7 @@ function renderView({
   config = configWith(),
   profiles = [] as LaunchProfile[],
   branches = Promise.resolve(["main", "feature/x"]),
-  opened = false,
+  opened = 0,
   onCreate = vi.fn<(input: CreateTaskInput) => Promise<void>>(() => Promise.resolve()),
   onResolveIssue = vi.fn<
     (
@@ -84,7 +86,7 @@ function renderView({
 } = {}) {
   const loadBranches = vi.fn<(projectId: string) => Promise<string[]>>(() => branches);
   const rendered = render(
-    <NewTaskView
+    <DraftHost
       projects={projects}
       project={project}
       config={config}
@@ -97,6 +99,15 @@ function renderView({
     />,
   );
   return { rendered, onCreate, onResolveIssue, onCancel, loadBranches };
+}
+
+/** The workspace's half of the composer: it owns the draft that a remount must not lose. */
+function DraftHost({
+  initialDraft,
+  ...props
+}: Omit<NewTaskViewProps, "draft" | "onDraftChange"> & { initialDraft?: ComposerDraft }) {
+  const [draft, setDraft] = useState(() => initialDraft ?? emptyDraft(props.project.id));
+  return <NewTaskView {...props} draft={draft} onDraftChange={setDraft} />;
 }
 
 async function pick(name: RegExp, option: RegExp) {
@@ -270,6 +281,21 @@ test("From issue… takes the keyboard into the issue field", async () => {
   await expect.element(form().getByRole("textbox", { name: "Issue URL" })).toHaveFocus();
 });
 
+test("changing a project does not pull the keyboard into the issue field", async () => {
+  const { rendered } = renderView({ projects: [repo, other] });
+  await rendered;
+
+  // Expanding the section hands it the keyboard; a project change remounts it but must not steal it.
+  await form().getByRole("button", { name: "From issue…" }).click();
+  await expect.element(form().getByRole("textbox", { name: "Issue URL" })).toHaveFocus();
+
+  await userEvent.click(picker(/^Project /));
+  await page.getByRole("option", { name: /^other/ }).click();
+  await expect.element(picker(/^Project /)).toHaveAccessibleName("Project other");
+  await expect.element(form().getByRole("textbox", { name: "Issue URL" })).not.toHaveFocus();
+  await expect.element(picker(/^Project /)).toHaveFocus();
+});
+
 test("re-picking the agent already shown keeps the configured model", async () => {
   const config = configWith({
     agent: { value: "codex", source: "global" },
@@ -296,18 +322,35 @@ test("re-picking the agent already shown keeps the configured model", async () =
   );
 });
 
-test("an IME Enter does not create the task, in either event order", async () => {
+test("an IME Enter in the Chrome order leaves the next Enter free to submit", async () => {
   const { rendered, onCreate } = renderView();
   await rendered;
   await userEvent.keyboard("Write it");
 
   const field = prompt().element();
   field.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  // Chrome and Firefox: the confirming keydown arrives while the composition is still active.
   field.dispatchEvent(
     new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
   );
   expect(onCreate).not.toHaveBeenCalled();
+  field.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+  expect(onCreate).not.toHaveBeenCalled();
 
+  // The user's own Enter after the commit is not a composition key and submits.
+  field.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+  );
+  await vi.waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
+});
+
+test("an IME Enter in the Safari order is not a submission", async () => {
+  const { rendered, onCreate } = renderView();
+  await rendered;
+  await userEvent.keyboard("Write it");
+
+  const field = prompt().element();
+  field.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
   // Safari ends the composition before the keydown that confirms it.
   field.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
   field.dispatchEvent(

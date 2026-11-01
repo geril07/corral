@@ -1,6 +1,6 @@
 import { describeError } from "@corral/client/rpc-errors";
 import type { IssueProvider, TaskSource } from "@corral/protocol/rpc";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import {
   Button,
   FormField,
@@ -20,6 +20,8 @@ export interface ResolveIssue {
 }
 
 interface IssueImportSectionProps {
+  /** The composed field's URL input, so the composer decides when it takes the keyboard. */
+  inputRef?: RefObject<HTMLInputElement | null>;
   /** Called only when the user presses Import, never on paste. */
   onResolveIssue: ResolveIssue;
   source: TaskSource | undefined;
@@ -31,6 +33,7 @@ interface IssueImportSectionProps {
 }
 
 export function IssueImportSection({
+  inputRef,
   onResolveIssue,
   source,
   onImported,
@@ -121,8 +124,9 @@ export function IssueImportSection({
       <FieldLegend>Import from an issue (optional)</FieldLegend>
       <FormField label="Issue URL">
         <Input
-          // The section expands in place; the keyboard goes into it rather than to <body>.
-          autoFocus
+          // Focus belongs to the composer: it focuses the field when the section first expands,
+          // not when a project change remounts the section.
+          ref={inputRef}
           value={issueUrl}
           onChange={(event) => changeUrl(event.target.value)}
           onKeyDown={(event) => {

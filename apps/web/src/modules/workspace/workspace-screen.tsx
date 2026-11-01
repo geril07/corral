@@ -84,6 +84,8 @@ export function WorkspaceScreen({
     sidebar,
     dialog,
     composing,
+    composerDraft,
+    setComposerDraft,
     failure,
     armed,
     actions,
@@ -140,10 +142,12 @@ export function WorkspaceScreen({
         project={composerProject}
         config={config}
         profiles={profiles}
+        draft={composerDraft}
+        onDraftChange={setComposerDraft}
         loadBranches={loadBranches}
         onCreate={createTask}
         onResolveIssue={resolveIssue}
-        opened={composing !== undefined}
+        opened={composing?.opened ?? 0}
         onCancel={closeNewTask}
       />
     ) : undefined;

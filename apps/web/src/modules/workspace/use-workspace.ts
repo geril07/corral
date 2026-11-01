@@ -37,6 +37,7 @@ import {
   type ActionTable,
 } from "../keymap/index.ts";
 import { describeLaunchError, type AgentLaunchChoice } from "../sessions/index.ts";
+import { emptyDraft, type ComposerDraft } from "../tasks/index.ts";
 import type { RenameTarget } from "./rename-dialog.tsx";
 import { terminalLabel } from "./sidebar.tsx";
 import { useSidebarMode } from "./sidebar-mode.ts";
@@ -97,7 +98,14 @@ export function useWorkspace({
    * shows whenever no task is selected, so it is a view, not a dialog: nothing captures the
    * keyboard, and Escape only returns to the task that was selected before.
    */
-  const [composing, setComposing] = useState<{ project: Project }>();
+  const [composing, setComposing] = useState<{ project: Project; opened: number }>();
+  /**
+   * The composer's text and picks, kept here rather than in the view: a project navigation remounts
+   * the composer, and the draft must outlive both that and a failed create (`new-task-draft.ts`).
+   */
+  const [composerDraft, setComposerDraft] = useState<ComposerDraft>(() => emptyDraft(""));
+  /** How many times `prefix t` opened the composer; each open hands the keyboard to the prompt. */
+  const composerOpens = useRef(0);
   const openDialog = (next: DialogState, opener?: HTMLElement) => {
     dialogFocus?.remember(opener);
     setDialog(next);
@@ -388,7 +396,8 @@ export function useWorkspace({
       return;
     }
     setFailure(undefined);
-    setComposing({ project: target });
+    composerOpens.current += 1;
+    setComposing({ project: target, opened: composerOpens.current });
   };
   /** Escape in the composer: the selection it covered is still there and comes back. */
   const closeNewTask = () => setComposing(undefined);
@@ -418,6 +427,8 @@ export function useWorkspace({
   const createTask = async (input: CreateTaskInput) => {
     const task = await api.tasks.create(input);
     setDialog(undefined);
+    // The task owns the draft now; the next composer starts empty in the task's project.
+    setComposerDraft(emptyDraft(task.projectId));
     // The task's primary session is where the prompt went, when the composer named an agent; a
     // task created without one stays empty until the user adds a session (design.md, **Domain
     // model → Task → Creation**). Creating a task starts no shell.
@@ -646,6 +657,8 @@ export function useWorkspace({
     board,
     dialog,
     composing,
+    composerDraft,
+    setComposerDraft,
     failure,
     armed,
     actions,

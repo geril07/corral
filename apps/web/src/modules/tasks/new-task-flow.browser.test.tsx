@@ -196,10 +196,10 @@ test("git's refusal stays in the composer and keeps the prompt", async () => {
   expect(tasks.find((task) => task.title === "Second try")?.branch).not.toBe("feature/x");
 });
 
-test("a project picked in the sidebar moves the open composer to it", async () => {
+test("a sidebar project pick keeps the draft and creates the task in the new project", async () => {
   // Another file may have left this device in project mode; the default is flat.
   window.localStorage.removeItem("corral.sidebar-mode");
-  const { client } = await appWithProject(newClient());
+  const { client } = await appWithProject(newClient(), ["feature/x"]);
   const otherRepo = await createGitRepo("other");
   await client.connection.api.projects.add({ path: otherRepo });
   await vi.waitFor(() => expect(client.projects.getSnapshot().projects).toHaveLength(2));
@@ -213,6 +213,12 @@ test("a project picked in the sidebar moves the open composer to it", async () =
     .element(newTaskView().getByRole("combobox", { name: /^Project / }))
     .toHaveAccessibleName(`Project ${current.name}`);
 
+  // A prompt and the current project's branch: both belong to the composer's draft now.
+  await userEvent.keyboard("In the other repo");
+  await userEvent.click(picker(/^Workspace /));
+  await userEvent.keyboard("feature/x{Enter}");
+  await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace feature/x");
+
   // Project mode lists the projects; selecting one selects it for the composer too.
   await prefixThen("l");
   await workspace().getByRole("button", { name: other.name, exact: true }).click();
@@ -220,14 +226,34 @@ test("a project picked in the sidebar moves the open composer to it", async () =
   await expect
     .element(newTaskView().getByRole("combobox", { name: /^Project / }))
     .toHaveAccessibleName(`Project ${other.name}`);
-  // The new composer takes the keyboard back, so a prompt typed now creates the task in B.
+  // The remounted composer keeps the user's text, drops what only the old project owned, and
+  // takes the keyboard back for the next thing the user types.
+  await expect.element(promptField()).toHaveValue("In the other repo");
+  await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace main tree");
   await expect.element(promptField()).toHaveFocus();
-  await userEvent.keyboard("In the other repo{Enter}");
 
+  await userEvent.keyboard("{Enter}");
   await expect.element(taskButton("In the other repo")).toHaveAttribute("aria-current", "true");
   const task = client.tasks.getSnapshot().tasks[0]!;
   expect(task.projectId).toBe(other.id);
   expect(task.workspacePath).toBe(other.path);
+});
+
+test("prefix t focuses the prompt of a composer that is open over a task", async () => {
+  await appWithProject(newClient());
+  await createTaskWithShell("Focus me");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  await prefixThen("t");
+  await expect.element(promptField()).toHaveFocus();
+  // The keyboard is somewhere else while the composer stays open over the task.
+  workspace().getByRole("button", { name: "Search tasks" }).element().focus();
+  await expect.element(promptField()).not.toHaveFocus();
+
+  await prefixThen("t");
+  await expect.element(promptField()).toHaveFocus();
+  await userEvent.keyboard("typedafterthekey");
+  await expect.element(promptField()).toHaveValue("typedafterthekey");
 });
 
 test("prefix t hands the keyboard back to an already-open composer", async () => {
