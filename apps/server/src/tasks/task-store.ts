@@ -7,9 +7,9 @@ const Row = Task.extend({
   source: z.string().nullable().transform(parseSource),
 });
 
-const COLUMNS = `id, project_id AS projectId, title, title_source AS titleSource, source, branch,
-  workspace_path AS workspacePath, owns_worktree AS ownsWorktree, state, seen_at AS seenAt,
-  created_at AS createdAt`;
+const COLUMNS = `id, project_id AS projectId, title, title_source AS titleSource, source, prompt,
+  primary_session_id AS primarySessionId, branch, workspace_path AS workspacePath,
+  owns_worktree AS ownsWorktree, state, seen_at AS seenAt, created_at AS createdAt`;
 
 export class TaskStore {
   readonly #db: DatabaseSync;
@@ -40,8 +40,8 @@ export class TaskStore {
   insert(task: Task): void {
     this.#db
       .prepare(
-        `INSERT INTO tasks (id, project_id, title, title_source, source, branch, workspace_path, owns_worktree, state, seen_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, title, title_source, source, prompt, branch, workspace_path, owns_worktree, state, seen_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         task.id,
@@ -49,6 +49,7 @@ export class TaskStore {
         task.title,
         task.titleSource,
         task.source === undefined ? null : JSON.stringify(task.source),
+        task.prompt,
         task.branch,
         task.workspacePath,
         task.ownsWorktree ? 1 : 0,
@@ -56,6 +57,11 @@ export class TaskStore {
         task.seenAt,
         task.createdAt,
       );
+  }
+
+  /** Records the session created from the task's prompt, once it exists. */
+  setPrimarySession(id: string, sessionId: string): void {
+    this.#db.prepare("UPDATE tasks SET primary_session_id = ? WHERE id = ?").run(sessionId, id);
   }
 
   setState(id: string, state: Task["state"]): void {

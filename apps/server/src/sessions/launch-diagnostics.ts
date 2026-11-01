@@ -6,6 +6,7 @@ import {
   LaunchProfileChangedError,
   LaunchProfileKindMismatchError,
   LaunchProfileRevisionWithoutProfileError,
+  LaunchProfileUnknownError,
   LaunchSpawnError,
 } from "./errors.ts";
 
@@ -48,6 +49,7 @@ export function launchFailureReason(error: unknown): string {
   if (error instanceof LaunchSpawnError) return error.summary;
   if (
     error instanceof AgentNotFoundError ||
+    error instanceof LaunchProfileUnknownError ||
     error instanceof LaunchProfileChangedError ||
     error instanceof LaunchProfileRevisionWithoutProfileError ||
     error instanceof LaunchProfileKindMismatchError ||

@@ -5,6 +5,7 @@ import type {
   Session,
   SessionKind,
   Task,
+  TaskAgent,
   TerminalInfo,
   TerminalSize,
 } from "@corral/protocol/rpc";
@@ -42,8 +43,17 @@ import { launchDiagnostic, launchFailureReason, redactLaunchError } from "./laun
 import { launchSnapshotFor } from "./launch-snapshot.ts";
 import type { SessionStore, StoredSession } from "./session-store.ts";
 
-/** Sessions started again after a server restart have no client to size them yet. */
-const RESTORED_SIZE: TerminalSize = { cols: 80, rows: 24 };
+/** Sessions started with no client to size them yet: a restored one, or a task's primary session. */
+const UNATTACHED_SIZE: TerminalSize = { cols: 80, rows: 24 };
+
+/** What `start` and `startPrimary` let the caller choose; the launch snapshot is made from it. */
+export interface SessionStartChoice {
+  profileId?: string | undefined;
+  expectedProfileRevision?: string | undefined;
+  model?: string | undefined;
+  /** What the agent's TUI starts working on; the first launch is the only one that gets it. */
+  prompt?: string | undefined;
+}
 
 /**
  * The terminal a session runs in, the search for the Codex id while there is none yet, and the
@@ -106,45 +116,91 @@ export class SessionService {
     taskId: string,
     kind: SessionKind,
     size: TerminalSize,
-    choice: {
-      profileId?: string | undefined;
-      expectedProfileRevision?: string | undefined;
-      model?: string | undefined;
-      /** What the agent's TUI starts working on; this first launch is the only one that gets it. */
-      prompt?: string | undefined;
-    } = {},
+    choice: SessionStartChoice = {},
   ): Promise<Session> {
-    return this.#queue.run(async () => {
-      const task = this.#task(taskId);
-      const profile = choice.profileId === undefined ? undefined : this.#profile(choice.profileId);
-      if (choice.expectedProfileRevision !== undefined) {
-        if (profile === undefined) throw new LaunchProfileRevisionWithoutProfileError();
-        if (profile.revision !== choice.expectedProfileRevision)
-          throw new LaunchProfileChangedError(profile.id);
-      }
-      const launch = launchSnapshotFor({ kind, profile, modelOverride: choice.model });
-      const stored: StoredSession = {
-        id: newId(),
+    return this.#queue.run(() => this.#start(taskId, kind, size, choice, false));
+  }
+
+  /**
+   * Starts the agent session a task was created with, before any client is attached. Unlike
+   * `start`, a launch that fails keeps the session: it stays `stopped` with its launch error, so the
+   * task keeps what the user made and can start it again (design.md, **Domain model → Task →
+   * Creation**). Nothing here throws for the launch itself; the caller keeps the task either way.
+   */
+  startPrimary(taskId: string, agent: TaskAgent, prompt: string | null): Promise<Session> {
+    return this.#queue.run(() =>
+      this.#start(
         taskId,
-        kind,
-        agentSessionId: kind === "shell" ? null : AGENTS[kind].newSessionId(),
-        state: "running",
-        label: null,
-        createdAt: Date.now(),
-        launch,
-      };
+        agent.kind,
+        UNATTACHED_SIZE,
+        {
+          profileId: agent.profileId,
+          expectedProfileRevision: agent.expectedProfileRevision,
+          model: agent.model,
+          prompt: prompt ?? undefined,
+        },
+        true,
+      ),
+    );
+  }
+
+  async #start(
+    taskId: string,
+    kind: SessionKind,
+    size: TerminalSize,
+    choice: SessionStartChoice,
+    keepFailedLaunch: boolean,
+  ): Promise<Session> {
+    const task = this.#task(taskId);
+    const stored: StoredSession = {
+      id: newId(),
+      taskId,
+      kind,
+      agentSessionId: kind === "shell" ? null : AGENTS[kind].newSessionId(),
+      state: "running",
+      label: null,
+      createdAt: Date.now(),
+      launch: null,
+    };
+    try {
+      stored.launch = this.#launchSnapshot(kind, choice);
       const prompt = this.#promptFor(kind, choice.prompt);
       this.#launch(stored, task, size, "start", prompt);
-      this.#store.insert(stored);
+    } catch (error) {
+      if (!keepFailedLaunch) throw error;
+      const reason = launchFailureReason(error);
+      const failed: StoredSession = { ...stored, state: "stopped" };
+      this.#store.insert(failed);
+      this.#launchErrors.set(failed.id, reason);
       this.#changes.notify();
-      return this.#withTerminal(stored);
-    });
+      console.error(
+        `corral-server: could not start the primary session of task ${taskId} (${kind}): ${reason}`,
+        launchDiagnostic(error),
+      );
+      return this.#withTerminal(failed);
+    }
+    this.#store.insert(stored);
+    this.#changes.notify();
+    return this.#withTerminal(stored);
+  }
+
+  /** The launch choices as they are stored on the session; resolves the profile the caller named. */
+  #launchSnapshot(kind: SessionKind, choice: SessionStartChoice) {
+    const profile = choice.profileId === undefined ? undefined : this.#profile(choice.profileId);
+    if (choice.expectedProfileRevision !== undefined) {
+      if (profile === undefined) throw new LaunchProfileRevisionWithoutProfileError();
+      if (profile.revision !== choice.expectedProfileRevision)
+        throw new LaunchProfileChangedError(profile.id);
+    }
+    return launchSnapshotFor({ kind, profile, modelOverride: choice.model });
   }
 
   /**
    * Starts a stopped session again. `prompt` is used only when the agent has no conversation to
    * resume and starts one instead — Claude Code that failed before writing its transcript — so the
-   * caller decides whether to hand it over again; a real resume drops it.
+   * caller decides whether to hand it over again; a real resume drops it. The task's primary
+   * session gets its task's prompt again by itself: that is the work the task was made for, and
+   * only a start that never reached the agent gets it.
    */
   restart(
     id: string,
@@ -154,7 +210,7 @@ export class SessionService {
     return this.#queue.run(async () => {
       const stored = this.#stored(id);
       if (stored.state === "running") throw new AlreadyRunningError(id);
-      const prompt = this.#promptFor(stored.kind, choice.prompt);
+      const prompt = this.#promptFor(stored.kind, choice.prompt ?? this.#taskPrompt(stored));
       // The exited terminal of a session that stopped by itself stays listed until now.
       const previous = this.#live.get(id);
       try {
@@ -339,6 +395,13 @@ export class SessionService {
     return profile;
   }
 
+  /** The prompt of the task whose primary session this is, if it is one (design.md, **Sessions**). */
+  #taskPrompt(stored: StoredSession): string | undefined {
+    const task = this.#tasks.get(stored.taskId);
+    // Only an agent becomes primary, so a prompt never lands on a shell here.
+    return task?.primarySessionId === stored.id ? (task.prompt ?? undefined) : undefined;
+  }
+
   /**
    * The prompt a caller asked for, or `null`. A shell runs no agent, so it takes none: dropping
    * one silently would lose the user's words without a trace.
@@ -471,7 +534,7 @@ export class SessionService {
         this.#store.setState(stored.id, "unresumable");
         return;
       }
-      this.#launch(stored, this.#task(stored.taskId), RESTORED_SIZE, "resume");
+      this.#launch(stored, this.#task(stored.taskId), UNATTACHED_SIZE, "resume");
       this.#store.setState(stored.id, "running");
     } catch (error) {
       const reason = launchFailureReason(error);

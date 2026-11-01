@@ -1,4 +1,4 @@
-import type { CreateTaskInput, Project, Task } from "@corral/protocol/rpc";
+import type { CreateTaskInput, Project, Session, Task, TaskAgent } from "@corral/protocol/rpc";
 import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -24,6 +24,7 @@ import type { ProjectStore } from "../projects/project-store.ts";
 import { newId } from "../storage/ids.ts";
 import { BlankTaskTitleError, TaskNotFoundError, WorktreeDirtyError } from "./errors.ts";
 import { SerialQueue } from "./serial-queue.ts";
+import { seedTitle } from "./seed-title.ts";
 import type { TaskSettings } from "./task-settings.ts";
 import type { TaskStore } from "./task-store.ts";
 import { isPlanFailure, planWorktree, type WorktreePlan } from "./worktree-plan.ts";
@@ -37,6 +38,12 @@ export interface TaskSessions {
   suspendAllIn(taskId: string): Promise<void>;
   /** Starts the sessions `suspendAllIn` remembered. */
   resumeAllIn(taskId: string): Promise<void>;
+  /**
+   * Starts a task's primary agent session with the task's prompt. A launch that fails does not
+   * throw: it leaves the session `stopped` with its launch error, so the task keeps it and the
+   * user can start it again.
+   */
+  startPrimary(taskId: string, agent: TaskAgent, prompt: string | null): Promise<Session>;
 }
 
 export class TaskService implements ProjectTasks {
@@ -123,18 +130,23 @@ export class TaskService implements ProjectTasks {
   async #create(input: CreateTaskInput): Promise<Task> {
     const project = this.#project(input.projectId);
     const { workspace } = input;
-    const title = input.title ?? input.source?.title;
-    // The contract requires one of the two; this guard keeps direct callers honest too.
+    // A blank prompt is the same as none; the wire schema trimmed it already.
+    const prompt = input.prompt === undefined || input.prompt === "" ? null : input.prompt;
+    // An explicit title and an issue's title are the user's: the first was typed, the second seen
+    // and accepted. Only a prompt-only task gets the seed (design.md, decision 16).
+    const named = input.title ?? input.source?.title;
+    const title = named ?? (prompt === null ? undefined : seedTitle(prompt));
+    // The contract requires one of the three; this guard keeps direct callers honest too.
     if (title === undefined)
-      throw new Error("a title is required unless the task comes from an issue source");
+      throw new Error("a title is required unless the task comes from an issue source or a prompt");
     const task: Task = {
       id: newId(),
       projectId: project.id,
       title,
-      // A task made in the form is named by the user; A3 and A4 write the seed and generated
-      // titles instead.
-      titleSource: "user",
+      titleSource: named === undefined ? "seed" : "user",
       ...(input.source === undefined ? {} : { source: input.source }),
+      prompt,
+      primarySessionId: null,
       branch: "",
       workspacePath: project.path,
       ownsWorktree: false,
@@ -145,7 +157,7 @@ export class TaskService implements ProjectTasks {
 
     if (workspace.type === "main-worktree") {
       task.branch = (await currentBranch(project.path)) ?? "HEAD";
-      return this.#record(task);
+      return this.#record(task, input.agent);
     }
 
     const plan = planWorktree(workspace, {
@@ -165,14 +177,15 @@ export class TaskService implements ProjectTasks {
     await mkdir(join(path, ".."), { recursive: true });
     try {
       await addWorktree(project.path, path, plan);
-      task.branch = plan.branch;
-      task.workspacePath = path;
-      task.ownsWorktree = true;
-      return this.#record(task);
     } catch (error) {
       await undoWorktree(project.path, path, plan);
       throw error;
     }
+    task.branch = plan.branch;
+    task.workspacePath = path;
+    task.ownsWorktree = true;
+    // Outside the undo scope: the worktree is good, and a session that cannot start must not remove it.
+    return this.#record(task, input.agent);
   }
 
   #project(id: string) {
@@ -181,10 +194,19 @@ export class TaskService implements ProjectTasks {
     return project;
   }
 
-  #record(task: Task): Task {
+  /**
+   * Stores the task and, when the composer named an agent, starts its primary session with the
+   * prompt. One notification covers both, so a client never sees a task without the session it
+   * was created with.
+   */
+  async #record(task: Task, agent: TaskAgent | undefined): Promise<Task> {
     this.#store.insert(task);
+    if (agent !== undefined) {
+      const session = await this.#sessions.startPrimary(task.id, agent, task.prompt);
+      this.#store.setPrimarySession(task.id, session.id);
+    }
     this.#changes.notify();
-    return task;
+    return this.get(task.id);
   }
 
   /** `<worktree root>/<repo>/<slug>`, in a directory that does not exist yet. */

@@ -44,6 +44,12 @@ export const MIGRATIONS: readonly string[] = [
   // When the user last saw the task's agent updates, in epoch milliseconds; NULL until first seen.
   // Server-owned so every client derives the same "completed and unseen" state.
   `ALTER TABLE tasks ADD COLUMN seen_at INTEGER;`,
+  // The prompt a task was created from and the agent session started from it (design.md, **Domain
+  // model → Task → Creation** and **Sessions**). Tasks from before have neither. The foreign key is
+  // what takes the reference away when that session is removed; SQLite allows one here because the
+  // column defaults to NULL.
+  `ALTER TABLE tasks ADD COLUMN prompt TEXT;
+   ALTER TABLE tasks ADD COLUMN primary_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL;`,
 ];
 
 export const DATABASE_FILE = "corral.db";

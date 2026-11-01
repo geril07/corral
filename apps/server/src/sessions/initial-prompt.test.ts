@@ -64,6 +64,8 @@ beforeEach(async () => {
       projectId: project.id,
       title: "Prompt",
       titleSource: "user",
+      prompt: null,
+      primarySessionId: null,
       branch: "main",
       workspacePath: workspace,
       ownsWorktree: false,

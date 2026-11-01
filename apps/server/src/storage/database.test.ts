@@ -149,8 +149,8 @@ test("migrating a labelled database adds the task source without touching labels
 test("migrating a database from before title sources makes every existing title the user's", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
-  // Every migration before the title source; it and the later seen-at one are left out.
-  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 2));
+  // Every migration before the title source; it and the two later ones are left out.
+  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 3));
   db.exec(`
     INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
     INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
@@ -168,7 +168,8 @@ test("migrating a database from before title sources makes every existing title 
 test("migrating a database from before seenAt leaves its tasks unread", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
-  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
+  // The title source is there; the seen-at column and the prompt migration are not.
+  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 2));
   db.exec(`
     INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
     INSERT INTO tasks (id, project_id, title, title_source, branch, workspace_path, owns_worktree, state, created_at)
@@ -181,11 +182,77 @@ test("migrating a database from before seenAt leaves its tasks unread", () => {
   db.close();
 });
 
+test("migrating a database from before task prompts adds both columns empty and keeps the tasks", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
+  db.exec(`
+    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
+    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
+      VALUES ('t', 'p', 'typed by hand', 'b', '/n', 0, 'active', 1);
+    INSERT INTO sessions (id, task_id, kind, agent_session_id, state, created_at)
+      VALUES ('s', 't', 'shell', NULL, 'running', 2);
+  `);
+
+  migrate(db, MIGRATIONS);
+
+  expect(db.prepare("SELECT id, prompt, primary_session_id FROM tasks").all()).toEqual([
+    { id: "t", prompt: null, primary_session_id: null },
+  ]);
+  expect(new TaskStore(db).get("t")).toMatchObject({ prompt: null, primarySessionId: null });
+  db.close();
+});
+
+test("a task's primary session reference goes away with that session, not with the task", () => {
+  const db = openDatabase(dataDir);
+  db.exec(
+    "INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main')",
+  );
+  const tasks = new TaskStore(db);
+  const sessions = new SessionStore(db);
+  tasks.insert(storedTask("a", "seed"));
+  sessions.insert({
+    id: "primary",
+    taskId: "a",
+    kind: "claude",
+    agentSessionId: "conversation",
+    state: "running",
+    label: null,
+    createdAt: 2,
+    launch: null,
+  });
+  tasks.setPrimarySession("a", "primary");
+  expect(tasks.get("a")).toMatchObject({ primarySessionId: "primary" });
+
+  sessions.delete("primary");
+
+  expect(tasks.get("a")).toMatchObject({ primarySessionId: null });
+
+  // Removing the task takes its remaining sessions along; the reference never points at nothing.
+  sessions.insert({
+    id: "other",
+    taskId: "a",
+    kind: "claude",
+    agentSessionId: "conversation-2",
+    state: "stopped",
+    label: null,
+    createdAt: 3,
+    launch: null,
+  });
+  tasks.setPrimarySession("a", "other");
+  tasks.delete("a");
+
+  expect(sessions.list()).toEqual([]);
+  db.close();
+});
+
 const storedTask = (id: string, titleSource: Task["titleSource"]): Task => ({
   id,
   projectId: "p",
   title: `${titleSource} title`,
   titleSource,
+  prompt: null,
+  primarySessionId: null,
   branch: `branch-${id}`,
   workspacePath: `/work/${id}`,
   ownsWorktree: false,

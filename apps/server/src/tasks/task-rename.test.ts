@@ -21,6 +21,8 @@ const storedTask = (id: string): Task => ({
   projectId: "p",
   title: "typed by hand",
   titleSource: "user",
+  prompt: null,
+  primarySessionId: null,
   branch: "branch",
   workspacePath: `/work/${id}`,
   ownsWorktree: false,
@@ -53,6 +55,9 @@ test("a rename queued behind a removal waits for it and fails without writing th
     },
     suspendAllIn: () => Promise.resolve(),
     resumeAllIn: () => Promise.resolve(),
+    startPrimary: () => {
+      throw new Error("a rename starts no session");
+    },
   };
   const { tasks, store, db } = serviceWith(sessions);
 
@@ -76,6 +81,9 @@ test("a blank title is refused before anything is written, so the task list stil
     removeAllIn: () => Promise.resolve(),
     suspendAllIn: () => Promise.resolve(),
     resumeAllIn: () => Promise.resolve(),
+    startPrimary: () => {
+      throw new Error("a rename starts no session");
+    },
   };
   const { tasks, store, db } = serviceWith(sessions);
 
@@ -92,6 +100,9 @@ test("a rename that runs before a removal applies, and the removal then takes th
     removeAllIn: () => Promise.resolve(),
     suspendAllIn: () => Promise.resolve(),
     resumeAllIn: () => Promise.resolve(),
+    startPrimary: () => {
+      throw new Error("a rename starts no session");
+    },
   };
   const { tasks, store, db } = serviceWith(sessions);
 

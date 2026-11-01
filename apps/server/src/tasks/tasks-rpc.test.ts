@@ -3,14 +3,17 @@ import { chmodSync, existsSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vite-plus/test";
+import { useFakeAgents } from "../../test/fake-agents.ts";
 import { cloneOfOrigin, commitFile, runGit, writeFiles } from "../../test/git-repo.ts";
 import { addProject } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
-import { sessionsOf } from "../../test/session-helpers.ts";
+import { launchesOf, sessionsOf } from "../../test/session-helpers.ts";
 import { openDatabase } from "../storage/database.ts";
 import { TaskStore } from "./task-store.ts";
 
 const server = useServer();
+const agents = useFakeAgents();
+const SIZE = { cols: 80, rows: 24 };
 
 const worktreePaths = (repo: string) =>
   runGit(repo, "worktree", "list", "--porcelain")
@@ -39,6 +42,8 @@ test("a new-branch task gets a branch named from its title, in a worktree under 
     projectId: project.id,
     title: "Fix the login bug",
     titleSource: "user",
+    prompt: null,
+    primarySessionId: null,
     branch: "fix-the-login-bug",
     workspacePath: expectedPath,
     ownsWorktree: true,
@@ -382,6 +387,8 @@ test("a task created under the old layout keeps its stored path and can still be
     title: "Legacy",
     // A row from before title sources; the migration marked those as the user's.
     titleSource: "user",
+    prompt: null,
+    primarySessionId: null,
     branch: "legacy",
     workspacePath: legacyPath,
     ownsWorktree: true,
@@ -632,4 +639,184 @@ test("removing a project drops its tasks and leaves their worktrees and branches
   expect(existsSync(task.workspacePath)).toBe(true);
   expect(branches(repo)).toContain("orphaned");
   await updates.return?.();
+});
+
+test("a prompt with an agent seeds the title and starts the primary session with that prompt", async () => {
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+  const prompt = "Make the login retry\n  and say why it failed  ";
+
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt,
+    agent: { kind: "claude" },
+    workspace: { type: "new-branch" },
+  });
+
+  expect(task).toMatchObject({
+    title: "Make the login retry",
+    titleSource: "seed",
+    prompt: "Make the login retry\n  and say why it failed",
+    ownsWorktree: true,
+  });
+  const session = (await sessionsOf(api))[0]!;
+  expect(session).toMatchObject({
+    id: task.primarySessionId,
+    taskId: task.id,
+    kind: "claude",
+    state: "running",
+    terminalId: expect.any(String),
+  });
+  const [launch] = await launchesOf(agents, "claude", 1);
+  expect(launch!.argv).toEqual(["--session-id", session.agentSessionId, ` ${task.prompt}`]);
+  expect(launch!.cwd).toBe(task.workspacePath);
+});
+
+test("a prompt without an agent makes an empty task: the prompt is kept, nothing starts", async () => {
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "Only a prompt",
+    workspace: { type: "main-worktree" },
+  });
+
+  expect(task).toMatchObject({
+    title: "Only a prompt",
+    titleSource: "seed",
+    prompt: "Only a prompt",
+    primarySessionId: null,
+  });
+  expect(await sessionsOf(api)).toEqual([]);
+  expect(await api.terminals.list()).toEqual([]);
+});
+
+test("an explicit or issue title wins over the prompt's seed, and a blank prompt is no prompt", async () => {
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+
+  const named = await api.tasks.create({
+    projectId: project.id,
+    title: "My own name",
+    prompt: "Something the agent should do",
+    workspace: { type: "main-worktree" },
+  });
+  const fromIssue = await api.tasks.create({
+    projectId: project.id,
+    source: {
+      provider: "github",
+      host: "github.com",
+      repository: "acme/app",
+      number: 9,
+      url: "https://github.com/acme/app/issues/9",
+      title: "Issue wording",
+      body: "",
+      fetchedAt: 1,
+    },
+    prompt: "Something the agent should do",
+    workspace: { type: "main-worktree" },
+  });
+  const blank = await api.tasks.create({
+    projectId: project.id,
+    title: "Named only",
+    prompt: "   ",
+    workspace: { type: "main-worktree" },
+  });
+
+  expect(named).toMatchObject({ title: "My own name", titleSource: "user" });
+  expect(fromIssue).toMatchObject({ title: "Issue wording", titleSource: "user" });
+  expect(blank).toMatchObject({ title: "Named only", prompt: null });
+});
+
+test("a task with neither a title, an issue nor a prompt is refused", async () => {
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+
+  await expect(
+    api.tasks.create({ projectId: project.id, workspace: { type: "main-worktree" } }),
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(
+    api.tasks.create({
+      projectId: project.id,
+      prompt: "   ",
+      workspace: { type: "main-worktree" },
+    }),
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  expect((await api.tasks.watch().then((updates) => updates.next())).value).toEqual([]);
+});
+
+test("a primary session that cannot launch keeps the task and stays stopped with the error, and a restart starts it with the prompt", async () => {
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "Fix the flaky test",
+    // A profile the config file does not have: the launch is refused before anything is spawned.
+    agent: { kind: "claude", profileId: "gone" },
+    workspace: { type: "new-branch" },
+  });
+
+  expect(task).toMatchObject({
+    title: "Fix the flaky test",
+    titleSource: "seed",
+    workspacePath: expect.any(String),
+  });
+  expect(existsSync(task.workspacePath)).toBe(true);
+  const failed = (await sessionsOf(api))[0]!;
+  expect(failed).toMatchObject({
+    id: task.primarySessionId,
+    taskId: task.id,
+    kind: "claude",
+    state: "stopped",
+    terminalId: null,
+  });
+  expect(failed.launchError).toBe("no usable launch profile: gone");
+
+  // The same session starts again: no conversation was ever written, so it carries the prompt.
+  const restarted = await api.sessions.restart({ id: failed.id, size: SIZE });
+
+  expect(restarted).toMatchObject({ id: failed.id, state: "running", launchError: null });
+  const [launch] = await launchesOf(agents, "claude", 1);
+  expect(launch!.argv).toEqual(["--session-id", restarted.agentSessionId, " Fix the flaky test"]);
+});
+
+test("restarting the primary session of a task resumes a conversation without repeating the prompt", async () => {
+  vi.stubEnv("FAKE_CLAUDE_TRANSCRIPT", "eager");
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "Write the migration",
+    agent: { kind: "claude" },
+    workspace: { type: "main-worktree" },
+  });
+  await launchesOf(agents, "claude", 1);
+
+  const id = task.primarySessionId!;
+  const conversation = (await sessionsOf(api)).find((session) => session.id === id)!.agentSessionId;
+
+  await api.sessions.stop({ id });
+  await api.sessions.restart({ id, size: SIZE });
+
+  expect((await launchesOf(agents, "claude", 2))[1]!.argv).toEqual(["--resume", conversation]);
+});
+
+test("removing the primary session clears the task's reference to it and leaves its prompt", async () => {
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "Clean up the fixtures",
+    agent: { kind: "claude" },
+    workspace: { type: "main-worktree" },
+  });
+  expect(task.primarySessionId).not.toBeNull();
+
+  await api.sessions.remove({ id: task.primarySessionId! });
+
+  expect((await api.tasks.watch().then((updates) => updates.next())).value).toEqual([
+    { ...task, primarySessionId: null },
+  ]);
 });
