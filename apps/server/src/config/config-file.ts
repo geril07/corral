@@ -433,15 +433,31 @@ function namingLayer(
   const profile = profileRef(value["profile"], `${NAMING_PATH}.profile`, problems, profilesById);
   const agent = choiceField(AgentKind.options, value["agent"], `${NAMING_PATH}.agent`, problems);
   const launchedAgent = agentKeepingProfile(agent, profile, `${NAMING_PATH}.agent`, problems);
-  if (profile !== undefined) layer.profile = profile.id;
-  if (launchedAgent !== undefined) layer.agent = launchedAgent;
-  // A profile wins over the agent, so its agent is the one the model has to fit.
-  const model = modelField(
-    value["model"],
-    `${NAMING_PATH}.model`,
-    profile?.agent ?? launchedAgent,
-    problems,
-  );
+  // Naming runs unattended and must leave no session behind. OpenCode 2.2.5 has no such mode
+  // (`opencode run` always persists a session), so it cannot name; the entry is dropped whole.
+  const runner = profile?.agent ?? launchedAgent;
+  if (runner === "opencode") {
+    problems.push(
+      errorAt(
+        profile !== undefined ? `${NAMING_PATH}.profile` : `${NAMING_PATH}.agent`,
+        "opencode cannot generate names: its non-interactive mode always saves a session",
+      ),
+    );
+  } else {
+    if (profile !== undefined) layer.profile = profile.id;
+    if (launchedAgent !== undefined) layer.agent = launchedAgent;
+  }
+  // A profile wins over the agent, so its agent is the one the model has to fit. An OpenCode
+  // runner is already refused above, so its missing model flag is not a second problem.
+  const model =
+    runner === "opencode"
+      ? undefined
+      : modelField(
+          value["model"],
+          `${NAMING_PATH}.model`,
+          profile?.agent ?? launchedAgent,
+          problems,
+        );
   if (model !== undefined) {
     // Unlike `[tasks]`, naming runs unattended: a model the file names no agent or profile for
     // would never run, so it is a problem of its own. A runner that was written but rejected is

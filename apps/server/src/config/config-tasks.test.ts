@@ -244,8 +244,7 @@ agent = "codex"
   ]);
 });
 
-test("a naming model is checked against its profile's agent, not a table agent", () => {
-  // Before the profile's agent decided the check, a model here only had to look like a model id.
+test("a naming profile that launches opencode is refused, since it cannot save no session", () => {
   const { config, problems } = parse(`
 [profiles.oc]
 name = "OpenCode team"
@@ -256,13 +255,13 @@ profile = "oc"
 model = "gpt-5"
 `);
 
-  expect(config.naming.profile).toEqual({ value: "oc", source: "global" });
+  expect(config.naming.profile).toEqual({ value: null, source: "default" });
   expect(config.naming.model).toEqual({ value: null, source: "default" });
   expect(problems).toEqual([
     {
       severity: "error",
-      path: "naming.model",
-      message: "opencode has no model flag on its launch command; a profile for it is env-only",
+      path: "naming.profile",
+      message: "opencode cannot generate names: its non-interactive mode always saves a session",
     },
   ]);
 });
@@ -311,12 +310,18 @@ test("a model its agent has no flag for is dropped while the agent applies", () 
   ]);
 });
 
-test("a naming model its agent has no flag for is dropped while the agent applies", () => {
+test("an opencode naming agent is dropped with the reason, so naming stays off", () => {
   const { config, problems } = parse('[naming]\nagent = "opencode"\nmodel = "gpt-5"\n');
 
-  expect(config.naming.agent).toEqual({ value: "opencode", source: "global" });
+  expect(config.naming.agent).toEqual({ value: null, source: "default" });
   expect(config.naming.model).toEqual({ value: null, source: "default" });
-  expect(problems.map((problem) => problem.path)).toEqual(["naming.model"]);
+  expect(problems).toEqual([
+    {
+      severity: "error",
+      path: "naming.agent",
+      message: "opencode cannot generate names: its non-interactive mode always saves a session",
+    },
+  ]);
 });
 
 test("a rejected [tasks] entry drops only itself", () => {
