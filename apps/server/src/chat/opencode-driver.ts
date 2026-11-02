@@ -63,7 +63,8 @@ export class OpenCodeDriver implements ChatDriver {
   #closed = false;
   #stopping = false;
   #readyTimer: NodeJS.Timeout | undefined;
-  #stream: AbortController | undefined;
+  /** The live SSE body; cancelling it is how a stop ends the stream without aborting the fetch. */
+  #body: ReadableStream<Uint8Array> | undefined;
   #reconnectTimer: NodeJS.Timeout | undefined;
   #connecting = false;
   #promptSent = false;
@@ -110,7 +111,6 @@ export class OpenCodeDriver implements ChatDriver {
     this.#stopping = true;
     this.#clearTimers();
     for (const itemId of this.#projection.expireAll()) this.#clearRequestTimer(itemId);
-    this.#stream?.abort();
     this.#finish(null);
   }
 
@@ -218,23 +218,31 @@ export class OpenCodeDriver implements ChatDriver {
   async #connect(): Promise<string> {
     if (this.#connecting) return "already connecting";
     this.#connecting = true;
-    const controller = new AbortController();
-    this.#stream = controller;
     const buffered: unknown[] = [];
     let connected = false;
     try {
       if (!this.#hydrated) await this.#ensureSession();
+      // No abort signal on the stream: aborting a fetch with an open body destroys an undici
+      // response with an error nobody can observe. Cancelling the body stops the read instead, and
+      // a server that has not answered yet is bounded by the ready/request deadlines.
       const response = await fetch(this.#url("/api/event"), {
         headers: {
           ...this.#authHeaders(),
           accept: "text/event-stream",
           "cache-control": "no-cache",
         },
-        signal: controller.signal,
       });
-      if (!response.ok) return `the opencode server answered ${response.status} for its events`;
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        return `the opencode server answered ${response.status} for its events`;
+      }
       const body = response.body;
       if (body === null) return "the opencode server sent no event stream";
+      this.#body = body;
+      if (this.#closed) {
+        await body.cancel().catch(() => undefined);
+        return "connected";
+      }
       let parser = new ServerSentEvents();
       for await (const chunk of body) {
         const events = parser.push(new TextDecoder().decode(chunk, { stream: true }));
@@ -262,7 +270,7 @@ export class OpenCodeDriver implements ChatDriver {
       return `lost the opencode server: ${messageOf(error)}`;
     } finally {
       this.#connecting = false;
-      if (this.#stream === controller) this.#stream = undefined;
+      this.#body = undefined;
     }
   }
 
@@ -410,7 +418,7 @@ export class OpenCodeDriver implements ChatDriver {
     this.#closed = true;
     this.#clearTimers();
     this.#clearReadyTimer();
-    this.#stream?.abort();
+    void this.#body?.cancel().catch(() => undefined);
     this.#request.onExit(reason);
   }
 
