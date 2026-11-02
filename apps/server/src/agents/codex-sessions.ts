@@ -1,6 +1,7 @@
 // Workaround: Codex cannot be started under an id we choose, and Corral installs no hook in the
 // user's global Codex config. Instead the server finds the rollout file the new Codex process
 // writes in `$CODEX_HOME/sessions`. Everything that depends on Codex's file layout is in here.
+import { readdirSync } from "node:fs";
 import { open, readdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +15,40 @@ const READ_CHUNK_BYTES = 64 * 1024;
 
 export function codexHome(env: NodeJS.ProcessEnv): string {
   return env["CODEX_HOME"] || join(homedir(), ".codex");
+}
+
+/**
+ * Whether this Codex home holds the rollout of `id`. It is the durable conversation: `thread/start`
+ * through the app-server (or the TUI) creates a thread, but only a turn writes the file, so an id
+ * without one cannot be resumed. Synchronous, like Claude's transcript check, because it answers a
+ * launch's `resumable` question before any argv is built; a home has a handful of day directories.
+ */
+export function codexHasRollout(home: string, agentSessionId: string): boolean {
+  const root = join(home, "sessions");
+  const suffix = `-${agentSessionId}.jsonl`;
+  for (const year of numericDirectories(root)) {
+    for (const month of numericDirectories(join(root, year))) {
+      for (const day of numericDirectories(join(root, year, month))) {
+        const directory = join(root, year, month, day);
+        try {
+          if (readdirSync(directory).some((name) => name.endsWith(suffix))) return true;
+        } catch {
+          // A day directory can vanish between listings; the next one may still have the file.
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function numericDirectories(path: string): string[] {
+  try {
+    return readdirSync(path, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
 }
 
 export interface RolloutHead {

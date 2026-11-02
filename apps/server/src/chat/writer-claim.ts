@@ -55,6 +55,22 @@ export function releaseWriter(path: string): void {
 }
 
 /**
+ * Forgets the record only if it still names `pid`. A server that exited must not delete the record
+ * of the process that replaced it: a start can fail after its own record was written by someone
+ * else's launch, and the older record is what fences the next one.
+ */
+export function releaseWriterIf(path: string, pid: number | undefined): void {
+  if (pid === undefined) return;
+  const raw = readWriterFile(path);
+  if (raw === undefined) return;
+  const parsed = WriterRecord.safeParse(safeJson(raw));
+  // A record that cannot be read cannot be proven to be someone else's; the next launch refuses
+  // rather than guesses. One that names another process is that process's fence.
+  if (!parsed.success || parsed.data.pid !== pid) return;
+  rmSync(path, { force: true });
+}
+
+/**
  * Stops the writer a previous server left behind, or waits until it is gone, before this server
  * spawns its own. A driver's stop asks politely first (pi closes stdin and exits on EOF even
  * mid-turn; measured on pi 1.4.0, see the B1 report), but a server that died without closing its

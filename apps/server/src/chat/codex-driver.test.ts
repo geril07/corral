@@ -25,6 +25,8 @@ interface Harness {
   /** A driver on the session's app-server; `stop()` leaves the server for the next one. */
   open(options?: {
     prompt?: string | null;
+    model?: string | null;
+    provider?: string | null;
     agentSessionId?: string | null;
     onAgentSessionId?: (id: string) => void;
   }): Promise<{
@@ -73,6 +75,8 @@ async function harness(sessionId = "corral-codex-session"): Promise<Harness> {
         cwd: root,
         env: processEnv(),
         prompt: options.prompt ?? null,
+        model: options.model ?? null,
+        provider: options.provider ?? null,
         agentSessionId: options.agentSessionId ?? null,
         socket: server.socketPath,
         writer: { record: () => {}, release: () => {} },
@@ -215,6 +219,29 @@ test(
 );
 
 test(
+  "the launch's model and provider open the thread, not the app-server's default",
+  { timeout: 20_000 },
+  async () => {
+    const test1 = await harness("corral-codex-model");
+    const journalPath = join(test1.root, "server.jsonl");
+    process.env["FAKE_CODEX_SERVER_LOG"] = journalPath;
+    try {
+      await test1.open({ model: "stub-alt", provider: "work" });
+      await until(async () => {
+        const threads = (await journal(journalPath))
+          .map((entry) => entry["thread"])
+          .filter(isRecord);
+        return threads.some((thread) => thread["model"] === "stub-alt");
+      }, "the thread to carry the launch's model");
+      const threads = (await journal(journalPath)).map((entry) => entry["thread"]).filter(isRecord);
+      expect(threads[0]).toMatchObject({ model: "stub-alt", modelProvider: "work" });
+    } finally {
+      await test1.close();
+    }
+  },
+);
+
+test(
   "a thread the terminal started is adopted instead of starting a second one",
   { timeout: 20_000 },
   async () => {
@@ -265,6 +292,13 @@ test(
           ),
         "the steered message",
       );
+      // A follow-up is declared off: it is refused visibly and is not added as a sent message.
+      const refused = driver.send("a follow-up", "follow-up");
+      expect(refused).toMatch(/^error:send:/);
+      expect(
+        items(timeline).some((item) => item.kind === "user-message" && item.text === "a follow-up"),
+      ).toBe(false);
+
       await driver.abort();
       await until(() => timeline.state.turn === "aborted", "the aborted turn");
       // The text that streamed before the interrupt stayed in the timeline.
@@ -280,7 +314,9 @@ test(
   { timeout: 20_000 },
   async () => {
     const test1 = await harness("corral-codex-approval");
-    process.env["FAKE_CODEX_SERVER_LOG"] = join(test1.root, "server.jsonl");
+    const journalPath = join(test1.root, "server.jsonl");
+    const decisionsPath = `${journalPath}.decisions`;
+    process.env["FAKE_CODEX_SERVER_LOG"] = journalPath;
     try {
       const writer = await test1.open();
       // The writer's thread exists before the second frontend opens, so it adopts that one: two
@@ -303,12 +339,27 @@ test(
       const observerRequest = items(observer.timeline).find(
         (item) => item.kind === "user-request",
       )!;
+      // Only what the server offered: the real request carried an object-valued decision too,
+      // which has no plain-string form in the contract and is not offered.
       expect(
         writerRequest.kind === "user-request" &&
           writerRequest.options.map((option) => option.value),
-      ).toEqual(["accept", "acceptForSession", "decline", "cancel"]);
+      ).toEqual(["accept", "cancel"]);
+      // The unmapped `item/tool/requestUserInput` the fake sends on `thread/start` was left
+      // unanswered, not refused with a JSON-RPC error: give a wrong answer time to arrive.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(await readFile(decisionsPath, "utf8").catch(() => "")).not.toContain(
+        "unexpectedAnswer",
+      );
 
       writer.driver.respond(writerRequest.id, "accept");
+      // The server received exactly the decision it offered.
+      await until(async () => {
+        const log = await readFile(decisionsPath, "utf8").catch(() => "");
+        return (
+          log.includes('"decision":"accept"') || log.includes('"result":{"decision":"accept"}')
+        );
+      }, "the decision the server received");
       await until(
         () => writer.timeline.state.turn === "settled",
         `the approved turn (state ${writer.timeline.state.turn}; items ${JSON.stringify(items(writer.timeline))})`,

@@ -117,3 +117,26 @@ test(
     }
   },
 );
+
+test("a crash tells the clients; an expected stop is silent", { timeout: 20_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), "corral-codex-pool-"));
+  const servers = await launcher(root);
+  const launch = { sessionId: SESSION, command: FAKE_CODEX, cwd: root, env: processEnv() };
+  const exits: string[] = [];
+  try {
+    await servers.acquire("chat", { ...launch, onExit: (reason) => exits.push(reason) });
+    const pid = await recordPid(join(root, "data"), SESSION);
+    process.kill(pid!, "SIGKILL");
+    await until(() => exits.length === 1, "the crash to reach the client");
+    expect(exits[0]).toContain("SIGKILL");
+
+    // A stop the session asked for is not news: no `onExit`, so no false launch error.
+    await servers.acquire("chat", { ...launch, onExit: (reason) => exits.push(reason) });
+    await servers.release("chat", SESSION);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(exits).toHaveLength(1);
+  } finally {
+    await servers.closeAll();
+    await rm(root, { recursive: true, force: true });
+  }
+});

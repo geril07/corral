@@ -43,7 +43,7 @@ const [name, ...argv] = process.argv.slice(2);
 // `--version` answers the driver's version gate and is not a launch: it exits before the journal,
 // so a handoff test counts frontends rather than probes. FAKE_CLAUDE_VERSION lets a test install an
 // untested claude and see the refusal.
-if (argv.includes("--version")) {
+if (name === "claude" && argv.includes("--version")) {
   console.log(
     `${process.env["FAKE_CLAUDE_VERSION"] ?? "2.1.316"} (${name === "claude" ? "Claude Code" : `fake ${name}`})`,
   );
@@ -85,6 +85,13 @@ if (claudeFlag === "--resume" && claudeId && !claudeTranscriptExists(claudeConfi
 
 // `codex app-server` is a server, not a conversation: it writes no rollout of its own.
 const startsConversation = name === "codex" && !argv.includes("resume") && argv[0] !== "app-server";
+// A Codex TUI with `--remote` is a client: the socket must be there, and the launch journals it so
+// a test can say the terminal attached to the session's app-server rather than starting its own.
+const codexRemote = name === "codex" ? argumentValue(argv, "--remote") : undefined;
+if (codexRemote?.startsWith("unix://") && !existsSync(codexRemote.slice("unix://".length))) {
+  console.error(`fake codex: --remote socket ${codexRemote} does not exist`);
+  process.exit(3);
+}
 const rolloutMode = process.env["FAKE_CODEX_ROLLOUT"] ?? "eager";
 const rolloutId = startsConversation ? randomUUID() : undefined;
 
@@ -113,6 +120,7 @@ if (logFile) {
     cwd: process.cwd(),
     pid: process.pid,
     rolloutId,
+    ...(codexRemote === undefined ? {} : { remote: codexRemote }),
     env: {
       CORRAL_SESSION_ID: process.env["CORRAL_SESSION_ID"],
       CORRAL_TASK_ID: process.env["CORRAL_TASK_ID"],

@@ -651,12 +651,30 @@ export class SessionService {
       env,
       onExit: (reason) => {
         if (this.#shuttingDown) return;
-        // The TUI keeps "Reconnecting to server…" forever (measured); a session whose app-server
-        // is gone has no frontend worth keeping, so the terminal leg is closed with it.
+        // Only a crash gets here (an expected stop is silent, `codex-server.ts`). The TUI keeps
+        // "Reconnecting to server…" forever (measured, `.e2e/stage-c/c3/probe/`), so a session
+        // whose app-server is gone has no frontend worth keeping: the terminal leg is closed, and
+        // its recorded exit settles the session through the same path a stop uses.
         this.#launchErrors.set(stored.id, reason);
-        const live = this.#live.get(stored.id);
-        if (live !== undefined) void this.#exitedByItself(stored.id, live, "terminal");
         this.#changes.notify();
+        void this.#queue.run(async () => {
+          const live = this.#live.get(stored.id);
+          if (live === undefined) return;
+          if (live.terminalId !== null) {
+            await this.#terminals.close(live.terminalId);
+            // A closed terminal records no exit (`TerminalSession` skips `#recordExit` once it is
+            // closed), so the session is settled here rather than through `whenExitRecorded`.
+            live.terminalId = null;
+          }
+          await this.#codexServers.release(codexOwner("terminal", stored.id), stored.id);
+          if (!live.chat) {
+            await live.discovery?.finish();
+            live.discovery = undefined;
+            this.#live.delete(stored.id);
+            this.#settle(stored.id);
+          }
+          this.#changes.notify();
+        });
       },
     });
   }
@@ -730,12 +748,12 @@ export class SessionService {
     // One resume decision for both legs: how the frontend opens the conversation, decided by the
     // agent adapter (`AgentAdapter.hasConversation`). The chat leg cannot disagree with the
     // terminal leg, and a revert to the raw `how` is caught by the service test.
-    const conversationId = stored.agentSessionId;
+    const recordedConversationId = stored.agentSessionId;
     const resumable =
       adapter !== undefined &&
       how === "resume" &&
-      conversationId !== null &&
-      (adapter.hasConversation?.(conversationId, env) ?? true);
+      recordedConversationId !== null &&
+      (adapter.hasConversation?.(recordedConversationId, env) ?? true);
     if (stored.view === "chat") {
       // A chat view is only created for an agent with a driver, and a shell never has one.
       if (stored.kind === "shell") throw new LaunchViewUnsupportedError(stored.kind, stored.view);
@@ -756,6 +774,9 @@ export class SessionService {
     let standalone = previous?.standaloneOpenCode ?? false;
     let standaloneCodex = false;
     let codexChatReason: string | undefined;
+    // The conversation this terminal leg opens: the recorded one when it can be resumed, else none
+    // (a new one, whose id Codex assigns and the launch then looks for).
+    let conversationId: string | null = null;
     if (adapter) {
       // A chat frontend of this session may still hold pi's session file (a server that died, a
       // child that outlived its kill): the record is what stops it, and a terminal launch writes
@@ -775,6 +796,14 @@ export class SessionService {
       env["CORRAL_STATUS_TOKEN"] = statusToken;
       if (!isExecutable(command, env["PATH"])) throw new AgentNotFoundError(command);
       input.command = command;
+      // Codex assigns a new id to a conversation it starts, and a thread `thread/start` created but
+      // no turn wrote is not durable (`design.md`): a recorded id with no rollout is forgotten, and
+      // the launch below starts a new conversation and looks for its rollout.
+      conversationId = resumable ? stored.agentSessionId : null;
+      if (!resumable && stored.kind === "codex" && stored.agentSessionId !== null) {
+        this.#store.setAgentSessionId(stored.id, null);
+        this.#changes.notify();
+      }
       let args = [
         ...adapter.launchArgs(stored.launch?.model ?? null, stored.launch?.provider ?? null),
         ...(resumable ? adapter.resumeArgs(conversationId) : adapter.startArgs(conversationId)),
@@ -867,13 +896,15 @@ export class SessionService {
     }
     if (previous === undefined) this.#statuses.delete(stored.id);
     const discovery =
-      stored.kind === "codex" && stored.agentSessionId === null
+      stored.kind === "codex" && conversationId === null
         ? watchForCodexSession({
             home: codexHome(env),
             cwd: task.workspacePath,
             since: spawnedAt,
             claimedIds: () => this.#store.agentSessionIds("codex"),
             onFound: (agentSessionId) => {
+              // A chat frontend that started its own thread (and stored its id) wins: the rollout
+              // this search finds is the terminal's, not the conversation the session now runs.
               this.#store.setAgentSessionId(stored.id, agentSessionId);
               this.#changes.notify();
             },
@@ -945,6 +976,16 @@ export class SessionService {
           "this session runs on Codex's own server; stop it and start it again to open chat",
       );
     }
+    // A terminal leg may still be looking for its rollout. A chat frontend that opens first starts
+    // its own thread and stores that id, and the late discovery must not overwrite it; finishing the
+    // search before chat starts is what makes that deterministic (its `onFound` is guarded too).
+    // If the search did find the terminal's conversation, chat adopts it instead of starting one.
+    if (kind === "codex" && previous?.discovery !== undefined) {
+      const discovery = previous.discovery;
+      previous.discovery = undefined;
+      await discovery.finish();
+    }
+    const agentSessionId = this.#store.get(stored.id)?.agentSessionId ?? stored.agentSessionId;
     const owner = openCodeOwner("chat", stored.id);
     const codexOwnerId = codexOwner("chat", stored.id);
     let server: { url: string; password: string } | undefined;

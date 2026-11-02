@@ -1,4 +1,5 @@
 import type { AgentAdapter } from "./agent-adapter.ts";
+import { codexHasRollout, codexHome } from "./codex-sessions.ts";
 
 /**
  * Codex cannot be given an id; the server learns it afterwards (`codex-sessions.ts`).
@@ -19,6 +20,9 @@ export const codex: AgentAdapter = {
   startArgs: () => [],
   resumeArgs: (id) => ["resume", id],
   promptArgs: (prompt) => ["--", prompt],
+  // Codex cannot be told an id, and `thread/start` alone writes no rollout: an id with no file is a
+  // conversation that never got a turn, so `resume <id>` would fail and the launch starts fresh.
+  hasConversation: (agentSessionId, env) => codexHasRollout(codexHome(env), agentSessionId),
 };
 
 /**

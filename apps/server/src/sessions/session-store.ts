@@ -102,7 +102,8 @@ export class SessionStore {
       .run(resume ? 1 : 0, id);
   }
 
-  setAgentSessionId(id: string, agentSessionId: string): void {
+  /** Sets the agent's conversation id; `null` forgets one that cannot be resumed. */
+  setAgentSessionId(id: string, agentSessionId: string | null): void {
     this.#db
       .prepare("UPDATE sessions SET agent_session_id = ? WHERE id = ?")
       .run(agentSessionId, id);

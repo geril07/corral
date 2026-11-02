@@ -16,6 +16,7 @@
 //   FAIL  → the turn fails;
 //   CRASH → the server dies as if it were killed.
 import { appendFileSync, readFileSync } from "node:fs";
+import { writeRollout } from "../rollouts.ts";
 import { createServer, type IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
@@ -28,6 +29,9 @@ interface ThreadRecord {
   createdAt: number;
   recencyAt: number;
   turns: TurnRecord[];
+  /** What `thread/start` was told to run, as the real thread reports it back. */
+  model?: string;
+  modelProvider?: string;
 }
 
 interface TurnRecord {
@@ -65,12 +69,21 @@ export async function startFakeCodexServer(
   const prefix = options.idPrefix ?? "thr";
   const threads = loadThreads(options.journal);
   const clients = new Set<WebSocket>();
+  /** Which connections asked for `capabilities.experimentalApi`; only they may queue. */
+  const experimental = new WeakMap<WebSocket, boolean>();
   const pendingApprovals = new Map<
     string,
     { turn: TurnRecord; thread: ThreadRecord; decide: (decision: string) => void }
   >();
   const http = createServer((_request, response) => response.writeHead(404).end());
   const wss = new WebSocketServer({ noServer: true });
+
+  const writeThreadRollout = (thread: ThreadRecord): void => {
+    const home = process.env["CODEX_HOME"];
+    // `FAKE_CODEX_NO_ROLLOUT` models a thread `thread/start` created but no turn made durable.
+    if (home === undefined || process.env["FAKE_CODEX_NO_ROLLOUT"] === "1") return;
+    writeRollout(home, { id: thread.id, cwd: thread.cwd, startedAt: new Date(thread.createdAt) });
+  };
 
   const record = (dir: "send" | "recv", frame: unknown) => {
     frames.push({ at: Date.now(), dir, frame });
@@ -99,7 +112,16 @@ export async function startFakeCodexServer(
     if (options.journal === undefined) return;
     appendFileSync(
       options.journal,
-      `${JSON.stringify({ thread: { id: thread.id, cwd: thread.cwd, preview: thread.preview, turns: thread.turns } })}\n`,
+      `${JSON.stringify({
+        thread: {
+          id: thread.id,
+          cwd: thread.cwd,
+          preview: thread.preview,
+          model: thread.model,
+          modelProvider: thread.modelProvider,
+          turns: thread.turns,
+        },
+      })}\n`,
     );
   }
 
@@ -114,8 +136,8 @@ export async function startFakeCodexServer(
       cwd: thread.cwd,
       ephemeral: thread.ephemeral,
       preview: thread.preview,
-      modelProvider: "stub",
-      model: "stub-model",
+      modelProvider: thread.modelProvider ?? "stub",
+      model: thread.model ?? "stub-model",
       historyMode: "paginated",
       status: { type: "idle" },
       createdAt: Math.floor(thread.createdAt / 1000),
@@ -156,7 +178,9 @@ export async function startFakeCodexServer(
     const respond = (result: unknown) => send(socket, { id, result });
     const fail = (message: string) => send(socket, { id, error: { code: -32600, message } });
     switch (method) {
-      case "initialize":
+      case "initialize": {
+        const capabilities = recordOf(params["capabilities"]);
+        if (capabilities?.["experimentalApi"] === true) experimental.set(socket, true);
         respond({
           userAgent: "fake-codex/0.166.0",
           codexHome: "/tmp/fake",
@@ -164,19 +188,37 @@ export async function startFakeCodexServer(
           platformOs: "linux",
         });
         return;
+      }
       case "thread/start": {
-        const thread = newThread(stringOf(params["cwd"]) ?? "/tmp", prefix);
+        const thread = newThread(
+          stringOf(params["cwd"]) ?? "/tmp",
+          prefix,
+          stringOf(params["model"]),
+          stringOf(params["modelProvider"]),
+        );
         threads.set(thread.id, thread);
         saved(thread);
+        writeThreadRollout(thread);
         subscribed.add(thread.id);
         respond({
           thread: publicThread(thread),
-          model: "stub-model",
-          modelProvider: "stub",
+          model: thread.model ?? "stub-model",
+          modelProvider: thread.modelProvider ?? "stub",
           approvalPolicy: "on-request",
           sandbox: { type: "workspaceWrite" },
         });
         notify("thread/started", { thread: publicThread(thread, false) });
+        // A request this driver does not map (the real server has several). It must be left
+        // unanswered rather than refused: the terminal shows it and the first answer wins.
+        requestCounter += 1;
+        const unmapped = String(requestCounter);
+        for (const client of clients) {
+          send(client, {
+            id: Number(unmapped),
+            method: "item/tool/requestUserInput",
+            params: { threadId: thread.id, turnId: "turn-0", itemId: "item-0", questions: [] },
+          });
+        }
         return;
       }
       case "thread/list": {
@@ -195,8 +237,8 @@ export async function startFakeCodexServer(
         subscribed.add(thread.id);
         respond({
           thread: publicThread(thread),
-          model: "stub-model",
-          modelProvider: "stub",
+          model: thread.model ?? "stub-model",
+          modelProvider: thread.modelProvider ?? "stub",
           approvalPolicy: "on-request",
           sandbox: { type: "workspaceWrite" },
         });
@@ -256,6 +298,11 @@ export async function startFakeCodexServer(
         return;
       }
       case "thread/queue/add": {
+        if (experimental.get(socket) !== true) {
+          // Measured: the real server refuses the queue without `capabilities.experimentalApi`.
+          fail("thread/queue/add requires experimentalApi capability");
+          return;
+        }
         const thread = threadOf(String(params["threadId"]));
         if (thread === undefined) {
           fail(`thread not found: ${String(params["threadId"])}`);
@@ -288,8 +335,12 @@ export async function startFakeCodexServer(
   /** One answer per approval, whichever client sent it first; everyone hears the resolution. */
   function answerServerRequest(requestId: string, result: unknown): void {
     const pending = pendingApprovals.get(requestId);
-    if (pending === undefined) return;
+    if (pending === undefined) {
+      appendDecision(options.journal, { unexpectedAnswer: requestId, result });
+      return;
+    }
     pendingApprovals.delete(requestId);
+    appendDecision(options.journal, { requestId, result });
     const decision =
       typeof result === "object" && result !== null
         ? (stringOf((result as Record<string, unknown>)["decision"]) ?? "decline")
@@ -483,7 +534,12 @@ export async function startFakeCodexServer(
             command: "touch approved.txt",
             cwd: thread.cwd,
             commandActions: [],
-            availableDecisions: ["accept", "acceptForSession", "decline", "cancel"],
+            // The shape the real 0.166.0 request carried: one object-valued decision in the list.
+            availableDecisions: [
+              "accept",
+              { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["touch"] } },
+              "cancel",
+            ],
           },
         });
       }
@@ -523,7 +579,12 @@ function loadThreads(journal: string | undefined): Map<string, ThreadRecord> {
   return threads;
 }
 
-function newThread(cwd: string, prefix: string): ThreadRecord {
+function newThread(
+  cwd: string,
+  prefix: string,
+  model: string | undefined,
+  modelProvider: string | undefined,
+): ThreadRecord {
   const now = Date.now();
   return {
     id: `${prefix}-${now}-${itemCounter()}`,
@@ -533,7 +594,21 @@ function newThread(cwd: string, prefix: string): ThreadRecord {
     createdAt: now,
     recencyAt: now,
     turns: [],
+    ...(model === undefined ? {} : { model }),
+    ...(modelProvider === undefined ? {} : { modelProvider }),
   };
+}
+
+/** Appends a diagnostic line next to the thread journal; a test reads what the client sent. */
+function appendDecision(journal: string | undefined, record: Record<string, unknown>): void {
+  if (journal === undefined) return;
+  appendFileSync(`${journal}.decisions`, `${JSON.stringify({ at: Date.now(), ...record })}\n`);
+}
+
+function recordOf(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function newTurn(): TurnRecord {

@@ -1,5 +1,4 @@
 import type {
-  ChatAnswer,
   ChatDiff,
   ChatRequestOption,
   ChatSessionState,
@@ -53,6 +52,7 @@ export interface CodexRequest {
   options: string[];
 }
 
+/** The decisions a v2 approval may offer, by value. The server decides which of them it sends. */
 const APPROVAL_OPTIONS: ChatRequestOption[] = [
   { value: "accept", label: "Allow once", description: "Run this one command or change." },
   {
@@ -247,7 +247,19 @@ export class CodexProjection {
     params: Record<string, unknown>,
   ): CodexAction[] {
     const legacy = method === "applyPatchApproval" || method === "execCommandApproval";
-    const options = legacy ? LEGACY_OPTIONS : APPROVAL_OPTIONS;
+    const offered = arrayOf(params["availableDecisions"]).filter(
+      (value): value is string => typeof value === "string",
+    );
+    // The server names what it accepts. An object-valued decision (an execpolicy or network
+    // amendment) has no plain-string form in the contract, so it is not offered; the rest keep the
+    // server's order. A request without the list (an older server, a legacy method) gets the
+    // method's own vocabulary.
+    const options = legacy
+      ? LEGACY_OPTIONS
+      : offered.length > 0
+        ? APPROVAL_OPTIONS.filter((option) => offered.includes(option.value))
+        : APPROVAL_OPTIONS;
+    if (options.length === 0) return [];
     const itemId = `codex-request:${requestId}`;
     const item: ChatUserRequest = {
       kind: "user-request",
@@ -276,20 +288,18 @@ export class CodexProjection {
   }
 
   /**
-   * The answer to send, or undefined when this item is not a pending approval. `answer` is a
-   * string naming an option, a boolean (accept/deny), or null to dismiss (deny).
+   * Records the answer the driver is about to send, or undefined when this item is not a pending
+   * approval. `decision` must be one of the options the request carried: the driver validates it
+   * first, so nothing that the server did not offer is ever sent.
    */
-  answer(itemId: string, answer: ChatAnswer): CodexRequest | undefined {
+  answer(itemId: string, decision: string): CodexRequest | undefined {
     const request = this.#requests.get(itemId);
     if (request === undefined) return undefined;
+    if (!request.options.includes(decision)) return undefined;
     this.#requests.delete(itemId);
     const item = this.#timeline.item(itemId);
     if (item?.kind === "user-request") {
-      this.#timeline.put({
-        ...item,
-        status: "answered",
-        answer: typeof answer === "string" ? answer : answer === true ? "accept" : "decline",
-      });
+      this.#timeline.put({ ...item, status: "answered", answer: decision });
     }
     return request;
   }

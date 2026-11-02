@@ -130,22 +130,24 @@ export class CodexDriver implements ChatDriver {
       });
       return refused;
     }
+    const running = this.timeline.state.turn === "working";
+    const refusedId = `error:send:${this.#nextId}`;
+    // Measured: `thread/queue/add` needs the app-server's `experimentalApi` capability, which this
+    // driver does not opt into for one call; the record declares `followUp: false` and the composer
+    // hides the mode. A follow-up that arrives anyway is refused visibly and **not** added as a sent
+    // message, so the transcript never shows words that never left the client.
+    if (mode === "follow-up" && running) {
+      this.timeline.put({
+        kind: "error",
+        id: refusedId,
+        text: "codex does not queue follow-ups in this build; steer the running turn or wait for it to finish",
+      });
+      return refusedId;
+    }
     const itemId = `user:${this.#nextId}:${Date.now()}`;
     this.#projection.userMessage(text, itemId);
     const turnId = this.#projection.activeTurnId;
     const input = [{ type: "text", text }];
-    const running = this.timeline.state.turn === "working";
-    if (mode === "follow-up" && running) {
-      // Measured: `thread/queue/add` needs the app-server's `experimentalApi` capability, which this
-      // driver does not opt into for one call; the record declares `followUp: false` and the
-      // composer hides the mode. A follow-up that arrives anyway is refused visibly.
-      this.timeline.put({
-        kind: "error",
-        id: `error:send:${itemId}`,
-        text: "codex does not queue follow-ups in this build; steer the running turn or wait for it to finish",
-      });
-      return itemId;
-    }
     const call =
       mode === "steer" && running && turnId !== undefined
         ? this.#call("turn/steer", {
@@ -194,19 +196,15 @@ export class CodexDriver implements ChatDriver {
    * was resolved by `serverRequest/resolved` and this throws instead of sending a second answer.
    */
   respond(itemId: string, value: ChatAnswer): void {
-    const request = this.#projection.answer(itemId, value);
+    const pending = this.#projection.request(itemId);
+    if (pending === undefined) throw new ChatRequestUnknownError(itemId);
+    const decision = decisionFor(pending.options, value);
+    // Only a decision the server offered is sent: a value this request does not carry would be a
+    // provider error the user cannot act on. The item stays pending, so it can still be answered.
+    if (decision === undefined) throw new ChatRequestUnknownError(itemId);
+    const request = this.#projection.answer(itemId, decision);
     if (request === undefined) throw new ChatRequestUnknownError(itemId);
     this.#clearDialogTimer(itemId);
-    const decision =
-      typeof value === "string" && request.options.includes(value)
-        ? value
-        : value === true
-          ? (request.options.find(
-              (option) => option.startsWith("accept") || option === "approved",
-            ) ?? request.options[0]!)
-          : (request.options.find(
-              (option) => option.startsWith("decline") || option === "denied",
-            ) ?? request.options[0]!);
     this.#send({
       jsonrpc: "2.0",
       id: numericId(request.requestId),
@@ -306,7 +304,13 @@ export class CodexDriver implements ChatDriver {
       const resumed = await this.#call("thread/resume", { threadId: adopted });
       return await this.#withTurns(resumed, adopted);
     }
-    const started = await this.#call("thread/start", { cwd: this.#request.cwd });
+    const started = await this.#call("thread/start", {
+      cwd: this.#request.cwd,
+      // The launch's native model and provider, as the terminal's own flags carry them; without
+      // them a chat-first session would silently run the app-server's default model.
+      ...(this.#request.model == null ? {} : { model: this.#request.model }),
+      ...(this.#request.provider == null ? {} : { modelProvider: this.#request.provider }),
+    });
     const thread = recordOf(started["thread"]);
     const id = stringOf(thread?.["id"]);
     if (id === undefined) throw new Error("thread/start answered no thread id");
@@ -416,16 +420,14 @@ export class CodexDriver implements ChatDriver {
   }
 
   #onServerRequest(requestId: string, method: string, params: Record<string, unknown>): void {
-    if (!isApprovalMethod(method)) {
-      // Not ours to answer: refuse anything this driver does not implement rather than hang.
-      this.#send({
-        jsonrpc: "2.0",
-        id: numericId(requestId),
-        error: { code: -32601, message: "unsupported" },
-      });
-      return;
-    }
-    if (this.#threadId !== null && stringOf(params["threadId"]) !== this.#threadId) return;
+    // A request this client does not render (a permissions profile, an MCP elicitation, a tool
+    // call) is left unanswered, not refused: the app-server sends it to every client, the terminal
+    // shows it, and the first answer wins — an error from here would beat that dialog.
+    if (!isApprovalMethod(method)) return;
+    // The v2 approvals name `threadId`; the legacy `applyPatchApproval`/`execCommandApproval` name
+    // `conversationId`, so a filter on `threadId` alone silently dropped them.
+    const threadId = stringOf(params["threadId"]) ?? stringOf(params["conversationId"]);
+    if (this.#threadId !== null && threadId !== undefined && threadId !== this.#threadId) return;
     for (const action of this.#projection.requestApproval(requestId, method, params)) {
       this.#apply(action);
     }
@@ -558,6 +560,19 @@ export class CodexDriver implements ChatDriver {
     clearTimeout(this.#readyTimer);
     this.#readyTimer = undefined;
   }
+}
+
+/**
+ * The decision to send for an answer, or undefined when the request does not offer one. A string
+ * must name an option; a boolean and `null` choose the first allow/deny the request offered, so a
+ * client that only knows "yes" or "no" cannot send a value the server rejected from the list.
+ */
+function decisionFor(options: readonly string[], value: ChatAnswer): string | undefined {
+  if (typeof value === "string") return options.includes(value) ? value : undefined;
+  const allowed = (option: string) => option.startsWith("accept") || option === "approved";
+  const denied = (option: string) => option.startsWith("decline") || option === "denied";
+  const wanted = value === true ? options.find(allowed) : options.find(denied);
+  return wanted;
 }
 
 /** Approval requests that become B0 user requests; the legacy two are for `SendUserMessage`. */

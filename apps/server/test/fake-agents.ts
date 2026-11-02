@@ -12,6 +12,8 @@ export interface Launch {
   pid: number;
   /** The conversation id the fake codex writes its rollout under, when it started a conversation. */
   rolloutId?: string;
+  /** The Codex app-server socket a `--remote` TUI attached to. */
+  remote?: string;
   env: {
     CORRAL_SESSION_ID?: string;
     CORRAL_TASK_ID?: string;

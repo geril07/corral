@@ -2,7 +2,12 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { codexServerArgs } from "../agents/codex.ts";
 import { messageOf } from "./chat-errors.ts";
-import { recordWriter, releasePreviousWriter, releaseWriter, writerPath } from "./writer-claim.ts";
+import {
+  recordWriter,
+  releasePreviousWriter,
+  releaseWriterIf,
+  writerPath,
+} from "./writer-claim.ts";
 
 /** Where one session's `codex app-server` listens; both of the session's frontends use it. */
 export interface CodexServerAddress {
@@ -41,6 +46,12 @@ interface RunningServer {
   socketPath: string;
   /** Resolves when the process is gone; never rejects. */
   exited: Promise<void>;
+  /**
+   * Set before an intentional stop. An expected exit is cleanup, not news: a session stopping its
+   * own server must not be told it crashed (a false `launchError`), and a terminal must not be
+   * closed for a stop the session asked for.
+   */
+  expectedStop: boolean;
 }
 
 /**
@@ -123,6 +134,8 @@ export class CodexServers {
   /** Stops every server whatever its clients say; the server is shutting down. */
   async closeAll(): Promise<void> {
     this.#owners.clear();
+    // A start in flight would otherwise spawn after this sweep and outlive it.
+    await Promise.allSettled(this.#starting.values());
     await Promise.all([...this.#servers.keys()].map((sessionId) => this.#stop(sessionId)));
   }
 
@@ -149,7 +162,9 @@ export class CodexServers {
 
   async #start(launch: CodexServerLaunch): Promise<RunningServer> {
     const { sessionId } = launch;
-    mkdirSync(this.#socketDir, { recursive: true });
+    // The listener is authored by its file permissions (the protocol has no auth); keep the
+    // directory Corral owns private, for the symlink the real server puts there.
+    mkdirSync(this.#socketDir, { recursive: true, mode: 0o700 });
     const socketPath = `${this.#socketDir}/${safeName(sessionId)}.sock`;
     const recordPath = this.#recordPath(sessionId);
     // A server a previous Corral run left behind holds the same session; the record is what stops
@@ -176,7 +191,7 @@ export class CodexServers {
     }
     let exitedResolve: () => void = noop;
     const exited = new Promise<void>((resolve) => (exitedResolve = resolve));
-    const running: RunningServer = { child, socketPath, exited };
+    const running: RunningServer = { child, socketPath, exited, expectedStop: false };
     // Diagnostics only; never logged, and drained so the child cannot block on a full pipe.
     child.stderr?.resume();
     child.stdout?.resume();
@@ -202,11 +217,13 @@ export class CodexServers {
     for (const [each, server] of this.#servers) if (server === running) sessionId = each;
     if (sessionId === undefined) return;
     this.#servers.delete(sessionId);
-    releaseWriter(this.#recordPath(sessionId));
+    // Only this child's own record: a record naming another process is that process's fence.
+    releaseWriterIf(this.#recordPath(sessionId), running.child.pid);
     rmSync(running.socketPath, { force: true });
     this.#owners.delete(sessionId);
     const exits = [...(this.#exits.get(sessionId) ?? [])];
     this.#exits.delete(sessionId);
+    if (running.expectedStop) return;
     for (const onExit of exits) {
       try {
         onExit(reason);
@@ -222,6 +239,8 @@ export class CodexServers {
     const running = this.#servers.get(sessionId);
     if (running === undefined) return Promise.resolve();
     const stopping = (async () => {
+      // Before the signal: the exit handler runs while this stop is in progress.
+      running.expectedStop = true;
       await stopProcess(running.child, this.#exitGraceMs);
       await running.exited;
       this.#onServerGone(running, "the codex app-server stopped");

@@ -1,5 +1,9 @@
 import { AgentKind } from "@corral/protocol/rpc";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
+import { writeRollout } from "../../test/rollouts.ts";
 import { AGENTS } from "./agents.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -14,6 +18,19 @@ test("each agent starts and resumes with the flags its --help documents", () => 
   expect(AGENTS.opencode.resumeArgs(id)).toEqual(["--session", id]);
   expect(AGENTS.codex.startArgs(null)).toEqual([]);
   expect(AGENTS.codex.resumeArgs(id)).toEqual(["resume", id]);
+});
+
+test("codex has a conversation only once a rollout exists", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corral-codex-rollout-"));
+  try {
+    const env = { CODEX_HOME: root };
+    expect(AGENTS.codex.hasConversation?.("thread-1", env)).toBe(false);
+    writeRollout(root, { id: "thread-1", cwd: root });
+    expect(AGENTS.codex.hasConversation?.("thread-1", env)).toBe(true);
+    expect(AGENTS.codex.hasConversation?.("thread-2", env)).toBe(false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("the ids we choose have the shape each agent accepts; Codex gets none", () => {

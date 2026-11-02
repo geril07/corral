@@ -39,7 +39,11 @@ export function codexVersion(
       ["--version"],
       { env, timeout: VERSION_TIMEOUT_MS, windowsHide: true },
       (error, stdout) => {
-        resolve(error === null ? parseCodexVersion(stdout) : undefined);
+        const version = error === null ? parseCodexVersion(stdout) : undefined;
+        // A failure is not cached: a binary that was missing, busy or broken for one launch must be
+        // measured again next time instead of refusing chat for the rest of the process's life.
+        if (version === undefined) cache.delete(command);
+        resolve(version);
       },
     );
   });

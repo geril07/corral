@@ -148,6 +148,13 @@ export interface ChatDriverLaunch {
   server?: { url: string; password: string };
   /** The unix socket of the agent server this frontend is a client of; see `ChatLaunchRequest`. */
   socket?: string;
+  /**
+   * The native model and provider the launch chose, the same values the terminal's own flags carry.
+   * A driver whose agent takes them on the conversation (Codex's `thread/start`) sends them there;
+   * one whose argv carries them ignores them.
+   */
+  model?: string | null;
+  provider?: string | null;
   /** Reports the conversation id the agent assigned, once; see `ChatLaunchRequest`. */
   onAgentSessionId?(agentSessionId: string): void;
   /** The record of the process holding this session's conversation; see `ChatWriterClaim`. */

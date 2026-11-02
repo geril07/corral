@@ -181,6 +181,8 @@ export class ChatService {
       model: request.model,
       how: request.how,
       prompt: request.prompt,
+      model: request.model,
+      provider: request.provider,
       agentSessionId: request.agentSessionId,
       ...(request.server === undefined ? {} : { server: request.server }),
       ...(request.socket === undefined ? {} : { socket: request.socket }),

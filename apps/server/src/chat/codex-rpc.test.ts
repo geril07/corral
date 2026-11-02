@@ -1,10 +1,12 @@
 import type { ChatSnapshot } from "@corral/protocol/chat";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { beforeEach, expect, test, vi } from "vite-plus/test";
 import { resetCodexVersionCache } from "../agents/codex-version.ts";
 import { useFakeAgents } from "../../test/fake-agents.ts";
 import { addProject } from "../../test/project-fixture.ts";
-import { useServer } from "../../test/server-fixture.ts";
-import { sessionsOf } from "../../test/session-helpers.ts";
+import { frontendArgs, sessionsOf } from "../../test/session-helpers.ts";
+import { useServer, within } from "../../test/server-fixture.ts";
 import type { Launch } from "../../test/fake-agents.ts";
 
 const server = useServer({
@@ -13,9 +15,8 @@ const server = useServer({
 const agents = useFakeAgents();
 const SIZE = { cols: 80, rows: 24 };
 
-// A terminal-first Codex session's rollout discovery must not race the thread chat reports.
+// The version is cached per executable; a test may swap it.
 beforeEach(() => {
-  vi.stubEnv("FAKE_CODEX_ROLLOUT", "never");
   resetCodexVersionCache();
 });
 
@@ -195,3 +196,149 @@ test("the app-server leaves no record behind when its last client stops", async 
   expect(restarted.agentSessionId).toBe(before?.agentSessionId);
   expect(await appServerLaunches()).toHaveLength(2);
 });
+
+test(
+  "a crashed app-server closes the terminal leg and settles the session, and a normal stop does not",
+  { timeout: 30_000 },
+  async () => {
+    const { api, session } = await codexTask("terminal");
+    const client = await server.attach(session.terminalId!);
+    await client.waitForScreen("fake codex ready");
+
+    // A normal stop is not a crash: no `launchError` is recorded for a stop the session asked for.
+    const stopped = await api.sessions.stop({ id: session.id });
+    expect(stopped.state).toBe("stopped");
+    expect(stopped.launchError).toBeNull();
+    const restarted = await api.sessions.restart({ id: session.id, size: SIZE });
+    expect(restarted.state).toBe("running");
+    const again = await server.attach(restarted.terminalId!);
+    await again.waitForScreen("fake codex ready");
+
+    // The app-server dies under the live terminal: the PTY is closed with it and the session
+    // settles instead of showing "Reconnecting to server…" forever.
+    const record = JSON.parse(
+      await readFile(join(server.dataDir, "chat", `codex-server-${session.id}.json`), "utf8"),
+    ) as { pid: number };
+    process.kill(record.pid, "SIGKILL");
+    const settled = await within(
+      (async () => {
+        for (;;) {
+          // oxlint-disable-next-line no-await-in-loop -- polling for the settle is the point
+          const current = (await sessionsOf(api)).find((each) => each.id === session.id);
+          if (current?.state === "stopped") return current;
+          // oxlint-disable-next-line no-await-in-loop -- see above
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      })(),
+      "the session to settle after the app-server died",
+    );
+    expect(settled.launchError).toContain("codex app-server");
+    expect(settled.terminalId).toBeNull();
+  },
+);
+
+test(
+  "a chat-first session opens its thread with the launch's model, not the app-server default",
+  { timeout: 30_000 },
+  async () => {
+    const { api, task } = await codexTaskWithOptions();
+    const session = await api.sessions.start({
+      taskId: task.id,
+      kind: "codex",
+      view: "chat",
+      size: SIZE,
+      model: "stub-alt",
+    });
+    const current = (await sessionsOf(api)).find((each) => each.id === session.id)!;
+    expect(current).toMatchObject({ state: "running" });
+    // The thread the driver opened carries the launch's model, not the app-server's default.
+    await expect
+      .poll(async () => (await threadRecord(server.dataDir, session.id))?.["model"], {
+        timeout: 10_000,
+      })
+      .toBe("stub-alt");
+  },
+);
+
+test(
+  "a chat thread the terminal started is not overwritten by a late rollout, and a non-durable one starts a new conversation",
+  { timeout: 40_000 },
+  async () => {
+    // 1. The terminal writes its rollout only on the first line; chat opens before that.
+    vi.stubEnv("FAKE_CODEX_ROLLOUT", "lazy");
+    const { api, task } = await codexTask("terminal");
+    const session = (await sessionsOf(api)).find((each) => each.id === task.primarySessionId)!;
+    const client = await server.attach(session.terminalId!);
+    await client.waitForScreen("fake codex ready");
+    const switched = await api.sessions.setView({ id: session.id, view: "chat", size: SIZE });
+    expect(switched.view).toBe("chat");
+    await untilChat(api, session.id, (view) => view.items.length > 0, "the chat frontend");
+    const chatId = (await sessionsOf(api)).find((each) => each.id === session.id)?.agentSessionId;
+    expect(chatId).toMatch(/^thr-/);
+    client.type("hello from the terminal\n");
+    await client.waitForScreen("fake codex got: hello from the terminal");
+    // The late rollout does not take the session over.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect((await sessionsOf(api)).find((each) => each.id === session.id)?.agentSessionId).toBe(
+      chatId,
+    );
+    // The terminal's late rollout did become a conversation of its own; it just is not this row's.
+    const terminal = (await agents.launches())
+      .filter((entry) => entry.agent === "codex" && entry.rolloutId !== undefined)
+      .at(-1);
+    expect(terminal?.rolloutId).not.toBe(chatId);
+  },
+);
+
+test(
+  "a chat thread with no rollout cannot be resumed as a terminal, so the terminal starts a new conversation",
+  { timeout: 30_000 },
+  async () => {
+    vi.stubEnv("FAKE_CODEX_NO_ROLLOUT", "1");
+    vi.stubEnv("FAKE_CODEX_ROLLOUT", "never");
+    const { api, session } = await codexTask("chat");
+    await untilChat(api, session.id, (view) => view.items.length > 0, "the chat frontend");
+    const chatId = (await sessionsOf(api)).find((each) => each.id === session.id)?.agentSessionId;
+    expect(chatId).toMatch(/^thr-/);
+
+    await api.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+    const launches = await until(
+      async () =>
+        (await agents.launches()).filter(
+          (launch) => launch.agent === "codex" && launch.argv.includes("--remote"),
+        ),
+      1,
+      "the terminal leg to attach",
+    );
+    const last = launches.at(-1)!;
+    // No `resume <chatId>`: that thread has no rollout, so the launch starts fresh with the prompt.
+    expect(frontendArgs(last.argv)).toEqual(["--", "stream please"]);
+  },
+);
+
+/** A task with no primary session yet, for a `sessions.start` the test configures itself. */
+async function codexTaskWithOptions() {
+  const project = (await addProject(server)).project;
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "stream please",
+    workspace: { type: "new-branch" },
+  });
+  return { api, task };
+}
+
+/** The fake app-server's journaled thread record for this session's socket. */
+async function threadRecord(
+  dataDir: string,
+  sessionId: string,
+): Promise<Record<string, unknown> | undefined> {
+  const text = await readFile(join(dataDir, "codex", `${sessionId}.sock.journal`), "utf8").catch(
+    () => "",
+  );
+  const records = text
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => JSON.parse(line) as { thread?: Record<string, unknown> });
+  return records.at(-1)?.thread;
+}
