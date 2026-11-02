@@ -1,10 +1,13 @@
+import type { AgentKind } from "@corral/protocol";
 import { defaultClientConfig } from "@corral/protocol/config";
 import { expect, test } from "vite-plus/test";
 import { parseConfigFile } from "./config-file.ts";
 
 const DATA_DIR = "/data";
 const REPO = "/repos/app";
-const parse = (text: string) => parseConfigFile(text, DATA_DIR);
+// This build ships a driver for every agent, so a test that needs the fallback narrows the set.
+const parse = (text: string, hasDriver?: (kind: AgentKind) => boolean) =>
+  parseConfigFile(text, DATA_DIR, hasDriver ?? (() => true));
 
 const CLAUDE_PROFILE = `
 [profiles.gateway]
@@ -126,11 +129,14 @@ view = "chat"
 });
 
 test("a chat view for an agent without a driver opens in the terminal with a warning", () => {
-  const { config, problems } = parse(`
+  const { config, problems } = parse(
+    `
 [tasks]
 agent = "codex"
 view = "chat"
-`);
+`,
+    (kind) => kind !== "codex",
+  );
 
   expect(config.tasks.view).toEqual({ value: "terminal", source: "global" });
   expect(problems).toEqual([
@@ -143,14 +149,17 @@ view = "chat"
 });
 
 test("a project whose own agent cannot show chat warns there, and keeps the global chat view", () => {
-  const { config, problems } = parse(`
+  const { config, problems } = parse(
+    `
 [tasks]
 agent = "pi"
 view = "chat"
 
 [projects."${REPO}"]
 agent = "codex"
-`);
+`,
+    (kind) => kind !== "codex",
+  );
 
   expect(config.tasks.view).toEqual({ value: "chat", source: "global" });
   expect(config.projects[REPO]?.view).toEqual({ value: "terminal", source: "global" });
@@ -164,14 +173,17 @@ agent = "codex"
 });
 
 test("a project that inherits an unusable chat view is covered by the [tasks] warning once", () => {
-  const { config, problems } = parse(`
+  const { config, problems } = parse(
+    `
 [tasks]
 agent = "codex"
 view = "chat"
 
 [projects."${REPO}"]
 workspace = "main-worktree"
-`);
+`,
+    (kind) => kind !== "codex",
+  );
 
   expect(config.projects[REPO]?.view).toEqual({ value: "terminal", source: "global" });
   expect(problems).toHaveLength(1);

@@ -121,7 +121,12 @@ type FileBinding = { text: string; chord: Chord } | { text: null };
  * a project key through a symlink (`realpathSync`), so it matches the path the server stored.
  * `dataDir` only supplies the built-in worktree root (`<data dir>/worktrees`).
  */
-export function parseConfigFile(text: string, dataDir: string): ParsedConfigFile {
+export function parseConfigFile(
+  text: string,
+  dataDir: string,
+  /** Which agents this build can show as chat; a test passes a narrower set. */
+  hasDriver: (kind: AgentKind) => boolean = hasChatDriver,
+): ParsedConfigFile {
   const problems: ConfigProblem[] = [];
   const config = defaultClientConfig(dataDir);
   let document: unknown;
@@ -160,6 +165,7 @@ export function parseConfigFile(text: string, dataDir: string): ParsedConfigFile
     TASKS_PATH,
     problems,
     profilesById,
+    hasDriver,
   );
   config.naming = resolvedNaming(naming);
   config.projects = resolvedProjects(
@@ -169,6 +175,7 @@ export function parseConfigFile(text: string, dataDir: string): ParsedConfigFile
     problems,
     profilesById,
     disabled,
+    hasDriver,
   );
   if (keys !== undefined && !isTable(keys)) {
     problems.push(errorAt("keys", `expected a table, got ${describe(keys)}`));
@@ -661,6 +668,7 @@ function resolvedProjects(
   problems: ConfigProblem[],
   profilesById: ReadonlyMap<string, LaunchProfile>,
   disabled: DisabledAgents,
+  hasDriver: (kind: AgentKind) => boolean,
 ): Record<string, ResolvedTaskSettings> {
   if (value === undefined) return {};
   if (!isTable(value)) {
@@ -701,6 +709,7 @@ function resolvedProjects(
       base,
       problems,
       profilesById,
+      hasDriver,
     );
   }
   return projects;
@@ -722,12 +731,13 @@ function chatViewKeepingAgent(
   base: string,
   problems: ConfigProblem[],
   profilesById: ReadonlyMap<string, LaunchProfile>,
+  hasDriver: (kind: AgentKind) => boolean,
 ): ResolvedTaskSettings {
   if (settings.view.value !== "chat") return settings;
   const profile =
     settings.profile.value === null ? undefined : profilesById.get(settings.profile.value);
   const kind = profile?.agent ?? settings.agent.value;
-  if (kind === null || hasChatDriver(kind)) return settings;
+  if (kind === null || hasDriver(kind)) return settings;
   const viewOwnedHere = base === TASKS_PATH || settings.view.source === "project";
   if (
     viewOwnedHere ||

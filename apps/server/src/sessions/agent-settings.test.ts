@@ -117,7 +117,7 @@ test("a disabled agent is refused and never launched", async () => {
   expect((await agents.launches()).filter((launch) => launch.agent === "claude")).toHaveLength(0);
 });
 
-test("a task opens in its project's chat view, and in the terminal for an agent without a driver", async () => {
+test("a task opens in its project's chat view for every agent with a driver", async () => {
   const { project } = await addProject(server);
   await writeConfig(`[projects."${project.path}"]\nview = "chat"\n`);
   const api = await server.rpc();
@@ -135,15 +135,16 @@ test("a task opens in its project's chat view, and in the terminal for an agent 
   const [chatLaunch] = await launchesOf(agents, "pi", 1);
   expect(chatLaunch?.argv).toContain("rpc");
 
-  // The same project view for an agent without a driver falls back to the terminal.
-  const terminalTask = await api.tasks.create({
+  // Every shipped agent now has a driver, so a chat view is usable for each; the no-driver
+  // fallback is covered where the driver set can be narrowed (`config-agents.test.ts`).
+  const codexTask = await api.tasks.create({
     projectId: project.id,
     prompt: "Say hello too",
     agent: { kind: "codex" },
     workspace: { type: "main-worktree" },
   });
-  const terminalSession = await primarySession(terminalTask.primarySessionId);
-  expect(terminalSession).toMatchObject({ kind: "codex", view: "terminal", state: "running" });
+  const codexSession = await primarySession(codexTask.primarySessionId);
+  expect(codexSession).toMatchObject({ kind: "codex", view: "chat", state: "running" });
 
   // No config warning: the file named no agent, so the composer (or this request) chooses one.
   const config = await api.config.watch();

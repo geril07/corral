@@ -723,12 +723,17 @@ test("the view is validated, and chat refuses a terminal session, a stopped one 
     code: "LAUNCH_VIEW_UNSUPPORTED",
     data: { kind: "shell", view: "chat" },
   });
-  await expect(
-    api.sessions.start({ taskId: task.id, kind: "codex", view: "chat", size: SIZE }),
-  ).rejects.toMatchObject({
-    code: "LAUNCH_VIEW_UNSUPPORTED",
-    data: { kind: "codex", view: "chat" },
+  // Every agent this build ships has a chat driver, so only a shell is refused; the no-driver
+  // branch is covered where the registry can be narrowed (`chat-driver.test.ts`). Codex now opens
+  // a chat session beside its app-server.
+  const codex = await api.sessions.start({
+    taskId: task.id,
+    kind: "codex",
+    view: "chat",
+    size: SIZE,
   });
+  expect(codex).toMatchObject({ kind: "codex", view: "chat" });
+  await api.sessions.stop({ id: codex.id });
 
   const terminal = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
   expect(terminal.view).toBe("terminal");
@@ -1000,7 +1005,7 @@ test("a handoff whose second start fails leaves the session stopped in the targe
   }
 });
 
-test("setView refuses a shell and an agent without a driver, and a switch to the current view does nothing", async () => {
+test("setView refuses a shell, and a switch to the current view does nothing", async () => {
   const { api, task, session } = await chatTask("Same view");
   // The first fake process must be counted before the call, or a restart would pass unnoticed.
   const [started] = await piLaunches(1);
@@ -1020,19 +1025,12 @@ test("setView refuses a shell and an agent without a driver, and a switch to the
     code: "LAUNCH_VIEW_UNSUPPORTED",
     data: { kind: "shell", view: "chat" },
   });
-  const codex = await api.sessions.start({ taskId: task.id, kind: "codex", size: SIZE });
-  await expect(
-    api.sessions.setView({ id: codex.id, view: "chat", size: SIZE }),
-  ).rejects.toMatchObject({
-    code: "LAUNCH_VIEW_UNSUPPORTED",
-    data: { kind: "codex", view: "chat" },
-  });
+  // Every shipped agent has a driver; a shell is the only kind that cannot show chat.
   await expect(
     api.sessions.setView({ id: "nope", view: "chat", size: SIZE }),
   ).rejects.toMatchObject({ code: "SESSION_NOT_FOUND" });
-  // Neither refusal touched a process: the shell and codex sessions still run in their terminals.
+  // The refusal touched no process: the shell session still runs in its terminal.
   expect((await sessionsOf(api)).find((each) => each.id === shell.id)?.state).toBe("running");
-  expect((await sessionsOf(api)).find((each) => each.id === codex.id)?.state).toBe("running");
 });
 
 test("a terminal launch stops a chat frontend's recorded writer before it spawns", async () => {
