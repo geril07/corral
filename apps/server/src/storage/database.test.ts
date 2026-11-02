@@ -379,3 +379,33 @@ test("a database already at version 11 gains the request's repository column", (
   ]);
   db.close();
 });
+
+test("a database already at version 11 with the round-2 column migrates without a duplicate-column error", () => {
+  // C6's round 2 edited migration 11 in place, so a development database it created sits at
+  // version 11 with `repository` already present while migration 12 is still pending. SQLite has no
+  // `ADD COLUMN IF NOT EXISTS`, so the step reads `table_info` first; without that guard this throws
+  // `duplicate column name: repository` and the server refuses to start.
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
+  db.exec("ALTER TABLE pull_requests ADD COLUMN repository TEXT;");
+  db.exec(`
+    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
+    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
+      VALUES ('t', 'p', 'task', 'b', '/n', 0, 'active', 1);
+    INSERT INTO pull_requests (task_id, provider, host, repository, number, url, title, branch, base, state, state_reason, checks, fetched_at)
+      VALUES ('t', 'github', 'forge.example', 'forge.example/acme/app', 7, 'https://forge.example/acme/app/pull/7', 'Ship', 'b', 'main', 'merged', NULL, NULL, 1);
+  `);
+  db.exec("PRAGMA user_version = 11");
+
+  migrate(db, MIGRATIONS);
+
+  expect(schemaVersion(db)).toBe(MIGRATIONS.length);
+  expect(db.prepare("SELECT task_id, repository, state FROM pull_requests").all()).toEqual([
+    { task_id: "t", repository: "forge.example/acme/app", state: "merged" },
+  ]);
+  // The foreign key still cascades after the step.
+  db.exec("DELETE FROM tasks WHERE id = 't'");
+  expect(db.prepare("SELECT task_id FROM pull_requests").all()).toEqual([]);
+  db.close();
+});

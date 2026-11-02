@@ -2,8 +2,14 @@ import { mkdirSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 
+/**
+ * One schema step: SQL, or a function for a step that must look before it writes (`ALTER TABLE`
+ * has no `IF NOT EXISTS`, and a development database can already be shaped like the target).
+ */
+export type Migration = string | ((db: DatabaseSync) => void);
+
 /** Schema changes, oldest first. `PRAGMA user_version` counts the ones applied; never edit one that shipped. */
-export const MIGRATIONS: readonly string[] = [
+export const MIGRATIONS: readonly Migration[] = [
   `CREATE TABLE projects (
      id TEXT PRIMARY KEY,
      name TEXT NOT NULL,
@@ -75,8 +81,24 @@ export const MIGRATIONS: readonly string[] = [
   // it after `pull_requests` was created in this same slice, and a development database already
   // at version 11 has the old table: a new migration adds the column instead of editing 11, whose
   // `CREATE TABLE` never runs again on an existing database.
-  `ALTER TABLE pull_requests ADD COLUMN repository TEXT;`,
+  //
+  // It is a function because SQLite has no `ADD COLUMN IF NOT EXISTS`, and a database made by a
+  // branch revision that already carried the column (C6's own round 2) sits at version 11 with it:
+  // the plain `ALTER` threw `duplicate column name: repository` and the server refused to start.
+  // Reading `table_info` first makes the step idempotent, and any later in-branch edit of a shipped
+  // migration can be written the same way.
+  (db) => {
+    if (!tableHasColumn(db, "pull_requests", "repository")) {
+      db.exec("ALTER TABLE pull_requests ADD COLUMN repository TEXT;");
+    }
+  },
 ];
+
+/** Whether `table` already has `column`; the guard a conditional schema step writes. */
+export function tableHasColumn(db: DatabaseSync, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+  return rows.some((row) => row["name"] === column);
+}
 
 export const DATABASE_FILE = "corral.db";
 
@@ -94,7 +116,7 @@ export function openDatabase(dataDir: string): DatabaseSync {
   }
 }
 
-export function migrate(db: DatabaseSync, migrations: readonly string[]): void {
+export function migrate(db: DatabaseSync, migrations: readonly Migration[]): void {
   const applied = schemaVersion(db);
   if (applied > migrations.length)
     throw new Error(
@@ -103,7 +125,9 @@ export function migrate(db: DatabaseSync, migrations: readonly string[]): void {
   for (let version = applied; version < migrations.length; version++) {
     db.exec("BEGIN");
     try {
-      db.exec(migrations[version]!);
+      const step = migrations[version]!;
+      if (typeof step === "string") db.exec(step);
+      else step(db);
       db.exec(`PRAGMA user_version = ${version + 1}`);
       db.exec("COMMIT");
     } catch (error) {
