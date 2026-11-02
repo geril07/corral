@@ -157,12 +157,20 @@ export function runProcess(options: {
     child.stdout?.on("error", () => undefined);
     child.stderr?.on("error", () => undefined);
 
-    // A child that never spawned has no pid, and writing into its stdin is a stream error the
-    // `error` event below already reports; closing stdin at once is what makes a reader see EOF.
-    if (child.pid !== undefined) {
-      child.stdin?.on("error", () => undefined);
-      child.stdin?.end(stdin ?? "");
-    }
+    /*
+     * `stdin` is closed once the child exists: a reader that waits for input (`cat`, a CLI reading
+     * `--body-file -`) must see EOF, not a hung call. A body is written only for a spawned child;
+     * with no body the stream is destroyed instead of ended, because ending it writes a zero-length
+     * chunk, and a CLI that already exited turns that write into EPIPE — in a Vite-run test server
+     * that stream error is where a typed refusal used to disappear behind "Internal server error".
+     */
+    child.once("spawn", () => {
+      const stream = child.stdin;
+      if (stream === null) return;
+      stream.on("error", () => undefined);
+      if (stdin === undefined) stream.destroy();
+      else stream.end(stdin);
+    });
 
     child.on("error", (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") {

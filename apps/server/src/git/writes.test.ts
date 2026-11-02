@@ -76,9 +76,7 @@ test("a commit takes the message as typed and a push reaches the given remote", 
   const pushed = await pushBranch(dir, "origin", "main");
   expect(pushed.commit).toBe(runGit(dir, "rev-parse", "HEAD").trim());
   expect(runGit(origin, "rev-parse", "refs/heads/main").trim()).toBe(pushed.commit);
-  // No upstream was configured by the push (git fails to name one), and the branch kept its name.
-  expect(() => runGit(dir, "config", "--get", "branch.main.remote")).toThrow(
-    /no upstream|not found/i,
-  );
+  // No upstream was configured by the push, and the branch kept its name.
+  expect(runGit(dir, "config", "--list")).not.toContain("branch.main.remote");
   expect(runGit(dir, "branch", "--show-current").trim()).toBe("main");
 });
