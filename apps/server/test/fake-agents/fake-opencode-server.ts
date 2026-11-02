@@ -378,9 +378,30 @@ export function runFakeOpenCodeServer(options: {
           typeof body["id"] === "string"
             ? body["id"]
             : `msg_fakeuser${session.messages.length + 1}`;
+        journal({ action: "prompt", sessionID: session.id, delivery: delivery ?? null, text });
+        // `resume: false` admits the input without scheduling the agent; the real 2.2.5 stores
+        // nothing and emits nothing in that case (measured).
+        if (body["resume"] === false) {
+          json(response, 200, {
+            data: {
+              id,
+              sessionID: session.id,
+              type: "user",
+              payload: { text },
+              delivery: delivery ?? "steer",
+            },
+          });
+          return;
+        }
         session.messages.push({ id, type: "user", text, time: { created: Date.now() } });
         save(session);
-        journal({ action: "prompt", sessionID: session.id, delivery: delivery ?? null, text });
+        // Real 2.2.5: the inbox event carries the message id and the text; a prompt from the
+        // other frontend appears here, not in a text event.
+        emit("session.inbox.enqueued", {
+          inboxID: id,
+          sessionID: session.id,
+          item: { type: "user", payload: { text }, delivery: delivery ?? "steer" },
+        });
         json(response, 200, {
           data: {
             id,
@@ -390,6 +411,7 @@ export function runFakeOpenCodeServer(options: {
             delivery: delivery ?? "steer",
           },
         });
+        emit("session.inbox.delivered", { sessionID: session.id, inboxID: id });
         deliver(session, text, delivery);
         return;
       }

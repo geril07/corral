@@ -84,7 +84,7 @@ export class OpenCodeProjection {
   /** Adds the user's message optimistically and returns the id its prompt will echo. */
   userMessage(text: string): { itemId: string; messageId: string } {
     const messageId = newOpenCodeMessageId();
-    const itemId = `user:${messageId}`;
+    const itemId = userItemId(messageId);
     this.#timeline.put({ kind: "user-message", id: itemId, text });
     return { itemId, messageId };
   }
@@ -110,7 +110,7 @@ export class OpenCodeProjection {
         case "user":
           this.#timeline.put({
             kind: "user-message",
-            id: `user:${id}`,
+            id: userItemId(id),
             text: stringOf(record["text"]) ?? "",
           });
           break;
@@ -126,7 +126,6 @@ export class OpenCodeProjection {
     }
   }
 
-  /** Applies one event of the session's stream; returns what the driver has to do about it. */
   /**
    * Applies one event of the session's stream; returns what the driver has to do about it. `replay`
    * marks an event that arrived while the transcript was rebuilt: a text delta it carries may
@@ -138,6 +137,20 @@ export class OpenCodeProjection {
     if (data === undefined) return [];
     const actions: OpenCodeAction[] = [];
     switch (event.type) {
+      case "session.inbox.enqueued": {
+        // A prompt from the other frontend (the TUI) arrives only here: the message is admitted
+        // with an inbox id, and that id is the message id a rebuild reads from
+        // `GET /api/session/:id/message`. Using it as the item id means the live item and the
+        // rebuilt one are one item, whether the user typed in chat or in the terminal.
+        const inboxID = stringOf(data["inboxID"]);
+        const item = asRecord(data["item"]);
+        const payload = asRecord(item?.["payload"]);
+        const text = stringOf(payload?.["text"]);
+        if (inboxID !== undefined && item?.["type"] === "user" && text !== undefined) {
+          this.#timeline.put({ kind: "user-message", id: userItemId(inboxID), text });
+        }
+        break;
+      }
       case "session.text.started":
       case "session.text.delta":
       case "session.text.ended":
@@ -461,6 +474,10 @@ export class OpenCodeProjection {
     }
     return null;
   }
+}
+
+function userItemId(messageId: string): string {
+  return `user:${messageId}`;
 }
 
 function textItemId(messageId: string, ordinal: number): string {

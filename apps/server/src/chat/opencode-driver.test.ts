@@ -433,6 +433,49 @@ test("a delta that repeats the previous tail is text, not a replay", async () =>
   }
 });
 
+test("a prompt the other frontend types appears as its user message, with the id a rebuild uses", async () => {
+  const test1 = await harness();
+  try {
+    const messageId = "msg_external0000000000000000";
+    const response = await fetch(
+      `${test1.server.url}/api/session/ses_driver0000000000000000000/prompt`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(`opencode:${test1.server.password}`).toString("base64")}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ id: messageId, text: "from the terminal" }),
+      },
+    );
+    expect(response.ok).toBe(true);
+
+    // The live stream must carry the user item, not only the tool call and the answer.
+    await until(() => {
+      const item = test1.timeline.item(`user:${messageId}`);
+      return item?.kind === "user-message" && item.text === "from the terminal";
+    }, "the user message from the other client");
+    await until(() => test1.timeline.state.turn === "settled", "the external turn");
+
+    // A rebuild reads the same id from `/message`, so it replaces the live item rather than
+    // adding a second one.
+    await test1.driver.stop();
+    const rebuilt = new ChatTimeline(0);
+    const second = driverOn(test1.server, "ses_driver0000000000000000000", { timeline: rebuilt });
+    second.start();
+    await until(() => rebuilt.state.turn === "settled", "the rebuilt transcript");
+    expect(
+      rebuilt
+        .snapshot()
+        .items.filter((item) => item.kind === "user-message")
+        .map((item) => [item.id, item.text]),
+    ).toEqual([[`user:${messageId}`, "from the terminal"]]);
+    await second.stop();
+  } finally {
+    await test1.stop();
+  }
+});
+
 test("one session's stream never carries another session's text", async () => {
   const root = await mkdtemp(join(tmpdir(), "corral-opencode-"));
   const servers = new OpenCodeServers({ dataDir: root, readyTimeoutMs: 10_000 });
