@@ -45,6 +45,14 @@ test("a repository whose first commit is still ahead can unstage everything", as
   await stagePaths(dir, ["a.txt"], true);
   await stagePaths(dir, ["a.txt"], false);
   expect(await stagedPaths(dir)).toEqual([]);
+
+  // A second "unstage everything" with nothing staged is a no-op, not git's "pathspec '.' did not
+  // match any files".
+  await stagePaths(dir, "all", false);
+  expect(await stagedPaths(dir)).toEqual([]);
+  // Nor does naming a path that is not staged fail.
+  await stagePaths(dir, ["a.txt"], false);
+  expect(await stagedPaths(dir)).toEqual([]);
 });
 
 test("staging records a deletion and a path is never a glob", async () => {

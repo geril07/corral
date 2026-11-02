@@ -1,10 +1,10 @@
 import type { EnvRef } from "@corral/protocol/config";
-import { spawn } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isExecutable } from "../agents/executable-lookup.ts";
 import { resolveEnvRefs } from "../agents/launch-env.ts";
+import { ProcessFailure, runProcess } from "../process/run-process.ts";
 import { namingArgs, type NamingLaunch } from "./naming-command.ts";
 
 /** A naming request as the config resolved it. */
@@ -65,70 +65,50 @@ export async function runNaming(request: NamingRunRequest): Promise<NamingRun> {
   }
 }
 
-function spawnNaming(
+/**
+ * One naming run through the server's single spawner (`process/run-process.ts`): its own process
+ * group, a deadline that kills the group (so a helper the agent started dies too), a bounded answer,
+ * and an end at the child's `exit` rather than at `close` — a descendant that kept the pipes open
+ * would otherwise have held a finished run past its timeout.
+ */
+async function spawnNaming(
   command: string,
   args: readonly string[],
   options: { cwd: string; env: Record<string, string>; timeoutMs: number },
 ): Promise<NamingRun> {
-  return new Promise((resolve) => {
-    const child = spawn(command, args, {
+  try {
+    const result = await runProcess({
+      command,
+      args: [...args],
       cwd: options.cwd,
       env: options.env,
-      stdio: ["ignore", "pipe", "pipe"],
-      // Its own process group, so a timeout stops helpers the agent started too.
-      detached: process.platform !== "win32",
+      timeoutMs: Math.max(1, options.timeoutMs),
+      maxBufferBytes: MAX_STDOUT_CHARS,
+      signal: undefined,
     });
-    let stdout = "";
-    let settled = false;
-    const finish = (result: NamingRun) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(result);
+    if (result.exitCode === 0) return { ok: true, stdout: result.stdout };
+    return {
+      ok: false,
+      reason: `${command} exited with ${result.exitCode ?? result.signal ?? "no code"}`,
     };
-    const stop = () => {
-      try {
-        if (process.platform !== "win32" && child.pid !== undefined) {
-          process.kill(-child.pid, "SIGKILL");
-          return;
-        }
-      } catch {
-        // The group is gone; the child handle still knows how to stop it.
-      }
-      child.kill("SIGKILL");
-    };
-    // A descendant that left the group can hold the stdio pipes open forever. The answer is
-    // already lost, so the timer finishes on its own instead of waiting for `close`.
-    const abandon = (reason: string) => {
-      stop();
-      child.stdout?.destroy();
-      child.stderr?.destroy();
-      finish({ ok: false, reason });
-    };
-    const timer = setTimeout(
-      () => abandon(`no answer within ${seconds(options.timeoutMs)}`),
-      Math.max(1, options.timeoutMs),
-    );
-    child.stdout?.setEncoding("utf8");
-    child.stdout?.on("data", (chunk: string) => {
-      stdout += chunk;
-      if (stdout.length > MAX_STDOUT_CHARS) abandon("the answer was too large");
-    });
-    // Drained, never logged: stderr may repeat the prompt or a credential.
-    child.stderr?.resume();
-    child.once("error", (error) =>
-      finish({ ok: false, reason: `could not start ${command}: ${messageOf(error)}` }),
-    );
-    // The normal path: `close` fires once the child and every pipe it owns are gone.
-    child.once("close", (code, signal) => {
-      if (code !== 0)
-        return finish({
-          ok: false,
-          reason: `${command} exited with ${code ?? signal ?? "no code"}`,
-        });
-      finish({ ok: true, stdout });
-    });
-  });
+  } catch (error) {
+    if (!(error instanceof ProcessFailure)) {
+      return { ok: false, reason: messageOf(error) };
+    }
+    switch (error.kind) {
+      case "timeout":
+        return { ok: false, reason: `no answer within ${seconds(options.timeoutMs)}` };
+      case "overflow":
+        return { ok: false, reason: "the answer was too large" };
+      case "missing":
+      case "missing-directory":
+      case "spawn":
+        return { ok: false, reason: `could not start ${command}: ${messageOf(error.cause)}` };
+      case "aborted":
+      default:
+        return { ok: false, reason: "the answer was abandoned" };
+    }
+  }
 }
 
 function seconds(milliseconds: number): string {

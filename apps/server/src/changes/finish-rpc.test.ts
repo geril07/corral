@@ -402,7 +402,7 @@ test("gitlab opens a merge request with mr create and reads it with mr view", as
   });
   expect(clis.calls().map((call) => `${call.command} ${call.argv.join(" ")}`)).toEqual([
     `glab mr create --title Ship the change --description-file - --source-branch ${branch} --target-branch trunk --push=false --yes --repo https://forge.invalid/acme/app`,
-    "glab mr view -F json --repo https://forge.invalid/acme/app",
+    "glab mr view 12 -F json --repo https://forge.invalid/acme/app",
   ]);
   expect(clis.calls()[0]?.stdin).toBe("A description.\n");
 });
@@ -704,11 +704,54 @@ test("a parseable push URL points the CLI at the confirmed repository", async ()
   });
   expect(clis.calls()[0]?.argv).toContain("--repo");
   expect(clis.calls()[0]?.argv).toContain("forge.invalid/acme/app");
-  // The row keeps the repository, so a refresh can point the CLI at it without the remote.
+  // `--repo` needs the request positionally (`gh pr view 7 --repo …`, probed in
+  // `test/contracts/gh-pr-argv.contract.ts`); the create's own URL gives the number.
+  expect(clis.calls()[1]?.argv).toEqual([
+    "pr",
+    "view",
+    "7",
+    "--json",
+    "number,url,title,state,isDraft,baseRefName,headRefName,statusCheckRollup",
+    "--repo",
+    "forge.invalid/acme/app",
+  ]);
+  expect(clis.calls()[2]?.argv).toEqual([
+    "pr",
+    "checks",
+    "7",
+    "--json",
+    "bucket,name,state",
+    "--repo",
+    "forge.invalid/acme/app",
+  ]);
+
+  // The row keeps the repository (host and path in one value) and the number, so a refresh reads
+  // the same request on the same host without the remote.
   expect(await api.changes.pullRequest({ id: task.id })).toMatchObject({
     host: "forge.invalid",
-    repository: "acme/app",
+    repository: "forge.invalid/acme/app",
   });
+  const before = clis.calls().length;
+  expect(await api.changes.pullRequest({ id: task.id, refresh: true })).toMatchObject({
+    state: "open",
+  });
+  expect(
+    clis
+      .calls()
+      .slice(before)
+      .map((call) => call.argv),
+  ).toEqual([
+    [
+      "pr",
+      "view",
+      "7",
+      "--json",
+      "number,url,title,state,isDraft,baseRefName,headRefName,statusCheckRollup",
+      "--repo",
+      "forge.invalid/acme/app",
+    ],
+    ["pr", "checks", "7", "--json", "bucket,name,state", "--repo", "forge.invalid/acme/app"],
+  ]);
   for (const call of clis.calls()) {
     expect([call.command, ...call.argv, call.cwd].join(" ")).not.toMatch(
       /github\.com|gitlab\.com|ghe\.com/,

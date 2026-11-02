@@ -313,11 +313,13 @@ export const PullRequest = z.object({
   /** Host the request lives on, as the CLI reported it. */
   host: z.string().min(1).max(300),
   /**
-   * `owner/repo` (or a nested GitLab path) the request was opened on, when the task's remote named
-   * one. Kept on the row so a refresh asks the CLI for this repository (`--repo`) instead of
-   * whichever one it happens to resolve; `null` when the remote is a local path.
+   * The repository the request was opened on as one value with its host — `forge.example/acme/app`
+   * (nested GitLab paths included) — when the task's remote named one. Kept on the row so a refresh
+   * asks the CLI for that repository (`--repo`) instead of whichever one it happens to resolve, and
+   * so a forge that redirects the request's own host cannot move the read. Optional: a daemon
+   * already on version 10 answers without it, and a task whose remote is a local path has none.
    */
-  repository: z.string().max(512).nullable(),
+  repository: z.string().max(560).nullable().optional(),
   number: z.number().int().positive(),
   url: z.string().min(1).max(2048),
   title: z.string().max(1024),

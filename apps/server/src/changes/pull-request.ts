@@ -47,6 +47,13 @@ export interface PullRequestCallOptions {
    * Absent for a local path or a remote without a repository path, where the CLI resolves its own.
    */
   destination: RemoteDestination | undefined;
+  /**
+   * The request's number, passed **positionally** whenever `--repo` is present: `gh` refuses
+   * `pr view --json … --repo OWNER/REPO` ("argument required when using the --repo flag"), so the
+   * selector is part of the accepted argv, not an extra. Known from the create's URL or the stored
+   * row; absent only for a task with no link, where no read happens.
+   */
+  selector?: number | undefined;
   timeoutMs: number;
   signal: AbortSignal | undefined;
   /** A GitHub token is dropped when the project's remote did not vouch for the host. */
@@ -150,30 +157,50 @@ function createCommand(input: {
   };
 }
 
-/** `gh pr view --json …` / `glab mr view -F json`, on the same confirmed repository. */
-function viewCommand(
+/**
+ * The positional selector for a read. `--repo` without one is rejected by `gh` (probed, see
+ * `test/contracts/gh-pr-argv.contract.ts`), so a read that names a repository names the request
+ * too; a read without `--repo` keeps the CLI's own "the current branch's request".
+ */
+function selectorArgs(
+  destination: RemoteDestination | undefined,
+  selector: number | undefined,
+): string[] {
+  return destination !== undefined && selector !== undefined ? [String(selector)] : [];
+}
+
+/**
+ * `gh pr view [N] --json … --repo …` / `glab mr view [N] -F json --repo …`, on the same confirmed
+ * repository. Exported for the contract test: the argv's shape is the CLI's contract, and the fake
+ * answers whatever it is handed.
+ */
+export function viewCommand(
   provider: IssueProvider,
   destination: RemoteDestination | undefined,
+  selector: number | undefined,
 ): { command: string; args: string[] } {
   const repository = repositoryArgs(provider, destination);
+  const request = selectorArgs(destination, selector);
   return provider === "github"
     ? {
         command: "gh",
         args: [
           "pr",
           "view",
+          ...request,
           "--json",
           "number,url,title,state,isDraft,baseRefName,headRefName,statusCheckRollup",
           ...repository,
         ],
       }
-    : { command: "glab", args: ["mr", "view", "-F", "json", ...repository] };
+    : { command: "glab", args: ["mr", "view", ...request, "-F", "json", ...repository] };
 }
 
-/** `gh pr checks --json bucket,name,state`; GitLab reports no per-check list to Corral. */
-function checksCommand(
+/** `gh pr checks [N] --json bucket,name,state`; GitLab reports no per-check list to Corral. */
+export function checksCommand(
   provider: IssueProvider,
   destination: RemoteDestination | undefined,
+  selector: number | undefined,
 ): { command: string; args: string[] } | undefined {
   return provider === "github"
     ? {
@@ -181,12 +208,21 @@ function checksCommand(
         args: [
           "pr",
           "checks",
+          ...selectorArgs(destination, selector),
           "--json",
           "bucket,name,state",
           ...repositoryArgs(provider, destination),
         ],
       }
     : undefined;
+}
+
+/** The request number a create printed in its URL, for the follow-up read's positional selector. */
+function requestNumber(stdout: string, provider: IssueProvider): number | undefined {
+  const url = createdUrl(stdout, provider);
+  const digits = url === undefined ? undefined : /(\d+)\s*$/.exec(url)?.[1];
+  const number = digits === undefined ? undefined : Number(digits);
+  return number !== undefined && Number.isSafeInteger(number) && number > 0 ? number : undefined;
 }
 
 /** The URL a create printed, used when the follow-up read cannot answer. */
@@ -327,8 +363,9 @@ export async function createPullRequest(
   } catch (error) {
     throw refusal(options.provider, command, error);
   }
+  const createdNumber = requestNumber(stdout, options.provider);
   try {
-    return await readPullRequest(options);
+    return await readPullRequest({ ...options, selector: createdNumber });
   } catch (error) {
     // The create itself succeeded; a read that fails leaves the link from its own output.
     const url = createdUrl(stdout, options.provider);
@@ -357,7 +394,7 @@ export async function createPullRequest(
 export async function readPullRequest(
   options: PullRequestCallOptions,
 ): Promise<PullRequestSnapshot> {
-  const view = viewCommand(options.provider, options.destination);
+  const view = viewCommand(options.provider, options.destination, options.selector);
   let stdout: string;
   try {
     stdout = await runNativeCli({
@@ -372,7 +409,7 @@ export async function readPullRequest(
   } catch (error) {
     throw refusal(options.provider, view.command, error);
   }
-  const checks = checksCommand(options.provider, options.destination);
+  const checks = checksCommand(options.provider, options.destination, options.selector);
   let checksStdout: string | undefined;
   if (checks !== undefined) {
     // `gh pr checks` exits non-zero when checks fail or are pending: a report, not a failed read.

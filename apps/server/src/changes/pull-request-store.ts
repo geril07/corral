@@ -7,6 +7,12 @@ const Row = PullRequest.extend({
     .string()
     .nullable()
     .transform((value) => (value === null ? null : JSON.parse(value))),
+  // Migration 12 added the column; a row from before it (or from a local-path remote) has none.
+  repository: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((value) => value ?? null),
 });
 
 const COLUMNS = `task_id AS taskId, provider, host, repository, number, url, title, branch, base,
@@ -55,7 +61,7 @@ export class PullRequestStore {
         request.taskId,
         request.provider,
         request.host,
-        request.repository,
+        request.repository ?? null,
         request.number,
         request.url,
         request.title,

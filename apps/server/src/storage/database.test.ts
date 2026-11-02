@@ -356,3 +356,26 @@ test("the session store writes the view of a chat session and reads it back", ()
   expect(sessions.get("s")).toMatchObject({ id: "s", view: "chat", kind: "pi" });
   db.close();
 });
+
+test("a database already at version 11 gains the request's repository column", () => {
+  // The table was created without `repository`; editing migration 11 in place would never run its
+  // CREATE again, so the column arrives as migration 12 and an existing row keeps its link.
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
+  db.exec(`
+    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
+    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
+      VALUES ('t', 'p', 'task', 'b', '/n', 0, 'active', 1);
+    INSERT INTO pull_requests (task_id, provider, host, number, url, title, branch, base, state, state_reason, checks, fetched_at)
+      VALUES ('t', 'github', 'forge.example', 7, 'https://forge.example/acme/app/pull/7', 'Ship', 'b', 'main', 'open', NULL, NULL, 1);
+  `);
+
+  migrate(db, MIGRATIONS);
+
+  expect(schemaVersion(db)).toBe(MIGRATIONS.length);
+  expect(db.prepare("SELECT task_id, repository FROM pull_requests").all()).toEqual([
+    { task_id: "t", repository: null },
+  ]);
+  db.close();
+});

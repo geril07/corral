@@ -241,7 +241,9 @@ export class ChangesService {
     const request: PullRequest = {
       ...snapshot,
       taskId: task.id,
-      repository: destination === undefined ? null : destination.segments.join("/"),
+      // Host and path in one value: the refresh must not be able to drift to another forge.
+      repository:
+        destination === undefined ? null : `${destination.host}/${destination.segments.join("/")}`,
     };
     this.#pullRequests.put(request);
     return request;
@@ -269,17 +271,17 @@ export class ChangesService {
    * request whose state nobody can confirm.
    */
   async #refresh(task: Task, stored: PullRequest): Promise<PullRequest> {
-    // The repository the request was opened on, kept on the row: a renamed or removed remote must
-    // not move a refresh to another repository.
-    const destination: RemoteDestination | undefined =
-      stored.repository === null
-        ? undefined
-        : { host: stored.host, segments: stored.repository.split("/") };
+    // The repository the request was opened on, kept on the row with its host: a renamed or removed
+    // remote, or a forge that redirects the request's URL, must not move a refresh elsewhere.
+    const destination = storedRepositoryDestination(stored.repository ?? null);
     try {
       const snapshot = await readPullRequest({
         provider: stored.provider,
         cwd: task.workspacePath,
         destination,
+        // `--repo` needs the request positionally (probed against the real `gh`); the stored number
+        // is exact.
+        selector: stored.number,
         timeoutMs: this.#pullRequestTimeoutMs,
         signal: undefined,
         ...(await this.#tokenPolicy(task, stored.provider, destination)),
@@ -406,5 +408,16 @@ function failed(taskId: string, message: string): TaskChanges {
     deletions: 0,
     truncated: false,
     error: message,
+  };
+}
+
+/** `forge.example/acme/app` → the destination the CLI needs; host first, then the path segments. */
+function storedRepositoryDestination(repository: string | null): RemoteDestination | undefined {
+  if (repository === null) return undefined;
+  const slash = repository.indexOf("/");
+  if (slash <= 0 || slash === repository.length - 1) return undefined;
+  return {
+    host: repository.slice(0, slash),
+    segments: repository.slice(slash + 1).split("/"),
   };
 }

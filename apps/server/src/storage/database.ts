@@ -61,7 +61,6 @@ export const MIGRATIONS: readonly string[] = [
      task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
      provider TEXT NOT NULL,
      host TEXT NOT NULL,
-     repository TEXT,
      number INTEGER NOT NULL,
      url TEXT NOT NULL,
      title TEXT NOT NULL,
@@ -72,6 +71,11 @@ export const MIGRATIONS: readonly string[] = [
      checks TEXT,
      fetched_at INTEGER
    ) STRICT;`,
+  // The repository the request was opened on, with its host (`forge.example/acme/app`). C6 added
+  // it after `pull_requests` was created in this same slice, and a development database already
+  // at version 11 has the old table: a new migration adds the column instead of editing 11, whose
+  // `CREATE TABLE` never runs again on an existing database.
+  `ALTER TABLE pull_requests ADD COLUMN repository TEXT;`,
 ];
 
 export const DATABASE_FILE = "corral.db";

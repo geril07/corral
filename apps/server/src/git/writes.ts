@@ -22,6 +22,16 @@ export async function stagePaths(
     await git(workspace, ["add", "--all", ...pathArgs(paths)], { env: WRITE_ENV });
     return;
   }
+  /*
+   * Unstaging what is not staged is a no-op, not an error: `git restore --staged -- .` on an empty
+   * index fails with "fatal: pathspec '.' did not match any files" (and `git rm --cached` on a
+   * repository with no commit does the same), which would surface as a git failure for a click that
+   * had nothing to undo. The staged set is read here; explicit paths are intersected with it.
+   */
+  const current = await stagedPaths(workspace);
+  if (current.length === 0) return;
+  const targets = paths === "all" ? "all" : paths.filter((path) => current.includes(path));
+  if (Array.isArray(targets) && targets.length === 0) return;
   // `git restore --staged` always wants a pathspec, so "everything" is `.` from the workspace root
   // (the task's worktree or the main tree). It also needs HEAD, so a repository with no commit yet
   // falls back to taking the paths out of the index directly — the first-commit case a staging UI
