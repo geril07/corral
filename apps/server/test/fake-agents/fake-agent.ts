@@ -49,9 +49,9 @@ if (argv.includes("--version")) {
   );
   process.exit(0);
 }
-
-// The version gate reads this before anything else; it needs no Codex home.
-if (name === "codex" && argv.includes("--version")) {
+// The version gate reads this before anything else; it needs no Codex home. Exactly the two-word
+// form, so a prompt that happens to contain "--version" after `--` still runs the TUI.
+if (name === "codex" && argv[0] === "--version") {
   console.log(`codex-cli ${process.env["FAKE_CODEX_VERSION"] ?? "0.166.0"}`);
   process.exit(0);
 }
