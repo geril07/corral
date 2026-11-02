@@ -248,13 +248,16 @@ export const ChangeDiff = z.object({
 export type ChangeDiff = z.infer<typeof ChangeDiff>;
 
 /**
- * A git remote a write targets: its name for git's own argv, and the URL exactly as the user was
- * shown it. Every remote write carries the pair back, and the server refuses a remote whose URL is
- * no longer the one that was confirmed (`CHANGES_REMOTE_MISMATCH`); a `insteadOf` rewrite or an
- * edited `.git/config` can change a remote between the confirmation and the write.
+ * A git remote a write targets: its name for git's own argv, and the **push** URL
+ * (`git remote get-url --push`, so `remote.<name>.pushurl` wins over the fetch URL and an
+ * `insteadOf` rewrite is expanded) — the address a push really reaches, exactly as the user was
+ * shown it. Every remote write carries the pair back, and the server re-reads both before git runs
+ * and refuses a URL that is no longer the confirmed one (`CHANGES_REMOTE_MISMATCH`): an edited
+ * `.git/config` can change a remote between the confirmation and the write.
  */
 export const ChangesRemote = z.object({
   name: z.string().min(1).max(200),
+  /** The push URL, as `changes.finish` reported it. */
   url: z.string().min(1).max(2048),
 });
 export type ChangesRemote = z.infer<typeof ChangesRemote>;
