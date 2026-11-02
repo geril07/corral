@@ -4,7 +4,7 @@ import { useFakeAgents } from "../../test/fake-agents.ts";
 import { addTask } from "../../test/project-fixture.ts";
 import { writeRollout } from "../../test/rollouts.ts";
 import { useServer } from "../../test/server-fixture.ts";
-import { launchesOf, sessionsOf } from "../../test/session-helpers.ts";
+import { frontendArgs, launchesOf, sessionsOf } from "../../test/session-helpers.ts";
 
 const server = useServer();
 const agents = useFakeAgents();
@@ -101,7 +101,9 @@ test("a Codex session that never wrote a rollout becomes unresumable, and restar
   const restarted = await api.sessions.restart({ id: session.id, size: SIZE });
 
   expect(restarted).toMatchObject({ state: "running", agentSessionId: null });
-  expect((await launchesOf(agents, "codex", 2)).map((launch) => launch.argv)).toEqual([[], []]);
+  expect((await launchesOf(agents, "codex", 2)).map((launch) => frontendArgs(launch.argv))).toEqual(
+    [[], []],
+  );
 });
 
 test("a Codex session that exits by itself without a rollout becomes unresumable", async () => {
@@ -129,7 +131,10 @@ test("a Codex session that wrote its rollout and then exited by itself keeps its
     .toMatchObject({ state: "stopped", agentSessionId: launch!.rolloutId });
   await api.sessions.restart({ id: session.id, size: SIZE });
 
-  expect((await launchesOf(agents, "codex", 2))[1]!.argv).toEqual(["resume", launch!.rolloutId]);
+  expect(frontendArgs((await launchesOf(agents, "codex", 2))[1]!.argv)).toEqual([
+    "resume",
+    launch!.rolloutId,
+  ]);
 });
 
 test("a stopped Codex session with an id resumes it by id, without searching for a new one", async () => {
@@ -144,5 +149,8 @@ test("a stopped Codex session with an id resumes it by id, without searching for
   const restarted = await api.sessions.restart({ id: session.id, size: SIZE });
 
   expect(restarted).toMatchObject({ state: "running", agentSessionId: launch!.rolloutId });
-  expect((await launchesOf(agents, "codex", 2))[1]!.argv).toEqual(["resume", launch!.rolloutId]);
+  expect(frontendArgs((await launchesOf(agents, "codex", 2))[1]!.argv)).toEqual([
+    "resume",
+    launch!.rolloutId,
+  ]);
 });

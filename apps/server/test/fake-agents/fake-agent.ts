@@ -34,6 +34,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeTranscriptExists, writeClaudeTranscript } from "../claude-transcripts.ts";
 import { writeRollout } from "../rollouts.ts";
+import { startFakeCodexServer } from "./fake-codex-server.ts";
 import { runFakeOpenCodeServer } from "./fake-opencode-server.ts";
 import { startFakePiRpc } from "./fake-pi-rpc.ts";
 
@@ -49,6 +50,11 @@ if (argv.includes("--version")) {
   process.exit(0);
 }
 
+// The version gate reads this before anything else; it needs no Codex home.
+if (name === "codex" && argv.includes("--version")) {
+  console.log(`codex-cli ${process.env["FAKE_CODEX_VERSION"] ?? "0.166.0"}`);
+  process.exit(0);
+}
 const codexHome = process.env["CODEX_HOME"];
 
 // One frontend per pi session id, checked at the boundary: the driver has its own writer record,
@@ -77,7 +83,8 @@ if (claudeFlag === "--resume" && claudeId && !claudeTranscriptExists(claudeConfi
   process.exit(1);
 }
 
-const startsConversation = name === "codex" && !argv.includes("resume");
+// `codex app-server` is a server, not a conversation: it writes no rollout of its own.
+const startsConversation = name === "codex" && !argv.includes("resume") && argv[0] !== "app-server";
 const rolloutMode = process.env["FAKE_CODEX_ROLLOUT"] ?? "eager";
 const rolloutId = startsConversation ? randomUUID() : undefined;
 
@@ -118,6 +125,22 @@ if (logFile) {
     opencode: name === "opencode" ? openCodePlugin() : undefined,
   };
   appendFileSync(logFile, `${JSON.stringify(launch)}\n`);
+}
+
+// `codex app-server --listen unix://PATH`: the v2 subset the Codex chat driver and its terminal
+// leg speak (C3). It stays in this process until it is killed; the journal keeps its threads.
+if (name === "codex" && argv[0] === "app-server") {
+  const listen = argumentValue(argv, "--listen");
+  if (listen === undefined || !listen.startsWith("unix://")) {
+    console.error("fake codex: app-server needs --listen unix://PATH");
+    process.exit(2);
+  }
+  const socketPath = listen.slice("unix://".length);
+  await startFakeCodexServer({
+    socketPath,
+    journal: process.env["FAKE_CODEX_SERVER_LOG"] ?? `${socketPath}.journal`,
+  });
+  await new Promise(() => {});
 }
 
 // `opencode serve`: the v2 API the chat driver speaks. It stays in this process until it is

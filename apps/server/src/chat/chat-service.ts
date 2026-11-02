@@ -183,6 +183,12 @@ export class ChatService {
       prompt: request.prompt,
       agentSessionId: request.agentSessionId,
       ...(request.server === undefined ? {} : { server: request.server }),
+      ...(request.socket === undefined ? {} : { socket: request.socket }),
+      ...(request.onAgentSessionId === undefined
+        ? {}
+        : {
+            onAgentSessionId: (agentSessionId: string) => request.onAgentSessionId!(agentSessionId),
+          }),
       writer,
       ...this.#timeouts,
       onStatus: (status) => request.onStatus(status),

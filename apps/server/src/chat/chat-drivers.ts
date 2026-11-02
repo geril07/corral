@@ -1,6 +1,11 @@
 import { AgentKind } from "@corral/protocol/config";
 import type { ChatDriverRegistration, ChatDriverRegistry } from "./chat-driver.ts";
+<<<<<<< HEAD
 import { claudeChatDriver } from "./claude-driver.ts";
+||||||| parent of 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
+=======
+import { codexChatDriver } from "./codex-driver.ts";
+>>>>>>> 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
 import { openCodeChatDriver } from "./opencode-driver.ts";
 import { piChatDriver } from "./pi-driver.ts";
 
@@ -15,6 +20,7 @@ export const CHAT_DRIVER_REGISTRY: ChatDriverRegistry = {
   claude: claudeChatDriver,
   pi: piChatDriver,
   opencode: openCodeChatDriver,
+  codex: codexChatDriver,
 };
 
 /** The agents this build can show as chat, in the protocol's agent order. */

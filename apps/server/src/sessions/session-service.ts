@@ -13,9 +13,12 @@ import type {
 import { normalizeLabel } from "@corral/protocol/label";
 import type { StatusReport } from "@corral/protocol/status-report";
 import { AGENTS } from "../agents/agents.ts";
+import { codexRemoteArgs } from "../agents/codex.ts";
+import { codexChatSupport } from "../agents/codex-version.ts";
 import { openCodeServerArgs } from "../agents/opencode.ts";
 import type { ChatService } from "../chat/chat-service.ts";
 import { ChatLaunchError, type ChatSubject } from "../chat/chat-errors.ts";
+import type { CodexServers } from "../chat/codex-server.ts";
 import type { OpenCodeServers } from "../chat/opencode-server.ts";
 import {
   codexHome,
@@ -95,6 +98,15 @@ interface Live {
   reportedOverHttp: boolean;
   /** A terminal leg that fell back to OpenCode's own private server because the shared one could not start. */
   standaloneOpenCode: boolean;
+  /**
+   * A Codex terminal leg that runs plain `codex` (its own managed daemon) because the tested
+   * app-server is not available: an untested CLI version, or a server that would not start.
+   * Chat refuses such a session for this run, because a second app-server would be a second
+   * writer on the same thread.
+   */
+  standaloneCodex: boolean;
+  /** Why chat is refused for a standalone Codex leg; visible as the refusal's sentence. */
+  codexChatReason: string | undefined;
 }
 
 export type StatusReportOutcome = "accepted" | "unknown-session" | "forbidden";
@@ -116,6 +128,8 @@ export class SessionService {
   readonly #openCode: OpenCodeIntegration;
   /** The one `opencode serve` of this Corral run; both legs of an OpenCode session are its clients. */
   readonly #openCodeServers: OpenCodeServers;
+  /** One `codex app-server` per Codex session; both of that session's legs are its clients. */
+  readonly #codexServers: CodexServers;
   readonly #config: Pick<ConfigWatcher, "state">;
   readonly #taskEvents: SessionTasks;
   // Kept after the process is gone: a `done` or `error` outlives it. Not persisted.
@@ -138,6 +152,8 @@ export class SessionService {
     openCode: OpenCodeIntegration;
     /** The shared OpenCode server of this run; started lazily, stopped with its last client. */
     openCodeServers: OpenCodeServers;
+    /** The per-session Codex app-servers; started lazily, stopped with each session's last client. */
+    codexServers: CodexServers;
     /** The current config, for the profile a new session names. Never read on resume. */
     config: Pick<ConfigWatcher, "state">;
     /** Told when a removal took a task's primary session away, so the task feed republishes it. */
@@ -151,6 +167,7 @@ export class SessionService {
     this.#statusUrl = options.statusUrl;
     this.#openCode = options.openCode;
     this.#openCodeServers = options.openCodeServers;
+    this.#codexServers = options.codexServers;
     this.#config = options.config;
   }
 
@@ -277,6 +294,7 @@ export class SessionService {
       if (previous?.chat) {
         await this.#chat.stop(id);
         await this.#openCodeServers.release(openCodeOwner("chat", id));
+        await this.#codexServers.release(codexOwner("chat", id), id);
       }
       try {
         await this.#launch(stored, this.#task(stored.taskId), size, "resume", prompt);
@@ -545,6 +563,7 @@ export class SessionService {
     );
     // Its clients are gone; nothing of this run may keep the server on the data directory.
     await this.#openCodeServers.closeAll();
+    await this.#codexServers.closeAll();
   }
 
   #stored(id: string): StoredSession {
@@ -612,6 +631,34 @@ export class SessionService {
     return this.#chat
       .capabilities()
       .some((each) => each.kind === kind && each.terminalView === "both-live");
+  }
+
+  /**
+   * One leg's registration as a client of this session's Codex app-server. Both legs name the same
+   * session, so the terminal and the chat driver share one process and one writer (`codex-server.ts`).
+   */
+  #codexServer(
+    leg: "chat" | "terminal",
+    stored: StoredSession,
+    task: Task,
+    command: string,
+    env: Record<string, string>,
+  ): Promise<{ socketPath: string }> {
+    return this.#codexServers.acquire(codexOwner(leg, stored.id), {
+      sessionId: stored.id,
+      command,
+      cwd: task.workspacePath,
+      env,
+      onExit: (reason) => {
+        if (this.#shuttingDown) return;
+        // The TUI keeps "Reconnecting to server…" forever (measured); a session whose app-server
+        // is gone has no frontend worth keeping, so the terminal leg is closed with it.
+        this.#launchErrors.set(stored.id, reason);
+        const live = this.#live.get(stored.id);
+        if (live !== undefined) void this.#exitedByItself(stored.id, live, "terminal");
+        this.#changes.notify();
+      },
+    });
   }
 
   /** One leg's registration as a client of the shared OpenCode server of this run. */
@@ -707,6 +754,8 @@ export class SessionService {
     const input: CreateTerminalInput = { cwd: task.workspacePath, size };
     const previous = this.#live.get(stored.id);
     let standalone = previous?.standaloneOpenCode ?? false;
+    let standaloneCodex = false;
+    let codexChatReason: string | undefined;
     if (adapter) {
       // A chat frontend of this session may still hold pi's session file (a server that died, a
       // child that outlived its kill): the record is what stops it, and a terminal launch writes
@@ -758,6 +807,37 @@ export class SessionService {
           args = [...openCodeServerArgs(server.url), ...args];
         }
       }
+      if (stored.kind === "codex") {
+        // Measured (`.e2e/stage-c/c3/probe/`): a plain `codex` starts its own managed daemon, and
+        // a thread another app-server holds is read-only there. The terminal is therefore a client
+        // of this session's app-server (`--remote unix://…`), the same one chat attaches to — that
+        // is what makes the two views live at once. An untested CLI keeps the plain launch, and
+        // chat refuses with its reason. With a chat frontend already live, a plain terminal launch
+        // would be a second writer, so the launch fails instead of falling back.
+        const chatLive = this.#live.get(stored.id)?.chat === true;
+        const support = await codexChatSupport(command, env);
+        if (!support.supported) {
+          if (chatLive) throw new LaunchSpawnError(stored.kind, support.reason);
+          standaloneCodex = true;
+          codexChatReason = support.reason;
+        } else {
+          try {
+            const server = await this.#codexServer("terminal", stored, task, command, env);
+            args = [...codexRemoteArgs(server.socketPath), ...args];
+          } catch (error) {
+            if (error instanceof ChatLaunchError)
+              throw new LaunchSpawnError(stored.kind, error.message);
+            const reason = redactLaunchError(error, referencedValues);
+            if (chatLive)
+              throw new LaunchSpawnError(
+                stored.kind,
+                `chat is live on this session but its Codex app-server could not be reached (${reason}); stop the session and start it again`,
+              );
+            standaloneCodex = true;
+            codexChatReason = `this session's Codex app-server could not start (${reason}); stop it and start it again to open chat`;
+          }
+        }
+      }
       input.args = args;
     }
     input.env = env;
@@ -782,6 +862,7 @@ export class SessionService {
     } catch (error) {
       // The pool client was acquired before the PTY existed; a spawn that failed leaves it behind.
       await this.#openCodeServers.release(openCodeOwner("terminal", stored.id));
+      await this.#codexServers.release(codexOwner("terminal", stored.id), stored.id);
       throw new LaunchSpawnError(stored.kind, redactLaunchError(error, referencedValues));
     }
     if (previous === undefined) this.#statuses.delete(stored.id);
@@ -808,12 +889,16 @@ export class SessionService {
       chatStatusToken: statusToken,
       reportedOverHttp: false,
       standaloneOpenCode: standalone,
+      standaloneCodex,
+      codexChatReason,
     };
     live.terminalId = info.id;
     live.discovery = discovery;
     live.statusToken = statusToken;
     live.reportedOverHttp = false;
     live.standaloneOpenCode = standalone;
+    live.standaloneCodex = standaloneCodex;
+    live.codexChatReason = codexChatReason;
     this.#live.set(stored.id, live);
     this.#launchErrors.delete(stored.id);
     void this.#terminals
@@ -852,11 +937,26 @@ export class SessionService {
         "this session runs on OpenCode's own private server; stop it and start it again to open chat",
       );
     }
+    if (kind === "codex" && previous?.standaloneCodex) {
+      // The live terminal writes the thread through an app-server of its own (or a plain managed
+      // daemon); a second one here would be a second writer. Stopping the session drops the flag.
+      throw new ChatLaunchError(
+        previous.codexChatReason ??
+          "this session runs on Codex's own server; stop it and start it again to open chat",
+      );
+    }
     const owner = openCodeOwner("chat", stored.id);
+    const codexOwnerId = codexOwner("chat", stored.id);
     let server: { url: string; password: string } | undefined;
+    let socket: string | undefined;
     try {
       if (kind === "opencode")
         server = await this.#openCodeServer("chat", stored, task, command, env);
+      if (kind === "codex") {
+        const support = await codexChatSupport(command, env);
+        if (!support.supported) throw new ChatLaunchError(support.reason);
+        socket = (await this.#codexServer("chat", stored, task, command, env)).socketPath;
+      }
     } catch (error) {
       throw new LaunchSpawnError(
         stored.kind,
@@ -873,6 +973,8 @@ export class SessionService {
       chatStatusToken: statusToken,
       reportedOverHttp: false,
       standaloneOpenCode: false,
+      standaloneCodex: false,
+      codexChatReason: undefined,
     };
     live.chat = true;
     live.chatStatusToken = statusToken;
@@ -892,6 +994,12 @@ export class SessionService {
         how: resume ? "resume" : "start",
         prompt,
         ...(server === undefined ? {} : { server }),
+        ...(socket === undefined ? {} : { socket }),
+        // Codex assigns the thread id; the session row learns it from the frontend.
+        onAgentSessionId: (agentSessionId) => {
+          this.#store.setAgentSessionId(stored.id, agentSessionId);
+          this.#changes.notify();
+        },
         onStatus: (status) => {
           const current = this.#live.get(stored.id);
           if (current?.chat && current.chatStatusToken === statusToken)
@@ -899,12 +1007,14 @@ export class SessionService {
         },
         onExit: (reason) => {
           void this.#openCodeServers.release(owner);
+          void this.#codexServers.release(codexOwnerId, stored.id);
           if (reason !== null) this.#launchErrors.set(stored.id, reason);
           void this.#exitedByItself(stored.id, live, "chat");
         },
       });
     } catch (error) {
       await this.#openCodeServers.release(owner);
+      await this.#codexServers.release(codexOwnerId, stored.id);
       throw new LaunchSpawnError(
         stored.kind,
         error instanceof ChatLaunchError
@@ -930,9 +1040,11 @@ export class SessionService {
         // The terminal keeps its place in the registry and this session's id: an exited terminal
         // is still listed until it is closed or the session starts again.
         await this.#openCodeServers.release(openCodeOwner("terminal", sessionId));
+        await this.#codexServers.release(codexOwner("terminal", sessionId), sessionId);
       } else {
         live.chat = false;
         await this.#openCodeServers.release(openCodeOwner("chat", sessionId));
+        await this.#codexServers.release(codexOwner("chat", sessionId), sessionId);
       }
       // A both-live session keeps its other frontend; only the last leg ending settles it.
       if (!live.chat && !this.#terminalAlive(sessionId)) {
@@ -988,10 +1100,12 @@ export class SessionService {
       // The database release happens even when the driver already did it from `onExit`: it then
       // waits for the stop in flight, so an immediate restart cannot join a dying server.
       await this.#openCodeServers.release(openCodeOwner("chat", id));
+      await this.#codexServers.release(codexOwner("chat", id), id);
     }
     if (live.terminalId !== null) {
       await this.#terminals.close(live.terminalId);
       await this.#openCodeServers.release(openCodeOwner("terminal", id));
+      await this.#codexServers.release(codexOwner("terminal", id), id);
     }
     await live.discovery?.finish();
     this.#live.delete(id);
@@ -1016,6 +1130,11 @@ export class SessionService {
 
 /** Names one leg of a session's launch as a client of the shared server (acquire/release idempotent). */
 function openCodeOwner(leg: "chat" | "terminal", sessionId: string): string {
+  return `${leg}:${sessionId}`;
+}
+
+/** The same, for the per-session Codex app-server the two legs of one session share. */
+function codexOwner(leg: "chat" | "terminal", sessionId: string): string {
   return `${leg}:${sessionId}`;
 }
 

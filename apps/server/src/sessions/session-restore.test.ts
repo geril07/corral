@@ -5,7 +5,7 @@ import { afterEach, expect, test, vi } from "vite-plus/test";
 import { FAKE_BIN, useFakeAgents } from "../../test/fake-agents.ts";
 import { addTask } from "../../test/project-fixture.ts";
 import { useServer } from "../../test/server-fixture.ts";
-import { launchesOf, sessionsOf, tuiLaunchesOf } from "../../test/session-helpers.ts";
+import { frontendArgs, launchesOf, sessionsOf, tuiLaunchesOf } from "../../test/session-helpers.ts";
 
 const server = useServer();
 const agents = useFakeAgents();
@@ -93,10 +93,9 @@ test(
       "--session",
       opencode.agentSessionId,
     ]);
-    expect((await launchesOf(agents, "codex", 2, RESTART_TIMEOUT_MS))[1]!.argv).toEqual([
-      "resume",
-      codexLaunch!.rolloutId,
-    ]);
+    expect(
+      frontendArgs((await launchesOf(agents, "codex", 2, RESTART_TIMEOUT_MS))[1]!.argv),
+    ).toEqual(["resume", codexLaunch!.rolloutId]);
   },
   RESTART_TIMEOUT_MS,
 );
@@ -144,7 +143,8 @@ test("a Codex session that had not shown its id by the restart cannot be resumed
   expect(await sessionsOf(await server.rpc())).toEqual([
     { ...session, state: "unresumable", terminalId: null },
   ]);
-  expect(await agents.launches()).toHaveLength(1);
+  // One terminal frontend launch; the session's app-server is not a frontend.
+  expect(await launchesOf(agents, "codex", 1)).toHaveLength(1);
 });
 
 test("a Codex rollout written just before the server stops is not lost", async () => {
@@ -161,7 +161,10 @@ test("a Codex rollout written just before the server stops is not lost", async (
 
   const restored = (await sessionsOf(await server.rpc()))[0]!;
   expect(restored).toMatchObject({ state: "running", agentSessionId: launch!.rolloutId });
-  expect((await launchesOf(agents, "codex", 2))[1]!.argv).toEqual(["resume", launch!.rolloutId]);
+  expect(frontendArgs((await launchesOf(agents, "codex", 2))[1]!.argv)).toEqual([
+    "resume",
+    launch!.rolloutId,
+  ]);
 });
 
 test("a session that cannot start on restore becomes stopped, the others still start, and the server comes up", async () => {

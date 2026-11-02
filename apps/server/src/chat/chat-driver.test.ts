@@ -209,6 +209,7 @@ test("a driver is one registry entry: it answers chat.capabilities and starts th
     // The record is the driver's declaration, the kind is the registry's key.
     expect(recordsOf(chat.capabilities())).toEqual([
       "claude:both-live:",
+      "codex:both-live:steer,approvals",
       "pi:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "opencode:both-live:steer,followUp,approvals",
     ]);
@@ -236,17 +237,31 @@ test("a driver is one registry entry: it answers chat.capabilities and starts th
 
 test("the registry refuses an agent kind this build has no driver for", async () => {
   const harness = echoRegistry();
-  const chat = chatService(harness);
+  // A build without the Codex driver: the registry is the one fact the service consults.
+  const registry = { ...harness.registry };
+  delete registry.codex;
+  const chat = chatService({ ...harness, registry });
   try {
-    // `codex` is an agent kind without a driver: the refusal names it and nothing is claimed.
+    // `codex` is an agent kind without a driver here: the refusal names it, nothing is claimed.
     await expect(chat.launch(request("echo-2", "codex"))).rejects.toThrow(ChatLaunchError);
     await expect(chat.launch(request("echo-2", "codex"))).rejects.toThrow(
       "the codex agent has no chat driver in this build",
     );
     expect(harness.started).toHaveLength(0);
+<<<<<<< HEAD
     // The build's own registry ships claude, pi and opencode; the seam is what replaced claude.
+||||||| parent of 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
+    // The build's own registry ships pi and opencode; the seam is what added claude.
+=======
+    // The build's own registry ships codex, pi and opencode; the seam is what added claude.
+>>>>>>> 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
     expect(recordsOf(chatService().capabilities())).toEqual([
+<<<<<<< HEAD
       "claude:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
+||||||| parent of 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
+=======
+      "codex:both-live:steer,approvals",
+>>>>>>> 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
       "pi:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "opencode:both-live:steer,followUp,approvals",
     ]);

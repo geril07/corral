@@ -9,6 +9,7 @@ import { writeFiles } from "../../test/git-repo.ts";
 import { addTask } from "../../test/project-fixture.ts";
 import {
   launchesOf as launchesOfAgent,
+  frontendArgs,
   processExists,
   sessionsOf,
   tuiLaunchesOf,
@@ -182,8 +183,13 @@ test("codex starts with no arguments and no id yet", async () => {
 
   expect(session.agentSessionId).toBeNull();
   const [launch] = await launchesOf("codex", 1);
+  // The terminal is a client of the session's app-server (C3); the agent's own flags follow it.
+  expect(launch?.argv.slice(0, 2)).toEqual([
+    "--remote",
+    `unix://${server.dataDir}/codex/${session.id}.sock`,
+  ]);
+  expect(frontendArgs(launch!.argv)).toEqual([]);
   expect(launch).toMatchObject({
-    argv: [],
     env: { CORRAL_SESSION_ID: session.id, CORRAL_TASK_ID: task.id },
   });
 });
@@ -522,6 +528,7 @@ test("chat reports the pi driver and refuses an unknown session with SESSION_NOT
   expect(await api.chat.capabilities()).toEqual({
     drivers: [
       expect.objectContaining({ kind: "claude", terminalView: "handoff-only" }),
+      expect.objectContaining({ kind: "codex", terminalView: "both-live" }),
       expect.objectContaining({ kind: "pi", terminalView: "handoff-only" }),
       expect.objectContaining({ kind: "opencode", terminalView: "both-live" }),
     ],

@@ -17,6 +17,7 @@ import { ChatService } from "../chat/chat-service.ts";
 import type { ChatDriverRegistry, ChatTimeouts } from "../chat/chat-driver.ts";
 import { ChangesService } from "../changes/changes-service.ts";
 import { PullRequestStore } from "../changes/pull-request-store.ts";
+import { CodexServers } from "../chat/codex-server.ts";
 import { OpenCodeServers } from "../chat/opencode-server.ts";
 import { watchConfigFile } from "../config/config-watcher.ts";
 import { configNaming } from "../config/naming.ts";
@@ -108,6 +109,21 @@ export function startServer(options: {
             : { exitGraceMs: options.chat.exitGraceMs }),
         }),
   });
+  // One `codex app-server` per Codex session: the chat driver and the terminal leg are clients of
+  // it, so the two views are live at once and the process is the session's writer (C3).
+  const codexServers = new CodexServers({
+    dataDir,
+    ...(options.chat === undefined
+      ? {}
+      : {
+          ...(options.chat.readyTimeoutMs === undefined
+            ? {}
+            : { readyTimeoutMs: options.chat.readyTimeoutMs }),
+          ...(options.chat.exitGraceMs === undefined
+            ? {}
+            : { exitGraceMs: options.chat.exitGraceMs }),
+        }),
+  });
   const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, homedir())), {
     dataDir,
   });
@@ -121,6 +137,7 @@ export function startServer(options: {
     statusUrl: (sessionId) => `${httpOrigin}${statusReportPath(sessionId)}`,
     openCode: OpenCodeIntegration.install(dataDir),
     openCodeServers,
+    codexServers,
     config,
     // Defined below, once there is a TaskService to notify; called only after startup.
     taskEvents: { primarySessionRemoved: () => tasks.primarySessionRemoved() },

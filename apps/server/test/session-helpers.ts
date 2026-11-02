@@ -14,9 +14,15 @@ export async function sessionsOf(api: Api): Promise<Session[]> {
   return z.array(Session).parse(first.value);
 }
 
+/** An agent's own server (`opencode serve`, `codex app-server`) is not a frontend launch. */
+function isFrontend(launch: Launch): boolean {
+  return launch.argv[0] !== "serve" && launch.argv[0] !== "app-server";
+}
+
 /**
  * Waits until the fake `agent` has been launched `count` times, then returns those launches.
  * `timeoutMs` is for a test whose own budget is longer, such as a restore of several agents.
+ * An agent's own server is not counted: it is infrastructure, one per run or per session.
  */
 export async function launchesOf(
   agents: ReturnType<typeof useFakeAgents>,
@@ -24,13 +30,24 @@ export async function launchesOf(
   count: number,
   timeoutMs = 10_000,
 ): Promise<Launch[]> {
+  const frontends = async () =>
+    (await agents.launches()).filter((launch) => launch.agent === agent && isFrontend(launch));
   await expect
-    .poll(async () => (await agents.launches()).filter((launch) => launch.agent === agent).length, {
+    .poll(async () => (await frontends()).length, {
       timeout: timeoutMs,
       message: `${count} launches of ${agent}`,
     })
     .toBe(count);
-  return (await agents.launches()).filter((launch) => launch.agent === agent);
+  return frontends();
+}
+
+/**
+ * The argv of a terminal frontend without C3's Codex app-server prefix (`--remote unix://…`).
+ * The prefix is the session's app-server, which both legs share; tests about the agent's own
+ * flags assert what is left.
+ */
+export function frontendArgs(argv: readonly string[]): string[] {
+  return argv[0] === "--remote" && argv[1]?.startsWith("unix://") ? argv.slice(2) : [...argv];
 }
 
 /**
@@ -45,9 +62,7 @@ export async function tuiLaunchesOf(
   timeoutMs = 10_000,
 ): Promise<Launch[]> {
   const tuis = async () =>
-    (await agents.launches()).filter(
-      (launch) => launch.agent === agent && launch.argv[0] !== "serve",
-    );
+    (await agents.launches()).filter((launch) => launch.agent === agent && isFrontend(launch));
   await expect
     .poll(async () => (await tuis()).length, {
       timeout: timeoutMs,

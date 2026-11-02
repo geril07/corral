@@ -236,6 +236,7 @@ test("a task created in chat view starts pi in RPC mode with its prompt, and the
   expect(await api.chat.capabilities()).toEqual({
     drivers: [
       {
+<<<<<<< HEAD
         kind: "claude",
         steer: true,
         followUp: true,
@@ -243,6 +244,16 @@ test("a task created in chat view starts pi in RPC mode with its prompt, and the
         modelSwitch: true,
         reasoningLevels: true,
         terminalView: "handoff-only",
+||||||| parent of 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
+=======
+        kind: "codex",
+        steer: true,
+        followUp: false,
+        approvals: true,
+        modelSwitch: false,
+        reasoningLevels: false,
+        terminalView: "both-live",
+>>>>>>> 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
       },
       {
         kind: "pi",

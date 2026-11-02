@@ -58,6 +58,17 @@ export interface ChatLaunchRequest {
    * has no such server gets none and must not start one (`design.md`, **Terminal and chat**).
    */
   server?: { url: string; password: string };
+  /**
+   * A unix socket of an agent server this launch's frontends attach to (C3's Codex app-server).
+   * It is the same process the session's terminal leg attaches to, which is what makes the two
+   * views live at once; the session service starts it and the terminal leg gets the same path.
+   */
+  socket?: string;
+  /**
+   * The agent assigned the conversation id (Codex's thread id); the session service stores it in
+   * `Session.agentSessionId`. Agents that accept a caller-chosen id never call this.
+   */
+  onAgentSessionId?(agentSessionId: string): void;
   onStatus(status: AgentStatus): void;
   /** The frontend is gone; `reason` is null for a stop the server asked for. */
   onExit(reason: string | null): void;
@@ -92,6 +103,10 @@ export type ChatLaunchFacts = Pick<
  * conversation is the shared server's, and the pool's process record is the one-writer record.
  * Its terminal leg is a client of the same pool record; the session's two legs are one writer
  * because the server is the conversation, not because of a per-session pid.
+ *
+ * C3's Codex app-server is one process per session, so its record is per session too:
+ * `<dataDir>/chat/codex-server-<session>.json`, written and released by `codex-server.ts` (the
+ * pool), again through this module. The Codex driver is a client and reports nothing here.
  */
 export interface ChatWriterClaim {
   record(pid: number): void;
@@ -131,6 +146,10 @@ export interface ChatDriverLaunch {
   agentSessionId: string | null;
   /** The shared server this frontend is a client of, when its agent has one; see `ChatLaunchRequest`. */
   server?: { url: string; password: string };
+  /** The unix socket of the agent server this frontend is a client of; see `ChatLaunchRequest`. */
+  socket?: string;
+  /** Reports the conversation id the agent assigned, once; see `ChatLaunchRequest`. */
+  onAgentSessionId?(agentSessionId: string): void;
   /** The record of the process holding this session's conversation; see `ChatWriterClaim`. */
   writer: ChatWriterClaim;
   onStatus(status: AgentStatus): void;

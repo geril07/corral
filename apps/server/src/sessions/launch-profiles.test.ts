@@ -15,7 +15,7 @@ import { useFakeAgents } from "../../test/fake-agents.ts";
 import { claudeTranscriptExists } from "../../test/claude-transcripts.ts";
 import { addTask } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
-import { launchesOf, sessionsOf, tuiLaunchesOf } from "../../test/session-helpers.ts";
+import { frontendArgs, launchesOf, sessionsOf, tuiLaunchesOf } from "../../test/session-helpers.ts";
 
 const server = useServer();
 const agents = useFakeAgents();
@@ -135,7 +135,7 @@ test("a profile chooses a Codex model and native provider, and resume keeps both
     profileId: "codex",
   });
   const [launch] = await launchesOf(agents, "codex", 1);
-  expect(launch!.argv).toEqual(["-m", "gpt-5-codex", "-c", "model_provider=openai"]);
+  expect(frontendArgs(launch!.argv)).toEqual(["-m", "gpt-5-codex", "-c", "model_provider=openai"]);
   await expect
     .poll(
       async () => (await sessionsOf(api)).find((entry) => entry.id === session.id)?.agentSessionId,
@@ -147,7 +147,7 @@ test("a profile chooses a Codex model and native provider, and resume keeps both
 
   await api.sessions.stop({ id: session.id });
   const restarted = await api.sessions.restart({ id: session.id, size: SIZE });
-  expect((await launchesOf(agents, "codex", 2))[1]!.argv).toEqual([
+  expect(frontendArgs((await launchesOf(agents, "codex", 2))[1]!.argv)).toEqual([
     "-m",
     "gpt-5-codex",
     "-c",
@@ -447,7 +447,7 @@ env = [{ targetName = "OPENAI_API_KEY", fromEnv = "LAUNCH_OPENAI_KEY" }]
 
   await api.sessions.stop({ id: session.id });
   await api.sessions.restart({ id: session.id, size: SIZE });
-  expect((await launchesOf(agents, "codex", 2))[1]!.argv).toEqual([
+  expect(frontendArgs((await launchesOf(agents, "codex", 2))[1]!.argv)).toEqual([
     "-m",
     "gpt-5-codex",
     "resume",
@@ -514,7 +514,12 @@ env = [{ targetName = "OPENAI_API_KEY", fromEnv = "LAUNCH_OPENAI_KEY" }]
   });
   const [launch] = await launchesOf(agents, "codex", 1);
 
-  expect(launch!.argv).toEqual(["-m", "gpt-5-codex-mini", "-c", "model_provider=work"]);
+  expect(frontendArgs(launch!.argv)).toEqual([
+    "-m",
+    "gpt-5-codex-mini",
+    "-c",
+    "model_provider=work",
+  ]);
   expect(launch!.envSentinels).toEqual({ OPENAI_API_KEY: "test-openai-key" });
   expect(session.launch).toEqual({
     kind: "codex",
@@ -628,7 +633,12 @@ env = [{ targetName = "OPENAI_API_KEY", fromEnv = "LAUNCH_OPENAI_KEY_B" }]
     expectedProfileRevision: profileB.revision,
   });
   const [launch] = await launchesOf(agents, "codex", 1);
-  expect(launch!.argv).toEqual(["-m", "gpt-5-codex-mini", "-c", "model_provider=work-b"]);
+  expect(frontendArgs(launch!.argv)).toEqual([
+    "-m",
+    "gpt-5-codex-mini",
+    "-c",
+    "model_provider=work-b",
+  ]);
   expect(launch!.envSentinels).toEqual({ OPENAI_API_KEY: "key-b" });
   expect(session.launch).toEqual({
     kind: "codex",
