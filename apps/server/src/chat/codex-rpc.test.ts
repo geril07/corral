@@ -6,6 +6,7 @@ import { resetCodexVersionCache } from "../agents/codex-version.ts";
 import { useFakeAgents } from "../../test/fake-agents.ts";
 import { addProject } from "../../test/project-fixture.ts";
 import { frontendArgs, sessionsOf } from "../../test/session-helpers.ts";
+import { isRecord } from "../../test/json.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
 import type { Launch } from "../../test/fake-agents.ts";
 
@@ -216,10 +217,11 @@ test(
 
     // The app-server dies under the live terminal: the PTY is closed with it and the session
     // settles instead of showing "Reconnecting to server…" forever.
-    const record = JSON.parse(
+    const record: unknown = JSON.parse(
       await readFile(join(server.dataDir, "chat", `codex-server-${session.id}.json`), "utf8"),
-    ) as { pid: number };
-    process.kill(record.pid, "SIGKILL");
+    );
+    const recordedPid = isRecord(record) && typeof record["pid"] === "number" ? record["pid"] : 0;
+    process.kill(recordedPid, "SIGKILL");
     const settled = await within(
       (async () => {
         for (;;) {
@@ -283,9 +285,9 @@ test(
       chatId,
     );
     // The terminal's late rollout did become a conversation of its own; it just is not this row's.
-    const terminal = (await agents.launches())
-      .filter((entry) => entry.agent === "codex" && entry.rolloutId !== undefined)
-      .at(-1);
+    const terminal = (await agents.launches()).findLast(
+      (entry) => entry.agent === "codex" && entry.rolloutId !== undefined,
+    );
     expect(terminal?.rolloutId).not.toBe(chatId);
   },
 );
@@ -347,6 +349,48 @@ test(
   },
 );
 
+test(
+  "a chat-only session refuses an unrenderable request after its terminal leg exits",
+  { timeout: 40_000 },
+  async () => {
+    // Terminal first, then chat: the chat driver launches while the terminal is live, which is the
+    // case a launch-time flag would freeze. The terminal then quits; the chat keeps the session.
+    const { api, session } = await codexTask("terminal");
+    const terminal = await server.attach(session.terminalId!);
+    await terminal.waitForScreen("fake codex ready");
+    const switched = await api.sessions.setView({ id: session.id, view: "chat", size: SIZE });
+    expect(switched.view).toBe("chat");
+    await untilChat(api, session.id, (view) => view.items.length > 0, "the chat frontend");
+    terminal.type("exit\n");
+    await terminal.waitForClose();
+    await expect
+      .poll(async () => (await sessionsOf(api)).find((each) => each.id === session.id)?.state, {
+        timeout: 10_000,
+      })
+      .toBe("running");
+
+    const decisionsBefore = (await decisionsOf(server.dataDir, session.id)).length;
+    await api.chat.send({ sessionId: session.id, text: "ASK please", mode: "prompt" });
+    const settled = await untilChat(
+      api,
+      session.id,
+      (view) =>
+        view.items.some(
+          (item) => item.kind === "error" && item.text.includes("extra permissions"),
+        ) && view.state.turn !== "working",
+      "the chat-only refusal after the terminal exited",
+    );
+    expect(
+      settled.items.find((item) => item.kind === "error")?.kind === "error" &&
+        settled.items.find((item) => item.kind === "error")?.text,
+    ).toContain("terminal view");
+    // The refusal reached the server, so the turn is not waiting for an answer nobody will give.
+    await expect
+      .poll(async () => (await decisionsOf(server.dataDir, session.id)).length, { timeout: 10_000 })
+      .toBeGreaterThan(decisionsBefore);
+  },
+);
+
 /** A task with no primary session yet, for a `sessions.start` the test configures itself. */
 async function codexTaskWithOptions() {
   const project = (await addProject(server)).project;
@@ -370,6 +414,18 @@ async function threadRecord(
   const records = text
     .split("\n")
     .filter((line) => line !== "")
-    .map((line) => JSON.parse(line) as { thread?: Record<string, unknown> });
-  return records.at(-1)?.thread;
+    .map((line): unknown => JSON.parse(line))
+    .filter(isRecord)
+    .map((record) => record["thread"])
+    .filter(isRecord);
+  return records.at(-1);
+}
+
+/** The fake app-server's decisions journal for a session, one entry per answer it received. */
+async function decisionsOf(dataDir: string, sessionId: string): Promise<string[]> {
+  const text = await readFile(
+    join(dataDir, "codex", `${sessionId}.sock.journal.decisions`),
+    "utf8",
+  ).catch(() => "");
+  return text.split("\n").filter((line) => line !== "");
 }

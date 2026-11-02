@@ -64,9 +64,9 @@ async function harness(sessionId = "corral-codex-session"): Promise<Harness> {
         env: processEnv(),
       });
       const timeline = new ChatTimeline(0);
-      let resolveExit: (reason: string | null) => void = () => undefined;
+      let resolveExit: (reason: string | null) => void = noop;
       const exited = new Promise<string | null>((resolve) => (resolveExit = resolve));
-      let resolveReady: () => void = () => undefined;
+      let resolveReady: () => void = noop;
       const ready = new Promise<void>((resolve) => (resolveReady = resolve));
       const request: CodexDriverRequest = {
         sessionId,
@@ -103,7 +103,7 @@ async function harness(sessionId = "corral-codex-session"): Promise<Harness> {
       return { driver, timeline, ready, exited };
     },
     async close() {
-      for (const driver of drivers) await driver.stop().catch(() => undefined);
+      await Promise.all(drivers.map((driver) => driver.stop().catch(() => undefined)));
       await servers.closeAll();
       await rm(root, { recursive: true, force: true });
     },
@@ -136,7 +136,7 @@ async function until(
   while (Date.now() < deadline) {
     // oxlint-disable-next-line no-await-in-loop -- polling the driver's observable state is the point
     if (await predicate()) return;
-    // oxlint-disable-next-line no-await-in-loop -- see above
+    // oxlint-disable-next-line no-await-in-loop -- polling one condition at a time is the point
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`timed out waiting for ${description}`);
@@ -210,10 +210,15 @@ test(
       expect(userMessages).toHaveLength(1);
       expect(userMessages[0]).toMatchObject({ text: "do the thing" });
       const threads = (await journal(journalPath)).map((entry) => entry["thread"]).filter(isRecord);
-      const turns = threads.flatMap((thread) =>
-        Array.isArray(thread["turns"]) ? thread["turns"] : [],
+      // The journal has one line per saved snapshot; the same turn appears in more than one.
+      const turns = new Set(
+        threads.flatMap((thread) =>
+          Array.isArray(thread["turns"])
+            ? thread["turns"].filter(isRecord).map((turn) => turn["id"])
+            : [],
+        ),
       );
-      expect(turns).toHaveLength(1);
+      expect(turns.size).toBe(1);
     } finally {
       await test1.close();
     }
@@ -235,8 +240,8 @@ test(
           .filter(isRecord);
         return threads.some((thread) => thread["model"] === "stub-alt");
       }, "the thread to carry the launch's model");
-      const threads = (await journal(journalPath)).map((entry) => entry["thread"]).filter(isRecord);
-      expect(threads[0]).toMatchObject({ model: "stub-alt", modelProvider: "work" });
+      const thread = (await journal(journalPath)).map((entry) => entry["thread"]).find(isRecord);
+      expect(thread).toMatchObject({ model: "stub-alt", modelProvider: "work" });
     } finally {
       await test1.close();
     }
@@ -495,8 +500,8 @@ async function seedThread(socketPath: string, cwd: string): Promise<string> {
   });
   const answer = await new Promise<Record<string, unknown>>((resolve) => {
     socket.on("message", (data: Buffer) => {
-      const frame = JSON.parse(String(data)) as Record<string, unknown>;
-      if (frame["id"] === 1) resolve(frame);
+      const frame: unknown = JSON.parse(String(data));
+      if (isRecord(frame) && frame["id"] === 1) resolve(frame);
     });
     socket.send(
       JSON.stringify({
@@ -508,10 +513,14 @@ async function seedThread(socketPath: string, cwd: string): Promise<string> {
     );
   });
   socket.close();
-  const result = answer["result"];
-  if (typeof result !== "object" || result === null) return "";
-  const thread = (result as Record<string, unknown>)["thread"];
-  if (typeof thread !== "object" || thread === null) return "";
-  const id = (thread as Record<string, unknown>)["id"];
+  const thread = recordOf(answer["result"])?.["thread"];
+  const id = recordOf(thread)?.["id"];
   return typeof id === "string" ? id : "";
+}
+
+/** The one no-op the harness's deferreds start as; a closure here would capture nothing. */
+function noop(): void {}
+
+function recordOf(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
 }

@@ -995,7 +995,8 @@ export class SessionService {
       previous.discovery = undefined;
       await discovery.finish();
     }
-    const agentSessionId = this.#store.get(stored.id)?.agentSessionId ?? stored.agentSessionId;
+    const storedAgentSessionId =
+      this.#store.get(stored.id)?.agentSessionId ?? stored.agentSessionId;
     const owner = openCodeOwner("chat", stored.id);
     const codexOwnerId = codexOwner("chat", stored.id);
     let server: { url: string; password: string } | undefined;
@@ -1048,8 +1049,9 @@ export class SessionService {
         ...(socket === undefined ? {} : { socket }),
         // A live terminal leg can answer a request the chat driver does not render (a permissions
         // profile, an elicitation); a chat-only session has nobody else, so the driver refuses it
-        // visibly instead of leaving the turn waiting.
-        terminalLive: previous?.terminalId !== null && previous?.terminalId !== undefined,
+        // visibly instead of leaving the turn waiting. Asked per request: the terminal may `/quit`
+        // after this launch, and a dead one must not swallow the refusal.
+        terminalLive: () => this.#terminalAlive(stored.id),
         // Codex assigns the thread id; the session row learns it from the frontend.
         onAgentSessionId: (agentSessionId) => {
           this.#store.setAgentSessionId(stored.id, agentSessionId);

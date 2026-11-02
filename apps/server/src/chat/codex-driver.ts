@@ -386,13 +386,15 @@ export class CodexDriver implements ChatDriver {
     });
   }
 
-  #onFrame(text: string): void {
-    let frame: Record<string, unknown>;
+  #onFrame(payload: string): void {
+    let parsed: unknown;
     try {
-      frame = JSON.parse(text) as Record<string, unknown>;
+      parsed = JSON.parse(payload);
     } catch {
       return;
     }
+    if (!isRecord(parsed)) return;
+    const frame = parsed;
     const id = frame["id"];
     const method = stringOf(frame["method"]);
     const params = recordOf(frame["params"]) ?? {};
@@ -444,7 +446,7 @@ export class CodexDriver implements ChatDriver {
    * whether Codex then fails the turn or continues is its business and C-verify's check.
    */
   #answerUnanswerable(requestId: string, method: string): void {
-    if (this.#request.terminalLive === true) return;
+    if (this.#terminalLive()) return;
     this.#send({
       jsonrpc: "2.0",
       id: numericId(requestId),
@@ -505,6 +507,12 @@ export class CodexDriver implements ChatDriver {
         }
         break;
     }
+  }
+
+  /** Whether a terminal leg can answer a request right now; the session service owns the answer. */
+  #terminalLive(): boolean {
+    const terminal = this.#request.terminalLive;
+    return typeof terminal === "function" ? terminal() : terminal === true;
   }
 
   #report(action: { state: AgentStatus["state"]; message?: string; kind?: "question" }): void {
@@ -593,10 +601,15 @@ export class CodexDriver implements ChatDriver {
  */
 function decisionFor(options: readonly string[], value: ChatAnswer): string | undefined {
   if (typeof value === "string") return options.includes(value) ? value : undefined;
-  const allowed = (option: string) => option.startsWith("accept") || option === "approved";
-  const denied = (option: string) => option.startsWith("decline") || option === "denied";
-  const wanted = value === true ? options.find(allowed) : options.find(denied);
-  return wanted;
+  return value === true ? options.find(isAllow) : options.find(isDeny);
+}
+
+function isAllow(option: string): boolean {
+  return option.startsWith("accept") || option === "approved";
+}
+
+function isDeny(option: string): boolean {
+  return option.startsWith("decline");
 }
 
 /** What a request the chat cannot render is, in the sentence the user reads. */
@@ -658,10 +671,12 @@ function seconds(ms: number): string {
   return `${Math.round(ms / 1000)} s`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function recordOf(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+  return isRecord(value) ? value : undefined;
 }
 
 function arrayOf(value: unknown): unknown[] {
@@ -688,6 +703,11 @@ function rawText(data: unknown): string {
   if (typeof data === "string") return data;
   if (Buffer.isBuffer(data)) return data.toString("utf8");
   if (data instanceof ArrayBuffer) return Buffer.from(data).toString("utf8");
-  if (Array.isArray(data)) return Buffer.concat(data as Buffer[]).toString("utf8");
+  if (Array.isArray(data)) {
+    const chunks: unknown[] = data;
+    return Buffer.concat(chunks.filter((each): each is Buffer => Buffer.isBuffer(each))).toString(
+      "utf8",
+    );
+  }
   return "";
 }

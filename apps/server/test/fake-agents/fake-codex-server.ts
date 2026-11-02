@@ -112,19 +112,8 @@ export async function startFakeCodexServer(
 
   function saved(thread: ThreadRecord): void {
     if (options.journal === undefined) return;
-    appendFileSync(
-      options.journal,
-      `${JSON.stringify({
-        thread: {
-          id: thread.id,
-          cwd: thread.cwd,
-          preview: thread.preview,
-          model: thread.model,
-          modelProvider: thread.modelProvider,
-          turns: thread.turns,
-        },
-      })}\n`,
-    );
+    // The whole record, so `loadThreads` can validate it with the same shape it stores.
+    appendFileSync(options.journal, `${JSON.stringify({ thread })}\n`);
   }
 
   function threadOf(id: string): ThreadRecord | undefined {
@@ -162,13 +151,15 @@ export async function startFakeCodexServer(
     };
   }
 
-  function onFrame(socket: WebSocket, subscribed: Set<string>, text: string): void {
-    let frame: Record<string, unknown>;
+  function onFrame(socket: WebSocket, subscribed: Set<string>, payload: string): void {
+    let parsed: unknown;
     try {
-      frame = JSON.parse(text) as Record<string, unknown>;
+      parsed = JSON.parse(payload);
     } catch {
       return;
     }
+    if (!isRecord(parsed)) return;
+    const frame = parsed;
     record("recv", frame);
     const method = frame["method"];
     if (typeof method !== "string") {
@@ -176,7 +167,7 @@ export async function startFakeCodexServer(
       return;
     }
     const id = frame["id"];
-    const params = (frame["params"] ?? {}) as Record<string, unknown>;
+    const params = recordOf(frame["params"]) ?? {};
     const respond = (result: unknown) => send(socket, { id, result });
     const fail = (message: string) => send(socket, { id, error: { code: -32600, message } });
     switch (method) {
@@ -350,10 +341,7 @@ export async function startFakeCodexServer(
     }
     pendingApprovals.delete(requestId);
     appendDecision(options.journal, { requestId, result });
-    const decision =
-      typeof result === "object" && result !== null
-        ? (stringOf((result as Record<string, unknown>)["decision"]) ?? "decline")
-        : "decline";
+    const decision = stringOf(recordOf(result)?.["decision"]) ?? "decline";
     pending.decide(decision);
   }
 
@@ -408,6 +396,22 @@ export async function startFakeCodexServer(
       notify("thread/status/changed", { threadId: thread.id, status: { type: "idle" } });
       notify("turn/completed", { threadId: thread.id, turn: publicTurn(turn) });
       return;
+    }
+    if (text.includes("ASK")) {
+      // A request the chat contract cannot render, sent while a turn runs.
+      requestCounter += 1;
+      for (const client of clients) {
+        send(client, {
+          id: requestCounter,
+          method: "item/permissions/requestApproval",
+          params: {
+            threadId: thread.id,
+            turnId: turn.id,
+            itemId: `perm-${requestCounter}`,
+            permissions: {},
+          },
+        });
+      }
     }
     if (text.includes("OBJECTS")) {
       // Every decision the real server could offer is an object, so no plain string is available.
@@ -604,8 +608,10 @@ function loadThreads(journal: string | undefined): Map<string, ThreadRecord> {
   for (const line of text.split("\n")) {
     if (line.trim() === "") continue;
     try {
-      const parsed = JSON.parse(line) as { thread?: ThreadRecord };
-      if (parsed.thread !== undefined) threads.set(parsed.thread.id, parsed.thread);
+      const parsed: unknown = JSON.parse(line);
+      if (isRecord(parsed) && isThreadRecord(parsed["thread"])) {
+        threads.set(parsed["thread"].id, parsed["thread"]);
+      }
     } catch {
       // A partial line from a killed server is not a thread.
     }
@@ -640,9 +646,45 @@ function appendDecision(journal: string | undefined, record: Record<string, unkn
 }
 
 function recordOf(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+  return isRecord(value) ? value : undefined;
+}
+
+/** A journaled thread, checked field by field; the file is this fake's own, but a partial line or
+ * a different version must not be read as one. */
+function isThreadRecord(value: unknown): value is ThreadRecord {
+  if (!isRecord(value)) return false;
+  const turns = value["turns"];
+  return (
+    typeof value["id"] === "string" &&
+    typeof value["cwd"] === "string" &&
+    typeof value["preview"] === "string" &&
+    typeof value["ephemeral"] === "boolean" &&
+    typeof value["createdAt"] === "number" &&
+    typeof value["recencyAt"] === "number" &&
+    Array.isArray(turns) &&
+    turns.every(isTurnRecord) &&
+    (value["model"] === undefined || typeof value["model"] === "string") &&
+    (value["modelProvider"] === undefined || typeof value["modelProvider"] === "string")
+  );
+}
+
+function isTurnRecord(value: unknown): value is TurnRecord {
+  if (!isRecord(value)) return false;
+  const items = value["items"];
+  const status = value["status"];
+  return (
+    typeof value["id"] === "string" &&
+    (status === "inProgress" ||
+      status === "completed" ||
+      status === "interrupted" ||
+      status === "failed") &&
+    Array.isArray(items) &&
+    items.every(isItemRecord)
+  );
+}
+
+function isItemRecord(value: unknown): value is ItemRecord {
+  return isRecord(value) && typeof value["id"] === "string" && typeof value["type"] === "string";
 }
 
 function newTurn(): TurnRecord {
@@ -686,6 +728,11 @@ function rawText(data: unknown): string {
   if (typeof data === "string") return data;
   if (Buffer.isBuffer(data)) return data.toString("utf8");
   if (data instanceof ArrayBuffer) return Buffer.from(data).toString("utf8");
-  if (Array.isArray(data)) return Buffer.concat(data as Buffer[]).toString("utf8");
+  if (Array.isArray(data)) {
+    const chunks: unknown[] = data;
+    return Buffer.concat(chunks.filter((each): each is Buffer => Buffer.isBuffer(each))).toString(
+      "utf8",
+    );
+  }
   return "";
 }

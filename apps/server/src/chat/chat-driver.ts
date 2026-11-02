@@ -68,9 +68,10 @@ export interface ChatLaunchRequest {
    * Whether a terminal frontend of this session is live beside the chat frontend. A request the
    * chat driver does not render (a permissions profile, an elicitation) can be left to that
    * terminal only when there is one; a chat-only session must refuse it visibly instead of leaving
-   * the agent waiting for an answer nobody will give.
+   * the agent waiting for an answer nobody will give. A function is asked at the moment of the
+   * request: a terminal that `/quit`ed after the chat launch is gone, not live.
    */
-  terminalLive?: boolean;
+  terminalLive?: boolean | (() => boolean);
   /**
    * The agent assigned the conversation id (Codex's thread id); the session service stores it in
    * `Session.agentSessionId`. Agents that accept a caller-chosen id never call this.
@@ -163,7 +164,7 @@ export interface ChatDriverLaunch {
   model?: string | null;
   provider?: string | null;
   /** Whether a terminal leg is live beside this frontend; see `ChatLaunchRequest.terminalLive`. */
-  terminalLive?: boolean;
+  terminalLive?: boolean | (() => boolean);
   /** Reports the conversation id the agent assigned, once; see `ChatLaunchRequest`. */
   onAgentSessionId?(agentSessionId: string): void;
   /** The record of the process holding this session's conversation; see `ChatWriterClaim`. */
