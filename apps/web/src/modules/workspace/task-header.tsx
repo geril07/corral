@@ -62,7 +62,11 @@ export function TaskHeader({
     clipped: titleClipped,
     display: titleDisplay,
   } = useTruncatedText(task.title);
-  const { clipped: whereClipped, display: whereDisplay } = useTruncatedText(where, "middle");
+  const {
+    observe: observeWhere,
+    clipped: whereClipped,
+    display: whereDisplay,
+  } = useTruncatedText(where, "middle");
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const hint = (label: string, action: ActionId) =>
     config ? `${label} · ${formatBinding(config, action)}` : label;
@@ -96,7 +100,9 @@ export function TaskHeader({
         title={whereClipped ? where : `Copy ${task.workspacePath}`}
         onClick={copyPath}
       >
-        <span className="min-w-0 truncate text-xs text-muted-foreground">{whereDisplay}</span>
+        <span ref={observeWhere} className="min-w-0 truncate text-xs text-muted-foreground">
+          {whereDisplay}
+        </span>
       </Button>
       <div className="ml-auto flex min-w-0 items-center gap-1.5">
         {changeCounts(changes) !== undefined && (

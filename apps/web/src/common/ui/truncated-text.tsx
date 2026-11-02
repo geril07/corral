@@ -3,6 +3,8 @@ import { useLayoutEffect, useState } from "react";
 type TruncateMode = "end" | "middle";
 
 interface Truncated {
+  /** The text this measurement belongs to; any other text means the state is from before it. */
+  text: string;
   clipped: boolean;
   display: string;
 }
@@ -10,14 +12,25 @@ interface Truncated {
 /**
  * Reads whether `text` is wider than the element and, for middle truncation, shortens it around
  * an ellipsis so the end stays visible. ResizeObserver keeps it honest when the pane changes.
+ *
+ * A **new text is shown at once, in full**, before anything is measured: the state a previous text
+ * left behind must never stay on screen (`docs/ux.md`, **Task header** — switching tasks showed
+ * the old task's branch). A measurement then narrows it; an element with no width yet (its first
+ * paint, a hidden pane) gets measured when the observer reports a size, and a caller that never
+ * attaches `observe` still renders the right text.
  */
 export function useTruncatedText(text: string, mode: TruncateMode = "end") {
   const [element, setElement] = useState<HTMLSpanElement | null>(null);
-  const [state, setState] = useState<Truncated>({ clipped: false, display: text });
+  const [state, setState] = useState<Truncated>({ text, clipped: false, display: text });
+  // Derived, not stored: a text from another render is displayed as it is until its own
+  // measurement arrives, so a stale `display` from the previous text can never be shown — with or
+  // without an element, a width or a measurement.
+  const current: Truncated = state.text === text ? state : { text, clipped: false, display: text };
 
   useLayoutEffect(() => {
     if (!element) return undefined;
     const measure = () => {
+      // No width yet: the observer's next report is the measurement (`measure` below).
       const width = element.clientWidth;
       if (width <= 0) return;
       const canvas = document.createElement("canvas");
@@ -26,14 +39,15 @@ export function useTruncatedText(text: string, mode: TruncateMode = "end") {
       const style = getComputedStyle(element);
       context.font = style.font;
       if (context.measureText(text).width <= width + 0.5) {
-        setState({ clipped: false, display: text });
+        setState({ text, clipped: false, display: text });
         return;
       }
       if (mode === "end") {
-        setState({ clipped: true, display: text });
+        setState({ text, clipped: true, display: text });
         return;
       }
       setState({
+        text,
         clipped: true,
         display: middleEllipsis(text, width, (value) => context.measureText(value).width),
       });
@@ -44,7 +58,7 @@ export function useTruncatedText(text: string, mode: TruncateMode = "end") {
     return () => observer.disconnect();
   }, [element, text, mode]);
 
-  return { observe: setElement, ...state };
+  return { observe: setElement, clipped: current.clipped, display: current.display };
 }
 
 /** The longest `start…end` that fits `width`, measured with `measure` (a canvas in the browser). */
