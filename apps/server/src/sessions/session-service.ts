@@ -814,9 +814,9 @@ export class SessionService {
       }
       let args = [
         ...adapter.launchArgs(stored.launch?.model ?? null, stored.launch?.provider ?? null),
-        ...(resumable && stored.agentSessionId !== null
-          ? adapter.resumeArgs(stored.agentSessionId)
-          : adapter.startArgs(null)),
+        ...(resumable && recordedConversationId !== null
+          ? adapter.resumeArgs(recordedConversationId)
+          : adapter.startArgs(recordedConversationId)),
         // A fallback start is a new conversation under the same id; only it may carry the prompt.
         ...(prompt !== null && !resumable ? adapter.promptArgs(prompt) : []),
       ];
