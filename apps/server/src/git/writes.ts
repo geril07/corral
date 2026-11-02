@@ -1,4 +1,4 @@
-import { git, gitRead } from "./git.ts";
+import { git, GitError, gitRead } from "./git.ts";
 
 /**
  * The writes behind the Changes tab (C6): staging, committing and pushing, each one an action the
@@ -23,9 +23,18 @@ export async function stagePaths(
     return;
   }
   // `git restore --staged` always wants a pathspec, so "everything" is `.` from the workspace root
-  // (the task's worktree or the main tree). It also needs HEAD: an index with no commit at all
-  // cannot be unstaged this way, and git's own refusal is the sentence the user sees.
-  await git(workspace, ["restore", "--staged", ...unstageArgs(paths)], { env: WRITE_ENV });
+  // (the task's worktree or the main tree). It also needs HEAD, so a repository with no commit yet
+  // falls back to taking the paths out of the index directly — the first-commit case a staging UI
+  // reaches before any commit exists.
+  try {
+    await git(workspace, ["restore", "--staged", ...unstageArgs(paths)], { env: WRITE_ENV });
+  } catch (error) {
+    if (!(error instanceof GitError) || !/could not resolve 'HEAD'/.test(error.message))
+      throw error;
+    await git(workspace, ["rm", "--cached", "--quiet", "-r", ...unstageArgs(paths)], {
+      env: WRITE_ENV,
+    });
+  }
 }
 
 /** Paths in the index, sorted; the workspace's own staged set, not the whole repository's. */

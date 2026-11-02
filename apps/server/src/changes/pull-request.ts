@@ -6,6 +6,7 @@ import {
   runNativeCli,
   runNativeCliAllowingFailure,
 } from "../cli/native-cli.ts";
+import type { RemoteDestination } from "../git/remotes.ts";
 import {
   PullRequestAuthRequiredError,
   PullRequestCliMissingError,
@@ -38,8 +39,14 @@ export interface PullRequestSnapshot {
 
 export interface PullRequestCallOptions {
   provider: IssueProvider;
-  /** The task's workspace: the CLI resolves its repository from the git remote there. */
+  /** The task's workspace. */
   cwd: string;
+  /**
+   * The repository the confirmed push URL names, when it names one: every CLI call passes it as
+   * `--repo`, so a fork beside an upstream cannot make `gh`/`glab` act on the wrong repository.
+   * Absent for a local path or a remote without a repository path, where the CLI resolves its own.
+   */
+  destination: RemoteDestination | undefined;
   timeoutMs: number;
   signal: AbortSignal | undefined;
   /** A GitHub token is dropped when the project's remote did not vouch for the host. */
@@ -72,14 +79,36 @@ const GlabView = z.object({
   target_branch: z.string().optional(),
 });
 
+/**
+ * `--repo` for the confirmed repository (probed: `gh`'s `[HOST/]OWNER/REPO`, `glab`'s
+ * `OWNER/REPO` or a full URL). GitHub takes the host-qualified form; GitLab's `--repo` is a path,
+ * so the URL form carries the host. Nothing is passed when the push URL names no repository: the
+ * CLI then resolves its own, which is what a local path or an odd remote needs.
+ */
+function repositoryArgs(
+  provider: IssueProvider,
+  destination: RemoteDestination | undefined,
+): string[] {
+  if (destination === undefined) return [];
+  if (provider === "github") {
+    // `gh`'s form is exactly HOST/OWNER/REPO; a nested path is not a GitHub repository.
+    return destination.segments.length === 2
+      ? ["--repo", `${destination.host}/${destination.segments.join("/")}`]
+      : [];
+  }
+  return ["--repo", `https://${destination.host}/${destination.segments.join("/")}`];
+}
+
 /** `gh pr create --base <base> --head <branch> --title <t> --body-file -`, body on stdin. */
 function createCommand(input: {
   provider: IssueProvider;
+  destination: RemoteDestination | undefined;
   branch: string;
   base: string;
   title: string;
   draft: boolean;
 }): { command: string; args: string[] } {
+  const repository = repositoryArgs(input.provider, input.destination);
   if (input.provider === "github") {
     return {
       command: "gh",
@@ -95,6 +124,7 @@ function createCommand(input: {
         "--body-file",
         "-",
         ...(input.draft ? ["--draft"] : []),
+        ...repository,
       ],
     };
   }
@@ -111,14 +141,21 @@ function createCommand(input: {
       input.branch,
       "--target-branch",
       input.base,
+      // The branch is pushed by Corral, before this call: `glab` must not push it again.
+      "--push=false",
       "--yes",
       ...(input.draft ? ["--draft"] : []),
+      ...repository,
     ],
   };
 }
 
-/** `gh pr view --json …` / `glab mr view -F json`: the current branch's request, no host named. */
-function viewCommand(provider: IssueProvider): { command: string; args: string[] } {
+/** `gh pr view --json …` / `glab mr view -F json`, on the same confirmed repository. */
+function viewCommand(
+  provider: IssueProvider,
+  destination: RemoteDestination | undefined,
+): { command: string; args: string[] } {
+  const repository = repositoryArgs(provider, destination);
   return provider === "github"
     ? {
         command: "gh",
@@ -127,15 +164,28 @@ function viewCommand(provider: IssueProvider): { command: string; args: string[]
           "view",
           "--json",
           "number,url,title,state,isDraft,baseRefName,headRefName,statusCheckRollup",
+          ...repository,
         ],
       }
-    : { command: "glab", args: ["mr", "view", "-F", "json"] };
+    : { command: "glab", args: ["mr", "view", "-F", "json", ...repository] };
 }
 
 /** `gh pr checks --json bucket,name,state`; GitLab reports no per-check list to Corral. */
-function checksCommand(provider: IssueProvider): { command: string; args: string[] } | undefined {
+function checksCommand(
+  provider: IssueProvider,
+  destination: RemoteDestination | undefined,
+): { command: string; args: string[] } | undefined {
   return provider === "github"
-    ? { command: "gh", args: ["pr", "checks", "--json", "bucket,name,state"] }
+    ? {
+        command: "gh",
+        args: [
+          "pr",
+          "checks",
+          "--json",
+          "bucket,name,state",
+          ...repositoryArgs(provider, destination),
+        ],
+      }
     : undefined;
 }
 
@@ -307,7 +357,7 @@ export async function createPullRequest(
 export async function readPullRequest(
   options: PullRequestCallOptions,
 ): Promise<PullRequestSnapshot> {
-  const view = viewCommand(options.provider);
+  const view = viewCommand(options.provider, options.destination);
   let stdout: string;
   try {
     stdout = await runNativeCli({
@@ -322,7 +372,7 @@ export async function readPullRequest(
   } catch (error) {
     throw refusal(options.provider, view.command, error);
   }
-  const checks = checksCommand(options.provider);
+  const checks = checksCommand(options.provider, options.destination);
   let checksStdout: string | undefined;
   if (checks !== undefined) {
     // `gh pr checks` exits non-zero when checks fail or are pending: a report, not a failed read.

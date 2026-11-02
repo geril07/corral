@@ -1,6 +1,6 @@
 import { describeError, procedureMissing } from "@corral/client/rpc-errors";
 import type { ChangesFinish, IssueProvider, PullRequest, Task } from "@corral/protocol/rpc";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   AlertDescription,
@@ -49,38 +49,43 @@ export function FinishBar({
   const [failure, setFailure] = useState<unknown>();
   const [message, setMessage] = useState("");
   const [dialog, setDialog] = useState<"push" | "create">();
-  const [pending, setPending] = useState(false);
+  const [pending, setPending] = useState<"stage" | "commit" | "push" | "create" | false>(false);
   // The guard a double click needs: state updates are not synchronous, a ref is.
   const busy = useRef(false);
-
-  useEffect(() => {
-    let live = true;
-    actions.finish().then(
-      (next) => {
-        if (live) {
+  /** Re-reads the branch, base, remote and staged paths; `undefined` keeps the last answer. */
+  const reload = useCallback(
+    () =>
+      actions.finish().then(
+        (next) => {
           setFinish(next);
           setLoadError(undefined);
-        }
-      },
-      (error: unknown) => {
-        if (live) setLoadError(error);
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [actions]);
+          return next;
+        },
+        (error: unknown) => {
+          setLoadError(error);
+          return undefined;
+        },
+      ),
+    [actions],
+  );
 
-  const run = async (work: () => Promise<void>) => {
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const run = async (what: "stage" | "commit" | "push" | "create", work: () => Promise<void>) => {
     if (busy.current) return;
     busy.current = true;
-    setPending(true);
+    setPending(what);
     try {
       await work();
       setFailure(undefined);
     } catch (error) {
-      // The message field and the list selection are deliberately left as they were.
+      // The message field and the list selection are deliberately left as they were, and the
+      // controls re-read their facts: a refusal such as `CHANGES_REMOTE_MISMATCH` tells the user
+      // the remote changed, and the retry has to offer the new one.
       setFailure(error);
+      await reload();
     } finally {
       busy.current = false;
       setPending(false);
@@ -93,14 +98,25 @@ export function FinishBar({
   const base = finish?.base ?? null;
   const remote = finish?.remote ?? null;
   const canPush = branch !== null && remote !== null && finish !== undefined;
+  /** Why push and create are unavailable, in the user's words; the tooltip names the remotes. */
+  const blocked =
+    branch === null
+      ? "This task has no branch checked out."
+      : remote === null
+        ? finish === undefined || finish.remotes.length === 0
+          ? "This repository has no remote."
+          : `No remote would take ${branch}; configured remotes: ${finish.remotes
+              .map((each) => each.name)
+              .join(", ")}.`
+        : undefined;
 
   const stage = (paths: string[] | "all", stagedNow: boolean) =>
-    run(async () => {
+    run("stage", async () => {
       setFinish(await actions.stage({ paths, staged: stagedNow }));
     });
 
   const commit = () =>
-    run(async () => {
+    run("commit", async () => {
       const committed = await actions.commit(message);
       setFinish(committed.finish);
       // Only a successful commit clears the message; a refusal keeps it.
@@ -119,12 +135,15 @@ export function FinishBar({
   const [provider, setProvider] = useState<IssueProvider>(prProvider);
   const [title, setTitle] = useState(prTitle);
   const [body, setBody] = useState(prBody);
+  /** The base branch is editable: a task is not always merged into the project's default. */
+  const [dialogBase, setDialogBase] = useState(base ?? "main");
 
   const openCreate = () => {
     setProvider(prProvider);
     setTitle(prTitle);
     setBody(prBody);
     setDraft(false);
+    setDialogBase(base ?? "main");
     setDialog("create");
   };
 
@@ -149,7 +168,7 @@ export function FinishBar({
         <Button
           size="xs"
           variant="outline"
-          disabled={pending}
+          disabled={pending !== false}
           onClick={() => void stage("all", true)}
         >
           Stage all
@@ -157,7 +176,7 @@ export function FinishBar({
         <Button
           size="xs"
           variant="ghost"
-          disabled={pending || staged.length === 0}
+          disabled={pending !== false || staged.length === 0}
           onClick={() => void stage("all", false)}
         >
           Unstage all
@@ -166,7 +185,7 @@ export function FinishBar({
           <Button
             size="xs"
             variant="ghost"
-            disabled={pending}
+            disabled={pending !== false}
             onClick={() => void stage([selectedPath], !selectedStaged)}
           >
             {selectedStaged ? "Unstage" : "Stage"} {selectedPath}
@@ -189,40 +208,30 @@ export function FinishBar({
         </div>
         <Button
           size="xs"
-          disabled={pending || message.trim() === "" || staged.length === 0}
+          disabled={pending !== false || message.trim() === "" || staged.length === 0}
           onClick={() => void commit()}
         >
-          Commit
+          {pending === "commit" ? "Committing…" : "Commit"}
         </Button>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         <Button
           size="xs"
           variant="outline"
-          disabled={pending || !canPush}
-          title={
-            branch === null
-              ? "This task has no branch checked out."
-              : remote === null
-                ? "No remote would take this branch."
-                : `Push ${branch} to ${remote.url}`
-          }
+          disabled={pending !== false || !canPush}
+          title={blocked ?? `Push ${branch} to ${remote?.url}`}
           onClick={() => setDialog("push")}
         >
-          Push…
+          {pending === "push" ? "Pushing…" : "Push…"}
         </Button>
         <Button
           size="xs"
           variant="outline"
-          disabled={pending || !canPush || base === null}
-          title={
-            remote === null
-              ? "No remote would take this branch."
-              : `Open a request from ${branch ?? "the branch"} into ${base ?? "the base branch"}`
-          }
+          disabled={pending !== false || !canPush || base === null}
+          title={blocked ?? `Open a request from ${branch} into ${base}`}
           onClick={openCreate}
         >
-          Create pull request…
+          {pending === "create" ? "Creating…" : "Create pull request…"}
         </Button>
         {pullRequest !== undefined && <PullRequestBadge request={pullRequest} />}
         {pullRequest?.state === "merged" && task.state === "active" && (
@@ -253,16 +262,16 @@ export function FinishBar({
               Cancel
             </Button>
             <Button
-              disabled={pending}
+              disabled={pending !== false}
               onClick={() =>
-                void run(async () => {
+                void run("push", async () => {
                   const pushed = await actions.push({ remote, branch });
                   setFinish(pushed.finish);
                   setDialog(undefined);
                 })
               }
             >
-              Push {branch}
+              {pending === "push" ? "Pushing…" : `Push ${branch}`}
             </Button>
           </DialogActions>
         </TaskDialog>
@@ -271,7 +280,7 @@ export function FinishBar({
         <CreatePullRequestDialog
           provider={provider}
           branch={branch}
-          base={base}
+          base={dialogBase}
           remoteUrl={remote.url}
           remoteName={remote.name}
           title={title}
@@ -280,17 +289,18 @@ export function FinishBar({
           pending={pending}
           failure={failure}
           onChangeProvider={setProvider}
+          onChangeBase={setDialogBase}
           onChangeTitle={setTitle}
           onChangeBody={setBody}
           onToggleDraft={setDraft}
           onClose={() => setDialog(undefined)}
           onCreate={() =>
-            void run(async () => {
+            void run("create", async () => {
               const created = await actions.createPullRequest({
                 provider,
                 remote,
                 branch,
-                base,
+                base: dialogBase.trim(),
                 title,
                 body,
                 draft,
@@ -321,6 +331,7 @@ function CreatePullRequestDialog({
   pending,
   failure,
   onChangeProvider,
+  onChangeBase,
   onChangeTitle,
   onChangeBody,
   onToggleDraft,
@@ -335,9 +346,10 @@ function CreatePullRequestDialog({
   title: string;
   body: string;
   draft: boolean;
-  pending: boolean;
+  pending: false | "stage" | "commit" | "push" | "create";
   failure: unknown;
   onChangeProvider: (value: IssueProvider) => void;
+  onChangeBase: (value: string) => void;
   onChangeTitle: (value: string) => void;
   onChangeBody: (value: string) => void;
   onToggleDraft: (value: boolean) => void;
@@ -360,6 +372,9 @@ function CreatePullRequestDialog({
         <RadioChoice value="github">GitHub (gh)</RadioChoice>
         <RadioChoice value="gitlab">GitLab (glab)</RadioChoice>
       </RadioGroup>
+      <FormField label="Base branch">
+        <Input value={base} onChange={(event) => onChangeBase(event.target.value)} />
+      </FormField>
       <FormField label="Title">
         <Input value={title} onChange={(event) => onChangeTitle(event.target.value)} />
       </FormField>
@@ -373,8 +388,11 @@ function CreatePullRequestDialog({
         <Button variant="outline" onClick={onClose}>
           Cancel
         </Button>
-        <Button disabled={pending || title.trim() === ""} onClick={onCreate}>
-          Create in {base}
+        <Button
+          disabled={pending !== false || title.trim() === "" || base === ""}
+          onClick={onCreate}
+        >
+          {pending === "create" ? "Creating…" : `Create in ${base}`}
         </Button>
       </DialogActions>
     </TaskDialog>

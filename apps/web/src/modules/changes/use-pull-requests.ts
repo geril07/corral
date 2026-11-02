@@ -1,5 +1,5 @@
 import type { PullRequest } from "@corral/protocol/rpc";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangesActions } from "./finish-actions.ts";
 import { PULL_REQUEST_REFRESH_MS } from "./finish-actions.ts";
 
@@ -21,6 +21,8 @@ export function usePullRequests(
   taskIds: readonly string[],
 ): PullRequests {
   const [byTask, setByTask] = useState<ReadonlyMap<string, PullRequest>>(new Map());
+  /** One read per task at a time: a focus storm asks each task once, not once per event. */
+  const inFlight = useRef(new Set<string>());
   const key = taskIds.join("\n");
   const actionsKey = taskIds.length === 0 ? "" : key;
 
@@ -37,15 +39,20 @@ export function usePullRequests(
     const ids = actionsKey === "" ? [] : actionsKey.split("\n");
     const load = (refresh: boolean) => {
       for (const id of ids) {
+        if (inFlight.current.has(id)) continue;
         const actions = actionsFor(id);
         if (actions === undefined) continue;
-        void actions.pullRequest({ refresh }).then(
-          (request) => {
-            if (live && request !== null) remember(request);
-          },
-          // No link is not an error, and a server that cannot answer keeps the last known badge.
-          () => undefined,
-        );
+        inFlight.current.add(id);
+        void actions
+          .pullRequest({ refresh })
+          .then(
+            (request) => {
+              if (live && request !== null) remember(request);
+            },
+            // No link is not an error, and a server that cannot answer keeps the last known badge.
+            () => undefined,
+          )
+          .finally(() => inFlight.current.delete(id));
       }
     };
     load(true);

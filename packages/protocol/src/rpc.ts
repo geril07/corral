@@ -309,6 +309,12 @@ export const PullRequest = z.object({
   provider: IssueProvider,
   /** Host the request lives on, as the CLI reported it. */
   host: z.string().min(1).max(300),
+  /**
+   * `owner/repo` (or a nested GitLab path) the request was opened on, when the task's remote named
+   * one. Kept on the row so a refresh asks the CLI for this repository (`--repo`) instead of
+   * whichever one it happens to resolve; `null` when the remote is a local path.
+   */
+  repository: z.string().max(512).nullable(),
   number: z.number().int().positive(),
   url: z.string().min(1).max(2048),
   title: z.string().max(1024),

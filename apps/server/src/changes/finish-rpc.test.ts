@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
 import { cloneOfOrigin, runGit, writeFiles } from "../../test/git-repo.ts";
 import { useFakeIssueClis } from "../../test/issue-clis.ts";
+import { addProject } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
 
 const server = useServer();
@@ -361,6 +362,16 @@ test("gitlab opens a merge request with mr create and reads it with mr view", as
   await api.changes.commit({ id: task.id, message: "feat: ship it" });
   await api.changes.push({ id: task.id, remote, branch });
 
+  // A forge-shaped push URL that git rewrites to the local bare repository: the CLI is pointed at
+  // the confirmed repository (`--repo`) while nothing leaves the machine.
+  const bare = created.origin;
+  runGit(created.clone, "remote", "set-url", "origin", "https://forge.invalid/acme/app.git");
+  runGit(
+    created.clone,
+    "config",
+    "url." + bare + ".insteadOf",
+    "https://forge.invalid/acme/app.git",
+  );
   clis.createdUrl("https://forge.invalid/acme/app/-/merge_requests/12");
   clis.view({
     iid: 12,
@@ -390,8 +401,8 @@ test("gitlab opens a merge request with mr create and reads it with mr view", as
     checks: null,
   });
   expect(clis.calls().map((call) => `${call.command} ${call.argv.join(" ")}`)).toEqual([
-    `glab mr create --title Ship the change --description-file - --source-branch ${branch} --target-branch trunk --yes`,
-    "glab mr view -F json",
+    `glab mr create --title Ship the change --description-file - --source-branch ${branch} --target-branch trunk --push=false --yes --repo https://forge.invalid/acme/app`,
+    "glab mr view -F json --repo https://forge.invalid/acme/app",
   ]);
   expect(clis.calls()[0]?.stdin).toBe("A description.\n");
 });
@@ -436,4 +447,271 @@ test("staging a path outside the task is git's own refusal, and the workspace is
   ).rejects.toMatchObject({ code: "GIT_FAILED" });
   expect(existsSync(join(task.workspacePath, "does-not-exist.ts"))).toBe(false);
   expect((await api.changes.finish({ id: task.id })).staged).toEqual([]);
+});
+
+test("the confirmation and the push follow the remote's pushurl, not its fetch URL", async () => {
+  const api = await server.rpc();
+  const created = await projectWithBareRemote(api);
+  // `origin` fetches from the clone's bare repository and pushes to a different one, the way a
+  // fork workflow configures it.
+  const pushTarget = join(server.scratchDir, "push-target.git");
+  runGit(server.scratchDir, "clone", "--bare", created.origin, pushTarget);
+  runGit(created.clone, "remote", "set-url", "--push", "origin", pushTarget);
+  const { task, branch, remote } = await worktreeTask(api, created);
+  await api.changes.stage({ id: task.id, paths: "all", staged: true });
+  const committed = await api.changes.commit({ id: task.id, message: "feat: ship it" });
+
+  // The confirmation's URL is where a push really goes, not where a fetch comes from.
+  expect(remote.url).toBe(pushTarget);
+  expect(await api.changes.push({ id: task.id, remote, branch })).toMatchObject({
+    remote: { name: "origin", url: pushTarget },
+  });
+  expect(originCommit(pushTarget, branch)).toBe(committed.sha);
+  expect(originCommit(created.origin, branch)).toBeUndefined();
+
+  // Confirming the fetch URL is refused: the push URL is the consent.
+  await expect(
+    api.changes.push({ id: task.id, remote: { name: "origin", url: created.origin }, branch }),
+  ).rejects.toMatchObject({
+    code: "CHANGES_REMOTE_MISMATCH",
+    data: { confirmed: created.origin, actual: pushTarget },
+  });
+});
+
+test("a push goes to the confirmed remote and leaves the other one empty", async () => {
+  const api = await server.rpc();
+  const created = await projectWithBareRemote(api);
+  const fork = join(server.scratchDir, "fork.git");
+  runGit(server.scratchDir, "clone", "--bare", created.origin, fork);
+  runGit(created.clone, "remote", "add", "fork", fork);
+  const { task, branch, remote } = await worktreeTask(api, created);
+  // The branch's upstream names the fork, which is what `resolvePushRemote` reads.
+  runGit(task.workspacePath, "config", `branch.${branch}.remote`, "fork");
+  const finish = await api.changes.finish({ id: task.id });
+  expect(finish.remote).toEqual({ name: "fork", url: fork });
+  expect(finish.remotes.map((each) => each.name)).toEqual(["fork", "origin"]);
+
+  await api.changes.stage({ id: task.id, paths: "all", staged: true });
+  const committed = await api.changes.commit({ id: task.id, message: "feat: ship it" });
+  await api.changes.push({ id: task.id, remote: finish.remote!, branch });
+  expect(originCommit(fork, branch)).toBe(committed.sha);
+  // The remote the user did not confirm received nothing.
+  expect(originCommit(created.origin, branch)).toBeUndefined();
+  expect(remote.name).toBe("origin");
+});
+
+test("a create refuses a branch the remote has at an older commit", async () => {
+  const api = await server.rpc();
+  const created = await projectWithBareRemote(api);
+  const { task, branch, remote } = await worktreeTask(api, created);
+  await api.changes.stage({ id: task.id, paths: "all", staged: true });
+  await api.changes.commit({ id: task.id, message: "feat: the first commit" });
+  await api.changes.push({ id: task.id, remote, branch });
+
+  // One more commit after the push: the remote's branch is no longer what the dialog would open.
+  writeFiles(task.workspacePath, { "src/two.ts": "export const two = 2;\n" });
+  await api.changes.stage({ id: task.id, paths: "all", staged: true });
+  const second = await api.changes.commit({ id: task.id, message: "feat: the second commit" });
+  expect(originCommit(created.origin, branch)).not.toBe(second.sha);
+
+  await expect(
+    api.changes.createPullRequest({
+      id: task.id,
+      provider: "github",
+      remote,
+      branch,
+      base: "trunk",
+      title: "Ship the change",
+      body: "",
+    }),
+  ).rejects.toMatchObject({ code: "CHANGES_PUSH_REQUIRED", data: { remote: "origin", branch } });
+  expect(clis.calls()).toEqual([]);
+});
+
+test("concurrent refreshes share one CLI read per task", async () => {
+  const api = await server.rpc();
+  const created = await projectWithBareRemote(api);
+  const { task, branch, remote } = await worktreeTask(api, created);
+  await api.changes.stage({ id: task.id, paths: "all", staged: true });
+  await api.changes.commit({ id: task.id, message: "feat: ship it" });
+  await api.changes.push({ id: task.id, remote, branch });
+  clis.view(ghView(branch, "OPEN"));
+  await api.changes.createPullRequest({
+    id: task.id,
+    provider: "github",
+    remote,
+    branch,
+    base: "trunk",
+    title: "Ship the change",
+    body: "",
+  });
+  clis.calls().length = 0;
+  await new Promise<void>((resolve) => setImmediate(resolve)).then(() => undefined);
+  const before = clis.calls().length;
+  expect(before).toBe(3);
+
+  // A focus event and a tick can ask together; one `pr view` and one `pr checks` answer both.
+  const [first, second] = await Promise.all([
+    api.changes.pullRequest({ id: task.id, refresh: true }),
+    api.changes.pullRequest({ id: task.id, refresh: true }),
+  ]);
+  expect(first?.state).toBe("open");
+  expect(second?.state).toBe("open");
+  const after = clis.calls().slice(before);
+  expect(after.map((call) => call.argv.slice(0, 2).join(" "))).toEqual(["pr view", "pr checks"]);
+});
+
+test("a refresh that cannot read the state drops the checks it cannot confirm", async () => {
+  const api = await server.rpc();
+  const created = await projectWithBareRemote(api);
+  const { task, branch, remote } = await worktreeTask(api, created);
+  await api.changes.stage({ id: task.id, paths: "all", staged: true });
+  await api.changes.commit({ id: task.id, message: "feat: ship it" });
+  await api.changes.push({ id: task.id, remote, branch });
+  clis.view(ghView(branch, "OPEN"));
+  clis.checks([
+    { bucket: "pass", name: "build" },
+    { bucket: "fail", name: "deploy" },
+  ]);
+  const request = await api.changes.createPullRequest({
+    id: task.id,
+    provider: "github",
+    remote,
+    branch,
+    base: "trunk",
+    title: "Ship the change",
+    body: "",
+  });
+  expect(request.checks).toMatchObject({ total: 2, passing: 1, failing: 1 });
+
+  clis.fail(1, "dial tcp: lookup forge.invalid: no such host");
+  const unreadable = await api.changes.pullRequest({ id: task.id, refresh: true });
+  expect(unreadable).toMatchObject({ state: "unknown", checks: null });
+  expect(await api.changes.pullRequest({ id: task.id })).toMatchObject({
+    state: "unknown",
+    checks: null,
+  });
+});
+
+test("a repository with no remote refuses the push with CHANGES_NO_REMOTE", async () => {
+  const api = await server.rpc();
+  const project = (await addProject(server)).project;
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "No remote here",
+    workspace: { type: "new-branch" },
+  });
+  const finish = await api.changes.finish({ id: task.id });
+  expect(finish.remote).toBeNull();
+  expect(finish.remotes).toEqual([]);
+  await expect(
+    api.changes.push({
+      id: task.id,
+      remote: { name: "origin", url: "/tmp/nowhere.git" },
+      branch: task.branch,
+    }),
+  ).rejects.toMatchObject({ code: "CHANGES_NO_REMOTE", data: { branch: task.branch } });
+});
+
+test("a missing CLI and a failing CLI are each a typed refusal", async () => {
+  const api = await server.rpc();
+  const created = await projectWithBareRemote(api);
+  const { task, branch, remote } = await worktreeTask(api, created);
+  await api.changes.stage({ id: task.id, paths: "all", staged: true });
+  await api.changes.commit({ id: task.id, message: "feat: ship it" });
+  await api.changes.push({ id: task.id, remote, branch });
+  clis.withoutIssueClis();
+  await expect(
+    api.changes.createPullRequest({
+      id: task.id,
+      provider: "github",
+      remote,
+      branch,
+      base: "trunk",
+      title: "Ship the change",
+      body: "",
+    }),
+  ).rejects.toMatchObject({ code: "CHANGES_CLI_MISSING", data: { command: "gh" } });
+});
+
+test("a CLI failure is a sentence, and an unreadable answer is CHANGES_RESPONSE_INVALID", async () => {
+  const api = await server.rpc();
+  const created = await projectWithBareRemote(api);
+  const { task, branch, remote } = await worktreeTask(api, created);
+  await api.changes.stage({ id: task.id, paths: "all", staged: true });
+  await api.changes.commit({ id: task.id, message: "feat: ship it" });
+  await api.changes.push({ id: task.id, remote, branch });
+
+  clis.fail(1, "HTTP 404: Not Found (https://forge.invalid/acme/app)");
+  await expect(
+    api.changes.createPullRequest({
+      id: task.id,
+      provider: "github",
+      remote,
+      branch,
+      base: "trunk",
+      title: "Ship the change",
+      body: "",
+    }),
+  ).rejects.toMatchObject({
+    code: "CHANGES_CLI_FAILED",
+    data: { provider: "github", message: "The request was not found." },
+  });
+
+  clis.answer({});
+  clis.createdUrl("no url in this output");
+  clis.view("{not json");
+  await expect(
+    api.changes.createPullRequest({
+      id: task.id,
+      provider: "github",
+      remote,
+      branch,
+      base: "trunk",
+      title: "Ship the change",
+      body: "",
+    }),
+  ).rejects.toMatchObject({ code: "CHANGES_RESPONSE_INVALID", data: { provider: "github" } });
+});
+
+test("a parseable push URL points the CLI at the confirmed repository", async () => {
+  const api = await server.rpc();
+  const created = await projectWithBareRemote(api);
+  const bare = created.origin;
+  runGit(created.clone, "remote", "set-url", "origin", "https://forge.invalid/acme/app.git");
+  runGit(
+    created.clone,
+    "config",
+    "url." + bare + ".insteadOf",
+    "https://forge.invalid/acme/app.git",
+  );
+  const { task, branch, remote } = await worktreeTask(api, created);
+  // `git remote get-url --push` expands `insteadOf`, so the confirmation names the address a push
+  // really reaches; `--repo` comes from the configured URL, which is what names the repository.
+  expect(remote.url).toBe(bare);
+  await api.changes.stage({ id: task.id, paths: "all", staged: true });
+  await api.changes.commit({ id: task.id, message: "feat: ship it" });
+  await api.changes.push({ id: task.id, remote, branch });
+  clis.view(ghView(branch, "OPEN"));
+  await api.changes.createPullRequest({
+    id: task.id,
+    provider: "github",
+    remote,
+    branch,
+    base: "trunk",
+    title: "Ship the change",
+    body: "",
+  });
+  expect(clis.calls()[0]?.argv).toContain("--repo");
+  expect(clis.calls()[0]?.argv).toContain("forge.invalid/acme/app");
+  // The row keeps the repository, so a refresh can point the CLI at it without the remote.
+  expect(await api.changes.pullRequest({ id: task.id })).toMatchObject({
+    host: "forge.invalid",
+    repository: "acme/app",
+  });
+  for (const call of clis.calls()) {
+    expect([call.command, ...call.argv, call.cwd].join(" ")).not.toMatch(
+      /github\.com|gitlab\.com|ghe\.com/,
+    );
+  }
 });

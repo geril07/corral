@@ -1,6 +1,5 @@
 import type { IssueProvider } from "@corral/protocol/rpc";
-import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { ProcessFailure, runProcess } from "../process/run-process.ts";
 
 /**
  * The one way Corral runs a native forge CLI (`gh`, `glab`) on the server host: bounded in time
@@ -76,7 +75,7 @@ export function runNativeCli(options: NativeCliOptions): Promise<string> {
       kind: "failed",
       command: options.command,
       cwd: options.cwd,
-      exitCode: result.exitCode,
+      exitCode: result.exitCode ?? undefined,
       stderr: result.stderr,
     });
   });
@@ -90,7 +89,11 @@ export function runNativeCli(options: NativeCliOptions): Promise<string> {
 export function runNativeCliAllowingFailure(
   options: NativeCliOptions,
 ): Promise<{ stdout: string; exitCode: number; stderr: string }> {
-  return runNativeCliResult(options);
+  return runNativeCliResult(options).then((result) => ({
+    stdout: result.stdout,
+    exitCode: result.exitCode ?? 1,
+    stderr: result.stderr,
+  }));
 }
 
 export interface NativeCliOptions {
@@ -107,76 +110,44 @@ export interface NativeCliOptions {
 }
 
 /** The call itself: stdout, exit code and stderr, whatever the exit code was. */
-function runNativeCliResult(
+async function runNativeCliResult(
   options: NativeCliOptions,
-): Promise<{ stdout: string; exitCode: number; stderr: string }> {
-  const { command, args, cwd, timeoutMs, provider, stripGitHubTokens, signal, stdin } = options;
-  return new Promise((resolve, reject) => {
-    signal?.throwIfAborted();
-    const controller = new AbortController();
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, timeoutMs);
-    const abort = () => controller.abort();
-    signal?.addEventListener("abort", abort, { once: true });
-
-    const child = execFile(
+): Promise<{ stdout: string; exitCode: number | null; stderr: string }> {
+  const { command, args, cwd } = options;
+  try {
+    return await runProcess({
       command,
       args,
-      {
+      cwd,
+      env: nativeCliEnvironment(options.provider, {
+        stripGitHubTokens: options.stripGitHubTokens,
+      }),
+      timeoutMs: options.timeoutMs,
+      maxBufferBytes: NATIVE_CLI_MAX_OUTPUT_BYTES,
+      signal: options.signal,
+      ...(options.stdin === undefined ? {} : { stdin: options.stdin }),
+    });
+  } catch (error) {
+    if (error instanceof ProcessFailure) {
+      // A spawn failure that is not `ENOENT` is not "the CLI is missing"; it is a failed call.
+      const kind =
+        error.kind === "missing" ||
+        error.kind === "missing-directory" ||
+        error.kind === "timeout" ||
+        error.kind === "overflow" ||
+        error.kind === "aborted"
+          ? error.kind
+          : "failed";
+      throw new NativeCliFailure({
+        kind,
+        command,
         cwd,
-        // Nothing may wait for a prompt, a pager, an update check or print a token in debug output.
-        env: nativeCliEnvironment(provider, { stripGitHubTokens }),
-        encoding: "utf8",
-        maxBuffer: NATIVE_CLI_MAX_OUTPUT_BYTES,
-        killSignal: "SIGKILL",
-        signal: controller.signal,
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        clearTimeout(timer);
-        signal?.removeEventListener("abort", abort);
-        if (!error) {
-          resolve({ stdout, exitCode: 0, stderr });
-          return;
-        }
-        if (timedOut) {
-          reject(new NativeCliFailure({ kind: "timeout", command, cwd }));
-          return;
-        }
-        if (signal?.aborted) {
-          // Do not forward execFile's error: it can carry stderr with credentials.
-          reject(new NativeCliFailure({ kind: "aborted", command, cwd }));
-          return;
-        }
-        if (error.code === "ENOENT") {
-          reject(
-            new NativeCliFailure({
-              kind: existsSync(cwd) ? "missing" : "missing-directory",
-              command,
-              cwd,
-            }),
-          );
-          return;
-        }
-        if (error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-          reject(new NativeCliFailure({ kind: "overflow", command, cwd }));
-          return;
-        }
-        // A non-zero exit is the CLI's answer: the two callers decide whether it is a failure.
-        resolve({ stdout, exitCode: typeof error.code === "number" ? error.code : 1, stderr });
-      },
-    );
-    // `--body-file -`/`--description-file -` read the body from stdin. A call with no body does not
-    // touch the stream at all: writing EOF into a child that never spawned (a missing executable)
-    // is a stream error the `execFile` callback already reports as the call's failure.
-    if (stdin !== undefined && child.pid !== undefined) {
-      child.stdin?.on("error", () => undefined);
-      child.stdin?.end(stdin);
+        exitCode: error.exitCode ?? undefined,
+        stderr: error.stderr,
+      });
     }
-  });
+    throw error;
+  }
 }
 
 /** The child's environment: no debug tracing, no other provider's token, no prompts or pager. */

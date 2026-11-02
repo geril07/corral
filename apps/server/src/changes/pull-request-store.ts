@@ -9,8 +9,8 @@ const Row = PullRequest.extend({
     .transform((value) => (value === null ? null : JSON.parse(value))),
 });
 
-const COLUMNS = `task_id AS taskId, provider, host, number, url, title, branch, base, state,
-  state_reason AS stateReason, checks, fetched_at AS fetchedAt`;
+const COLUMNS = `task_id AS taskId, provider, host, repository, number, url, title, branch, base,
+  state, state_reason AS stateReason, checks, fetched_at AS fetchedAt`;
 
 /**
  * The pull or merge request opened from a task's branch (C6 decision b: its own table). A refresh
@@ -35,11 +35,12 @@ export class PullRequestStore {
   put(request: PullRequest): void {
     this.#db
       .prepare(
-        `INSERT INTO pull_requests (task_id, provider, host, number, url, title, branch, base, state, state_reason, checks, fetched_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO pull_requests (task_id, provider, host, repository, number, url, title, branch, base, state, state_reason, checks, fetched_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(task_id) DO UPDATE SET
            provider = excluded.provider,
            host = excluded.host,
+           repository = excluded.repository,
            number = excluded.number,
            url = excluded.url,
            title = excluded.title,
@@ -54,6 +55,7 @@ export class PullRequestStore {
         request.taskId,
         request.provider,
         request.host,
+        request.repository,
         request.number,
         request.url,
         request.title,

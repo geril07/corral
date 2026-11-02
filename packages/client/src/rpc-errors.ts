@@ -145,8 +145,10 @@ export function describeError(error: unknown): string {
         return `The remote ${String(field(data, "remote"))} is no longer ${String(field(data, "confirmed"))}; it is ${String(field(data, "actual"))}. Reload the tab and confirm the new one.`;
       case "CHANGES_NO_REMOTE":
         return `No remote would take the branch ${String(field(data, "branch"))}. Add a remote, or set branch.<name>.remote.`;
-      case "CHANGES_BRANCH_MISMATCH":
-        return `The workspace is on ${String(field(data, "actual")) || "a detached HEAD"}, not the confirmed ${String(field(data, "confirmed"))}.`;
+      case "CHANGES_BRANCH_MISMATCH": {
+        const actual = field(data, "actual");
+        return `The workspace is on ${typeof actual === "string" ? actual : "a detached HEAD"}, not the confirmed ${String(field(data, "confirmed"))}.`;
+      }
       case "CHANGES_NOTHING_STAGED":
         return "Nothing is staged: select files to commit first.";
       case "CHANGES_EMPTY_MESSAGE":

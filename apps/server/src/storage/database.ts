@@ -61,6 +61,7 @@ export const MIGRATIONS: readonly string[] = [
      task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
      provider TEXT NOT NULL,
      host TEXT NOT NULL,
+     repository TEXT,
      number INTEGER NOT NULL,
      url TEXT NOT NULL,
      title TEXT NOT NULL,

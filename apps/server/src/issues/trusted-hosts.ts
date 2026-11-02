@@ -56,11 +56,24 @@ export async function issueHostTrust(
   ref: IssueRef,
   env: NodeJS.ProcessEnv,
 ): Promise<IssueHostTrust | undefined> {
-  const hostname = new URL(ref.url).hostname;
-  if (publicProviderForHost(hostname) === ref.provider)
+  return hostTrust(projectPath, ref.provider, ref.host, env);
+}
+
+/**
+ * The trust of one host for one provider, without an issue URL around it: the pull-request calls
+ * (`gh`/`glab` from the Changes tab) ask the same question as the issue import — may this host see
+ * the operator's tokens — and the answer is one definition.
+ */
+export async function hostTrust(
+  projectPath: string,
+  provider: IssueProvider,
+  host: string,
+  env: NodeJS.ProcessEnv,
+): Promise<IssueHostTrust | undefined> {
+  const hostname = host.replace(/:\d+$/, "");
+  if (publicProviderForHost(hostname) === provider)
     return { publicHost: true, operatorHost: false };
-  if (envTrustedHosts(ref.provider, env).has(ref.host))
-    return { publicHost: false, operatorHost: true };
+  if (envTrustedHosts(provider, env).has(host)) return { publicHost: false, operatorHost: true };
   let remotes: string;
   try {
     remotes = await git(projectPath, ["remote", "-v"]);
@@ -69,7 +82,7 @@ export async function issueHostTrust(
   }
   const matched = remotes.split("\n").some((line) => {
     const remote = line.split(/\s+/)[1];
-    return remote !== undefined && hostOfRemote(remote) === ref.host;
+    return remote !== undefined && hostOfRemote(remote) === host;
   });
   return matched ? { publicHost: false, operatorHost: false } : undefined;
 }

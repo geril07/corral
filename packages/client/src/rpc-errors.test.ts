@@ -1,6 +1,11 @@
 import { ORPCError } from "@orpc/client";
 import { expect, test } from "vite-plus/test";
-import { chatUnavailableReason, describeError, dirtyWorktreeFiles } from "./rpc-errors.ts";
+import {
+  chatUnavailableReason,
+  describeError,
+  dirtyWorktreeFiles,
+  procedureMissing,
+} from "./rpc-errors.ts";
 
 // The server sends these over the wire as defined errors, which the client rebuilds as ORPCError.
 function defined(code: string, data: unknown) {
@@ -133,4 +138,54 @@ test("only WORKTREE_DIRTY yields the list of blocking files", () => {
   ]);
   expect(dirtyWorktreeFiles(defined("GIT_FAILED", { message: "x" }))).toBeUndefined();
   expect(dirtyWorktreeFiles(new Error("WORKTREE_DIRTY"))).toBeUndefined();
+});
+
+test("the Changes tab's write refusals say what was confirmed and what the server found", () => {
+  expect(
+    describeError(
+      defined("CHANGES_REMOTE_MISMATCH", {
+        remote: "origin",
+        confirmed: "https://forge.example/acme/app.git",
+        actual: "https://forge.example/acme/mirror.git",
+      }),
+    ),
+  ).toBe(
+    "The remote origin is no longer https://forge.example/acme/app.git; it is https://forge.example/acme/mirror.git. Reload the tab and confirm the new one.",
+  );
+  expect(describeError(defined("CHANGES_NO_REMOTE", { branch: "feat-x" }))).toBe(
+    "No remote would take the branch feat-x. Add a remote, or set branch.<name>.remote.",
+  );
+  expect(
+    describeError(defined("CHANGES_BRANCH_MISMATCH", { confirmed: "feat-x", actual: null })),
+  ).toBe("The workspace is on a detached HEAD, not the confirmed feat-x.");
+  expect(describeError(defined("CHANGES_NOTHING_STAGED", {}))).toBe(
+    "Nothing is staged: select files to commit first.",
+  );
+  expect(describeError(defined("CHANGES_EMPTY_MESSAGE", {}))).toBe("A commit needs a message.");
+  expect(
+    describeError(defined("CHANGES_PUSH_REQUIRED", { remote: "origin", branch: "feat-x" })),
+  ).toBe("origin has no branch feat-x yet. Push it first.");
+  expect(describeError(defined("CHANGES_CLI_MISSING", { command: "glab" }))).toBe(
+    "glab was not found on the server's PATH.",
+  );
+  expect(describeError(defined("CHANGES_AUTH_REQUIRED", { provider: "gitlab" }))).toBe(
+    "The server's GitLab CLI is not logged in for this host.",
+  );
+  expect(
+    describeError(
+      defined("CHANGES_CLI_FAILED", { provider: "github", message: "Could not reach GitHub." }),
+    ),
+  ).toBe("Could not reach GitHub.");
+  expect(describeError(defined("CHANGES_RESPONSE_INVALID", { provider: "gitlab" }))).toBe(
+    "The GitLab CLI returned something Corral could not read.",
+  );
+});
+
+test("an unknown procedure is the daemon's age, not a failed write", () => {
+  // oRPC's own answer for a path the server has no handler for: not a contract error.
+  expect(procedureMissing({ code: "NOT_FOUND", defined: false, message: "Not Found" })).toBe(true);
+  expect(procedureMissing(new Error("Not Found"))).toBe(false);
+  // A typed NOT_FOUND (a terminal that is gone) is not an old daemon.
+  expect(procedureMissing(defined("NOT_FOUND", { id: "t1" }))).toBe(false);
+  expect(procedureMissing(undefined)).toBe(false);
 });

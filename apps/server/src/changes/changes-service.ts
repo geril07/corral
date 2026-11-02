@@ -12,10 +12,15 @@ import { readChanges, readFileDiff } from "../git/diff.ts";
 import {
   checkedOutBranch,
   listRemotes,
-  remoteHasBranch,
-  remoteUrl,
+  localBranchCommit,
+  remoteBranchCommit,
+  remoteConfiguredPushUrl,
+  remoteDestination,
+  remotePushUrl,
   resolvePushRemote,
 } from "../git/remotes.ts";
+import type { RemoteDestination } from "../git/remotes.ts";
+import { hostTrust } from "../issues/trusted-hosts.ts";
 import { commit as commitIndex, pushBranch, stagePaths, stagedPaths } from "../git/writes.ts";
 import type { ProjectStore } from "../projects/project-store.ts";
 import type { SessionStore } from "../sessions/session-store.ts";
@@ -62,6 +67,12 @@ export class ChangesService {
   readonly #changes = new ChangeFeed();
   readonly #cache = new Map<string, TaskChanges>();
   readonly #dirty = new Set<string>();
+  /**
+   * One pull-request refresh per task at a time. A window regaining focus, a tick of every client's
+   * interval and a tab mount can ask together; sharing the promise keeps one focus burst to one
+   * `gh pr view` per task instead of one per asker.
+   */
+  readonly #refreshing = new Map<string, Promise<PullRequest | null>>();
 
   constructor(options: {
     tasks: TaskStore;
@@ -203,12 +214,21 @@ export class ChangesService {
   ): Promise<PullRequest> {
     const task = this.#task(taskId);
     await this.#confirmedRemote(task, input.remote, input.branch);
-    if (!(await remoteHasBranch(task.workspacePath, input.remote.name, input.branch))) {
+    // The remote must have this branch **at its tip**: a branch pushed two commits ago would open a
+    // request for code the user did not confirm, and `gh pr create` would happily do it.
+    const local = await localBranchCommit(task.workspacePath, input.branch);
+    const pushed = await remoteBranchCommit(task.workspacePath, input.remote.url, input.branch);
+    if (local === undefined || pushed !== local) {
       throw new ChangesPushRequiredError(input.remote.name, input.branch);
     }
+    // `--repo` comes from the remote's configured URL (the forge repository), never from the
+    // expanded push address a local `insteadOf` alias may have produced.
+    const configured = await remoteConfiguredPushUrl(task.workspacePath, input.remote.name);
+    const destination = remoteDestination(configured ?? input.remote.url);
     const snapshot = await createRequest({
       provider: input.provider,
       cwd: task.workspacePath,
+      destination,
       branch: input.branch,
       base: input.base,
       title: input.title,
@@ -216,11 +236,13 @@ export class ChangesService {
       draft: input.draft === true,
       timeoutMs: this.#pullRequestTimeoutMs,
       signal: undefined,
-      // The host is the CLI's own repository resolution from the task's remote, not a client-supplied
-      // URL, so there is no untrusted host to strip tokens for here.
-      stripGitHubTokens: false,
+      ...(await this.#tokenPolicy(task, input.provider, destination)),
     });
-    const request: PullRequest = { ...snapshot, taskId: task.id };
+    const request: PullRequest = {
+      ...snapshot,
+      taskId: task.id,
+      repository: destination === undefined ? null : destination.segments.join("/"),
+    };
     this.#pullRequests.put(request);
     return request;
   }
@@ -234,13 +256,33 @@ export class ChangesService {
     const task = this.#task(taskId);
     const stored = this.#pullRequests.get(task.id);
     if (stored === undefined || !refresh) return stored ?? null;
+    const running = this.#refreshing.get(task.id);
+    if (running !== undefined) return running;
+    const work = this.#refresh(task, stored).finally(() => this.#refreshing.delete(task.id));
+    this.#refreshing.set(task.id, work);
+    return work;
+  }
+
+  /**
+   * One refresh: the CLI's answer stored, or `unknown` with the reason. A state that could not be
+   * read takes the checks with it — a summary from the last successful read would describe a
+   * request whose state nobody can confirm.
+   */
+  async #refresh(task: Task, stored: PullRequest): Promise<PullRequest> {
+    // The repository the request was opened on, kept on the row: a renamed or removed remote must
+    // not move a refresh to another repository.
+    const destination: RemoteDestination | undefined =
+      stored.repository === null
+        ? undefined
+        : { host: stored.host, segments: stored.repository.split("/") };
     try {
       const snapshot = await readPullRequest({
         provider: stored.provider,
         cwd: task.workspacePath,
+        destination,
         timeoutMs: this.#pullRequestTimeoutMs,
         signal: undefined,
-        stripGitHubTokens: false,
+        ...(await this.#tokenPolicy(task, stored.provider, destination)),
       });
       const next: PullRequest = { ...stored, ...snapshot, taskId: task.id };
       this.#pullRequests.put(next);
@@ -250,10 +292,29 @@ export class ChangesService {
         ...stored,
         state: "unknown",
         stateReason: describeReadFailure(error),
+        checks: null,
       };
       this.#pullRequests.put(next);
       return next;
     }
+  }
+
+  /**
+   * The `issue-import.ts` token rule, applied to the confirmed repository's host: the operator's
+   * GitHub tokens travel only to a host the project's own remotes or `GH_HOST` vouch for (or a
+   * public GitHub host). A push URL naming no host (a local path) strips them: the CLI may then
+   * resolve a host nobody confirmed. The provider is the user's choice, so a GitLab call never
+   * carries GitHub tokens at all.
+   */
+  async #tokenPolicy(
+    task: Task,
+    provider: IssueProvider,
+    destination: RemoteDestination | undefined,
+  ): Promise<{ stripGitHubTokens: boolean }> {
+    if (provider !== "github") return { stripGitHubTokens: true };
+    if (destination === undefined) return { stripGitHubTokens: true };
+    const trust = await hostTrust(task.workspacePath, provider, destination.host, process.env);
+    return { stripGitHubTokens: trust === undefined || (!trust.publicHost && !trust.operatorHost) };
   }
 
   /**
@@ -277,7 +338,8 @@ export class ChangesService {
     if (actualBranch !== branch) {
       throw new ChangesBranchMismatchError(branch, actualBranch ?? null);
     }
-    const actualUrl = await remoteUrl(task.workspacePath, remote.name);
+    // The **push** URL, not the fetch URL: `remote.<name>.pushurl` is where a push really goes.
+    const actualUrl = await remotePushUrl(task.workspacePath, remote.name);
     if (actualUrl === undefined) throw new ChangesNoRemoteError(branch);
     if (actualUrl !== remote.url) {
       throw new ChangesRemoteMismatchError(remote.name, remote.url, actualUrl);

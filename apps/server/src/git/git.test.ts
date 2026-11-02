@@ -1,7 +1,16 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vite-plus/test";
+import { initRepo, runGit } from "../../test/git-repo.ts";
 import { GitError, git, gitRead } from "./git.ts";
 
 let root: string;
@@ -50,4 +59,42 @@ test("a read-only git call tells git not to lock, not to glob and not to refresh
     'printf "%s|%s|%s|%s" "$GIT_OPTIONAL_LOCKS" "$GIT_LITERAL_PATHSPECS" "$GIT_CONFIG_KEY_0" "$GIT_CONFIG_VALUE_0"',
   );
   await expect(gitRead(root, ["status"])).resolves.toBe("0|1|diff.autoRefreshIndex|false");
+});
+
+test("a deadline kills a push whose hook hangs, and the hook dies with it", async () => {
+  const repo = initRepo(join(root, "repo"), "main");
+  const origin = join(root, "origin.git");
+  runGit(root, "clone", "--bare", repo, origin);
+  const pidFile = join(root, "hook.pid");
+  writeFileSync(
+    join(repo, ".git/hooks/pre-push"),
+    `#!/bin/sh\necho $$ > "${pidFile}"\nsleep 30\n`,
+    { mode: 0o755 },
+  );
+  chmodSync(join(repo, ".git/hooks/pre-push"), 0o755);
+
+  const started = Date.now();
+  await expect(
+    git(repo, ["push", "--porcelain", "--", origin, "refs/heads/main:refs/heads/main"], {
+      timeoutMs: 800,
+    }),
+  ).rejects.toThrow(/did not finish within 800 ms/);
+  // The pipe is not what bounds the call: the process group is.
+  expect(Date.now() - started).toBeLessThan(5000);
+  expect(existsSync(pidFile)).toBe(true);
+  const pid = Number(readFileSync(pidFile, "utf8").trim());
+  const deadline = Date.now() + 3000;
+  const running = () => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  while (running() && Date.now() < deadline) {
+    // oxlint-disable-next-line no-await-in-loop -- waiting for the hook to die is the point
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  expect(running()).toBe(false);
 });
