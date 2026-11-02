@@ -157,11 +157,9 @@ export interface ChatDriverLaunch {
   /** The unix socket of the agent server this frontend is a client of; see `ChatLaunchRequest`. */
   socket?: string;
   /**
-   * The native model and provider the launch chose, the same values the terminal's own flags carry.
-   * A driver whose agent takes them on the conversation (Codex's `thread/start`) sends them there;
-   * one whose argv carries them ignores them.
+   * The provider the launch chose, the same value the terminal's own flags carry. A driver whose
+   * agent takes it on the conversation (Codex's `thread/start`) sends it there.
    */
-  model?: string | null;
   provider?: string | null;
   /** Whether a terminal leg is live beside this frontend; see `ChatLaunchRequest.terminalLive`. */
   terminalLive?: boolean | (() => boolean);
