@@ -1,4 +1,4 @@
-import type { AgentKind } from "@corral/protocol";
+import type { AgentKind } from "@corral/protocol/rpc";
 import { defaultClientConfig } from "@corral/protocol/config";
 import { expect, test } from "vite-plus/test";
 import { parseConfigFile } from "./config-file.ts";
