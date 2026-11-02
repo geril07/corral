@@ -170,6 +170,8 @@ Conflicts are mechanical and expected: C0–C3 touch `apps/server/src/chat/`, `a
 - **The login probe's write footprint (this machine):** it created `~/.claude/session-env/<uuid>/` and refreshed `plugins/store`/`sessions/` mtimes; `.credentials.json` did **not** change this time. No transcript (`persistSession: false`).
 - **A permission request and its tool call need different item ids.** `toolUseID` as the request's id would overwrite the tool-call row it is asking about; the driver uses `permission:<toolUseID>` for the request and `tool:<toolUseID>` for the call, keeping the answer's in-place replacement.
 - **The SDK spawns the CLI privately, so it exposes no pid.** The driver spawns through the documented `spawnClaudeCodeProcess` hook to record the writer (pid + `/proc` start time) and to kill the process group, as pi's driver does.
+- **`getSessionMessages`'s `dir` narrows to one project directory.** Measured (C2 review): a matching `dir` returns the history, a different one returns `[]` for the same id, and no `dir` returns it. The driver passes no `dir` (ids are UUIDs; the terminal leg searches every project directory for the same reason), so an existing conversation cannot read as empty and get the task prompt again.
+- **A chat resume is conditional on the conversation existing.** The terminal leg has always asked `AgentAdapter.hasConversation` before `--resume`; `SessionService.#launchChat` now does the same (`chatLaunchHow`). Claude has no transcript before its first prompt, so a chat launch with an id and no conversation starts under that id instead of failing on an SDK `resume` and repeating the failure on every restart.
 
 ---
 

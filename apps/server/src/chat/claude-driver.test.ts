@@ -10,9 +10,11 @@ import { ChatService } from "./chat-service.ts";
 import {
   ClaudeDriver,
   claudeChatDriver,
+  claudeVersionError,
   historyIsReadable,
   type ClaudeDriverRequest,
 } from "./claude-driver.ts";
+import { chatLaunchHow } from "../sessions/session-service.ts";
 import { ChatModelUnsupportedError, ChatReasoningUnsupportedError } from "./chat-errors.ts";
 import { ChatTimeline } from "./timeline.ts";
 import { writerPath } from "./writer-claim.ts";
@@ -162,7 +164,8 @@ test("start names our session id and sends the user's executable and environment
     expect(options.settingSources).toBeUndefined();
     expect(options.env).toMatchObject({ CLAUDE_CONFIG_DIR: process.env["CLAUDE_CONFIG_DIR"] });
     expect(typeof options.canUseTool).toBe("function");
-    expect(h.sdk.historyCalls).toEqual([{ sessionId: SESSION_ID, dir: h.request.cwd }]);
+    // No `dir`: a narrowed read can report an existing conversation as empty.
+    expect(h.sdk.historyCalls).toEqual([{ sessionId: SESSION_ID, dir: undefined }]);
     // The model list is the SDK's; the selected model is the one `init` reported.
     expect(h.timeline.state.models.map((model) => model.id)).toEqual(["default", "sonnet"]);
     expect(h.timeline.state.model).toMatchObject({ id: "default", provider: null });
@@ -216,6 +219,78 @@ test("a resumed conversation loads its transcript and is never prompted again", 
   } finally {
     await h.stop();
   }
+});
+
+test("a resume with no transcript starts under the same id and sends the prompt once", async () => {
+  // The P1 review case: the terminal leg asks `hasConversation` before resuming, and chat must
+  // too. Claude writes no transcript before the first prompt, so a "resume" here is a "start".
+  const env = processEnv();
+  const how = chatLaunchHow("claude", SESSION_ID, "resume", env);
+  expect(how).toBe("start");
+  const h = await harness({ prompt: "Do the thing", how, sessionId: SESSION_ID });
+  try {
+    await started(h);
+    await h.sdk.onlyQuery.whenPrompted(1);
+    expect(h.sdk.options[0]?.sessionId).toBe(SESSION_ID);
+    expect(h.sdk.options[0]?.resume).toBeUndefined();
+    expect(h.sdk.onlyQuery.received).toHaveLength(1);
+  } finally {
+    await h.stop();
+  }
+});
+
+test("a resume whose transcript exists keeps resume and sends no prompt", async () => {
+  const configDir = process.env["CLAUDE_CONFIG_DIR"]!;
+  writeClaudeTranscript(configDir, await mkdtemp(join(tmpdir(), "corral-claude-cwd-")), SESSION_ID);
+  const env = processEnv();
+  const how = chatLaunchHow("claude", SESSION_ID, "resume", env);
+  expect(how).toBe("resume");
+  const sdk = new FakeClaudeSdk({
+    history: [sessionMessage("user", "u1", "Already asked")],
+  });
+  const h = await harness({ sdk, prompt: "Already asked", how, sessionId: SESSION_ID });
+  try {
+    await started(h);
+    await h.sdk.whenHistoryRead();
+    await new Promise((settle) => setTimeout(settle, 0));
+    expect(h.sdk.options[0]?.resume).toBe(SESSION_ID);
+    expect(h.sdk.options[0]?.sessionId).toBeUndefined();
+    expect(h.sdk.onlyQuery.received).toHaveLength(0);
+  } finally {
+    await h.stop();
+  }
+});
+
+test("a resume the SDK refuses fails visibly and sends no prompt", async () => {
+  // The SDK's own failure for a missing conversation is `supportedModels()` ("No conversation
+  // found with session ID …"), which is why the launch must not get there in the first place; the
+  // path is still visible if the transcript disappears between the check and the spawn.
+  const sdk = new FakeClaudeSdk({
+    modelsFails: "No conversation found with session ID: 11111111-2222-4333-8444-555555555555",
+  });
+  const h = await harness({ sdk, prompt: "Do the thing", how: "resume" });
+  try {
+    h.driver.start();
+    const reason = await h.exited;
+    expect(reason).toContain("No conversation found");
+    expect(h.sdk.onlyQuery.received).toHaveLength(0);
+    expect(item(h.timeline, "error")?.text).toContain("No conversation found");
+  } finally {
+    await h.stop();
+  }
+});
+
+test("a hanging --version names the 5 s deadline, not a generic command failure", () => {
+  expect(
+    claudeVersionError(
+      "/opt/claude",
+      { message: "Command failed: /opt/claude --version", killed: true, signal: "SIGTERM" },
+      "",
+    ),
+  ).toBe("the claude at /opt/claude did not answer --version within 5 s");
+  expect(claudeVersionError("/opt/claude", { message: "spawn /opt/claude ENOENT" }, "")).toContain(
+    "could not run /opt/claude --version",
+  );
 });
 
 test("a start under our id on a conversation that already has a user message sends no prompt", async () => {
@@ -517,6 +592,48 @@ test("a stop closes the query, kills the recorded writer and leaves no streaming
       streaming: false,
     });
     expect(h.timeline.closed).toBe(true);
+  } finally {
+    await h.stop();
+  }
+});
+
+test("a stop kills the group when the CLI ignores stdin EOF and SIGTERM", async () => {
+  const sdk = new FakeClaudeSdk({ spawnChild: true, stubbornChild: true, turn: () => {} });
+  const h = await harness({ sdk });
+  try {
+    await started(h);
+    h.driver.send("start a long turn", "prompt");
+    await until(() => h.recordedPids.length === 1, "the recorded writer");
+    const pid = h.recordedPids[0]!;
+    await h.driver.stop();
+    await until(() => !processExists(pid), "the killed group");
+    expect(h.released).toBe(true);
+  } finally {
+    await h.stop();
+  }
+});
+
+test("a frontend that ends while its CLI still runs keeps the writer record", async () => {
+  const sdk = new FakeClaudeSdk({ spawnChild: true, turn: () => {} });
+  const h = await harness({ sdk });
+  try {
+    await started(h);
+    h.driver.send("start a long turn", "prompt");
+    await until(() => h.recordedPids.length === 1, "the recorded writer");
+    const pid = h.recordedPids[0]!;
+    // The stream ends, the process does not: the next launch must stop or await it, so the record
+    // stays (releasing it here would delete a newer launch's record, which is the same path).
+    h.sdk.onlyQuery.end();
+    const reason = await h.exited;
+    expect(reason).toContain("claude exited");
+    expect(h.released).toBe(false);
+    expect(processExists(pid)).toBe(true);
+    expect(h.timeline.closed).toBe(true);
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      // Already gone; the harness's stop below would otherwise leave it running.
+    }
   } finally {
     await h.stop();
   }

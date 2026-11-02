@@ -31,7 +31,9 @@ export class FakeClaudeSdk implements ClaudeSdk {
   readonly models: ModelInfo[];
   #history: SessionMessage[];
   #historyFails: boolean;
+  #modelsFails: string | undefined;
   #spawnChild: boolean;
+  #stubbornChild: boolean;
   #silent: boolean;
   #modelsHang: boolean;
   #crash: string | undefined;
@@ -43,8 +45,12 @@ export class FakeClaudeSdk implements ClaudeSdk {
       models?: ModelInfo[];
       /** Fail the transcript read, as an unreadable config directory would. */
       historyFails?: boolean;
+      /** Reject `supportedModels()` with this message, as an SDK resume of a missing id does. */
+      modelsFails?: string;
       /** Spawn the placeholder child through the driver's own spawn hook. */
       spawnChild?: boolean;
+      /** The placeholder ignores stdin EOF and SIGTERM, so only the driver's group kill ends it. */
+      stubbornChild?: boolean;
       /** Emit no `init` frame (the CLI does that with the first turn), as the real one may not. */
       silent?: boolean;
       /** Never answer `supportedModels()`: the ready deadline must fail the frontend. */
@@ -58,7 +64,9 @@ export class FakeClaudeSdk implements ClaudeSdk {
     this.#history = options.history ?? [];
     this.models = options.models ?? DEFAULT_MODELS;
     this.#historyFails = options.historyFails ?? false;
+    this.#modelsFails = options.modelsFails;
     this.#spawnChild = options.spawnChild ?? false;
+    this.#stubbornChild = options.stubbornChild ?? false;
     this.#silent = options.silent ?? false;
     this.#modelsHang = options.modelsHang ?? false;
     this.#crash = options.crash;
@@ -70,8 +78,10 @@ export class FakeClaudeSdk implements ClaudeSdk {
     this.options.push(options);
     const query = new FakeClaudeQuery(this, options, params.prompt, {
       spawnChild: this.#spawnChild,
+      stubbornChild: this.#stubbornChild,
       silent: this.#silent,
       modelsHang: this.#modelsHang,
+      modelsFails: this.#modelsFails,
       crash: this.#crash,
       turn: this.#turn,
     });
@@ -108,8 +118,10 @@ export class FakeClaudeSdk implements ClaudeSdk {
 
 export interface FakeClaudeQueryOptions {
   spawnChild: boolean;
+  stubbornChild: boolean;
   silent: boolean;
   modelsHang: boolean;
+  modelsFails: string | undefined;
   crash: string | undefined;
   turn: ((query: FakeClaudeQuery, text: string) => void) | undefined;
 }
@@ -152,7 +164,12 @@ export class FakeClaudeQuery implements ClaudeSdkQuery {
     const { cwd } = this.options;
     this.child = spawn({
       command: process.execPath,
-      args: ["-e", "process.stdin.resume()"],
+      args: [
+        "-e",
+        this.#options.stubbornChild
+          ? "process.on('SIGTERM',()=>{});process.stdin.resume()"
+          : "process.stdin.resume()",
+      ],
       ...(cwd === undefined ? {} : { cwd }),
       env: this.options.env ?? process.env,
       signal: new AbortController().signal,
@@ -223,6 +240,7 @@ export class FakeClaudeQuery implements ClaudeSdkQuery {
 
   async supportedModels(): Promise<ModelInfo[]> {
     if (this.#options.modelsHang) return new Promise<ModelInfo[]>(() => {});
+    if (this.#options.modelsFails !== undefined) throw new Error(this.#options.modelsFails);
     return this.#sdk.models;
   }
 

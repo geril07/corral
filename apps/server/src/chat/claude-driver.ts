@@ -205,13 +205,7 @@ export class ClaudeDriver implements ChatDriver {
         { env: this.#request.env, timeout: VERSION_TIMEOUT_MS },
         (error, stdout, stderr) => {
           if (error !== null) {
-            reject(
-              new Error(
-                `could not run ${command} --version: ${messageOf(error)}${
-                  stderr === "" ? "" : ` (${stderr.trim()})`
-                }`,
-              ),
-            );
+            reject(new Error(claudeVersionError(command, error, stderr)));
             return;
           }
           settle(`${stdout}${stderr}`);
@@ -459,7 +453,10 @@ export class ClaudeDriver implements ChatDriver {
     this.#projection.setModels(models, this.#initModel ?? this.#request.model, this.#initEffort);
     let history: SessionMessage[] | null = null;
     try {
-      history = await this.#sdk.getSessionMessages(id, { dir: this.#request.cwd });
+      // No `dir`: the transcript's project directory is a slug scheme that is not ours (the
+      // terminal leg searches all of them for the same reason, `agents/claude.ts`). A narrowed
+      // read can answer `[]` for a conversation that exists, which would resend the task prompt.
+      history = await this.#sdk.getSessionMessages(id);
     } catch {
       // Unreadable history must never be mistaken for an empty one: that would resend the prompt.
       history = null;
@@ -695,6 +692,22 @@ class PromptQueue implements AsyncIterable<SDKUserMessage> {
       await new Promise<void>((settle) => (this.#wake = settle));
     }
   }
+}
+
+/**
+ * Why the version could not be read: a command that never answered is the version deadline, not a
+ * generic spawn failure, so the refusal says how long chat waited.
+ */
+export function claudeVersionError(
+  command: string,
+  error: { message: string; killed?: boolean; signal?: NodeJS.Signals | null },
+  stderr: string,
+): string {
+  if (error.killed === true || (error.signal !== undefined && error.signal !== null)) {
+    return `the claude at ${command} did not answer --version within ${Math.round(VERSION_TIMEOUT_MS / 1000)} s`;
+  }
+  const detail = stderr === "" ? "" : ` (${stderr.trim()})`;
+  return `could not run ${command} --version: ${messageOf(error)}${detail}`;
 }
 
 /** The version `claude --version` printed (`2.1.316 (Claude Code)`), or null. */

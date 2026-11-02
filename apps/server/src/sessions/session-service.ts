@@ -99,6 +99,25 @@ interface Live {
 
 export type StatusReportOutcome = "accepted" | "unknown-session" | "forbidden";
 
+/**
+ * How a chat frontend should open the conversation: `resume` only when the agent can prove it
+ * exists, `start` under the same id otherwise. The terminal leg has always asked the adapter this
+ * (`AgentAdapter.hasConversation`, `#launch`), and chat needs it for the same reason: Claude Code
+ * writes no transcript before its first prompt, and an SDK `resume` of an id without one fails with
+ * "No conversation found" instead of starting the task. A task created with no prompt, a handoff to
+ * the terminal and back before any prompt, and a restart after a refused launch all reach this with
+ * an id and no conversation, and all must start rather than fail and repeat on every restart.
+ */
+export function chatLaunchHow(
+  kind: AgentKind,
+  agentSessionId: string | null,
+  how: "start" | "resume",
+  env: Record<string, string>,
+): "start" | "resume" {
+  if (how !== "resume" || agentSessionId === null) return "start";
+  return (AGENTS[kind].hasConversation?.(agentSessionId, env) ?? true) ? "resume" : "start";
+}
+
 export class SessionService {
   readonly #store: SessionStore;
   readonly #tasks: TaskStore;
@@ -875,8 +894,7 @@ export class SessionService {
         model: stored.launch?.model ?? null,
         provider: stored.launch?.provider ?? null,
         agentSessionId: stored.agentSessionId,
-        // A session that has an id but no conversation to resume starts one under that id.
-        how: how === "resume" && stored.agentSessionId !== null ? "resume" : "start",
+        how: chatLaunchHow(kind, stored.agentSessionId, how, env),
         prompt,
         ...(server === undefined ? {} : { server }),
         onStatus: (status) => {
