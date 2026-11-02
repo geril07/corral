@@ -4,9 +4,11 @@ import {
   candidateBatches,
   detectLinks,
   fileLinkHref,
+  linkTargetCandidates,
   localLinkTransform,
   parseFileLinkHref,
   pathCandidates,
+  pathTargetOf,
   type MarkdownNode,
 } from "./local-links.ts";
 
@@ -98,6 +100,97 @@ test("the plugin links path-shaped text and skips code spans and existing links"
   expect(paragraphs[1]?.children).toEqual([{ type: "inlineCode", value: "src/app.ts" }]);
   expect(paragraphs[2]?.children).toEqual([
     { type: "link", url: "https://x.dev", children: [{ type: "text", value: "x" }] },
+  ]);
+});
+
+test("an explicit link destination is a path only when it is one", () => {
+  expect(pathTargetOf("/etc/passwd")).toEqual({ path: "/etc/passwd" });
+  expect(pathTargetOf("src/app.ts:12:3")).toEqual({ path: "src/app.ts", line: 12, column: 3 });
+  expect(pathTargetOf("./notes.md")).toEqual({ path: "./notes.md" });
+  expect(pathTargetOf("docs/handbook")).toEqual({ path: "docs/handbook" });
+  // Not paths this lane owns: a scheme, a protocol-relative URL, an in-page anchor, a bare word.
+  for (const value of [
+    "https://example.com/x",
+    "mailto:dev@example.com",
+    "javascript:alert(1)",
+    "data:text/html,hi",
+    "C:\\Users\\me",
+    "//example.com/x",
+    "#/tasks/abc",
+    "a word with spaces",
+    "hello",
+  ]) {
+    expect(pathTargetOf(value)).toBeUndefined();
+  }
+});
+
+test("link destinations are candidates too, so an explicit link can resolve", () => {
+  expect(linkTargetCandidates("see [the file](src/app.ts:12) and [x](/etc/passwd)")).toEqual([
+    "src/app.ts",
+    "/etc/passwd",
+  ]);
+  expect(linkTargetCandidates("[ref]: src/notes.md\n[other](https://x.dev)")).toEqual([
+    "src/notes.md",
+  ]);
+  expect(linkTargetCandidates("[x](mailto:dev@example.com)")).toEqual([]);
+});
+
+test("the plugin rewrites an explicit link's path destination and keeps its label", () => {
+  const tree: MarkdownNode = {
+    type: "root",
+    definitions: [
+      { type: "definition", identifier: "ref", url: "/etc/passwd", title: null },
+      { type: "definition", identifier: "web", url: "https://x.dev", title: null },
+    ],
+    children: [
+      {
+        type: "paragraph",
+        children: [
+          {
+            type: "link",
+            url: "src/app.ts:12",
+            title: null,
+            children: [{ type: "text", value: "the file" }],
+          },
+        ],
+      },
+      {
+        type: "paragraph",
+        children: [
+          {
+            type: "link",
+            url: "https://x.dev",
+            title: null,
+            children: [{ type: "text", value: "web" }],
+          },
+          {
+            type: "link",
+            url: "mailto:dev@example.com",
+            title: null,
+            children: [{ type: "text", value: "mail" }],
+          },
+        ],
+      },
+    ],
+  };
+  localLinkTransform(tree);
+
+  const [pathLink] = tree.children?.[0]?.children ?? [];
+  expect(pathLink).toMatchObject({
+    type: "link",
+    url: fileLinkHref({ path: "src/app.ts", line: 12 }),
+  });
+  // The label is the agent's words, untouched.
+  expect(pathLink?.children).toEqual([{ type: "text", value: "the file" }]);
+  // Web and mail links stay as they are: the anchor decides what leaves the app.
+  expect(tree.children?.[1]?.children ?? []).toMatchObject([
+    { type: "link", url: "https://x.dev" },
+    { type: "link", url: "mailto:dev@example.com" },
+  ]);
+  // A reference definition is rewritten the same way, because `linkReference` reads its destination.
+  expect(tree.definitions).toMatchObject([
+    { type: "definition", identifier: "ref", url: fileLinkHref({ path: "/etc/passwd" }) },
+    { type: "definition", identifier: "web", url: "https://x.dev" },
   ]);
 });
 

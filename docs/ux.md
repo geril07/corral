@@ -171,6 +171,14 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
   that names the file**: too large for the bound, a refused read, bytes that do not decode (a
   `.png` that is not an image, a broken video) — never a broken frame or a stuck "Loading". Any
   other file, binary or not, is the same action that opens the editor.
+- An **explicit Markdown link** is the same rule, not an exception: `[label](/etc/passwd)`,
+  `[label](src/app.ts:12)`, a reference link whose definition is a path and a raw HTML anchor all
+  become that path, so an inside path opens the editor or previews and an outside one says
+  "outside the workspace" in place. A destination the lane does not own — `mailto:`, an in-page
+  route, an unknown scheme, a relative destination that is not a file — renders as the label's
+  text. **No anchor a chat message produces can navigate the window**: the lane's anchor component
+  covers links written as Markdown, reference links and raw HTML alike, and it renders nothing with
+  an `href` except an http(s) link it hands to the OS browser or a new tab.
 - An ordinary web link never loads in the app window (`design.md`, **Local trust boundary**): the
   desktop app hands it to the OS browser over the preload bridge, and in a browser it opens a new
   tab. The app's own URL — and the task being looked at — stay where they were.

@@ -22,9 +22,11 @@ import {
 } from "../../common/ui/index.ts";
 import {
   candidateBatches,
+  linkTargetCandidates,
   localLinkPlugin,
   parseFileLinkHref,
   pathCandidates,
+  pathTargetOf,
   type LocalTarget,
 } from "./local-links.ts";
 
@@ -41,6 +43,11 @@ export interface ChatFiles {
 
 interface LocalLinksState {
   known: ReadonlyMap<string, FileTarget>;
+  /**
+   * Paths the server answered `outside` for. `files.resolve` reports them per candidate instead of
+   * refusing the call, so the lane can say why that text is not a link.
+   */
+  outside: ReadonlySet<string>;
   /** Opens a file in the user's editor; a refusal becomes a visible line in the lane. */
   open(target: LocalTarget): void;
   /** A `blob:` URL of a previewable file's bytes, cached for the life of the lane. */
@@ -66,6 +73,7 @@ export function LocalLinks({
   children: ReactNode;
 }) {
   const [known, setKnown] = useState<ReadonlyMap<string, FileTarget>>(() => new Map());
+  const [outside, setOutside] = useState<ReadonlySet<string>>(() => new Set());
   const [failure, setFailure] = useState<string>();
   /** Paths already asked about, whether they resolved or not: one ask per path, not per delta. */
   const requested = useRef(new Set<string>());
@@ -74,7 +82,11 @@ export function LocalLinks({
   /** False once the lane closes; a late answer must not set state on a gone component. */
   const mounted = useRef(true);
   const objectUrls = useRef(new Map<string, string>());
-  const candidates = useMemo(() => texts.flatMap((text) => pathCandidates(text)), [texts]);
+  // Bare tokens and the destinations of explicit links both name files a message may want.
+  const candidates = useMemo(
+    () => texts.flatMap((text) => [...pathCandidates(text), ...linkTargetCandidates(text)]),
+    [texts],
+  );
 
   useEffect(() => {
     const pending = [...new Set(candidates)].filter(
@@ -84,17 +96,24 @@ export function LocalLinks({
     for (const path of pending) inFlight.current.add(path);
     Promise.all(candidateBatches(pending).map((batch) => files.resolve(batch)))
       .then((pages) => {
-        const found = pages
-          .flat()
-          .flatMap((result) =>
-            result.status === "ok" && result.target.kind === "file" ? [result.target] : [],
-          );
-        if (!mounted.current || found.length === 0) return;
-        setKnown((current) => {
-          const next = new Map(current);
-          for (const file of found) next.set(file.requested, file);
-          return next;
-        });
+        const results = pages.flat();
+        const found = results.flatMap((result) =>
+          result.status === "ok" && result.target.kind === "file" ? [result.target] : [],
+        );
+        const refused = results.flatMap((result) =>
+          result.status === "outside" ? [result.requested] : [],
+        );
+        if (!mounted.current) return;
+        if (found.length > 0) {
+          setKnown((current) => {
+            const next = new Map(current);
+            for (const file of found) next.set(file.requested, file);
+            return next;
+          });
+        }
+        if (refused.length > 0) {
+          setOutside((current) => new Set([...current, ...refused]));
+        }
       })
       // A refused lookup leaves the text plain. The paths count as asked either way, so a message
       // that keeps streaming does not retry the same batch on every delta.
@@ -149,8 +168,8 @@ export function LocalLinks({
   );
 
   const value = useMemo<LocalLinksState>(
-    () => ({ known, open, media, failure }),
-    [known, open, media, failure],
+    () => ({ known, outside, open, media, failure }),
+    [known, outside, open, media, failure],
   );
   return <LocalLinksContext value={value}>{children}</LocalLinksContext>;
 }
@@ -190,20 +209,40 @@ export function useMarkdownLinks(): MarkdownLinks {
  * the message named; media is previewed inline instead; an ordinary web link goes to the OS browser
  * in the desktop app and to a new tab in a browser, never into this window
  * (`docs/design.md`, **Local trust boundary**).
+ *
+ * **Nothing else is a link.** A destination the lane does not own — `mailto:`, an app route, an
+ * unknown scheme, a path it cannot place — renders as the label's text, because a chat message
+ * must not be able to navigate the capability-bearing window. A path the server reports outside the
+ * workspace says so in place, without offering anything to click.
  */
 function LocalLinkAnchor({ href, children }: { href?: string | undefined; children?: ReactNode }) {
   const links = useLocalLinks();
-  const target = href === undefined ? undefined : parseFileLinkHref(href);
+  // A file token from the transform, or a destination it could not rewrite (a definition a raw
+  // plugin produced, an older tree): both mean "this is a path".
+  const target = href === undefined ? undefined : (parseFileLinkHref(href) ?? pathTargetOf(href));
   if (target !== undefined) {
     const file = links?.known.get(target.path);
-    if (links === undefined || file === undefined) return <>{children}</>;
-    if (file.media !== null) return <FileMedia file={file} target={target} />;
-    // An action, not a URL: no `href`, so a modifier click or "copy link" cannot promise one.
-    return (
-      <ActionLink title={file.path} onActivate={() => links.open(target)}>
-        {children}
-      </ActionLink>
-    );
+    if (links !== undefined && file !== undefined) {
+      if (file.media !== null) return <FileMedia file={file} target={target} />;
+      // An action, not a URL: no `href`, so a modifier click or "copy link" cannot promise one.
+      return (
+        <ActionLink title={file.path} onActivate={() => links.open(target)}>
+          {children}
+        </ActionLink>
+      );
+    }
+    if (links?.outside.has(target.path) === true) {
+      return (
+        <span className="wrap-anywhere" title={`${target.path} is outside this task's workspace`}>
+          {children}
+          <span className="ml-1 text-xs text-muted-foreground" role="note">
+            outside the workspace
+          </span>
+        </span>
+      );
+    }
+    // Not a file of this workspace (a false positive, or not resolved yet): plain text.
+    return <>{children}</>;
   }
   const url = href === undefined ? undefined : externalUrl(href);
   if (url !== undefined) {
@@ -213,7 +252,7 @@ function LocalLinkAnchor({ href, children }: { href?: string | undefined; childr
       </LinkAnchor>
     );
   }
-  return href === undefined ? <>{children}</> : <LinkAnchor href={href}>{children}</LinkAnchor>;
+  return <>{children}</>;
 }
 
 /**

@@ -165,6 +165,81 @@ test("a resolved path is a link that opens the editor; an unresolved one stays t
   await expect.element(page.getByRole("log", { name: "Chat transcript" })).not.toBeInTheDocument();
 });
 
+test("an explicit Markdown link to a workspace path opens the editor", async () => {
+  await writeConfig(`[editor]\ncommand = "/bin/cat {file}"\n`);
+  const { real, repo } = await laneWith("See [the file](src/app.ts:3) for it.", (root) =>
+    writeRepoFile(root, "src/app.ts", { text: "const answer = 42;\n" }),
+  );
+
+  // The label is the agent's words; the destination is the path that opens the editor.
+  const link = page.getByRole("button", { name: "the file" });
+  await expect.element(link).toBeVisible();
+  await link.click();
+
+  const opened = await vi.waitFor(async () => {
+    const listed = await real.connection.api.terminals.list();
+    const terminal = listed.find((each) => each.command === "/bin/cat");
+    if (terminal === undefined) throw new Error("the editor terminal is not open yet");
+    return terminal;
+  });
+  expect(opened.args).toEqual([`${repo}/src/app.ts`]);
+});
+
+test("a destination outside the workspace is refused in place, whichever way it arrives", async () => {
+  const openTab = vi.spyOn(window, "open").mockReturnValue(null);
+  try {
+    // The verifier's case: `[forbidden](/etc/passwd)` used to render as a plain anchor and open a
+    // second tab on the static server. A reference link and a raw HTML anchor are the same hole.
+    await laneWith(
+      'Read [forbidden](/etc/passwd), [the reference][passwd], or <a href="/etc/passwd">raw</a>.\n\n[passwd]: /etc/passwd\n',
+    );
+
+    // The message rendered (its labels are there whatever the destinations become)…
+    await expect.element(page.getByText(/forbidden/).first()).toBeVisible();
+    // …and nothing in it is an anchor: the verifier's `[forbidden](/etc/passwd)` opened a tab from
+    // one.
+    expect(document.querySelectorAll("a")).toHaveLength(0);
+    expect(document.querySelector('a[href*="passwd"]')).toBeNull();
+    // In its place, one refusal per destination, once the lookup has answered.
+    await expect.element(page.getByText(/outside the workspace/).first()).toBeVisible();
+    expect(document.querySelectorAll('[role="note"]')).toHaveLength(3);
+
+    const before = window.location.href;
+    document
+      .querySelector("article")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    expect(window.location.href).toBe(before);
+    expect(openTab).not.toHaveBeenCalled();
+  } finally {
+    openTab.mockRestore();
+  }
+});
+
+test("an explicit link the lane does not own stays text and does not navigate", async () => {
+  const openTab = vi.spyOn(window, "open").mockReturnValue(null);
+  try {
+    // A relative destination that is not a file of the workspace, and a `mailto:`: both are text.
+    await laneWith("Read [handbook](docs/handbook) or [the mail](mailto:dev@example.com) first.");
+    await expect.element(page.getByText(/handbook/)).toBeVisible();
+    await expect.element(page.getByText(/the mail/)).toBeVisible();
+    // Neither destination became a link or an action: the lane owns no URL for them.
+    expect(
+      [...document.querySelectorAll("a, button")].filter((element) =>
+        ["handbook", "the mail"].some((name) => element.textContent === name),
+      ),
+    ).toEqual([]);
+    // No anchor at all in this lane: neither destination reached the DOM.
+    expect(document.querySelectorAll("a")).toHaveLength(0);
+
+    const before = window.location.href;
+    await page.getByRole("log", { name: "Chat transcript" }).click();
+    expect(window.location.href).toBe(before);
+    expect(openTab).not.toHaveBeenCalled();
+  } finally {
+    openTab.mockRestore();
+  }
+});
+
 test("an image previews inline and its lightbox is keyboard operable", async () => {
   await laneWith("Screenshot: shot.png", (repo) =>
     writeRepoFile(repo, "shot.png", { base64: PNG_BASE64 }),
