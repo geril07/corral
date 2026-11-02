@@ -178,7 +178,6 @@ export class ChatService {
       }),
       cwd: request.cwd,
       env: request.env,
-      model: request.model,
       how: request.how,
       prompt: request.prompt,
       model: request.model,
