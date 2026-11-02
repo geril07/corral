@@ -68,19 +68,21 @@ test.skipIf(!available)(
 test.skipIf(!available)(
   "Corral's read argv is accepted: the request is positional when --repo is",
   async () => {
+    // The real CLI is the judge: without the positional request it answers with the refusal above,
+    // so this probe runs before the shape assertions that say what made the difference.
     const view = viewCommand("github", DESTINATION, 7);
+    const viewProbe = await gh(view.args, "/");
+    expect(viewProbe.stderr).not.toContain(REFUSAL);
+    // It still fails — nothing is listening on the loopback host — but not because of the argv.
+    expect(viewProbe.stderr).toMatch(/127\.0\.0\.1|connect|dial|refused|error/i);
     expect(view.args.slice(0, 3)).toEqual(["pr", "view", "7"]);
     expect(view.args).toContain("--repo");
-    const viewProbe = await gh(view.args, "/");
-    // It still fails — nothing is listening on the loopback host — but not because of the argv.
-    expect(viewProbe.stderr).not.toContain(REFUSAL);
-    expect(viewProbe.stderr).toMatch(/127\.0\.0\.1|connect|dial|refused|error/i);
 
     const checks = checksCommand("github", DESTINATION, 7);
     expect(checks).toBeDefined();
-    expect(checks!.args.slice(0, 3)).toEqual(["pr", "checks", "7"]);
     const checksProbe = await gh(checks!.args, "/");
     expect(checksProbe.stderr).not.toContain(REFUSAL);
+    expect(checks!.args.slice(0, 3)).toEqual(["pr", "checks", "7"]);
   },
 );
 
