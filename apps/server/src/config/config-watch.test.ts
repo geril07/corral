@@ -24,13 +24,7 @@ const availability = () =>
   AgentKind.options.map((kind) => ({
     kind,
     found: true,
-<<<<<<< HEAD
-    chatDriver: kind === "claude" || kind === "pi" || kind === "opencode",
-||||||| parent of 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
-    chatDriver: kind === "pi" || kind === "opencode",
-=======
     chatDriver: kind === "pi" || kind === "opencode" || kind === "codex",
->>>>>>> 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
   }));
 
 /** Subscribes and consumes the state the server yields on subscription. */

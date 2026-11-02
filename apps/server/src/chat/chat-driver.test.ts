@@ -248,20 +248,10 @@ test("the registry refuses an agent kind this build has no driver for", async ()
       "the codex agent has no chat driver in this build",
     );
     expect(harness.started).toHaveLength(0);
-<<<<<<< HEAD
-    // The build's own registry ships claude, pi and opencode; the seam is what replaced claude.
-||||||| parent of 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
-    // The build's own registry ships pi and opencode; the seam is what added claude.
-=======
-    // The build's own registry ships codex, pi and opencode; the seam is what added claude.
->>>>>>> 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
+    // The build's own registry ships claude, codex, pi and opencode; the seam is what added claude.
     expect(recordsOf(chatService().capabilities())).toEqual([
-<<<<<<< HEAD
       "claude:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
-||||||| parent of 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
-=======
       "codex:both-live:steer,approvals",
->>>>>>> 2ad6d67 (feat(server): add the Codex chat driver over a per-session app-server)
       "pi:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "opencode:both-live:steer,followUp,approvals",
     ]);
