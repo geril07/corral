@@ -179,6 +179,10 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
   text. **No anchor a chat message produces can navigate the window**: the lane's anchor component
   covers links written as Markdown, reference links and raw HTML alike, and it renders nothing with
   an `href` except an http(s) link it hands to the OS browser or a new tab.
+- A server built **before** the file-link procedures (an older daemon on the same protocol)
+  answers them with oRPC's "no procedure matched": the lane shows one muted line — "This server
+  does not offer file links; restart it after upgrading Corral." — stops asking, and leaves every
+  path as the plain text it already was. One line, not one per message.
 - An ordinary web link never loads in the app window (`design.md`, **Local trust boundary**): the
   desktop app hands it to the OS browser over the preload bridge, and in a browser it opens a new
   tab. The app's own URL — and the task being looked at — stay where they were.

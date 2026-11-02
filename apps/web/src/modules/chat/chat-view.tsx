@@ -7,7 +7,12 @@ import { useEnterGuard } from "../../common/hooks/use-enter-guard.ts";
 import { Alert, AlertDescription, Button, ContentLane, Textarea } from "../../common/ui/index.ts";
 import { pendingRequest } from "./chat-rows.ts";
 import { ChatTimeline } from "./chat-timeline.tsx";
-import { LocalLinkFailure, LocalLinks, type ChatFiles } from "./local-links.tsx";
+import {
+  LocalLinkFailure,
+  LocalLinks,
+  LocalLinksUnavailable,
+  type ChatFiles,
+} from "./local-links.tsx";
 
 /** How the composer turns its text into a `chat.send` while a turn runs (`design.md`, D2). */
 export type ChatSend = (text: string, mode: ChatSendMode) => Promise<void>;
@@ -162,6 +167,7 @@ export function ChatView({
               </p>
             )}
             <LocalLinkFailure />
+            <LocalLinksUnavailable />
             {hints}
             <form
               aria-label="Chat message"

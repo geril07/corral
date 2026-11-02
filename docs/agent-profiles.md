@@ -402,6 +402,14 @@ WebSocket handshake on an older version closes with `4001` and the server's vers
 route, keymap or session mutation. The old daemon is left running with its sessions; nothing
 bypasses the version barrier.
 
+Growing version 10 in place means a **same-version daemon from before a later slice** is accepted
+by that barrier and simply has no procedure for the newer calls: it answers oRPC's own `404 No
+procedure matched`, which the client reports as an undefined `NOT_FOUND`
+(`procedureMissing` in `packages/client/src/rpc-errors.ts`). Every such surface says so instead of
+showing a failed write: the Changes tab and the finish bar say the server does not offer the
+changes API, commit, push or pull requests, and chat's local links say it does not offer file
+links — all with "restart it after upgrading Corral".
+
 ## Security
 
 Corral promises exactly this: a profile adds the named environment references to the agent, the

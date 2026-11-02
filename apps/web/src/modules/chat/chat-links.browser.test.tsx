@@ -423,6 +423,52 @@ test("a media file too large to preview is one row, not a broken image", async (
   await vi.waitFor(() => expect(open).toHaveBeenCalledWith("shot.png", undefined, undefined));
 });
 
+test("a server without files.* says so once and leaves the paths as text", async () => {
+  // A daemon from before this slice on the same protocol answers oRPC's own "no procedure
+  // matched" (§ `packages/client/src/rpc-errors.ts` `procedureMissing`, as C6's finish bar does).
+  const { ORPCError } = await import("@orpc/client");
+  const resolve = vi.fn<(paths: readonly string[]) => Promise<FileResolution[]>>(async () => {
+    throw new ORPCError("NOT_FOUND", { message: "No procedure matched" });
+  });
+  const files: ChatFiles = {
+    resolve,
+    read: async () => {
+      throw new Error("this server has no file bytes");
+    },
+    open: async () => undefined,
+  };
+  const { store, append } = streamingChatStore([assistant("See src/app.ts and src/b.ts")]);
+  await render(
+    <div className="h-screen w-full">
+      <ChatView
+        store={store}
+        agent="pi"
+        files={files}
+        abortHint="alt+a ."
+        onSend={async () => {}}
+        onAbort={async () => {}}
+        onRespond={async () => {}}
+        onChangeModel={() => {}}
+        onChangeReasoning={() => {}}
+      />
+    </div>,
+  );
+
+  await expect.element(page.getByText(/does not offer file links/)).toBeVisible();
+  // One muted line, however many paths the message names.
+  expect(document.querySelectorAll('p[role="note"]')).toHaveLength(1);
+  // The paths stay the text they already were: no link, no editor action.
+  expect(document.querySelectorAll("a")).toHaveLength(0);
+  await expect.element(page.getByText(/src\/app\.ts/)).toBeVisible();
+
+  // A streaming delta with another path does not ask the old server again, and adds no line.
+  const asked = resolve.mock.calls.length;
+  append(" and src/c.ts too");
+  await new Promise((done) => setTimeout(done, 200));
+  expect(resolve.mock.calls.length).toBe(asked);
+  expect(document.querySelectorAll('p[role="note"]')).toHaveLength(1);
+});
+
 test("a web link goes to the desktop shell instead of loading in the app window", async () => {
   const opened = vi.fn<(url: string) => Promise<void>>(async () => undefined);
   const openTab = vi.spyOn(window, "open").mockReturnValue(null);

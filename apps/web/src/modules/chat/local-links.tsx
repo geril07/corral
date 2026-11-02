@@ -1,4 +1,4 @@
-import { describeError } from "@corral/client/rpc-errors";
+import { describeError, procedureMissing } from "@corral/client/rpc-errors";
 import { externalUrl } from "@corral/protocol/external-url";
 import type { FileBytes, FileResolution, FileTarget } from "@corral/protocol/rpc";
 import {
@@ -44,6 +44,12 @@ export interface ChatFiles {
 interface LocalLinksState {
   known: ReadonlyMap<string, FileTarget>;
   /**
+   * The server answered `files.*` with oRPC's own "no such procedure": a daemon from before this
+   * slice on the same protocol (`docs/agent-profiles.md`, **Protocol and old daemons**). The lane
+   * says so once and stops asking.
+   */
+  unsupported: boolean;
+  /**
    * Paths the server answered `outside` for. `files.resolve` reports them per candidate instead of
    * refusing the call, so the lane can say why that text is not a link.
    */
@@ -74,7 +80,13 @@ export function LocalLinks({
 }) {
   const [known, setKnown] = useState<ReadonlyMap<string, FileTarget>>(() => new Map());
   const [outside, setOutside] = useState<ReadonlySet<string>>(() => new Set());
+  const [unsupported, setUnsupported] = useState(false);
   const [failure, setFailure] = useState<string>();
+  /**
+   * True once the server said it has no `files.*`: every later ask would fail the same way, so the
+   * ref stops them before the state that renders the sentence has committed.
+   */
+  const noFileApi = useRef(false);
   /** Paths already asked about, whether they resolved or not: one ask per path, not per delta. */
   const requested = useRef(new Set<string>());
   /** Paths in a call that has not settled yet, so a streaming delta cannot ask twice. */
@@ -89,6 +101,7 @@ export function LocalLinks({
   );
 
   useEffect(() => {
+    if (noFileApi.current) return;
     const pending = [...new Set(candidates)].filter(
       (path) => !requested.current.has(path) && !inFlight.current.has(path),
     );
@@ -117,7 +130,11 @@ export function LocalLinks({
       })
       // A refused lookup leaves the text plain. The paths count as asked either way, so a message
       // that keeps streaming does not retry the same batch on every delta.
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        if (!procedureMissing(error)) return;
+        noFileApi.current = true;
+        if (mounted.current) setUnsupported(true);
+      })
       .finally(() => {
         for (const path of pending) {
           inFlight.current.delete(path);
@@ -146,6 +163,11 @@ export function LocalLinks({
     (target: LocalTarget) => {
       setFailure(undefined);
       files.open(target.path, target.line, target.column).catch((error: unknown) => {
+        if (procedureMissing(error)) {
+          noFileApi.current = true;
+          setUnsupported(true);
+          return;
+        }
         setFailure(describeError(error));
       });
     },
@@ -168,8 +190,8 @@ export function LocalLinks({
   );
 
   const value = useMemo<LocalLinksState>(
-    () => ({ known, outside, open, media, failure }),
-    [known, outside, open, media, failure],
+    () => ({ known, outside, unsupported, open, media, failure }),
+    [known, outside, unsupported, open, media, failure],
   );
   return <LocalLinksContext value={value}>{children}</LocalLinksContext>;
 }
@@ -177,6 +199,20 @@ export function LocalLinks({
 /** The lane's link state, or `undefined` outside a chat lane (Markdown then renders plain links). */
 export function useLocalLinks(): LocalLinksState | undefined {
   return useContext(LocalLinksContext);
+}
+
+/**
+ * One muted line when the server has no `files.*` at all: an older daemon on the same protocol
+ * answers oRPC's own "no procedure matched", and every path stays the plain text it already is.
+ */
+export function LocalLinksUnavailable() {
+  const links = useLocalLinks();
+  if (links?.unsupported !== true) return null;
+  return (
+    <p className="m-0 text-xs text-muted-foreground" role="note">
+      This server does not offer file links; restart it after upgrading Corral.
+    </p>
+  );
 }
 
 /** The refusal of an editor launch, where the composer's own errors appear (`docs/ux.md`). */
