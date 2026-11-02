@@ -76,6 +76,7 @@ async function harness(sessionId = "corral-codex-session"): Promise<Harness> {
         cwd: root,
         env: processEnv(),
         prompt: options.prompt ?? null,
+        how: options.agentSessionId === undefined ? "start" : "resume",
         model: options.model ?? null,
         provider: options.provider ?? null,
         terminalLive: options.terminalLive ?? false,
