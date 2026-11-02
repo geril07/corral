@@ -259,10 +259,10 @@ enabled = false
     .toMatchTextContent(
       sequence("claude", "claude", "default", "found", "chat", "driver", "disabled"),
     );
-  // Codex has no driver in this build, so it stays terminal only.
+  // Every agent in this build has a chat driver.
   await expect
     .element(agents)
-    .toMatchTextContent(sequence("codex", "codex", "default", "found", "chat", "terminal only"));
+    .toMatchTextContent(sequence("codex", "codex", "default", "found", "chat", "driver"));
   await expect.element(agents).toMatchTextContent("an absolute path that replaces the PATH lookup");
 
   await writeConfig(null);
