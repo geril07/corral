@@ -167,7 +167,7 @@ export class FakeClaudeQuery implements ClaudeSdkQuery {
       args: [
         "-e",
         this.#options.stubbornChild
-          ? "process.on('SIGTERM',()=>{});process.stdin.resume()"
+          ? "process.on('SIGTERM',()=>{});process.stdin.resume();setInterval(()=>{},1000)"
           : "process.stdin.resume()",
       ],
       ...(cwd === undefined ? {} : { cwd }),

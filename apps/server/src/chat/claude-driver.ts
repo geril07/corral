@@ -299,8 +299,11 @@ export class ClaudeDriver implements ChatDriver {
     // The reader can finish while the child is still exiting (stdin closed, exit pending), and
     // `#finish` keeps a live process's record on purpose. The stop outlives the exit, so it is the
     // place that releases a record this frontend still owns; a relaunch cannot race it because
-    // `ChatService.stop` is awaited before the next launch.
-    if (child !== undefined && child.exitCode !== null) this.#request.writer.release();
+    // `ChatService.stop` is awaited before the next launch. A signal-terminated child has a null
+    // exit code and a `signalCode`; both mean it is gone.
+    if (child !== undefined && (child.exitCode !== null || child.signalCode !== null)) {
+      this.#request.writer.release();
+    }
     await this.#exited;
   }
 

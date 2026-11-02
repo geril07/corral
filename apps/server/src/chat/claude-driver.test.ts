@@ -14,7 +14,6 @@ import {
   historyIsReadable,
   type ClaudeDriverRequest,
 } from "./claude-driver.ts";
-import { chatLaunchHow } from "../sessions/session-service.ts";
 import { ChatModelUnsupportedError, ChatReasoningUnsupportedError } from "./chat-errors.ts";
 import { ChatTimeline } from "./timeline.ts";
 import { writerPath } from "./writer-claim.ts";
@@ -216,46 +215,6 @@ test("a resumed conversation loads its transcript and is never prompted again", 
       status: "done",
       output: "Edited notes.txt",
     });
-  } finally {
-    await h.stop();
-  }
-});
-
-test("a resume with no transcript starts under the same id and sends the prompt once", async () => {
-  // The P1 review case: the terminal leg asks `hasConversation` before resuming, and chat must
-  // too. Claude writes no transcript before the first prompt, so a "resume" here is a "start".
-  const env = processEnv();
-  const how = chatLaunchHow("claude", SESSION_ID, "resume", env);
-  expect(how).toBe("start");
-  const h = await harness({ prompt: "Do the thing", how, sessionId: SESSION_ID });
-  try {
-    await started(h);
-    await h.sdk.onlyQuery.whenPrompted(1);
-    expect(h.sdk.options[0]?.sessionId).toBe(SESSION_ID);
-    expect(h.sdk.options[0]?.resume).toBeUndefined();
-    expect(h.sdk.onlyQuery.received).toHaveLength(1);
-  } finally {
-    await h.stop();
-  }
-});
-
-test("a resume whose transcript exists keeps resume and sends no prompt", async () => {
-  const configDir = process.env["CLAUDE_CONFIG_DIR"]!;
-  writeClaudeTranscript(configDir, await mkdtemp(join(tmpdir(), "corral-claude-cwd-")), SESSION_ID);
-  const env = processEnv();
-  const how = chatLaunchHow("claude", SESSION_ID, "resume", env);
-  expect(how).toBe("resume");
-  const sdk = new FakeClaudeSdk({
-    history: [sessionMessage("user", "u1", "Already asked")],
-  });
-  const h = await harness({ sdk, prompt: "Already asked", how, sessionId: SESSION_ID });
-  try {
-    await started(h);
-    await h.sdk.whenHistoryRead();
-    await new Promise((settle) => setTimeout(settle, 0));
-    expect(h.sdk.options[0]?.resume).toBe(SESSION_ID);
-    expect(h.sdk.options[0]?.sessionId).toBeUndefined();
-    expect(h.sdk.onlyQuery.received).toHaveLength(0);
   } finally {
     await h.stop();
   }

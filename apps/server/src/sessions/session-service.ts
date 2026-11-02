@@ -100,23 +100,11 @@ interface Live {
 export type StatusReportOutcome = "accepted" | "unknown-session" | "forbidden";
 
 /**
- * How a chat frontend should open the conversation: `resume` only when the agent can prove it
- * exists, `start` under the same id otherwise. The terminal leg has always asked the adapter this
- * (`AgentAdapter.hasConversation`, `#launch`), and chat needs it for the same reason: Claude Code
- * writes no transcript before its first prompt, and an SDK `resume` of an id without one fails with
- * "No conversation found" instead of starting the task. A task created with no prompt, a handoff to
- * the terminal and back before any prompt, and a restart after a refused launch all reach this with
- * an id and no conversation, and all must start rather than fail and repeat on every restart.
+ * A chat launch's frontend is started by the same resume decision as its terminal leg: one
+ * computation in `#launch`, passed to `#launchChat` as a boolean. The rule itself is the terminal
+ * leg's — `AgentAdapter.hasConversation`, because Claude writes no transcript before its first
+ * prompt and an SDK `resume` of an id without one fails instead of starting the task.
  */
-export function chatLaunchHow(
-  kind: AgentKind,
-  agentSessionId: string | null,
-  how: "start" | "resume",
-  env: Record<string, string>,
-): "start" | "resume" {
-  if (how !== "resume" || agentSessionId === null) return "start";
-  return (AGENTS[kind].hasConversation?.(agentSessionId, env) ?? true) ? "resume" : "start";
-}
 
 export class SessionService {
   readonly #store: SessionStore;
@@ -692,6 +680,15 @@ export class SessionService {
     const adapter = stored.kind === "shell" ? undefined : AGENTS[stored.kind];
     const statusToken = newStatusToken();
     const { env, referencedValues } = this.#launchEnv(stored);
+    // One resume decision for both legs: how the frontend opens the conversation, decided by the
+    // agent adapter (`AgentAdapter.hasConversation`). The chat leg cannot disagree with the
+    // terminal leg, and a revert to the raw `how` is caught by the service test.
+    const conversationId = stored.agentSessionId;
+    const resumable =
+      adapter !== undefined &&
+      how === "resume" &&
+      conversationId !== null &&
+      (adapter.hasConversation?.(conversationId, env) ?? true);
     if (stored.view === "chat") {
       // A chat view is only created for an agent with a driver, and a shell never has one.
       if (stored.kind === "shell") throw new LaunchViewUnsupportedError(stored.kind, stored.view);
@@ -701,7 +698,7 @@ export class SessionService {
         task,
         env,
         statusToken,
-        how,
+        resumable,
         prompt,
         referencedValues,
       );
@@ -729,12 +726,9 @@ export class SessionService {
       env["CORRAL_STATUS_TOKEN"] = statusToken;
       if (!isExecutable(command, env["PATH"])) throw new AgentNotFoundError(command);
       input.command = command;
-      const id = stored.agentSessionId;
-      const resumable =
-        how === "resume" && id !== null && (adapter.hasConversation?.(id, env) ?? true);
       let args = [
         ...adapter.launchArgs(stored.launch?.model ?? null, stored.launch?.provider ?? null),
-        ...(resumable ? adapter.resumeArgs(id) : adapter.startArgs(id)),
+        ...(resumable ? adapter.resumeArgs(conversationId) : adapter.startArgs(conversationId)),
         // A fallback start is a new conversation under the same id; only it may carry the prompt.
         ...(prompt !== null && !resumable ? adapter.promptArgs(prompt) : []),
       ];
@@ -841,7 +835,7 @@ export class SessionService {
     task: Task,
     env: Record<string, string>,
     statusToken: string,
-    how: "start" | "resume",
+    resume: boolean,
     prompt: string | null,
     referencedValues: readonly string[],
   ): Promise<void> {
@@ -894,7 +888,8 @@ export class SessionService {
         model: stored.launch?.model ?? null,
         provider: stored.launch?.provider ?? null,
         agentSessionId: stored.agentSessionId,
-        how: chatLaunchHow(kind, stored.agentSessionId, how, env),
+        // The decision `#launch` already made for this launch, shared with the terminal leg.
+        how: resume ? "resume" : "start",
         prompt,
         ...(server === undefined ? {} : { server }),
         onStatus: (status) => {

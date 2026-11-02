@@ -14,7 +14,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { ChatService } from "../chat/chat-service.ts";
-import type { ChatTimeouts } from "../chat/chat-driver.ts";
+import type { ChatDriverRegistry, ChatTimeouts } from "../chat/chat-driver.ts";
 import { ChangesService } from "../changes/changes-service.ts";
 import { OpenCodeServers } from "../chat/opencode-server.ts";
 import { watchConfigFile } from "../config/config-watcher.ts";
@@ -54,8 +54,12 @@ export function startServer(options: {
   dataDir?: string;
   /** Task settings; A0 supplies the config-backed ones, tests may pass their own. */
   settings?: TaskSettings;
-  /** Chat driver deadlines; tests shorten them, production runs the defaults. */
-  chat?: Partial<ChatTimeouts> & { writerWaitMs?: number };
+  /**
+   * Chat driver deadlines; tests shorten them, production runs the defaults. `drivers` is the
+   * service's test seam (`ChatServiceOptions.drivers`): a suite can register a recording driver and
+   * exercise the session service's launch wiring without the real agent SDK.
+   */
+  chat?: Partial<ChatTimeouts> & { writerWaitMs?: number; drivers?: ChatDriverRegistry };
 }): Promise<RunningServer> {
   const temporaryDataDir =
     options.dataDir === undefined ? mkdtempSync(join(tmpdir(), "corral-data-")) : undefined;
@@ -73,9 +77,11 @@ export function startServer(options: {
     projects: projectStore,
     sessions: sessionStore,
   });
+  const { drivers: chatDrivers, ...chatTimeouts } = options.chat ?? {};
   const chat = new ChatService({
     dataDir,
-    ...(options.chat === undefined ? {} : { timeouts: options.chat }),
+    ...(options.chat === undefined ? {} : { timeouts: chatTimeouts }),
+    ...(chatDrivers === undefined ? {} : { drivers: chatDrivers }),
     onWorkspaceChange: (sessionId) => changes.workspaceChanged(sessionId),
   });
   // One `opencode serve` for this run: both legs of an OpenCode session attach to it, so its
