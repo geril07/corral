@@ -58,8 +58,11 @@ export function buildWorkspaceTree(
         type: "session",
         id: session.id,
         session,
+        // The pane to show follows the session's view, not just its terminal: a `both-live`
+        // session keeps its PTY alive while chat is shown (`terminalId` is still the server's
+        // fact on `session`), so attaching it here in chat view would render the terminal forever.
         terminal:
-          session.terminalId === null
+          session.view !== "terminal" || session.terminalId === null
             ? undefined
             : terminals.find((terminal) => terminal.id === session.terminalId),
       })),

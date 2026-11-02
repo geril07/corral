@@ -105,6 +105,20 @@ test("a task lists its sessions in creation order, each with its terminal if it 
   ]);
 });
 
+test("a both-live session in chat view carries no terminal pane, though its terminal is alive", () => {
+  const chat = { ...session("sc", "t1", "c1"), kind: "opencode" as const, view: "chat" as const };
+  const live = [terminal("c1", "t1", "sc")];
+  const inChat = buildWorkspaceTree(projects, tasks, [chat], live);
+  const chatEntry = inChat.projects[0]?.active[0]?.sessions[0];
+  // `terminalId` stays the server's fact: the PTY is alive while chat is shown.
+  expect(chatEntry?.session.terminalId).toBe("c1");
+  // The entry's terminal is the pane to render, so it follows the view.
+  expect(chatEntry?.terminal).toBeUndefined();
+
+  const inTerminal = buildWorkspaceTree(projects, tasks, [{ ...chat, view: "terminal" }], live);
+  expect(inTerminal.projects[0]?.active[0]?.sessions[0]?.terminal?.id).toBe("c1");
+});
+
 test("a session whose terminal has not arrived yet has no terminal", () => {
   const late = buildWorkspaceTree(projects, tasks, [session("s", "t1", "later")], []);
   expect(late.projects[0]?.active[0]?.sessions.map((entry) => entry.terminal)).toEqual([undefined]);

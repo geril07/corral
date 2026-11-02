@@ -191,7 +191,8 @@ export function WorkspaceScreen({
     ) : undefined;
 
   const session =
-    current?.terminal !== undefined ? (
+    current?.terminal !== undefined &&
+    (current.type === "terminal" || currentSession?.view === "terminal") ? (
       <TerminalView
         key={current.terminal.id}
         client={client}
