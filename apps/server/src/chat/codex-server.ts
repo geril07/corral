@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { codexServerArgs } from "../agents/codex.ts";
 import { messageOf } from "./chat-errors.ts";
 import {
@@ -163,8 +163,14 @@ export class CodexServers {
   async #start(launch: CodexServerLaunch): Promise<RunningServer> {
     const { sessionId } = launch;
     // The listener is authored by its file permissions (the protocol has no auth); keep the
-    // directory Corral owns private, for the symlink the real server puts there.
+    // directory Corral owns private, for the symlink the real server puts there. `mkdirSync`'s
+    // mode applies only to a new directory, so an existing one is tightened as well.
     mkdirSync(this.#socketDir, { recursive: true, mode: 0o700 });
+    try {
+      chmodSync(this.#socketDir, 0o700);
+    } catch {
+      // A directory this process does not own is not ours to change; the launch proceeds.
+    }
     const socketPath = `${this.#socketDir}/${safeName(sessionId)}.sock`;
     const recordPath = this.#recordPath(sessionId);
     // A server a previous Corral run left behind holds the same session; the record is what stops

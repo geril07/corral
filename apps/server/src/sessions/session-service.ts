@@ -749,11 +749,19 @@ export class SessionService {
     // agent adapter (`AgentAdapter.hasConversation`). The chat leg cannot disagree with the
     // terminal leg, and a revert to the raw `how` is caught by the service test.
     const recordedConversationId = stored.agentSessionId;
+    const liveBefore = this.#live.get(stored.id);
+    // The app-server is the authority while it is live: a chat leg's thread, or a terminal client
+    // that has not written its first turn yet, is in that process's memory even when no rollout
+    // file exists. Only a session that has to start a new server asks the disk, so a both-live
+    // switch never opens a second conversation beside the live one.
+    const codexServerLive =
+      stored.kind === "codex" &&
+      (liveBefore?.chat === true || this.#codexServers.socketOf(stored.id) !== undefined);
     const resumable =
       adapter !== undefined &&
       how === "resume" &&
       recordedConversationId !== null &&
-      (adapter.hasConversation?.(recordedConversationId, env) ?? true);
+      (codexServerLive || (adapter.hasConversation?.(recordedConversationId, env) ?? true));
     if (stored.view === "chat") {
       // A chat view is only created for an agent with a driver, and a shell never has one.
       if (stored.kind === "shell") throw new LaunchViewUnsupportedError(stored.kind, stored.view);
@@ -770,7 +778,7 @@ export class SessionService {
       return;
     }
     const input: CreateTerminalInput = { cwd: task.workspacePath, size };
-    const previous = this.#live.get(stored.id);
+    const previous = liveBefore;
     let standalone = previous?.standaloneOpenCode ?? false;
     let standaloneCodex = false;
     let codexChatReason: string | undefined;
@@ -905,8 +913,10 @@ export class SessionService {
             onFound: (agentSessionId) => {
               // A chat frontend that started its own thread (and stored its id) wins: the rollout
               // this search finds is the terminal's, not the conversation the session now runs.
-              this.#store.setAgentSessionId(stored.id, agentSessionId);
-              this.#changes.notify();
+              // Checked here, not only before the search starts, because the final look can run
+              // after chat reported its id.
+              if (adoptDiscoveredAgentSessionId(this.#store, stored.id, agentSessionId))
+                this.#changes.notify();
             },
           })
         : undefined;
@@ -1036,6 +1046,10 @@ export class SessionService {
         prompt,
         ...(server === undefined ? {} : { server }),
         ...(socket === undefined ? {} : { socket }),
+        // A live terminal leg can answer a request the chat driver does not render (a permissions
+        // profile, an elicitation); a chat-only session has nobody else, so the driver refuses it
+        // visibly instead of leaving the turn waiting.
+        terminalLive: previous?.terminalId !== null && previous?.terminalId !== undefined,
         // Codex assigns the thread id; the session row learns it from the frontend.
         onAgentSessionId: (agentSessionId) => {
           this.#store.setAgentSessionId(stored.id, agentSessionId);
@@ -1167,6 +1181,24 @@ export class SessionService {
     const lost = stored.kind === "codex" && stored.agentSessionId === null;
     this.#store.setState(id, lost ? "unresumable" : "stopped");
   }
+}
+
+/**
+ * Stores a conversation id a rollout search found, unless the row already has one. A chat frontend
+ * that opened its own thread stores its id first; the terminal's late discovery must not take the
+ * session over. Returns whether anything was stored.
+ */
+export function adoptDiscoveredAgentSessionId(
+  store: {
+    get(sessionId: string): { agentSessionId: string | null } | undefined;
+    setAgentSessionId(sessionId: string, agentSessionId: string | null): void;
+  },
+  sessionId: string,
+  agentSessionId: string,
+): boolean {
+  if (store.get(sessionId)?.agentSessionId != null) return false;
+  store.setAgentSessionId(sessionId, agentSessionId);
+  return true;
 }
 
 /** Names one leg of a session's launch as a client of the shared server (acquire/release idempotent). */

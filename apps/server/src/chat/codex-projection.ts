@@ -71,7 +71,8 @@ const LEGACY_OPTIONS: ChatRequestOption[] = [
     label: "Allow for this session",
     description: "Stop asking for this until the session ends.",
   },
-  { value: "denied", label: "Deny", description: "Refuse it; the turn continues." },
+  // `ReviewDecision.denied` is an object (`{denied: {rejection}}`), not a plain string, so the
+  // contract cannot send it as a select value; a legacy request offers allow or stop only.
   { value: "abort", label: "Deny and stop", description: "Refuse it and stop the turn." },
 ];
 
@@ -235,6 +236,19 @@ export class CodexProjection {
       default:
         return [];
     }
+  }
+
+  /**
+   * Whether this request names at least one decision the contract can offer as a plain string. An
+   * all-object list (an execpolicy or network amendment only) cannot become a `select`, and the
+   * driver must refuse it visibly rather than drop it.
+   */
+  hasPlainDecisions(method: string, params: Record<string, unknown>): boolean {
+    if (method === "applyPatchApproval" || method === "execCommandApproval") return true;
+    const offered = arrayOf(params["availableDecisions"]).filter(
+      (value): value is string => typeof value === "string",
+    );
+    return offered.length > 0 || params["availableDecisions"] === undefined;
   }
 
   /**

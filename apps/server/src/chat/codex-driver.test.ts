@@ -27,6 +27,7 @@ interface Harness {
     prompt?: string | null;
     model?: string | null;
     provider?: string | null;
+    terminalLive?: boolean;
     agentSessionId?: string | null;
     onAgentSessionId?: (id: string) => void;
   }): Promise<{
@@ -77,6 +78,7 @@ async function harness(sessionId = "corral-codex-session"): Promise<Harness> {
         prompt: options.prompt ?? null,
         model: options.model ?? null,
         provider: options.provider ?? null,
+        terminalLive: options.terminalLive ?? false,
         agentSessionId: options.agentSessionId ?? null,
         socket: server.socketPath,
         writer: { record: () => {}, release: () => {} },
@@ -345,13 +347,6 @@ test(
         writerRequest.kind === "user-request" &&
           writerRequest.options.map((option) => option.value),
       ).toEqual(["accept", "cancel"]);
-      // The unmapped `item/tool/requestUserInput` the fake sends on `thread/start` was left
-      // unanswered, not refused with a JSON-RPC error: give a wrong answer time to arrive.
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      expect(await readFile(decisionsPath, "utf8").catch(() => "")).not.toContain(
-        "unexpectedAnswer",
-      );
-
       writer.driver.respond(writerRequest.id, "accept");
       // The server received exactly the decision it offered.
       await until(async () => {
@@ -419,6 +414,76 @@ test("a server that dies closes the frontend with its reason", { timeout: 20_000
     await test1.close();
   }
 });
+
+test(
+  "requests chat cannot render are refused visibly with no terminal live, and left alone when one is",
+  { timeout: 20_000 },
+  async () => {
+    const test1 = await harness("corral-codex-unmapped");
+    const journalPath = join(test1.root, "server.jsonl");
+    const decisionsPath = `${journalPath}.decisions`;
+    process.env["FAKE_CODEX_SERVER_LOG"] = journalPath;
+    try {
+      // Chat-only: the fake asks for tool input and extra permissions on `thread/start`; the driver
+      // answers both with an error result and a visible line, so nothing waits for an answer.
+      const alone = await test1.open();
+      await until(async () => {
+        const log = await readFile(decisionsPath, "utf8").catch(() => "");
+        return (log.match(/unexpectedAnswer/g) ?? []).length >= 2;
+      }, "the chat-only refusals");
+      const texts = items(alone.timeline)
+        .flatMap((item) => (item.kind === "error" ? [item.text] : []))
+        .join("\n");
+      expect(texts).toMatch(/permissions/);
+      expect(texts).toMatch(/answer from you/);
+      const refused =
+        (await readFile(decisionsPath, "utf8")).match(/unexpectedAnswer/g)?.length ?? 0;
+      await alone.driver.stop();
+
+      // Both-live: the terminal's dialog is the answer, and the first answer wins, so a chat driver
+      // must not send one of its own.
+      const both = await test1.open({ terminalLive: true });
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const after = (await readFile(decisionsPath, "utf8")).match(/unexpectedAnswer/g)?.length ?? 0;
+      expect(after).toBe(refused);
+      expect(items(both.timeline).some((item) => item.kind === "error")).toBe(false);
+    } finally {
+      await test1.close();
+    }
+  },
+);
+
+test(
+  "an approval with no plain-string decision is refused visibly rather than parking the turn",
+  { timeout: 20_000 },
+  async () => {
+    const test1 = await harness("corral-codex-objects");
+    const journalPath = join(test1.root, "server.jsonl");
+    const decisionsPath = `${journalPath}.decisions`;
+    process.env["FAKE_CODEX_SERVER_LOG"] = journalPath;
+    try {
+      const { driver, timeline, ready } = await test1.open();
+      await ready;
+      driver.send("OBJECTS please", "prompt");
+      await until(
+        () =>
+          items(timeline).some(
+            (item) =>
+              item.kind === "error" && item.text.includes("an approval with no plain choice"),
+          ),
+        "the visible refusal",
+      );
+      await until(async () => {
+        const log = await readFile(decisionsPath, "utf8").catch(() => "");
+        return log.includes("unexpectedAnswer");
+      }, "the refusal reaching the server");
+      await until(() => timeline.state.turn !== "working", "the turn to finish");
+      expect(timeline.state.turn).toBe("settled");
+    } finally {
+      await test1.close();
+    }
+  },
+);
 
 /** A thread created by a "terminal" frontend, through the same fake app-server. */
 async function seedThread(socketPath: string, cwd: string): Promise<string> {

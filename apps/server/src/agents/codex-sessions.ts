@@ -21,24 +21,60 @@ export function codexHome(env: NodeJS.ProcessEnv): string {
  * Whether this Codex home holds the rollout of `id`. It is the durable conversation: `thread/start`
  * through the app-server (or the TUI) creates a thread, but only a turn writes the file, so an id
  * without one cannot be resumed. Synchronous, like Claude's transcript check, because it answers a
- * launch's `resumable` question before any argv is built; a home has a handful of day directories.
+ * launch's `resumable` question before any argv is built.
+ *
+ * Codex thread ids are UUIDv7, so the first 48 bits carry the millisecond they were created at and
+ * the file can only be under that day (with one day of slack for the local-time directory names):
+ * a launch reads at most three directories instead of every day the home has ever seen. An id that
+ * is not UUIDv7 (an older server, a fork) falls back to walking the days, which is rare.
  */
 export function codexHasRollout(home: string, agentSessionId: string): boolean {
   const root = join(home, "sessions");
   const suffix = `-${agentSessionId}.jsonl`;
+  const created = uuidV7Time(agentSessionId);
+  const days =
+    created === undefined
+      ? allDayDirectories(root)
+      : [created - DAY_MS, created, created + DAY_MS].map((at) => dayDirectory(root, at));
+  return days.some((directory) => {
+    try {
+      return readdirSync(directory).some((name) => name.endsWith(suffix));
+    } catch {
+      // A day directory can vanish between listings; the next one may still have the file.
+    }
+    return false;
+  });
+}
+
+/** The millisecond a UUIDv7 carries in its first 48 bits, or undefined for any other id. */
+export function uuidV7Time(id: string): number | undefined {
+  const match = /^([0-9a-f]{8})-([0-9a-f]{4})-7[0-9a-f]{3}-/i.exec(id);
+  if (match === null) return undefined;
+  const value = Number.parseInt(`${match[1]}${match[2]}`, 16);
+  return Number.isSafeInteger(value) ? value : undefined;
+}
+
+/** `sessions/YYYY/MM/DD` for a local date, the layout Codex writes. */
+function dayDirectory(root: string, at: number): string {
+  const date = new Date(at);
+  return join(
+    root,
+    String(date.getFullYear()),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  );
+}
+
+function allDayDirectories(root: string): string[] {
+  const days: string[] = [];
   for (const year of numericDirectories(root)) {
     for (const month of numericDirectories(join(root, year))) {
       for (const day of numericDirectories(join(root, year, month))) {
-        const directory = join(root, year, month, day);
-        try {
-          if (readdirSync(directory).some((name) => name.endsWith(suffix))) return true;
-        } catch {
-          // A day directory can vanish between listings; the next one may still have the file.
-        }
+        days.push(join(root, year, month, day));
       }
     }
   }
-  return false;
+  return days;
 }
 
 function numericDirectories(path: string): string[] {

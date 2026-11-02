@@ -128,7 +128,7 @@ test("a Codex session that wrote its rollout and then exited by itself keeps its
 
   await expect
     .poll(() => stateOf(session), { timeout: 10_000 })
-    .toMatchObject({ state: "stopped", agentSessionId: launch!.rolloutId });
+    .toMatchObject({ state: "stopped", agentSessionId: launch!.rolloutId, launchError: null });
   await api.sessions.restart({ id: session.id, size: SIZE });
 
   expect(frontendArgs((await launchesOf(agents, "codex", 2))[1]!.argv)).toEqual([

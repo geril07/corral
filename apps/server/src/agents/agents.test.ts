@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
 import { writeRollout } from "../../test/rollouts.ts";
+import { uuidV7Time } from "./codex-sessions.ts";
 import { AGENTS } from "./agents.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -28,6 +29,25 @@ test("codex has a conversation only once a rollout exists", async () => {
     writeRollout(root, { id: "thread-1", cwd: root });
     expect(AGENTS.codex.hasConversation?.("thread-1", env)).toBe(true);
     expect(AGENTS.codex.hasConversation?.("thread-2", env)).toBe(false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a UUIDv7 thread id is looked up under its own day; another id falls back to the walk", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corral-codex-rollout-"));
+  try {
+    const env = { CODEX_HOME: root };
+    // The first 48 bits are the creation time; the rollout is written in that local day.
+    const thread = "01a19990-1b7f-7671-a71f-0e9fce80da74";
+    const createdAt = uuidV7Time(thread)!;
+    expect(new Date(createdAt).toISOString()).toBe("2026-11-02T00:02:00.703Z");
+    expect(AGENTS.codex.hasConversation?.(thread, env)).toBe(false);
+    writeRollout(root, { id: thread, cwd: root, startedAt: new Date(createdAt) });
+    expect(AGENTS.codex.hasConversation?.(thread, env)).toBe(true);
+    // An id that is not UUIDv7 (a fork, an older server) still finds its rollout.
+    writeRollout(root, { id: "rollout-legacy", cwd: root });
+    expect(AGENTS.codex.hasConversation?.("rollout-legacy", env)).toBe(true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

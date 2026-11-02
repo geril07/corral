@@ -291,11 +291,12 @@ test(
 );
 
 test(
-  "a chat thread with no rollout cannot be resumed as a terminal, so the terminal starts a new conversation",
+  "a both-live switch keeps the live thread even before its rollout exists",
   { timeout: 30_000 },
   async () => {
+    // A real server writes the rollout on the first turn; until then the id is only in the live
+    // app-server's memory, and the terminal must resume it rather than start a second conversation.
     vi.stubEnv("FAKE_CODEX_NO_ROLLOUT", "1");
-    vi.stubEnv("FAKE_CODEX_ROLLOUT", "never");
     const { api, session } = await codexTask("chat");
     await untilChat(api, session.id, (view) => view.items.length > 0, "the chat frontend");
     const chatId = (await sessionsOf(api)).find((each) => each.id === session.id)?.agentSessionId;
@@ -311,7 +312,37 @@ test(
       "the terminal leg to attach",
     );
     const last = launches.at(-1)!;
-    // No `resume <chatId>`: that thread has no rollout, so the launch starts fresh with the prompt.
+    expect(frontendArgs(last.argv)).toEqual(["resume", chatId!]);
+  },
+);
+
+test(
+  "a thread with no rollout cannot be resumed once its app-server is gone, so a restart starts a new conversation",
+  { timeout: 30_000 },
+  async () => {
+    vi.stubEnv("FAKE_CODEX_NO_ROLLOUT", "1");
+    vi.stubEnv("FAKE_CODEX_ROLLOUT", "never");
+    const { api, session } = await codexTask("chat");
+    await untilChat(api, session.id, (view) => view.items.length > 0, "the chat frontend");
+    expect((await sessionsOf(api)).find((each) => each.id === session.id)?.agentSessionId).toMatch(
+      /^thr-/,
+    );
+
+    // Stop the session (the app-server goes with it) and restart it in the terminal view: there is
+    // no live server and no rollout, so the recorded id is forgotten and a new conversation starts
+    // with the task's prompt.
+    await api.sessions.stop({ id: session.id });
+    await api.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+    await api.sessions.restart({ id: session.id, size: SIZE });
+    const launches = await until(
+      async () =>
+        (await agents.launches()).filter(
+          (launch) => launch.agent === "codex" && launch.argv.includes("--remote"),
+        ),
+      1,
+      "the restarted terminal leg",
+    );
+    const last = launches.at(-1)!;
     expect(frontendArgs(last.argv)).toEqual(["--", "stream please"]);
   },
 );

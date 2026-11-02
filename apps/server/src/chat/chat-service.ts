@@ -186,6 +186,7 @@ export class ChatService {
       agentSessionId: request.agentSessionId,
       ...(request.server === undefined ? {} : { server: request.server }),
       ...(request.socket === undefined ? {} : { socket: request.socket }),
+      ...(request.terminalLive === undefined ? {} : { terminalLive: request.terminalLive }),
       ...(request.onAgentSessionId === undefined
         ? {}
         : {

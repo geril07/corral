@@ -420,17 +420,41 @@ export class CodexDriver implements ChatDriver {
   }
 
   #onServerRequest(requestId: string, method: string, params: Record<string, unknown>): void {
-    // A request this client does not render (a permissions profile, an MCP elicitation, a tool
-    // call) is left unanswered, not refused: the app-server sends it to every client, the terminal
-    // shows it, and the first answer wins — an error from here would beat that dialog.
-    if (!isApprovalMethod(method)) return;
     // The v2 approvals name `threadId`; the legacy `applyPatchApproval`/`execCommandApproval` name
     // `conversationId`, so a filter on `threadId` alone silently dropped them.
     const threadId = stringOf(params["threadId"]) ?? stringOf(params["conversationId"]);
     if (this.#threadId !== null && threadId !== undefined && threadId !== this.#threadId) return;
+    // A request this client does not render (a permissions profile, an MCP elicitation, a tool
+    // call), or an approval whose decisions are all object-valued, cannot become a chat item.
+    if (!isApprovalMethod(method) || !this.#projection.hasPlainDecisions(method, params)) {
+      this.#answerUnanswerable(requestId, method);
+      return;
+    }
     for (const action of this.#projection.requestApproval(requestId, method, params)) {
       this.#apply(action);
     }
+  }
+
+  /**
+   * A request chat cannot render. With a live terminal leg it is that dialog's to answer — the
+   * app-server sends it to every client and the first answer wins, so staying quiet is right. A
+   * chat-only session has nobody else: leaving it unanswered would park the turn forever, so the
+   * server is told the client cannot answer and the user gets a visible line. The refusal is an
+   * error result, which is what the app-server's own clients send for a request they cannot fulfil;
+   * whether Codex then fails the turn or continues is its business and C-verify's check.
+   */
+  #answerUnanswerable(requestId: string, method: string): void {
+    if (this.#request.terminalLive === true) return;
+    this.#send({
+      jsonrpc: "2.0",
+      id: numericId(requestId),
+      error: { code: -32601, message: `corral chat cannot answer ${method}` },
+    });
+    this.timeline.put({
+      kind: "error",
+      id: `error:request:${requestId}`,
+      text: `Codex asked for ${describeRequest(method)}, which chat cannot answer; open this session's terminal view and ask again.`,
+    });
   }
 
   #onNotification(method: string, params: Record<string, unknown>): void {
@@ -573,6 +597,22 @@ function decisionFor(options: readonly string[], value: ChatAnswer): string | un
   const denied = (option: string) => option.startsWith("decline") || option === "denied";
   const wanted = value === true ? options.find(allowed) : options.find(denied);
   return wanted;
+}
+
+/** What a request the chat cannot render is, in the sentence the user reads. */
+function describeRequest(method: string): string {
+  switch (method) {
+    case "item/permissions/requestApproval":
+      return "extra permissions";
+    case "mcpServer/elicitation/request":
+      return "input for an MCP server";
+    case "item/tool/requestUserInput":
+      return "an answer from you";
+    case "item/tool/call":
+      return "a tool call only a terminal can run";
+    default:
+      return "an approval with no plain choice";
+  }
 }
 
 /** Approval requests that become B0 user requests; the legacy two are for `SendUserMessage`. */

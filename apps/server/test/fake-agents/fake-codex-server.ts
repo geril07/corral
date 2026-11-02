@@ -71,6 +71,8 @@ export async function startFakeCodexServer(
   const clients = new Set<WebSocket>();
   /** Which connections asked for `capabilities.experimentalApi`; only they may queue. */
   const experimental = new WeakMap<WebSocket, boolean>();
+  /** Threads whose rollout this fake has written; the real server writes it on the first turn. */
+  const rolledOut = new Set<string>();
   const pendingApprovals = new Map<
     string,
     { turn: TurnRecord; thread: ThreadRecord; decide: (decision: string) => void }
@@ -198,7 +200,6 @@ export async function startFakeCodexServer(
         );
         threads.set(thread.id, thread);
         saved(thread);
-        writeThreadRollout(thread);
         subscribed.add(thread.id);
         respond({
           thread: publicThread(thread),
@@ -208,15 +209,23 @@ export async function startFakeCodexServer(
           sandbox: { type: "workspaceWrite" },
         });
         notify("thread/started", { thread: publicThread(thread, false) });
-        // A request this driver does not map (the real server has several). It must be left
-        // unanswered rather than refused: the terminal shows it and the first answer wins.
+        // Two requests the chat contract cannot render. A chat-only client must refuse them
+        // visibly (an error result) rather than leave the server waiting; a both-live client
+        // leaves them to the terminal's dialog.
         requestCounter += 1;
-        const unmapped = String(requestCounter);
         for (const client of clients) {
           send(client, {
-            id: Number(unmapped),
+            id: requestCounter,
             method: "item/tool/requestUserInput",
             params: { threadId: thread.id, turnId: "turn-0", itemId: "item-0", questions: [] },
+          });
+        }
+        requestCounter += 1;
+        for (const client of clients) {
+          send(client, {
+            id: requestCounter,
+            method: "item/permissions/requestApproval",
+            params: { threadId: thread.id, turnId: "turn-0", itemId: "item-1", permissions: {} },
           });
         }
         return;
@@ -362,6 +371,10 @@ export async function startFakeCodexServer(
       status: { type: "active", activeFlags: [] },
     });
     notify("turn/started", { threadId: thread.id, turn: publicTurn(turn) });
+    if (!rolledOut.has(thread.id)) {
+      rolledOut.add(thread.id);
+      writeThreadRollout(thread);
+    }
     const user = userItem(text, `usr-${itemCounter()}`, clientUserMessageId);
     turn.items.push(user);
     notify("item/started", {
@@ -395,6 +408,27 @@ export async function startFakeCodexServer(
       notify("thread/status/changed", { threadId: thread.id, status: { type: "idle" } });
       notify("turn/completed", { threadId: thread.id, turn: publicTurn(turn) });
       return;
+    }
+    if (text.includes("OBJECTS")) {
+      // Every decision the real server could offer is an object, so no plain string is available.
+      requestCounter += 1;
+      for (const client of clients) {
+        send(client, {
+          id: requestCounter,
+          method: "item/commandExecution/requestApproval",
+          params: {
+            kind: "command",
+            threadId: thread.id,
+            turnId: turn.id,
+            itemId: `objects-${requestCounter}`,
+            startedAtMs: Date.now(),
+            command: "touch objects.txt",
+            availableDecisions: [
+              { acceptWithExecpolicyAmendment: { execpolicy_amendment: ["touch"] } },
+            ],
+          },
+        });
+      }
     }
     if (text.includes("APPROVE")) {
       const approval = await askApproval(thread, turn);
