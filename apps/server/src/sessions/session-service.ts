@@ -995,8 +995,6 @@ export class SessionService {
       previous.discovery = undefined;
       await discovery.finish();
     }
-    const storedAgentSessionId =
-      this.#store.get(stored.id)?.agentSessionId ?? stored.agentSessionId;
     const owner = openCodeOwner("chat", stored.id);
     const codexOwnerId = codexOwner("chat", stored.id);
     let server: { url: string; password: string } | undefined;
