@@ -44,9 +44,7 @@ const [name, ...argv] = process.argv.slice(2);
 // so a handoff test counts frontends rather than probes. FAKE_CLAUDE_VERSION lets a test install an
 // untested claude and see the refusal.
 if (name === "claude" && argv.includes("--version")) {
-  console.log(
-    `${process.env["FAKE_CLAUDE_VERSION"] ?? "2.1.316"} (${name === "claude" ? "Claude Code" : `fake ${name}`})`,
-  );
+  console.log(`${process.env["FAKE_CLAUDE_VERSION"] ?? "2.1.316"} (Claude Code)`);
   process.exit(0);
 }
 // The version gate reads this before anything else; it needs no Codex home. Exactly the two-word
