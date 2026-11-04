@@ -5,6 +5,7 @@
 // `pnpm dev:desktop` both come through here, so those three paths have one definition and do not
 // depend on the shell having mise activated.
 import { spawn } from "node:child_process";
+import { mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -21,12 +22,30 @@ const env = {
 // page keeps its hot reload; the server endpoint still reaches it over the preload bridge.
 const desktop = process.argv.includes("--desktop");
 const webUrl = env["CORRAL_WEB_URL"] ?? "http://localhost:5173";
+
+// `--fake-agents` puts the fake CLIs first on the dev server's PATH, so `pnpm seed` can create a
+// chat task without a login or a paid model call. Their tool directories stay inside `.dev/`, so
+// nothing here can touch the developer's own `~/.codex` or `~/.claude`.
+function withFakeAgents(base) {
+  if (!process.argv.includes("--fake-agents")) return base;
+  const root = join(repository, ".dev", "fake-agents");
+  for (const dir of ["codex", "claude"]) mkdirSync(join(root, dir), { recursive: true });
+  console.log("corral dev: fake agents on PATH (pi, opencode, codex, claude)\n");
+  return {
+    ...base,
+    PATH: `${join(repository, "apps/server/test/fake-agents/bin")}:${base["PATH"] ?? ""}`,
+    CODEX_HOME: join(root, "codex"),
+    CLAUDE_CONFIG_DIR: join(root, "claude"),
+    FAKE_AGENT_LOG: join(root, "launches.jsonl"),
+  };
+}
+
 const [args, childEnv] = desktop
-  ? [["run", "@corral/desktop#start"], { ...env, CORRAL_WEB_URL: webUrl }]
+  ? [["run", "@corral/desktop#start"], withFakeAgents({ ...env, CORRAL_WEB_URL: webUrl })]
   : [
       // Not `-r`: it also selects this very script as `corral#dev`, which would run itself again.
       ["run", "--parallel", "--filter", "./apps/*", "dev"],
-      env,
+      withFakeAgents(env),
     ];
 
 const child = spawn("vp", args, { cwd: repository, env: childEnv, stdio: "inherit" });
