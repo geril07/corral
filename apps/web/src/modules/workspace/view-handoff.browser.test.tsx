@@ -299,6 +299,9 @@ test("a both-live agent opens the other view beside the running one: no handoff,
     });
     await expect.element(page.getByRole("log", { name: "Chat transcript" })).toBeVisible();
 
+    const composer = page.getByRole("textbox", { name: "Message" });
+    await composer.fill("Unsent through a view handoff");
+
     // The palette says what the action does for this driver: it opens, it does not switch.
     await openPalette();
     await expect
@@ -324,6 +327,7 @@ test("a both-live agent opens the other view beside the running one: no handoff,
     await expect
       .element(page.getByRole("status", { name: /Opening the terminal view/ }))
       .not.toBeInTheDocument();
+    await expect.element(composer).toHaveValue("Unsent through a view handoff");
   } finally {
     tasks.set({ loaded: true, tasks: [] });
     sessions.set({ loaded: true, sessions: [] });

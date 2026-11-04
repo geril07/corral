@@ -14,7 +14,7 @@ import { realServerClients } from "../../../test/real-client.ts";
 import { IDLE_CHAT } from "../../../test/recorded-chat.ts";
 import { writeRepoFile } from "../../../test/repo-file-command.ts";
 import { appWithProject } from "../../../test/task-flows.tsx";
-import { ChatView } from "./chat-view.tsx";
+import { ChatViewHarness as ChatView } from "../../../test/chat-view-harness.tsx";
 import type { ChatFiles } from "./local-links.tsx";
 
 const { newClient } = realServerClients();

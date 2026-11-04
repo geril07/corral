@@ -4,13 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 /** Device preference: this browser remembers the mode it was left in; another device keeps its own. */
 const STORAGE_KEY = "corral.sidebar-mode";
 
-export const DEFAULT_SIDEBAR_MODE: SidebarMode = "flat";
+export const DEFAULT_SIDEBAR_MODE: SidebarMode = "project";
 
 function read(): SidebarMode {
   try {
-    return window.localStorage.getItem(STORAGE_KEY) === "project"
-      ? "project"
-      : DEFAULT_SIDEBAR_MODE;
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    return saved === "project" || saved === "flat" ? saved : DEFAULT_SIDEBAR_MODE;
   } catch {
     // Storage can be unavailable (a sandboxed or file: origin); the mode still toggles.
     return DEFAULT_SIDEBAR_MODE;

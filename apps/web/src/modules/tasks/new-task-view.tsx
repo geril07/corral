@@ -20,25 +20,30 @@ import {
   ComboboxList,
   ComboboxSearch,
   ContentLane,
+  ComposerSurface,
+  ComposerToolbar,
+  ModelPickerButton,
+  OverflowMenu,
+  DropdownMenuItem,
   FormError,
   FormField,
   Input,
   Textarea,
 } from "../../common/ui/index.ts";
-import { describeLaunchError } from "../sessions/index.ts";
+import {
+  AgentLaunchPicker,
+  LaunchViewControls,
+  defaultLaunch,
+  launchChoice,
+  launchModel,
+  launchName,
+  launchProblem,
+  launchView,
+  describeLaunchError,
+} from "../sessions/index.ts";
 import { IssueImportSection } from "./issue-import.tsx";
 import { draftForProject, movedDraft, type ComposerDraft } from "./new-task-draft.ts";
-import {
-  agentChoices,
-  defaultAgent,
-  defaultView,
-  defaultWorkspace,
-  viewChoices,
-  workspaceChoices,
-  type ComposerAgent,
-  type ComposerView,
-  type ComposerWorkspace,
-} from "./new-task-defaults.ts";
+import { defaultWorkspace, workspaceChoices, type ComposerWorkspace } from "./new-task-defaults.ts";
 
 type BranchState =
   | { status: "loading" }
@@ -58,6 +63,7 @@ export interface NewTaskViewProps {
   profiles: readonly LaunchProfile[];
   /** The agents this server build can show as chat (`chat.capabilities`); the view control reads it. */
   chatDrivers: readonly AgentKind[];
+  capabilitiesReady: boolean;
   /** The branches "new worktree"'s neighbours offer, fetched again when the project changes. */
   loadBranches: (projectId: string) => Promise<string[]>;
   /** Creates the task and its primary agent; a rejection stays in the view with its input. */
@@ -88,6 +94,7 @@ export function NewTaskView({
   config,
   profiles,
   chatDrivers,
+  capabilitiesReady,
   draft,
   onDraftChange,
   loadBranches,
@@ -107,6 +114,8 @@ export function NewTaskView({
   const issueUrlRef = useRef<HTMLInputElement>(null);
   const issueWasOpen = useRef(current.issueOpen);
   const [importing, setImporting] = useState(false);
+  const [pickingAgent, setPickingAgent] = useState(false);
+  const agentAnchor = useRef<HTMLButtonElement>(null);
   const [branches, setBranches] = useState<Branches>({ projectId, status: "loading" });
   const attempt = useAttempt();
   // An IME commit is not a submission (`docs/ux.md`), in either platform ordering.
@@ -141,22 +150,14 @@ export function NewTaskView({
   const branchState: BranchState =
     branches.projectId === projectId ? branches : { status: "loading" };
 
-  const settingsAgent = defaultAgent(settings, profiles, config.agents);
-  // The entry the settings pick carries the configured model, so re-picking the agent already
-  // shown keeps the model instead of falling back to the agent's native default.
-  const agents = agentChoices(profiles, config.agents).map((choice) =>
-    choice.key === settingsAgent?.key ? settingsAgent : choice,
+  const agent = current.agent ?? defaultLaunch(settings, profiles, config.agents);
+  const agentProblem = agent ? launchProblem(agent, profiles, config.agents) : undefined;
+  const wantedView = current.viewKey ?? settings.view.value;
+  const view = launchView(
+    { ...settings, view: { ...settings.view, value: wantedView } },
+    agent?.kind,
+    chatDrivers,
   );
-  const agent =
-    (current.agentKey === undefined
-      ? undefined
-      : agents.find((choice) => choice.key === current.agentKey)) ?? settingsAgent;
-  const views = viewChoices(agent?.choice.kind, chatDrivers);
-  const view =
-    (current.viewKey === undefined
-      ? undefined
-      : views.find((choice) => choice.key === current.viewKey)) ??
-    defaultView(settings, agent?.choice.kind, chatDrivers);
   const workspaces = workspaceChoices(branchState.status === "loaded" ? branchState.names : []);
   const workspace =
     (current.workspaceKey === undefined
@@ -166,7 +167,7 @@ export function NewTaskView({
 
   // Only the values still taken from settings can claim to come from the project's overrides.
   const fromProject =
-    (current.agentKey === undefined &&
+    (current.agent === undefined &&
       [settings.agent, settings.profile, settings.model].some(
         (each) => each.source === "project",
       )) ||
@@ -175,8 +176,7 @@ export function NewTaskView({
   // A configured chat view that this agent cannot show: the config warning covers a named agent;
   // this line covers the agent the user picked here. `chatDrivers` is empty until the server
   // answers `chat.capabilities`, so the line does not flash before the driver list is known.
-  const viewFellBack =
-    settings.view.value === "chat" && view.key !== "chat" && chatDrivers.length > 0;
+  const viewFellBack = wantedView === "chat" && view !== "chat" && capabilitiesReady;
 
   const chooseProject = (next: string | null) => {
     if (next === null || next === projectId) return;
@@ -192,6 +192,9 @@ export function NewTaskView({
   const ready =
     !attempt.pending &&
     !importing &&
+    (promptText === "" ||
+      agent === undefined ||
+      (agentProblem === undefined && capabilitiesReady)) &&
     (promptText !== "" || titleText !== "" || current.source !== undefined);
 
   const submit = () => {
@@ -206,7 +209,7 @@ export function NewTaskView({
         // A task without a prompt starts no agent yet (`design.md`, **Domain model → Task**).
         ...(promptText === "" || agent === undefined
           ? {}
-          : { agent: { ...agent.choice, view: view.key } }),
+          : { agent: { ...launchChoice(agent), view } }),
         workspace: workspace.input,
       }),
     );
@@ -233,6 +236,7 @@ export function NewTaskView({
           onCompositionEnd={guard.end}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
+              if (pickingAgent) return;
               event.preventDefault();
               event.stopPropagation();
               // A failed create keeps its error in view (`ux.md`: failed submissions preserve
@@ -254,56 +258,95 @@ export function NewTaskView({
             }
           }}
         >
-          <Textarea
-            ref={promptRef}
-            layout="prompt"
-            aria-label="Prompt"
-            placeholder="What should the agent do?"
-            rows={4}
-            autoFocus
-            spellCheck={false}
-            value={current.prompt}
-            onChange={(event) =>
-              onDraftChange({ ...current, prompt: event.target.value, promptTyped: true })
-            }
-            onKeyDown={(event) => {
-              if (event.key !== "Enter") return;
-              // A confirming composition Enter is swallowed here; the form also blocks its default.
-              if (guard.isComposition(event)) {
-                guard.consume();
-                event.preventDefault();
-                return;
+          <ComposerSurface>
+            <Textarea
+              frame="composer"
+              ref={promptRef}
+              layout="prompt"
+              aria-label="Prompt"
+              placeholder="What should the agent do?"
+              rows={4}
+              autoFocus
+              spellCheck={false}
+              value={current.prompt}
+              onChange={(event) =>
+                onDraftChange({ ...current, prompt: event.target.value, promptTyped: true })
               }
-              if (event.shiftKey) return;
-              event.preventDefault();
-              submit();
-            }}
-          />
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                // A confirming composition Enter is swallowed here; the form also blocks its default.
+                if (guard.isComposition(event)) {
+                  guard.consume();
+                  event.preventDefault();
+                  return;
+                }
+                if (event.shiftKey) return;
+                event.preventDefault();
+                submit();
+              }}
+            />
+            <ComposerToolbar>
+              {agent !== undefined && (
+                <ModelPickerButton
+                  ref={agentAnchor}
+                  kind={agent.kind}
+                  label={launchModel(agent)}
+                  aria-label={`Agent ${launchName(agent)} · ${launchModel(agent)}`}
+                  onClick={() => setPickingAgent(true)}
+                />
+              )}
+              <LaunchViewControls
+                value={view}
+                kind={agent?.kind}
+                chatDrivers={chatDrivers}
+                onChange={(viewKey) => onDraftChange({ ...current, viewKey })}
+              />
+              <div className="ml-auto">
+                <Button type="submit" disabled={!ready}>
+                  {attempt.pending ? "Creating…" : "Create task"}
+                </Button>
+              </div>
+            </ComposerToolbar>
+          </ComposerSurface>
           <div className="flex flex-wrap items-center gap-1.5">
             <ProjectPicker projects={projects} value={projectId} onChange={chooseProject} />
-            {agent !== undefined && (
-              <AgentPicker
-                choices={agents}
-                value={agent}
-                onChange={(choice) => onDraftChange({ ...current, agentKey: choice.key })}
-              />
-            )}
             <WorkspacePicker
               choices={workspaces}
               value={workspace}
               onChange={(choice) => onDraftChange({ ...current, workspaceKey: choice.key })}
             />
-            <ViewPicker
-              choices={views}
-              value={view}
-              onChange={(choice) => onDraftChange({ ...current, viewKey: choice.key })}
-            />
             <div className="ml-auto">
-              <Button type="submit" disabled={!ready}>
-                {attempt.pending ? "Creating…" : "Create task"}
-              </Button>
+              <OverflowMenu label="Task setup actions">
+                <DropdownMenuItem
+                  disabled={current.issueOpen}
+                  onClick={() => onDraftChange({ ...current, issueOpen: true })}
+                >
+                  From issue…
+                </DropdownMenuItem>
+              </OverflowMenu>
             </div>
           </div>
+          {pickingAgent && agent !== undefined && (
+            <AgentLaunchPicker
+              title="Agent and model"
+              anchor={agentAnchor}
+              restoreFocus="composer"
+              profiles={profiles}
+              agents={config.agents}
+              selection={agent}
+              onChange={(next) => onDraftChange({ ...current, agent: next })}
+              onCommit={(target) => {
+                if (!launchProblem(target, profiles, config.agents)) setPickingAgent(false);
+              }}
+              onClose={() => setPickingAgent(false)}
+              error={agentProblem}
+              blocked={!!launchProblem({ ...agent, model: "" }, profiles, config.agents)}
+            />
+          )}
+          {agentProblem && !pickingAgent && <FormError>{agentProblem}</FormError>}
+          {!capabilitiesReady && agent && (
+            <p className="m-0 text-xs text-muted-foreground">Loading agent capabilities…</p>
+          )}
           {fromProject && (
             <p className="m-0 text-xs text-muted-foreground">defaults from project settings</p>
           )}
@@ -330,15 +373,6 @@ export function NewTaskView({
                 onClick={() => onDraftChange({ ...current, titleOpen: true })}
               >
                 Title (optional)
-              </Button>
-            )}
-            {!current.issueOpen && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onDraftChange({ ...current, issueOpen: true })}
-              >
-                From issue…
               </Button>
             )}
           </div>
@@ -429,49 +463,6 @@ function ProjectPicker({
   );
 }
 
-function AgentPicker({
-  choices,
-  value,
-  onChange,
-}: {
-  choices: readonly ComposerAgent[];
-  value: ComposerAgent;
-  onChange: (choice: ComposerAgent) => void;
-}) {
-  return (
-    <Combobox
-      items={choices.map((choice) => choice.key)}
-      value={value.key}
-      onValueChange={(next) => {
-        const picked = choices.find((choice) => choice.key === next);
-        if (picked !== undefined) onChange(picked);
-      }}
-      autoHighlight
-    >
-      <ComboboxButton aria-label={`Agent ${value.label}`}>
-        <span className="min-w-0 truncate">{value.label}</span>
-      </ComboboxButton>
-      <ComboboxContent>
-        <div className="p-1">
-          <ComboboxSearch aria-label="Search agents" placeholder="Search agents…" />
-        </div>
-        <ComboboxEmpty>No matching agent.</ComboboxEmpty>
-        <ComboboxList>
-          {(key: string) => {
-            const choice = choices.find((candidate) => candidate.key === key);
-            if (choice === undefined) return null;
-            return (
-              <ComboboxItem key={key} value={key}>
-                <span className="min-w-0 flex-1 truncate">{choice.label}</span>
-              </ComboboxItem>
-            );
-          }}
-        </ComboboxList>
-      </ComboboxContent>
-    </Combobox>
-  );
-}
-
 function WorkspacePicker({
   choices,
   value,
@@ -499,49 +490,6 @@ function WorkspacePicker({
           <ComboboxSearch aria-label="Search workspaces" placeholder="Search workspaces…" />
         </div>
         <ComboboxEmpty>No matching workspace.</ComboboxEmpty>
-        <ComboboxList>
-          {(key: string) => {
-            const choice = choices.find((candidate) => candidate.key === key);
-            if (choice === undefined) return null;
-            return (
-              <ComboboxItem key={key} value={key}>
-                <span className="min-w-0 flex-1 truncate">{choice.label}</span>
-              </ComboboxItem>
-            );
-          }}
-        </ComboboxList>
-      </ComboboxContent>
-    </Combobox>
-  );
-}
-
-function ViewPicker({
-  choices,
-  value,
-  onChange,
-}: {
-  choices: readonly ComposerView[];
-  value: ComposerView;
-  onChange: (choice: ComposerView) => void;
-}) {
-  return (
-    <Combobox
-      items={choices.map((choice) => choice.key)}
-      value={value.key}
-      onValueChange={(next) => {
-        const picked = choices.find((choice) => choice.key === next);
-        if (picked !== undefined) onChange(picked);
-      }}
-      autoHighlight
-    >
-      <ComboboxButton aria-label={`View ${value.label}`}>
-        <span className="min-w-0 truncate">{value.label}</span>
-      </ComboboxButton>
-      <ComboboxContent>
-        <div className="p-1">
-          <ComboboxSearch aria-label="Search views" placeholder="Search views…" />
-        </div>
-        <ComboboxEmpty>No matching view.</ComboboxEmpty>
         <ComboboxList>
           {(key: string) => {
             const choice = choices.find((candidate) => candidate.key === key);

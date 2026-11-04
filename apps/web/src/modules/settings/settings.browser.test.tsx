@@ -5,7 +5,13 @@ import { render } from "vitest-browser-react";
 import { writeConfig } from "../../../test/config-command.ts";
 import { prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
-import { appWithProject, createTaskWithShell, taskButton } from "../../../test/task-flows.tsx";
+import {
+  appWithProject,
+  createTaskWithShell,
+  promptField,
+  sessionTabs,
+  taskButton,
+} from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 
@@ -60,7 +66,13 @@ function sequence(...parts: string[]): RegExp {
 }
 
 const settingsHeading = () => page.getByRole("heading", { name: "Settings", level: 1 });
-const section = (name: string) => page.getByRole("region", { name });
+async function section(name: string) {
+  await page
+    .getByRole("navigation", { name: "Settings categories" })
+    .getByRole("button", { name, exact: true })
+    .click();
+  return page.getByRole("region", { name, exact: true });
+}
 const settingsButton = () => page.getByRole("button", { name: "Settings" });
 
 async function renderSettings(client: CorralClient) {
@@ -74,14 +86,20 @@ test("the settings surface shows effective keys, profiles with reference names, 
   await renderSettings(client);
   await vi.waitFor(() => expect(client.config.getSnapshot().profiles).toHaveLength(3));
 
-  await expect.element(page.getByText("read-only")).toBeVisible();
-
-  const keys = section("Effective keys");
+  await expect.element(page.getByRole("region", { name: "Appearance", exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("region", { name: "Effective keys", exact: true }))
+    .not.toBeInTheDocument();
+  const keys = await section("Effective keys");
+  await expect.element(page.getByText("read-only", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("region", { name: "Appearance", exact: true }))
+    .not.toBeInTheDocument();
   await expect.element(keys).toMatchTextContent(/New agent session\s*unbound/);
   await expect.element(keys).toMatchTextContent(/Settings\s*alt\+a o/);
   await expect.element(keys).toMatchTextContent("Prefix");
 
-  const profiles = section("Agent profiles");
+  const profiles = await section("Agent profiles");
   await expect.element(profiles).toMatchTextContent("Claude gateway");
   await expect.element(profiles).toMatchTextContent("claude-gateway");
   await expect.element(profiles).toMatchTextContent("model claude-sonnet-4-5");
@@ -97,7 +115,13 @@ test("the settings surface shows effective keys, profiles with reference names, 
   await expect.element(profiles).toMatchTextContent("ANTHROPIC_AUTH_TOKEN");
   await expect.element(profiles).toMatchTextContent("CLAUDE_SERVER_TOKEN");
 
-  const config = section("Config file");
+  await section("Effective keys");
+  await section("Agent profiles");
+  await expect
+    .element(profiles.getByRole("button", { name: "environment references for Claude gateway" }))
+    .toHaveAttribute("aria-expanded", "true");
+
+  const config = await section("Config file");
   await expect.element(config).toMatchTextContent(client.config.getSnapshot().path);
   await expect.element(config).toMatchTextContent("never writes it");
   await expect.element(config).toMatchTextContent("Problems (1)");
@@ -116,7 +140,7 @@ test("effective task defaults, naming and project overrides appear with the laye
   );
 
   await expect
-    .element(section("Task defaults"))
+    .element(await section("Task defaults"))
     .toMatchTextContent(
       sequence(
         "Agent",
@@ -141,12 +165,12 @@ test("effective task defaults, naming and project overrides appear with the laye
         "generated",
         "global",
         "View",
-        "terminal",
+        "chat",
         "default",
       ),
     );
 
-  const naming = section("Task naming");
+  const naming = await section("Task naming");
   await expect
     .element(naming)
     .toMatchTextContent(
@@ -168,7 +192,7 @@ test("effective task defaults, naming and project overrides appear with the laye
   await expect.element(naming).not.toMatchTextContent("No naming profile or agent is set");
 
   await expect
-    .element(section("Project overrides"))
+    .element(await section("Project overrides"))
     .toMatchTextContent(
       sequence(
         "/repos/app",
@@ -189,15 +213,17 @@ test("an empty naming section says seed titles stay, and no project entry reads 
   await renderSettings(client);
   await vi.waitFor(() => expect(client.config.getSnapshot().config.tasks.agent.value).toBe("pi"));
 
-  const naming = section("Task naming");
+  const naming = await section("Task naming");
   await expect.element(naming).toMatchTextContent("No naming profile or agent is set");
   await expect.element(naming).toMatchTextContent("keeps the title derived from its prompt");
 
-  await expect.element(section("Project overrides")).toMatchTextContent("No project overrides");
+  await expect
+    .element(await section("Project overrides"))
+    .toMatchTextContent("No project overrides");
 
   const root = client.config.getSnapshot().config.tasks.worktreeRoot.value;
   expect(root.endsWith("worktrees")).toBe(true);
-  const defaults = section("Task defaults");
+  const defaults = await section("Task defaults");
   await expect.element(defaults).toMatchTextContent(sequence("Agent", "pi", "global"));
   await expect.element(defaults).toMatchTextContent(sequence("Worktree root", root, "default"));
 });
@@ -221,7 +247,7 @@ branch-prefix = "nope/"
     ),
   );
 
-  const projects = section("Project overrides");
+  const projects = await section("Project overrides");
   const added = projects.getByRole("listitem").filter({ hasText: projectPath }).first();
   await expect.element(added).toMatchTextContent(sequence("Branch prefix", "app/", "project"));
   await expect.element(added).not.toMatchTextContent("no added project has this path");
@@ -248,7 +274,7 @@ enabled = false
     expect(client.config.getSnapshot().config.agents.pi.command.value).toBe("/nonexistent/pi"),
   );
 
-  const agents = section("Agents");
+  const agents = await section("Agents");
   // A command that is not there is reported, and Settings says so instead of claiming a launch.
   await expect
     .element(agents)
@@ -277,11 +303,11 @@ test("the task sections wait for the server's config instead of showing built-in
   await expect.element(settingsHeading()).toBeVisible();
 
   const waiting = "waiting for the server's config";
-  const defaults = section("Task defaults");
+  const defaults = await section("Task defaults");
   await expect.element(defaults).toMatchTextContent(waiting);
   await expect.element(defaults).not.toMatchTextContent("Worktree root");
-  await expect.element(section("Task naming")).toMatchTextContent(waiting);
-  await expect.element(section("Project overrides")).toMatchTextContent(waiting);
+  await expect.element(await section("Task naming")).toMatchTextContent(waiting);
+  await expect.element(await section("Project overrides")).toMatchTextContent(waiting);
 });
 
 test("a problem at the profiles table itself is shown, not only per-profile paths", async () => {
@@ -290,7 +316,7 @@ test("a problem at the profiles table itself is shown, not only per-profile path
   await renderSettings(client);
   await vi.waitFor(() => expect(client.config.getSnapshot().problems).toHaveLength(1));
 
-  const config = section("Config file");
+  const config = await section("Config file");
   await expect.element(config).toMatchTextContent("Problems (1)");
   await expect.element(config.getByText("profiles", { exact: true })).toBeVisible();
   await expect.element(config).toMatchTextContent("profile id");
@@ -311,19 +337,21 @@ provider = "anthropic"
 `);
   await vi.waitFor(() => expect(client.config.getSnapshot().profiles[0]?.id).toBe("live"));
 
-  const profiles = section("Agent profiles");
+  const profiles = await section("Agent profiles");
   await expect.element(profiles).toMatchTextContent("Live profile");
   await expect.element(profiles).toMatchTextContent("model and provider (model required)");
   await expect.element(profiles).not.toMatchTextContent("Claude gateway");
-  await expect.element(section("Config file")).toMatchTextContent("No problems");
+  await expect.element(await section("Config file")).toMatchTextContent("No problems");
 });
 
 test("the sidebar entry opens settings; Escape and Back return to the same task with focus on the entry", async () => {
   const client = newClient();
   await appWithProject(client);
   await createTaskWithShell("Settings trip");
+  const terminal = document.querySelector(".terminal-host");
 
   await settingsButton().click();
+  expect(document.querySelector(".terminal-host")).toBe(terminal);
   await expect.element(settingsHeading()).toBeVisible();
 
   await userEvent.keyboard("{Escape}");
@@ -339,6 +367,41 @@ test("the sidebar entry opens settings; Escape and Back return to the same task 
   await expect.element(settingsButton()).toHaveFocus();
 });
 
+test("settings preserve a draft and its caret, pause background keys and keep appearance on this device", async () => {
+  const client = newClient();
+  const { rendered } = await appWithProject(client);
+  await createTaskWithShell("Keep this workspace");
+  await prefixThen("t");
+  await promptField().fill("Keep this unfinished prompt");
+  const prompt = promptField().element();
+  if (!(prompt instanceof HTMLTextAreaElement)) throw new Error("Prompt is not a textarea");
+  prompt.setSelectionRange(5, 5);
+  await settingsButton().click();
+  await expect.element(settingsHeading()).toBeVisible();
+  await userEvent.keyboard("{Alt>}a{/Alt}");
+  expect(document.querySelector('[aria-label="prefix mode"]')).toBeNull();
+  await page.getByRole("radio", { name: "Bottom", exact: true }).click();
+  await page.getByRole("button", { name: "120%", exact: true }).click();
+  await userEvent.keyboard("{Escape}");
+  expect(promptField().element()).toBe(prompt);
+  expect(prompt.value).toBe("Keep this unfinished prompt");
+  expect(prompt.selectionStart).toBe(5);
+  expect(document.documentElement.style.fontSize).toBe("120%");
+  const content = page
+    .getByRole("region", { name: "task content" })
+    .element()
+    .getBoundingClientRect();
+  expect(sessionTabs().element().getBoundingClientRect().top).toBeGreaterThanOrEqual(
+    content.bottom,
+  );
+  await rendered.unmount();
+  await render(<App client={client} />);
+  expect(document.documentElement.style.fontSize).toBe("120%");
+  expect(
+    sessionTabs().element().closest("[data-tab-position]")?.getAttribute("data-tab-position"),
+  ).toBe("bottom");
+});
+
 test("the settings action is a configurable key and a palette entry, never a hardcoded chord", async () => {
   const client = newClient();
   await render(<App client={client} />);
@@ -352,7 +415,7 @@ test("the settings action is a configurable key and a palette entry, never a har
 
   await prefixThen("q");
   await expect.element(settingsHeading()).toBeVisible();
-  await expect.element(section("Effective keys")).toMatchTextContent(/Settings\s*alt\+a q/);
+  await expect.element(await section("Effective keys")).toMatchTextContent(/Settings\s*alt\+a q/);
 
   await userEvent.keyboard("{Escape}");
   await expect.element(settingsHeading()).not.toBeInTheDocument();

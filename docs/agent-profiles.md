@@ -60,7 +60,7 @@ workspace = "new-worktree" # main-worktree (default) | new-worktree
 worktree-root = "~/corral-worktrees" # absolute or ~-relative; default <data dir>/worktrees
 branch-prefix = "corral/" # prefix of a branch a task creates; default empty
 slug-mode = "title" # title (default) | generated
-view = "terminal" # terminal (default) | chat, where the agent has a driver
+view = "terminal" # explicit opt-out; chat is the default where an agent has a driver
 
 [naming]
 profile = "claude-gateway" # or agent, plus its optional model
@@ -102,13 +102,15 @@ workspace = "main-worktree" # the same keys as [tasks]
   relative work away from the repository. OpenCode cannot be a naming runner: `opencode run`
   always saves a session (2.2.5), so an OpenCode profile or agent in `[naming]` is a
   `ConfigProblem` and naming stays off.
-- `view` is `terminal` (the default) or `chat`. `chat` is accepted where this build has a chat
-  driver for the agent (`chat.capabilities`; pi in stage B). After the layers resolve, a `chat`
+- `view` is `chat` (the built-in default) or `terminal`. `chat` is accepted where this build has a
+  chat driver for the agent (`chat.capabilities`). After the layers resolve, a `chat`
   view whose agent has no driver becomes `terminal`, and the file reports a **warning** at the
   entry responsible — `tasks.view`, or the project table whose own agent or view caused it. With
   no agent pinned the view stays `chat`, and the **composer** applies the rule to the agent the
-  user picks there. It governs a new task's **primary** session only: `sessions.start` without a
-  view (`prefix s`, the agent picker) still opens in the terminal.
+  user picks there. Task creation and the add-agent UI (`prefix s`) use this effective default
+  and offer an explicit view choice. The `sessions.start` API still defaults an omitted `view`
+  to terminal; the UI passes its choice explicitly. Restart the long-lived server after upgrading
+  to load changed built-in defaults; explicit terminal settings are not migrated.
 - Unknown keys and invalid values are `ConfigProblem`s that drop only that entry; the rest of
   the table still applies. A `profile` that names no valid profile is such a problem, and two
   project keys that resolve to one repository are reported rather than merged.
@@ -425,7 +427,8 @@ page is a separate, per-server transport capability (another change), not a prop
 
 ## Not supported
 
-- Model/provider discovery or listing; Corral takes a native id and does not ask a provider.
+- Pre-launch model/provider discovery or listing. Creation takes a native ID; a running chat's
+  model and thinking lists come from its driver. No pre-launch thinking field exists.
 - Model or provider changes for an existing terminal conversation. A chat session changes its
   model and reasoning level mid-session through its driver (`chat.setModel`/`chat.setReasoning`);
   a terminal session has no such control.

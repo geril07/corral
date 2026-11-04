@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test";
 import {
+  chooseTaskAgent,
   addProject,
   createRepo,
   newTaskView,
@@ -26,28 +27,11 @@ test("a task created in chat view from the composer opens as chat", async ({
   await window.keyboard.type("Explain the build");
 
   // pi is the agent with a chat driver in this build, so the view control offers chat.
-  await newTaskView(window)
-    .getByRole("combobox", { name: /^Agent / })
-    .click();
-  // The popup's search field takes the keyboard; typing before it does would hit the trigger.
-  // The popup is portaled outside the form, so the field is found on the page.
-  await expect(window.getByLabel("Search agents")).toBeFocused();
-  await window.keyboard.type("pi");
-  await window.keyboard.press("Enter");
-  // The view list is built from the agent picked now; wait for the choice to apply before it opens.
-  await expect(newTaskView(window).getByRole("combobox", { name: /^Agent / })).toHaveAccessibleName(
-    "Agent pi · native default",
+  await chooseTaskAgent(window, "pi");
+  await expect(newTaskView(window).getByRole("button", { name: "Open in chat" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
   );
-  await newTaskView(window)
-    .getByRole("combobox", { name: /^View / })
-    .click();
-  await expect(window.getByLabel("Search views")).toBeFocused();
-  await window.keyboard.type("chat");
-  await window.keyboard.press("Enter");
-  await expect(newTaskView(window).getByRole("combobox", { name: /^View / })).toHaveAccessibleName(
-    "View chat",
-  );
-
   await promptField(window).click();
   await window.keyboard.press("Enter");
 

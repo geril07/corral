@@ -35,8 +35,10 @@ test("a task gets a worktree and a terminal in it, and removing it leaves the br
   await window.keyboard.type(repo);
   await window.keyboard.press("Enter");
   await expect(addProjectDialog).toBeHidden();
-  // Flat mode lists tasks, not projects: the enabled New task button shows the project is current.
-  await expect(workspace(window).getByRole("button", { name: "New task" })).toBeEnabled();
+  // The global New task action is enabled once the project is current.
+  await expect(
+    workspace(window).getByRole("button", { name: "New task", exact: true }),
+  ).toBeEnabled();
 
   // The composer is a view in the main area: its prompt takes the keyboard, and the optional
   // title carries a task that should start without an agent.
@@ -101,14 +103,18 @@ test("projects and tasks are still there when the app is opened again", async ({
   ).toBeFocused();
   await firstWindow.keyboard.type(repo);
   await firstWindow.keyboard.press("Enter");
-  await expect(workspace(firstWindow).getByRole("button", { name: "New task" })).toBeEnabled();
+  await expect(
+    workspace(firstWindow).getByRole("button", { name: "New task", exact: true }),
+  ).toBeEnabled();
   await createTask(firstWindow, "Keep me");
   await startShell(firstWindow);
   await first.close();
 
   const secondWindow = await openedWindow(await launchApp());
   await expect(workspace(secondWindow).getByRole("button", { name: /^Keep me/ })).toBeVisible();
-  await expect(workspace(secondWindow).getByRole("button", { name: "New task" })).toBeEnabled();
+  await expect(
+    workspace(secondWindow).getByRole("button", { name: "New task", exact: true }),
+  ).toBeEnabled();
   // The task's shell kept running on the server, so it is listed too.
   await expect(sessionTab(secondWindow, "shell")).toHaveCount(1);
 });
@@ -127,6 +133,8 @@ test("a prompt creates the task and the fake agent receives it", async ({
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyT");
   await expect(promptField(window)).toBeFocused();
+  await newTaskView(window).getByRole("button", { name: "Open in terminal" }).click();
+  await promptField(window).click();
   await window.keyboard.type("Explain the build");
   await window.keyboard.press("Enter");
 

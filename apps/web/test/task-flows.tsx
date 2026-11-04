@@ -25,19 +25,31 @@ export const promptField = () => newTaskView().getByRole("textbox", { name: "Pro
 export const expandTitleButton = () =>
   newTaskView().getByRole("button", { name: "Title (optional)", exact: true });
 export const titleField = () => newTaskView().getByRole("textbox", { name: "Title (optional)" });
-export const expandIssueButton = () => newTaskView().getByRole("button", { name: "From issue…" });
+export async function openIssueImport() {
+  await newTaskView().getByRole("button", { name: "Task setup actions" }).click();
+  await page.getByRole("menuitem", { name: "From issue…" }).click();
+}
 export const issueUrlField = () => newTaskView().getByRole("textbox", { name: "Issue URL" });
 export const importIssueButton = () => newTaskView().getByRole("button", { name: "Import issue" });
 export const createTaskButton = () =>
   newTaskView().getByRole("button", { name: /^(?:Create task|Creating…)$/ });
-export const taskActionsButton = (title: string) =>
-  workspace().getByRole("button", { name: `Task actions for ${title}` });
+export const taskMenuTarget = taskButton;
 export const viewIssueSourceAction = () =>
   page.getByRole("menuitem", { name: "View issue source…" });
 export const taskSourceDialog = () => page.getByRole("dialog", { name: "Issue source" });
 export async function openTaskSource(title: string) {
-  await taskActionsButton(title).click();
+  await taskMenuTarget(title).click({ button: "right" });
   await viewIssueSourceAction().click();
+}
+
+/** TUI scenarios choose terminal explicitly; the everyday default is chat. */
+export async function openAgentSessionPicker(view: "chat" | "terminal") {
+  await prefixThen("s");
+  const picker = page.getByRole("dialog", { name: "New agent session" });
+  await expect.element(picker).toBeVisible();
+  await picker.getByRole("button", { name: `Open in ${view}` }).click();
+  await picker.getByRole("radio", { checked: true }).click();
+  return picker;
 }
 
 /** An app on the real server with one project added through the dialog. */

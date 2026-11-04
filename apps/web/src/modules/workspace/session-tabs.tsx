@@ -2,27 +2,31 @@ import { sessionStatus } from "@corral/client/agent-status";
 import { describeSessionState } from "@corral/client/session-state";
 import type { SessionEntry } from "@corral/client/workspace-tree";
 import type { ActionId, ClientConfig } from "@corral/protocol/config";
-import type { Session } from "@corral/protocol/rpc";
-import { useEffect, useRef } from "react";
-import { Button, DropdownMenuItem, IconButton, Icon, OverflowMenu } from "../../common/ui/index.ts";
+import type { Session, SessionView } from "@corral/protocol/rpc";
+import { useEffect, useRef, type Ref } from "react";
+import {
+  AgentIcon,
+  Button,
+  DropdownMenuItem,
+  Icon,
+  OverflowMenu,
+  RowMenu,
+  useTruncatedText,
+} from "../../common/ui/index.ts";
 import { formatBinding } from "../keymap/index.ts";
 import { compactLaunchLabel, launchLine } from "../sessions/index.ts";
 import { StatusIndicator } from "../status/index.ts";
 
 export interface SessionTabsProps {
-  /** The current task's sessions, in creation order. */
   entries: readonly SessionEntry[];
-  /** The name each session shows (`sessionLabels`); ancestors pass it so tabs and rows agree. */
   labels: ReadonlyMap<string, string>;
   currentId: string | undefined;
-  /**
-   * The task's `Changes` tab, which has no session behind it (`layout.md`, **Changes**). It is the
-   * last tab, has no number hint and no glyph, and while it is current the session that stays
-   * current is marked with `aria-current` instead of `aria-selected`: exactly one tab is selected.
-   */
   changes?: { current: boolean; onSelect: () => void; hint?: string | undefined } | undefined;
-  /** Effective bindings for the tooltips and the end hint; absent in a bare tab-strip test. */
   config?: ClientConfig | undefined;
+  position?: "top" | "bottom";
+  draftLabel?: string | undefined;
+  agentPickerAnchor?: Ref<HTMLButtonElement> | undefined;
+  view?: { value: SessionView; reason?: string | undefined; onSwitch: () => void } | undefined;
   onSelect: (entry: SessionEntry) => void;
   onStop: (session: Session) => void;
   onRestart: (session: Session) => void;
@@ -32,26 +36,19 @@ export interface SessionTabsProps {
   onNewAgent: (opener?: HTMLElement) => void;
 }
 
-/**
- * One 32 px tab per session of the current task (`layout.md`, **Session tabs**): a number hint,
- * the session's glyph (its status glyph while working or blocked), its name, and — on hover or
- * focus — stop/restart, its menu and close.
- */
+/** Sessions stay in their own row; secondary actions occupy no hidden-width slots. */
 export function SessionTabs(props: SessionTabsProps) {
-  const { entries, labels, currentId, config } = props;
-  const changes = props.changes;
+  const { entries, labels, currentId, config, changes, view, position = "top" } = props;
   const changesCurrent = changes?.current ?? false;
   const strip = useRef<HTMLDivElement>(null);
   const hint = (label: string, action: ActionId) =>
     config ? `${label} · ${formatBinding(config, action)}` : label;
 
-  // The selected tab stays in view when the strip scrolls (`layout.md`, **Session tabs**).
   useEffect(() => {
     if (entries.length === 0) return;
-    const selected = strip.current?.querySelector<HTMLElement>(
-      `[data-session-id="${CSS.escape(currentId ?? "")}"]`,
-    );
-    selected?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    strip.current
+      ?.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(currentId ?? "")}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [currentId, entries.length]);
 
   const step = (offset: 1 | -1 | "first" | "last") => {
@@ -62,76 +59,121 @@ export function SessionTabs(props: SessionTabsProps) {
         : offset === "last"
           ? entries[entries.length - 1]
           : entries[((index < 0 ? 0 : index) + offset + entries.length) % entries.length];
-    // Selection, not focus: the terminal is remounted and takes the keyboard again (`ux.md`).
-    if (next !== undefined) props.onSelect(next);
+    if (next) props.onSelect(next);
   };
-
   return (
     <div
-      ref={strip}
-      role="tablist"
-      aria-label="Sessions"
-      className="no-scrollbar flex h-8 shrink-0 items-stretch gap-0.5 overflow-x-auto border-b border-border px-1"
-      // Pressing a tab must not take the keyboard from the terminal (`ux.md`).
-      onMouseDown={(event) => event.preventDefault()}
-      onKeyDown={(event) => {
-        const keys: Record<string, () => void> = {
-          ArrowRight: () => step(1),
-          ArrowLeft: () => step(-1),
-          Home: () => step("first"),
-          End: () => step("last"),
-        };
-        const action = keys[event.key];
-        if (!action) return;
-        event.preventDefault();
-        action();
-      }}
+      data-tab-position={position}
+      className={`flex min-w-0 shrink-0 items-center gap-2 px-2 py-1 ${position === "bottom" ? "order-last border-t border-border" : "border-b border-border"}`}
     >
-      {entries.map((entry, index) => (
-        <SessionTab
-          key={entry.id}
-          entry={entry}
-          name={labels.get(entry.session.id) ?? entry.session.kind}
-          number={index < 9 ? index + 1 : undefined}
-          current={entry.id === currentId}
-          behind={changesCurrent && entry.id === currentId}
-          hint={hint}
-          onSelect={() => props.onSelect(entry)}
-          onStop={() => props.onStop(entry.session)}
-          onRestart={() => props.onRestart(entry.session)}
-          onRemove={() => props.onRemove(entry.session)}
-          onRename={(opener) => props.onRename(entry, opener)}
-        />
-      ))}
-      {changes !== undefined && (
-        <Button
-          role="tab"
-          aria-selected={changes.current}
-          tabIndex={changes.current ? 0 : -1}
-          variant={changes.current ? "secondary" : "ghost"}
-          layout="tab"
-          aria-label="Changes"
-          title={changes.hint}
-          data-changes-tab=""
-          onClick={changes.onSelect}
-        >
-          <span className="min-w-0 truncate">Changes</span>
-        </Button>
-      )}
-      <div className="flex shrink-0 items-center">
-        <OverflowMenu
-          label="Add session"
-          icon="add"
-          tooltip={`Add session · ${hint("shell", "new-terminal")} / ${hint("agent", "new-agent")}`}
-        >
-          <DropdownMenuItem onClick={(event) => props.onNewShell(event.currentTarget)}>
-            Shell
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={(event) => props.onNewAgent(event.currentTarget)}>
-            Agent…
-          </DropdownMenuItem>
-        </OverflowMenu>
+      <div
+        ref={strip}
+        role="tablist"
+        aria-label="Sessions"
+        className="no-scrollbar flex h-8 min-w-0 flex-1 items-stretch gap-0.5 overflow-x-auto"
+        onMouseDown={(event) => event.preventDefault()}
+        onKeyDown={(event) => {
+          if (event.defaultPrevented) return;
+          const action = (
+            {
+              ArrowRight: () => step(1),
+              ArrowLeft: () => step(-1),
+              Home: () => step("first"),
+              End: () => step("last"),
+            } as Record<string, () => void>
+          )[event.key];
+          if (action) {
+            event.preventDefault();
+            action();
+          }
+        }}
+      >
+        {props.draftLabel !== undefined && (
+          <Button
+            role="tab"
+            aria-label="New task draft"
+            aria-selected
+            variant="secondary"
+            layout="tab"
+          >
+            <Icon name="task" />
+            {props.draftLabel}
+          </Button>
+        )}
+        {entries.map((entry, index) => (
+          <SessionTab
+            key={entry.id}
+            entry={entry}
+            name={labels.get(entry.session.id) ?? entry.session.kind}
+            number={index < 9 ? index + 1 : undefined}
+            current={entry.id === currentId}
+            behind={changesCurrent && entry.id === currentId}
+            hint={hint}
+            onSelect={() => props.onSelect(entry)}
+            onStop={() => props.onStop(entry.session)}
+            onRestart={() => props.onRestart(entry.session)}
+            onRemove={() => props.onRemove(entry.session)}
+            onRename={(opener) => props.onRename(entry, opener)}
+          />
+        ))}
+        {changes && (
+          <Button
+            role="tab"
+            aria-selected={changes.current}
+            tabIndex={changes.current ? 0 : -1}
+            variant={changes.current ? "secondary" : "ghost"}
+            layout="tab"
+            aria-label="Changes"
+            title={changes.hint}
+            data-changes-tab=""
+            onClick={changes.onSelect}
+          >
+            <span className="min-w-0 truncate">Changes</span>
+          </Button>
+        )}
+        {props.draftLabel === undefined && (
+          <div className="flex shrink-0 items-center">
+            <OverflowMenu
+              label="Add session"
+              triggerRef={props.agentPickerAnchor}
+              icon="add"
+              tooltip={`Add session · ${hint("shell", "new-terminal")} / ${hint("agent", "new-agent")}`}
+            >
+              <DropdownMenuItem onClick={(event) => props.onNewShell(event.currentTarget)}>
+                Shell
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={(event) => props.onNewAgent(event.currentTarget)}>
+                Agent…
+              </DropdownMenuItem>
+            </OverflowMenu>
+          </div>
+        )}
       </div>
+      {view && (
+        <div role="group" aria-label="Session view" className="flex shrink-0 items-center gap-0.5">
+          {(["chat", "terminal"] as const).map((value) => (
+            <Button
+              key={value}
+              size="xs"
+              variant={view.value === value && !changesCurrent ? "secondary" : "ghost"}
+              aria-label={value === "chat" ? "Chat view" : "Terminal view"}
+              aria-pressed={view.value === value && !changesCurrent}
+              disabled={changesCurrent || (value !== view.value && view.reason !== undefined)}
+              title={
+                value !== view.value
+                  ? (view.reason ?? hint("Switch view", "switch-view"))
+                  : undefined
+              }
+              onClick={() => {
+                if (value !== view.value) view.onSwitch();
+              }}
+            >
+              <Icon name={value === "chat" ? "chat" : "terminal"} />
+              {value === "chat" ? "Chat" : "Terminal"}
+            </Button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -153,7 +195,6 @@ function SessionTab({
   name: string;
   number: number | undefined;
   current: boolean;
-  /** The session stays current while the Changes tab shows: marked, but not the selected tab. */
   behind: boolean;
   hint: (label: string, action: ActionId) => string;
   onSelect: () => void;
@@ -163,96 +204,85 @@ function SessionTab({
   onRename: (opener?: HTMLElement) => void;
 }) {
   const { session } = entry;
-  const menuTrigger = useRef<HTMLButtonElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const running = session.state === "running";
   const { badge, note } = describeSessionState(session);
   const status = sessionStatus(session);
   const launch = compactLaunchLabel(session);
-  const launchDetails = session.launch ? launchLine(session)?.details : undefined;
-  const title = [launchDetails, status?.message, note].filter(Boolean).join("\n") || undefined;
-  // Working and blocked are what the glyph must carry; otherwise the session's kind shows.
+  const { observe, clipped } = useTruncatedText(name);
+  const title =
+    [
+      clipped ? name : undefined,
+      session.launch ? launchLine(session)?.details : undefined,
+      status?.message,
+      note,
+    ]
+      .filter(Boolean)
+      .join("\n") || undefined;
   const glyphState =
     status?.state === "working" || status?.state === "blocked" ? status : undefined;
-
   return (
-    <div className="group flex shrink-0 items-center">
-      <Button
-        role="tab"
-        aria-selected={current && !behind}
-        aria-current={behind ? "true" : undefined}
-        tabIndex={current ? 0 : -1}
-        variant={current ? "secondary" : "ghost"}
-        layout="tab"
-        aria-label={[name, launch, badge].filter(Boolean).join(" ")}
-        title={title}
-        data-session-id={entry.id}
-        onClick={onSelect}
-        onKeyDown={(event) => {
-          // Enter on the selected session that is not running starts it again.
-          if (event.key !== "Enter" || !current || running) return;
-          event.preventDefault();
-          onRestart();
-        }}
-      >
-        <span className="flex min-w-0 items-center gap-1.5">
-          {number !== undefined && (
-            <span className="text-xs text-muted-foreground" aria-hidden>
-              {number}
-            </span>
-          )}
-          {/* One 20 px slot either way: the status glyph's box and the kind icon must match,
-              or the tab shifts when a session starts working (`layout.md`, **Session tabs**). */}
-          <span className="flex w-5 shrink-0 items-center justify-center">
-            {glyphState ? (
-              <StatusIndicator status={glyphState} size="chrome" />
-            ) : (
-              <Icon
-                name={
-                  session.view === "chat" ? "chat" : session.kind === "shell" ? "terminal" : "agent"
-                }
-                size="chrome"
-              />
+    <RowMenu
+      label={`Session actions for ${name}`}
+      hint={clipped ? (title ?? name) : undefined}
+      trigger={
+        <Button
+          ref={trigger}
+          role="tab"
+          aria-selected={current && !behind}
+          aria-current={behind ? "true" : undefined}
+          tabIndex={current ? 0 : -1}
+          variant={current ? "secondary" : "ghost"}
+          layout="tab"
+          aria-label={[name, launch, badge].filter(Boolean).join(" ")}
+          title={clipped ? undefined : title}
+          data-session-id={entry.id}
+          onClick={onSelect}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && current && !running) {
+              event.preventDefault();
+              onRestart();
+            }
+          }}
+        >
+          <span className="flex min-w-0 items-center gap-1.5">
+            {number !== undefined && (
+              <span className="text-xs text-muted-foreground" aria-hidden>
+                {number}
+              </span>
             )}
+            <span className="flex w-5 shrink-0 items-center justify-center">
+              {glyphState ? (
+                <StatusIndicator status={glyphState} size="chrome" />
+              ) : (
+                <AgentIcon kind={session.kind} size="chrome" />
+              )}
+            </span>
+            <span
+              ref={observe}
+              className={running ? "min-w-0 truncate" : "min-w-0 truncate text-muted-foreground"}
+            >
+              {name}
+            </span>
           </span>
-          <span className={running ? "min-w-0 truncate" : "min-w-0 truncate text-muted-foreground"}>
-            {name}
-          </span>
-        </span>
-      </Button>
-      <span className={TAB_ACTIONS_CLASS}>
-        <IconButton
-          label={running ? `stop ${name}` : `restart ${name}`}
-          tooltip={
-            running
-              ? hint(`Stop ${name}`, "stop-session")
-              : hint(`Restart ${name}`, "restart-session")
-          }
-          icon={running ? "stop" : "restart"}
-          size="icon-xs"
-          onClick={running ? onStop : onRestart}
-        />
-        <OverflowMenu label={`Session actions for ${name}`} triggerRef={menuTrigger}>
-          <DropdownMenuItem
-            onClick={(event) => onRename(menuTrigger.current ?? event.currentTarget)}
-          >
-            Rename…
-          </DropdownMenuItem>
-          <DropdownMenuItem variant="destructive" onClick={onRemove}>
-            Remove session…
-          </DropdownMenuItem>
-        </OverflowMenu>
-        <IconButton
-          label={`Close ${name}`}
-          tooltip={`Close ${name} (asks first)`}
-          icon="close"
-          size="icon-xs"
-          onClick={onRemove}
-        />
-      </span>
-    </div>
+        </Button>
+      }
+    >
+      <DropdownMenuItem
+        title={hint(
+          running ? "Stop session" : "Restart session",
+          running ? "stop-session" : "restart-session",
+        )}
+        onClick={running ? onStop : onRestart}
+      >
+        {running ? `Stop ${name}` : `Restart ${name}`}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={(event) => onRename(trigger.current ?? event.currentTarget)}>
+        Rename…
+      </DropdownMenuItem>
+      <DropdownMenuItem variant="destructive" onClick={onRemove}>
+        Remove session…
+      </DropdownMenuItem>
+    </RowMenu>
   );
 }
-
-/** Stop, the menu and close appear on hover or focus, and stay while one of them has focus. */
-const TAB_ACTIONS_CLASS =
-  "flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100";

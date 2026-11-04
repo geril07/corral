@@ -35,7 +35,8 @@ test("an imported issue keeps its source when the app is opened again", async ({
   const composer = newTaskView(window);
   await expect(promptField(window)).toBeFocused();
   // "From issue…" expands its field in place; the import fills the prompt, not a separate title.
-  await composer.getByRole("button", { name: "From issue…" }).click();
+  await composer.getByRole("button", { name: "Task setup actions" }).click();
+  await window.getByRole("menuitem", { name: "From issue…" }).click();
   await composer
     .getByRole("textbox", { name: "Issue URL" })
     .fill("https://github.com/acme/app/issues/7");
@@ -49,8 +50,8 @@ test("an imported issue keeps its source when the app is opened again", async ({
 
   const openSource = async () => {
     await workspace(window)
-      .getByRole("button", { name: "Task actions for Imported issue" })
-      .click();
+      .getByRole("button", { name: /^Imported issue/ })
+      .click({ button: "right" });
     await window.getByRole("menuitem", { name: "View issue source…" }).click();
   };
   await expect(workspace(window).getByRole("button", { name: /^Imported issue/ })).toHaveAttribute(
@@ -74,8 +75,8 @@ test("an imported issue keeps its source when the app is opened again", async ({
     workspace(secondWindow).getByRole("button", { name: /^Imported issue/ }),
   ).toBeVisible();
   await workspace(secondWindow)
-    .getByRole("button", { name: "Task actions for Imported issue" })
-    .click();
+    .getByRole("button", { name: /^Imported issue/ })
+    .click({ button: "right" });
   await secondWindow.getByRole("menuitem", { name: "View issue source…" }).click();
   const reopenedSource = secondWindow.getByRole("dialog", { name: "Issue source" });
   await expect(reopenedSource.getByText("Original issue title")).toBeVisible();

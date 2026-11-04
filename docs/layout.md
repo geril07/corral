@@ -1,83 +1,82 @@
 # Layout
 
-Where things sit, how big they are and what each surface shows. Written on 2026-11-01 as a clean-slate revision: the user found the shipped screens unclear and delegated these taste decisions, to polish after they are built. Behavior: `design.md`; interaction rules: `ux.md`; kit rules: `ui-kit.md`. Numbers come from T3 Code (`../../oss/t3code/apps/web`) and Orca (`../../oss/orca/src/renderer`) where noted; both are MIT.
+The user accepted UI study 03 on 2026-11-03. It replaces the earlier stock-only clean-slate
+layout where they differ. T3 Code is the visual reference; Orca informs interactions.
+Behavior: `design.md`; interaction: `ux.md`; kit boundaries: `ui-kit.md`.
+Migration and remaining work: `plans/ui-overhaul.md`.
 
-Every choice the user may want to revisit is collected in **Review later** at the end.
-
-## What was wrong
-
-Observed on the stage-0 screenshots (`.e2e/shadcn/1024-workspace.png`, `.e2e/final-combined/screenshots/`):
-
-- A row of seven unlabeled icons tops the sidebar; nothing says which is "new task".
-- The main area has no header: nothing names the task, its branch or its status.
-- A three-level tree (project → task → session) spends the sidebar's width on indentation; the task title truncates to "Kit migratio…" beside a truncated branch.
-- The terminal touches the window edges.
-- New task is a tall form dialog; the work starts after six fields.
-
-The revision: the sidebar lists tasks, the main area shows one task with a header and its sessions as tabs, and a new task is a prompt in the main area.
+Dimensions below are nominal at 100% interface text scale, before OS/browser scaling.
 
 ## Shell
 
-```
-┌──────────────┬───────────────────────────────────────────────┐
-│ sidebar      │ task header                            40 px  │
-│ 264 px       ├───────────────────────────────────────────────┤
-│              │ session tabs                           32 px  │
-│ tasks        ├───────────────────────────────────────────────┤
-│              │                                               │
-│              │ terminal │ chat │ changes (stage C)           │
-│              │                                               │
-│ footer 36 px │                                               │
-└──────────────┴───────────────────────────────────────────────┘
-```
-
-- Two columns; no title bar of our own and no global status bar (the sidebar footer carries the little status there is).
-- **Sidebar**: default 264 px (T3 256, Orca 280), resizable 208–420 px by dragging its edge, width kept per device; double-click on the edge resets it. `prefix \` hides and shows it (width 0, main area takes everything). Below 1180 px window width it starts at 232 px.
-- **Main area** minimum 640 px (T3's reserve). A right panel is not part of stages A–C; diff is a tab (`plans/stage-c.md`, C4).
+- Two columns: resizable sidebar and one task workspace. No synthetic title bar or global
+  status bar. Independent shells are session tabs, never a separate chat dock.
+- Sidebar defaults to 264 px (232 px below 1180 px), drags between 208–420 px while reserving
+  at least 640 px for the main area, persists per device, resets on edge double-click.
+- The sidebar toggle is opposite the corral wordmark. While hidden it is in the main header;
+  `prefix \\` still works.
+- Two distinct rows remain visible for a task or draft: repository/task header (44 px),
+  then session navigation (40 px). A device setting puts the session row above or below content.
+  No rows are invented before the first repository is added.
 
 ## Sidebar
 
-**Header (44 px)**: a full-width "Search tasks" button with its key hint (`prefix f`) and a "New task" icon button (`prefix t`) beside it. Nothing else; add project, board and settings live in the palette, the footer and the project-mode group headers.
+- Wordmark/toggle header (44 px), then Search, grouping and New task (40 px).
+  Search's tooltip carries its effective chord without crowding the compact toolbar.
+- Group by project by default. Status grouping (Needs you, Working, Done) is still available
+  through its button and `prefix l`, remembered on this device.
+- Two-line task rows (52 px): status glyph, clipped title, relative time/attention word;
+  secondary metadata names the agent, worktree branch and, outside project groups, project.
+  Keep existing change counts and linked request state. Unseen completion stays marked.
+- Right-click / menu key / Shift+F10 opens secondary task actions. No action gutter takes
+  permanent width. Full names stay accessible and get a tooltip when clipped.
+- One Settled shelf is anchored below the active list, above the footer, across all projects.
+  It starts collapsed, expands in pages of six and has a separately scrolling list capped at
+  15 rem. A selected older task reveals itself, even beyond the first page, without resuming it.
+  General task search still includes settled history.
+- Loose terminals remain in Scratch when present.
+- Footer (36 px): Settings and Add project, exceptional connection/config notices, prefix hint
+  on the right (armed prefix remains visibly distinct).
 
-**Task rows** (two lines, 52 px; T3's 78 px rows are too tall for 5–10 tasks on a laptop, Orca's cards ~44–56 px):
+## Task header
 
-- Line 1: status glyph (12 px), title (`text-sm`, truncates), right slot: relative time ("4m"), or the status word when the task needs the user ("needs input", "error").
-- Line 2 (`text-xs`, muted): in flat mode the project name; then the branch only when the task has its own worktree; then the primary agent's name. Stage C appends `+12 −3` and a PR state when present.
-- Unseen completion: title in `font-semibold` plus a 6 px dot before the time. Selected: stock `secondary` background.
-- Sessions are not listed in the sidebar any more; they are tabs. A task with more than one session shows a small count on line 2.
+- Read-only repository/worktree-branch context, separator, task title; both truncate with their
+  complete accessible name and a tooltip. The draft names its actual repository and New task.
+- The repository label never secretly copies a path.
+- Keep existing nonzero change counts and linked pull-request badge; Changes is not redesigned.
+- A discoverable task overflow menu holds settle/unsettle, rename, explicit Copy workspace path,
+  imported issue source when present, and remove. No duplicate model or unexplained sync badge.
 
-**Flat mode** (default): sections with a header and count: **Needs you** (blocked or error), **Working**, **Done** (done or idle, newest first), **Settled** (collapsed). Empty sections are hidden.
-**Project mode**: one group per project (header: project name, its task count, a "new task here" icon on hover/focus), tasks inside by creation order, a collapsed Settled group per project.
-**Scratch**: loose terminals outside any task, one-line rows at the bottom, only when some exist.
+## Session tabs
 
-**Footer (36 px)**: connection state as a dot plus word only when not connected; the prefix indicator, which shows `alt+a` muted and turns into a highlighted "prefix…" pill while the prefix is armed (the one piece of feedback a prefix-keyboard app must give); Settings icon.
+- Content-width tabs, maximum 200 px, horizontally scrollable with the selected tab in view.
+  Number hints 1–9 retain their existing prefix bindings. A draft gets a draft indicator,
+  not a fake server session or a premature add-session action.
+- Real tool/shell logo in one stable slot; working/blocked status replaces it without shifting
+  the tab. Full label remains accessible and clipped labels get a focus/hover tooltip.
+- Stop/restart, rename and remove live in the context menu and palette, not three invisible
+  hover-action slots. A trailing + opens the same compact menu scale as task actions.
+- Chat/Terminal is in this row. It uses the existing driver capability and safe handoff action:
+  a busy handoff-only agent still asks before ending its turn, both-live agents keep running,
+  and shells/unsupported drivers explain why chat is unavailable. It is disabled on Changes.
 
-## Task header (40 px)
+## Terminal and chat
 
-- Left: title (`text-sm font-medium`, truncates; `prefix e` renames in place), then muted `project › branch` (branch only for worktree tasks; click copies the workspace path).
-- Right: status word with glyph, the primary agent and model as a muted badge, then icon actions: settle (`prefix d`) and an overflow menu (rename, remove, open source issue, copy path). Stage C adds `+12 −3` and the PR badge before the status.
-- No header for the new-task view or the empty state.
-
-## Session tabs (32 px)
-
-- One tab per session of the current task, in creation order. A tab: number hint (`1`–`9`, muted, `text-xs`), agent or shell icon (14 px) with the status glyph replacing it while working/blocked, label (session label or natural name: "pi", "shell 2"), close on hover/focus only.
-- Chat and terminal tabs look the same apart from a small chat glyph; `prefix v` (stage B) swaps one in place. For an agent whose driver keeps both views live (OpenCode, stage C) it opens the other frontend beside the running one instead: the tab, its number and its place stay, and the stored view says which frontend the main area shows, so the strip never holds two tabs for one session.
-- A trailing "+" opens a menu: shell, agent…, chat… (stage B); same as `prefix c` / `prefix s`.
-- Tabs take their content width up to 200 px, then truncate; overflow scrolls horizontally with the selected tab kept in view (Orca's model, no fixed width).
-
-## Terminal
-
-- Padding 8 px on every side inside the tab area (Orca defaults to 4 px; 8 px reads as intentional without wasting rows). Background is the same token as the main area, so the padding does not show as a frame.
-- Font stays 14 px mono, as today (`ux.md`, **Known limits**).
-
-## Chat (stage B)
-
-- Content lane 46 rem, centered (T3 and Orca both use exactly this).
-- User messages right-aligned in a muted bubble, max 80% of the lane, stock radius; assistant text unboxed, full lane width.
-- Reasoning: one muted line "Thinking…" / "Thought for 12s", expands in place.
-- Tool calls: one line each (`text-sm`, glyph, tool name, short argument, duration, status), expandable; expanded output monospace, max 16 rem tall with its own scroll (T3: `max-h-64`). Consecutive finished tool calls fold into "6 tool calls" until expanded. Diffs render expanded up to 20 lines, then fold.
-- Composer: at the bottom of the lane, overlaying the timeline's end; 2 lines minimum, grows to 13 rem, then scrolls (T3: `max-h-52`). One control row below the text: model and reasoning pickers on the left, queue/steer hint and send/abort on the right. Placeholder: "Ask pi…" (agent name).
-- A user request (a question the agent waits on) renders as the last timeline item with focus, above the composer.
+- Terminal retains 8 px padding, native xterm rendering, and independent 14 px mono text.
+- Chat keeps its centered 46 rem lane, right-aligned user bubble and unboxed assistant text.
+  Reasoning and tool calls keep their folds and independently bounded output/diffs.
+- New-task and chat prompts share the bordered composer surface and wrapping control row.
+  Send/steer/follow-up, abort and IME protection retain their existing semantics.
+  Repository/checkout/branch controls never belong to an existing-task chat composer.
+- One bounded picker serves creation, add-agent and live chat: tool/profile icon rail, searchable
+  model column and the selected model\'s thinking column. A live-chat popup anchors above its
+  control and fits available width/height; add-agent anchors to the session adder. Without an
+  anchor the same body uses a task dialog. Existing-chat model selection keeps it open; thinking
+  applies and closes. A new launch commits its native/configured model row. Current choices are marked.
+  Live catalogs and thinking come from the driver, not prototype fixtures. Before launch there
+  is only the configured/native default and an optional supported native model-ID override.
+  The right column explains why pre-launch thinking is unavailable.
+- No illustrative context usage, model availability or Full access permission appears as a fact.
 
 ## Changes (stage C)
 
@@ -91,51 +90,33 @@ The revision: the sidebar lists tasks, the main area shows one task with a heade
 
 ## New task view
 
-The composer is a view in the main area, not a dialog (T3's draft thread; Orca uses a dialog and its staged form is what the user disliked in Corral's).
+- Still a main-area composer, not a dialog. `prefix t` opens it; Escape returns to the
+  selected task. The task header and draft session row remain visible.
+- Prompt and agent/model, Chat/Terminal and Create controls share the composer. Project and
+  workspace setup sit below it, never in ongoing chat. Prompt starts the primary agent;
+  a title-only task starts no session. Optional title stays.
+- Chat is the built-in default; explicit global/project/view choices win and unsupported chat
+  falls back to terminal. Capability loading blocks prompt launches, not title-only creation.
+- From issue is a secondary Task setup actions menu entry, not an everyday creation control.
 
-- `prefix t` (or the sidebar button, or a project group's "+") shows it in the main area; Escape returns to the previously selected task.
-- Centered column 46 rem wide, vertically at about a third of the height. Prompt text area first and focused: 4 lines minimum, grows to 50% of the height. Placeholder: "What should the agent do?".
-- One row of compact pickers under it, each a stock combobox-trigger button showing its value: project, agent · model, workspace ("main tree" / "new worktree" / branch name), view (stage B). A muted line under the row shows where the defaults come from when they are a project override ("defaults from project settings").
-- "Title (optional)" and "From issue…" are text buttons under the pickers; they expand fields in place.
-- Enter creates; Shift+Enter is a newline. While a worktree waits for naming, the button reads "Creating…" and the input stays.
+## Settings
 
-## Empty states
+- A large categorized modal, bounded to 64 × 44 rem and the viewport minus 2 rem.
+  Its left category list selects one panel at a time. Each panel retains its own scroll
+  and disclosure state; Appearance does not mix editable device preferences with read-only config.
+- The route stays /settings, backed by a pathless workspace parent: opening it never destroys
+  terminal attachment, chat/new-task draft, selection, caret or scroll. Closing restores focus.
+  Background prefix bindings and completion seen marks pause while the modal is open.
+- Appearance edits device-local tab position and interface text scale (80–140%, default 100%
+  relative to system scale). Terminal text does not change.
+- Server config stays read-only: keys, task defaults, naming, project overrides, profiles,
+  agent capabilities and config problems. No server config writes or permission bypass.
 
-- **No project**: centered, 32 rem column: one line "Add a repository to start", an inline path field with its Add button, a muted hint that `config.toml` holds defaults. No hero art.
-- **No task selected** (projects exist): the new task view, prefilled with the most recently used project. The app never shows a blank main area.
-- **Task without sessions**: centered muted line "No sessions" and two buttons: start the agent again (with the task's agent choice), open a shell.
+## Empty states and scope
 
-## Status visuals
-
-- Glyph and word for every state (`ux.md` rule kept), plus color, because color is what makes a list scannable at a glance:
-  - working: spinner, `--status-working` (blue);
-  - needs you (blocked): question glyph, `--status-attention` (amber);
-  - error: alert glyph, stock `destructive`;
-  - done: check, `--status-done` (green), fades to muted once seen;
-  - idle: hollow dot, muted.
-- Three status tokens are added to the theme for dark and light; this is the one deliberate change to the stock-everything kit policy (`ui-kit.md`). Glyph sizes: 12 px in rows, 14 px in tabs and header.
-
-## Typography and density
-
-- Stock shadcn tokens, Geist, stock radius and controls stay (`ui-kit.md`). Density comes from layout: 52 px task rows, 32 px tabs, 40 px header, `text-xs` metadata, not from shrinking controls.
-- Dark only, as today.
-
-## Board and settings
-
-- Board stays a route, reached by `prefix b` and the palette; it loses its icon in the sidebar. Its future is a review item.
-- Settings is a page replacing the main area (sidebar stays), sections in a left list (Keys, Tasks & projects, Naming, Profiles, Agents), each read-only per `ux.md`.
-
-## Review later
-
-Decisions made here for the user to confirm or change after using them:
-
-1. Sessions as tabs only, removed from the sidebar.
-2. Flat mode as default, with sections Needs you / Working / Done / Settled.
-3. Two-line 52 px task rows and what line 2 shows.
-4. New task as a main-area view instead of a dialog; the empty state being that view.
-5. Status colors added to the stock theme (blue/amber/green).
-6. Terminal padding 8 px.
-7. Sidebar 264 px default, `prefix \` to hide.
-8. Prefix-armed pill in the sidebar footer as the only global status surface.
-9. Board demoted to palette/key only.
-10. Chat styling: right-aligned user bubbles, unboxed assistant, folded tool calls.
+- No repository: Add a repository to start with an inline path field and Add.
+- Repository but no selection: the new-task composer, never a blank main area.
+- Task without sessions: No sessions with Start agent / Open shell; its tab row still offers +.
+- Board stays a separate route, reached by key/palette.
+- Changes, path expansion/discovery/preview and backend launch/context capabilities are outside
+  this slice. The accepted prototype guides later work; its sample data does not authorize it.

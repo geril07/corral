@@ -241,7 +241,7 @@ test("a task created from a prompt starts in the configured root, under the proj
   const task = await api.tasks.create({
     projectId: project.id,
     prompt: "Fix the flaky login test",
-    agent: { kind: "claude" },
+    agent: { kind: "claude", view: "terminal" },
     workspace: { type: "new-branch" },
   });
 

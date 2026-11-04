@@ -8,7 +8,13 @@ import { createGitRepo } from "../../../test/git-repo.ts";
 import { writeConfig } from "../../../test/config-command.ts";
 import { prefixThen, realServerClients, screenText } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
-import { appWithProject, createTaskWithShell, sessionTabs } from "../../../test/task-flows.tsx";
+import {
+  openAgentSessionPicker,
+  appWithProject,
+  createTaskWithShell,
+  createTask,
+  sessionTabs,
+} from "../../../test/task-flows.tsx";
 import { describeLaunchError } from "./launch-error.ts";
 
 const { newClient } = realServerClients();
@@ -73,11 +79,11 @@ test("a named profile and a typed model reach the fake CLI and stay on the sessi
   await createTaskWithShell("Profiled");
   await applyConfig(client, PROFILES, 2);
 
-  await prefixThen("s");
+  await openAgentSessionPicker("terminal");
   await expect.element(picker()).toBeVisible();
   await picker().getByRole("radio", { name: "Claude gateway" }).click();
   await picker().getByRole("textbox", { name: "Model override" }).fill("claude-opus-4-1");
-  await picker().getByRole("button", { name: "Start session" }).click();
+  await picker().getByRole("option").last().click();
 
   await expect.element(picker()).not.toBeInTheDocument();
   const session = await startedAgent(client, "claude");
@@ -124,9 +130,9 @@ test("a native-default start carries no profile or model and never borrows the f
   await createTaskWithShell("Native");
   await applyConfig(client, PROFILES, 2);
 
-  await prefixThen("s");
+  await openAgentSessionPicker("terminal");
   await picker().getByRole("radio", { name: "claude" }).click();
-  await picker().getByRole("button", { name: "Start session" }).click();
+  await picker().getByRole("option").last().click();
 
   const session = await startedAgent(client, "claude");
   expect(session.launch).toBeNull();
@@ -144,9 +150,9 @@ test("a missing environment reference keeps the picker draft and says which vari
   await applyConfig(client, ENV_PROFILE, 1);
   const shells = client.sessions.getSnapshot().sessions.length;
 
-  await prefixThen("s");
+  await openAgentSessionPicker("terminal");
   await picker().getByRole("radio", { name: "Claude env" }).click();
-  await picker().getByRole("button", { name: "Start session" }).click();
+  await picker().getByRole("option").last().click();
 
   await expect
     .element(picker().getByRole("alert"))
@@ -156,7 +162,7 @@ test("a missing environment reference keeps the picker draft and says which vari
 
   // With the reference present, the same open picker completes the launch.
   await withServerEnv("PROFILE_MISSING_TOKEN", "not-a-real-token");
-  await picker().getByRole("button", { name: "Start session" }).click();
+  await picker().getByRole("option").last().click();
   await expect.element(picker()).not.toBeInTheDocument();
   const session = await startedAgent(client, "claude");
   expect(session.launch).toMatchObject({ profile: { id: "claude-env" } });
@@ -167,7 +173,7 @@ test("a profile removed from the live config cannot fall back to a native launch
   await createTaskWithShell("Live config");
   await applyConfig(client, PROFILES, 2);
 
-  await prefixThen("s");
+  await openAgentSessionPicker("terminal");
   await picker().getByRole("radio", { name: "Claude gateway" }).click();
   await picker().getByRole("textbox", { name: "Model override" }).fill("claude-opus-4-1");
   await applyConfig(
@@ -182,7 +188,7 @@ test("a profile removed from the live config cannot fall back to a native launch
   await expect
     .element(picker().getByRole("textbox", { name: "Model override" }))
     .toHaveValue("claude-opus-4-1");
-  const start = picker().getByRole("button", { name: "Start session" });
+  const start = picker().getByRole("option").last();
   await expect.element(start).toBeDisabled();
   const before = client.sessions.getSnapshot().sessions.length;
 
@@ -209,7 +215,7 @@ test("a profile revision change requires explicit reselect and launches the new 
   await createTaskWithShell("Revision");
   await applyConfig(client, PROFILES, 2);
 
-  await prefixThen("s");
+  await openAgentSessionPicker("terminal");
   await picker().getByRole("radio", { name: "Claude gateway" }).click();
   const before = client.config
     .getSnapshot()
@@ -230,7 +236,7 @@ test("a profile revision change requires explicit reselect and launches the new 
   await expect
     .element(picker().getByRole("alert"))
     .toMatchTextContent("changed in the config file");
-  const start = picker().getByRole("button", { name: "Start session" });
+  const start = picker().getByRole("option").last();
   await expect.element(start).toBeDisabled();
   const beforeCount = client.sessions.getSnapshot().sessions.length;
   picker().getByRole("radio", { name: "claude" }).element().focus();
@@ -375,4 +381,49 @@ test("OpenCode's missing model capability is refused by the server, not simulate
 
   expect(error).toMatchObject({ code: "LAUNCH_MODEL_UNSUPPORTED" });
   expect(describeLaunchError(error)).toBe("opencode has no model choice at launch.");
+});
+
+test("the live picker follows model-specific thinking and another profile starts a distinct chat", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Shared picker");
+  await applyConfig(
+    client,
+    '[profiles.pi-work]\nname = "pi work"\nagent = "pi"\nmodel = "stub-1"\n',
+    1,
+  );
+  await openAgentSessionPicker("chat");
+  await picker().getByRole("radio", { name: "pi", exact: true }).click();
+  await picker().getByRole("option").first().click();
+  await expect.element(page.getByRole("button", { name: "Model Stub One" })).toBeVisible();
+  const first = sessionOf(client, "pi");
+  expect(first).toMatchObject({ view: "chat", launch: null, terminalId: null });
+  const message = page.getByRole("textbox", { name: "Message" });
+  await message.fill("Keep the original chat draft");
+  await page.getByRole("button", { name: "Model Stub One" }).click();
+  const models = page.getByRole("dialog", { name: "Chat model" });
+  await models.getByRole("option", { name: /Stub Two/ }).click();
+  await expect.element(models).toBeVisible();
+  await expect.element(models.getByRole("button", { name: "max", exact: true })).toBeVisible();
+  await expect
+    .element(models.getByRole("button", { name: "low", exact: true }))
+    .not.toBeInTheDocument();
+  await models.getByRole("button", { name: "max", exact: true }).click();
+  await expect.element(models).not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: "Reasoning max" })).toBeVisible();
+  await expect.element(message).toHaveValue("Keep the original chat draft");
+  await expect.element(message).toHaveFocus();
+  await page.getByRole("button", { name: "Model Stub Two" }).click();
+  await models.getByRole("radio", { name: "pi work", exact: true }).click();
+  await expect.element(models.getByRole("toolbar", { name: "Thinking" })).not.toBeInTheDocument();
+  await models.getByRole("option").first().click();
+  await vi.waitFor(() => expect(client.sessions.getSnapshot().sessions).toHaveLength(2));
+  const second = client.sessions.getSnapshot().sessions.find((session) => session.id !== first.id)!;
+  expect(second).toMatchObject({
+    kind: "pi",
+    view: "chat",
+    launch: { profile: { id: "pi-work" }, model: "stub-1" },
+  });
+  await expect.element(message).toHaveValue("");
+  await sessionTabs().getByRole("tab").first().click();
+  await expect.element(message).toHaveValue("Keep the original chat draft");
 });

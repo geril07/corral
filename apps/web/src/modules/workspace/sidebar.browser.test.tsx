@@ -176,6 +176,39 @@ test("settled tasks stay collapsed until the group is opened", async () => {
   await expect.element(row("task old")).not.toBeInTheDocument();
 });
 
+test("one bottom shelf contains settled tasks from every project and reveals them in bounded pages", async () => {
+  const tasks = [
+    task("current"),
+    ...Array.from({ length: 14 }, (_, index) => ({
+      ...task(`settled-${index}`, "settled"),
+      projectId: index % 2 === 0 ? "p1" : "p2",
+    })),
+  ];
+  await renderSidebar({ taskId: "current" }, [], tasks).rendered;
+  const shelf = nav().getByRole("button", { name: "Settled (14)" });
+  await shelf.click();
+  expect(
+    nav()
+      .getByRole("button", { name: /^task settled-/ })
+      .elements(),
+  ).toHaveLength(6);
+  await nav().getByRole("button", { name: "Show more", exact: true }).click();
+  expect(
+    nav()
+      .getByRole("button", { name: /^task settled-/ })
+      .elements(),
+  ).toHaveLength(12);
+  await nav().getByRole("button", { name: "Show more", exact: true }).click();
+  expect(
+    nav()
+      .getByRole("button", { name: /^task settled-/ })
+      .elements(),
+  ).toHaveLength(14);
+  await expect
+    .element(nav().getByRole("button", { name: "Show more", exact: true }))
+    .not.toBeInTheDocument();
+});
+
 test("the group opens by itself while it holds the current task", async () => {
   await renderSidebar({ taskId: "old" }).rendered;
 
@@ -194,7 +227,7 @@ test("the header offers task search with its chord and a new task button", async
 
   await expect
     .element(nav().getByRole("button", { name: "Search tasks" }))
-    .toMatchTextContent("alt+a f");
+    .toHaveAttribute("title", "Search tasks · alt+a f");
   await nav().getByRole("button", { name: "Search tasks" }).click();
   expect(spies.onFindTask).toHaveBeenCalledOnce();
 
@@ -224,11 +257,11 @@ test("clicking reports what was picked", async () => {
   expect(spies.onSelectProject).toHaveBeenCalledWith(expect.objectContaining({ id: "p2" }));
 
   await row("task a").click();
-  await nav().getByRole("button", { name: "Task actions for task a" }).click();
+  await row("task a").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Settle task" }).click();
   expect(spies.onToggleSettle).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
 
-  await nav().getByRole("button", { name: "Task actions for task b" }).click();
+  await row("task b").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Remove task…" }).click();
   expect(spies.onRemoveTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
 
@@ -240,18 +273,18 @@ test("clicking reports what was picked", async () => {
   );
 
   await nav()
-    .getByRole("button", { name: /^Terminal actions for sh · / })
-    .click();
+    .getByRole("button", { name: /^sh · / })
+    .click({ button: "right" });
   await page.getByRole("menuitem", { name: "Close terminal…" }).click();
   expect(spies.onCloseTerminal).toHaveBeenCalledWith("loose");
 });
 
-test("a task's menu offers rename with the menu button as the dialog's opener", async () => {
+test("a task's context menu renames with its row as the dialog's opener", async () => {
   const { rendered, handlers: spies } = renderSidebar();
   await rendered;
-  const menu = nav().getByRole("button", { name: "Task actions for task a" });
+  const menu = row("task a");
 
-  await menu.click();
+  await menu.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Rename task…" }).click();
 
   expect(spies.onRenameTask).toHaveBeenCalledExactlyOnceWith(
@@ -264,12 +297,12 @@ test("a row's menu is gone before the next row opens its own", async () => {
   const { rendered, handlers: spies } = renderSidebar();
   await rendered;
 
-  await nav().getByRole("button", { name: "Task actions for task a" }).click();
+  await row("task a").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Settle task" }).click();
   expect(spies.onToggleSettle).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
 
   // Deliberately no wait for the first popup to leave the document before the next one opens.
-  await nav().getByRole("button", { name: "Task actions for task b" }).click();
+  await row("task b").click({ button: "right" });
   expect(page.getByRole("menu").elements()).toHaveLength(1);
   await page.getByRole("menuitem", { name: "Remove task…" }).click();
   expect(spies.onRemoveTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
@@ -296,7 +329,9 @@ test("a task shows its most urgent session status with a text alternative and th
   // Task a takes blocked, the most urgent of its sessions; task b is working.
   await expect.element(nav().getByRole("img", { name: "blocked · permission" })).toHaveLength(1);
   await expect.element(nav().getByRole("img", { name: "working" })).toHaveLength(1);
-  await expect.element(row("task a")).toHaveAttribute("title", "Run rm -rf build?");
+  await expect
+    .element(nav().getByRole("img", { name: "blocked · permission" }))
+    .toHaveAttribute("title", "blocked · permission: Run rm -rf build?");
   await expect.element(row("task b")).not.toHaveAttribute("title");
 });
 
@@ -381,9 +416,8 @@ test("a loose terminal shows the name the user gave it instead of its command an
   );
 
   await expect.element(nav().getByRole("button", { name: "build logs" })).toBeVisible();
-  await expect
-    .element(nav().getByRole("button", { name: "Terminal actions for build logs" }))
-    .toBeVisible();
+  await nav().getByRole("button", { name: "build logs" }).click({ button: "right" });
+  await expect.element(page.getByRole("menuitem", { name: "Close terminal…" })).toBeVisible();
   await expect.element(nav().getByRole("button", { name: /^sh · / })).not.toBeInTheDocument();
 });
 

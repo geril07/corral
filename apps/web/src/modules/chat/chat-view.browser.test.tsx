@@ -6,7 +6,7 @@ import { useCallback, useMemo } from "react";
 import { afterEach, expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
-import { ChatView } from "./chat-view.tsx";
+import { ChatViewHarness as ChatView } from "../../../test/chat-view-harness.tsx";
 import type { ChatFiles } from "./local-links.tsx";
 import { usePrefixMode } from "../keymap/index.ts";
 import { prefixThen } from "../../../test/real-client.ts";

@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test";
 import {
+  openAgentSessionPicker,
   addProject,
   createRepo,
   createTask,
@@ -28,8 +29,7 @@ test("an agent session is started, stopped and restarted, and a running one come
   const session = (name: string) => sessionTab(window, name);
 
   // Claude Code through the picker.
-  await window.keyboard.press("Alt+KeyA");
-  await window.keyboard.press("KeyS");
+  await openAgentSessionPicker(window, "terminal");
   const picker = window.getByRole("dialog", { name: "New agent session" });
   await expect(picker.getByRole("radio", { name: "claude" })).toBeFocused();
   await window.keyboard.press("Digit1");
@@ -65,8 +65,7 @@ test("an agent session is started, stopped and restarted, and a running one come
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
 
   // pi is started and then stopped: it must stay stopped across the restart.
-  await window.keyboard.press("Alt+KeyA");
-  await window.keyboard.press("KeyS");
+  await openAgentSessionPicker(window, "terminal");
   await expect(picker.getByRole("radio", { name: "claude" })).toBeFocused();
   await window.keyboard.press("Digit3");
   await expect(session("pi")).toHaveAttribute("aria-selected", "true");
@@ -132,8 +131,7 @@ test("two sessions of one task are tabs that switch by click and by key, and the
   // Sessions are not sidebar rows any more.
   await expect(workspace(window).getByRole("tab")).toHaveCount(0);
 
-  await window.keyboard.press("Alt+KeyA");
-  await window.keyboard.press("KeyS");
+  await openAgentSessionPicker(window, "terminal");
   await expect(window.getByRole("radio", { name: "claude" })).toBeFocused();
   await window.keyboard.press("Digit1");
   await expect(tabs.getByRole("tab")).toHaveCount(3);
@@ -143,7 +141,7 @@ test("two sessions of one task are tabs that switch by click and by key, and the
   // A header names the task, its project, its branch and its agent.
   const header = window.getByRole("group", { name: "task header" });
   await expect(header.getByRole("heading", { name: "Tabbed" })).toBeVisible();
-  await expect(header.getByRole("button", { name: /copy workspace path$/ })).toContainText(" › ");
+  await expect(header.locator("[data-task-repository]")).toContainText(" › ");
 
   // Clicking the shell's tab shows that terminal and leaves the keyboard with it.
   await sessionTab(window, "shell").click();

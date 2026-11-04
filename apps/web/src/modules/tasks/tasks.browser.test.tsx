@@ -130,7 +130,7 @@ test("prefix d settles the current task, which stops its shell, and again unsett
   const toggle = workspace().getByRole("button", { name: "Settled (1)" });
   await expect.element(toggle).toBeVisible();
   await expect.element(taskButton("Old news")).toHaveAttribute("aria-current", "true");
-  await workspace().getByRole("button", { name: "Task actions for Old news" }).click();
+  await taskButton("Old news").click({ button: "right" });
   await expect.element(page.getByRole("menuitem", { name: "Unsettle task" })).toBeVisible();
   await userEvent.keyboard("{Escape}");
   await vi.waitFor(() =>
@@ -141,7 +141,7 @@ test("prefix d settles the current task, which stops its shell, and again unsett
 
   await prefixThen("d");
   await expect.element(toggle).not.toBeInTheDocument();
-  await workspace().getByRole("button", { name: "Task actions for Old news" }).click();
+  await taskButton("Old news").click({ button: "right" });
   await expect.element(page.getByRole("menuitem", { name: "Settle task" })).toBeVisible();
   await userEvent.keyboard("{Escape}");
   await vi.waitFor(() =>

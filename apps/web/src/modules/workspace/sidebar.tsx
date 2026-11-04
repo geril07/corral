@@ -25,7 +25,7 @@ import type {
   TaskChanges,
   TerminalInfo,
 } from "@corral/protocol/rpc";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
 import { cn } from "../../common/lib/cn.ts";
 import {
@@ -34,9 +34,8 @@ import {
   IconButton,
   Icon,
   DropdownMenuItem,
-  OverflowMenu,
+  RowMenu,
   Hint,
-  Kbd,
   TreeIndent,
   TreeRow,
   useTruncatedText,
@@ -94,6 +93,8 @@ interface SidebarProps {
   /** `project` is set by a project group's "new task here"; absent from the header button. */
   onNewTask: (project?: Project, opener?: HTMLElement) => void;
   onFindTask: (opener?: HTMLElement) => void;
+  onToggleSidebar?: (() => void) | undefined;
+  onToggleGrouping?: (() => void) | undefined;
 }
 
 /**
@@ -127,6 +128,11 @@ export function Sidebar(props: SidebarProps) {
     <TaskRow
       key={node.task.id}
       node={node}
+      projectName={
+        node.task.state === "settled"
+          ? tree.projects.find((item) => item.project.id === node.task.projectId)?.project.name
+          : undefined
+      }
       selection={selection}
       changes={changes?.get(node.task.id)}
       pullRequest={pullRequests?.get(node.task.id)}
@@ -167,6 +173,7 @@ export function Sidebar(props: SidebarProps) {
     />
   );
 
+  const settled = flat?.settled ?? tree.projects.flatMap((project) => project.settled);
   const scratch = (
     <Scratch
       entries={tree.loose}
@@ -185,17 +192,31 @@ export function Sidebar(props: SidebarProps) {
       // Clicking must not take keyboard focus away from the terminal.
       onMouseDown={(event) => event.preventDefault()}
     >
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-1.5">
+      <div className="flex h-11 shrink-0 items-center justify-between px-3">
+        <span className="text-sm font-semibold tracking-tight">corral</span>
+        {props.onToggleSidebar && (
+          <IconButton label="Hide sidebar" icon="hide-sidebar" onClick={props.onToggleSidebar} />
+        )}
+      </div>
+      <div className="flex h-10 shrink-0 items-center gap-1 px-1.5">
         <Button
           variant="ghost"
           layout="tree"
           aria-label="Search tasks"
+          title={hint("Search tasks", "find-task")}
           onClick={(event) => props.onFindTask(event.currentTarget)}
         >
           <Icon name="find" />
-          <span className="min-w-0 flex-1 truncate text-left">Search tasks</span>
-          {config && <Kbd>{formatBinding(config, "find-task")}</Kbd>}
+          <span className="min-w-0 flex-1 truncate text-left">Search</span>
         </Button>
+        {props.onToggleGrouping && (
+          <IconButton
+            label={flat ? "Group tasks by project" : "Group tasks by status"}
+            tooltip={hint("Toggle sidebar grouping", "sidebar-mode")}
+            icon="grouping"
+            onClick={props.onToggleGrouping}
+          />
+        )}
         <IconButton
           label="New task"
           tooltip={hint("New task", "new-task")}
@@ -213,13 +234,6 @@ export function Sidebar(props: SidebarProps) {
                 <ul className="m-0 list-none p-0">{section.tasks.map(renderFlatTask)}</ul>
               </li>
             ))}
-            {flat.settled.length > 0 && (
-              <SettledGroup
-                items={flat.settled}
-                holdsCurrent={flat.settled.some(({ task }) => task.id === selection.taskId)}
-                renderItem={renderFlatTask}
-              />
-            )}
             {scratch}
           </ul>
         ) : (
@@ -240,6 +254,11 @@ export function Sidebar(props: SidebarProps) {
           </ul>
         )}
       </div>
+      {settled.length > 0 && (
+        <ul className="m-0 shrink-0 list-none p-0">
+          <SettledGroup items={settled} currentTaskId={selection.taskId} renderItem={renderTask} />
+        </ul>
+      )}
     </nav>
   );
 }
@@ -334,13 +353,16 @@ function TerminalRow({
   return (
     <li>
       <TreeRow current={current}>
-        {terminalClipped ? <Hint content={label}>{select}</Hint> : select}
-        <OverflowMenu label={`Terminal actions for ${label}`}>
+        <RowMenu
+          label={`Terminal actions for ${label}`}
+          hint={terminalClipped ? label : undefined}
+          trigger={select}
+        >
           {onRename && <DropdownMenuItem onClick={onRename}>Rename…</DropdownMenuItem>}
           <DropdownMenuItem variant="destructive" onClick={onClose}>
             Close terminal…
           </DropdownMenuItem>
-        </OverflowMenu>
+        </RowMenu>
       </TreeRow>
     </li>
   );
@@ -361,6 +383,7 @@ function TaskRow({
   pullRequest,
   now,
   row,
+  projectName,
   onSelect,
   onToggleSettle,
   onRemove,
@@ -374,6 +397,7 @@ function TaskRow({
   now: number;
   /** Absent in project mode, which derives the status and the unseen mark itself. */
   row?: FlatRowFacts | undefined;
+  projectName?: string | undefined;
   onSelect: () => void;
   onToggleSettle: () => void;
   onRemove: () => void;
@@ -387,7 +411,7 @@ function TaskRow({
   const agent = sessions.find(({ session }) => session.kind !== "shell")?.session.kind;
   const detail =
     [
-      row?.projectName,
+      row?.projectName ?? projectName,
       task.ownsWorktree ? task.branch : undefined,
       agent,
       sessions.length > 1 ? `${sessions.length} sessions` : undefined,
@@ -418,7 +442,8 @@ function TaskRow({
       // The second line lives in an overridden subtree, so the accessible name carries it.
       aria-label={detail === undefined ? task.title : `${task.title} — ${detail}`}
       aria-current={current ? "true" : undefined}
-      title={status?.message}
+      ref={menuTrigger}
+      title={titleClipped || detailClipped ? undefined : status?.message}
       onClick={onSelect}
     >
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -452,23 +477,20 @@ function TaskRow({
     <li>
       <TreeRow current={current}>
         <StatusIndicator status={status} muted={status?.state === "done" && !unseen} />
-        {titleClipped || detailClipped ? (
-          <Hint
-            content={
+        <RowMenu
+          label={`Task actions for ${task.title}`}
+          hint={
+            titleClipped || detailClipped ? (
               <span className="block">
                 <span className="block">{task.title}</span>
                 {detail !== undefined && (
                   <span className="block text-muted-foreground">{detail}</span>
                 )}
               </span>
-            }
-          >
-            {select}
-          </Hint>
-        ) : (
-          select
-        )}
-        <OverflowMenu label={`Task actions for ${task.title}`} triggerRef={menuTrigger}>
+            ) : undefined
+          }
+          trigger={select}
+        >
           {onViewSource && (
             <DropdownMenuItem
               onClick={(event) => onViewSource(menuTrigger.current ?? event.currentTarget)}
@@ -487,7 +509,7 @@ function TaskRow({
           <DropdownMenuItem variant="destructive" onClick={onRemove}>
             Remove task…
           </DropdownMenuItem>
-        </OverflowMenu>
+        </RowMenu>
       </TreeRow>
     </li>
   );
@@ -510,12 +532,11 @@ function ProjectGroup({
   onNewTask: (opener?: HTMLElement) => void;
   renderTask: (node: TaskNode) => React.ReactNode;
 }) {
-  const { project, active, settled } = node;
-  const holdsCurrent = [...active, ...settled].some(({ task }) => task.id === selection.taskId);
-  const settledCurrent = settled.some(({ task }) => task.id === selection.taskId);
+  const { project, active } = node;
+  const holdsCurrent = active.some(({ task }) => task.id === selection.taskId);
   const open = !collapsed || holdsCurrent;
-  const status = projectStatus(active, settled);
-  const count = active.length + settled.length;
+  const status = projectStatus(active);
+  const count = active.length;
   const {
     observe: observeProject,
     clipped: projectClipped,
@@ -558,31 +579,33 @@ function ProjectGroup({
           />
         </span>
       </TreeRow>
-      {open && (
-        <TreeIndent>
-          <ul>
-            {active.map(renderTask)}
-            {settled.length > 0 && (
-              <SettledGroup items={settled} holdsCurrent={settledCurrent} renderItem={renderTask} />
-            )}
-          </ul>
-        </TreeIndent>
-      )}
+      {open && <ul className="m-0 list-none p-0">{active.map(renderTask)}</ul>}
     </li>
   );
 }
 
-function SettledGroup<T>({
+function SettledGroup({
   items,
-  holdsCurrent,
+  currentTaskId,
   renderItem,
 }: {
-  items: readonly T[];
-  holdsCurrent: boolean;
-  renderItem: (item: T) => React.ReactNode;
+  items: readonly TaskNode[];
+  currentTaskId: string | null;
+  renderItem: (item: TaskNode) => React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [limit, setLimit] = useState(6);
+  const list = useRef<HTMLUListElement>(null);
+  const currentIndex = items.findIndex((item) => item.task.id === currentTaskId);
+  const holdsCurrent = currentIndex >= 0;
   const open = expanded || holdsCurrent;
+  const visible = Math.max(limit, currentIndex + 1);
+  useEffect(() => {
+    if (open && currentTaskId !== null)
+      list.current
+        ?.querySelector<HTMLElement>('[aria-current="true"]')
+        ?.scrollIntoView({ block: "nearest" });
+  }, [open, currentTaskId]);
   return (
     <li>
       <TreeRow>
@@ -599,18 +622,26 @@ function SettledGroup<T>({
           </span>
         </Button>
       </TreeRow>
-      {open && <ul>{items.map(renderItem)}</ul>}
+      {open && (
+        <>
+          <ul ref={list} className="m-0 max-h-60 list-none overflow-y-auto p-0">
+            {items.slice(0, visible).map(renderItem)}
+          </ul>
+          {visible < items.length && (
+            <Button variant="ghost" onClick={() => setLimit((each) => each + 6)}>
+              Show more
+            </Button>
+          )}
+        </>
+      )}
     </li>
   );
 }
 
 /** The most urgent status of a project, for the shelf header while it is collapsed. */
-function projectStatus(
-  active: readonly TaskNode[],
-  settled: readonly TaskNode[],
-): TaskStatus["status"] | undefined {
+function projectStatus(active: readonly TaskNode[]): TaskStatus["status"] | undefined {
   let best: TaskStatus["status"] | undefined;
-  for (const { sessions } of [...active, ...settled]) {
+  for (const { sessions } of active) {
     const status = taskStatus(sessions.map((entry) => entry.session))?.status;
     if (!status) continue;
     if (!best || compareStatuses(status, best) < 0) best = status;

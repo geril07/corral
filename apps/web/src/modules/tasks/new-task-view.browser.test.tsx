@@ -51,7 +51,15 @@ const form = () => page.getByRole("form", { name: "New task" });
 const prompt = () => form().getByRole("textbox", { name: "Prompt" });
 const title = () => form().getByRole("textbox", { name: "Title (optional)" });
 const createButton = () => form().getByRole("button", { name: /^(?:Create task|Creating…)$/ });
-const picker = (name: RegExp) => form().getByRole("combobox", { name });
+const picker = (name: RegExp) =>
+  name.source.startsWith("^Agent ")
+    ? form().getByRole("button", { name })
+    : form().getByRole("combobox", { name });
+const view = (name: "chat" | "terminal") => form().getByRole("button", { name: `Open in ${name}` });
+async function openIssue() {
+  await form().getByRole("button", { name: "Task setup actions" }).click();
+  await page.getByRole("menuitem", { name: "From issue…" }).click();
+}
 
 function configWith(
   tasks: Partial<ResolvedTaskSettings> = {},
@@ -73,6 +81,7 @@ function renderView({
   config = configWith(),
   profiles = [] as LaunchProfile[],
   chatDrivers = ["pi"] as AgentKind[],
+  capabilitiesReady = true,
   branches = Promise.resolve(["main", "feature/x"]),
   opened = 0,
   onCreate = vi.fn<(input: CreateTaskInput) => Promise<void>>(() => Promise.resolve()),
@@ -93,6 +102,7 @@ function renderView({
       config={config}
       profiles={profiles}
       chatDrivers={chatDrivers}
+      capabilitiesReady={capabilitiesReady}
       loadBranches={loadBranches}
       onCreate={onCreate}
       onResolveIssue={onResolveIssue}
@@ -114,7 +124,14 @@ function DraftHost({
 
 async function pick(name: RegExp, option: RegExp) {
   await userEvent.click(picker(name));
-  await page.getByRole("option", { name: option }).click();
+  if (name.source.startsWith("^Agent ")) {
+    const agentName = new RegExp(option.source.split(" · ")[0]!);
+    await page
+      .getByRole("dialog", { name: "Agent and model" })
+      .getByRole("radio", { name: agentName })
+      .click();
+    await userEvent.keyboard("{Escape}");
+  } else await page.getByRole("option", { name: option }).click();
 }
 
 test("the prompt takes the keyboard and Enter creates the task from it", async () => {
@@ -178,17 +195,17 @@ test("the pickers show the project's effective settings and a project switch re-
   const { rendered } = renderView({ projects: [repo, other], config });
   await rendered;
 
-  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · native default");
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · Agent default");
   await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace new worktree");
   await expect.element(page.getByText("defaults from project settings")).toBeVisible();
 
   // The agent is the user's own choice now; the workspace still follows the settings.
-  await pick(/^Agent /, /^opencode · native default$/);
-  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent opencode · native default");
+  await pick(/^Agent /, /^opencode · Agent default$/);
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent opencode · Agent default");
 
   await pick(/^Project /, /^other/);
   await expect.element(picker(/^Project /)).toHaveAccessibleName("Project other");
-  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent opencode · native default");
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent opencode · Agent default");
   await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace main tree");
   await expect.element(page.getByText("defaults from project settings")).not.toBeInTheDocument();
 });
@@ -224,7 +241,15 @@ test("an existing branch is picked from the workspace list with the keyboard", a
   await rendered;
   expect(loadBranches).toHaveBeenLastCalledWith("p1");
 
-  await userEvent.keyboard("Continue there{Tab}{Tab}{Tab}");
+  await userEvent.keyboard("Continue there");
+  for (
+    let step = 0;
+    step < 12 && document.activeElement !== picker(/^Workspace /).element();
+    step += 1
+  ) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- advance one real focus step at a time
+    await userEvent.keyboard("{Tab}");
+  }
   await expect.element(picker(/^Workspace /)).toHaveFocus();
   await userEvent.keyboard("{Enter}");
   // The popup's search field takes the keyboard and highlights the first match as it filters.
@@ -279,7 +304,9 @@ test("From issue… takes the keyboard into the issue field", async () => {
   await expect.element(prompt()).toHaveFocus();
 
   // Keyboard only: the text button, then Enter; the field it expands takes the focus.
-  form().getByRole("button", { name: "From issue…" }).element().focus();
+  form().getByRole("button", { name: "Task setup actions" }).element().focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("menuitem", { name: "From issue…" })).toHaveFocus();
   await userEvent.keyboard("{Enter}");
   await expect.element(form().getByRole("textbox", { name: "Issue URL" })).toHaveFocus();
 });
@@ -289,7 +316,7 @@ test("changing a project does not pull the keyboard into the issue field", async
   await rendered;
 
   // Expanding the section hands it the keyboard; a project change remounts it but must not steal it.
-  await form().getByRole("button", { name: "From issue…" }).click();
+  await openIssue();
   await expect.element(form().getByRole("textbox", { name: "Issue URL" })).toHaveFocus();
 
   await userEvent.click(picker(/^Project /));
@@ -308,9 +335,7 @@ test("re-picking the agent already shown keeps the configured model", async () =
   await rendered;
 
   await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · gpt-5-codex");
-  await userEvent.click(picker(/^Agent /));
-  // The list's entry for the settings' agent carries the same model as the trigger.
-  await page.getByRole("option", { name: "codex · gpt-5-codex" }).click();
+  await pick(/^Agent /, /^codex/);
   await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · gpt-5-codex");
 
   await prompt().click();
@@ -445,7 +470,7 @@ test("an imported issue fills the prompt with its title and link and keeps the s
   const { rendered, onCreate, onResolveIssue } = renderView();
   await rendered;
 
-  await form().getByRole("button", { name: "From issue…" }).click();
+  await openIssue();
   const url = form().getByRole("textbox", { name: "Issue URL" });
   await userEvent.fill(url, issue.url);
   expect(onResolveIssue).not.toHaveBeenCalled();
@@ -473,7 +498,7 @@ test("a prompt the user typed is not overwritten by an import", async () => {
   await rendered;
 
   await userEvent.keyboard("My own wording");
-  await form().getByRole("button", { name: "From issue…" }).click();
+  await openIssue();
   await userEvent.fill(form().getByRole("textbox", { name: "Issue URL" }), issue.url);
   await form().getByRole("button", { name: "Import issue" }).click();
   await expect.element(form().getByRole("status")).toBeVisible();
@@ -499,7 +524,7 @@ test("switching project drops a branch and an imported prompt, and keeps a typed
   await pick(/^Workspace /, /^feature\/x$/);
   await prompt().click();
   await userEvent.keyboard("Typed by me");
-  await form().getByRole("button", { name: "From issue…" }).click();
+  await openIssue();
   await userEvent.fill(form().getByRole("textbox", { name: "Issue URL" }), issue.url);
   await form().getByRole("button", { name: "Import issue" }).click();
   await expect.element(form().getByRole("status")).toBeVisible();
@@ -514,7 +539,7 @@ test("an imported prompt is dropped when the project changes", async () => {
   const { rendered } = renderView({ projects: [repo, other] });
   await rendered;
 
-  await form().getByRole("button", { name: "From issue…" }).click();
+  await openIssue();
   await userEvent.fill(form().getByRole("textbox", { name: "Issue URL" }), issue.url);
   await form().getByRole("button", { name: "Import issue" }).click();
   await expect.element(prompt()).toHaveValue(`Issue title\n\n${issue.url}`);
@@ -528,16 +553,13 @@ test("the view picker offers chat only for an agent with a chat driver", async (
   const { rendered, onCreate } = renderView({ config, chatDrivers: ["pi"] });
   await rendered;
 
-  await expect.element(picker(/^View /)).toHaveAccessibleName("View terminal");
-  await userEvent.click(picker(/^View /));
-  await expect.element(page.getByRole("option", { name: "chat" })).not.toBeInTheDocument();
-  await userEvent.keyboard("{Escape}");
+  await expect.element(view("terminal")).toHaveAttribute("aria-pressed", "true");
+  await expect.element(view("chat")).toBeDisabled();
 
   // pi reports a chat driver, so the same picker offers it and the task can open there.
   await pick(/^Agent /, /^pi/);
-  await userEvent.click(picker(/^View /));
-  await page.getByRole("option", { name: "chat" }).click();
-  await expect.element(picker(/^View /)).toHaveAccessibleName("View chat");
+  await view("chat").click();
+  await expect.element(view("chat")).toHaveAttribute("aria-pressed", "true");
 
   await prompt().click();
   await userEvent.keyboard("Say hello{Enter}");
@@ -559,12 +581,12 @@ test("a configured chat view applies, and an agent without a driver falls back t
   const { rendered, onCreate } = renderView({ config, chatDrivers: ["pi"] });
   await rendered;
 
-  await expect.element(picker(/^View /)).toHaveAccessibleName("View chat");
+  await expect.element(view("chat")).toHaveAttribute("aria-pressed", "true");
   await expect.element(form()).not.toMatchTextContent("needs an agent with a chat driver");
 
   // The picked agent has no driver: the view control moves to the terminal and says why.
   await pick(/^Agent /, /^claude/);
-  await expect.element(picker(/^View /)).toHaveAccessibleName("View terminal");
+  await expect.element(view("terminal")).toHaveAttribute("aria-pressed", "true");
   await expect.element(form()).toMatchTextContent("needs an agent with a chat driver");
 
   await prompt().click();
@@ -595,9 +617,106 @@ test("a disabled agent and its profiles disappear from the composer's pickers", 
   await rendered;
 
   // The default falls to the first agent still offered, and neither claude nor its profile is listed.
-  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · native default");
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · Agent default");
   await userEvent.click(picker(/^Agent /));
-  await expect.element(page.getByRole("option", { name: /^claude/ })).not.toBeInTheDocument();
-  await expect.element(page.getByRole("option", { name: /^Gateway/ })).not.toBeInTheDocument();
-  await expect.element(page.getByRole("option", { name: /^codex/ })).toBeVisible();
+  await expect.element(page.getByRole("radio", { name: /^claude/ })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("radio", { name: /^Gateway/ })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("radio", { name: /^codex/ })).toBeVisible();
+});
+
+test("a native model override preserves the prompt and an IME confirmation does not commit it", async () => {
+  const { rendered, onCreate } = renderView({
+    config: configWith({ agent: { value: "pi", source: "global" } }),
+  });
+  await rendered;
+  await prompt().fill("Keep this prompt");
+  await picker(/^Agent /).click();
+  const popup = page.getByRole("dialog", { name: "Agent and model" });
+  const model = popup.getByRole("textbox", { name: "Model override" });
+  await model.fill("bad model");
+  await expect.element(popup.getByRole("alert")).toMatchTextContent("native model id");
+  await model.fill("openai/model-x");
+  model.element().dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  model.element().dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+  await userEvent.keyboard("{Enter}");
+  await expect.element(popup).toBeVisible();
+  expect(onCreate).not.toHaveBeenCalled();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(popup).not.toBeInTheDocument();
+  await expect.element(prompt()).toHaveFocus();
+  await expect.element(prompt()).toHaveValue("Keep this prompt");
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() =>
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith({
+      projectId: "p1",
+      prompt: "Keep this prompt",
+      agent: { kind: "pi", model: "openai/model-x", view: "chat" },
+      workspace: { type: "main-worktree" },
+    }),
+  );
+});
+
+test("a chosen profile cannot silently change while a new-task draft is open", async () => {
+  const { rendered, onCreate } = renderView({ profiles: [gateway] });
+  const screen = await rendered;
+  await prompt().fill("Pinned profile");
+  await pick(/^Agent /, /^Gateway/);
+  await screen.rerender(
+    <DraftHost
+      projects={[repo]}
+      project={repo}
+      config={configWith()}
+      profiles={[{ ...gateway, revision: "2", model: "new-model" }]}
+      chatDrivers={["pi"]}
+      capabilitiesReady
+      loadBranches={async () => []}
+      onCreate={onCreate}
+      onResolveIssue={async () => issue}
+      onCancel={() => {}}
+      opened={0}
+    />,
+  );
+  await expect.element(form().getByRole("alert")).toMatchTextContent("changed in the config file");
+  await expect.element(createButton()).toBeDisabled();
+  await prompt().click();
+  await userEvent.keyboard("{Enter}");
+  expect(onCreate).not.toHaveBeenCalled();
+  await pick(/^Agent /, /^Gateway/);
+  await expect.element(form().getByRole("alert")).not.toBeInTheDocument();
+  await prompt().click();
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() =>
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith({
+      projectId: "p1",
+      prompt: "Pinned profile",
+      agent: {
+        kind: "claude",
+        profileId: "gateway",
+        expectedProfileRevision: "2",
+        view: "terminal",
+      },
+      workspace: { type: "main-worktree" },
+    }),
+  );
+});
+
+test("a prompt waits for driver capabilities but a title-only task needs no agent", async () => {
+  const { rendered, onCreate } = renderView({ capabilitiesReady: false });
+  await rendered;
+  await prompt().fill("Wait for capabilities");
+  await userEvent.keyboard("{Enter}");
+  expect(onCreate).not.toHaveBeenCalled();
+  await expect.element(createButton()).toBeDisabled();
+  await expect.element(form()).toMatchTextContent("Loading agent capabilities");
+  await prompt().fill("");
+  await form().getByRole("button", { name: "Title (optional)", exact: true }).click();
+  await title().fill("No session yet");
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() =>
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith({
+      projectId: "p1",
+      title: "No session yet",
+      workspace: { type: "main-worktree" },
+    }),
+  );
 });

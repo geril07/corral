@@ -4,20 +4,17 @@ Corral is a graphical, keyboard-first workspace for people who live in terminals
 Product behavior: `design.md`. Placement, sizes and surfaces: `layout.md`. Kit provenance, defaults and boundaries: `ui-kit.md`.
 Actual code/tests remain authoritative where older research described proposals.
 
-## Stock shadcn appearance
+## Appearance
 
-Use the official **default Base UI / Nova** preset and its canonical neutral theme,
-Geist typography, radius scale, component sizing, corners, hover/focus treatments
-and transitions. Dark mode is the starting mode; no theme-toggle feature is added.
-The former Corral blue palette, 13px body, 28px controls and custom dialog geometry
-are not policies: the user explicitly superseded appearance preservation with stock
-shadcn throughout the application.
+The approved T3-like study supersedes the earlier stock-only shadcn rule.
+Dark neutral surfaces, blue accents and restrained borders live in the shared kit;
+Base UI still owns accessible interaction and popup lifecycles. See `ui-kit.md`.
+Modules never skin controls with `className`; existing boundary and token gates stay on.
 
-Modules compose kit components and named structural variants, never skin controls
-with `className`. Structural page/tree grids and semantic content typography remain
-allowed. UI-boundary, AST class/control and token gates enforce this separation.
-A required variant must solve a current structural need, not hide the old skin.
-Stock primitive appearance remains identifiable; the permitted adaptations (no popup exit animations, one unpadded dialog footer, a wider row overflow menu, the hint delay) are listed in `ui-kit.md`.
+The migration is sliced in `plans/ui-overhaul.md`. Workspace chrome/settings and the shared
+composers/picker are implemented. Chat is the built-in launch default. No prototype-only catalogs,
+capabilities, permissions or context counters are production facts; pre-launch catalogs/thinking
+still need an explicit server contract.
 
 ## Target flow (stages A and B built)
 
@@ -41,7 +38,7 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
    aborted, and the palette says "Open the … view" instead of "Switch to …", so no confirmation is
    asked for a busy agent (stage C). Whether Codex's terminal is view-only while chat writes is
    measured when its driver starts.
-5. The sidebar lists tasks either flat by status (sections Needs you, Working and Done, plus a settled shelf; the default) or grouped by project; `prefix l` toggles the mode and the device keeps its choice. A task's status is the most urgent of its sessions', ordered: needs approval or input, error, working, completed and unseen, idle. "Completed and unseen" clears when the task is opened or its status changes while it is selected.
+5. The sidebar groups tasks by project by default, or flat by status (Needs you, Working and Done); both use one bottom settled shelf; `prefix l` toggles the mode and the device keeps its choice. A task's status is the most urgent of its sessions', ordered: needs approval or input, error, working, completed and unseen, idle. "Completed and unseen" clears when the task is opened or its status changes while it is selected.
 6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles.
 7. Settings carry the defaults the composer uses: view (global, overridable per project), workspace mode, worktree root, branch prefix, slug mode, naming agent/model; and the agents, whether each is found and which have a chat driver.
 
@@ -50,23 +47,23 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
 - Three places: the sidebar of tasks, the main area's task header and session tabs, and the
   session below them (`layout.md`). The sidebar is a fixed pane the user resizes; the terminal
   takes the rest of the main area. There is no title bar of our own and no global status bar.
-- The sidebar lists tasks only. Its 44 px header is task search with its chord plus a new-task
-  button; its 36 px footer carries the connection state while it is not connected, the
-  prefix-armed pill, config problems and Settings. It is 264 px by default (232 px below
+- The sidebar lists tasks only. A wordmark header has the sidebar toggle opposite it;
+  the next row has Search, grouping and New task. Its 36 px footer carries Settings, Add project,
+  connection state while disconnected, config problems and the prefix indicator. It is 264 px by default (232 px below
   1180 px), dragged between 208 and 420 px with the edge handle — and never so wide that the
   main area drops below its 640 px — kept per device, reset by a double click, and hidden or
   shown by `prefix \`.
-- Flat mode by status is the default (`prefix l` switches to project groups and the device keeps
-  the choice). Rows are the two-line 52 px task rows of `layout.md`; selection uses stock
+- Project grouping is the default (`prefix l` switches to status groups and the device keeps
+  the choice). The bottom Settled shelf spans projects, scrolls independently and pages six at a
+  time; selecting older history reveals it without resuming it. Rows are two-line 52 px tasks; selection uses
   secondary appearance plus `aria-current`, not a bespoke colored left bar. Titles and paths
   truncate without losing accessible names. Loose terminals sit in the Scratch section, one line
   each, and only while some exist.
-- The main area shows one task: a 40 px header (title, `project › branch`, status word with its
-  glyph, the primary agent and model, settle and the task menu), a 32 px tab strip with one tab
-  per session in creation order, and the selected session below. A tab shows its number hint, its
-  kind icon (replaced by the status glyph while working or blocked), its name, and — on hover or
-  focus — stop or restart, its menu and close; a trailing "+" offers a shell or an agent.
-  `prefix 1`–`9`, `prefix n`/`p` and clicks select tabs, and the selected tab stays in view.
+- The main area has two separate rows: repository/task header, then session tabs with a
+  Chat/Terminal switch and add-session menu. A draft also keeps both rows. Tabs may sit above
+  or below content (device preference). A tab shows its number, real tool logo or working/blocked
+  glyph, and its name; right-click or Shift+F10 opens stop/restart, rename and remove. No space
+  is reserved for invisible actions. `prefix 1`–`9` and `prefix n`/`p` still select.
   After the sessions, a `Changes` tab holds the task's changed files and finishes the task
   (`layout.md`, **Changes**): stage, commit, push to the named remote and open a pull request
   through the user's own `gh`/`glab`, every remote write confirmed by name and URL. While it is
@@ -79,8 +76,8 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
 - Clicking navigation, tabs or the task header must not take the keyboard from the terminal; a
   dialog returns focus to its opener and, failing that, to the terminal (see **Focus, keyboard
   and errors**).
-- Row actions use named icon buttons and menus. Session stop/restart, rename and remove live on
-  the session's tab and in the palette; renaming a session keeps `prefix shift+r`, removing it
+- Secondary task/session actions use context menus and the palette; the task header keeps a
+  discoverable overflow menu, and the tab row keeps its add-session menu; renaming a session keeps `prefix shift+r`, removing it
   asks first. Icons are Lucide's standard glyphs.
 - One scrolling region per pane. At 1024×640 and above all controls must be reachable. Long
   forms may scroll inside the stock dialog with a viewport-relative height cap; do not
@@ -89,15 +86,15 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
 ## Tasks, sessions and sources
 
 - Add project is a path dialog with inline errors. New task is the composer view in the main
-  area (`layout.md`, **New task view**), not a form dialog: a prompt, then project, agent · model
-  and workspace pickers prefilled from the effective settings, with an optional title and an
-  issue import that expand in place. Enter creates the task and starts its primary agent with the
+  area (`layout.md`, **New task view**), not a form dialog: a prompt and shared agent/model,
+  Chat/Terminal and Create row, then project/workspace setup prefilled from effective settings.
+  Optional title stays; issue import expands only through the Task setup actions menu. Enter creates the task and starts its primary agent with the
   prompt as its launch argument; a task created from the optional title alone starts no session,
   so it stays empty until a shell or an agent is added. Project changes clear project-specific
   import and branch state safely; issue import feeds the composer's prompt (the issue's title and
   link) and keeps its source snapshot as the task's title context.
-- Radio groups retain the stock stacked default. Provider/agent/workspace choices
-  use stock fields and labels, not custom selectable cards or row skins.
+- Ordinary radio groups retain the kit default. The shared model picker owns its compact
+  tool/profile icon rail; modules do not invent selectable cards or control skins.
 - Remove task retains the dirty-worktree second confirmation; keyed buttons prevent
   a single Enter from confirming both stages. No branches are deleted implicitly.
 - Rename is a focused dialog, the same one for a task's title, a session label and a loose terminal label. Session labels persist; loose terminal labels survive
@@ -109,7 +106,7 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
 ## Focus, keyboard and errors
 
 - Dialogs capture their opener, suspend prefix handling and restore the connected
-  opener, with the active terminal textarea as fallback. Keyboard-opened dialogs
+  opener, with the active chat/task composer or terminal textarea as fallback. Keyboard-opened dialogs
   capture the current target rather than reusing a previous pointer opener.
 - First input receives focus; destructive confirmation starts on Cancel. Escape and
   outside interaction use Base UI behavior; destructive outside clicks do not close.
@@ -133,11 +130,14 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
 - Chat keeps the composer semantics of the new-task view: Enter sends, Shift+Enter is a newline,
   and while a turn runs Enter steers and Ctrl/Cmd+Enter queues a follow-up (the composer says
   which). `prefix .` aborts the working turn and the palette lists the same action.
-- The chat's control row shows the model and reasoning level the driver reported; each opens a
-  keyboard-first list of what the driver offers (type to filter, Enter applies) and the same two
-  choosers are palette actions, `prefix m` for the model and `prefix shift+m` for the level. A
-  refused choice keeps the list open with a sentence naming the model or level the agent does not
-  offer. A terminal session has no model or level control.
+- The chat control row shows the driver-reported model and thinking level. Either opens the
+  same tool/profile → model → thinking picker; `prefix m` / `prefix shift+m` and palette actions
+  open it too. Type filters real models; Ctrl/Meta+1–9 selects visible offered rows. A model
+  applies without closing; old thinking levels disappear until that model is reported. Choosing
+  thinking applies and closes. A refused choice stays open with its error. Another tool/profile
+  starts a distinct session, never mutates the current launch or moves its unsent draft.
+  Before launch the picker offers native/configured defaults and supported native model IDs,
+  not a fabricated catalog or thinking levels. A terminal session has no live model control.
 - The composer's view control offers `terminal` always and `chat` only for an agent
   `chat.capabilities` reports a driver for. A `[tasks] view = "chat"` (or a project's) that names
   an agent without a driver is reported as a config warning and opens in the terminal; when the
@@ -203,11 +203,14 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
   the conflict.
 - Task search shares cmdk and the watched client task set. Enter inspects a result;
   inspecting settled history does not continue it. Continue is explicit.
-- Settings is read-only: actual config path, effective bindings, problems, profile
+- Settings is a large categorized modal over the mounted workspace, so drafts, selection, scroll,
+  terminal attachment and focus survive. Background prefix actions and seen marks pause while it
+  is open. Device-local Appearance controls tab position and interface text scale. Server settings
+  remain read-only: actual config path, effective bindings, problems, profile
   descriptors, the effective task defaults and naming, each project's overrides, and the agents
   (`[agents.<kind>]`: enabled, the command a launch runs, whether it is found, and whether this
   build has a chat driver).
-  `config.toml` remains the source of truth; no write controls are added.
+  `config.toml` remains the source of truth; no server-config write controls are added.
   Composer defaults (Target flow 7) are config entries too, overridable per project
   (`design.md` decision 17); Settings shows each effective value and where it came from
   (`default`, `global`, `project`), shows only the keys a project overrides, and says so
@@ -220,8 +223,8 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
 
 - Desktop support begins at 1024×640; smaller responsive layouts remain undecided.
 - Long values may truncate; names and effective summaries retain their full meaning.
-- Font +/-/reset exists in playtest but not Corral. Terminal text remains fixed at
-  14px; adding controls is separate scope. UI typography itself is stock shadcn.
+- Interface text scale is adjustable per device (80–140%, relative to OS/browser scale).
+  Terminal text remains independently fixed at 14 px; terminal font controls are separate scope.
 - Hover-only row actions and settings writes are not implied by this kit migration.
   Mid-session model and reasoning switching belongs to a chat driver; a terminal session has no
   such control.

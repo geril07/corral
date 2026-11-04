@@ -1,0 +1,3127 @@
+<!doctype html>
+<!-- THROWAWAY UI STUDY 03. One consolidated direction after user feedback.
+     Separate repository/task header; permanent session row, configurable top/bottom.
+     No live data, network, agent processes, filesystem operations, or persistence.
+     Open this file directly. The first three-layout study is archived in .e2e.
+Provider logo SVGs: T3 Code (Icons.tsx; provider-pi/provider-opencode client.ts).
+MIT License
+
+Copyright (c) 2026 T3 Tools Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Lucide glyph geometry: installed lucide-react, the icon family used by T3 Code.
+ISC License
+
+Copyright (c) 2026 Lucide Icons and Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+---
+
+The following Lucide icons are derived from the Feather project:
+
+airplay, alert-circle, alert-octagon, alert-triangle, aperture, arrow-down-circle, arrow-down-left, arrow-down-right, arrow-down, arrow-left-circle, arrow-left, arrow-right-circle, arrow-right, arrow-up-circle, arrow-up-left, arrow-up-right, arrow-up, at-sign, calendar, cast, check, chevron-down, chevron-left, chevron-right, chevron-up, chevrons-down, chevrons-left, chevrons-right, chevrons-up, circle, clipboard, clock, code, columns, command, compass, corner-down-left, corner-down-right, corner-left-down, corner-left-up, corner-right-down, corner-right-up, corner-up-left, corner-up-right, crosshair, database, divide-circle, divide-square, dollar-sign, download, external-link, feather, frown, hash, headphones, help-circle, info, italic, key, layout, life-buoy, link-2, link, loader, lock, log-in, log-out, maximize, meh, minimize, minimize-2, minus-circle, minus-square, minus, monitor, moon, more-horizontal, more-vertical, move, music, navigation-2, navigation, octagon, pause-circle, percent, plus-circle, plus-square, plus, power, radio, rss, search, server, share, shopping-bag, sidebar, smartphone, smile, square, table-2, tablet, target, terminal, trash-2, trash, triangle, tv, type, upload, x-circle, x-octagon, x-square, x, zoom-in, zoom-out
+
+The MIT License (MIT) (for the icons listed above)
+
+Copyright (c) 2013-present Cole Bemis
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Corral · UI study 03</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: var(--background, #050505);
+        --fg: var(--foreground, #ededed);
+        --dim: var(--muted-foreground, #929292);
+        --blue: var(--primary, #3976f6);
+        --on-blue: var(--primary-foreground, #ffffff);
+        --warn: var(--warning, #d9a15f);
+        --good: var(--success, #58c69d);
+        --bad: var(--destructive, #ed7777);
+        --claude-logo: var(--provider-claude-color, #d97757);
+        --surface: color-mix(in srgb, var(--bg) 96%, var(--fg));
+        --raised: color-mix(in srgb, var(--bg) 93%, var(--fg));
+        --hover: color-mix(in srgb, var(--bg) 90%, var(--fg));
+        --line: color-mix(in srgb, var(--fg) 8%, transparent);
+        --font: var(--font-sans, "Geist", system-ui, sans-serif);
+        --mono: var(--font-mono, ui-monospace, monospace);
+        --curve: var(--radius, 10px);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      html,
+      body {
+        margin: 0;
+        font-family: var(--font);
+        color: var(--fg);
+      }
+      button,
+      input,
+      textarea {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        cursor: pointer;
+        border: 0;
+        border-radius: 6px;
+        background: none;
+      }
+      button:hover {
+        background: var(--hover);
+      }
+      button:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible,
+      [tabindex]:focus-visible {
+        outline: 2px solid var(--blue);
+        outline-offset: 2px;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      svg {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+        vertical-align: middle;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      .study-caption {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 7px 0 11px;
+        font-size: 10px;
+        color: var(--dim);
+      }
+      .study-caption strong {
+        font-weight: 500;
+        color: var(--fg);
+      }
+      .app {
+        display: flex;
+        position: relative;
+        height: 710px;
+        overflow: hidden;
+        isolation: isolate;
+        font-size: 13px;
+      }
+      .sidebar {
+        flex: 0 0 clamp(168px, 22%, 236px);
+        min-width: 158px;
+        max-width: 40%;
+        background: var(--surface);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .app.sidebar-closed .sidebar,
+      .app.sidebar-closed .resize {
+        display: none;
+      }
+      .sidebar-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 40px;
+        padding: 0 9px 0 15px;
+        flex-shrink: 0;
+      }
+      .wordmark {
+        font-size: 13px;
+        font-weight: 570;
+        letter-spacing: -0.25px;
+      }
+      .icon-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 27px;
+        height: 27px;
+        padding: 0;
+        color: var(--dim);
+        flex-shrink: 0;
+      }
+      .icon-button svg {
+        width: 15px;
+        height: 15px;
+      }
+      .sidebar-tools {
+        display: flex;
+        gap: 2px;
+        align-items: center;
+        padding: 3px 8px 10px;
+        flex-shrink: 0;
+      }
+      .search-field {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+        flex: 1;
+        padding: 5px 6px;
+        color: var(--dim);
+        border-radius: 6px;
+      }
+      .search-field:focus-within {
+        background: var(--raised);
+      }
+      .search-field svg {
+        width: 15px;
+        height: 15px;
+      }
+      .search-field input {
+        border: 0;
+        outline: none;
+        min-width: 0;
+        width: 100%;
+        font-size: 12px;
+        background: none;
+        padding: 0;
+      }
+      .search-field input:focus-visible {
+        outline: none;
+      }
+      .search-field input::placeholder {
+        color: var(--dim);
+      }
+      .task-list {
+        min-height: 0;
+        flex: 1;
+        overflow: auto;
+        padding: 0 7px 6px;
+      }
+      .group-label {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        width: 100%;
+        padding: 9px 8px 6px;
+        color: var(--dim);
+        font-size: 10px;
+        text-align: left;
+      }
+      .group-label svg {
+        width: 11px;
+        height: 11px;
+      }
+      .count {
+        margin-left: auto;
+        color: var(--dim);
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+      }
+      .task-row {
+        width: 100%;
+        display: block;
+        text-align: left;
+        padding: 10px 9px;
+        margin: 2px 0;
+        border-radius: 8px;
+      }
+      .task-row.selected {
+        background: var(--hover);
+      }
+      .task-title {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+      }
+      .task-title .title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+      }
+      .dot {
+        display: inline-block;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        flex: 0 0 5px;
+        background: var(--dim);
+      }
+      .dot.working {
+        background: var(--blue);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 9%, transparent);
+      }
+      .dot.attention {
+        background: var(--warn);
+      }
+      .dot.done {
+        background: var(--good);
+      }
+      .task-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 6px;
+        color: var(--dim);
+        font-size: 10px;
+        margin: 5px 0 0 12px;
+      }
+      .task-meta span:first-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .task-meta .attention {
+        color: var(--warn);
+      }
+      .settled {
+        flex-shrink: 0;
+        padding: 0 7px;
+      }
+      .settled-toggle {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        width: 100%;
+        padding: 10px 8px;
+        color: var(--dim);
+        font-size: 11px;
+        text-align: left;
+      }
+      .settled-toggle svg {
+        width: 12px;
+        height: 12px;
+      }
+      .settled-scroll {
+        overflow: auto;
+        max-height: 205px;
+        padding-bottom: 4px;
+      }
+      .settled-scroll .task-row {
+        padding-top: 8px;
+        padding-bottom: 8px;
+      }
+      .more-settled {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px;
+        width: 100%;
+        font-size: 10px;
+        color: var(--dim);
+        text-align: left;
+      }
+      .more-settled svg {
+        width: 13px;
+        height: 13px;
+      }
+      .sidebar-footer {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px 8px;
+        height: 37px;
+        flex-shrink: 0;
+      }
+      .prefix {
+        margin-left: auto;
+        font-size: 9px;
+        color: var(--dim);
+        padding-right: 7px;
+      }
+      .resize {
+        width: 4px;
+        margin-left: -2px;
+        flex-shrink: 0;
+        cursor: col-resize;
+        z-index: 4;
+      }
+      .resize:hover,
+      .resize.dragging {
+        background: color-mix(in srgb, var(--blue) 45%, transparent);
+      }
+      .main {
+        min-width: 0;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+      }
+      .task-header {
+        height: 40px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 0 16px;
+      }
+      .breadcrumb {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-size: 12px;
+      }
+      .repo {
+        color: var(--dim);
+        white-space: nowrap;
+      }
+      .slash {
+        color: var(--dim);
+        opacity: 0.55;
+      }
+      .current-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 500;
+      }
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .header-actions .on {
+        color: var(--fg);
+        background: var(--raised);
+      }
+      .workspace {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .tab-row {
+        order: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 37px;
+        flex-shrink: 0;
+        padding: 0 11px 5px;
+      }
+      .tab-scroll {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        overflow-x: auto;
+        scrollbar-width: thin;
+      }
+      .session-tab {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 6px 9px;
+        font-size: 11px;
+        color: var(--dim);
+        flex-shrink: 0;
+        min-height: 29px;
+        max-width: 180px;
+      }
+      .session-tab.active {
+        background: var(--raised);
+        color: var(--fg);
+      }
+      .session-tab .tab-name {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .session-tab svg {
+        width: 13px;
+        height: 13px;
+      }
+      .session-tab .number {
+        color: var(--dim);
+        font-size: 9px;
+      }
+      .view-switch {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 2px;
+        border-radius: 6px;
+        background: var(--surface);
+        flex-shrink: 0;
+      }
+      .view-switch button {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 6px;
+        min-height: 24px;
+        font-size: 10px;
+        color: var(--dim);
+      }
+      .view-switch button.active {
+        background: var(--hover);
+        color: var(--fg);
+      }
+      .view-switch svg {
+        width: 12px;
+        height: 12px;
+      }
+      .bottom-tabs .tab-row {
+        order: 2;
+        padding: 6px 11px;
+        border-top: 1px solid var(--line);
+      }
+      .pane {
+        order: 1;
+        min-height: 0;
+        flex: 1;
+        display: flex;
+      }
+      .conversation {
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .transcript {
+        min-height: 0;
+        flex: 1;
+        overflow: auto;
+        padding: 30px 24px 20px;
+      }
+      .lane {
+        width: 100%;
+        max-width: 736px;
+        margin: 0 auto;
+      }
+      .user-message {
+        max-width: 86%;
+        width: fit-content;
+        padding: 12px 15px;
+        margin-left: auto;
+        background: var(--raised);
+        border-radius: 13px 13px 3px 13px;
+        font-size: 13px;
+        line-height: 1.75;
+      }
+      .assistant-message {
+        font-size: 13px;
+        line-height: 1.85;
+        margin-top: 26px;
+      }
+      .message-author {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 10px;
+        color: var(--dim);
+        margin-bottom: 12px;
+      }
+      .message-author svg {
+        width: 13px;
+        height: 13px;
+      }
+      .assistant-message ul {
+        margin: 9px 0 12px;
+        padding-left: 20px;
+      }
+      .tool-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--dim);
+        font-size: 10px;
+        padding: 4px 0;
+        margin-top: 13px;
+      }
+      .tool-button svg {
+        width: 12px;
+        height: 12px;
+      }
+      .tool-detail {
+        font: 10px/1.7 var(--mono);
+        color: var(--dim);
+        background: var(--surface);
+        border-radius: 7px;
+        padding: 10px;
+        white-space: pre-wrap;
+      }
+      .composer-dock {
+        flex-shrink: 0;
+        padding: 12px 22px 21px;
+      }
+      .composer {
+        padding: 14px 14px 10px;
+        border-radius: 15px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+      }
+      .composer:focus-within {
+        border-color: color-mix(in srgb, var(--blue) 34%, var(--line));
+      }
+      .prompt {
+        display: block;
+        width: 100%;
+        min-height: 66px;
+        max-height: 180px;
+        background: none;
+        border: 0;
+        outline: none !important;
+        resize: none;
+        padding: 0 1px 10px;
+        font-size: 13px;
+        line-height: 1.7;
+      }
+      .prompt::placeholder {
+        color: var(--dim);
+        opacity: 0.85;
+      }
+      .composer-controls {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .model-trigger {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 5px 3px;
+        min-width: 0;
+        font-size: 11px;
+      }
+      .model-trigger .model-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .model-trigger svg {
+        width: 14px;
+        height: 14px;
+      }
+      .model-trigger .thinking {
+        color: var(--dim);
+        white-space: nowrap;
+      }
+      .model-trigger .chevron {
+        width: 11px;
+        height: 11px;
+        color: var(--dim);
+      }
+      .send {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 29px;
+        height: 29px;
+        border-radius: 50%;
+        margin-left: auto;
+        background: var(--blue);
+        color: var(--on-blue);
+        flex-shrink: 0;
+      }
+      .send:hover {
+        background: color-mix(in srgb, var(--blue) 85%, var(--fg));
+      }
+      .send svg {
+        width: 17px;
+        height: 17px;
+      }
+      .new-task {
+        justify-content: center;
+        padding: 28px 26px 65px;
+        overflow: auto;
+      }
+      .new-task .composer-dock {
+        padding: 0;
+        width: 100%;
+      }
+      .new-task h1 {
+        font-size: 23px;
+        font-weight: 460;
+        letter-spacing: -0.5px;
+        text-align: center;
+        margin-bottom: 12px;
+      }
+      .new-task .subtitle {
+        text-align: center;
+        font-size: 11px;
+        color: var(--dim);
+        margin-bottom: 26px;
+      }
+      .new-task .prompt {
+        min-height: 108px;
+      }
+      .new-task-context {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 9px 2px 0;
+        color: var(--dim);
+      }
+      .new-task-context button {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 10px;
+        color: var(--dim);
+        padding: 4px 1px;
+        min-width: 0;
+      }
+      .new-task-context svg {
+        width: 12px;
+        height: 12px;
+      }
+      .new-task-context span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .title-field {
+        margin-bottom: 12px;
+        padding: 2px 2px 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      .title-field label {
+        font-size: 10px;
+        color: var(--dim);
+        display: block;
+        margin-bottom: 5px;
+      }
+      .title-field input {
+        border: 0;
+        background: none;
+        width: 100%;
+        font-size: 12px;
+        padding: 4px 0;
+      }
+      .terminal {
+        flex: 1;
+        min-width: 0;
+        padding: 20px 23px;
+        font: 12px/1.9 var(--mono);
+        overflow: auto;
+      }
+      .terminal .terminal-note {
+        font: 10px/1.8 var(--font);
+        color: var(--dim);
+        margin-bottom: 24px;
+      }
+      .terminal .terminal-name {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-bottom: 16px;
+      }
+      .empty {
+        margin: auto;
+        text-align: center;
+        color: var(--dim);
+        font-size: 12px;
+      }
+      .context-panel {
+        width: 205px;
+        flex-shrink: 0;
+        background: var(--surface);
+        padding: 18px 16px;
+        overflow: auto;
+      }
+      .context-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 30px;
+      }
+      .context-title h2 {
+        font-size: 11px;
+        font-weight: 500;
+      }
+      .context-panel label {
+        font-size: 10px;
+        color: var(--dim);
+      }
+      .context-percent {
+        margin: 8px 0 14px;
+        font-size: 32px;
+        font-weight: 430;
+        letter-spacing: -1px;
+      }
+      .context-meter {
+        height: 4px;
+        border-radius: 4px;
+        background: var(--hover);
+        overflow: hidden;
+      }
+      .context-meter span {
+        display: block;
+        height: 4px;
+        background: var(--blue);
+        border-radius: 4px;
+      }
+      .context-numbers {
+        display: flex;
+        justify-content: space-between;
+        color: var(--dim);
+        font-size: 10px;
+        margin: 10px 0 23px;
+      }
+      .context-note {
+        font-size: 10px;
+        line-height: 1.8;
+        color: var(--dim);
+        margin-top: 20px;
+      }
+      .context-model {
+        font-size: 11px;
+        margin-top: 6px;
+      }
+      .wide .lane {
+        max-width: none;
+      }
+      .brand-claude {
+        color: var(--claude-logo);
+      }
+      .popover {
+        position: absolute;
+        z-index: 40;
+        max-width: calc(100% - 16px);
+        max-height: calc(100% - 16px);
+        overflow: auto;
+        background: var(--raised);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        box-shadow: 0 12px 45px color-mix(in srgb, var(--bg) 65%, transparent);
+        font-size: 12px;
+      }
+      .menu {
+        width: 207px;
+        padding: 4px;
+      }
+      .menu-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 7px 8px;
+        font-size: 11px;
+        text-align: left;
+        min-height: 29px;
+      }
+      .menu-row svg {
+        width: 13px;
+        height: 13px;
+        color: var(--dim);
+      }
+      .menu-row .shortcut {
+        margin-left: auto;
+        color: var(--dim);
+        font-size: 9px;
+      }
+      .menu-row .check {
+        margin-left: auto;
+      }
+      .menu-caption {
+        padding: 7px 8px 5px;
+        color: var(--dim);
+        font-size: 9px;
+      }
+      .menu-separator {
+        border-top: 1px solid var(--line);
+        margin: 4px;
+      }
+      .danger {
+        color: var(--bad);
+      }
+      .model-picker {
+        width: 552px;
+        overflow: hidden;
+      }
+      .model-columns {
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr) 192px;
+        height: 346.5px;
+        max-height: calc(100% - 44px);
+      }
+      .agent-rail {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 7px 4px;
+        background: var(--surface);
+        overflow-y: auto;
+      }
+      .agent-choice {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 35px;
+        height: 35px;
+        flex-shrink: 0;
+        position: relative;
+        color: var(--dim);
+      }
+      .agent-choice svg {
+        width: 21px;
+        height: 21px;
+      }
+      .agent-choice.active {
+        color: var(--fg);
+      }
+      .agent-choice.active::after {
+        content: "";
+        position: absolute;
+        width: 3px;
+        height: 20px;
+        background: var(--blue);
+        border-radius: 3px;
+        right: -1px;
+      }
+      .rail-divider {
+        border-top: 1px solid var(--line);
+        margin: 2px 0;
+      }
+      .favorite-star {
+        fill: currentColor;
+      }
+      .instance-icon {
+        display: inline-flex;
+        position: relative;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 18px;
+        height: 18px;
+        color: var(--fg);
+      }
+      .instance-icon svg {
+        width: 100%;
+        height: 100%;
+      }
+      .agent-choice .instance-icon {
+        width: 23px;
+        height: 23px;
+      }
+      .instance-badge {
+        position: absolute;
+        right: -3px;
+        bottom: -3px;
+        padding: 0 1px;
+        background: var(--raised);
+        color: var(--dim);
+        font-size: 6px;
+        font-weight: 550;
+        line-height: 8px;
+        letter-spacing: -0.3px;
+      }
+      .model-list {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .model-search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 42px;
+        flex-shrink: 0;
+        padding: 0;
+        margin: 0 12px 7px;
+        border-bottom: 1px solid var(--line);
+      }
+      .model-search svg {
+        width: 14px;
+        height: 14px;
+        color: var(--dim);
+      }
+      .model-search input {
+        min-width: 0;
+        width: 100%;
+        border: 0;
+        outline: none;
+        background: none;
+        padding: 3px 0;
+        font-size: 13px;
+      }
+      .model-search input:focus-visible {
+        outline: none;
+      }
+      .model-options {
+        padding: 0 5px 8px;
+        overflow-y: auto;
+        flex: 1;
+        min-height: 0;
+      }
+      .model-option {
+        display: grid;
+        grid-template-columns: 17px minmax(0, 1fr) minmax(0, 1.05fr) auto 14px;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        text-align: left;
+        padding: 7px 8px;
+        font-size: 13px;
+        min-height: 34px;
+      }
+      .model-option .instance-icon {
+        width: 15px;
+        height: 15px;
+      }
+      .model-option .instance-badge {
+        right: -3px;
+        bottom: -3px;
+        font-size: 5px;
+        line-height: 7px;
+      }
+      .model-option .name,
+      .model-provider {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .model-provider {
+        color: var(--dim);
+        opacity: 0.8;
+        font-size: 11px;
+      }
+      .model-shortcut {
+        font-size: 10px;
+        padding: 1px 4px;
+        white-space: nowrap;
+        background: var(--hover);
+      }
+      .model-option .check {
+        width: 12px;
+        height: 12px;
+        color: var(--fg);
+        opacity: 0.8;
+      }
+      .model-option .check-slot {
+        width: 14px;
+      }
+      .thinking-column {
+        min-width: 0;
+        border-left: 1px solid var(--line);
+        padding: 0 4px 8px;
+        overflow-y: auto;
+      }
+      .thinking-heading {
+        height: 42px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 8px 7px;
+        border-bottom: 1px solid var(--line);
+      }
+      .thinking-heading h3 {
+        font-size: 13px;
+        font-weight: 400;
+        color: var(--dim);
+      }
+      .thinking-model {
+        margin-left: auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 12px;
+        color: var(--dim);
+      }
+      .thinking-option {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        width: 100%;
+        text-align: left;
+        padding: 7px 12px;
+        min-height: 33.5px;
+        font-size: 13px;
+      }
+      .thinking-option .level {
+        flex: 1;
+        min-width: 0;
+      }
+      .thinking-option svg {
+        width: 13px;
+        height: 13px;
+        opacity: 0.85;
+      }
+      .thinking-default {
+        font-size: 11px;
+        color: var(--dim);
+      }
+      .picker-footer {
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding: 0 16px;
+        border-top: 1px solid var(--line);
+      }
+      .picker-permissions {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--dim);
+        font-size: 12px;
+      }
+      .picker-permissions svg {
+        width: 14px;
+        height: 14px;
+      }
+      .wide-picker {
+        width: 350px;
+      }
+      .popup-search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 11px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .popup-search svg {
+        width: 14px;
+        height: 14px;
+        color: var(--dim);
+      }
+      .popup-search input {
+        width: 100%;
+        border: 0;
+        background: none;
+        outline: none;
+        min-width: 0;
+        font-size: 11px;
+      }
+      .popup-options {
+        padding: 5px;
+        max-height: 260px;
+        overflow: auto;
+      }
+      .detail-row {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        width: 100%;
+        padding: 9px;
+        text-align: left;
+      }
+      .detail-row > svg {
+        width: 14px;
+        height: 14px;
+        color: var(--dim);
+      }
+      .detail-copy {
+        display: flex;
+        flex: 1;
+        min-width: 0;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 11px;
+        overflow-wrap: anywhere;
+      }
+      .detail-copy small {
+        font-size: 9px;
+        color: var(--dim);
+        line-height: 1.6;
+      }
+      .popup-note {
+        padding: 9px 12px;
+        border-top: 1px solid var(--line);
+        color: var(--dim);
+        font-size: 9px;
+        line-height: 1.7;
+      }
+      .toast {
+        position: absolute;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: max-content;
+        max-width: 85%;
+        padding: 9px 13px;
+        background: var(--raised);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font-size: 11px;
+        z-index: 50;
+        box-shadow: 0 6px 25px color-mix(in srgb, var(--bg) 60%, transparent);
+      }
+      .study-footer {
+        font-size: 10px;
+        color: var(--dim);
+        line-height: 1.8;
+        padding: 11px 0 2px;
+      }
+      .study-state {
+        color: var(--dim);
+        font-size: 10px;
+        margin-top: 5px;
+      }
+      .study-state summary {
+        cursor: pointer;
+        padding: 3px 0;
+      }
+      .study-state pre {
+        font: 10px/1.6 var(--mono);
+        white-space: pre-wrap;
+        padding: 12px;
+        background: var(--surface);
+        border-radius: var(--curve);
+      }
+      dialog {
+        color: var(--fg);
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 15px;
+        padding: 0;
+        box-shadow: 0 22px 80px color-mix(in srgb, var(--bg) 70%, transparent);
+      }
+      dialog::backdrop {
+        background: color-mix(in srgb, var(--bg) 65%, transparent);
+        backdrop-filter: blur(4px);
+      }
+      .settings {
+        height: 100%;
+        display: grid;
+        grid-template-columns: 173px minmax(0, 1fr);
+        font: 12px var(--font);
+      }
+      .settings-nav {
+        background: var(--surface);
+        padding: 16px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .settings-nav h2 {
+        padding: 9px 10px 20px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .settings-nav button {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 9px 10px;
+        text-align: left;
+        font-size: 11px;
+        color: var(--dim);
+      }
+      .settings-nav button.active {
+        background: var(--hover);
+        color: var(--fg);
+      }
+      .settings-nav svg {
+        width: 14px;
+        height: 14px;
+      }
+      .settings-nav .note {
+        margin-top: auto;
+        padding: 12px 10px;
+        font-size: 9px;
+        line-height: 1.8;
+        color: var(--dim);
+      }
+      .settings-main {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .settings-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        height: 46px;
+        flex-shrink: 0;
+        padding: 0 20px;
+        border-bottom: 1px solid var(--line);
+        font-size: 11px;
+      }
+      .settings-header span:first-child {
+        color: var(--dim);
+      }
+      .settings-header .icon-button {
+        margin-left: auto;
+      }
+      .settings-content {
+        padding: 25px 28px;
+        overflow: auto;
+      }
+      .settings-intro {
+        font-size: 10px;
+        line-height: 1.8;
+        color: var(--dim);
+        margin-bottom: 24px;
+      }
+      .setting-section {
+        margin-bottom: 26px;
+      }
+      .setting-section h3 {
+        font-size: 12px;
+        font-weight: 500;
+        margin-bottom: 11px;
+        padding-left: 13px;
+      }
+      .setting-group {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        overflow: hidden;
+      }
+      .setting-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 14px;
+        line-height: 1.6;
+      }
+      .setting-row + .setting-row {
+        border-top: 1px solid var(--line);
+      }
+      .setting-copy {
+        min-width: 0;
+        flex: 1;
+        font-size: 11px;
+      }
+      .setting-copy p {
+        color: var(--dim);
+        font-size: 9px;
+        margin-top: 4px;
+      }
+      .setting-value {
+        max-width: 52%;
+        text-align: right;
+        overflow-wrap: anywhere;
+        font-size: 10px;
+      }
+      .setting-value small {
+        display: block;
+        color: var(--dim);
+        font-size: 9px;
+        margin-top: 3px;
+      }
+      .setting-switch {
+        display: inline-flex;
+        gap: 2px;
+        background: var(--raised);
+        padding: 3px;
+        border-radius: 7px;
+      }
+      .setting-switch button {
+        padding: 5px 8px;
+        font-size: 10px;
+        color: var(--dim);
+      }
+      .setting-switch button.active {
+        background: var(--hover);
+        color: var(--fg);
+      }
+      .zoom-controls {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+      }
+      .zoom-controls button {
+        width: 26px;
+        height: 26px;
+        background: var(--raised);
+      }
+      .zoom-controls output {
+        min-width: 34px;
+        text-align: center;
+      }
+      kbd {
+        background: var(--hover);
+        border-radius: 4px;
+        padding: 3px 5px;
+        font: 9px var(--font);
+        color: var(--dim);
+      }
+      .small-dialog {
+        width: min(360px, calc(100% - 40px));
+        padding: 21px;
+      }
+      .small-dialog h2 {
+        font-size: 14px;
+        font-weight: 500;
+        margin-bottom: 17px;
+      }
+      .small-dialog p {
+        color: var(--dim);
+        font-size: 11px;
+        line-height: 1.8;
+        margin-bottom: 17px;
+      }
+      .small-dialog input {
+        width: 100%;
+        padding: 9px 10px;
+        border: 1px solid var(--line);
+        background: var(--surface);
+        border-radius: 7px;
+        font-size: 12px;
+      }
+      .dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 7px;
+        margin-top: 20px;
+      }
+      .dialog-actions button {
+        padding: 7px 10px;
+        font-size: 11px;
+      }
+      .dialog-actions .primary {
+        background: var(--blue);
+        color: var(--on-blue);
+      }
+      @media (min-width: 1100px) {
+        .app {
+          height: 840px;
+        }
+        .transcript {
+          padding-top: 44px;
+        }
+        .composer-dock {
+          padding-bottom: 25px;
+        }
+        .new-task {
+          padding-bottom: 105px;
+        }
+      }
+      @media (max-width: 900px) {
+        .context-panel {
+          width: 174px;
+          padding: 16px 12px;
+        }
+        .view-switch .view-label {
+          display: none;
+        }
+        .task-header {
+          padding: 0 12px;
+        }
+      }
+      @media (max-width: 740px) {
+        .context-panel {
+          position: absolute;
+          right: 0;
+          top: 0;
+          bottom: 0;
+          width: 195px;
+          z-index: 10;
+          box-shadow: -12px 0 30px color-mix(in srgb, var(--bg) 50%, transparent);
+        }
+        .pane {
+          position: relative;
+        }
+        .settings {
+          grid-template-columns: 137px minmax(0, 1fr);
+        }
+        .settings-content {
+          padding: 22px 17px;
+        }
+        .settings-nav button {
+          font-size: 10px;
+          padding: 9px 7px;
+          gap: 6px;
+        }
+        .settings-nav h2 {
+          padding-left: 7px;
+        }
+        .composer-dock {
+          padding: 10px 16px 17px;
+        }
+        .transcript {
+          padding: 25px 18px;
+        }
+        .tab-row {
+          gap: 3px;
+          padding-left: 9px;
+          padding-right: 9px;
+        }
+      }
+      @media (max-width: 520px) {
+        .sidebar {
+          flex-basis: 158px;
+          min-width: 140px;
+        }
+        .settings {
+          grid-template-columns: 110px minmax(0, 1fr);
+        }
+        .settings-nav svg {
+          display: none;
+        }
+        .settings-content {
+          padding: 18px 12px;
+        }
+        .setting-row {
+          flex-wrap: wrap;
+          gap: 10px;
+        }
+        .setting-value {
+          max-width: 100%;
+          text-align: left;
+        }
+        .new-task {
+          padding-left: 16px;
+          padding-right: 16px;
+        }
+        .study-caption {
+          font-size: 9px;
+        }
+        .study-caption span {
+          max-width: 60%;
+          text-align: right;
+        }
+        .model-columns {
+          grid-template-columns: 40px minmax(0, 1fr) 112px;
+        }
+        .agent-rail {
+          padding: 7px 3px;
+        }
+        .agent-choice {
+          width: 32px;
+        }
+        .model-option {
+          grid-template-columns: 16px minmax(0, 1fr) 12px;
+          gap: 6px;
+        }
+        .model-provider,
+        .model-shortcut {
+          display: none;
+        }
+        .thinking-option {
+          padding-left: 8px;
+          padding-right: 8px;
+        }
+        .thinking-model {
+          max-width: 44px;
+        }
+        .tab-row {
+          flex-wrap: nowrap;
+        }
+        .session-tab {
+          max-width: 120px;
+          padding-left: 7px;
+          padding-right: 7px;
+          gap: 5px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="study-caption">
+      <strong>Corral / study 03</strong><span>Sample data · no agents run · no files change</span>
+    </div>
+    <div id="app" class="app"></div>
+    <p class="study-footer">
+      Hover clipped names for the full title. Favorites, tool profiles, catalogs, context, and
+      permission state are examples only. Sending still uses the button; the shortcut is undecided.
+    </p>
+    <details class="study-state">
+      <summary id="state-label">Preview state</summary>
+      <pre id="state-json"></pre>
+    </details>
+    <dialog id="settings-dialog" aria-label="Settings">
+      <div id="settings-root" class="settings"></div>
+    </dialog>
+    <dialog id="edit-dialog" class="small-dialog" aria-label="Edit preview item"></dialog>
+    <script>
+      (() => {
+        const iconNodes = {
+          search: [
+            ["path", { d: "m21 21-4.34-4.34", key: "14j7rj" }],
+            ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
+          ],
+          "square-pen": [
+            [
+              "path",
+              { d: "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7", key: "1m0v6g" },
+            ],
+            [
+              "path",
+              {
+                d: "M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z",
+                key: "ohrbg2",
+              },
+            ],
+          ],
+          "panel-left-close": [
+            ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
+            ["path", { d: "M9 3v18", key: "fh3hqa" }],
+            ["path", { d: "m16 15-3-3 3-3", key: "14y99z" }],
+          ],
+          "panel-left-open": [
+            ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
+            ["path", { d: "M9 3v18", key: "fh3hqa" }],
+            ["path", { d: "m14 9 3 3-3 3", key: "8010ee" }],
+          ],
+          "message-square": [
+            [
+              "path",
+              {
+                d: "M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z",
+                key: "18887p",
+              },
+            ],
+          ],
+          "square-terminal": [
+            ["path", { d: "m7 11 2-2-2-2", key: "1lz0vl" }],
+            ["path", { d: "M11 13h4", key: "1p7l4v" }],
+            [
+              "rect",
+              { width: "18", height: "18", x: "3", y: "3", rx: "2", ry: "2", key: "1m3agn" },
+            ],
+          ],
+          plus: [
+            ["path", { d: "M5 12h14", key: "1ays0h" }],
+            ["path", { d: "M12 5v14", key: "s699le" }],
+          ],
+          ellipsis: [
+            ["circle", { cx: "12", cy: "12", r: "1", key: "41hilf" }],
+            ["circle", { cx: "19", cy: "12", r: "1", key: "1wjl8i" }],
+            ["circle", { cx: "5", cy: "12", r: "1", key: "1pcz8c" }],
+          ],
+          "chevron-down": [["path", { d: "m6 9 6 6 6-6", key: "qrunsl" }]],
+          "chevron-right": [["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]],
+          "chevron-up": [["path", { d: "m18 15-6-6-6 6", key: "153udz" }]],
+          x: [
+            ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
+            ["path", { d: "m6 6 12 12", key: "d8bk6v" }],
+          ],
+          "sliders-horizontal": [
+            ["path", { d: "M10 5H3", key: "1qgfaw" }],
+            ["path", { d: "M12 19H3", key: "yhmn1j" }],
+            ["path", { d: "M14 3v4", key: "1sua03" }],
+            ["path", { d: "M16 17v4", key: "1q0r14" }],
+            ["path", { d: "M21 12h-9", key: "1o4lsq" }],
+            ["path", { d: "M21 19h-5", key: "1rlt1p" }],
+            ["path", { d: "M21 5h-7", key: "1oszz2" }],
+            ["path", { d: "M8 10v4", key: "tgpxqk" }],
+            ["path", { d: "M8 12H3", key: "a7s4jb" }],
+          ],
+          folder: [
+            [
+              "path",
+              {
+                d: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z",
+                key: "1kt360",
+              },
+            ],
+          ],
+          "git-branch": [
+            ["path", { d: "M15 6a9 9 0 0 0-9 9V3", key: "1cii5b" }],
+            ["circle", { cx: "18", cy: "6", r: "3", key: "1h7g24" }],
+            ["circle", { cx: "6", cy: "18", r: "3", key: "fqmcym" }],
+          ],
+          "settings-2": [
+            ["path", { d: "M14 17H5", key: "gfn3mx" }],
+            ["path", { d: "M19 7h-9", key: "6i9tg" }],
+            ["circle", { cx: "17", cy: "17", r: "3", key: "18b49y" }],
+            ["circle", { cx: "7", cy: "7", r: "3", key: "dfmy0x" }],
+          ],
+          "panel-right": [
+            ["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }],
+            ["path", { d: "M15 3v18", key: "14nvp0" }],
+          ],
+          "arrow-up": [
+            ["path", { d: "m5 12 7-7 7 7", key: "hav0vg" }],
+            ["path", { d: "M12 19V5", key: "x0mq9r" }],
+          ],
+          check: [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]],
+          archive: [
+            ["rect", { width: "20", height: "5", x: "2", y: "3", rx: "1", key: "1wp1u1" }],
+            ["path", { d: "M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8", key: "1s80jp" }],
+            ["path", { d: "M10 12h4", key: "a56b0p" }],
+          ],
+          keyboard: [
+            ["path", { d: "M10 8h.01", key: "1r9ogq" }],
+            ["path", { d: "M12 12h.01", key: "1mp3jc" }],
+            ["path", { d: "M14 8h.01", key: "1primd" }],
+            ["path", { d: "M16 12h.01", key: "1l6xoz" }],
+            ["path", { d: "M18 8h.01", key: "emo2bl" }],
+            ["path", { d: "M6 8h.01", key: "x9i8wu" }],
+            ["path", { d: "M7 16h10", key: "wp8him" }],
+            ["path", { d: "M8 12h.01", key: "czm47f" }],
+            ["rect", { width: "20", height: "16", x: "2", y: "4", rx: "2", key: "18n3k1" }],
+          ],
+          palette: [
+            [
+              "path",
+              {
+                d: "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z",
+                key: "e79jfc",
+              },
+            ],
+            ["circle", { cx: "13.5", cy: "6.5", r: ".5", fill: "currentColor", key: "1okk4w" }],
+            ["circle", { cx: "17.5", cy: "10.5", r: ".5", fill: "currentColor", key: "f64h9f" }],
+            ["circle", { cx: "6.5", cy: "12.5", r: ".5", fill: "currentColor", key: "qy21gx" }],
+            ["circle", { cx: "8.5", cy: "7.5", r: ".5", fill: "currentColor", key: "fotxhn" }],
+          ],
+          "file-text": [
+            [
+              "path",
+              {
+                d: "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z",
+                key: "1oefj6",
+              },
+            ],
+            ["path", { d: "M14 2v5a1 1 0 0 0 1 1h5", key: "wfsgrz" }],
+            ["path", { d: "M10 9H8", key: "b1mrlr" }],
+            ["path", { d: "M16 13H8", key: "t4e002" }],
+            ["path", { d: "M16 17H8", key: "z1uh3a" }],
+          ],
+          square: [["rect", { width: "18", height: "18", x: "3", y: "3", rx: "2", key: "afitv7" }]],
+          "rotate-ccw": [
+            ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
+            ["path", { d: "M3 3v5h5", key: "1xhq8a" }],
+          ],
+          settings: [
+            [
+              "path",
+              {
+                d: "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915",
+                key: "1i5ecw",
+              },
+            ],
+            ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }],
+          ],
+          star: [
+            [
+              "path",
+              {
+                d: "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z",
+                key: "r04s7s",
+              },
+            ],
+          ],
+          "shield-off": [
+            ["path", { d: "m2 2 20 20", key: "1ooewy" }],
+            [
+              "path",
+              {
+                d: "M5 5a1 1 0 0 0-1 1v7c0 5 3.5 7.5 7.67 8.94a1 1 0 0 0 .67.01c2.35-.82 4.48-1.97 5.9-3.71",
+                key: "1jlk70",
+              },
+            ],
+            [
+              "path",
+              {
+                d: "M9.309 3.652A12.252 12.252 0 0 0 11.24 2.28a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1v7a9.784 9.784 0 0 1-.08 1.264",
+                key: "18rp1v",
+              },
+            ],
+          ],
+        };
+        const brands = {
+          codex: {
+            viewBox: "100 100 411 411",
+            d: "M252.794 108.802C289.191 99.0484 326.265 110.305 351.148 135.135C385.113 126.072 422.85 134.862 449.492 161.505C476.136 188.149 484.925 225.888 475.862 259.85V259.854C500.696 284.735 511.95 321.81 502.198 358.207C492.447 394.602 464.161 421.084 430.215 430.217C421.083 464.162 394.603 492.448 358.206 502.199C321.812 511.951 284.734 500.693 259.852 475.864C225.887 484.927 188.15 476.137 161.507 449.495C134.864 422.851 126.073 385.111 135.136 351.149C110.304 326.266 99.0496 289.192 108.801 252.795C118.552 216.4 146.84 189.918 180.784 180.785C189.917 146.841 216.396 118.553 252.794 108.802ZM374.292 407.145C374.292 411.271 372.092 415.086 368.517 417.148L283.723 466.102C302.487 480.585 327.555 486.459 352.217 479.852C386.997 470.532 410.068 439.312 410.555 405.006V317.717C410.555 315.08 409.125 312.621 406.843 311.303L374.292 292.509V407.145ZM251.868 415.897C248.296 417.959 243.893 417.959 240.317 415.897L155.526 366.942C152.366 390.436 159.811 415.08 177.866 433.136H177.863C203.325 458.594 241.896 462.962 271.85 446.232L347.449 402.586C349.735 401.268 351.148 398.8 351.148 396.163V358.579L251.868 415.897ZM368.602 220.628C366.319 219.309 363.474 219.318 361.191 220.637L328.641 239.431L427.921 296.749C431.496 298.811 433.697 302.627 433.697 306.752V404.661C455.622 395.654 473.244 376.881 479.851 352.218C489.169 317.442 473.668 281.85 444.201 264.274L368.602 220.628ZM177.303 206.34C155.377 215.348 137.756 234.122 131.148 258.783C121.832 293.561 137.331 329.153 166.799 346.727L242.398 390.373C244.68 391.692 247.525 391.684 249.807 390.366L282.357 371.572L183.078 314.253C179.504 312.189 177.303 308.375 177.303 304.251V206.34ZM259.849 279.145V331.858L305.5 358.213L351.15 331.858V279.145L305.5 252.789L259.849 279.145ZM327.276 144.9C308.512 130.418 283.445 124.543 258.782 131.15C224.002 140.471 200.931 171.691 200.445 205.995V293.286C200.445 295.923 201.875 298.381 204.158 299.7L236.707 318.493V203.856C236.707 199.731 238.909 195.916 242.483 193.853L327.276 144.9ZM433.137 177.867C407.675 152.407 369.103 148.038 339.149 164.769L263.55 208.415C261.265 209.734 259.852 212.202 259.852 214.838V252.423L359.132 195.105C362.703 193.041 367.108 193.041 370.682 195.105L455.473 244.06C458.635 220.567 451.189 195.922 433.135 177.867H433.137Z",
+            fillRule: "evenodd",
+          },
+          claude: {
+            viewBox: "0 0 256 257",
+            d: "m50.228 170.321 50.357-28.257.843-2.463-.843-1.361h-2.462l-8.426-.518-28.775-.778-24.952-1.037-24.175-1.296-6.092-1.297L0 125.796l.583-3.759 5.12-3.434 7.324.648 16.202 1.101 24.304 1.685 17.629 1.037 26.118 2.722h4.148l.583-1.685-1.426-1.037-1.101-1.037-25.147-17.045-27.22-18.017-14.258-10.37-7.713-5.25-3.888-4.925-1.685-10.758 7-7.713 9.397.649 2.398.648 9.527 7.323 20.35 15.75L94.817 91.9l3.889 3.24 1.555-1.102.195-.777-1.75-2.917-14.453-26.118-15.425-26.572-6.87-11.018-1.814-6.61c-.648-2.723-1.102-4.991-1.102-7.778l7.972-10.823L71.42 0 82.05 1.426l4.472 3.888 6.61 15.101 10.694 23.786 16.591 32.34 4.861 9.592 2.592 8.879.973 2.722h1.685v-1.556l1.36-18.211 2.528-22.36 2.463-28.776.843-8.1 4.018-9.722 7.971-5.25 6.222 2.981 5.12 7.324-.713 4.73-3.046 19.768-5.962 30.98-3.889 20.739h2.268l2.593-2.593 10.499-13.934 17.628-22.036 7.778-8.749 9.073-9.657 5.833-4.601h11.018l8.1 12.055-3.628 12.443-11.342 14.388-9.398 12.184-13.48 18.147-8.426 14.518.778 1.166 2.01-.194 30.46-6.481 16.462-2.982 19.637-3.37 8.88 4.148.971 4.213-3.5 8.62-20.998 5.184-24.628 4.926-36.682 8.685-.454.324.519.648 16.526 1.555 7.065.389h17.304l32.21 2.398 8.426 5.574 5.055 6.805-.843 5.184-12.962 6.611-17.498-4.148-40.83-9.721-14-3.5h-1.944v1.167l11.666 11.406 21.387 19.314 26.767 24.887 1.36 6.157-3.434 4.86-3.63-.518-23.526-17.693-9.073-7.972-20.545-17.304h-1.36v1.814l4.73 6.935 25.017 37.59 1.296 11.536-1.814 3.76-6.481 2.268-7.13-1.297-14.647-20.544-15.1-23.138-12.185-20.739-1.49.843-7.194 77.448-3.37 3.953-7.778 2.981-6.48-4.925-3.436-7.972 3.435-15.749 4.148-20.544 3.37-16.333 3.046-20.285 1.815-6.74-.13-.454-1.49.194-15.295 20.999-23.267 31.433-18.406 19.702-4.407 1.75-7.648-3.954.713-7.064 4.277-6.286 25.47-32.405 15.36-20.092 9.917-11.6-.065-1.686h-.583L44.07 198.125l-12.055 1.555-5.185-4.86.648-7.972 2.463-2.593 20.35-13.999-.064.065Z",
+          },
+          pi: {
+            viewBox: "165.29 165.29 469.43 469.43",
+            paths: [
+              "M165.29 165.29H517.36V400H400V517.36H282.65V634.72H165.29ZM282.65 282.65V400H400V282.65Z",
+              "M517.36 400H634.72V634.72H517.36Z",
+            ],
+          },
+          opencode: {
+            viewBox: "0 0 32 40",
+            paths: ["M24 32H8V16H24V32Z", "M24 8H8V32H24V8ZM32 40H0V0H32V40Z"],
+          },
+        };
+        const escape = (value) =>
+          String(value).replace(
+            /[&<>"']/g,
+            (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+          );
+        const glyph = (name, extra = "") =>
+          `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ${extra}>${(
+            iconNodes[name] || iconNodes["square"]
+          )
+            .map(
+              ([tag, attrs]) =>
+                `<${tag} ${Object.entries(attrs)
+                  .filter(([key]) => key !== "key")
+                  .map(([key, value]) => `${key}="${escape(value)}"`)
+                  .join(" ")} />`,
+            )
+            .join("")}</svg>`;
+        function brand(id) {
+          const item = brands[id];
+          if (!item) return glyph("square-terminal");
+          return `<svg viewBox="${item.viewBox}" fill="currentColor" aria-hidden="true" class="brand-${id}">${(item.paths || [item.d]).map((d, i) => `<path d="${d}" fill-rule="${item.fillRule || (id === "pi" ? "evenodd" : "nonzero")}"${id === "opencode" && i === 0 ? ' opacity=".35"' : ""}/>`).join("")}</svg>`;
+        }
+        const agentNames = {
+          claude: "Claude Code",
+          codex: "Codex",
+          pi: "pi",
+          opencode: "OpenCode",
+        };
+        // Illustrative catalogs only, not an assertion of installed models or driver support.
+        const catalogs = {
+          claude: [
+            {
+              id: "sonnet",
+              name: "Sonnet",
+              provider: "claude",
+              levels: ["Low", "Medium", "High", "Max"],
+            },
+            {
+              id: "opus",
+              name: "Opus",
+              provider: "claude",
+              levels: ["Low", "Medium", "High", "Max"],
+            },
+            { id: "haiku", name: "Haiku", provider: "claude", levels: ["Off"] },
+          ],
+          codex: [
+            {
+              id: "gpt-5.4",
+              name: "GPT-5.4",
+              provider: "codex",
+              levels: ["Low", "Medium", "High", "Extra High"],
+            },
+            {
+              id: "gpt-5.3-codex",
+              name: "GPT-5.3 Codex",
+              provider: "codex",
+              levels: ["Low", "Medium", "High", "Extra High"],
+            },
+          ],
+          pi: [
+            {
+              id: "openai-codex/gpt-6.1-sol",
+              name: "GPT-6.1 Sol",
+              shortName: "6.1 Sol",
+              provider: "codex",
+              providerId: "openai-codex",
+              levels: ["Minimal", "Low", "Medium", "High", "Extra High", "Max"],
+              defaultThinking: "Low",
+            },
+            {
+              id: "opencode-go/deepseek-v4.1-flash",
+              name: "DeepSeek V4.1 Flash",
+              shortName: "DeepSeek V4.1",
+              provider: "opencode",
+              providerId: "opencode-go",
+              levels: ["Low", "Medium", "High"],
+              defaultThinking: "High",
+            },
+            {
+              id: "anthropic/sonnet",
+              name: "Sonnet",
+              provider: "claude",
+              levels: ["Off", "Low", "Medium", "High"],
+            },
+            {
+              id: "anthropic/opus",
+              name: "Opus",
+              provider: "claude",
+              levels: ["Off", "Low", "Medium", "High"],
+            },
+          ],
+          opencode: [
+            {
+              id: "anthropic/sonnet",
+              name: "Sonnet",
+              provider: "claude",
+              levels: ["Low", "Medium", "High"],
+            },
+            {
+              id: "openai/gpt-5.4",
+              name: "GPT-5.4",
+              provider: "codex",
+              levels: ["Low", "Medium", "High"],
+            },
+          ],
+        };
+        const instances = [
+          { id: "codex", tool: "codex", label: "Codex", badge: "" },
+          { id: "claude", tool: "claude", label: "Claude Code · Local", badge: "CL" },
+          { id: "claude-work", tool: "claude", label: "Claude Code · Work", badge: "CW" },
+          { id: "opencode", tool: "opencode", label: "OpenCode · Personal", badge: "OP" },
+          { id: "opencode-work", tool: "opencode", label: "OpenCode · Work", badge: "OW" },
+          { id: "pi", tool: "pi", label: "pi · Personal", badge: "PI" },
+          { id: "pi-work", tool: "pi", label: "pi · Work", badge: "PW" },
+        ];
+        const favorites = [
+          { instance: "pi", model: "openai-codex/gpt-6.1-sol" },
+          { instance: "pi", model: "opencode-go/deepseek-v4.1-flash" },
+        ];
+        const instanceIcon = (id) => {
+          const instance = instances.find((item) => item.id === id) || instances[0];
+          return `<span class="instance-icon">${brand(instance.tool)}${instance.badge ? `<span class="instance-badge">${instance.badge}</span>` : ""}</span>`;
+        };
+        let serial = 0;
+        const makeAgent = (tool = "claude") => ({
+          id: "session-" + ++serial,
+          kind: "agent",
+          tool,
+          instance: tool,
+          model: catalogs[tool][0].id,
+          thinking: "High",
+          view: "chat",
+          label: agentNames[tool],
+          draft: "",
+          context: 76000,
+          limit: 200000,
+        });
+        const projects = [
+          { name: "dotfiles", path: "~/code/my/dotfiles" },
+          { name: "corral", path: "~/code/my/corral" },
+          {
+            name: "a-repository-with-a-long-name",
+            path: "~/code/work/a-repository-with-a-long-name",
+          },
+        ];
+        const tasks = [
+          {
+            id: "startup",
+            title: "Make shell startup quieter",
+            project: "dotfiles",
+            status: "done",
+            time: "2m",
+            state: "active",
+            prompt:
+              "Clean up the shell startup output. Keep the useful warnings, but stop printing the same messages in every new terminal.",
+            sessions: [makeAgent()],
+            messages: [],
+          },
+          {
+            id: "settings",
+            title: "Rethink the settings layout",
+            project: "corral",
+            status: "attention",
+            time: "Needs you",
+            state: "active",
+            prompt: "Make settings a modal, with better grouping and less visual noise.",
+            sessions: [makeAgent()],
+            messages: [],
+          },
+          {
+            id: "restore",
+            title: "Restore the last workspace",
+            project: "corral",
+            status: "working",
+            time: "8m",
+            state: "active",
+            prompt: "Keep the selected task, session, and draft when reopening the app.",
+            sessions: [makeAgent("codex")],
+            messages: [],
+          },
+          {
+            id: "keys",
+            title: "Simplify the keymap",
+            project: "dotfiles",
+            status: "done",
+            time: "1h",
+            state: "active",
+            prompt: "Remove duplicate terminal shortcuts and document the remaining ones.",
+            sessions: [makeAgent("pi")],
+            messages: [],
+          },
+        ];
+        Object.assign(tasks[0].sessions[0], {
+          tool: "pi",
+          instance: "pi",
+          model: "openai-codex/gpt-6.1-sol",
+          thinking: "Extra High",
+          label: "pi",
+        });
+        const settledNames = [
+          "Fix terminal focus after a dialog",
+          "Remove duplicate startup hooks",
+          "Keep the session title on restart",
+          "Improve project search",
+          "Make branch names readable",
+          "Restore shell scrollback",
+          "Group agent warnings",
+          "Simplify the configuration file",
+          "Handle a stopped session",
+          "Keep the task draft",
+          "Trim the command palette",
+          "Document keyboard shortcuts",
+        ];
+        settledNames.forEach((title, i) =>
+          tasks.push({
+            id: "settled-" + i,
+            title,
+            project: i % 2 ? "dotfiles" : "corral",
+            status: "done",
+            time: i + 1 + "d",
+            state: "settled",
+            prompt: "Review the earlier work on this task.",
+            sessions: [makeAgent()],
+            messages: [],
+          }),
+        );
+        const draft = {
+          id: "new",
+          title: "",
+          project: "dotfiles",
+          workspace: "Current checkout",
+          branch: "main",
+          prompt: "",
+          showTitle: false,
+          sessions: [makeAgent()],
+          messages: [],
+        };
+        draft.sessions[0].context = 0;
+        const state = {
+          current: "startup",
+          previous: "startup",
+          selected: {},
+          grouping: "projects",
+          collapsedGroups: [],
+          sidebarOpen: matchMedia("(min-width:520px)").matches,
+          sidebarWidth: null,
+          settledOpen: false,
+          settledCount: 4,
+          search: "",
+          tabPosition: "top",
+          zoom: 120,
+          width: "Comfortable",
+          contextOpen: false,
+          settingsPage: "Appearance",
+        };
+        const app = document.getElementById("app"),
+          settingsDialog = document.getElementById("settings-dialog"),
+          editDialog = document.getElementById("edit-dialog");
+        let popup = null,
+          popupOpener = null,
+          popupTarget = null,
+          pending = null,
+          popupQuery = "",
+          pickerGroup = "favorites",
+          settingsOpener = null,
+          editTarget = null;
+        const task = () =>
+          state.current === "new"
+            ? draft
+            : tasks.find((item) => item.id === state.current) || tasks[0];
+        const session = () =>
+          task().sessions.find((item) => item.id === state.selected[state.current]) ||
+          task().sessions[0];
+        const modelName = (selected) =>
+          catalogs[selected.tool]?.find((item) => item.id === selected.model)?.name ||
+          selected.model;
+        const iconButton = (action, label, name, extra = "") =>
+          `<button type="button" class="icon-button" data-action="${action}" aria-label="${escape(label)}" title="${escape(label)}" ${extra}>${glyph(name)}</button>`;
+        function capture() {
+          const field = app.querySelector(".prompt");
+          if (!field) return;
+          if (state.current === "new") draft.prompt = field.value;
+          else if (session()) session().draft = field.value;
+        }
+        function showState() {
+          document.getElementById("state-label").textContent =
+            `Preview state · ${state.grouping} · tabs ${state.tabPosition} · ${state.zoom}% · ${state.current}`;
+          document.getElementById("state-json").textContent = JSON.stringify(
+            {
+              ...state,
+              task: { id: task().id, project: task().project, title: task().title },
+              session: session(),
+              draft: state.current === "new" ? draft : undefined,
+              liveData: false,
+            },
+            null,
+            2,
+          );
+        }
+        function closePopup(restore = true) {
+          if (!popup) return;
+          popup.remove();
+          popup = null;
+          if (restore && popupOpener?.isConnected) popupOpener.focus({ preventScroll: true });
+        }
+        function taskRow(item, settled = false) {
+          return `<button class="task-row ${state.current === item.id ? "selected" : ""}" data-action="task" data-value="${item.id}" data-task="${item.id}" aria-label="${escape(item.title)}" ${state.current === item.id ? 'aria-current="page"' : ""}><span class="task-title"><i class="dot ${item.status}"></i><span class="title" data-fullname="${escape(item.title)}">${escape(item.title)}</span></span><span class="task-meta"><span>${escape(state.search || state.grouping === "status" || settled ? item.project : agentNames[item.sessions[0]?.tool] || "Shell")}${settled ? " · settled" : ""}</span><span class="${item.status === "attention" ? "attention" : ""}">${item.time}</span></span></button>`;
+        }
+        function taskList() {
+          if (state.search) {
+            const query = state.search.toLowerCase();
+            const found = tasks.filter((item) =>
+              (item.title + " " + item.project).toLowerCase().includes(query),
+            );
+            return `<div class="group-label">Search results <span class="count">${found.length}</span></div>${found.map((item) => taskRow(item, item.state === "settled")).join("") || '<p class="context-note" style="padding:8px">No matching tasks.</p>'}`;
+          }
+          const active = tasks.filter((item) => item.state === "active");
+          const groups =
+            state.grouping === "projects"
+              ? projects
+                  .map((project) => [
+                    project.name,
+                    active.filter((item) => item.project === project.name),
+                  ])
+                  .filter(([, items]) => items.length)
+              : [
+                  ["Needs you", active.filter((item) => item.status === "attention")],
+                  ["Working", active.filter((item) => item.status === "working")],
+                  ["Recent", active.filter((item) => item.status === "done")],
+                ].filter(([, items]) => items.length);
+          return groups
+            .map(
+              ([name, items]) =>
+                `<button class="group-label" data-action="group" data-value="${escape(name)}" aria-expanded="${!state.collapsedGroups.includes(name)}">${glyph(state.collapsedGroups.includes(name) ? "chevron-right" : "chevron-down")}<span>${escape(name)}</span><span class="count">${items.length}</span></button>${state.collapsedGroups.includes(name) ? "" : items.map((item) => taskRow(item)).join("")}`,
+            )
+            .join("");
+        }
+        function sidebar() {
+          const settled = tasks.filter((item) => item.state === "settled");
+          return `<aside class="sidebar" aria-label="Tasks"${state.sidebarWidth ? ` style="flex-basis:${state.sidebarWidth}px"` : ""}><div class="sidebar-head"><span class="wordmark">corral</span>${iconButton("sidebar", "Hide sidebar", "panel-left-close")}</div><div class="sidebar-tools"><label class="search-field">${glyph("search")}<input aria-label="Search tasks" placeholder="Search" value="${escape(state.search)}" autocomplete="off"></label>${iconButton("group-menu", "Group tasks", "sliders-horizontal")}${iconButton("new-task", "New task", "square-pen")}</div><div id="task-list" class="task-list">${taskList()}</div><section class="settled" aria-label="Settled tasks"><button class="settled-toggle" data-action="settled" aria-expanded="${state.settledOpen}"><span>Settled</span><span class="count">${settled.length}</span>${glyph(state.settledOpen ? "chevron-down" : "chevron-right")}</button>${
+            state.settledOpen
+              ? `<div class="settled-scroll">${settled
+                  .slice(0, state.settledCount)
+                  .map((item) => taskRow(item, true))
+                  .join(
+                    "",
+                  )}${state.settledCount < settled.length ? `<button class="more-settled" data-action="more-settled">${glyph("chevron-down")}Show ${Math.min(4, settled.length - state.settledCount)} more</button>` : ""}</div>`
+              : ""
+          }</section><footer class="sidebar-footer">${iconButton("settings", "Settings", "settings")}${iconButton("add-project", "Add repository", "folder")}<span class="prefix">alt+a</span></footer></aside><div class="resize" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div>`;
+        }
+        function header() {
+          return `<header class="task-header">${!state.sidebarOpen ? iconButton("sidebar", "Show sidebar", "panel-left-open") : ""}<div class="breadcrumb"><span class="repo">${escape(task().project)}</span><span class="slash">/</span><span class="current-title" data-fullname="${escape(state.current === "new" ? "New task" : task().title)}">${state.current === "new" ? "New task" : escape(task().title)}</span></div><div class="header-actions">${iconButton("context", "Context usage", "panel-right", `aria-pressed="${state.contextOpen}"`)}${state.current !== "new" ? iconButton("task-menu", "Task actions", "ellipsis") : ""}</div></header>`;
+        }
+        function viewSwitch() {
+          const current = session();
+          if (!current || current.kind === "shell") return "";
+          return `<div class="view-switch" role="group" aria-label="Agent view">${["chat", "terminal"].map((view) => `<button class="${current.view === view ? "active" : ""}" data-action="view" data-value="${view}" aria-label="${view === "chat" ? "Chat view" : "Agent terminal view"}" aria-pressed="${current.view === view}">${glyph(view === "chat" ? "message-square" : "square-terminal")}<span class="view-label">${view === "chat" ? "Chat" : "Terminal"}</span></button>`).join("")}</div>`;
+        }
+        function tabs() {
+          const current = session();
+          return `<div class="tab-row"><nav class="tab-scroll" aria-label="Sessions" role="tablist">${task()
+            .sessions.map(
+              (item, i) =>
+                `<button class="session-tab ${item.id === current?.id ? "active" : ""}" role="tab" aria-selected="${item.id === current?.id}" tabindex="${item.id === current?.id ? 0 : -1}" data-action="session" data-value="${item.id}" data-session="${item.id}" aria-label="${escape(item.label)}"><span class="number">${i < 9 ? i + 1 : ""}</span>${item.kind === "shell" ? glyph("square-terminal") : brand(item.tool)}<span class="tab-name" data-fullname="${escape(item.label)}">${escape(item.label)}</span></button>`,
+            )
+            .join(
+              "",
+            )}${state.current !== "new" ? iconButton("add-session", "Add session", "plus") : ""}</nav>${viewSwitch()}</div>`;
+        }
+        function contextPanel() {
+          if (!state.contextOpen) return "";
+          const current = session();
+          const agent = current?.kind === "agent";
+          const percent = agent ? Math.round((current.context / current.limit) * 100) : 0;
+          return `<aside class="context-panel" aria-label="Context usage"><div class="context-title"><h2>Context</h2>${iconButton("context", "Close context panel", "x")}</div>${agent ? `<label>Used context</label><div class="context-percent">${percent}<span style="font-size:17px;color:var(--dim)">%</span></div><div class="context-meter" role="progressbar" aria-label="Context used" aria-valuenow="${percent}" aria-valuemin="0" aria-valuemax="100"><span style="width:${percent}%"></span></div><div class="context-numbers"><span>${Math.round(current.context / 1000)}k used</span><span>${Math.round(current.limit / 1000)}k limit</span></div><label>Model</label><div class="context-model">${escape(modelName(current))}</div><p class="context-note">Example usage, not live telemetry. Production needs the agent’s reported context usage.</p>` : '<p class="context-note">Context usage belongs to an agent session, not an independent shell.</p>'}</aside>`;
+        }
+        function composer() {
+          const current = session();
+          const isNew = state.current === "new";
+          return `<div class="composer-dock"><div class="lane"><form class="composer" aria-label="${isNew ? "Create task" : "Chat message"}">${isNew && draft.showTitle ? `<div class="title-field"><label for="task-title">Task title</label><input id="task-title" placeholder="Optional — otherwise generated from your prompt" value="${escape(draft.title)}"></div>` : ""}<textarea class="prompt" aria-label="${isNew ? "Task prompt" : "Message"}" placeholder="${isNew ? "What should we work on?" : "Follow up, or ask something else…"}" rows="${isNew ? 4 : 2}">${escape(isNew ? draft.prompt : current?.draft || "")}</textarea><div class="composer-controls"><button type="button" class="model-trigger" data-action="model" aria-label="Choose tool, model, and thinking">${instanceIcon(current.instance || current.tool)}<span class="model-name" data-fullname="${escape(modelName(current))}">${escape(catalogs[current.tool].find((model) => model.id === current.model)?.shortName || modelName(current))}</span><span class="thinking">${escape(current.thinking)}</span>${glyph("chevron-down", 'class="chevron"')}</button>${isNew ? iconButton("title", "Set task title", "ellipsis") : ""}<button type="submit" class="send" aria-label="${isNew ? "Create preview task" : "Send preview message"}">${glyph("arrow-up")}</button></div></form>${isNew ? `<div class="new-task-context"><button data-action="project" aria-label="Choose repository">${glyph("folder")}<span>${escape(draft.project)}</span>${glyph("chevron-down")}</button><button data-action="workspace" aria-label="Choose checkout">${glyph("git-branch")}<span>${escape(draft.workspace === "Current checkout" ? "Current checkout · " + draft.branch : draft.workspace)}</span>${glyph("chevron-down")}</button></div>` : ""}</div></div>`;
+        }
+        function transcript() {
+          const current = task();
+          const response =
+            current.id === "startup"
+              ? `I found two things producing the repeated output:<ul><li>The environment check runs for every interactive shell.</li><li>The plugin manager prints its update notice on startup.</li></ul>I’d keep warnings that need your attention and make successful startup silent. The check can run once per login instead.`
+              : current.id === "settings"
+                ? `Settings can stay connected to the workspace without occupying it. A large modal, a category sidebar, and grouped rows give each setting a clear place.<br><br>The task, session, and draft should still be there when you close it.`
+                : `The task owns its repository and checkout. Those are context, not controls to change in the middle of a conversation.`;
+          return `<div class="transcript" aria-label="Conversation" tabindex="0"><div class="lane"><div class="user-message">${escape(current.prompt)}</div><div class="assistant-message"><div class="message-author">${brand(session().tool)}<span>${escape(agentNames[session().tool])}</span><span>· Sample conversation</span></div>${response}<div><button class="tool-button" data-action="tools" aria-expanded="false">${glyph("check")}Reviewed 3 files${glyph("chevron-down")}</button><pre class="tool-detail" hidden>Sample inspection only\n.zshrc\nconfig/shell/environment.zsh\nconfig/shell/plugins.zsh</pre></div></div>${current.messages
+            .filter((message) => message.session === session().id)
+            .map((message) =>
+              message.role === "user"
+                ? `<div class="user-message" style="margin-top:22px">${escape(message.text)}</div>`
+                : `<div class="assistant-message">${escape(message.text)}</div>`,
+            )
+            .join("")}</div></div>`;
+        }
+        function terminal() {
+          const current = session();
+          return `<section class="terminal" aria-label="${current.kind === "shell" ? "Independent shell" : "Agent terminal view"}"><p class="terminal-note">${current.kind === "shell" ? "Independent shell in this task’s checkout" : "Terminal interface to the same agent session"} · illustrative only</p>${current.kind === "agent" ? `<div class="terminal-name">${brand(current.tool)}<span>${escape(agentNames[current.tool])} / ${escape(modelName(current))} / ${escape(current.thinking)}</span></div><p>Same session. Same conversation.</p><p style="color:var(--dim)">The real handoff keeps the existing confirmation when a turn would be interrupted.</p><br>› ▍` : `<span style="color:var(--good)">➜</span> ${escape(task().project)} <span style="color:var(--dim)">git:(main)</span> ▍<p style="color:var(--dim);margin-top:15px">No commands are executed in this study.</p>`}</section>`;
+        }
+        function fitPrompt() {
+          const field = app.querySelector(".prompt");
+          if (field) {
+            field.style.height = "auto";
+            field.style.height = Math.min(field.scrollHeight, 180) + "px";
+          }
+        }
+        function sizeWorkspace() {
+          const height = matchMedia("(max-height:700px)").matches
+            ? 520
+            : matchMedia("(max-height:850px)").matches
+              ? 650
+              : matchMedia("(min-width:1100px)").matches
+                ? 840
+                : 710;
+          app.style.zoom = state.zoom / 100;
+          app.style.height = height / (state.zoom / 100) + "px";
+        }
+        function render() {
+          closePopup(false);
+          const current = session();
+          app.className = `app ${!state.sidebarOpen ? "sidebar-closed" : ""} ${state.tabPosition === "bottom" ? "bottom-tabs" : ""} ${state.width === "Wide" ? "wide" : ""}`;
+          sizeWorkspace();
+          const content =
+            state.current === "new"
+              ? `<section class="conversation new-task"><div class="lane"><h1>What should we work on?</h1><p class="subtitle">Start with a prompt. The rest is already set.</p></div>${composer()}</section>`
+              : !current
+                ? '<div class="empty">No sessions. Use + to add an agent or a shell.</div>'
+                : current.kind === "shell" || current.view === "terminal"
+                  ? terminal()
+                  : `<section class="conversation">${transcript()}${composer()}</section>`;
+          app.innerHTML = `${sidebar()}<main class="main">${header()}<section class="workspace">${tabs()}<div class="pane">${content}${contextPanel()}</div></section></main>`;
+          bindResize();
+          fitPrompt();
+          showState();
+        }
+        function toast(text) {
+          app.querySelector(".toast")?.remove();
+          const node = document.createElement("div");
+          node.className = "toast";
+          node.setAttribute("role", "status");
+          node.textContent = text;
+          app.append(node);
+        }
+        function menuRow(action, label, name = "", value = "", shortcut = "") {
+          return `<button class="menu-row" role="menuitem" data-action="${action}" data-value="${escape(value)}">${name ? glyph(name) : ""}<span>${label}</span>${shortcut ? `<span class="shortcut">${shortcut}</span>` : ""}</button>`;
+        }
+        function positionPopup(opener, point) {
+          const box = app.getBoundingClientRect(),
+            trigger = opener?.getBoundingClientRect(),
+            scale = state.zoom / 100;
+          let x = point
+            ? (point.x - box.left) / scale
+            : trigger
+              ? (trigger.left - box.left) / scale
+              : 12;
+          let y = point
+            ? (point.y - box.top) / scale
+            : trigger
+              ? (trigger.bottom - box.top) / scale + 6
+              : 45;
+          x = Math.max(8, Math.min(x, app.clientWidth - popup.offsetWidth - 8));
+          if (y + popup.offsetHeight > app.clientHeight - 8)
+            y = Math.max(
+              8,
+              (trigger ? (trigger.top - box.top) / scale : app.clientHeight) -
+                popup.offsetHeight -
+                6,
+            );
+          popup.style.left = x + "px";
+          popup.style.top = y + "px";
+        }
+        function pickerRows() {
+          const entries =
+            pickerGroup === "favorites"
+              ? favorites
+              : catalogs[instances.find((item) => item.id === pickerGroup).tool].map((model) => ({
+                  instance: pickerGroup,
+                  model: model.id,
+                }));
+          return entries.map((entry) => {
+            const instance = instances.find((item) => item.id === entry.instance);
+            return {
+              instance,
+              model: catalogs[instance.tool].find((model) => model.id === entry.model),
+            };
+          });
+        }
+        function pickerBody() {
+          const selected =
+            catalogs[pending.tool].find((item) => item.id === pending.model) ||
+            catalogs[pending.tool][0];
+          const rows = pickerRows();
+          const defaultThinking =
+            selected.defaultThinking ||
+            (selected.levels.includes("Medium") ? "Medium" : selected.levels[0]);
+          return `<div class="model-columns"><nav class="agent-rail" aria-label="Tools and profiles"><button class="agent-choice ${pickerGroup === "favorites" ? "active" : ""}" data-action="pick-group" data-value="favorites" aria-label="Favorites" title="Favorites" aria-pressed="${pickerGroup === "favorites"}">${glyph("star", 'class="favorite-star"')}</button><div class="rail-divider"></div>${instances.map((instance) => `<button class="agent-choice ${pickerGroup === instance.id ? "active" : ""}" data-action="pick-group" data-value="${instance.id}" aria-label="${instance.label}" title="${instance.label}" aria-pressed="${pickerGroup === instance.id}">${instanceIcon(instance.id)}</button>`).join("")}</nav><div class="model-list"><label class="model-search">${glyph("search")}<input aria-label="Search models" placeholder="Search models…" value="${escape(popupQuery)}"></label><div class="model-options">${rows
+            .map(({ instance, model }, i) => {
+              const current = instance.id === pending.instance && model.id === pending.model;
+              const provider =
+                model.providerId ||
+                { claude: "anthropic", codex: "openai-codex", opencode: "opencode-go" }[
+                  model.provider
+                ];
+              return `<button class="model-option" data-action="pick-model" data-value="${escape(instance.id + "|" + model.id)}" data-filter="${escape(model.name + " " + model.id + " " + instance.label)}" aria-label="${escape(model.name + " · " + instance.label + " · " + provider)}" aria-pressed="${current}" ${popupQuery && !(model.name + " " + model.id + " " + instance.label).toLowerCase().includes(popupQuery.toLowerCase()) ? "hidden" : ""}>${instanceIcon(instance.id)}<span class="name" data-fullname="${escape(model.name)}">${escape(model.name)}</span><span class="model-provider" data-fullname="${escape(provider)}">${escape(provider)}</span><kbd class="model-shortcut">Ctrl+${i + 1}</kbd><span class="check-slot">${current ? glyph("check", 'class="check"') : ""}</span></button>`;
+            })
+            .join(
+              "",
+            )}</div></div><section class="thinking-column" aria-label="Thinking levels"><header class="thinking-heading"><h3>Thinking</h3><span class="thinking-model" data-fullname="${escape(selected.name)}">${escape(selected.shortName || selected.name)}</span></header>${selected.levels.map((level) => `<button class="thinking-option" data-action="pick-thinking" data-value="${level}" aria-pressed="${pending.thinking === level}"><span class="level">${level}</span>${pending.thinking === level ? glyph("check") : level === defaultThinking ? '<span class="thinking-default">Default</span>' : ""}</button>`).join("")}</section></div><footer class="picker-footer"><div class="picker-permissions" title="Visual example only. Permission controls are outside this prototype.">${glyph("shield-off")}<span>Full access</span>${glyph("chevron-up")}</div></footer>`;
+        }
+        function commitPicker() {
+          const selected = session(),
+            choice = {
+              instance: pending.instance,
+              tool: pending.tool,
+              model: pending.model,
+              thinking: pending.thinking,
+            };
+          if (state.current === "new")
+            Object.assign(draft.sessions[0], choice, { label: agentNames[pending.tool] });
+          else if (
+            pending.add ||
+            pending.tool !== selected?.tool ||
+            pending.instance !== (selected?.instance || selected?.tool)
+          ) {
+            const item = { ...makeAgent(pending.tool), ...choice, context: 0 };
+            task().sessions.push(item);
+            state.selected[state.current] = item.id;
+            pending.add = false;
+          } else Object.assign(selected, choice);
+          render();
+          app.querySelector(".prompt")?.focus();
+        }
+        function previewModel() {
+          const selected = session();
+          if (pending.add) return;
+          if (state.current === "new")
+            Object.assign(selected, {
+              tool: pending.tool,
+              instance: pending.instance,
+              model: pending.model,
+              thinking: pending.thinking,
+              label: agentNames[pending.tool],
+            });
+          else if (
+            pending.tool === selected?.tool &&
+            pending.instance === (selected?.instance || selected?.tool)
+          )
+            Object.assign(selected, { model: pending.model, thinking: pending.thinking });
+          else return;
+          const layer = popup;
+          popup = null;
+          render();
+          popup = layer;
+          app.append(popup);
+          popupOpener = app.querySelector('[data-action="model"]');
+          positionPopup(popupOpener);
+        }
+        function openPopup(type, opener, point, target) {
+          capture();
+          closePopup(false);
+          popupOpener = opener;
+          popupTarget = target || null;
+          popup = document.createElement("div");
+          popup.className =
+            "popover " +
+            (type === "model"
+              ? "model-picker"
+              : ["project", "workspace", "add-project"].includes(type)
+                ? "wide-picker"
+                : "menu");
+          popup.dataset.popup = type;
+          popup.setAttribute(
+            "role",
+            ["model", "project", "workspace", "add-project"].includes(type) ? "dialog" : "menu",
+          );
+          popup.setAttribute(
+            "aria-label",
+            {
+              model: "Tool, model, and thinking",
+              "task-menu": "Task actions",
+              "session-menu": "Session actions",
+              "group-menu": "Sidebar grouping",
+              "add-session": "Add session",
+              project: "Choose repository",
+              workspace: "Choose checkout",
+              "add-project": "Add repository",
+            }[type] || type,
+          );
+          if (type === "model") {
+            const current = session() || makeAgent();
+            pending = {
+              tool: current.tool || "claude",
+              instance: current.instance || current.tool || "claude",
+              model: current.model || catalogs.claude[0].id,
+              thinking: current.thinking || "High",
+              add: target === "new-agent",
+            };
+            pickerGroup = favorites.some(
+              (item) => item.instance === pending.instance && item.model === pending.model,
+            )
+              ? "favorites"
+              : pending.instance;
+            popupQuery = "";
+            popup.innerHTML = pickerBody();
+          }
+          if (type === "group-menu")
+            popup.innerHTML =
+              '<div class="menu-caption">Group tasks</div>' +
+              ["projects", "status"]
+                .map(
+                  (mode) =>
+                    `<button class="menu-row" data-action="grouping" data-value="${mode}" role="menuitemradio" aria-checked="${state.grouping === mode}">${glyph(mode === "projects" ? "folder" : "sliders-horizontal")}<span>${mode === "projects" ? "By project" : "By status"}</span>${state.grouping === mode ? glyph("check", 'class="check"') : ""}</button>`,
+                )
+                .join("");
+          if (type === "add-session")
+            popup.innerHTML =
+              menuRow("new-shell", "New shell", "square-terminal", "", "prefix c") +
+              menuRow("new-agent", "New agent…", "message-square", "", "prefix s");
+          if (type === "task-menu") {
+            const item = tasks.find((entry) => entry.id === (target || state.current));
+            popup.innerHTML =
+              menuRow("rename", "Rename task…", "square-pen", "", "prefix e") +
+              menuRow("copy-path", "Copy checkout path", "folder") +
+              menuRow(
+                "settle",
+                item.state === "settled" ? "Continue task" : "Settle task",
+                "archive",
+                "",
+                "prefix d",
+              ) +
+              '<div class="menu-separator"></div>' +
+              menuRow("remove", '<span class="danger">Remove task…</span>');
+          }
+          if (type === "session-menu")
+            popup.innerHTML =
+              menuRow("rename-session", "Rename session…", "square-pen") +
+              menuRow("stop-session", "Stop session", "square") +
+              menuRow("close-session", "Close session…", "x");
+          if (type === "project")
+            popup.innerHTML = `<label class="popup-search">${glyph("search")}<input aria-label="Search repositories" placeholder="Search repositories…"></label><div class="popup-options">${projects.map((project) => `<button class="detail-row" data-action="pick-project" data-value="${escape(project.name)}" data-filter="${escape(project.name + " " + project.path)}">${glyph("folder")}<span class="detail-copy"><span>${escape(project.name)}</span><small>${escape(project.path)}</small></span>${draft.project === project.name ? glyph("check") : ""}</button>`).join("")}</div>`;
+          if (type === "workspace")
+            popup.innerHTML = `<label class="popup-search">${glyph("search")}<input aria-label="Search checkouts and branches" placeholder="Search checkouts and branches…"></label><div class="popup-options"><div class="menu-caption">Checkout</div>${[
+              ["Current checkout", "Use this repository as it is"],
+              ["New worktree", "A separate checkout based on main"],
+            ]
+              .map(
+                ([name, note]) =>
+                  `<button class="detail-row" data-action="pick-workspace" data-value="${name}" data-filter="${name}">${glyph("folder")}<span class="detail-copy"><span>${name}</span><small>${note}</small></span></button>`,
+              )
+              .join(
+                "",
+              )}<div class="menu-caption">New worktree from an existing branch</div>${["feat/quiet-startup", "feat/restore-workspace-and-active-session", "origin/feature/improve-terminal-keybindings"].map((branch) => `<button class="detail-row" data-action="pick-branch" data-value="${branch}" data-filter="${branch}">${glyph("git-branch")}<span class="detail-copy">${branch}</span></button>`).join("")}</div><p class="popup-note">Preview only. No checkout or worktree is created.</p>`;
+          if (type === "add-project")
+            popup.innerHTML =
+              '<div class="popup-options" style="padding:15px"><h3 style="font-size:12px;margin-bottom:9px">Add repository</h3><p class="context-note" style="margin:0 0 13px">Home expansion and path discovery remain a separate backlog item.</p><input aria-label="Repository path" placeholder="~/code/my/repository" style="width:100%;border:1px solid var(--line);border-radius:6px;background:var(--surface);padding:8px"><p class="context-note" style="margin-top:10px">No repository will be added from this study.</p></div>';
+          app.append(popup);
+          positionPopup(opener, point);
+          (popup.querySelector("input") || popup.querySelector("button"))?.focus({
+            preventScroll: true,
+          });
+        }
+        function updatePicker(focusAction) {
+          popup.innerHTML = pickerBody();
+          const focus = focusAction
+            ? popup.querySelector(focusAction)
+            : popup.querySelector("input");
+          focus?.focus({ preventScroll: true });
+        }
+        const settingsPages = [
+          ["Appearance", "palette"],
+          ["Tasks & checkouts", "git-branch"],
+          ["Agents & profiles", "message-square"],
+          ["Keybindings", "keyboard"],
+          ["Configuration", "file-text"],
+        ];
+        const settingRow = (title, description, value) =>
+          `<div class="setting-row"><div class="setting-copy">${title}${description ? `<p>${description}</p>` : ""}</div><div class="setting-value">${value}</div></div>`;
+        const settingSection = (title, rows) =>
+          `<section class="setting-section"><h3>${title}</h3><div class="setting-group">${rows}</div></section>`;
+        const settingSwitch = (action, values, current) =>
+          `<div class="setting-switch">${values.map(([value, label]) => `<button data-action="${action}" data-value="${value}" class="${current === value ? "active" : ""}" aria-pressed="${current === value}">${label}</button>`).join("")}</div>`;
+        function renderSettings() {
+          const scale = state.zoom / 100;
+          settingsDialog.style.zoom = scale;
+          settingsDialog.style.width = Math.min(1050, (innerWidth - 40) / scale) + "px";
+          settingsDialog.style.height = Math.min(630, (innerHeight - 40) / scale) + "px";
+          let content = "";
+          if (state.settingsPage === "Appearance")
+            content =
+              '<p class="settings-intro">These controls change the study only. Nothing is persisted or written to your configuration.</p>' +
+              settingSection(
+                "Workspace",
+                settingRow(
+                  "Interface scale",
+                  "Adjust the size of text and controls.",
+                  `<div class="zoom-controls"><button data-action="zoom" data-value="-10" aria-label="Decrease interface scale">−</button><output>${state.zoom}%</output><button data-action="zoom" data-value="10" aria-label="Increase interface scale">+</button></div>`,
+                ) +
+                  settingRow(
+                    "Tab position",
+                    "One session row, always visible. The task header stays above.",
+                    settingSwitch(
+                      "tab-position",
+                      [
+                        ["top", "Top"],
+                        ["bottom", "Bottom"],
+                      ],
+                      state.tabPosition,
+                    ),
+                  ) +
+                  settingRow(
+                    "Conversation width",
+                    "Keep a comfortable reading width, or use the available space.",
+                    settingSwitch(
+                      "width",
+                      [
+                        ["Comfortable", "Comfortable"],
+                        ["Wide", "Wide"],
+                      ],
+                      state.width,
+                    ),
+                  ),
+              ) +
+              settingSection(
+                "Input",
+                settingRow(
+                  "Send shortcut",
+                  "Still an open decision. This study sends with the button only.",
+                  "Not decided",
+                ),
+              );
+          if (state.settingsPage === "Tasks & checkouts")
+            content =
+              '<p class="settings-intro">Illustrative configuration values. Repository and checkout are selected when creating a task, not while chatting.</p>' +
+              settingSection(
+                "New tasks",
+                settingRow(
+                  "Default agent view",
+                  "The terminal is another interface to the same agent session.",
+                  "Chat<small>Example global default</small>",
+                ) +
+                  settingRow(
+                    "Checkout",
+                    "Use the repository directly unless another checkout is chosen.",
+                    "Current checkout<small>Example global default</small>",
+                  ),
+              ) +
+              settingSection(
+                "Worktrees",
+                settingRow(
+                  "Worktree root",
+                  "New working copies live outside the source repository.",
+                  "~/.local/share/corral/worktrees<small>Example configuration</small>",
+                ),
+              );
+          if (state.settingsPage === "Agents & profiles")
+            content =
+              '<p class="settings-intro">Actual models, thinking levels, and availability must come from the agent. This study does not scan your installation.</p>' +
+              settingSection(
+                "Agents",
+                Object.entries(agentNames)
+                  .map(([id, name]) =>
+                    settingRow(
+                      `<span style="display:flex;align-items:center;gap:8px">${brand(id)}${name}</span>`,
+                      "Model and thinking options vary by tool and driver.",
+                      "Example entry",
+                    ),
+                  )
+                  .join(""),
+              ) +
+              settingSection(
+                "Launch profiles",
+                settingRow(
+                  "Named profiles",
+                  "Provider/environment choices remain in the configuration file.",
+                  "File-based",
+                ),
+              );
+          if (state.settingsPage === "Keybindings")
+            content =
+              '<p class="settings-intro">Grouped by purpose. Actual bindings are still read from your configuration.</p>' +
+              settingSection(
+                "Tasks",
+                settingRow("New task", "", "<kbd>alt+a</kbd> <kbd>t</kbd>") +
+                  settingRow("Find task", "", "<kbd>alt+a</kbd> <kbd>f</kbd>") +
+                  settingRow("Settle task", "", "<kbd>alt+a</kbd> <kbd>d</kbd>"),
+              ) +
+              settingSection(
+                "Sessions",
+                settingRow("New shell", "", "<kbd>alt+a</kbd> <kbd>c</kbd>") +
+                  settingRow("New agent", "", "<kbd>alt+a</kbd> <kbd>s</kbd>") +
+                  settingRow("Switch chat / terminal", "", "<kbd>alt+a</kbd> <kbd>v</kbd>"),
+              );
+          if (state.settingsPage === "Configuration")
+            content =
+              '<p class="settings-intro">Configuration remains file-based. This study neither reads nor writes config.toml.</p>' +
+              settingSection(
+                "Configuration file",
+                settingRow(
+                  "Path",
+                  "On the machine running the server.",
+                  "~/.config/corral/config.toml<small>Example path</small>",
+                ) +
+                  settingRow(
+                    "Value resolution",
+                    "Project overrides global; global overrides built-in defaults.",
+                    "Built-in → Global → Project",
+                  ),
+              ) +
+              settingSection(
+                "Diagnostics",
+                settingRow(
+                  "Configuration problems",
+                  "The real view would show invalid entries here.",
+                  "No live scan",
+                ),
+              );
+          document.getElementById("settings-root").innerHTML =
+            `<nav class="settings-nav" aria-label="Settings categories"><h2>Settings</h2>${settingsPages.map(([name, icon]) => `<button class="${state.settingsPage === name ? "active" : ""}" data-action="settings-page" data-value="${name}" ${state.settingsPage === name ? 'aria-current="page"' : ""}>${glyph(icon)}<span>${name}</span></button>`).join("")}<p class="note">Your task and draft stay underneath.</p></nav><section class="settings-main"><header class="settings-header"><span>Settings /</span><span>${state.settingsPage}</span>${iconButton("close-settings", "Close settings", "x")}</header><div class="settings-content">${content}</div></section>`;
+        }
+        function openSettings(opener) {
+          capture();
+          closePopup(false);
+          settingsOpener = opener;
+          renderSettings();
+          settingsDialog.showModal();
+        }
+        function openEdit(kind, target, opener) {
+          closePopup(false);
+          editTarget = { kind, target, opener };
+          const item =
+            kind === "rename-session"
+              ? task().sessions.find((entry) => entry.id === target)
+              : tasks.find((entry) => entry.id === target);
+          const destructive = kind === "remove" || kind === "close-session";
+          editDialog.innerHTML = `<h2>${destructive ? (kind === "remove" ? "Remove preview task?" : "Close preview session?") : kind === "rename-session" ? "Rename session" : "Rename task"}</h2>${destructive ? "<p>This changes in-memory sample data only. No real process or working copy is affected.</p>" : `<input aria-label="Name" value="${escape(item?.label || item?.title || "")}" autofocus>`}<div class="dialog-actions"><button data-action="cancel-edit">Cancel</button><button class="${destructive ? "danger" : "primary"}" data-action="confirm-edit">${destructive ? "Remove" : "Save"}</button></div>`;
+          editDialog.showModal();
+          if (destructive) editDialog.querySelector("button")?.focus();
+        }
+        function submit() {
+          capture();
+          const text = state.current === "new" ? draft.prompt : session()?.draft;
+          if (!text?.trim()) {
+            app.querySelector(".prompt")?.focus();
+            return;
+          }
+          if (state.current === "new") {
+            const agent = { ...draft.sessions[0], context: 0, draft: "" };
+            const item = {
+              id: "preview-" + ++serial,
+              title: draft.title.trim() || text.trim().slice(0, 48),
+              project: draft.project,
+              status: "done",
+              time: "Now",
+              state: "active",
+              prompt: text.trim(),
+              sessions: [agent],
+              messages: [],
+            };
+            tasks.unshift(item);
+            state.current = item.id;
+            draft.prompt = "";
+            draft.title = "";
+          } else {
+            task().messages.push({ role: "user", text: text.trim(), session: session().id });
+            session().draft = "";
+          }
+          task().messages.push({
+            role: "assistant",
+            text: "Preview response only. Nothing was sent to an agent and no files were changed.",
+            session: session().id,
+          });
+          render();
+          const log = app.querySelector(".transcript");
+          if (log) log.scrollTop = log.scrollHeight;
+          app.querySelector(".prompt")?.focus();
+        }
+        function dispatch(action, value, button) {
+          capture();
+          if (action === "sidebar") {
+            state.sidebarOpen = !state.sidebarOpen;
+            render();
+            return;
+          }
+          if (action === "context") {
+            state.contextOpen = !state.contextOpen;
+            render();
+            return;
+          }
+          if (action === "new-task") {
+            if (state.current !== "new") {
+              state.previous = state.current;
+              draft.project = task().project;
+            }
+            state.current = "new";
+            render();
+            app.querySelector(".prompt")?.focus();
+            return;
+          }
+          if (action === "task") {
+            state.current = value;
+            render();
+            return;
+          }
+          if (action === "session") {
+            state.selected[state.current] = value;
+            render();
+            return;
+          }
+          if (action === "view") {
+            session().view = value;
+            render();
+            return;
+          }
+          if (action === "settings") {
+            openSettings(button);
+            return;
+          }
+          if (action === "close-settings") {
+            settingsDialog.close();
+            return;
+          }
+          if (action === "settings-page") {
+            state.settingsPage = value;
+            renderSettings();
+            showState();
+            return;
+          }
+          if (action === "tab-position") {
+            state.tabPosition = value;
+            render();
+            renderSettings();
+            return;
+          }
+          if (action === "width") {
+            state.width = value;
+            render();
+            renderSettings();
+            return;
+          }
+          if (action === "zoom") {
+            state.zoom = Math.min(140, Math.max(80, state.zoom + Number(value)));
+            render();
+            renderSettings();
+            return;
+          }
+          if (action === "grouping") {
+            state.grouping = value;
+            state.collapsedGroups = [];
+            render();
+            return;
+          }
+          if (action === "group") {
+            state.collapsedGroups.includes(value)
+              ? (state.collapsedGroups = state.collapsedGroups.filter((item) => item !== value))
+              : state.collapsedGroups.push(value);
+            render();
+            return;
+          }
+          if (action === "settled") {
+            state.settledOpen = !state.settledOpen;
+            render();
+            return;
+          }
+          if (action === "more-settled") {
+            state.settledCount += 4;
+            const scroll = app.querySelector(".settled-scroll"),
+              top = scroll?.scrollTop || 0;
+            render();
+            app.querySelector(".settled-scroll")?.scrollTo(0, top);
+            return;
+          }
+          if (action === "new-shell") {
+            const item = {
+              id: "shell-" + ++serial,
+              kind: "shell",
+              label:
+                "shell" +
+                (task().sessions.filter((entry) => entry.kind === "shell").length
+                  ? " " + (task().sessions.filter((entry) => entry.kind === "shell").length + 1)
+                  : ""),
+            };
+            task().sessions.push(item);
+            state.selected[state.current] = item.id;
+            render();
+            return;
+          }
+          if (action === "new-agent") {
+            openPopup(
+              "model",
+              app.querySelector('[data-action="add-session"]') || button,
+              null,
+              "new-agent",
+            );
+            return;
+          }
+          if (action === "pick-group") {
+            pickerGroup = value;
+            popupQuery = "";
+            updatePicker(`[data-action="pick-group"][data-value="${value}"]`);
+            return;
+          }
+          if (action === "pick-model") {
+            const [instanceId, modelId] = value.split("|"),
+              instance = instances.find((item) => item.id === instanceId);
+            pending.instance = instanceId;
+            pending.tool = instance.tool;
+            pending.model = modelId;
+            const selected = catalogs[pending.tool].find((item) => item.id === modelId);
+            if (!selected.levels.includes(pending.thinking))
+              pending.thinking = selected.defaultThinking || selected.levels[0];
+            previewModel();
+            updatePicker(`[data-action="pick-model"][data-value="${value}"]`);
+            return;
+          }
+          if (action === "pick-thinking") {
+            pending.thinking = value;
+            commitPicker();
+            return;
+          }
+          if (action === "title") {
+            draft.showTitle = !draft.showTitle;
+            render();
+            app.querySelector("#task-title")?.focus();
+            return;
+          }
+          if (action === "pick-project") {
+            draft.project = value;
+            draft.workspace = "Current checkout";
+            draft.branch = "main";
+            render();
+            return;
+          }
+          if (action === "pick-workspace") {
+            draft.workspace = value;
+            draft.branch = "main";
+            render();
+            return;
+          }
+          if (action === "pick-branch") {
+            draft.workspace = "New worktree";
+            draft.branch = value;
+            render();
+            return;
+          }
+          if (action === "tools") {
+            const detail = button.parentElement.querySelector("pre");
+            detail.hidden = !detail.hidden;
+            button.setAttribute("aria-expanded", !detail.hidden);
+            return;
+          }
+          if (action === "rename" || action === "remove") {
+            openEdit(action, popupTarget || state.current, popupOpener || button);
+            return;
+          }
+          if (action === "rename-session" || action === "close-session") {
+            openEdit(action, popupTarget || session()?.id, popupOpener || button);
+            return;
+          }
+          if (action === "cancel-edit") {
+            editDialog.close();
+            return;
+          }
+          if (action === "confirm-edit") {
+            const { kind, target } = editTarget;
+            if (kind === "rename")
+              tasks.find((item) => item.id === target).title =
+                editDialog.querySelector("input").value.trim() || "Untitled task";
+            if (kind === "rename-session")
+              task().sessions.find((item) => item.id === target).label =
+                editDialog.querySelector("input").value.trim() || "Session";
+            if (kind === "remove") {
+              const index = tasks.findIndex((item) => item.id === target);
+              tasks.splice(index, 1);
+              if (state.current === target)
+                state.current = tasks.find((item) => item.state === "active")?.id || "new";
+            }
+            if (kind === "close-session")
+              task().sessions = task().sessions.filter((item) => item.id !== target);
+            editDialog.close();
+            render();
+            return;
+          }
+          if (action === "settle") {
+            const item = tasks.find((entry) => entry.id === (popupTarget || state.current));
+            item.state = item.state === "active" ? "settled" : "active";
+            render();
+            return;
+          }
+          if (action === "copy-path") {
+            closePopup();
+            toast("Copy checkout path is explicit. The repository label itself is not a button.");
+            return;
+          }
+          if (action === "stop-session") {
+            closePopup();
+            toast("No agent is running in this study.");
+            return;
+          }
+          if (
+            [
+              "model",
+              "task-menu",
+              "session-menu",
+              "group-menu",
+              "add-session",
+              "project",
+              "workspace",
+              "add-project",
+            ].includes(action)
+          )
+            openPopup(action, button);
+        }
+        document.addEventListener("click", (event) => {
+          const button = event.target.closest("[data-action]");
+          if (button) {
+            event.preventDefault();
+            dispatch(button.dataset.action, button.dataset.value, button);
+            return;
+          }
+          if (popup && !popup.contains(event.target)) closePopup(false);
+          if (!event.target.closest(".toast")) app.querySelector(".toast")?.remove();
+        });
+        app.addEventListener("submit", (event) => {
+          event.preventDefault();
+          submit();
+        });
+        app.addEventListener("input", (event) => {
+          if (event.target.matches(".prompt")) {
+            capture();
+            fitPrompt();
+            showState();
+          }
+          if (event.target.id === "task-title") {
+            draft.title = event.target.value;
+            showState();
+          }
+          if (event.target.matches('[aria-label="Search tasks"]')) {
+            state.search = event.target.value;
+            app.querySelector("#task-list").innerHTML = taskList();
+            showState();
+          }
+          if (event.target.matches('[aria-label="Search models"]')) {
+            popupQuery = event.target.value;
+            popup
+              .querySelectorAll("[data-filter]")
+              .forEach(
+                (row) =>
+                  (row.hidden = !row.dataset.filter
+                    .toLowerCase()
+                    .includes(popupQuery.toLowerCase())),
+              );
+          }
+          if (event.target.closest(".popup-search")) {
+            const query = event.target.value.toLowerCase();
+            popup
+              ?.querySelectorAll("[data-filter]")
+              .forEach((row) => (row.hidden = !row.dataset.filter.toLowerCase().includes(query)));
+          }
+        });
+        app.addEventListener("contextmenu", (event) => {
+          const row = event.target.closest("[data-task],[data-session]");
+          if (!row) return;
+          event.preventDefault();
+          openPopup(
+            row.dataset.task ? "task-menu" : "session-menu",
+            row,
+            { x: event.clientX, y: event.clientY },
+            row.dataset.task || row.dataset.session,
+          );
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && popup) {
+            event.preventDefault();
+            event.stopPropagation();
+            closePopup();
+            return;
+          }
+          if (settingsDialog.open || editDialog.open) return;
+          if (event.key === "Enter" && event.target.id === "task-title") {
+            event.preventDefault();
+            app.querySelector(".prompt")?.focus();
+            return;
+          }
+          const row = event.target.closest("[data-task],[data-session]");
+          if (row && (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
+            event.preventDefault();
+            openPopup(
+              row.dataset.task ? "task-menu" : "session-menu",
+              row,
+              null,
+              row.dataset.task || row.dataset.session,
+            );
+            return;
+          }
+          if (
+            popup?.dataset.popup === "model" &&
+            (event.ctrlKey || event.metaKey) &&
+            /^[1-9]$/.test(event.key)
+          ) {
+            event.preventDefault();
+            const row = popup.querySelectorAll(".model-option")[Number(event.key) - 1];
+            if (row && !row.hidden) row.click();
+            return;
+          }
+          if (popup && ["ArrowDown", "ArrowUp"].includes(event.key)) {
+            const buttons = [...popup.querySelectorAll("button:not([hidden])")];
+            const i = buttons.indexOf(document.activeElement);
+            event.preventDefault();
+            buttons[
+              (i + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length
+            ]?.focus();
+            return;
+          }
+          if (popup && event.key === "Enter" && event.target.matches("input")) {
+            event.preventDefault();
+            popup.querySelector("[data-filter]:not([hidden])")?.click();
+            return;
+          }
+          if (row?.dataset.session && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+            event.preventDefault();
+            capture();
+            const sessions = task().sessions,
+              i = sessions.findIndex((item) => item.id === row.dataset.session);
+            state.selected[state.current] =
+              sessions[
+                (i + (event.key === "ArrowRight" ? 1 : sessions.length - 1)) % sessions.length
+              ].id;
+            render();
+            app.querySelector('[role="tab"][aria-selected="true"]')?.focus();
+            return;
+          }
+          if (event.key === "Escape" && state.current === "new") {
+            event.preventDefault();
+            capture();
+            state.current = state.previous;
+            render();
+          }
+        });
+        settingsDialog.addEventListener("close", () => {
+          const opener = settingsOpener?.isConnected
+            ? settingsOpener
+            : app.querySelector('[data-action="settings"]') || app.querySelector(".prompt");
+          opener?.focus({ preventScroll: true });
+        });
+        editDialog.addEventListener("close", () => {
+          const opener = editTarget?.opener;
+          if (opener?.isConnected) opener.focus({ preventScroll: true });
+          else app.querySelector(".prompt")?.focus();
+        });
+        for (const dialog of [settingsDialog, editDialog])
+          dialog.addEventListener("click", (event) => {
+            if (event.target !== dialog) return;
+            const box = dialog.getBoundingClientRect();
+            if (
+              event.clientX < box.left ||
+              event.clientX > box.right ||
+              event.clientY < box.top ||
+              event.clientY > box.bottom
+            )
+              dialog.close();
+          });
+        function bindResize() {
+          const handle = app.querySelector(".resize"),
+            sidebar = app.querySelector(".sidebar");
+          handle.addEventListener("pointerdown", (event) => {
+            handle.setPointerCapture(event.pointerId);
+            handle.classList.add("dragging");
+            const move = (e) => {
+              state.sidebarWidth = Math.max(
+                158,
+                Math.min(
+                  app.clientWidth * 0.4,
+                  (e.clientX - app.getBoundingClientRect().left) / (state.zoom / 100),
+                ),
+              );
+              sidebar.style.flexBasis = state.sidebarWidth + "px";
+            };
+            handle.addEventListener("pointermove", move);
+            handle.addEventListener(
+              "pointerup",
+              () => {
+                handle.classList.remove("dragging");
+                handle.removeEventListener("pointermove", move);
+                showState();
+              },
+              { once: true },
+            );
+          });
+          handle.addEventListener("keydown", (event) => {
+            if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+            event.preventDefault();
+            state.sidebarWidth = Math.max(
+              158,
+              Math.min(
+                app.clientWidth * 0.4,
+                sidebar.getBoundingClientRect().width / (state.zoom / 100) +
+                  (event.key === "ArrowRight" ? 12 : -12),
+              ),
+            );
+            sidebar.style.flexBasis = state.sidebarWidth + "px";
+            showState();
+          });
+        }
+        function truncationTarget(target) {
+          const element =
+            target.closest("[data-fullname]") ||
+            [...(target.closest("button")?.querySelectorAll("[data-fullname]") || [])].find(
+              (node) => node.scrollWidth > node.clientWidth,
+            );
+          return element;
+        }
+        function updateFullName(event) {
+          const element = truncationTarget(event.target);
+          if (element)
+            element.title =
+              element.scrollWidth > element.clientWidth ? element.dataset.fullname : "";
+        }
+        app.addEventListener("pointerover", updateFullName);
+        app.addEventListener("focusin", updateFullName);
+        window.addEventListener("resize", () => {
+          sizeWorkspace();
+          if (popup) positionPopup(popupOpener);
+        });
+        render();
+        openPopup("model", app.querySelector('[data-action="model"]'));
+      })();
+    </script>
+  </body>
+</html>

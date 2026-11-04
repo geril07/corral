@@ -1,11 +1,10 @@
 import {
   AGENT_LAUNCH_CAPABILITY,
+  NATIVE_MODEL_ID,
   type AgentKind,
   type AgentLaunchCapability,
 } from "@corral/protocol/config";
 
-/** A native model id, passed as one argv value: no whitespace and no control characters. */
-export const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/;
 /** A native provider id. Codex receives it in `-c model_provider=…`, so no TOML punctuation. */
 export const PROVIDER_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
@@ -22,7 +21,7 @@ export interface LaunchChoiceProblem {
 
 /** What is wrong with a model id on its own, before any agent's flag capability is applied. */
 export function modelIdProblem(model: string): string | undefined {
-  return MODEL_ID.test(model)
+  return NATIVE_MODEL_ID.test(model)
     ? undefined
     : "the model is not a valid native model id (letters, digits, . _ : / @ + -)";
 }

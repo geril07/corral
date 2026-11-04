@@ -433,7 +433,7 @@ branch-prefix = "app/"
     worktreeRoot: { value: "/srv/worktrees", source: "global" },
     branchPrefix: { value: "app/", source: "project" },
     slugMode: { value: "title", source: "default" },
-    view: { value: "terminal", source: "default" },
+    view: { value: "chat", source: "default" },
   });
   // The global task defaults are untouched by a project override.
   expect(config.tasks.branchPrefix).toEqual({ value: "corral/", source: "global" });

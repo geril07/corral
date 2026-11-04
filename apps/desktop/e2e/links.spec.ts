@@ -2,6 +2,7 @@ import { expect } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
+  chooseTaskAgent,
   addProject,
   createRepo,
   newTaskView,
@@ -53,21 +54,11 @@ test("a file link opens the editor at its line and a web link goes to the OS bro
   await window.keyboard.press("KeyT");
   await expect(promptField(window)).toBeFocused();
   await window.keyboard.type("Fix the build");
-  await newTaskView(window)
-    .getByRole("combobox", { name: /^Agent / })
-    .click();
-  await expect(window.getByLabel("Search agents")).toBeFocused();
-  await window.keyboard.type("pi");
-  await window.keyboard.press("Enter");
-  await expect(newTaskView(window).getByRole("combobox", { name: /^Agent / })).toHaveAccessibleName(
-    "Agent pi · native default",
+  await chooseTaskAgent(window, "pi");
+  await expect(newTaskView(window).getByRole("button", { name: "Open in chat" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
   );
-  await newTaskView(window)
-    .getByRole("combobox", { name: /^View / })
-    .click();
-  await expect(window.getByLabel("Search views")).toBeFocused();
-  await window.keyboard.type("chat");
-  await window.keyboard.press("Enter");
   await promptField(window).click();
   await window.keyboard.press("Enter");
 

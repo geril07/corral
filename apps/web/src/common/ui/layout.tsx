@@ -55,6 +55,19 @@ export function ContentLane({ children, className }: { children: ReactNode; clas
   return <div className={cn("flex w-full max-w-[46rem] flex-col", className)}>{children}</div>;
 }
 
+/** Size containment makes composer caps follow available content, not the window plus chrome. */
+export function TaskContent({ children }: { children: ReactNode }) {
+  return (
+    <section
+      role="region"
+      aria-label="task content"
+      className="relative min-h-0 flex-1 [container-type:size]"
+    >
+      {children}
+    </section>
+  );
+}
+
 /** A screen that fills the window, for routes without the workspace sidebar. */
 export function Screen({ children, className }: { children: ReactNode; className?: string }) {
   return (

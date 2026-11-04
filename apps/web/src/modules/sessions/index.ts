@@ -1,8 +1,23 @@
 export { AgentPicker } from "./agent-picker.tsx";
 export {
+  AgentLaunchPicker,
+  LaunchViewControls,
+  launchPickerInstances,
+  launchPickerModels,
+} from "./agent-launch-picker.tsx";
+export {
   modelOverride,
   modelProblem,
   supportsModel,
+  defaultLaunch,
+  launchOptions,
+  launchChoice,
+  launchKey,
+  launchModel,
+  launchName,
+  launchProblem,
+  launchView,
+  type LaunchSelection,
   type AgentLaunchChoice,
 } from "./launch-choice.ts";
 export { describeLaunchError } from "./launch-error.ts";

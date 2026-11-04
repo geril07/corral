@@ -199,7 +199,7 @@ view = "chat"
 
   expect(problems).toEqual([]);
   expect(config.projects[REPO]?.view).toEqual({ value: "chat", source: "project" });
-  expect(config.tasks.view).toEqual({ value: "terminal", source: "default" });
+  expect(config.tasks.view).toEqual({ value: "chat", source: "default" });
 });
 
 test("a chat view with no agent configured stays chat for the agent the composer picks", () => {

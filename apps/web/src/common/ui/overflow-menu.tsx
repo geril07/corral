@@ -13,7 +13,7 @@ export function OverflowMenu({
 }: {
   label: string;
   children: ReactNode;
-  triggerRef?: Ref<HTMLButtonElement>;
+  triggerRef?: Ref<HTMLButtonElement> | undefined;
   /** The trigger's glyph; the tab strip's trailing "+" is the same stock menu. */
   icon?: IconName;
   tooltip?: ReactNode;

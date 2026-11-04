@@ -1,5 +1,6 @@
 import type { TaskView } from "@corral/protocol/config";
 import type { TaskSource } from "@corral/protocol/rpc";
+import type { LaunchSelection } from "../sessions/index.ts";
 import { isBranchKey } from "./new-task-defaults.ts";
 
 /**
@@ -18,7 +19,7 @@ export interface ComposerDraft {
   titleOpen: boolean;
   issueOpen: boolean;
   /** The agent the user picked; `undefined` follows the project's settings. */
-  agentKey: string | undefined;
+  agent: LaunchSelection | undefined;
   /** The workspace the user picked; `undefined` follows the project's settings. */
   workspaceKey: string | undefined;
   /** The view the user picked; `undefined` follows the project's settings. */
@@ -35,7 +36,7 @@ export function emptyDraft(projectId: string): ComposerDraft {
     source: undefined,
     titleOpen: false,
     issueOpen: false,
-    agentKey: undefined,
+    agent: undefined,
     workspaceKey: undefined,
     viewKey: undefined,
   };

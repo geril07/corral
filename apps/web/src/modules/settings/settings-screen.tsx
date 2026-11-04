@@ -1,88 +1,142 @@
-import { useCallback, useEffect } from "react";
-import { Badge, Button, Icon, Screen } from "../../common/ui/index.ts";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Badge, Button, RadioChoice, RadioGroup, TaskDialog } from "../../common/ui/index.ts";
 import { useConfig } from "../keymap/index.ts";
+import { useAppearance, UI_SCALES } from "./appearance.tsx";
 import { AgentsSection } from "./agents.tsx";
 import { ConfigFileSection } from "./config-file-section.tsx";
 import { EffectiveKeys } from "./effective-keys.tsx";
 import { ProfileList } from "./profile-list.tsx";
-import { requestSettingsFocus } from "./settings-focus.ts";
 import { ProjectOverrides, TaskDefaults, TaskNaming } from "./task-defaults.tsx";
 
-/**
- * The read-only settings route: effective keys, task defaults and their layers, naming, the
- * config's profiles, the agents with their availability, and the file's problems.
- */
+const SECTIONS = [
+  ["appearance", "Appearance"],
+  ["keys", "Effective keys"],
+  ["tasks", "Task defaults"],
+  ["naming", "Task naming"],
+  ["projects", "Project overrides"],
+  ["profiles", "Agent profiles"],
+  ["agents", "Agents"],
+  ["config", "Config file"],
+] as const;
+type SectionId = (typeof SECTIONS)[number][0];
+const panelId = (id: SectionId) => `settings-panel-${id}`;
+
+/** Hidden panels keep disclosures and data subscriptions while their own scroll is restored. */
+function SettingsSection({
+  id,
+  current,
+  children,
+}: {
+  id: SectionId;
+  current: SectionId;
+  children: ReactNode;
+}) {
+  const heading = `${panelId(id)}-title`;
+  return (
+    <section id={panelId(id)} hidden={id !== current} aria-labelledby={heading}>
+      <h2 id={heading} className="mt-0 mb-3 text-sm font-semibold">
+        {SECTIONS.find(([key]) => key === id)![1]}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
 export function SettingsScreen({ onClose }: { onClose: () => void }) {
   const { profiles } = useConfig();
-  const close = useCallback(() => {
-    requestSettingsFocus();
-    onClose();
-  }, [onClose]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      close();
-    };
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
-  }, [close]);
-
+  const { appearance, setScale, setTabPosition } = useAppearance();
+  const [current, setCurrent] = useState<SectionId>("appearance");
+  const content = useRef<HTMLDivElement>(null);
+  const positions = useRef(new Map<SectionId, number>());
+  const visit = (id: SectionId) => {
+    positions.current.set(current, content.current?.scrollTop ?? 0);
+    setCurrent(id);
+  };
+  useLayoutEffect(() => {
+    if (content.current) content.current.scrollTop = positions.current.get(current) ?? 0;
+  }, [current, content, positions]);
   return (
-    <Screen>
-      <header className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
-        <Button variant="ghost" aria-label="Back to workspace" autoFocus onClick={close}>
-          <Icon name="back" />
-          Back
-        </Button>
-        <h1 className="m-0 text-base font-semibold">Settings</h1>
-        <Badge variant="secondary">read-only</Badge>
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        <section aria-labelledby="settings-keys" className="mb-5">
-          <h2 id="settings-keys" className="mt-0 mb-1 text-sm font-semibold">
-            Effective keys
-          </h2>
-          <EffectiveKeys />
-        </section>
-        <section aria-labelledby="settings-tasks" className="mb-5">
-          <h2 id="settings-tasks" className="mt-0 mb-1 text-sm font-semibold">
-            Task defaults
-          </h2>
-          <TaskDefaults />
-        </section>
-        <section aria-labelledby="settings-naming" className="mb-5">
-          <h2 id="settings-naming" className="mt-0 mb-1 text-sm font-semibold">
-            Task naming
-          </h2>
-          <TaskNaming />
-        </section>
-        <section aria-labelledby="settings-projects" className="mb-5">
-          <h2 id="settings-projects" className="mt-0 mb-1 text-sm font-semibold">
-            Project overrides
-          </h2>
-          <ProjectOverrides />
-        </section>
-        <section aria-labelledby="settings-profiles" className="mb-5">
-          <h2 id="settings-profiles" className="mt-0 mb-1 text-sm font-semibold">
-            Agent profiles
-          </h2>
-          <ProfileList profiles={profiles} />
-        </section>
-        <section aria-labelledby="settings-agents" className="mb-5">
-          <h2 id="settings-agents" className="mt-0 mb-1 text-sm font-semibold">
-            Agents
-          </h2>
-          <AgentsSection />
-        </section>
-        <section aria-labelledby="settings-config">
-          <h2 id="settings-config" className="mt-0 mb-1 text-sm font-semibold">
-            Config file
-          </h2>
-          <ConfigFileSection />
-        </section>
+    <TaskDialog title="Settings" layout="settings" onClose={onClose}>
+      <div className="flex min-h-0 flex-1">
+        <nav
+          aria-label="Settings categories"
+          className="flex w-44 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border p-3"
+        >
+          {SECTIONS.map(([id, label]) => (
+            <Button
+              key={id}
+              variant={current === id ? "secondary" : "ghost"}
+              layout="navigation"
+              aria-current={current === id ? "true" : undefined}
+              aria-controls={panelId(id)}
+              onClick={() => visit(id)}
+            >
+              {label}
+            </Button>
+          ))}
+        </nav>
+        <div ref={content} className="min-w-0 flex-1 overflow-y-auto p-5">
+          {current !== "appearance" && (
+            <div className="mb-3">
+              <Badge variant="secondary">read-only</Badge>
+            </div>
+          )}
+          <SettingsSection id="appearance" current={current}>
+            <p className="mt-0 text-xs text-muted-foreground">
+              Saved on this device. Server settings in the other categories are read-only.
+            </p>
+            <h3 className="text-sm font-medium">Session tabs</h3>
+            <RadioGroup
+              aria-label="Session tab position"
+              value={appearance.tabPosition}
+              onValueChange={(value) => {
+                if (value === "top" || value === "bottom") setTabPosition(value);
+              }}
+            >
+              <RadioChoice value="top">Top</RadioChoice>
+              <RadioChoice value="bottom">Bottom</RadioChoice>
+            </RadioGroup>
+            <h3 className="text-sm font-medium">Interface text scale</h3>
+            <div className="flex flex-wrap gap-1" role="group" aria-label="Interface text scale">
+              {UI_SCALES.map((scale) => (
+                <Button
+                  key={scale}
+                  size="sm"
+                  variant={appearance.scale === scale ? "secondary" : "ghost"}
+                  aria-pressed={appearance.scale === scale}
+                  onClick={() => setScale(scale)}
+                >
+                  {scale}%
+                </Button>
+              ))}
+            </div>
+            <p className="mb-0 text-xs text-muted-foreground">
+              Relative to the system scale; terminal text stays at 14 px.
+            </p>
+          </SettingsSection>
+          <SettingsSection id="keys" current={current}>
+            <EffectiveKeys />
+          </SettingsSection>
+          <SettingsSection id="tasks" current={current}>
+            <TaskDefaults />
+          </SettingsSection>
+          <SettingsSection id="naming" current={current}>
+            <TaskNaming />
+          </SettingsSection>
+          <SettingsSection id="projects" current={current}>
+            <ProjectOverrides />
+          </SettingsSection>
+          <SettingsSection id="profiles" current={current}>
+            <ProfileList profiles={profiles} />
+          </SettingsSection>
+          <SettingsSection id="agents" current={current}>
+            <AgentsSection />
+          </SettingsSection>
+          <SettingsSection id="config" current={current}>
+            <ConfigFileSection />
+          </SettingsSection>
+        </div>
       </div>
-    </Screen>
+    </TaskDialog>
   );
 }

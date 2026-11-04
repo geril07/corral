@@ -148,6 +148,30 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
       .element(page.getByRole("tab", { name: /^pi/ }))
       .toHaveAttribute("aria-selected", "true");
 
+    await composer.fill("Unsent pi draft");
+    sessions.set({
+      loaded: true,
+      sessions: [
+        session,
+        {
+          ...session,
+          id: "second-chat",
+          kind: "codex",
+          agentSessionId: "codex-seeded",
+          createdAt: 2,
+        },
+      ],
+    });
+    await page.getByRole("tab", { name: /^codex/ }).click();
+    await expect.element(composer).toHaveValue("");
+    await composer.fill("Unsent codex draft");
+    await page.getByRole("tab", { name: /^pi/ }).click();
+    await expect.element(composer).toHaveValue("Unsent pi draft");
+    await page.getByRole("tab", { name: /^codex/ }).click();
+    await expect.element(composer).toHaveValue("Unsent codex draft");
+    await page.getByRole("tab", { name: /^pi/ }).click();
+    await expect.element(composer).toHaveValue("Unsent pi draft");
+
     // The palette action is enabled for a working chat turn.
     await prefixThen(" ");
     await userEvent.keyboard("abort");
@@ -252,13 +276,22 @@ test("the chat model and reasoning controls apply what the driver reports, from 
         model: { provider: "stub", id: "stub-2" },
       }),
     );
+    await expect.element(modelDialog).toBeVisible();
+    await expect
+      .element(modelDialog)
+      .toMatchTextContent("Waiting for the agent\u0027s updated model");
+    await expect
+      .element(modelDialog.getByRole("toolbar", { name: "Thinking" }))
+      .not.toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
     await expect.element(modelDialog).not.toBeInTheDocument();
+    await expect.element(page.getByRole("textbox", { name: "Message" })).toHaveFocus();
 
-    // The row's reasoning picker opens the level list; the driver's own values are what it offers.
+    // The row\u0027s reasoning picker opens the level list; the driver's own values are what it offers.
     await page.getByRole("button", { name: "Reasoning medium" }).click();
     const levelDialog = page.getByRole("dialog", { name: "Reasoning level" });
     await expect.element(levelDialog).toBeVisible();
-    await userEvent.keyboard("high{Enter}");
+    await userEvent.keyboard("{ArrowDown}{Enter}");
     await vi.waitFor(() =>
       expect(setReasoning).toHaveBeenCalledExactlyOnceWith({
         sessionId: chatSession,

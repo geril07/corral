@@ -14,6 +14,10 @@ import { agentLaunches, serverEnv } from "./test/server-agents.ts";
 export default defineConfig({
   // Relative asset paths so Electron can load the build from a file:// URL.
   base: "./",
+  // New primitive entry points must be prebundled to avoid a test reload splitting React.
+  optimizeDeps: {
+    include: ["@base-ui/react/context-menu", "@base-ui/react/popover", "@base-ui/react/toolbar"],
+  },
   plugins: [
     tanstackRouter({
       target: "react",

@@ -1,10 +1,30 @@
 import type { ChatStore } from "@corral/client/chat-store";
 import { describeError } from "@corral/client/rpc-errors";
 import type { ChatAnswer } from "@corral/protocol/chat";
-import type { ChatSendMode } from "@corral/protocol/rpc";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { AgentKind, ChatSendMode } from "@corral/protocol/rpc";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type Dispatch,
+  type SetStateAction,
+  type Ref,
+} from "react";
 import { useEnterGuard } from "../../common/hooks/use-enter-guard.ts";
-import { Alert, AlertDescription, Button, ContentLane, Textarea } from "../../common/ui/index.ts";
+import {
+  Alert,
+  AlertDescription,
+  Button,
+  ComposerSurface,
+  ComposerToolbar,
+  ContentLane,
+  ModelPickerButton,
+  Textarea,
+  useTruncatedText,
+} from "../../common/ui/index.ts";
 import { pendingRequest } from "./chat-rows.ts";
 import { ChatTimeline } from "./chat-timeline.tsx";
 import {
@@ -19,8 +39,14 @@ export type ChatSend = (text: string, mode: ChatSendMode) => Promise<void>;
 
 export interface ChatViewProps {
   store: ChatStore;
+  /** Workspace-owned per-session text survives replacing the chat with another view. */
+  draft: string;
+  onDraftChange: Dispatch<SetStateAction<string>>;
   /** The agent's name for the placeholder ("Ask pi…"); the session's kind. */
-  agent: string;
+  agent: AgentKind;
+  canChooseAgent: boolean;
+  modelPickerAnchor?: Ref<HTMLButtonElement> | undefined;
+  reasoningPickerAnchor?: Ref<HTMLButtonElement> | undefined;
   /** The abort action's effective chord (`formatBinding`), or undefined when it is unbound. */
   abortHint: string | undefined;
   onSend: ChatSend;
@@ -41,7 +67,12 @@ export interface ChatViewProps {
  */
 export function ChatView({
   store,
+  draft,
+  onDraftChange: setDraft,
   agent,
+  canChooseAgent,
+  modelPickerAnchor,
+  reasoningPickerAnchor,
   abortHint,
   onSend,
   onAbort,
@@ -51,7 +82,8 @@ export function ChatView({
   files,
 }: ChatViewProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const [draft, setDraft] = useState("");
+  const reasoning = snapshot.state.reasoning ?? "Thinking";
+  const { observe: observeReasoning, clipped: clippedReasoning } = useTruncatedText(reasoning);
   const [sending, setSending] = useState(false);
   const [aborting, setAborting] = useState(false);
   const [failure, setFailure] = useState<string>();
@@ -177,89 +209,92 @@ export function ChatView({
                 void send(working ? "steer" : "prompt");
               }}
             >
-              <Textarea
-                ref={composerRef}
-                layout="chat"
-                aria-label="Message"
-                placeholder={`Ask ${agent}…`}
-                rows={2}
-                spellCheck={false}
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                onCompositionStart={guard.start}
-                onCompositionEnd={guard.end}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter") {
-                    guard.noteKey(event.key);
-                    return;
-                  }
-                  // An IME commit is not a send, in either platform ordering.
-                  if (guard.isComposition(event)) {
-                    guard.consume();
+              <ComposerSurface>
+                <Textarea
+                  frame="composer"
+                  ref={composerRef}
+                  layout="chat"
+                  aria-label="Message"
+                  placeholder={`Ask ${agent}…`}
+                  rows={2}
+                  spellCheck={false}
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  onCompositionStart={guard.start}
+                  onCompositionEnd={guard.end}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") {
+                      guard.noteKey(event.key);
+                      return;
+                    }
+                    // An IME commit is not a send, in either platform ordering.
+                    if (guard.isComposition(event)) {
+                      guard.consume();
+                      event.preventDefault();
+                      return;
+                    }
+                    // Shift+Enter stays a newline; the textarea's own default does that.
+                    if (event.shiftKey) return;
                     event.preventDefault();
-                    return;
-                  }
-                  // Shift+Enter stays a newline; the textarea's own default does that.
-                  if (event.shiftKey) return;
-                  event.preventDefault();
-                  if (!working) void send("prompt");
-                  else void send(event.metaKey || event.ctrlKey ? "follow-up" : "steer");
-                }}
-              />
-              <div className="flex flex-wrap items-center gap-2">
-                {/* The two pickers `layout.md` puts on the left; each opens the same chooser the
-                  palette's actions open, so the driver's list is one component. */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`Model ${snapshot.state.model?.name ?? "none"}`}
-                  disabled={snapshot.state.models.length === 0}
-                  onClick={onChangeModel}
-                >
-                  <span className="min-w-0 truncate">
-                    {snapshot.state.model?.name ?? "no model"}
-                  </span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`Reasoning ${snapshot.state.reasoning ?? "none"}`}
-                  disabled={snapshot.state.reasoningLevels.length === 0}
-                  onClick={onChangeReasoning}
-                >
-                  <span className="min-w-0 truncate">
-                    {snapshot.state.reasoning ?? "no reasoning level"}
-                  </span>
-                </Button>
-                <span className="ml-auto text-xs text-muted-foreground">
-                  {working
-                    ? `Enter steer · ⌘/Ctrl+Enter follow-up · ${abortHint ?? "no key"} abort`
-                    : "Enter send · Shift+Enter newline"}
-                </span>
-                {working && (
-                  <>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={draft.trim() === "" || sending}
-                      onClick={() => void send("follow-up")}
+                    if (!working) void send("prompt");
+                    else void send(event.metaKey || event.ctrlKey ? "follow-up" : "steer");
+                  }}
+                />
+                <ComposerToolbar>
+                  <ModelPickerButton
+                    ref={modelPickerAnchor}
+                    kind={agent}
+                    label={snapshot.state.model?.name ?? "Choose model"}
+                    aria-label={`Model ${snapshot.state.model?.name ?? "none"}`}
+                    disabled={!canChooseAgent && snapshot.state.models.length === 0}
+                    onClick={onChangeModel}
+                  />
+                  <Button
+                    ref={reasoningPickerAnchor}
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Reasoning ${snapshot.state.reasoning ?? "none"}`}
+                    disabled={snapshot.state.reasoningLevels.length === 0}
+                    onClick={onChangeReasoning}
+                  >
+                    <span
+                      ref={observeReasoning}
+                      className="min-w-0 truncate"
+                      title={clippedReasoning ? reasoning : undefined}
                     >
-                      Queue
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      disabled={aborting}
-                      onClick={() => void abort()}
-                    >
-                      Abort
-                    </Button>
-                  </>
-                )}
-                <Button type="submit" size="sm" disabled={draft.trim() === "" || sending}>
-                  {working ? "Steer" : "Send"}
-                </Button>
-              </div>
+                      {reasoning}
+                    </span>
+                  </Button>
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {working
+                      ? `Enter steer · ⌘/Ctrl+Enter follow-up · ${abortHint ?? "no key"} abort`
+                      : "Enter send · Shift+Enter newline"}
+                  </span>
+                  {working && (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={draft.trim() === "" || sending}
+                        onClick={() => void send("follow-up")}
+                      >
+                        Queue
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={aborting}
+                        onClick={() => void abort()}
+                      >
+                        Abort
+                      </Button>
+                    </>
+                  )}
+                  <Button type="submit" size="sm" disabled={draft.trim() === "" || sending}>
+                    {working ? "Steer" : "Send"}
+                  </Button>
+                </ComposerToolbar>
+              </ComposerSurface>
             </form>
           </div>
         </ContentLane>

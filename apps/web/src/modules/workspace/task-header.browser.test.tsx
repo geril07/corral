@@ -51,8 +51,8 @@ function Harness({ node, narrow }: { node: TaskNode; narrow: boolean }) {
   );
 }
 
-/** The branch line's copy button: its label is the effective workspace text, its child is what shows. */
-const branchLine = () => document.querySelector('[aria-label$="copy workspace path"]');
+/** Repository context is text, not a hidden copy action. */
+const branchLine = () => document.querySelector("[data-task-repository]");
 
 test("the branch line follows a task switch even when the pane has no width yet", async () => {
   const screen = await render(
@@ -64,7 +64,7 @@ test("the branch line follows a task switch even when the pane has no width yet"
   // The switch lands while the pane is zero wide: the accessible label is fresh, so the visible
   // line must be too — the previous task's branch stayed on screen for as long as the width did.
   await screen.rerender(<Harness node={nodeOf("t2", "beta-branch", "Second task")} narrow />);
-  expect(branchLine()?.getAttribute("aria-label")).toBe("alpha › beta-branch: copy workspace path");
+  expect(branchLine()?.getAttribute("aria-label")).toBe("alpha › beta-branch");
   expect(branchLine()?.textContent).toBe("alpha › beta-branch");
   await vi.waitFor(() => expect(branchLine()?.textContent).toBe("alpha › beta-branch"));
 });

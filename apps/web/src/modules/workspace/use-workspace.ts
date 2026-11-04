@@ -78,6 +78,7 @@ export type DialogState =
   | { kind: "chat-reasoning" };
 
 interface UseWorkspaceOptions {
+  active?: boolean;
   search: WorkspaceSearch;
   onChange: (search: WorkspaceSearch) => void;
   onOpenBoard: (search: WorkspaceSearch) => void;
@@ -86,6 +87,7 @@ interface UseWorkspaceOptions {
 
 /** The workspace's state and actions, wired to the client stores and the route's search params. */
 export function useWorkspace({
+  active = true,
   search,
   onChange,
   onOpenBoard,
@@ -232,7 +234,8 @@ export function useWorkspace({
     : undefined;
   const seenRequest = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (selectedNode === undefined || !hasUnseen(selectedNode.task, selectedStatus)) return;
+    if (!active || selectedNode === undefined || !hasUnseen(selectedNode.task, selectedStatus))
+      return;
     const key = [
       selectedNode.task.id,
       selectedNode.task.seenAt ?? "never",
@@ -244,7 +247,7 @@ export function useWorkspace({
       // A refused or dropped mark is retried at the next selection or status change.
       seenRequest.current = undefined;
     });
-  }, [client, selectedNode, selectedStatus]);
+  }, [active, client, selectedNode, selectedStatus]);
 
   const choose = useCallback(
     (next: Chosen) => {
@@ -367,12 +370,13 @@ export function useWorkspace({
               : { expectedProfileRevision: choice.expectedProfileRevision }),
           }),
       ...(choice.model === undefined ? {} : { model: choice.model }),
+      ...(choice.view === undefined ? {} : { view: choice.view }),
     });
     setDialog(undefined);
     choose({ taskId, entryId: started.id });
   };
 
-  /** Settings is a route; remember the opener for focus, then leave the workspace. */
+  /** Settings overlays the mounted workspace; keep its opener for the modal return. */
   const openSettings = (opener?: HTMLElement) => {
     dialogFocus?.remember(opener);
     onOpenSettings(chosenToSearch(chosenRef.current));
@@ -873,7 +877,7 @@ export function useWorkspace({
   const armed = usePrefixMode(
     keymap,
     (action: ActionId) => actions[action].run(),
-    dialog === undefined,
+    active && dialog === undefined,
   );
 
   const rememberFitSize = useCallback((size: TerminalSize) => {
@@ -896,6 +900,7 @@ export function useWorkspace({
     currentSession,
     chat,
     chatDrivers,
+    capabilitiesReady: chatCapabilities.loaded,
     handoff,
     currentTask,
     currentTaskNode,

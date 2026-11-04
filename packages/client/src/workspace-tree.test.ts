@@ -93,7 +93,7 @@ test("the tree groups sessions under tasks and tasks under projects, active befo
   ]);
   expect(tree.projects[0]?.settled.map((n) => n.task.id)).toEqual(["t2"]);
   expect(tree.loose.map((entry) => entry.id)).toEqual(["c"]);
-  expect(tasksInOrder(tree).map((t) => t.id)).toEqual(["t1", "t3", "t2", "t4"]);
+  expect(tasksInOrder(tree).map((t) => t.id)).toEqual(["t1", "t3", "t4", "t2"]);
 });
 
 test("a task lists its sessions in creation order, each with its terminal if it has one", () => {

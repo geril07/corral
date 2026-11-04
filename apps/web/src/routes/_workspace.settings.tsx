@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SettingsScreen } from "../modules/settings/index.ts";
 import { validateWorkspaceSearch } from "../modules/workspace/index.ts";
 
-export const Route = createFileRoute("/settings")({
+export const Route = createFileRoute("/_workspace/settings")({
   validateSearch: validateWorkspaceSearch,
   component: SettingsRoute,
 });

@@ -23,10 +23,13 @@ test("prefix v returns a both-live session from a focused terminal to chat, and 
   const { client } = await appWithProject(newClient());
   await prefixThen("t");
   const form = newTaskView();
-  await userEvent.click(form.getByRole("combobox", { name: /^Agent / }));
-  await page.getByRole("option", { name: /^opencode/ }).click();
-  await userEvent.click(form.getByRole("combobox", { name: /^View / }));
-  await page.getByRole("option", { name: "chat" }).click();
+  await userEvent.click(form.getByRole("button", { name: /^Agent / }));
+  await page
+    .getByRole("dialog", { name: "Agent and model" })
+    .getByRole("radio", { name: "opencode", exact: true })
+    .click();
+  await userEvent.keyboard("{Escape}");
+  await form.getByRole("button", { name: "Open in chat" }).click();
   await userEvent.click(promptField());
   await userEvent.keyboard("both views{Enter}");
 

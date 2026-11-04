@@ -17,10 +17,11 @@ import {
 import { CommandDialog } from "./command.tsx";
 import { createContext, useContext, useMemo, useRef, type ReactNode } from "react";
 
-const FINAL_FOCUS_SELECTOR = ".terminal-host .xterm-helper-textarea";
+const FINAL_FOCUS_SELECTOR =
+  'textarea[aria-label="Message"], textarea[aria-label="Prompt"], .terminal-host .xterm-helper-textarea';
 
-/** Returns the keyboard to the terminal when a dialog closes, where the user was before it. */
-function focusTerminal(): HTMLElement | null {
+/** The selected view owns the fallback, including a newly started chat. */
+function workspaceInput(): HTMLElement | null {
   return document.querySelector<HTMLElement>(FINAL_FOCUS_SELECTOR);
 }
 
@@ -29,7 +30,7 @@ function currentOpener(): HTMLElement | null {
   const active = document.activeElement;
   if (active instanceof HTMLElement && active !== document.body && active.isConnected)
     return active;
-  return focusTerminal();
+  return workspaceInput();
 }
 
 interface DialogFocus {
@@ -65,7 +66,16 @@ export function useDialogFocus(): DialogFocus | undefined {
 function finalFocusTarget(remembered: HTMLElement | null, fallback: HTMLElement | null) {
   if (remembered?.isConnected) return remembered;
   if (fallback?.isConnected) return fallback;
-  return focusTerminal();
+  return workspaceInput();
+}
+
+/** One focus-return policy for route dialogs and anchored pickers. */
+export function useTaskFinalFocus(preferComposer = false) {
+  const focus = useDialogFocus();
+  const fallback = useRef(currentOpener());
+  return () =>
+    (preferComposer ? workspaceInput() : null) ??
+    finalFocusTarget(focus?.target() ?? null, fallback.current);
 }
 
 export interface DialogProps {
@@ -83,9 +93,7 @@ export function TaskCommandDialog({
   onClose,
   children,
 }: Omit<DialogProps, "description"> & { description?: string }) {
-  const focus = useDialogFocus();
-  const fallback = useRef(currentOpener());
-  const finalFocus = () => finalFocusTarget(focus?.target() ?? null, fallback.current);
+  const finalFocus = useTaskFinalFocus();
   return (
     <CommandDialog
       open
@@ -104,20 +112,35 @@ export function TaskDialog({
   description,
   onClose,
   showCloseButton = true,
+  layout = "default",
   children,
-}: DialogProps & { showCloseButton?: boolean }) {
-  const focus = useDialogFocus();
-  const fallback = useRef(currentOpener());
-  const finalFocus = () => finalFocusTarget(focus?.target() ?? null, fallback.current);
+}: DialogProps & { showCloseButton?: boolean; layout?: "default" | "settings" | "picker" }) {
+  const finalFocus = useTaskFinalFocus();
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
-        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        className={
+          layout === "settings"
+            ? "flex h-[min(44rem,calc(100dvh-2rem))] w-[min(64rem,calc(100vw-2rem))] max-w-none flex-col gap-0 overflow-hidden sm:max-w-none"
+            : layout === "picker"
+              ? "flex w-[36rem] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden sm:max-w-none"
+              : "max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        }
+        padding={layout === "default" ? "default" : "none"}
+        closeLabel={layout === "settings" ? "Back to workspace" : "Close"}
         finalFocus={finalFocus}
         showCloseButton={showCloseButton}
       >
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
+        <DialogHeader
+          className={
+            layout === "settings"
+              ? "shrink-0 border-b border-border px-5 py-4 pr-12"
+              : layout === "picker"
+                ? "sr-only"
+                : undefined
+          }
+        >
+          <DialogTitle render={layout === "settings" ? <h1 /> : <h2 />}>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
         {children}
@@ -127,9 +150,7 @@ export function TaskDialog({
 }
 
 export function DestructiveTaskDialog({ title, description, onClose, children }: DialogProps) {
-  const focus = useDialogFocus();
-  const fallback = useRef(currentOpener());
-  const finalFocus = () => finalFocusTarget(focus?.target() ?? null, fallback.current);
+  const finalFocus = useTaskFinalFocus();
   return (
     <AlertDialog open onOpenChange={(open) => !open && onClose()}>
       <AlertDialogContent

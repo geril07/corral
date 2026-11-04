@@ -82,11 +82,11 @@ Internal packages export TypeScript source (no build step). The server runs that
 
 ## Web UI kit
 
-Stock default shadcn/ui Base UI / Nova components live in `apps/web/src/common/ui`.
-Canonical theme/type/radius and primitive visual defaults come from the official CLI;
+shadcn/ui Base UI / Nova components live in `apps/web/src/common/ui`.
+The approved T3-like theme supersedes the earlier stock-only appearance policy;
 modules must use kit variants instead of class/style overrides on controls. The AST
 gate covers imported aliases, namespaces, field/command wrappers and opaque prop spreads.
-Generation commands, provenance, token mapping and intentional adaptations:
+Provenance, token mapping and intentional adaptations:
 [`ui-kit.md`](ui-kit.md). Modules compose the kit; they do not import Base UI,
 cmdk or icons directly. Keep the UI-boundary lint and class/token gates active.
 

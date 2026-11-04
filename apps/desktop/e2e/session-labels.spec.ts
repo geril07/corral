@@ -2,6 +2,7 @@ import { expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import {
+  openAgentSessionPicker,
   addProject,
   createRepo,
   createTask,
@@ -46,8 +47,7 @@ test("a renamed task session keeps its name, its process and its conversation ac
   await createTask(window, "Labels");
   await startShell(window);
 
-  await window.keyboard.press("Alt+KeyA");
-  await window.keyboard.press("KeyS");
+  await openAgentSessionPicker(window, "terminal");
   await expect(window.getByRole("radio", { name: "claude" })).toBeFocused();
   await window.keyboard.press("Digit1");
   await expect.poll(() => screenText(window)).toContain("fake claude ready");

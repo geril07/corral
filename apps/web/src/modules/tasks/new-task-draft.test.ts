@@ -25,7 +25,7 @@ describe("movedDraft", () => {
         promptTyped: true,
         title: "My title",
         titleOpen: true,
-        agentKey: "native:pi",
+        agent: { kind: "pi", profile: null, model: "" },
         workspaceKey: MAIN_TREE,
       }),
       "p2",
@@ -37,7 +37,7 @@ describe("movedDraft", () => {
       promptTyped: true,
       title: "My title",
       titleOpen: true,
-      agentKey: "native:pi",
+      agent: { kind: "pi", profile: null, model: "" },
       workspaceKey: MAIN_TREE,
     });
   });

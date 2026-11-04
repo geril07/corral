@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test";
 import {
+  openAgentSessionPicker,
   addProject,
   createRepo,
   createTask,
@@ -25,8 +26,7 @@ test("settling a task stops its agent and unsettling resumes the conversation", 
   await startShell(window);
   const sidebar = workspace(window);
 
-  await window.keyboard.press("Alt+KeyA");
-  await window.keyboard.press("KeyS");
+  await openAgentSessionPicker(window, "terminal");
   const picker = window.getByRole("dialog", { name: "New agent session" });
   await expect(picker.getByRole("radio", { name: "claude" })).toBeFocused();
   await window.keyboard.press("Digit1");

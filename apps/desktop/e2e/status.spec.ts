@@ -1,5 +1,6 @@
 import { expect } from "@playwright/test";
 import {
+  openAgentSessionPicker,
   addProject,
   createRepo,
   createTask,
@@ -26,8 +27,7 @@ test("a blocked agent shows in the sidebar and on the board, and Enter jumps to 
   const sidebar = workspace(window);
   const claude = sessionTab(window, "claude");
 
-  await window.keyboard.press("Alt+KeyA");
-  await window.keyboard.press("KeyS");
+  await openAgentSessionPicker(window, "terminal");
   await expect(
     window
       .getByRole("dialog", { name: "New agent session" })
@@ -98,8 +98,7 @@ test("prefix g jumps to the blocked session from another task and says so when n
   await window.keyboard.press("KeyG");
   await expect(window.getByText("No blocked sessions.")).toBeVisible();
 
-  await window.keyboard.press("Alt+KeyA");
-  await window.keyboard.press("KeyS");
+  await openAgentSessionPicker(window, "terminal");
   await expect(
     window
       .getByRole("dialog", { name: "New agent session" })

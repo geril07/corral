@@ -641,18 +641,15 @@ test("removing a project drops its tasks and leaves their worktrees and branches
   await updates.return?.();
 });
 
-test("a prompt with an agent seeds the title and starts the primary session with that prompt", async () => {
+test("a prompt with an agent seeds the title and starts its primary chat by default", async () => {
   const { project } = await addProject(server);
   const api = await server.rpc();
-  const prompt = "Make the login retry\n  and say why it failed  ";
-
   const task = await api.tasks.create({
     projectId: project.id,
-    prompt,
-    agent: { kind: "claude" },
+    prompt: "Make the login retry\n  and say why it failed  ",
+    agent: { kind: "pi" },
     workspace: { type: "new-branch" },
   });
-
   expect(task).toMatchObject({
     title: "Make the login retry",
     titleSource: "seed",
@@ -663,13 +660,34 @@ test("a prompt with an agent seeds the title and starts the primary session with
   expect(session).toMatchObject({
     id: task.primarySessionId,
     taskId: task.id,
-    kind: "claude",
+    kind: "pi",
+    view: "chat",
     state: "running",
-    terminalId: expect.any(String),
+    terminalId: null,
   });
-  const [launch] = await launchesOf(agents, "claude", 1);
-  expect(launch!.argv).toEqual(["--session-id", session.agentSessionId, ` ${task.prompt}`]);
+  const [launch] = await launchesOf(agents, "pi", 1);
+  expect(launch!.argv.slice(0, 2)).toEqual(["--mode", "rpc"]);
   expect(launch!.cwd).toBe(task.workspacePath);
+  const stream = await api.chat.watch({ sessionId: session.id });
+  try {
+    let delivered = false;
+    for (let frame = 0; frame < 100 && !delivered; frame += 1) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- consume the ordered stream until the prompt is delivered
+      const next = await within(stream.next(), "the primary chat prompt");
+      if (next.done) break;
+      const message = next.value;
+      const items =
+        message.type === "snapshot"
+          ? message.snapshot.items
+          : message.type === "event" && message.event.type === "item"
+            ? [message.event.item]
+            : [];
+      delivered = items.some((item) => item.kind === "user-message" && item.text === task.prompt);
+    }
+    expect(delivered).toBe(true);
+  } finally {
+    await stream.return?.();
+  }
 });
 
 test("a prompt without an agent makes an empty task: the prompt is kept, nothing starts", async () => {
@@ -754,7 +772,7 @@ test("a primary session that cannot launch keeps the task and stays stopped with
     projectId: project.id,
     prompt: "Fix the flaky test",
     // A profile the config file does not have: the launch is refused before anything is spawned.
-    agent: { kind: "claude", profileId: "gone" },
+    agent: { kind: "claude", profileId: "gone", view: "terminal" },
     workspace: { type: "new-branch" },
   });
 
@@ -789,7 +807,7 @@ test("restarting the primary session of a task resumes a conversation without re
   const task = await api.tasks.create({
     projectId: project.id,
     prompt: "Write the migration",
-    agent: { kind: "claude" },
+    agent: { kind: "claude", view: "terminal" },
     workspace: { type: "main-worktree" },
   });
   await launchesOf(agents, "claude", 1);
@@ -836,7 +854,7 @@ test("a restored primary session whose agent never wrote a conversation starts o
   const task = await api.tasks.create({
     projectId: project.id,
     prompt: "Resume the primary work",
-    agent: { kind: "claude" },
+    agent: { kind: "claude", view: "terminal" },
     workspace: { type: "new-branch" },
   });
   const conversation = (await sessionsOf(api))[0]!.agentSessionId;

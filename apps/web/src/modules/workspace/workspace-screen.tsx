@@ -1,8 +1,8 @@
 import { describeSessionState } from "@corral/client/session-state";
 import { describeError } from "@corral/client/rpc-errors";
-import { ActionId, type ClientConfig } from "@corral/protocol/config";
+import { ActionId, taskSettingsFor, type ClientConfig } from "@corral/protocol/config";
 import type { SessionView } from "@corral/protocol/rpc";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Alert,
   AlertDescription,
@@ -14,6 +14,7 @@ import {
   Kbd,
   MainPanel,
   SidebarPanel,
+  TaskContent,
 } from "../../common/ui/index.ts";
 import { ChangesView } from "../changes/index.ts";
 import { AddProjectDialog } from "../projects/index.ts";
@@ -33,7 +34,7 @@ import {
   ConfigProblemsNotice,
   formatBinding,
 } from "../keymap/index.ts";
-import { SETTINGS_BUTTON_ID, useRestoreSettingsFocus } from "../settings/index.ts";
+import { SETTINGS_BUTTON_ID, useAppearance } from "../settings/index.ts";
 import { FindTaskDialog } from "./find-task-dialog.tsx";
 import { RenameDialog } from "./rename-dialog.tsx";
 import { SessionTabs } from "./session-tabs.tsx";
@@ -53,6 +54,7 @@ function pressHint(config: ClientConfig, action: ActionId): string | undefined {
 }
 
 export interface WorkspaceScreenProps {
+  active?: boolean;
   search: WorkspaceSearch;
   onChange: (search: WorkspaceSearch) => void;
   onOpenBoard: (search: WorkspaceSearch) => void;
@@ -65,12 +67,17 @@ export interface WorkspaceScreenProps {
  * empty states.
  */
 export function WorkspaceScreen({
+  active = true,
   search,
   onChange,
   onOpenBoard,
   onOpenSettings,
 }: WorkspaceScreenProps) {
-  useRestoreSettingsFocus();
+  const { appearance } = useAppearance();
+  const agentPickerAnchor = useRef<HTMLButtonElement>(null);
+  const modelPickerAnchor = useRef<HTMLButtonElement>(null);
+  const reasoningPickerAnchor = useRef<HTMLButtonElement>(null);
+  const [chatDrafts, setChatDrafts] = useState<ReadonlyMap<string, string>>(new Map());
   const {
     client,
     config,
@@ -87,6 +94,7 @@ export function WorkspaceScreen({
     currentSession,
     chat,
     chatDrivers,
+    capabilitiesReady,
     handoff,
     currentTask,
     currentTaskNode,
@@ -138,7 +146,7 @@ export function WorkspaceScreen({
     resolveIssue,
     removeTask,
     setDialog,
-  } = useWorkspace({ search, onChange, onOpenBoard, onOpenSettings });
+  } = useWorkspace({ active, search, onChange, onOpenBoard, onOpenSettings });
   const restartKey = keyHint(config, "restart-session");
   // The Changes tab is the route's `entry=changes`; it needs a task and nothing of a session.
   const changesCurrent = changesView && currentTask !== undefined;
@@ -163,6 +171,7 @@ export function WorkspaceScreen({
         config={config}
         profiles={profiles}
         chatDrivers={chatDrivers}
+        capabilitiesReady={capabilitiesReady}
         draft={composerDraft}
         onDraftChange={setComposerDraft}
         loadBranches={loadBranches}
@@ -206,12 +215,31 @@ export function WorkspaceScreen({
             : undefined
         }
       />
-    ) : currentSession?.view === "chat" && chat !== undefined && chatFiles !== undefined ? (
+    ) : currentSession?.view === "chat" &&
+      currentSession.kind !== "shell" &&
+      chat !== undefined &&
+      chatFiles !== undefined ? (
       <ChatView
         key={currentSession.id}
         store={chat.store}
+        draft={chatDrafts.get(currentSession.id) ?? ""}
+        onDraftChange={(update) => {
+          const id = currentSession.id;
+          setChatDrafts((previous) => {
+            const value = previous.get(id) ?? "";
+            const next = typeof update === "function" ? update(value) : update;
+            if (next === value) return previous;
+            const drafts = new Map(previous);
+            if (next === "") drafts.delete(id);
+            else drafts.set(id, next);
+            return drafts;
+          });
+        }}
         files={chatFiles}
         agent={currentSession.kind}
+        modelPickerAnchor={modelPickerAnchor}
+        reasoningPickerAnchor={reasoningPickerAnchor}
+        canChooseAgent={Object.values(config.agents).some((agent) => agent.enabled.value)}
         abortHint={keyHint(config, "abort-turn")}
         onSend={chat.send}
         onAbort={chat.abort}
@@ -234,6 +262,8 @@ export function WorkspaceScreen({
         <SidebarPanel>
           <Sidebar
             tree={tree}
+            onToggleSidebar={sidebar.toggle}
+            onToggleGrouping={actions["sidebar-mode"].run}
             selection={selection}
             flat={flatSidebar}
             config={config}
@@ -270,15 +300,6 @@ export function WorkspaceScreen({
               </p>
             )}
             <div className="flex h-9 items-center gap-1 px-2">
-              <ConnectionNotice state={connection} />
-              <span
-                className="ml-auto flex items-center gap-1 text-xs text-muted-foreground"
-                role={armed ? "status" : undefined}
-                aria-label={armed ? "prefix mode" : undefined}
-              >
-                {armed ? <Badge variant="secondary">prefix…</Badge> : <Kbd>{prefix}</Kbd>}
-              </span>
-              <ConfigProblemsNotice onOpen={openConfigProblems} />
               <IconButton
                 id={SETTINGS_BUTTON_ID}
                 label="Settings"
@@ -286,6 +307,21 @@ export function WorkspaceScreen({
                 icon="settings"
                 onClick={(event) => openSettings(event.currentTarget)}
               />
+              <IconButton
+                label="Add project"
+                tooltip={formatBinding(config, "add-project")}
+                icon="add-project"
+                onClick={() => actions["add-project"].run()}
+              />
+              <ConnectionNotice state={connection} />
+              <ConfigProblemsNotice onOpen={openConfigProblems} />
+              <span
+                className="ml-auto flex items-center gap-1 text-xs text-muted-foreground"
+                role={armed ? "status" : undefined}
+                aria-label={armed ? "prefix mode" : undefined}
+              >
+                {armed ? <Badge variant="secondary">prefix…</Badge> : <Kbd>{prefix}</Kbd>}
+              </span>
             </div>
           </footer>
         </SidebarPanel>
@@ -297,12 +333,21 @@ export function WorkspaceScreen({
             <AlertDescription>{failure}</AlertDescription>
           </Alert>
         )}
-        {currentTaskNode && composing === undefined && (
+        {(currentTaskNode || (showComposer && loaded && composerProject !== undefined)) && (
           <TaskHeader
-            node={currentTaskNode}
-            project={currentTaskProject}
-            changes={changes.byTask.get(currentTaskNode.task.id)}
-            pullRequest={pullRequests.byTask.get(currentTaskNode.task.id)}
+            node={showComposer ? undefined : currentTaskNode}
+            onShowSidebar={sidebar.hidden ? sidebar.toggle : undefined}
+            project={showComposer ? composerProject : currentTaskProject}
+            changes={
+              showComposer || !currentTaskNode
+                ? undefined
+                : changes.byTask.get(currentTaskNode.task.id)
+            }
+            pullRequest={
+              showComposer || !currentTaskNode
+                ? undefined
+                : pullRequests.byTask.get(currentTaskNode.task.id)
+            }
             config={config}
             onSettle={(task) => void toggleSettle(task)}
             onRename={openRenameTask}
@@ -310,16 +355,34 @@ export function WorkspaceScreen({
             onViewSource={openTaskSource}
           />
         )}
-        {currentTaskNode && composing === undefined && (
+        {(currentTaskNode || (showComposer && loaded && composerProject !== undefined)) && (
           <SessionTabs
-            entries={currentTaskNode.sessions}
+            entries={showComposer ? [] : (currentTaskNode?.sessions ?? [])}
+            draftLabel={showComposer ? "New task" : undefined}
+            agentPickerAnchor={agentPickerAnchor}
+            position={appearance.tabPosition}
+            view={
+              currentSession === undefined || showComposer
+                ? undefined
+                : {
+                    value: currentSession.view,
+                    reason: actions["switch-view"].enabled
+                      ? undefined
+                      : actions["switch-view"].reason,
+                    onSwitch: actions["switch-view"].run,
+                  }
+            }
             labels={currentSessionLabels}
-            currentId={selection.entryId}
-            changes={{
-              current: changesCurrent,
-              onSelect: openChanges,
-              hint: keyHint(config, "changes"),
-            }}
+            currentId={showComposer ? undefined : selection.entryId}
+            changes={
+              showComposer
+                ? undefined
+                : {
+                    current: changesCurrent,
+                    onSelect: openChanges,
+                    hint: keyHint(config, "changes"),
+                  }
+            }
             config={config}
             onSelect={selectEntry}
             onStop={(each) => void stopSession(each)}
@@ -330,7 +393,12 @@ export function WorkspaceScreen({
             onNewAgent={openAgentPicker}
           />
         )}
-        <div className="relative min-h-0 flex-1" role="region" aria-label="task content">
+        {sidebar.hidden && !currentTaskNode && composerProject === undefined && (
+          <div className="px-2 py-1">
+            <IconButton label="Show sidebar" icon="show-sidebar" onClick={sidebar.toggle} />
+          </div>
+        )}
+        <TaskContent>
           {handoff !== undefined ? (
             <HandOffNotice target={handoff.target} live={handoff.live} />
           ) : (
@@ -349,7 +417,7 @@ export function WorkspaceScreen({
               />
             )))
           )}
-        </div>
+        </TaskContent>
       </MainPanel>
       {dialog?.kind === "add-project" && (
         <AddProjectDialog onAdd={addProject} onClose={() => setDialog(undefined)} />
@@ -358,14 +426,28 @@ export function WorkspaceScreen({
         <AgentPicker
           profiles={profiles}
           agents={config.agents}
+          settings={taskSettingsFor(config, currentTaskProject?.path ?? "")}
+          chatDrivers={chatDrivers}
+          capabilitiesReady={capabilitiesReady}
+          anchor={agentPickerAnchor}
           onStart={(choice) => startAgent(dialog.taskId, choice)}
           onClose={() => setDialog(undefined)}
         />
       )}
       {(dialog?.kind === "chat-model" || dialog?.kind === "chat-reasoning") &&
-        chat !== undefined && (
+        chat !== undefined &&
+        currentSession !== undefined &&
+        currentSession.kind !== "shell" && (
           <ChatChoiceDialog
             store={chat.store}
+            agent={currentSession.kind}
+            launch={currentSession.launch}
+            profiles={profiles}
+            agents={config.agents}
+            settings={taskSettingsFor(config, currentTaskProject?.path ?? "")}
+            chatDrivers={chatDrivers}
+            anchor={dialog.kind === "chat-model" ? modelPickerAnchor : reasoningPickerAnchor}
+            onStart={(choice) => startAgent(currentSession.taskId, choice)}
             kind={dialog.kind === "chat-model" ? "model" : "reasoning"}
             onSetModel={chat.setModel}
             onSetReasoning={chat.setReasoning}

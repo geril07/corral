@@ -82,11 +82,12 @@ export function buildWorkspaceTree(
   };
 }
 
-/** Tasks in the order the sidebar lists them: per project, active first, then settled. */
+/** Project groups first, then the shared bottom Settled shelf: the sidebar navigation order. */
 export function tasksInOrder(tree: WorkspaceTree): Task[] {
-  return tree.projects.flatMap(({ active, settled }) =>
-    [...active, ...settled].map(({ task }) => task),
-  );
+  return [
+    ...tree.projects.flatMap(({ active }) => active),
+    ...tree.projects.flatMap(({ settled }) => settled),
+  ].map(({ task }) => task);
 }
 
 /** What the user pointed at last; any part may be stale or missing. */

@@ -200,8 +200,7 @@ test("a focus tooltip does not block the sidebar row underneath it", async () =>
   workspace().getByRole("button", { name: "New task" }).element().focus();
   await expect.element(page.getByRole("tooltip")).toBeVisible();
 
-  // The project header is a project-mode row; the flat default lists tasks, not projects.
-  await prefixThen("l");
+  // Project grouping is the default; the tooltip must not intercept the row click.
   const header = workspace().getByRole("button", { name: project.name });
   await header.click();
   await expect.element(header).toHaveAttribute("aria-current", "true");

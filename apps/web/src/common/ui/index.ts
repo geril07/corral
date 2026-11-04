@@ -39,12 +39,21 @@ export { Input } from "./input.tsx";
 export { ActionLink, TextLink, LinkAnchor } from "./text-link.tsx";
 export { MediaPreview, type MediaSource } from "./media-preview.tsx";
 export { Textarea } from "./textarea.tsx";
+export { ComposerSurface, ComposerToolbar } from "./composer.tsx";
 export { Markdown, type MarkdownAnchorProps, type MarkdownLinks } from "./streamdown.tsx";
 export { DiffView } from "./diff-view.tsx";
 export { ChangeFileRow, DiffPane } from "./change-row.tsx";
 export { Kbd } from "./kbd.tsx";
-export { AppShell, ContentLane, MainPanel, Screen, SidebarPanel } from "./layout.tsx";
+export { AppShell, ContentLane, MainPanel, Screen, SidebarPanel, TaskContent } from "./layout.tsx";
 export { OverflowMenu } from "./overflow-menu.tsx";
+export { RowMenu } from "./row-menu.tsx";
+export { AgentIcon } from "./agent-icon.tsx";
+export {
+  ModelPicker,
+  ModelPickerButton,
+  type PickerInstance,
+  type PickerModel,
+} from "./model-picker.tsx";
 export { DropdownMenuItem } from "./dropdown-menu.tsx";
 export { RadioGroup, RadioGroupItem } from "./radio-group.tsx";
 export { StatusGlyph, type StatusGlyphSize } from "./status-glyph.tsx";

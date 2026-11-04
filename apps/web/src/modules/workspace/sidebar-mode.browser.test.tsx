@@ -35,38 +35,31 @@ async function reportFromHiddenAgent(client: CorralClient, taskId: string, body:
   stream.input(`osc ${body}\n`);
 }
 
-test("prefix l switches flat and project modes, the device keeps the choice, and the palette lists it", async () => {
+test("project grouping is the default, prefix l toggles status grouping and remembers it", async () => {
   const client = newClient();
   const { rendered } = await appWithProject(client);
   await createTask("Alpha", { workspace: "new-worktree" });
+  await expect.element(projectHeader()).toBeVisible();
+  await expect.element(sectionHeading("Done")).not.toBeInTheDocument();
 
-  // Flat by status is the default: sections carry the list, not the project tree.
+  await prefixThen("l");
   await expect.element(sectionHeading("Done")).toBeVisible();
   await expect.element(projectHeader()).not.toBeInTheDocument();
-  // The row's second line is part of its accessible name, not just painted text.
   const project = client.projects.getSnapshot().projects[0]!;
   await expect
     .element(workspace().getByRole("button", { name: `Alpha — ${project.name} · alpha` }))
     .toBeVisible();
-
-  await prefixThen("l");
-  await expect.element(projectHeader()).toBeVisible();
-  await expect.element(sectionHeading("Done")).not.toBeInTheDocument();
 
   await prefixThen(" ");
   await expect
     .element(palette().getByRole("option", { name: /Toggle sidebar mode/ }))
     .toMatchTextContent("alt+a l");
   await userEvent.keyboard("{Escape}");
-
-  // The preference is this device's: a fresh app on the same client opens in the mode it was left in.
   await rendered.unmount();
   await render(<App client={client} />);
-  await expect.element(projectHeader()).toBeVisible();
-
-  await prefixThen("l");
   await expect.element(sectionHeading("Done")).toBeVisible();
-  await expect.element(projectHeader()).not.toBeInTheDocument();
+  await prefixThen("l");
+  await expect.element(projectHeader()).toBeVisible();
 });
 
 test("a finished task stays marked until it is opened, and the mark is the server's seenAt", async () => {

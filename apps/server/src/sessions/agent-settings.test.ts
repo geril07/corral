@@ -39,7 +39,7 @@ test("a custom command is used for a launch, so no PATH lookup can find the agen
   const task = await api.tasks.create({
     projectId: project.id,
     prompt: "Name the files",
-    agent: { kind: "pi" },
+    agent: { kind: "pi", view: "terminal" },
     workspace: { type: "main-worktree" },
   });
 

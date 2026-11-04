@@ -208,55 +208,47 @@ test("a tab keeps its width when a session starts working", async () => {
   expect(workingGlyph).toBeCloseTo(idleGlyph, 0);
 });
 
-test("a running tab stops its session and a stopped one restarts it", async () => {
+test("a running session stops and a stopped session restarts through their context menus", async () => {
   const { rendered, props } = renderTabs(undefined, "s1");
   await rendered;
-
-  await strip().getByRole("button", { name: "stop shell" }).click();
+  await tab("shell").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Stop shell" }).click();
   expect(props.onStop).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
-
-  await strip().getByRole("button", { name: "restart codex" }).click();
+  await tab("codex stopped").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Restart codex" }).click();
   expect(props.onRestart).toHaveBeenCalledWith(expect.objectContaining({ id: "s3" }));
 });
 
-test("a stopped session names its state and its menu and close ask before removing it", async () => {
+test("the keyboard context menu renames with the tab as opener and asks before removal", async () => {
   const { rendered, props } = renderTabs(undefined, "s3");
   await rendered;
-
-  await expect.element(strip().getByRole("button", { name: "restart codex" })).toBeVisible();
-  await strip().getByRole("button", { name: "Session actions for codex" }).click();
-  await page.getByRole("menuitem", { name: "Remove session…" }).click();
-  expect(props.onRemove).toHaveBeenCalledWith(expect.objectContaining({ id: "s3" }));
-
-  await strip().getByRole("button", { name: "Close codex" }).click();
-  expect(props.onRemove).toHaveBeenCalledTimes(2);
-
-  await strip().getByRole("button", { name: "Session actions for codex" }).click();
+  tab("codex stopped").element().focus();
+  await userEvent.keyboard("{Shift>}{F10}{/Shift}");
   await page.getByRole("menuitem", { name: "Rename…" }).click();
   expect(props.onRename).toHaveBeenCalledWith(
     expect.objectContaining({ id: "s3" }),
-    expect.any(HTMLButtonElement),
+    tab("codex stopped").element(),
   );
+  await tab("codex stopped").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove session…" }).click();
+  expect(props.onRemove).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "s3" }));
 });
 
-test("every tab reveals stop, its menu and close on hover, and keeps them while focused", async () => {
-  const { rendered } = renderTabs(undefined, "s1");
-  await rendered;
+test("short adjacent tabs have no invisible action gutter, and hover does not grow them", async () => {
+  await renderTabs(undefined, "s1").rendered;
+  const first = tab("shell").element().getBoundingClientRect(),
+    second = tab("claude").element().getBoundingClientRect();
+  expect(second.left - first.right).toBeLessThanOrEqual(4);
+  await tab("shell").hover();
+  expect(tab("shell").element().getBoundingClientRect().width).toBe(first.width);
+  expect(strip().getByRole("button").elements()).toHaveLength(1);
+});
 
-  const actions = (name: string) =>
-    strip().getByRole("tab", { name }).element().nextElementSibling!;
-  // `layout.md`: shown on hover or focus only, selected tab included.
-  expect(getComputedStyle(actions("shell")).opacity).toBe("0");
-  expect(getComputedStyle(actions("claude")).opacity).toBe("0");
-
-  await tab("claude").hover();
-  await expect.poll(() => getComputedStyle(actions("claude")).opacity).toBe("1");
-  // Only the hovered tab reveals them.
-  expect(getComputedStyle(actions("shell")).opacity).toBe("0");
-
-  // They stay reachable from the keyboard: focusing one keeps its tab's group revealed.
-  strip().getByRole("button", { name: "stop claude" }).element().focus();
-  await expect.poll(() => getComputedStyle(actions("claude")).opacity).toBe("1");
+test("a clipped session label exposes its full name on keyboard focus", async () => {
+  const name = "A deliberately long session label that does not fit a compact tab";
+  await renderTabs([{ ...session("s1", "pi"), label: name }], "s1").rendered;
+  tab(name).element().focus();
+  await expect.element(page.getByRole("tooltip")).toMatchTextContent(name);
 });
 
 test("the trailing + offers a shell and an agent", async () => {

@@ -11,14 +11,14 @@ import {
   addProjectDialog,
   appWithProject as openProject,
   createTaskButton,
-  expandIssueButton,
+  openIssueImport,
   expandTitleButton,
   importIssueButton,
   issueUrlField,
   newTaskView,
   openTaskSource,
   promptField,
-  taskActionsButton,
+  taskMenuTarget,
   taskButton,
   taskSourceDialog,
   titleField,
@@ -42,11 +42,6 @@ function taskNamed(client: CorralClient, title: string): Task {
   const task = client.tasks.getSnapshot().tasks.find((candidate) => candidate.title === title);
   if (!task) throw new Error(`no task "${title}"`);
   return task;
-}
-
-/** Opens the composer's issue field: it expands in place from its text button. */
-async function openIssueImport() {
-  await expandIssueButton().click();
 }
 
 afterEach(async () => {
@@ -123,7 +118,7 @@ test("an explicit GitHub import fills the prompt, keeps a local title, and the s
   await userEvent.keyboard("{Alt>}a{/Alt}t");
   await expect.element(newTaskView()).not.toBeInTheDocument();
   await taskSourceDialog().getByRole("button", { name: "Close" }).click();
-  await expect.element(taskActionsButton("My local title")).toHaveFocus();
+  await expect.element(taskMenuTarget("My local title")).toHaveFocus();
 });
 
 test("a self-hosted host asks for GitHub or GitLab before the second explicit import", async () => {
@@ -224,7 +219,7 @@ test("malformed, auth, network and missing-CLI failures leave manual creation wo
   await createTaskButton().click();
   await expect.element(taskButton("Manual after failures")).toBeVisible();
   expect(taskNamed(client, "Manual after failures").source).toBeUndefined();
-  await taskActionsButton("Manual after failures").click();
+  await taskMenuTarget("Manual after failures").click({ button: "right" });
   await expect
     .element(page.getByRole("menuitem", { name: "View issue source…" }))
     .not.toBeInTheDocument();

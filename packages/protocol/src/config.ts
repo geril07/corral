@@ -23,7 +23,7 @@ import { z } from "zod";
  * [tasks]             # what a new task starts with
  * workspace = "new-worktree"
  * branch-prefix = "corral/"
- * view = "chat"       # terminal (default) | chat, where the agent has a driver
+ * view = "chat"       # chat (default) | terminal; chat needs a driver
  *
  * [naming]            # title generation; absent means seed titles
  * agent = "claude"
@@ -44,6 +44,9 @@ import { z } from "zod";
 /** The agent CLIs Corral can launch. */
 export const AgentKind = z.enum(["claude", "codex", "pi", "opencode"]);
 export type AgentKind = z.infer<typeof AgentKind>;
+
+/** A native model id passed as one argv value, shared by config, launches and UI validation. */
+export const NATIVE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}$/;
 
 /** What a new-session picker may offer for each agent; the server validates with the same table. */
 export interface AgentLaunchCapability {
@@ -343,7 +346,7 @@ export function defaultClientConfig(dataDir: string): ClientConfig {
       worktreeRoot: builtin(defaultWorktreeRoot(dataDir)),
       branchPrefix: builtin(""),
       slugMode: builtin<SlugMode>("title"),
-      view: builtin<TaskView>("terminal"),
+      view: builtin<TaskView>("chat"),
     },
     naming: defaultNamingSettings(),
     agents: defaultAgentSettings(),

@@ -1,6 +1,6 @@
-import type { LaunchProfile } from "@corral/protocol/config";
+import { NATIVE_MODEL_ID, type LaunchProfile } from "@corral/protocol/config";
 import type { LaunchSnapshot, SessionKind } from "@corral/protocol/rpc";
-import { MODEL_ID, supportsModel } from "../agents/launch-capabilities.ts";
+import { supportsModel } from "../agents/launch-capabilities.ts";
 import {
   LaunchModelInvalidError,
   LaunchModelUnsupportedError,
@@ -26,7 +26,7 @@ export function launchSnapshotFor(options: {
   if (kind === "shell") throw new LaunchModelUnsupportedError(kind);
   if (modelOverride !== undefined) {
     if (!supportsModel(kind)) throw new LaunchModelUnsupportedError(kind);
-    if (!MODEL_ID.test(modelOverride)) throw new LaunchModelInvalidError(kind);
+    if (!NATIVE_MODEL_ID.test(modelOverride)) throw new LaunchModelInvalidError(kind);
   }
   return {
     kind: profile?.agent ?? kind,

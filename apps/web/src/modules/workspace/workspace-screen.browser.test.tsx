@@ -12,6 +12,7 @@ import { serverTarget } from "../../../test/server-url.ts";
 import { App, renderApp } from "../../../test/render-app.tsx";
 import { createGitRepo } from "../../../test/git-repo.ts";
 import {
+  openAgentSessionPicker,
   appWithProject,
   createTask,
   createTaskWithShell,
@@ -345,23 +346,22 @@ test("a task without sessions shows the empty state with its two ways to start o
   await expect.element(shellTabs()).toHaveLength(1);
 });
 
-test("the task header names the task, its project and branch, and its agent", async () => {
+test("the task header names the task, project and branch without a hidden copy control", async () => {
   await appWithProject(newClient());
   await createTask("Header facts", { workspace: "new-worktree" });
 
   await expect.element(taskHeader().getByRole("heading", { name: "Header facts" })).toBeVisible();
   const where = await vi.waitFor(() => {
     const button = taskHeader()
-      .getByRole("button", { name: /copy workspace path$/ })
+      .getByLabelText(/^repo-.* › /)
       .element();
     if (!button.textContent?.includes(" › ")) throw new Error("the branch is not named yet");
     return button.textContent ?? "";
   });
   expect(where).toMatch(/^repo-[^ ]+ › /);
   await expect
-    .element(taskHeader().getByText(/no status|blocked|working|done|error|idle/))
-    .toBeVisible();
-  await expect.element(taskHeader().getByRole("button", { name: "Settle task" })).toBeVisible();
+    .element(taskHeader().getByRole("button", { name: /copy workspace path/i }))
+    .not.toBeInTheDocument();
   await expect
     .element(taskHeader().getByRole("button", { name: "Task menu for Header facts" }))
     .toBeVisible();
@@ -372,11 +372,12 @@ test("the settle action in the header settles the task, and its menu offers rena
   await createTask("Settle me");
   const task = client.tasks.getSnapshot().tasks[0]!;
 
-  await taskHeader().getByRole("button", { name: "Settle task" }).click();
+  await taskHeader().getByRole("button", { name: "Task menu for Settle me" }).click();
+  await page.getByRole("menuitem", { name: "Settle task" }).click();
   await expect.poll(() => client.tasks.getSnapshot().tasks[0]?.state).toBe("settled");
-  await expect.element(taskHeader().getByRole("button", { name: "Unsettle task" })).toBeVisible();
 
   await taskHeader().getByRole("button", { name: "Task menu for Settle me" }).click();
+  await expect.element(page.getByRole("menuitem", { name: "Unsettle task" })).toBeVisible();
   await expect.element(page.getByRole("menuitem", { name: "Rename task…" })).toBeVisible();
   await expect.element(page.getByRole("menuitem", { name: "Copy workspace path" })).toBeVisible();
   await userEvent.keyboard("{Escape}");
@@ -386,7 +387,7 @@ test("the settle action in the header settles the task, and its menu offers rena
 test("tabs switch by click and by prefix n without losing the keyboard", async () => {
   await appWithProject(newClient());
   await createTaskWithShell("Tabs");
-  await prefixThen("s");
+  await openAgentSessionPicker("terminal");
   await expect.element(page.getByRole("dialog", { name: "New agent session" })).toBeVisible();
   await userEvent.keyboard("1");
   await expect.element(sessionTab("claude")).toHaveAttribute("aria-selected", "true");
@@ -411,7 +412,7 @@ test("tabs switch by click and by prefix n without losing the keyboard", async (
 test("an arrow key in the tab strip selects the next tab; the terminal keeps the key after that", async () => {
   await appWithProject(newClient());
   await createTaskWithShell("Arrowed");
-  await prefixThen("s");
+  await openAgentSessionPicker("terminal");
   await expect.element(page.getByRole("dialog", { name: "New agent session" })).toBeVisible();
   await userEvent.keyboard("1");
   await expect.element(sessionTab("claude")).toHaveAttribute("aria-selected", "true");

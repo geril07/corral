@@ -12,6 +12,7 @@ import {
 import { App } from "../../../test/render-app.tsx";
 import {
   appWithProject,
+  openAgentSessionPicker,
   createTaskWithShell,
   focusedIsTerminal,
   sessionTabs,
@@ -58,7 +59,7 @@ async function argvOf(sessionId: string) {
 
 /** Starts an agent from the keyboard and waits for the fake to print its banner. */
 async function startAgent(kind: string, keys: string) {
-  await prefixThen("s");
+  await openAgentSessionPicker("terminal");
   await expect.element(picker().getByRole("radio", { name: "claude" })).toHaveFocus();
   await userEvent.keyboard(keys);
   await expect.element(picker()).not.toBeInTheDocument();
@@ -106,7 +107,9 @@ test("prefix x stops the session, which stays in the list; prefix r starts it ag
   await expect.element(sessionButton("claude", "stopped")).toHaveAttribute("aria-selected", "true");
   await expect.element(stoppedPane()).toMatchTextContent("resumes");
   await expect.element(stoppedPane()).toMatchTextContent("Enter, or alt+a r.");
-  await expect.element(sessionTabs().getByRole("button", { name: "restart claude" })).toBeVisible();
+  await sessionButton("claude", "stopped").click({ button: "right" });
+  await expect.element(page.getByRole("menuitem", { name: "Restart claude" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
   expect(sessionOf(client, "claude")).toMatchObject({ state: "stopped", terminalId: null });
 
   await prefixThen("r");

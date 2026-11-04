@@ -26,8 +26,8 @@ function writeConfig(stateDir: string, text: string) {
 
 /**
  * B4: `prefix v` hands one agent session between its two views, on one agent session id, with the
- * conversation surviving. The session is started in the terminal — the composer still creates every
- * task's agent there until B5 wires `view = "chat"` into it — and the run is terminal → chat →
+ * conversation surviving. This scenario explicitly starts in the terminal rather than the
+ * everyday chat default, and the run is terminal → chat →
  * terminal (through the confirmation, while the agent waits for an answer) → chat. Both directions
  * of the switch are exercised, and the fake-pi test starts in chat for the other order.
  */
@@ -35,7 +35,7 @@ test("prefix v hands a session between terminal and chat on one agent session id
   launchApp,
   stateDir,
 }) => {
-  writeConfig(stateDir, '[tasks]\nagent = "pi"\n');
+  writeConfig(stateDir, '[tasks]\nagent = "pi"\nview = "terminal"\n');
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
   await expect(window.getByText("Add a repository to start")).toBeVisible();

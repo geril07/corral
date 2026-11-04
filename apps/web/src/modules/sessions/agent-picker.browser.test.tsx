@@ -8,7 +8,7 @@ import type { AgentLaunchChoice } from "./launch-choice.ts";
 const dialog = () => page.getByRole("dialog", { name: "New agent session" });
 const radios = () => dialog().getByRole("radio");
 const modelInput = () => dialog().getByRole("textbox", { name: "Model override" });
-const startButton = () => dialog().getByRole("button", { name: "Start session" });
+const startButton = () => dialog().getByRole("option").last();
 const summary = () => dialog().getByLabelText("launch choice");
 
 function profile(overrides: Partial<LaunchProfile>): LaunchProfile {
@@ -51,6 +51,9 @@ async function opened(list: LaunchProfile[] = []) {
     <AgentPicker
       profiles={list}
       agents={defaultClientConfig("").agents}
+      settings={defaultClientConfig("").tasks}
+      chatDrivers={["claude", "codex", "pi", "opencode"]}
+      capabilitiesReady
       onStart={onStart}
       onClose={onClose}
     />,
@@ -65,8 +68,11 @@ test("it lists the four native defaults and then each configured profile", async
   await expect.element(radios()).toHaveLength(7);
   await expect.element(dialog().getByRole("radio", { name: "claude" })).toBeChecked();
   await expect.element(dialog().getByRole("radio", { name: "Claude gateway" })).toBeVisible();
+  await dialog().getByRole("radio", { name: "Claude gateway" }).click();
   await expect.element(dialog()).toMatchTextContent("claude-sonnet-4-5");
+  await dialog().getByRole("radio", { name: "Codex work" }).click();
   await expect.element(dialog()).toMatchTextContent("provider openai");
+  await dialog().getByRole("radio", { name: "OpenCode team" }).click();
   await expect.element(dialog()).toMatchTextContent("env only");
 });
 
@@ -75,7 +81,7 @@ test("a fresh digit picks that native agent straight away, without a profile or 
 
   await userEvent.keyboard("3");
 
-  expect(onStart).toHaveBeenCalledExactlyOnceWith({ kind: "pi" });
+  expect(onStart).toHaveBeenCalledExactlyOnceWith({ kind: "pi", view: "chat" });
 });
 
 test("arrows move onto profiles; Enter starts the highlighted profile", async () => {
@@ -87,6 +93,7 @@ test("arrows move onto profiles; Enter starts the highlighted profile", async ()
 
   expect(onStart).toHaveBeenCalledExactlyOnceWith({
     kind: "claude",
+    view: "chat",
     profileId: "claude-gateway",
     expectedProfileRevision: "0123456789ab",
   });
@@ -103,6 +110,7 @@ test("a typed model overrides the profile's model in the summary and in the payl
 
   expect(onStart).toHaveBeenCalledExactlyOnceWith({
     kind: "claude",
+    view: "chat",
     profileId: "claude-gateway",
     expectedProfileRevision: "0123456789ab",
     model: "claude-opus-4-1",
@@ -119,6 +127,7 @@ test("a typed override on a native choice replaces 'native defaults' in the summ
 
   expect(onStart).toHaveBeenCalledExactlyOnceWith({
     kind: "claude",
+    view: "chat",
     model: "claude-opus-4-1",
   });
 });
@@ -161,6 +170,9 @@ test("a refused launch keeps the picker open with the draft and the typed reason
     <AgentPicker
       profiles={profiles}
       agents={defaultClientConfig("").agents}
+      settings={defaultClientConfig("").tasks}
+      chatDrivers={["claude", "codex", "pi", "opencode"]}
+      capabilitiesReady
       onStart={onStart}
       onClose={onClose}
     />,
@@ -188,6 +200,9 @@ test("a profile dropped from the live config disables Start and never starts nat
     <AgentPicker
       profiles={[codex]}
       agents={defaultClientConfig("").agents}
+      settings={defaultClientConfig("").tasks}
+      chatDrivers={["claude", "codex", "pi", "opencode"]}
+      capabilitiesReady
       onStart={onStart}
       onClose={() => undefined}
     />,
@@ -208,7 +223,7 @@ test("a profile dropped from the live config disables Start and never starts nat
   await dialog().getByRole("radio", { name: "pi" }).click();
   await expect.element(startButton()).toBeEnabled();
   await startButton().click();
-  expect(onStart).toHaveBeenCalledExactlyOnceWith({ kind: "pi" });
+  expect(onStart).toHaveBeenCalledExactlyOnceWith({ kind: "pi", view: "chat" });
 });
 
 test("a profile whose revision changed needs an explicit reselect before it can start", async () => {
@@ -220,6 +235,9 @@ test("a profile whose revision changed needs an explicit reselect before it can 
     <AgentPicker
       profiles={[changed, codex, opencode]}
       agents={defaultClientConfig("").agents}
+      settings={defaultClientConfig("").tasks}
+      chatDrivers={["claude", "codex", "pi", "opencode"]}
+      capabilitiesReady
       onStart={onStart}
       onClose={() => undefined}
     />,
@@ -239,6 +257,7 @@ test("a profile whose revision changed needs an explicit reselect before it can 
   await startButton().click();
   expect(onStart).toHaveBeenCalledExactlyOnceWith({
     kind: "claude",
+    view: "chat",
     profileId: "claude-gateway",
     expectedProfileRevision: "ffffffffffff",
   });
@@ -261,6 +280,9 @@ test("a server-side revision conflict keeps the draft and needs an explicit rese
     <AgentPicker
       profiles={profiles}
       agents={defaultClientConfig("").agents}
+      settings={defaultClientConfig("").tasks}
+      chatDrivers={["claude", "codex", "pi", "opencode"]}
+      capabilitiesReady
       onStart={onStart}
       onClose={onClose}
     />,
@@ -277,6 +299,7 @@ test("a server-side revision conflict keeps the draft and needs an explicit rese
   expect(onStart).toHaveBeenCalledTimes(1);
   expect(onStart).toHaveBeenNthCalledWith(1, {
     kind: "claude",
+    view: "chat",
     profileId: "claude-gateway",
     expectedProfileRevision: "0123456789ab",
     model: "claude-opus-4-1",
@@ -291,6 +314,9 @@ test("a server-side revision conflict keeps the draft and needs an explicit rese
     <AgentPicker
       profiles={[changed, codex, opencode]}
       agents={defaultClientConfig("").agents}
+      settings={defaultClientConfig("").tasks}
+      chatDrivers={["claude", "codex", "pi", "opencode"]}
+      capabilitiesReady
       onStart={onStart}
       onClose={onClose}
     />,
@@ -308,6 +334,7 @@ test("a server-side revision conflict keeps the draft and needs an explicit rese
   expect(onStart).toHaveBeenCalledTimes(2);
   expect(onStart).toHaveBeenLastCalledWith({
     kind: "claude",
+    view: "chat",
     profileId: "claude-gateway",
     expectedProfileRevision: "ffffffffffff",
     model: "claude-opus-4-1",
@@ -369,13 +396,13 @@ test("modified or composing digits make no launch and leave the draft alone", as
   await modelInput().fill("");
   radio.focus();
   await userEvent.keyboard("3");
-  expect(onStart).toHaveBeenCalledExactlyOnceWith({ kind: "pi" });
+  expect(onStart).toHaveBeenCalledExactlyOnceWith({ kind: "pi", view: "chat" });
 });
 
-test("Cancel and Escape close it without starting anything", async () => {
+test("Close and Escape dismiss it without starting anything", async () => {
   const { onStart, onClose } = await opened(profiles);
 
-  await dialog().getByRole("button", { name: "Cancel" }).click();
+  await dialog().getByRole("button", { name: "Close", exact: true }).click();
   expect(onClose).toHaveBeenCalledTimes(1);
 
   await userEvent.keyboard("{Escape}");
@@ -391,5 +418,5 @@ test("a digit beyond the native list does nothing and Enter still starts claude"
   expect(onStart).not.toHaveBeenCalled();
   await userEvent.keyboard("{Enter}");
 
-  expect(onStart).toHaveBeenCalledExactlyOnceWith({ kind: "claude" });
+  expect(onStart).toHaveBeenCalledExactlyOnceWith({ kind: "claude", view: "chat" });
 });

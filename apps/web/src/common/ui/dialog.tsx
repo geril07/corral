@@ -42,9 +42,11 @@ function DialogContent({
   children,
   showCloseButton = true,
   padding = "default",
+  closeLabel = "Close",
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean;
+  closeLabel?: string | undefined;
   /** `none` leaves the padding to the content, as the Command composition does. */
   padding?: "default" | "none";
 }) {
@@ -67,7 +69,7 @@ function DialogContent({
             render={<Button variant="ghost" className="absolute top-2 right-2" size="icon-sm" />}
           >
             <XIcon />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">{closeLabel}</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Popup>

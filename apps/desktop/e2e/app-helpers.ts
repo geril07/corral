@@ -84,6 +84,27 @@ export const newTaskView = (window: Page) => window.getByRole("form", { name: "N
 export const promptField = (window: Page) =>
   newTaskView(window).getByRole("textbox", { name: "Prompt" });
 
+/** TUI scenarios opt out of the chat default through the same visible control as a user. */
+export async function openAgentSessionPicker(window: Page, view: "chat" | "terminal") {
+  await window.keyboard.press("Alt+KeyA");
+  await window.keyboard.press("KeyS");
+  const picker = window.getByRole("dialog", { name: "New agent session" });
+  await expect(picker).toBeVisible();
+  await picker.getByRole("button", { name: `Open in ${view}` }).click();
+  await picker.getByRole("radio", { checked: true }).click();
+  return picker;
+}
+
+export async function chooseTaskAgent(window: Page, name: string) {
+  await newTaskView(window)
+    .getByRole("button", { name: /^Agent / })
+    .click();
+  const picker = window.getByRole("dialog", { name: "Agent and model" });
+  await picker.getByRole("radio", { name, exact: true }).click();
+  await window.keyboard.press("Escape");
+  await expect(picker).toBeHidden();
+}
+
 export interface CreateTaskOptions {
   /** Where the task works; absent keeps the configured default (the project's main tree). */
   workspace?: "new-worktree" | "main-worktree";
