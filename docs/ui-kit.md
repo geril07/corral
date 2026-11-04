@@ -27,8 +27,9 @@ upstream diffs, not a prohibition on the accepted theme.
 ## Boundary (law)
 
 All interactive primitives live in `apps/web/src/common/ui`. Modules compose them, never
-import Base UI, cmdk or Lucide directly. Keep `scripts/check-web-ui.mjs` and its AST,
-raw-control, arbitrary-value, palette and retired-token gates enabled.
+import Base UI, cmdk or Lucide directly. Keep `scripts/check-web-ui.mjs` (class-string gates:
+arbitrary values, palette, retired tokens, kit props and spreads) and the lint rules for layer
+boundaries and raw DOM controls enabled.
 
 A kit control cannot receive `className`, `style`, `render`, color/dimensions or opaque prop
 spreads from a module. Add a named variant for a demonstrated need. Modules own plain structural
@@ -67,7 +68,7 @@ context-menu dispatcher.
   excluding the task/session chrome rather than growing to half the entire window. Sidebar sizing is
   device-local; text scale never applies a CSS transform that would confuse popup coordinates.
 - ComposerSurface and ComposerToolbar own the shared prompt frame and wrapping control row.
-  Textarea `framing="composer"` removes its duplicate inner border without changing prompt/chat
+  Textarea `frame="composer"` removes its duplicate inner border without changing prompt/chat
   growth limits. ModelPicker owns the Base UI popover, radio rail, cmdk model list and vertical
   thinking toolbar; modules supply driver/config data and actions, not control skins.
 - Checkbox composes Base UI checked/mixed state using the shared primary/input/focus tokens.
