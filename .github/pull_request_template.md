@@ -17,7 +17,8 @@ and what did not, and why.
 
 ## Screenshots
 
-<!-- UI changes: before/after at 1024×640 and 1920×1080. Delete this section otherwise. -->
+<!-- UI changes: attach before/after images here at 1024×640 and 1920×1080; the files are in
+`.review/<piece>/`. Never commit them to the repository. Delete this section otherwise. -->
 
 ## Docs
 
