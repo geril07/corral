@@ -7,7 +7,6 @@
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
 
 const repository = join(import.meta.dirname, "..");
 const endpointPath = join(repository, ".dev", "state", "endpoint.json");
@@ -45,22 +44,28 @@ if (!desktop) void announceBrowserUrl();
  */
 async function announceBrowserUrl() {
   let announced;
-  for (;;) {
+  let busy = false;
+  setInterval(() => {
+    if (busy) return;
+    busy = true;
+    void poll().finally(() => {
+      busy = false;
+    });
+  }, 500).unref();
+
+  async function poll() {
     const endpoint = await publishedEndpoint();
-    if (endpoint !== undefined && endpoint.capability !== announced) {
-      announced = endpoint.capability;
-      const url = new URL(webUrl);
-      url.searchParams.set("server", endpoint.url);
-      url.hash = `/?capability=${endpoint.capability}`;
-      console.log(`\ncorral dev: ${url}\n`);
-      if (!(await servesApp(webUrl))) {
-        console.log(
-          `corral dev: nothing is serving the app at ${webUrl}, so the web task may have taken ` +
-            "another port; rerun with CORRAL_WEB_URL set to that port.\n",
-        );
-      }
-    }
-    await sleep(500);
+    if (endpoint === undefined || endpoint.capability === announced) return;
+    announced = endpoint.capability;
+    const url = new URL(webUrl);
+    url.searchParams.set("server", endpoint.url);
+    url.hash = `/?capability=${endpoint.capability}`;
+    console.log(`\ncorral dev: ${url}\n`);
+    if (await servesApp(webUrl)) return;
+    console.log(
+      `corral dev: nothing is serving the app at ${webUrl}, so the web task may have taken ` +
+        "another port; rerun with CORRAL_WEB_URL set to that port.\n",
+    );
   }
 }
 
