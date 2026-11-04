@@ -2,7 +2,7 @@
  * Local links in chat: which runs of an agent's text are a web URL or a workspace path, and the
  * link URL a resolved path becomes. Everything here is a pure function of the text, so a streamed
  * message can be re-scanned on every delta without state: the same final text always yields the
- * same links, whatever the chunk boundaries were (`docs/plans/stage-c.md`, C5).
+ * same links, whatever the chunk boundaries were.
  *
  * Detection is deliberately permissive and resolution decides: `src/foo` is offered as a candidate
  * and `files.resolve` answers `missing`, so it stays plain text. A renderer never shows a link the

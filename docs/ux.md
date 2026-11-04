@@ -11,7 +11,7 @@ Dark neutral surfaces, blue accents and restrained borders live in the shared ki
 Base UI still owns accessible interaction and popup lifecycles. See `ui-kit.md`.
 Modules never skin controls with `className`; existing boundary and token gates stay on.
 
-The migration is sliced in `plans/ui-overhaul.md`. Workspace chrome/settings and the shared
+Workspace chrome/settings and the shared
 composers/picker are implemented. Chat is the built-in launch default. No prototype-only catalogs,
 capabilities, permissions or context counters are production facts. The scoped model catalog and
 shared visibility contract is implemented for pi/OpenCode; initial thinking remains unavailable.
@@ -19,7 +19,7 @@ See [Model catalogs](model-catalog.md) for the policy and adapter limits.
 
 ## Target flow (stages A and B built)
 
-What a user does. Items 1–3, 5–7 are built and verified end to end (stage A, `progress.md`); item 3's chat view and the chat halves of items 1–2 (B1, B3, B5) and item 4's handoff (B4) are stage B. Keys listed here are the effective defaults.
+What a user does. Everything below is built and verified end to end, chat views and the handoff included. Keys listed here are the effective defaults.
 
 1. `prefix t` opens the new-task view in the main area (`layout.md`, **New task view**): a prompt field, plus project (current), agent · model, workspace and view, all prefilled from settings and changeable from the keyboard. Enter submits.
 2. The task appears in the sidebar at once under the prompt-derived seed title, which the generated title replaces. Its primary agent opens in the chosen view, already working on the prompt. No shell opens on its own.

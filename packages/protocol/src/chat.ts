@@ -14,7 +14,7 @@ import { AgentKind } from "./config.ts";
  * them, a fresh snapshot. A hole in a live stream means the client must ask for a snapshot again.
  *
  * The transcript is the agent's own session, not Corral's: this contract carries no history
- * endpoint and no persistence (roadmap.md, **Decision boundaries**).
+ * endpoint and no persistence.
  */
 
 /** Stable id of one item in a session's chat. Reusing it replaces that item. */
