@@ -73,9 +73,11 @@ Dimensions below are nominal at 100% interface text scale, before OS/browser sca
   control and fits available width/height; add-agent anchors to the session adder. Without an
   anchor the same body uses a task dialog. Existing-chat model selection keeps it open; thinking
   applies and closes. A new launch commits its native/configured model row. Current choices are marked.
-  Live catalogs and thinking come from the driver, not prototype fixtures. Before launch there
-  is only the configured/native default and an optional supported native model-ID override.
-  The right column explains why pre-launch thinking is unavailable.
+  Live catalogs and thinking come from the driver, not prototype fixtures. Before launch,
+  pi/OpenCode inventories come from scoped, short-lived native metadata probes; unsupported
+  selection rows are disabled. Configured/native defaults and supported raw IDs remain available.
+  The right column explains why pre-launch thinking is unavailable. The footer links to Models
+  management and shows the visible/known count; shared visibility is not a launch permission policy.
 - No illustrative context usage, model availability or Full access permission appears as a fact.
 
 ## Changes (stage C)
@@ -109,6 +111,10 @@ Dimensions below are nominal at 100% interface text scale, before OS/browser sca
   Background prefix bindings and completion seen marks pause while the modal is open.
 - Appearance edits device-local tab position and interface text scale (80–140%, default 100%
   relative to system scale). Terminal text does not change.
+- Models is an editable, server-shared preference category: provider rail, searchable model list,
+  allow/deny mode, mixed-state visibility, favorites, draft Preview/Save/Discard, and revision conflicts.
+  Picker-owned Settings preserves the picker search/selection as well as the workspace underneath.
+  Policy, discovery lifecycle and limits: [Model catalogs](model-catalog.md).
 - Server config stays read-only: keys, task defaults, naming, project overrides, profiles,
   agent capabilities and config problems. No server config writes or permission bypass.
 

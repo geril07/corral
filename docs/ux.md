@@ -13,8 +13,9 @@ Modules never skin controls with `className`; existing boundary and token gates 
 
 The migration is sliced in `plans/ui-overhaul.md`. Workspace chrome/settings and the shared
 composers/picker are implemented. Chat is the built-in launch default. No prototype-only catalogs,
-capabilities, permissions or context counters are production facts; pre-launch catalogs/thinking
-still need an explicit server contract.
+capabilities, permissions or context counters are production facts. The scoped model catalog and
+shared visibility contract is implemented for pi/OpenCode; initial thinking remains unavailable.
+See [Model catalogs](model-catalog.md) for the policy and adapter limits.
 
 ## Target flow (stages A and B built)
 
@@ -136,8 +137,12 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
   applies without closing; old thinking levels disappear until that model is reported. Choosing
   thinking applies and closes. A refused choice stays open with its error. Another tool/profile
   starts a distinct session, never mutates the current launch or moves its unsent draft.
-  Before launch the picker offers native/configured defaults and supported native model IDs,
-  not a fabricated catalog or thinking levels. A terminal session has no live model control.
+  Before launch the picker offers native/configured defaults, supported native model IDs and
+  reported pi/OpenCode catalogs, never a stock catalog or invented thinking levels. Discovery does
+  not imply the adapter can select every entry; incompatible rows explain their disabled state.
+  Manage models opens a server-shared per-tool/profile allow/deny draft in Settings. Hiding a
+  current selection never changes it, and favorites cannot bypass the filter. A terminal session
+  has no live model control.
 - The composer's view control offers `terminal` always and `chat` only for an agent
   `chat.capabilities` reports a driver for. A `[tasks] view = "chat"` (or a project's) that names
   an agent without a driver is reported as a config warning and opens in the terminal; when the
@@ -210,7 +215,9 @@ What a user does. Items 1–3, 5–7 are built and verified end to end (stage A,
   descriptors, the effective task defaults and naming, each project's overrides, and the agents
   (`[agents.<kind>]`: enabled, the command a launch runs, whether it is found, and whether this
   build has a chat driver).
-  `config.toml` remains the source of truth; no server-config write controls are added.
+  `config.toml` remains the source of truth; no server-config write controls are added. The Models
+  category edits separate SQLite-backed menu preferences, shared across this server’s clients,
+  with revision-checked saves and explicit draft discard. It never edits native config.
   Composer defaults (Target flow 7) are config entries too, overridable per project
   (`design.md` decision 17); Settings shows each effective value and where it came from
   (`default`, `global`, `project`), shows only the keys a project overrides, and says so

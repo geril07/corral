@@ -80,6 +80,15 @@ Internal packages export TypeScript source (no build step). The server runs that
 - **A read with `--repo` also names the request.** `gh pr view --json … --repo OWNER/REPO` is refused by `gh` ("argument required when using the --repo flag", probed in `apps/server/test/contracts/gh-pr-argv.contract.ts`), so `changes.pullRequest` and a create's follow-up read pass the number positionally — from the stored row on a refresh, from the URL `pr create` printed otherwise — and a read without `--repo` keeps the CLI's own current-branch lookup. The fake answers any argv, so only the contract test can police an argv the CLI rejects outright.
 - **Native forge CLIs have one runner.** `apps/server/src/cli/native-cli.ts` runs `gh`/`glab` (the shared spawner above, stdin closed or filled, no pager or prompt or debug output, the other vendor's tokens dropped) and classifies its failures; `apps/server/src/issues/issue-import.ts` and `apps/server/src/changes/pull-request.ts` map those to their own typed errors, so the two cannot drift on what a CLI call inherits. `gh pr checks` exits non-zero when checks fail or are pending, so a pull-request read uses the runner's tolerant form for that one call.
 
+## Model catalog and preferences
+
+Protocol 11 requires `models.watch/save/catalog`; migration 13 adds the per-tool/profile preference
+rows. `apps/server/src/models` owns revision-checked SQLite writes and lazy scoped metadata caches.
+Native pi/OpenCode lifecycles reuse the driver/server supervisors with metadata-specific process
+claims, never the working session. `packages/client` watches shared preferences; Settings and every
+picker apply the pure protocol visibility projection. Lifecycle, budgets and limitations:
+[Model catalogs](model-catalog.md).
+
 ## Web UI kit
 
 shadcn/ui Base UI / Nova components live in `apps/web/src/common/ui`.

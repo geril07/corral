@@ -64,6 +64,10 @@ context-menu dispatcher.
   Textarea `framing="composer"` removes its duplicate inner border without changing prompt/chat
   growth limits. ModelPicker owns the Base UI popover, radio rail, cmdk model list and vertical
   thinking toolbar; modules supply driver/config data and actions, not control skins.
+- Checkbox composes Base UI checked/mixed state using the shared primary/input/focus tokens.
+  ModelPicker can suspend its popup for Settings while retaining its search and selection owner.
+- ComboboxButton `layout="bounded"` caps profile/workspace triggers at 16 rem and exposes the
+  full text only on measured overflow, so valid long names cannot stretch Settings sideways.
 - DialogContent `padding="none"` tells its footer not to cancel nonexistent outer padding.
 - BoardRow, ChangeFileRow, DiffPane and DiffView retain their existing behavior. Changes UI
   is not redesigned in this slice.

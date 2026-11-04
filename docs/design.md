@@ -27,6 +27,13 @@ Client UI rules: `ux.md`.
 | 16  | Task names are generated: a prompt-derived seed title at once, then a generated title; in a chosen mode the same request also names the branch and worktree                                                                                        | A readable name is what replaces naming tabs, sessions and worktrees by hand. `[naming]` in the config picks a launch profile or an agent and model, run in its non-interactive mode with no session saved and, where the agent has such a mode, no tools (a paid call, accepted by the user); Corral holds no provider account. This is Orca's per-action recipe idea; T3 Code defaults to Codex with a cheap model, but Corral cannot know which agent a user has, so an empty `[naming]` means seed titles only and Settings says so. Output is sanitized; on failure or timeout the seed title stays and slugs come from it.                                                                                                                                |
 | 17  | Settings resolve in layers: built-in default, then the global sections of `config.toml`, then `[projects."<repository path>"]`                                                                                                                     | T3 Code and Orca both keep per-project overrides in the user's own settings on the machine that runs the agents, and use a file committed to the repository (`t3.json`, `orca.yaml`) only for rules a team shares. Corral has one user and a server-owned config file already watched and pushed to clients, so overrides go there; a committed repository file waits for a shared need. Keys are absolute main-worktree paths, matching `Project.path`.                                                                                                                                                                                                                                                                                                        |
 
+## Model catalogs and visibility
+
+Model menus use the approved Settings manager, with server-shared per-tool/profile allow/deny
+preferences independent of read-only native configuration. Lazy metadata discovery never mutates
+working sessions; native startup is not a sandbox. Contract, lifecycle and selection limits:
+[Model catalogs](model-catalog.md).
+
 ## Architecture
 
 ```
