@@ -1,40 +1,41 @@
 # Layout
 
-The user accepted UI study 03 on 2026-11-03. It replaces the earlier stock-only clean-slate
-layout where they differ. T3 Code is the visual reference; Orca informs interactions.
-Behavior: `design.md`; interaction: `ux.md`; kit boundaries: `ui-kit.md`.
+Behavior: `design.md`; interaction: `ux.md`; visual direction and kit boundaries: `ui-kit.md`.
 
-Dimensions below are nominal at 100% interface text scale, before OS/browser scaling.
+Kind: **current state** — what sits where, and why. Measurements are the code's: the kit, the
+layout modules and their constants decide them. A piece that moves a surface edits this file in
+the same PR, and a description that no longer holds is deleted rather than adjusted.
 
 ## Shell
 
 - Two columns: resizable sidebar and one task workspace. No synthetic title bar or global
   status bar. Independent shells are session tabs, never a separate chat dock.
-- Sidebar defaults to 264 px (232 px below 1180 px), drags between 208–420 px while reserving
-  at least 640 px for the main area, persists per device, resets on edge double-click.
+- Sidebar has a default width, a narrow-window default and a drag range that always reserves a
+  minimum for the main area (`sidebar-pane.ts` owns the numbers), persists per device, resets on
+  edge double-click.
 - The sidebar toggle is opposite the corral wordmark. While hidden it is in the main header;
   `prefix \\` still works.
-- Two distinct rows remain visible for a task or draft: repository/task header (44 px),
-  then session navigation (40 px). A device setting puts the session row above or below content.
+- Two distinct rows remain visible for a task or draft: repository/task header, then session
+  navigation. A device setting puts the session row above or below content.
   No rows are invented before the first repository is added.
 
 ## Sidebar
 
-- Wordmark/toggle header (44 px), then Search, grouping and New task (40 px).
+- Wordmark/toggle header, then Search, grouping and New task.
   Search's tooltip carries its effective chord without crowding the compact toolbar.
 - Group by project by default. Status grouping (Needs you, Working, Done) is still available
   through its button and `prefix l`, remembered on this device.
-- Two-line task rows (52 px): status glyph, clipped title, relative time/attention word;
+- Two-line task rows: status glyph, clipped title, relative time/attention word;
   secondary metadata names the agent, worktree branch and, outside project groups, project.
   Keep existing change counts and linked request state. Unseen completion stays marked.
 - Right-click / menu key / Shift+F10 opens secondary task actions. No action gutter takes
   permanent width. Full names stay accessible and get a tooltip when clipped.
 - One Settled shelf is anchored below the active list, above the footer, across all projects.
-  It starts collapsed, expands in pages of six and has a separately scrolling list capped at
-  15 rem. A selected older task reveals itself, even beyond the first page, without resuming it.
+  It starts collapsed, expands in pages and has a separately scrolling list. A selected older
+  task reveals itself, even beyond the first page, without resuming it.
   General task search still includes settled history.
 - Loose terminals remain in Scratch when present.
-- Footer (36 px): Settings and Add project, exceptional connection/config notices, prefix hint
+- Footer: Settings and Add project, exceptional connection/config notices, prefix hint
   on the right (armed prefix remains visibly distinct).
 
 ## Task header
@@ -48,7 +49,7 @@ Dimensions below are nominal at 100% interface text scale, before OS/browser sca
 
 ## Session tabs
 
-- Content-width tabs, maximum 200 px, horizontally scrollable with the selected tab in view.
+- Content-width tabs within a maximum, horizontally scrollable with the selected tab in view.
   Number hints 1–9 retain their existing prefix bindings. A draft gets a draft indicator,
   not a fake server session or a premature add-session action.
 - Real tool/shell logo in one stable slot; working/blocked status replaces it without shifting
@@ -61,8 +62,9 @@ Dimensions below are nominal at 100% interface text scale, before OS/browser sca
 
 ## Terminal and chat
 
-- Terminal retains 8 px padding, native xterm rendering, and independent 14 px mono text.
-- Chat keeps its centered 46 rem lane, right-aligned user bubble and unboxed assistant text.
+- Terminal keeps its own padding, native xterm rendering, and monospace text that does not follow
+  the interface text scale.
+- Chat keeps its centered lane, right-aligned user bubble and unboxed assistant text.
   Reasoning and tool calls keep their folds and independently bounded output/diffs.
 - New-task and chat prompts share the bordered composer surface and wrapping control row.
   Send/steer/follow-up, abort and IME protection retain their existing semantics.
@@ -82,9 +84,13 @@ Dimensions below are nominal at 100% interface text scale, before OS/browser sca
 ## Changes (stage C)
 
 - A `Changes` tab per task sits in the session tab strip after the task's sessions. It has no session behind it: no number hint, no status glyph, and selecting it does not change which session is current.
-- Full main-area width with the Terminal's 8 px padding, not the 46 rem chat lane: diffs are wide and get horizontal scroll rather than wrapping.
-- A summary row at the top ("12 files, +340 −87", `text-sm`, muted), then file rows 28 px high: status letter (`M`/`A`/`D`/`R`), path in mono 13 px truncated from the left, `+N −M` right-aligned. Changed files sort by path; a renamed file shows `old → new`.
-- The diff pane under the list: unified hunks, muted hunk headers, monospace 13 px on a 20 px line height, unchanged regions folded with "Show N more lines". Binary files show one row ("Binary file, 12 KB") and no diff. At 1024×640 the list collapses to the top third and the selected file's diff takes the rest.
+- Full main-area width with the Terminal's padding, not the chat lane: diffs are wide and get
+  horizontal scroll rather than wrapping.
+- A summary row at the top ("12 files, +340 −87", `text-sm`, muted), then compact file rows: status letter (`M`/`A`/`D`/`R`), path in mono truncated from the left, `+N −M` right-aligned. Changed files sort by path; a renamed file shows `old → new`.
+- The diff pane under the list: unified hunks, muted hunk headers, monospace on a compact line
+  height, unchanged regions folded with "Show N more lines". Binary files show one row ("Binary
+  file, 12 KB") and no diff. At the minimum viewport the list collapses to the top third and the
+  selected file's diff takes the rest.
 - The task header shows `+N −M` right-aligned next to the status when non-zero, and a linked pull request's badge (`PR #7 open`) before the status; the sidebar row shows the same compact numbers, and the request's name and state, only when they exist.
 - Refreshed with a debounce when the workspace changes: loading shows skeleton rows, a clean tree shows "No changes yet".
 - Below the summary row, the finish controls (C6), one line each and all keyboard-reachable: `Stage all` / `Unstage all` / stage-or-unstage the selected file with the staged count, then a one-line commit-message field and `Commit`, then `Push…` and `Create pull request…` (each behind a dialog naming the remote's push URL and the branch; creating also names the base branch and the provider) and the linked request's badge with its check line, or a `Settle task` button once it merged. A refusal shows its sentence under the row and keeps the message and the selection. Read-only in C4; the writes are C6's.
@@ -102,14 +108,14 @@ Dimensions below are nominal at 100% interface text scale, before OS/browser sca
 
 ## Settings
 
-- A large categorized modal, bounded to 64 × 44 rem and the viewport minus 2 rem.
+- A large categorized modal, bounded by the viewport.
   Its left category list selects one panel at a time. Each panel retains its own scroll
   and disclosure state; Appearance does not mix editable device preferences with read-only config.
 - The route stays /settings, backed by a pathless workspace parent: opening it never destroys
   terminal attachment, chat/new-task draft, selection, caret or scroll. Closing restores focus.
   Background prefix bindings and completion seen marks pause while the modal is open.
-- Appearance edits device-local tab position and interface text scale (80–140%, default 100%
-  relative to system scale). Terminal text does not change.
+- Appearance edits device-local tab position and interface text scale; the offered range is a
+  user-facing promise and is stated in `ux.md`, **Known limits**. Terminal text does not change.
 - Models is an editable, server-shared preference category: provider rail, searchable model list,
   allow/deny mode, mixed-state visibility, favorites, draft Preview/Save/Discard, and revision conflicts.
   Picker-owned Settings preserves the picker search/selection as well as the workspace underneath.

@@ -4,9 +4,13 @@ Corral is a graphical, keyboard-first workspace for people who live in terminals
 Product behavior: `design.md`. Placement, sizes and surfaces: `layout.md`. Kit provenance, defaults and boundaries: `ui-kit.md`.
 Actual code/tests remain authoritative where older research described proposals.
 
+Kind: **contract** for keys, focus and the user-visible flows; measurements belong to the code.
+The prose that describes a surface is current state: a piece that changes it edits this file in
+the same PR.
+
 ## Appearance
 
-The approved T3-like study supersedes the earlier stock-only shadcn rule.
+Visual direction is stated once, in `ui-kit.md`; the surfaces below follow it.
 Dark neutral surfaces, blue accents and restrained borders live in the shared kit;
 Base UI still owns accessible interaction and popup lifecycles. See `ui-kit.md`.
 Modules never skin controls with `className`; existing boundary and token gates stay on.
@@ -48,15 +52,16 @@ What a user does. Everything below is built and verified end to end, chat views 
 - Three places: the sidebar of tasks, the main area's task header and session tabs, and the
   session below them (`layout.md`). The sidebar is a fixed pane the user resizes; the terminal
   takes the rest of the main area. There is no title bar of our own and no global status bar.
-- The sidebar lists tasks only. A wordmark header has the sidebar toggle opposite it;
-  the next row has Search, grouping and New task. Its 36 px footer carries Settings, Add project,
-  connection state while disconnected, config problems and the prefix indicator. It is 264 px by default (232 px below
-  1180 px), dragged between 208 and 420 px with the edge handle — and never so wide that the
-  main area drops below its 640 px — kept per device, reset by a double click, and hidden or
+- The sidebar lists tasks only. A wordmark header has the sidebar toggle opposite it; the next
+  row has Search, grouping and New task. Its footer carries Settings, Add project, connection
+  state while disconnected, config problems and the prefix indicator. It has a default and a
+  narrow-window width, dragged between its limits with the edge handle — never so wide that the
+  main area drops below its minimum — kept per device, reset by a double click, and hidden or
   shown by `prefix \`.
 - Project grouping is the default (`prefix l` switches to status groups and the device keeps
   the choice). The bottom Settled shelf spans projects, scrolls independently and pages six at a
-  time; selecting older history reveals it without resuming it. Rows are two-line 52 px tasks; selection uses
+  time; selecting older history reveals it without resuming it. Rows are two-line tasks;
+  selection uses
   secondary appearance plus `aria-current`, not a bespoke colored left bar. Titles and paths
   truncate without losing accessible names. Loose terminals sit in the Scratch section, one line
   each, and only while some exist.
@@ -231,7 +236,8 @@ What a user does. Everything below is built and verified end to end, chat views 
 - Desktop support begins at 1024×640; smaller responsive layouts remain undecided.
 - Long values may truncate; names and effective summaries retain their full meaning.
 - Interface text scale is adjustable per device (80–140%, relative to OS/browser scale).
-  Terminal text remains independently fixed at 14 px; terminal font controls are separate scope.
+  Terminal text stays fixed and independent of the interface text scale; terminal font controls
+  are separate scope.
 - Hover-only row actions and settings writes are not implied by this kit migration.
   Mid-session model and reasoning switching belongs to a chat driver; a terminal session has no
   such control.

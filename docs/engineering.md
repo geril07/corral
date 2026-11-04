@@ -2,6 +2,9 @@
 
 How the code is laid out, built and tested. Product decisions are in `design.md`; this document is the technical side.
 
+Kind: **engineering rules**. A rule holds until it is changed here; facts the code depends on are
+stated beside the code that depends on them, not as a description of today.
+
 ## Toolchain
 
 | Concern                       | Choice                                                                       | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -105,7 +108,7 @@ Chat Markdown is **Streamdown 2.7.1** (Apache-2.0); its code highlighter and the
 the one shared **`@pierre/diffs` 1.6.2** instance (Apache-2.0), not `@streamdown/code`'s second
 Shiki (goal D1). The timeline is virtualized by **`@legendapp/list` 3.7.1** (MIT). All three are
 free and permissive; only the kit imports Streamdown and `@pierre/diffs`, and the chat module
-imports the list. The Changes tab's `DiffPane` and 28 px `ChangeFileRow` live in the kit too, so a
+imports the list. The Changes tab's `DiffPane` and `ChangeFileRow` live in the kit too, so a
 second `PatchDiff` shape (horizontal scroll, no 20-line fold) never reaches a module directly;
 `DiffView` is untouched by it.
 
