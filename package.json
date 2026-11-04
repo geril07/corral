@@ -13,7 +13,7 @@
     "test:browser:one": "vp test run --project browser",
     "test:e2e": "vp run -r test:e2e",
     "test:contracts": "vp run -r test:contracts",
-    "dev": "vp run --parallel dev"
+    "dev": "vp run -r --parallel dev"
   },
   "devDependencies": {
     "@types/node": "catalog:",
