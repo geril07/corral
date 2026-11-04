@@ -21,7 +21,7 @@ How the code is laid out, built and tested. Product decisions are in `design.md`
 
 C3's Codex app-server is **one per session** (`apps/server/src/chat/codex-server.ts`), recorded at `<dataDir>/chat/codex-server-<session>.json` with the same pid-and-start-time shape: the chat driver and the terminal leg (`codex --remote unix://…`) are its two clients, its socket is the launch's `socket`, and the thread id it assigns reaches the session row through the launch's `onAgentSessionId`, because `thread/start` accepts no caller id. The version both legs are gated on is read in `apps/server/src/agents/codex-version.ts` (`TESTED_CODEX_VERSION`), cached per executable; the terminal falls back to the plain `codex` launch for an untested one.
 
-Commands are root scripts over `vp`: `pnpm check` (format check, lint, type check, Node tests), `pnpm test:browser`, `pnpm test:e2e`, `pnpm dev`. Vitest has two projects: `node` (every `*.test.ts`, forks pool) and `browser` (`apps/web`, `*.browser.test.tsx`).
+Commands are root scripts over `vp`: `pnpm check` (format check, lint, type check, Node tests), `pnpm test:browser`, `pnpm test:e2e`, `pnpm dev`. `pnpm dev` runs against the checkout's own `.dev/` state, data and config directories (`scripts/dev.mjs`), so a development server cannot take the single-instance lock, database or config file from a packaged app; `pnpm dev:desktop` runs Electron against the same directories and the running web dev server, and the installed app keeps the XDG defaults. Vitest has two projects: `node` (every `*.test.ts`, forks pool) and `browser` (`apps/web`, `*.browser.test.tsx`).
 
 ## Repository layout
 

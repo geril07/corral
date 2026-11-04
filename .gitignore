@@ -8,3 +8,4 @@ playwright-report/
 .vitest/
 .e2e/
 .playwright-cli/
+.dev/
