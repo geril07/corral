@@ -93,7 +93,7 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   selected file's diff takes the rest.
 - The task header shows `+N −M` right-aligned next to the status when non-zero, and a linked pull request's badge (`PR #7 open`) before the status; the sidebar row shows the same compact numbers, and the request's name and state, only when they exist.
 - Refreshed with a debounce when the workspace changes: loading shows skeleton rows, a clean tree shows "No changes yet".
-- Below the summary row, the finish controls (C6), one line each and all keyboard-reachable: `Stage all` / `Unstage all` / stage-or-unstage the selected file with the staged count, then a one-line commit-message field and `Commit`, then `Push…` and `Create pull request…` (each behind a dialog naming the remote's push URL and the branch; creating also names the base branch and the provider) and the linked request's badge with its check line, or a `Settle task` button once it merged. A refusal shows its sentence under the row and keeps the message and the selection. Read-only in C4; the writes are C6's.
+- Below the summary row, the finish controls, one line each and all keyboard-reachable: `Stage all` / `Unstage all` / stage-or-unstage the selected file with the staged count, then a one-line commit-message field and `Commit`, then `Push…` and `Create pull request…` (each behind a dialog naming the remote's push URL and the branch; creating also names the base branch and the provider) and the linked request's badge with its check line, or a `Settle task` button once it merged. A refusal shows its sentence under the row and keeps the message and the selection.
 
 ## New task view
 
@@ -129,5 +129,3 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 - Repository but no selection: the new-task composer, never a blank main area.
 - Task without sessions: No sessions with Start agent / Open shell; its tab row still offers +.
 - Board stays a separate route, reached by key/palette.
-- Changes, path expansion/discovery/preview and backend launch/context capabilities are outside
-  this slice. The accepted prototype guides later work; its sample data does not authorize it.

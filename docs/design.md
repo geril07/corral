@@ -1,7 +1,7 @@
 # Design
 
 A keyboard-first workspace for running coding agents, for people who live in the terminal.
-Replaces Herdr for its author; Orca and T3 Code (`.refs/`) are references, not bases.
+Replaces Herdr for its author; Orca and T3 Code are references, not bases.
 
 Kind: **product decisions**. A later decision in this file supersedes an earlier one; when it is
 silent, the code decides and this file is corrected rather than read as a spec.
@@ -50,8 +50,8 @@ working sessions; native startup is not a sandbox. Contract, lifecycle and selec
 ```
 
 - **Server** is a separate long-lived process. The desktop app starts it if none is running, and it outlives the window, like Orca's daemon.
-- **Terminal streams** go as binary frames with ack-based backpressure (as in the spike: `src/pty-host.cjs`, `src/renderer/index.ts`).
-- **Reattach**: the server feeds every PTY into an `@xterm/headless` instance (scrollback ~5k rows, as Orca and T3 Code) and sends a serialized snapshot, then live output. Normal-buffer scrollback and the alt screen are serialized separately (Orca: `.refs/orca/src/main/daemon/terminal-snapshot.ts`).
+- **Terminal streams** go as binary frames with ack-based backpressure.
+- **Reattach**: the server feeds every PTY into an `@xterm/headless` instance (scrollback ~5k rows, as Orca and T3 Code) and sends a serialized snapshot, then live output. Normal-buffer scrollback and the alt screen are serialized separately (Orca's `terminal-snapshot.ts` is the reference).
 - **Server lifecycle**: detached process, single-instance lock, PID/endpoint file, versioned handshake so an old client and a new server refuse to talk instead of misbehaving. Orca and T3 Code both hit duplicate-instance and update-skew bugs (`.refs/t3code/docs/architecture/server-updates.md`).
 - **One API** for every client. Nothing desktop-only in the protocol, so the mobile client is just another client.
 - **Web client** is the same bundle in Electron and in a plain browser served by the server. Electron adds only native shell bits (window, menus, starting the server).
