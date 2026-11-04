@@ -34,7 +34,7 @@ import {
   ConfigProblemsNotice,
   formatBinding,
 } from "../keymap/index.ts";
-import { SETTINGS_BUTTON_ID, useAppearance } from "../settings/index.ts";
+import { SETTINGS_BUTTON_ID, useAppearance, useSettingsActivity } from "../settings/index.ts";
 import { FindTaskDialog } from "./find-task-dialog.tsx";
 import { RenameDialog } from "./rename-dialog.tsx";
 import { SessionTabs } from "./session-tabs.tsx";
@@ -74,6 +74,7 @@ export function WorkspaceScreen({
   onOpenSettings,
 }: WorkspaceScreenProps) {
   const { appearance } = useAppearance();
+  const settingsActivity = useSettingsActivity();
   const agentPickerAnchor = useRef<HTMLButtonElement>(null);
   const modelPickerAnchor = useRef<HTMLButtonElement>(null);
   const reasoningPickerAnchor = useRef<HTMLButtonElement>(null);
@@ -146,7 +147,13 @@ export function WorkspaceScreen({
     resolveIssue,
     removeTask,
     setDialog,
-  } = useWorkspace({ active, search, onChange, onOpenBoard, onOpenSettings });
+  } = useWorkspace({
+    active: active && !settingsActivity?.open,
+    search,
+    onChange,
+    onOpenBoard,
+    onOpenSettings,
+  });
   const restartKey = keyHint(config, "restart-session");
   // The Changes tab is the route's `entry=changes`; it needs a task and nothing of a session.
   const changesCurrent = changesView && currentTask !== undefined;
@@ -424,6 +431,7 @@ export function WorkspaceScreen({
       )}
       {dialog?.kind === "pick-agent" && (
         <AgentPicker
+          context={{ taskId: dialog.taskId }}
           profiles={profiles}
           agents={config.agents}
           settings={taskSettingsFor(config, currentTaskProject?.path ?? "")}
@@ -439,6 +447,7 @@ export function WorkspaceScreen({
         currentSession !== undefined &&
         currentSession.kind !== "shell" && (
           <ChatChoiceDialog
+            context={{ taskId: currentSession.taskId }}
             store={chat.store}
             agent={currentSession.kind}
             launch={currentSession.launch}

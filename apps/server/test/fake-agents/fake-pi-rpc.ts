@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { z } from "zod";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -38,10 +39,15 @@ export function startFakePiRpc(argv: readonly string[]): void {
   const delayMs = Number(process.env["FAKE_PI_RPC_DELAY_MS"] ?? 500);
   const history = readJournal(journalPath);
   const dialogs = new Map<string, (answer: FakeDialogAnswer) => void>();
-  const models = [
+  let models = [
     { id: "stub-1", name: "Stub One", provider: "stub" },
     { id: "stub-2", name: "Stub Two", provider: "stub" },
   ];
+  if (existsSync(join(home, "catalog.json"))) {
+    models = z
+      .array(z.object({ id: z.string(), name: z.string(), provider: z.string() }))
+      .parse(JSON.parse(readFileSync(join(home, "catalog.json"), "utf8")));
+  }
   let currentModel = models[0]!;
   let currentLevel = "medium";
   let buffer = "";
@@ -123,9 +129,24 @@ export function startFakePiRpc(argv: readonly string[]): void {
         });
         return;
       case "get_available_models":
-        respond(id, "get_available_models", { models });
+        if (existsSync(join(home, "catalog-error"))) {
+          reply(id, "get_available_models", { success: false, error: "secret-native-diagnostic" });
+          return;
+        }
+        respond(id, "get_available_models", {
+          models: existsSync(join(home, "catalog-extra"))
+            ? [...models, { id: "stub-3", name: "Stub Three", provider: "stub" }]
+            : models,
+        });
         return;
       case "get_available_thinking_levels":
+        if (mode === "refresh-fail" && currentModel.id === "stub-2") {
+          reply(id, "get_available_thinking_levels", {
+            success: false,
+            error: "thinking refresh failed",
+          });
+          return;
+        }
         respond(id, "get_available_thinking_levels", { levels: levelsFor(currentModel) });
         return;
       case "set_model": {

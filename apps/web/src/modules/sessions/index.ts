@@ -13,6 +13,8 @@ export {
   launchOptions,
   launchChoice,
   launchKey,
+  launchScope,
+  catalogLaunchModel,
   launchModel,
   launchName,
   launchProblem,

@@ -803,6 +803,22 @@ test("the model and reasoning level switch through the driver and are reported b
   }
 });
 
+test("a successful model switch followed by a failed refresh never advertises the previous model's thinking", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "refresh-fail");
+  const { api, task } = await chatTask("Refresh capabilities");
+  const sessionId = task.primarySessionId!;
+  const chat = follow(api, sessionId);
+  try {
+    await chat.until((view) => view.state.reasoningLevels.length > 0, "initial thinking");
+    await api.chat.setModel({ sessionId, model: { provider: "stub", id: "stub-2" } });
+    await chat.until((view) => view.state.model?.id === "stub-2", "switched model");
+    expect(chat.state.reasoningLevels).toEqual([]);
+    expect(chat.state.reasoning).toBeNull();
+  } finally {
+    await chat.close();
+  }
+});
+
 /** Answers the fake's dialog and waits for the turn to settle, so the conversation has history. */
 async function settleTurn(api: Api, sessionId: string, text = "Add a note to notes.txt") {
   const chat = follow(api, sessionId);

@@ -13,6 +13,8 @@ import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
+import { ModelPreferencesStore } from "../models/model-preferences.ts";
+import { ModelCatalogService } from "../models/model-catalog.ts";
 import { ChatService } from "../chat/chat-service.ts";
 import type { ChatDriverRegistry, ChatTimeouts } from "../chat/chat-driver.ts";
 import { ChangesService } from "../changes/changes-service.ts";
@@ -64,6 +66,8 @@ export function startServer(options: {
   chat?: Partial<ChatTimeouts> & { writerWaitMs?: number; drivers?: ChatDriverRegistry };
   /** `gh`/`glab` deadline for the Changes tab's pull-request calls; tests shorten it. */
   pullRequestTimeoutMs?: number;
+  /** Metadata process deadline; tests shorten it against isolated fake CLIs. */
+  modelCatalogTimeoutMs?: number;
 }): Promise<RunningServer> {
   const temporaryDataDir =
     options.dataDir === undefined ? mkdtempSync(join(tmpdir(), "corral-data-")) : undefined;
@@ -127,6 +131,16 @@ export function startServer(options: {
   const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, homedir())), {
     dataDir,
   });
+  const modelPreferences = new ModelPreferencesStore(database);
+  const modelCatalog = new ModelCatalogService({
+    config,
+    projects: projectStore,
+    tasks: taskStore,
+    dataDir,
+    ...(options.modelCatalogTimeoutMs === undefined
+      ? {}
+      : { timeoutMs: options.modelCatalogTimeoutMs }),
+  });
   // Known once the server listens, which is before any session starts.
   let httpOrigin = "";
   const sessions = new SessionService({
@@ -156,7 +170,18 @@ export function startServer(options: {
   // Local links in chat: the allow-list is a task's workspace, so the service needs the tasks.
   const files = new FilesService({ tasks, terminals, config });
   const rpc = new RPCHandler(
-    createRpcRouter({ config, projects, tasks, sessions, chat, changes, terminals, files }),
+    createRpcRouter({
+      config,
+      projects,
+      tasks,
+      sessions,
+      chat,
+      changes,
+      terminals,
+      files,
+      modelPreferences,
+      modelCatalog,
+    }),
   );
   const http = createServer((request, response) => {
     const sessionId = statusReportSessionId(
@@ -208,6 +233,7 @@ export function startServer(options: {
     config.close();
     terminateAll(wss.clients);
     http.closeAllConnections();
+    await modelCatalog.close();
     await sessions.shutDown();
     await Promise.all([terminals.closeAll(), new Promise((done) => http.close(done))]);
     database.close();

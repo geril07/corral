@@ -53,6 +53,7 @@ export function runFakeOpenCodeServer(options: {
   /** One event stream per attached client. */
   const streams = new Set<ServerResponse>();
   let events = 0;
+  let modelReads = 0;
 
   const journal = (entry: Record<string, unknown>) => {
     if (options.journal === undefined) return;
@@ -321,6 +322,33 @@ export function runFakeOpenCodeServer(options: {
         request.on("close", () => {
           clearInterval(heartbeat);
           streams.delete(response);
+        });
+        return;
+      }
+      if (request.method === "GET" && url.pathname === "/api/model") {
+        journal({ action: "model-list", directory: url.searchParams.get("location[directory]") });
+        modelReads++;
+        let mode = "";
+        try {
+          mode = readFileSync(join(options.stateDir ?? "", "catalog-mode"), "utf8");
+        } catch {
+          /* no scenario */
+        }
+        if (mode === "partial-error" && modelReads > 1) {
+          json(response, 503, {});
+          return;
+        }
+        const limited = mode === "partial-error" || (mode === "growing" && modelReads === 1);
+        json(response, 200, {
+          location: { directory: process.cwd() },
+          data:
+            mode === "empty"
+              ? []
+              : [
+                  { id: "stub-model", providerID: "stub", name: "Stub Model", enabled: true },
+                  { id: "other-model", providerID: "other", name: "Other Model", enabled: true },
+                  { id: "disabled-model", providerID: "stub", name: "Disabled", enabled: false },
+                ].slice(0, limited ? 1 : undefined),
         });
         return;
       }

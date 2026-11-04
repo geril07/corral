@@ -49,6 +49,7 @@ export class PiDriver implements ChatDriver {
   readonly #request: PiDriverRequest;
   readonly #projection: PiProjection;
   readonly #reader = new PiLineReader();
+  readonly #prepared = Promise.withResolvers<void>();
   readonly #pending = new Map<
     string,
     { command: string; resolve: (data: PiRecord) => void; reject: (error: Error) => void }
@@ -67,12 +68,19 @@ export class PiDriver implements ChatDriver {
 
   constructor(request: PiDriverRequest) {
     this.#request = request;
+    // Ordinary chat consumers observe failure through onExit, not this optional readiness seam.
+    void this.#prepared.promise.catch(() => undefined);
     // The service's timeline, built from the reserved sequence floor (its start is not ours).
     this.timeline = request.timeline;
     this.#projection = new PiProjection(this.timeline, {
       now: () => Date.now(),
       dialogTimeoutMs: request.dialogTimeoutMs,
     });
+  }
+
+  /** Metadata readers await preparation without sending a prompt or opening a saved session. */
+  whenReady(): Promise<void> {
+    return this.#prepared.promise;
   }
 
   get closed(): boolean {
@@ -200,6 +208,8 @@ export class PiDriver implements ChatDriver {
         id: typeof data["id"] === "string" ? data["id"] : model.id,
         name: typeof data["name"] === "string" ? data["name"] : model.id,
       },
+      reasoning: null,
+      reasoningLevels: [],
     });
     // pi's thinking levels belong to the model in effect (`xhigh`/`max` appear only where the
     // model supports them), so the level and the accepted list are re-read after the switch. The
@@ -208,9 +218,7 @@ export class PiDriver implements ChatDriver {
     try {
       await this.#refreshModelState();
     } catch {
-      // Keep the switched model. The refresh runs only from this method, so a failure leaves the
-      // previous model's level list for the rest of the session unless another model switch (or a
-      // restart) re-reads it.
+      // The switch succeeded, but the new model's thinking capabilities remain unknown.
     }
   }
 
@@ -256,6 +264,7 @@ export class PiDriver implements ChatDriver {
       // The task's prompt is the work a chat task was made for. pi's own history decides whether
       // this is the first start: a conversation that already has a user message is resumed, so the
       // prompt is never handed over twice, and a start that died before pi wrote it hands it over.
+      this.#prepared.resolve();
       const firstStart = !history.some((message) => message["role"] === "user");
       if (firstStart && this.#request.prompt !== null) this.send(this.#request.prompt, "prompt");
     } catch (error) {
@@ -425,6 +434,7 @@ export class PiDriver implements ChatDriver {
   #finish(reason: string | null): void {
     if (this.#closed) return;
     this.#closed = true;
+    this.#prepared.reject(new Error(reason ?? "the chat frontend stopped"));
     this.#stdinEnded = true;
     this.#clearReadyTimer();
     for (const itemId of this.#dialogTimers.keys()) this.#clearDialogTimer(itemId);

@@ -6,6 +6,8 @@ import {
   type ResolvedTaskSettings,
   type TaskView,
 } from "@corral/protocol/config";
+import type { ChatModelRef } from "@corral/protocol/chat";
+import type { ModelScope } from "@corral/protocol/models";
 import { AGENTS } from "@corral/client/session-state";
 import type { AgentKind } from "@corral/protocol/rpc";
 
@@ -46,6 +48,25 @@ export function launchKey(selection: LaunchSelection): string {
   return selection.profile
     ? `profile:${selection.profile.id}:${selection.profile.revision}`
     : `native:${selection.kind}`;
+}
+
+export function launchScope(selection: LaunchSelection): ModelScope {
+  return { kind: selection.kind, profileId: selection.profile?.id ?? null };
+}
+
+/** A pinned native provider is a launch constraint, not a menu visibility rule. */
+export function catalogLaunchModel(
+  selection: LaunchSelection,
+  model: ChatModelRef,
+): string | undefined {
+  if (!supportsModel(selection.kind)) return undefined;
+  if (selection.profile?.provider && model.provider !== selection.profile.provider)
+    return undefined;
+  const id =
+    selection.kind === "pi" && model.provider && !selection.profile?.provider
+      ? `${model.provider}/${model.id}`
+      : model.id;
+  return modelProblem(selection.kind, id) ? undefined : id;
 }
 
 export function launchName(selection: LaunchSelection): string {

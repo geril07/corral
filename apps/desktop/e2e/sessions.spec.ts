@@ -101,7 +101,11 @@ test("an agent session is started, stopped and restarted, and a running one come
       ["--resume", claudeId],
       ["--resume", claudeId],
     ]);
-  expect(readLaunches(stateDir).filter((launch) => launch.agent === "pi")).toHaveLength(1);
+  expect(
+    readLaunches(stateDir).filter(
+      (launch) => launch.agent === "pi" && !launch.argv.includes("--no-session"),
+    ),
+  ).toHaveLength(1);
 
   // The restored agent is live: it answers.
   await secondWindow.keyboard.type("after-restart");

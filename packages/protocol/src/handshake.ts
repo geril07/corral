@@ -35,7 +35,8 @@ import { z } from "zod";
  * `changes.commit`, `changes.push`, `changes.createPullRequest` and `changes.pullRequest` are
  * procedures a daemon from before C6 answers as unknown, so the Changes tab says the action is
  * unavailable there and the badge stays absent instead of showing a write that never ran. */
-export const PROTOCOL_VERSION = 10;
+// Version 11 requires shared models.watch/save and scoped catalog discovery on every client.
+export const PROTOCOL_VERSION = 11;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in

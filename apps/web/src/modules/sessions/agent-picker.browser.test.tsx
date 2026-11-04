@@ -1,14 +1,30 @@
 import { defaultClientConfig, type LaunchProfile } from "@corral/protocol/config";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
-import { render } from "vitest-browser-react";
+import { render as renderComponent } from "vitest-browser-react";
+import type { ReactElement } from "react";
+import { CorralClientProvider } from "../connection/index.ts";
+import { realServerClients } from "../../../test/real-client.ts";
 import { AgentPicker } from "./agent-picker.tsx";
 import type { AgentLaunchChoice } from "./launch-choice.ts";
+
+const { newClient } = realServerClients();
+function render(ui: ReactElement) {
+  const client = newClient();
+  return renderComponent(ui, {
+    wrapper: ({ children }) => (
+      <CorralClientProvider client={client}>{children}</CorralClientProvider>
+    ),
+  });
+}
 
 const dialog = () => page.getByRole("dialog", { name: "New agent session" });
 const radios = () => dialog().getByRole("radio");
 const modelInput = () => dialog().getByRole("textbox", { name: "Model override" });
-const startButton = () => dialog().getByRole("option").last();
+const startButton = () =>
+  page.elementLocator(
+    dialog().element().querySelector<HTMLElement>('[role="option"][aria-current="true"]')!,
+  );
 const summary = () => dialog().getByLabelText("launch choice");
 
 function profile(overrides: Partial<LaunchProfile>): LaunchProfile {

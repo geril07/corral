@@ -92,6 +92,11 @@ export const MIGRATIONS: readonly Migration[] = [
       db.exec("ALTER TABLE pull_requests ADD COLUMN repository TEXT;");
     }
   },
+  `CREATE TABLE model_preferences (
+     scope TEXT PRIMARY KEY,
+     revision INTEGER NOT NULL,
+     policy TEXT NOT NULL
+   ) STRICT;`,
 ];
 
 /** Whether `table` already has `column`; the guard a conditional schema step writes. */

@@ -5,6 +5,7 @@ import type {
   ResolvedTaskSettings,
   TaskView,
 } from "@corral/protocol/config";
+import type { ModelContext } from "@corral/protocol/models";
 import type { AgentKind } from "@corral/protocol/rpc";
 import { useState, type RefObject } from "react";
 import { AgentLaunchPicker, LaunchViewControls } from "./agent-launch-picker.tsx";
@@ -22,6 +23,7 @@ import {
 import { describeLaunchError, launchErrorCode } from "./launch-error.ts";
 
 interface AgentPickerProps {
+  context?: ModelContext | undefined;
   profiles: readonly LaunchProfile[];
   agents: AgentSettings;
   settings: ResolvedTaskSettings;
@@ -33,6 +35,7 @@ interface AgentPickerProps {
 }
 
 export function AgentPicker({
+  context,
   profiles,
   agents,
   settings,
@@ -89,6 +92,7 @@ export function AgentPicker({
   return (
     <AgentLaunchPicker
       title="New agent session"
+      context={context}
       anchor={anchor}
       profiles={profiles}
       agents={agents}

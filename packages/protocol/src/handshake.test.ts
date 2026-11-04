@@ -15,10 +15,10 @@ describe("protocol version in the URL", () => {
     expect(checkProtocolVersion(url)).toBeNull();
   });
 
-  test("the release barrier is version 10 and the previous version is rejected", () => {
-    expect(PROTOCOL_VERSION).toBe(10);
-    expect(checkProtocolVersion(new URL("ws://h/rpc?protocol=9"))).toEqual({
-      serverProtocolVersion: 10,
+  test("the models release barrier is version 11 and a pre-models daemon is rejected", () => {
+    expect(PROTOCOL_VERSION).toBe(11);
+    expect(checkProtocolVersion(new URL("ws://h/rpc?protocol=10"))).toEqual({
+      serverProtocolVersion: 11,
     });
   });
 

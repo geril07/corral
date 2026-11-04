@@ -387,7 +387,7 @@ test("a database already at version 11 with the round-2 column migrates without 
   // `duplicate column name: repository` and the server refuses to start.
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
-  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
+  migrate(db, MIGRATIONS.slice(0, 11));
   db.exec("ALTER TABLE pull_requests ADD COLUMN repository TEXT;");
   db.exec(`
     INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');

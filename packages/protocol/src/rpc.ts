@@ -9,6 +9,7 @@ import {
 } from "./chat.ts";
 import { AgentKind, EnvRef, TaskView, configContract } from "./config.ts";
 import { Label } from "./label.ts";
+import { modelsContract } from "./models.ts";
 
 /** Control channel, served at `RPC_PATH` over WebSocket with oRPC. Terminal bytes go elsewhere. */
 export const RPC_PATH = "/rpc";
@@ -766,6 +767,7 @@ const issueErrors = {
 };
 
 export const contract = {
+  models: modelsContract,
   config: configContract,
   projects: {
     /** Registers the git repository containing `path` (any directory inside it works). */

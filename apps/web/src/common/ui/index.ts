@@ -1,4 +1,5 @@
 export { Badge } from "./badge.tsx";
+export { Checkbox } from "./checkbox.tsx";
 export { Alert, AlertDescription } from "./alert.tsx";
 export { Item } from "./item.tsx";
 export { BoardList, BoardRow } from "./board.tsx";

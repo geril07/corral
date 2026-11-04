@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Combobox as ComboboxPrimitive } from "@base-ui/react";
 import { cn } from "../lib/cn.ts";
+import { useTruncatedText } from "./truncated-text.tsx";
 
 import { Button } from "./button.tsx";
 import { Input } from "./input.tsx";
@@ -32,17 +33,40 @@ function ComboboxTrigger({ className, children, ...props }: ComboboxPrimitive.Tr
  * form control and takes its name from `aria-label` or `Combobox.Label`; keyboard navigation and
  * type-to-filter then belong to that input.
  */
-function ComboboxButton({ className, children, ...props }: ComboboxPrimitive.Trigger.Props) {
+function ComboboxButton({
+  className,
+  children,
+  layout = "default",
+  ...props
+}: ComboboxPrimitive.Trigger.Props & { layout?: "default" | "bounded" }) {
   return (
     <ComboboxPrimitive.Trigger
       data-slot="combobox-button"
       render={<Button variant="outline" size="sm" />}
-      className={cn("min-w-0 justify-between font-normal", className)}
+      className={cn(
+        "min-w-0 justify-between font-normal",
+        layout === "bounded" && "max-w-64 overflow-hidden",
+        className,
+      )}
       {...props}
     >
-      {children}
+      {layout === "bounded" ? <ComboboxButtonLabel>{children}</ComboboxButtonLabel> : children}
       <ChevronDownIcon className="pointer-events-none size-4 text-muted-foreground" />
     </ComboboxPrimitive.Trigger>
+  );
+}
+
+function ComboboxButtonLabel({ children }: { children: React.ReactNode }) {
+  const text = typeof children === "string" ? children : "";
+  const { observe, clipped } = useTruncatedText(text);
+  return (
+    <span
+      ref={observe}
+      className="min-w-0 flex-1 truncate text-left"
+      title={clipped ? text : undefined}
+    >
+      {children}
+    </span>
   );
 }
 

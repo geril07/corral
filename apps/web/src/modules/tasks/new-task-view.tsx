@@ -329,6 +329,7 @@ export function NewTaskView({
           {pickingAgent && agent !== undefined && (
             <AgentLaunchPicker
               title="Agent and model"
+              context={projectId ? { projectId } : {}}
               anchor={agentAnchor}
               restoreFocus="composer"
               profiles={profiles}

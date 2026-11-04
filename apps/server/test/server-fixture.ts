@@ -22,6 +22,7 @@ export function useServer(
     taskSettings?: (dirs: { dataDir: string; scratchDir: string }) => TaskSettings;
     /** Shortened chat driver deadlines for tests that watch one; production runs the defaults. */
     chat?: Parameters<typeof startServer>[0]["chat"];
+    modelCatalogTimeoutMs?: number;
   } = {},
 ) {
   let server: RunningServer;
@@ -40,6 +41,9 @@ export function useServer(
         ? {}
         : { settings: fixture.taskSettings({ dataDir: dataDir(), scratchDir: scratchDir() }) }),
       ...(fixture.chat === undefined ? {} : { chat: fixture.chat }),
+      ...(fixture.modelCatalogTimeoutMs === undefined
+        ? {}
+        : { modelCatalogTimeoutMs: fixture.modelCatalogTimeoutMs }),
     });
   const disconnectClients = () => {
     for (const stream of streams) stream.close();

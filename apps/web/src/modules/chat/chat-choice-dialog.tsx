@@ -1,6 +1,8 @@
 import type { ChatStore } from "@corral/client/chat-store";
 import { describeError } from "@corral/client/rpc-errors";
 import type { ChatModelRef } from "@corral/protocol/chat";
+import { modelKey, modelVisible, type ModelContext } from "@corral/protocol/models";
+import { useModelMenu } from "../settings/index.ts";
 import type {
   AgentSettings,
   LaunchProfile,
@@ -9,10 +11,12 @@ import type {
 } from "@corral/protocol/config";
 import type { AgentKind, LaunchSnapshot } from "@corral/protocol/rpc";
 import { useState, useSyncExternalStore, type RefObject } from "react";
-import { ModelPicker } from "../../common/ui/index.ts";
+import { ModelPicker, type PickerModel } from "../../common/ui/index.ts";
 import {
   launchChoice,
   launchKey,
+  launchScope,
+  catalogLaunchModel,
   launchModel,
   launchOptions,
   launchProblem,
@@ -27,6 +31,7 @@ import {
 import { chatModelKey } from "./chat-choices.ts";
 
 export interface ChatChoiceDialogProps {
+  context?: ModelContext | undefined;
   store: ChatStore;
   kind: "model" | "reasoning";
   agent: AgentKind;
@@ -44,6 +49,7 @@ export interface ChatChoiceDialogProps {
 
 /** Existing-instance changes use its driver; another tool/profile starts a distinct session. */
 export function ChatChoiceDialog({
+  context,
   store,
   kind,
   agent,
@@ -85,6 +91,62 @@ export function ChatChoiceDialog({
     const active = instances.find((instance) => instance.key === currentKey);
     if (active) active.name += " (current session)";
   }
+  const menu = useModelMenu(
+    {
+      scope: launchScope(selection),
+      context: context ?? {},
+      ...(selection.profile ? { expectedProfileRevision: selection.profile.revision } : {}),
+    },
+    existing && state.models.length > 0
+      ? {
+          scope: launchScope(current),
+          context: context ?? {},
+          profileRevision: current.profile?.revision,
+          models: state.models,
+        }
+      : undefined,
+  );
+  const hidden =
+    existing &&
+    state.model &&
+    menu.preferences.loaded &&
+    !modelVisible(menu.preferences.policy, state.model);
+  const models: PickerModel[] = existing
+    ? menu.models.map((model) => ({
+        key: chatModelKey(model),
+        name: model.name,
+        provider: model.provider ?? undefined,
+        detail: model.id === model.name ? undefined : model.id,
+        current: chatModelKey(model) === reported,
+        disabled: !state.models.some((m) => chatModelKey(m) === chatModelKey(model)),
+        favorite: menu.favorite(model),
+      }))
+    : [
+        ...launchPickerModels(
+          selection,
+          !!launchProblem({ ...selection, model: "" }, profiles, agents),
+        ),
+        ...menu.models.map((model) => ({
+          key: modelKey(model),
+          name: model.name,
+          provider: model.provider ?? undefined,
+          detail: model.id,
+          disabled:
+            !!launchProblem({ ...selection, model: "" }, profiles, agents) ||
+            catalogLaunchModel(selection, model) === undefined,
+          favorite: menu.favorite(model),
+        })),
+      ];
+  if (hidden && state.model && !models.some((m) => m.current))
+    models.unshift({
+      key: chatModelKey(state.model),
+      name: state.model.name,
+      provider: state.model.provider ?? undefined,
+      detail: "Current · hidden by filter",
+      current: true,
+      disabled: true,
+      favorite: menu.favorite(state.model),
+    });
   const problem = existing ? undefined : launchProblem(selection, profiles, agents);
   const view = launchView(
     { ...settings, view: { ...settings.view, value: requestedView ?? settings.view.value } },
@@ -112,87 +174,93 @@ export function ChatChoiceDialog({
       setPendingModel(key);
       void apply(() => onSetModel({ provider: model.provider, id: model.id }), false);
     } else {
-      const target = key === "default" ? { ...selection, model: "" } : selection;
+      const native = menu.models.find((m) => modelKey(m) === key);
+      const value = native ? catalogLaunchModel(selection, native) : undefined;
+      const target =
+        key === "default"
+          ? { ...selection, model: "" }
+          : value
+            ? { ...selection, model: value }
+            : selection;
       if (launchProblem(target, profiles, agents)) return;
       void apply(() => onStart({ ...launchChoice(target), view }), true);
     }
   };
   return (
-    <ModelPicker
-      title={kind === "model" ? "Chat model" : "Reasoning level"}
-      anchor={anchor}
-      restoreFocus="composer"
-      focus={kind === "model" ? "search" : "thinking"}
-      instances={instances}
-      instance={launchKey(selection)}
-      onInstance={(key) => {
-        const next = options.find((option) => launchKey(option) === key);
-        if (next) {
-          setSelection(next);
-          setPendingModel(undefined);
-          setFailure(undefined);
+    <>
+      <ModelPicker
+        suspended={menu.managing}
+        title={kind === "model" ? "Chat model" : "Reasoning level"}
+        anchor={anchor}
+        restoreFocus="composer"
+        focus={menu.returned || kind === "model" ? "search" : "thinking"}
+        instances={instances}
+        instance={launchKey(selection)}
+        onInstance={(key) => {
+          const next = options.find((option) => launchKey(option) === key);
+          if (next) {
+            setSelection(next);
+            setPendingModel(undefined);
+            setFailure(undefined);
+          }
+        }}
+        models={models}
+        onModel={chooseModel}
+        modelName={existing ? state.model?.name : launchModel(selection)}
+        levels={existing && !waiting ? state.reasoningLevels : []}
+        level={existing ? state.reasoning : undefined}
+        onLevel={(level) => {
+          if (existing && !waiting) void apply(() => onSetReasoning(level), true);
+        }}
+        unavailable={
+          existing
+            ? waiting
+              ? "Waiting for the agent's updated model and thinking levels…"
+              : "No thinking levels have been reported for this model."
+            : "A different tool/profile starts a new session. Its thinking levels are reported after launch."
         }
-      }}
-      models={
-        existing
-          ? state.models.map((model) => ({
-              key: chatModelKey(model),
-              name: model.name,
-              provider: model.provider ?? undefined,
-              detail: model.id === model.name ? undefined : model.id,
-              current: chatModelKey(model) === reported,
-            }))
-          : launchPickerModels(
-              selection,
-              !!launchProblem({ ...selection, model: "" }, profiles, agents),
-            )
-      }
-      onModel={chooseModel}
-      modelName={existing ? state.model?.name : launchModel(selection)}
-      levels={existing && !waiting ? state.reasoningLevels : []}
-      level={existing ? state.reasoning : undefined}
-      onLevel={(level) => {
-        if (existing && !waiting) void apply(() => onSetReasoning(level), true);
-      }}
-      unavailable={
-        existing
-          ? waiting
-            ? "Waiting for the agent's updated model and thinking levels…"
-            : "This driver reports no thinking levels."
-          : "A different tool/profile starts a new session. Its thinking levels are reported after launch."
-      }
-      emptyMessage={
-        snapshot.loaded
-          ? "This driver offers no model switch. Choose another tool to start a session."
-          : "Waiting for the agent's model list…"
-      }
-      nativeModel={
-        !existing && supportsModel(selection.kind)
-          ? {
-              value: selection.model,
-              placeholder: selection.profile?.model ?? "Agent default",
-              onChange: (model) => setSelection({ ...selection, model }),
-              onSubmit: () => chooseModel("custom"),
-            }
-          : undefined
-      }
-      error={problem ?? failure}
-      busy={busy}
-      footer={
-        !existing ? (
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">New agent session</span>
-            <LaunchViewControls
-              value={view}
-              kind={selection.kind}
-              chatDrivers={chatDrivers}
-              onChange={setRequestedView}
-              disabled={busy}
-            />
-          </div>
-        ) : undefined
-      }
-      onClose={onClose}
-    />
+        emptyMessage={
+          snapshot.loaded
+            ? "This driver offers no model switch. Choose another tool to start a session."
+            : "Waiting for the agent's model list…"
+        }
+        nativeModel={
+          !existing && supportsModel(selection.kind)
+            ? {
+                value: selection.model,
+                placeholder: selection.profile?.model ?? "Agent default",
+                onChange: (model) => setSelection({ ...selection, model }),
+                onSubmit: () => chooseModel("custom"),
+              }
+            : undefined
+        }
+        error={problem ?? failure}
+        busy={busy}
+        footer={
+          <>
+            {hidden && (
+              <p className="my-1 text-xs text-muted-foreground">
+                Current model is hidden by the filter; the session is unchanged.
+              </p>
+            )}
+            {!existing ? (
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">New agent session</span>
+                <LaunchViewControls
+                  value={view}
+                  kind={selection.kind}
+                  chatDrivers={chatDrivers}
+                  onChange={setRequestedView}
+                  disabled={busy}
+                />
+              </div>
+            ) : null}
+            {menu.footer}
+          </>
+        }
+        onClose={onClose}
+      />
+      {menu.settings}
+    </>
   );
 }

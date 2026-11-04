@@ -1,3 +1,4 @@
+import { createModelPreferencesStore } from "./model-preferences-store.ts";
 import type { SessionId } from "@corral/protocol/rpc";
 import type { ServerTarget } from "@corral/protocol/server-target";
 import {
@@ -26,6 +27,7 @@ export interface CorralClientOptions {
 export interface CorralClient {
   readonly connection: RpcConnection;
   readonly config: ConfigStore;
+  readonly modelPreferences: ReturnType<typeof createModelPreferencesStore>;
   readonly projects: ProjectsStore;
   readonly tasks: TasksStore;
   readonly sessions: SessionsStore;
@@ -44,6 +46,7 @@ export interface CorralClient {
 export function createCorralClient(options: CorralClientOptions): CorralClient {
   const connection = connectRpc(options);
   const config = createConfigStore(connection);
+  const modelPreferences = createModelPreferencesStore(connection);
   const projects = createProjectsStore(connection);
   const tasks = createTasksStore(connection);
   const sessions = createSessionsStore(connection);
@@ -61,6 +64,7 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
   return {
     connection,
     config,
+    modelPreferences,
     projects,
     tasks,
     sessions,
@@ -78,6 +82,7 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
       ),
     close: () => {
       config.close();
+      modelPreferences.close();
       projects.close();
       tasks.close();
       sessions.close();

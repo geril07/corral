@@ -27,6 +27,7 @@ export interface PickerModel {
   provider?: string | undefined;
   detail?: string | undefined;
   current?: boolean | undefined;
+  favorite?: boolean | undefined;
   disabled?: boolean | undefined;
 }
 
@@ -85,6 +86,7 @@ export interface ModelPickerProps {
   onQuickChoice?: ((index: number) => void) | undefined;
   onInstanceEnter?: (() => void) | undefined;
   restoreFocus?: "dialog" | "anchor" | "composer" | undefined;
+  suspended?: boolean | undefined;
   onClose: () => void;
 }
 
@@ -94,6 +96,8 @@ export function ModelPicker({ title, anchor, onClose, ...props }: ModelPickerPro
   const instance = useRef<HTMLButtonElement>(null);
   const thinking = useRef<HTMLButtonElement>(null);
   const finalFocus = useTaskFinalFocus(props.restoreFocus === "composer");
+  const [query, setQuery] = useState("");
+  if (props.suspended) return null;
   const content = (
     <PickerContent
       {...props}
@@ -103,6 +107,8 @@ export function ModelPicker({ title, anchor, onClose, ...props }: ModelPickerPro
       searchRef={search}
       instanceRef={instance}
       thinkingRef={thinking}
+      query={query}
+      onQuery={setQuery}
     />
   );
   if (anchor === undefined)
@@ -166,18 +172,21 @@ function PickerContent({
   searchRef,
   instanceRef,
   thinkingRef,
+  query,
+  onQuery,
 }: ModelPickerProps & {
+  query: string;
+  onQuery: (query: string) => void;
   searchRef: RefObject<HTMLInputElement | null>;
   instanceRef: RefObject<HTMLButtonElement | null>;
   thinkingRef: RefObject<HTMLButtonElement | null>;
 }) {
   const guard = useEnterGuard();
-  const [query, setQuery] = useState("");
-  const visible = models.filter((model) =>
-    `${model.name} ${model.provider ?? ""} ${model.detail ?? ""}`
-      .toLowerCase()
-      .includes(query.trim().toLowerCase()),
-  );
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const visible = models.filter((model) => {
+    const text = `${model.name} ${model.provider ?? ""} ${model.detail ?? ""}`.toLowerCase();
+    return terms.every((term) => text.includes(term));
+  });
   return (
     <div
       className="flex min-h-0 flex-col"
@@ -252,7 +261,7 @@ function PickerContent({
               aria-label="Search models"
               placeholder="Search models…"
               value={query}
-              onValueChange={setQuery}
+              onValueChange={onQuery}
             />
             <CommandList className="min-h-0 max-h-none flex-1">
               {visible.length === 0 && (
@@ -266,6 +275,7 @@ function PickerContent({
                   value={model.key}
                   disabled={!!busy || !!model.disabled}
                   data-checked={model.current}
+                  aria-current={model.current ? "true" : undefined}
                   onSelect={() => onModel(model.key)}
                 >
                   <div className="min-w-0 flex-1">
@@ -278,6 +288,7 @@ function PickerContent({
                       </p>
                     )}
                   </div>
+                  {model.favorite && <span aria-label="Favorite">★</span>}
                   {model.provider && (
                     <span className="flex max-w-1/3 text-xs text-muted-foreground">
                       <Name name={model.provider} />
@@ -317,7 +328,8 @@ function PickerContent({
                 }}
               />
               <p className="mt-1 mb-0 text-xs text-muted-foreground">
-                Available models are reported after launch.
+                Native ID overrides are not an access policy; the agent validates availability at
+                launch.
               </p>
             </div>
           )}

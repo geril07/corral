@@ -1,4 +1,5 @@
 import { createCorralClient, type CorralClient } from "@corral/client/corral-client";
+import { defaultModelPolicy } from "@corral/protocol/models";
 import type { CreateSocket } from "@corral/client/reconnecting-socket";
 import { afterEach, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -28,7 +29,13 @@ export function realServerClients() {
     const cleaner = newClient();
     const { api } = cleaner.connection;
     await vi.waitFor(() => {
-      if (!(cleaner.projects.getSnapshot().loaded && cleaner.tasks.getSnapshot().loaded))
+      if (
+        !(
+          cleaner.projects.getSnapshot().loaded &&
+          cleaner.tasks.getSnapshot().loaded &&
+          cleaner.modelPreferences.getSnapshot().loaded
+        )
+      )
         throw new Error("lists not loaded yet");
     });
     await Promise.all(
@@ -45,6 +52,13 @@ export function realServerClients() {
       cleaner.projects
         .getSnapshot()
         .projects.map((project) => api.projects.remove({ id: project.id })),
+    );
+    const defaults = defaultModelPolicy();
+    await Promise.all(
+      cleaner.modelPreferences
+        .getSnapshot()
+        .items.filter((item) => JSON.stringify(item.policy) !== JSON.stringify(defaults))
+        .map((item) => api.models.save({ ...item, policy: defaults })),
     );
     for (const client of clients.splice(0)) client.close();
   });

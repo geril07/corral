@@ -1,9 +1,14 @@
 import type { AgentSettings, LaunchProfile, TaskView } from "@corral/protocol/config";
 import type { AgentKind } from "@corral/protocol/rpc";
 import type { RefObject } from "react";
+import type { ModelContext } from "@corral/protocol/models";
+import { modelKey, modelVisible } from "@corral/protocol/models";
+import { useModelMenu } from "../settings/index.ts";
 import { Button, ModelPicker, type PickerModel } from "../../common/ui/index.ts";
 import {
   launchKey,
+  launchScope,
+  catalogLaunchModel,
   launchModel,
   launchName,
   launchOptions,
@@ -93,6 +98,7 @@ export function launchPickerModels(selection: LaunchSelection, blocked = false):
 /** The same launch selection for a new task and an additional agent; neither invents a catalog. */
 export function AgentLaunchPicker({
   title,
+  context,
   anchor,
   restoreFocus,
   profiles,
@@ -107,6 +113,7 @@ export function AgentLaunchPicker({
   footer,
 }: {
   title: string;
+  context?: ModelContext | undefined;
   anchor?: RefObject<HTMLElement | null> | undefined;
   restoreFocus?: "anchor" | "dialog" | "composer" | undefined;
   profiles: readonly LaunchProfile[];
@@ -123,51 +130,103 @@ export function AgentLaunchPicker({
   const options = launchOptions(profiles, agents);
   const key = launchKey(selection);
   const instances = launchPickerInstances(options);
-  const models = launchPickerModels(selection, blocked);
+  const menu = useModelMenu({
+    scope: launchScope(selection),
+    context: context ?? {},
+    ...(selection.profile ? { expectedProfileRevision: selection.profile.revision } : {}),
+  });
+  const baseModels = launchPickerModels(selection, blocked);
+  const models = [
+    ...baseModels,
+    ...menu.models.map((model) => ({
+      key: modelKey(model),
+      name: model.name,
+      provider: model.provider ?? undefined,
+      detail:
+        catalogLaunchModel(selection, model) === undefined
+          ? "Not selectable by this launch adapter/provider"
+          : model.id,
+      disabled: blocked || catalogLaunchModel(selection, model) === undefined,
+      favorite: menu.favorite(model),
+    })),
+  ];
+  const selectedId = modelOverride(selection.model) ?? selection.profile?.model;
+  const candidates = menu.all.filter(
+    (m) =>
+      catalogLaunchModel(selection, m) !== undefined &&
+      (catalogLaunchModel(selection, m) === selectedId || m.id === selectedId),
+  );
+  const selected = candidates.length === 1 ? candidates[0] : undefined;
+  const hidden = selected && !modelVisible(menu.preferences.policy, selected);
   const select = (option: LaunchSelection) =>
     onChange({ ...option, model: selection.model }, "instance");
   return (
-    <ModelPicker
-      title={title}
-      anchor={anchor}
-      restoreFocus={restoreFocus}
-      instances={instances}
-      instance={key}
-      onInstance={(next) => {
-        const option = options.find((candidate) => launchKey(candidate) === next);
-        if (option) select(option);
-      }}
-      models={models}
-      onModel={(model) => {
-        const target = model === "default" ? { ...selection, model: "" } : selection;
-        onChange(target, "model");
-        onCommit(target);
-      }}
-      modelName={launchModel(selection)}
-      unavailable="Thinking levels are reported by a running chat. Pre-launch thinking is not available yet."
-      error={error}
-      busy={busy}
-      footer={footer}
-      nativeModel={
-        supportsModel(selection.kind)
-          ? {
-              value: selection.model,
-              placeholder: selection.profile?.model ?? "Agent default",
-              onChange: (model) => onChange({ ...selection, model }, "model"),
-              onSubmit: () => onCommit(selection),
-            }
-          : undefined
-      }
-      onInstanceEnter={() => onCommit(selection)}
-      onQuickChoice={(index) => {
-        if (selection.profile || modelOverride(selection.model)) return;
-        const native = options.filter((option) => option.profile === null)[index];
-        if (native) {
-          onChange(native, "instance");
-          onCommit(native);
+    <>
+      <ModelPicker
+        suspended={menu.managing}
+        focus={menu.returned ? "search" : undefined}
+        title={title}
+        anchor={anchor}
+        restoreFocus={restoreFocus}
+        instances={instances}
+        instance={key}
+        onInstance={(next) => {
+          const option = options.find((candidate) => launchKey(candidate) === next);
+          if (option) select(option);
+        }}
+        models={models}
+        onModel={(model) => {
+          const reported = menu.models.find((m) => modelKey(m) === model);
+          const value = reported ? catalogLaunchModel(selection, reported) : undefined;
+          const target =
+            model === "default"
+              ? { ...selection, model: "" }
+              : value
+                ? { ...selection, model: value }
+                : selection;
+          onChange(target, "model");
+          onCommit(target);
+        }}
+        modelName={launchModel(selection)}
+        unavailable="Thinking levels are reported by a running chat. Pre-launch thinking is not available yet."
+        error={error}
+        busy={busy}
+        footer={
+          <>
+            {footer}
+            {hidden && (
+              <p className="my-1 text-xs text-muted-foreground">
+                Current selection is hidden by the model filter; it is not changed.
+              </p>
+            )}
+            {menu.catalog?.message && (
+              <p className="my-1 text-xs text-muted-foreground">{menu.catalog.message}</p>
+            )}
+            {menu.footer}
+          </>
         }
-      }}
-      onClose={onClose}
-    />
+        nativeModel={
+          supportsModel(selection.kind)
+            ? {
+                value: selection.model,
+                placeholder: selection.profile?.model ?? "Agent default",
+                onChange: (model) => onChange({ ...selection, model }, "model"),
+                onSubmit: () => onCommit(selection),
+              }
+            : undefined
+        }
+        onInstanceEnter={() => onCommit(selection)}
+        onQuickChoice={(index) => {
+          if (selection.profile || modelOverride(selection.model)) return;
+          const native = options.filter((option) => option.profile === null)[index];
+          if (native) {
+            onChange(native, "instance");
+            onCommit(native);
+          }
+        }}
+        onClose={onClose}
+      />
+      {menu.settings}
+    </>
   );
 }

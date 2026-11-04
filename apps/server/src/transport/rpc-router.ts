@@ -76,7 +76,15 @@ import { BlankTaskTitleError, TaskNotFoundError, WorktreeDirtyError } from "../t
 import type { TaskService } from "../tasks/task-service.ts";
 import type { TerminalRegistry } from "../terminals/terminal-registry.ts";
 
+import {
+  ModelPreferencesChangedError,
+  type ModelPreferencesStore,
+} from "../models/model-preferences.ts";
+import type { ModelCatalogService } from "../models/model-catalog.ts";
+
 export interface RpcServices {
+  modelPreferences: ModelPreferencesStore;
+  modelCatalog: ModelCatalogService;
   config: ConfigWatcher;
   projects: ProjectService;
   tasks: TaskService;
@@ -279,6 +287,8 @@ function localFileError(error: unknown, errors: FileHandlerErrors): Error | unde
 }
 
 export function createRpcRouter({
+  modelPreferences,
+  modelCatalog,
   config,
   projects,
   tasks,
@@ -290,6 +300,19 @@ export function createRpcRouter({
 }: RpcServices) {
   const os = implement(contract);
   return os.router({
+    models: {
+      watch: os.models.watch.handler(({ signal }) => modelPreferences.watch(signal)),
+      save: os.models.save.handler(({ input, errors }) =>
+        translating(
+          () => modelPreferences.save(input),
+          (error) =>
+            error instanceof ModelPreferencesChangedError
+              ? errors.MODEL_PREFERENCES_CHANGED()
+              : undefined,
+        ),
+      ),
+      catalog: os.models.catalog.handler(({ input }) => modelCatalog.catalog(input)),
+    },
     config: {
       watch: os.config.watch.handler(({ signal }) => config.watch(signal)),
     },

@@ -8,9 +8,22 @@ import type { AgentKind, CreateTaskInput, Project, TaskSource } from "@corral/pr
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { useState } from "react";
-import { render } from "vitest-browser-react";
+import { render as renderComponent } from "vitest-browser-react";
+import type { ReactElement } from "react";
+import { CorralClientProvider } from "../connection/index.ts";
+import { realServerClients } from "../../../test/real-client.ts";
 import { emptyDraft, type ComposerDraft } from "./new-task-draft.ts";
 import { NewTaskView, type NewTaskViewProps } from "./new-task-view.tsx";
+
+const { newClient } = realServerClients();
+function render(ui: ReactElement) {
+  const client = newClient();
+  return renderComponent(ui, {
+    wrapper: ({ children }) => (
+      <CorralClientProvider client={client}>{children}</CorralClientProvider>
+    ),
+  });
+}
 
 const repo: Project = {
   id: "p1",
