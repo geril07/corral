@@ -52,7 +52,7 @@ export function removeGitRepos() {
 
 /**
  * A repository on `main` whose `origin` is a local **bare** repository in the same temp root: the
- * remote the commit/push/pull-request flow writes to (`docs/plans/stage-c.md`, C6). Nothing here
+ * remote the commit/push/pull-request flow writes to. Nothing here
  * knows a real forge; the fake `gh`/`glab` stand in for one.
  */
 export function createGitRepoWithRemote(

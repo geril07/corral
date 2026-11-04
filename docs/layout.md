@@ -3,7 +3,6 @@
 The user accepted UI study 03 on 2026-11-03. It replaces the earlier stock-only clean-slate
 layout where they differ. T3 Code is the visual reference; Orca informs interactions.
 Behavior: `design.md`; interaction: `ux.md`; kit boundaries: `ui-kit.md`.
-Migration and remaining work: `plans/ui-overhaul.md`.
 
 Dimensions below are nominal at 100% interface text scale, before OS/browser scaling.
 
