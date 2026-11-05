@@ -101,7 +101,7 @@ context-menu dispatcher.
   excluding the task/session chrome rather than growing to half the entire window. Sidebar sizing is
   device-local; text scale never applies a CSS transform that would confuse popup coordinates.
 - ComposerSurface and ComposerToolbar own the shared prompt frame and wrapping control row. The
-  frame shows the shared focus ring only while a keyboard focus is inside it.
+  frame shows the shared focus ring while focus is inside it.
   Textarea `frame="composer"` removes its duplicate inner border without changing prompt/chat
   growth limits. ModelPicker owns the Base UI popover, radio rail, cmdk model list and vertical
   thinking toolbar; modules supply driver/config data and actions, not control skins.
