@@ -25,8 +25,12 @@ const FOCUS =
   /(?:^|[\s:])(?<!aria-invalid:)(?:ring-[a-z][a-z0-9-]*\/\d{1,3}|ring-3!?(?=$|[\s])|ring-\[3px\]!?(?=$|[\s])|focus-within:ring-)/;
 const MOTION =
   /(?:^|[\s:])(?:transition!?(?=$|[\s])|transition-(?:all|colors|\[)|ease-(?:in|in-out|linear)!?(?=$|[\s])|animate-(?:out|ping|pulse|spin|bounce)(?=$|[\s])|(?:fade|zoom)-out-|blur-(?:in|out)(?=$|[\s-])|(?:animation-)?duration-(?!200!?(?=$|[\s])))/;
-const MOTION_USE = /(?:^|[\s:])(?:animate-|transition-)/;
+/** Transitions pair with a reduce override; entry animations instead sit behind `motion-safe`. */
+const MOTION_USE = /(?:^|[\s:])transition-/;
 const MOTION_REDUCE = /motion-reduce:/;
+const MOTION_SAFE = /(?:^|:)motion-safe:(?:[^\s:]+:)*animate-/;
+const MOTION_ENTRY = /(?:^|:)animate-in(?=$|[\s!])/;
+const ANIMATE_REDUCE = /(?:^|[\s:])motion-reduce:animate-none(?=$|[\s])/;
 const PRIMARY_TEXT = /(?:^|[\s:])text-primary(?![\w-])/;
 
 /**
@@ -124,8 +128,10 @@ export function classViolations(source, filename, location = "module") {
         message: `${rule.label} in class name: ${token.value}`,
       });
     }
-    // Per-element reduced motion: a literal that animates must say what it does when the user
-    // asked for less (`ui-kit.md`, **Spine** — no global kill switch).
+    // Per-element reduced motion (`ui-kit.md`, **Spine** — no global kill switch). A transition
+    // keeps its own reduce override. An entry animation is conditional on motion being allowed:
+    // a bare `animate-in` loses to its `data-open:` rule even when a reduce partner exists, so
+    // only `motion-safe` may carry it. A non-entry animation may still pair with `animate-none`.
     if (classLike && MOTION_USE.test(value) && !MOTION_REDUCE.test(value)) {
       const match = MOTION_USE.exec(value);
       const token = classTokenAt(value, match.index + leadingSpace(match));
@@ -133,6 +139,20 @@ export function classViolations(source, filename, location = "module") {
         line: line(literal.start + token.start),
         message: `motion without a reduced-motion pair in class name: ${token.value}`,
       });
+    }
+    if (classLike) {
+      for (const match of value.matchAll(/\S+/g)) {
+        const token = match[0];
+        if (!/(?:^|:)animate-/.test(token) || MOTION_SAFE.test(token)) continue;
+        const entry = MOTION_ENTRY.test(token);
+        if (!entry && ANIMATE_REDUCE.test(value)) continue;
+        diagnostics.push({
+          line: line(literal.start + match.index),
+          message: entry
+            ? `entry animation without motion-safe in class name: ${token}`
+            : `motion without a reduced-motion pair in class name: ${token}`,
+        });
+      }
     }
   }
   return diagnostics;

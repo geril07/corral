@@ -36,9 +36,10 @@ font; primitive dimensions, type, elevation, motion and focus follow **Spine**.
   tooltip; a border separates first; only the two floating tiers carry a shadow; surface, border
   and shadow are the primitive's choice and a caller cannot add one.
 - **Motion** — two durations by role and one decelerating easing token; only opacity and transform
-  animate; nothing loops; every animated primitive carries its own `motion-reduce:` pair and there
-  is no global kill switch; **enter only — no exit animation, because a closing popup must not
-  hold the keyboard** (`ux.md`, Focus).
+  animate; nothing loops; entry animations are conditional on motion being allowed, so reduced
+  motion removes them and transitions still carry their own reduced-motion pair; there is no global
+  kill switch; **enter only — no exit animation, because a closing popup must not hold the
+  keyboard** (`ux.md`, Focus).
 - **Density** — control heights are kit sizes; a control takes the height of the row it sits in; a
   full-width row uses a row size; a tab fills the tabstrip; a chrome band reads the chrome tokens;
   there is no comfort/compact mode.
