@@ -34,6 +34,8 @@ export interface TerminalStreamOptions {
   surface: TerminalSurface;
   backoff?: Backoff;
   createSocket?: CreateSocket;
+  /** Called when the caller closes this stream; the client uses it to drop it from recovery. */
+  onClosed?: (() => void) | undefined;
 }
 
 /**
@@ -49,6 +51,7 @@ export class TerminalStream {
   });
   readonly #surface: TerminalSurface;
   readonly #connection: ReconnectingSocket;
+  readonly #options: TerminalStreamOptions;
   /** The open socket; input is accepted from here on, the server orders it after the snapshot. */
   #open: WebSocket | undefined;
   /**
@@ -63,6 +66,7 @@ export class TerminalStream {
   #serverSize: TerminalSize | undefined;
 
   constructor(options: TerminalStreamOptions) {
+    this.#options = options;
     this.#surface = options.surface;
     const refreshServer = options.refreshServer;
     this.#connection = new ReconnectingSocket({
@@ -111,11 +115,17 @@ export class TerminalStream {
     this.#sendDesiredSize();
   }
 
+  /** Retry now with the current target, e.g. after the user supplied a new capability. */
+  retry(): void {
+    this.#connection.retry();
+  }
+
   close(): void {
     this.#connection.close();
     this.#open = undefined;
     this.#earlyInput = undefined;
     this.#attached = undefined;
+    this.#options.onClosed?.();
   }
 
   #onClose(event: CloseEvent): "retry" | "stop" {

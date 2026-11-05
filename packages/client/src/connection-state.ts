@@ -6,5 +6,7 @@ export type ConnectionState =
   | { status: "disconnected"; attempt: number; startedAt: number }
   /** The server refused the presented capability. Retrying it cannot help. */
   | { status: "capability-refused"; attempt: number; startedAt: number }
+  /** The browser could not construct a socket for this target, e.g. a malformed capability. */
+  | { status: "invalid-capability"; detail: string }
   /** The server speaks another protocol version. Retrying cannot help, so the client stops. */
   | { status: "protocol-mismatch"; serverProtocolVersion: number | undefined };

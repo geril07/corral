@@ -1,4 +1,5 @@
 import type { DesktopBridge } from "@corral/protocol/desktop-bridge";
+import { isCapabilityToken } from "@corral/protocol/handshake";
 import type { ServerTarget } from "@corral/protocol/server-target";
 import { resolveServerUrl, type PageLocation } from "./server-url.ts";
 
@@ -13,6 +14,7 @@ export type ServerTargetFailure =
   | { kind: "desktop-endpoint" }
   | { kind: "invalid-url"; given: string | undefined }
   | { kind: "empty-capability" }
+  | { kind: "invalid-capability" }
   | { kind: "no-capability" }
   | { kind: "other-server"; storedUrl: string; url: string };
 
@@ -89,6 +91,12 @@ export async function resolveServerTarget(
         "The server capability in the URL is empty. Open this page with the capability from endpoint.json.",
       );
     }
+    if (!isCapabilityToken(fromHash.capability)) {
+      throw new ServerTargetError(
+        { kind: "invalid-capability" },
+        "The server capability in the URL is not a valid token. Paste the capability from endpoint.json.",
+      );
+    }
     const target = { url, capability: fromHash.capability };
     options.storage?.write(target);
     options.applyHash?.(fromHash.hash);
@@ -97,6 +105,13 @@ export async function resolveServerTarget(
 
   const stored = options.storage?.read();
   if (!isServerTarget(stored)) {
+    if (hasInvalidStoredCapability(stored)) {
+      throw new ServerTargetError(
+        { kind: "invalid-capability" },
+        "The saved server capability is not a valid token. Open this page with the capability " +
+          "from endpoint.json.",
+      );
+    }
     throw new ServerTargetError(
       { kind: "no-capability" },
       "No server capability. Start Corral from the desktop app, or open this page with " +
@@ -122,7 +137,19 @@ export function isServerTarget(value: unknown): value is ServerTarget {
     typeof value.url === "string" &&
     "capability" in value &&
     typeof value.capability === "string" &&
-    value.capability.length > 0
+    value.capability.length > 0 &&
+    isCapabilityToken(value.capability)
+  );
+}
+
+function hasInvalidStoredCapability(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "capability" in value &&
+    typeof value.capability === "string" &&
+    value.capability.length > 0 &&
+    !isCapabilityToken(value.capability)
   );
 }
 

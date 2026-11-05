@@ -40,6 +40,11 @@ export interface CorralClient {
   readonly changes: ChangesStore;
   /** Shows the terminal on `surface` until the caller closes the returned stream. */
   attach(terminalId: string, surface: TerminalSurface): TerminalStream;
+  /**
+   * Retry the RPC connection and every attached terminal now, with the target the next attempt
+   * reads. The one recovery entry point: a refused socket is separate from the RPC socket.
+   */
+  recover(): void;
   /** Follows one session's chat until the caller closes the returned store. */
   openChat(sessionId: SessionId): ChatStore;
   close(): void;
@@ -47,6 +52,7 @@ export interface CorralClient {
 
 export function createCorralClient(options: CorralClientOptions): CorralClient {
   const connection = connectRpc(options);
+  const streams = new Set<TerminalStream>();
   const config = createConfigStore(connection);
   const modelPreferences = createModelPreferencesStore(connection);
   const projects = createProjectsStore(connection);
@@ -74,7 +80,21 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
     terminals,
     chatCapabilities,
     changes,
-    attach: (terminalId, surface) => new TerminalStream({ ...options, terminalId, surface }),
+    attach: (terminalId, surface) => {
+      let stream!: TerminalStream;
+      stream = new TerminalStream({
+        ...options,
+        terminalId,
+        surface,
+        onClosed: () => streams.delete(stream),
+      });
+      streams.add(stream);
+      return stream;
+    },
+    recover: () => {
+      connection.retry();
+      for (const stream of streams) stream.retry();
+    },
     openChat: (sessionId) =>
       createChatStore(
         {
@@ -84,6 +104,7 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
         sessionId,
       ),
     close: () => {
+      for (const stream of streams) stream.close();
       config.close();
       modelPreferences.close();
       projects.close();
