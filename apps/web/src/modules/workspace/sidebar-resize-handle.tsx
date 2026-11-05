@@ -1,5 +1,5 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { clampSidebarWidth, SIDEBAR_MIN_WIDTH } from "./sidebar-pane.ts";
+import { SIDEBAR_MIN_WIDTH } from "./sidebar-pane.ts";
 
 const KEY_STEP = 16;
 
@@ -58,11 +58,11 @@ export function SidebarResizeHandle({
       onKeyDown={(event) => {
         if (event.key === "ArrowLeft") {
           event.preventDefault();
-          onResize(clampSidebarWidth(width - KEY_STEP));
+          onResize(width - KEY_STEP);
         }
         if (event.key === "ArrowRight") {
           event.preventDefault();
-          onResize(clampSidebarWidth(width + KEY_STEP));
+          onResize(width + KEY_STEP);
         }
       }}
     />

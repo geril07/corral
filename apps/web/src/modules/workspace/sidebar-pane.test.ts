@@ -1,9 +1,11 @@
 import { expect, test } from "vite-plus/test";
 import {
+  clampSidebarPreference,
   clampSidebarWidth,
   defaultSidebarWidth,
   MAIN_AREA_MIN_WIDTH,
   maxSidebarWidth,
+  SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
 } from "./sidebar-pane.ts";
 
@@ -24,7 +26,13 @@ test("below 848 px the sidebar floor wins, because smaller layouts are unsupport
   expect(700 - maxSidebarWidth(700)).toBeLessThan(MAIN_AREA_MIN_WIDTH);
 });
 
-test("a preference is displayed clamped and is not rewritten by a window shrink", () => {
+test("the pure clamps keep the 208–420 preference and cap only the displayed width", () => {
+  // These cover the pure helpers only; the hook's real preference-vs-display state (a shrink
+  // leaving storage alone, ArrowRight at the display maximum) is in
+  // workspace-screen.browser.test.tsx.
+  expect(clampSidebarPreference(100)).toBe(SIDEBAR_MIN_WIDTH);
+  expect(clampSidebarPreference(400)).toBe(400);
+  expect(clampSidebarPreference(999)).toBe(SIDEBAR_MAX_WIDTH);
   const preference = 420;
   expect(clampSidebarWidth(preference, 900)).toBe(260);
   expect(clampSidebarWidth(preference, 1600)).toBe(420);

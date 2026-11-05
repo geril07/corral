@@ -134,18 +134,10 @@ test("the window and the sidebar keep the 1024×640 floor", async ({ launchApp }
   for (let press = 0; press < 20; press += 1) await separator.press("ArrowLeft");
   await expect(separator).toHaveAttribute("aria-valuenow", "208");
 
-  // Double-click resets to the window-dependent default at both supported widths.
+  // Double-click resets to the narrow default at the supported floor. The 1920 px default is
+  // covered in Browser Mode, where a pretend window width cannot be retiled by the compositor.
   await separator.dblclick();
   await expect(separator).toHaveAttribute("aria-valuenow", "232");
-  await app.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()[0]?.setSize(1920, 1080);
-  });
-  await expect.poll(() => windowSize(app)).toEqual([1920, 1080]);
-  await expect.poll(() => window.evaluate<number>("window.innerWidth")).toBe(1920);
-  await expect(separator).toHaveAttribute("aria-valuemax", "420");
-  await expect(separator).toHaveAttribute("aria-valuenow", "232");
-  await separator.dblclick();
-  await expect(separator).toHaveAttribute("aria-valuenow", "264");
 });
 
 test("the window is given the URL of the server the app started, and the capability only over IPC", async ({
