@@ -7,24 +7,24 @@ import { parseSync } from "oxc-parser";
 const PALETTE =
   /(?:^|[\s:])!?(?:bg|text|border|ring|outline|fill|stroke|from|via|to|shadow|decoration|accent|caret|divide|placeholder)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\d{1,3})?(?:\/\d{1,3})?!?(?=$|\s)/;
 const CLASS_LIKE =
-  /(?:^|[\s:])(?:flex|grid|block|inline|hidden|absolute|relative|fixed|sticky|w-|h-|min-|max-|p-|px-|py-|pt-|pb-|pl-|pr-|m-|mx-|my-|gap-|items-|justify-|text-|bg-|border|rounded|font-|leading-|tracking-|overflow-|truncate|whitespace-|cursor-|select-|shadow|ring-|outline-|opacity-|transition|duration-|ease-|animate-|animation-|fade-|zoom-|blur-|z-|top-|left-|right-|bottom-|inset-|col-|row-|self-|place-|content-|list-|object-|align-|order-|basis-|grow|shrink|space-|divide-|fill-|stroke-|from-|via-|to-)/;
+  /(?:^|[\s:])(?:flex|grid|block|inline|hidden|absolute|relative|fixed|sticky|w-|h-|min-|max-|p-|px-|py-|pt-|pb-|pl-|pr-|m-|mx-|my-|gap-|items-|justify-|text-|bg-|border|rounded|font-|leading-|tracking-|overflow-|truncate|whitespace-|cursor-|select-|shadow|ring-|outline-|opacity-|transition|duration-|ease-|animate-|animation-|fade-|zoom-|blur-|backdrop-|z-|top-|left-|right-|bottom-|inset-|col-|row-|self-|place-|content-|list-|object-|align-|order-|basis-|grow|shrink|space-|divide-|fill-|stroke-|from-|via-|to-)/;
 const ARBITRARY = /\[[^\]]+\]/;
 const OBSOLETE_TOKEN =
-  /(?:^|[\s:])(?:bg-surface(?:-raised|-active)?|text-text(?:-muted)?|(?:bg|text|border)-danger(?:-strong|-foreground)?|(?:bg|text|border)-accent-strong|(?:bg|text)-status-[a-z]+|outline-focus-ring|rounded-(?:control|panel))(?=\/|\s|$)/;
+  /(?:^|[\s:])(?:bg-surface(?:-raised|-active)?|text-text(?:-muted)?|(?:bg|text|border)-danger(?:-strong|-foreground)?|(?:bg|text|border)-accent-strong|(?:bg|text)-status-[a-z]+|outline-focus-ring|rounded-(?:control|panel|\(--control-radius\)))(?=\/|\s|$)/;
 const RAW_COLOUR = /\b(?:rgb|hsl)a?\(|#[0-9a-fA-F]{3,8}\b/;
 /** Tailwind's spacing unit is the rhythm; a module names one of these steps, never a value. */
 const SPACING_STEPS = "0|0\\.5|1|1\\.5|2|2\\.5|3|4|5|6";
 const SPACING = new RegExp(
-  `(?:^|[\\s:])(?:p|px|py|pt|pb|pl|pr|gap|gap-x|gap-y)-(?!(?:${SPACING_STEPS})(?=$|[\\s]))[^\\s]+`,
+  `(?:^|[\\s:])(?:p|px|py|pt|pb|pl|pr|gap|gap-x|gap-y)-(?!(?:${SPACING_STEPS})!?(?=$|[\\s]))[^\\s]+`,
 );
 const TYPE =
-  /(?:^|[\s:])text-(?:lg|xl|[2-9]xl)(?=$|[\s])|(?:^|[\s:])text-\[|(?:^|[\s:])font-(?:bold|extrabold|black)(?=$|[\s])|(?:^|[\s:])tracking-(?:tighter|tight)(?=$|[\s])/;
+  /(?:^|[\s:])text-(?:lg|xl|[2-9]xl)(?=$|[\s])|(?:^|[\s:])text-\[|(?:^|[\s:])font-(?:bold|extrabold|black)(?=$|[\s])|(?:^|[\s:])font-\[|(?:^|[\s:])tracking-(?:tighter|tight|wide)(?=$|[\s])/;
 const SURFACE =
-  /(?:^|[\s:])(?:shadow-(?:2xs|xs|sm|md|lg|xl|2xl)|rounded-(?:2xl|3xl|4xl))(?=$|[\s])|(?:^|[\s:])rounded-\[(?!2px\])/;
+  /(?:^|[\s:])(?:shadow-(?:2xs|xs|sm|md|lg|xl|2xl)|rounded-(?:2xl|3xl|4xl))(?=$|[\s])|(?:^|[\s:])rounded-\[(?!2px\])|(?:^|[\s:])backdrop-blur(?:-|(?=$|[\s]))/;
 const FOCUS =
-  /(?:^|[\s:])(?:ring-ring\/|focus-visible:ring-(?:3|\[3px\])|focus-within:ring-)|(?<=ring-1 )ring-foreground\//;
+  /(?:^|[\s:])(?<!aria-invalid:)(?:ring-[a-z][a-z0-9-]*\/\d{1,3}|ring-3!?(?=$|[\s])|ring-\[3px\]!?(?=$|[\s])|focus-within:ring-)/;
 const MOTION =
-  /(?:^|[\s:])(?:transition-(?:all|colors|\[)|animate-(?:out|ping|pulse|spin|bounce)(?=$|[\s])|(?:fade|zoom)-out-|blur-(?:in|out)(?=$|[\s-])|(?:animation-)?duration-(?!200(?=$|[\s])))/;
+  /(?:^|[\s:])(?:transition!?(?=$|[\s])|transition-(?:all|colors|\[)|ease-(?:in|in-out|linear)!?(?=$|[\s])|animate-(?:out|ping|pulse|spin|bounce)(?=$|[\s])|(?:fade|zoom)-out-|blur-(?:in|out)(?=$|[\s-])|(?:animation-)?duration-(?!200!?(?=$|[\s])))/;
 const MOTION_USE = /(?:^|[\s:])(?:animate-|transition-)/;
 const MOTION_REDUCE = /motion-reduce:/;
 const PRIMARY_TEXT = /(?:^|[\s:])text-primary(?![\w-])/;
@@ -116,6 +116,9 @@ export function classViolations(source, filename, location = "module") {
       const match = rule.pattern.exec(value);
       if (match === null) continue;
       const token = classTokenAt(value, match.index + leadingSpace(match));
+      // Invalid-state rings keep their width and alpha: they are a validation signal, not focus.
+      if (rule.label === "focus ring outside the recipe" && token.value.includes("aria-invalid"))
+        continue;
       diagnostics.push({
         line: line(literal.start + token.start),
         message: `${rule.label} in class name: ${token.value}`,
