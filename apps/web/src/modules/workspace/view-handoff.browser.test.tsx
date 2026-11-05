@@ -87,8 +87,20 @@ function seededClient(options: {
   };
   const client: CorralClient = {
     ...real,
-    tasks: { subscribe: tasks.subscribe, getSnapshot: tasks.getSnapshot, close: () => {} },
-    sessions: { subscribe: sessions.subscribe, getSnapshot: sessions.getSnapshot, close: () => {} },
+    tasks: {
+      subscribe: tasks.subscribe,
+      getSnapshot: tasks.getSnapshot,
+      failure: { subscribe: () => () => {}, getSnapshot: () => undefined },
+      retry: () => {},
+      close: () => {},
+    },
+    sessions: {
+      subscribe: sessions.subscribe,
+      getSnapshot: sessions.getSnapshot,
+      failure: { subscribe: () => () => {}, getSnapshot: () => undefined },
+      retry: () => {},
+      close: () => {},
+    },
     connection: { ...real.connection, api },
     // The offer is the server's answer: this file flips it to prove the client does not decide
     // by agent kind on its own (D7). One snapshot object, as a real store holds one.

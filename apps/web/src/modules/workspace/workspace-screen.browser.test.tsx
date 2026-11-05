@@ -1,5 +1,11 @@
 import type { CorralClient } from "@corral/client/corral-client";
+import type { ProjectsSnapshot } from "@corral/client/projects-store";
+import type { SessionsSnapshot } from "@corral/client/sessions-store";
+import { Store } from "@corral/client/store";
+import type { TasksSnapshot } from "@corral/client/tasks-store";
+import type { TerminalsSnapshot } from "@corral/client/terminals-store";
 import type { TerminalSurface } from "@corral/client/terminal-stream";
+import type { WatchFailure, WatchStore } from "@corral/client/watch-store";
 import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -23,6 +29,7 @@ import {
   shellTabs,
   taskButton,
   taskHeader,
+  newTaskView,
 } from "../../../test/task-flows.tsx";
 
 const claimNextProtocolVersion: (url: string, protocols: string[]) => WebSocket = (
@@ -39,6 +46,56 @@ const claimOldProtocolVersion: (url: string, protocols: string[]) => WebSocket =
 
 const SIZE = { cols: 80, rows: 24 };
 const { newClient } = realServerClients();
+
+interface FakeWatch<Snapshot> {
+  store: WatchStore<Snapshot>;
+  set(value: Snapshot): void;
+  fail(failure: WatchFailure | undefined): void;
+  retries(): number;
+}
+
+/** A watched list whose snapshots and refusal the test decides, with a real Retry entry point. */
+function fakeWatch<Snapshot>(initial: Snapshot, recover?: Snapshot): FakeWatch<Snapshot> {
+  const snapshot = new Store(initial);
+  const failure = new Store<WatchFailure | undefined>(undefined);
+  let retries = 0;
+  return {
+    store: {
+      subscribe: snapshot.subscribe,
+      getSnapshot: snapshot.getSnapshot,
+      failure: { subscribe: failure.subscribe, getSnapshot: failure.getSnapshot },
+      retry: () => {
+        retries += 1;
+        if (recover === undefined) return;
+        failure.set(undefined);
+        snapshot.set(recover);
+      },
+      close: () => {},
+    },
+    set: (value) => snapshot.set(value),
+    fail: (value) => failure.set(value),
+    retries: () => retries,
+  };
+}
+
+/** The real server's connection and the test's four watched lists. */
+function fakeLists(
+  real: CorralClient,
+  lists: {
+    projects: FakeWatch<ProjectsSnapshot>;
+    tasks: FakeWatch<TasksSnapshot>;
+    sessions: FakeWatch<SessionsSnapshot>;
+    terminals: FakeWatch<TerminalsSnapshot>;
+  },
+): CorralClient {
+  return {
+    ...real,
+    projects: lists.projects.store,
+    tasks: lists.tasks.store,
+    sessions: lists.sessions.store,
+    terminals: lists.terminals.store,
+  };
+}
 
 test("the prefix chord arms prefix mode and the next key disarms it", async () => {
   await render(<App client={newClient()} />);
@@ -260,6 +317,73 @@ test("an unreachable server shows as disconnected and the workspace stays up", a
 });
 
 const focusedIsTerminal = () => document.activeElement?.classList.contains("xterm-helper-textarea");
+
+test("the main area names the wait until all four lists have delivered", async () => {
+  const projects = fakeWatch<ProjectsSnapshot>({ loaded: false, projects: [] });
+  const tasks = fakeWatch<TasksSnapshot>({ loaded: false, tasks: [] });
+  const sessions = fakeWatch<SessionsSnapshot>({ loaded: false, sessions: [] });
+  const terminals = fakeWatch<TerminalsSnapshot>({ loaded: false, terminals: [] });
+  await render(<App client={fakeLists(newClient(), { projects, tasks, sessions, terminals })} />);
+
+  const loading = page.getByRole("status", { name: "Loading the workspace" });
+  await expect.element(loading).toHaveTextContent("Loading the workspace…");
+  await expect.element(page.getByText("Add a repository to start")).not.toBeInTheDocument();
+
+  // Each of the four gates the first-run form on its own.
+  projects.set({ loaded: true, projects: [] });
+  tasks.set({ loaded: true, tasks: [] });
+  sessions.set({ loaded: true, sessions: [] });
+  await expect.element(loading).toBeVisible();
+  await expect.element(page.getByText("Add a repository to start")).not.toBeInTheDocument();
+
+  terminals.set({ loaded: true, terminals: [] });
+  await expect.element(page.getByText("Add a repository to start")).toBeVisible();
+  await expect.element(loading).not.toBeInTheDocument();
+});
+
+test("prefix t during the wait opens the composer when the project list arrives", async () => {
+  const real = newClient();
+  await vi.waitFor(() => expect(real.connection.state.getSnapshot().status).toBe("connected"));
+  const project = await real.connection.api.projects.add({ path: await createGitRepo("waiting") });
+  const projects = fakeWatch<ProjectsSnapshot>({ loaded: false, projects: [] });
+  const tasks = fakeWatch<TasksSnapshot>({ loaded: true, tasks: [] });
+  const sessions = fakeWatch<SessionsSnapshot>({ loaded: true, sessions: [] });
+  const terminals = fakeWatch<TerminalsSnapshot>({ loaded: true, terminals: [] });
+  await render(<App client={fakeLists(real, { projects, tasks, sessions, terminals })} />);
+
+  await prefixThen("t");
+  await expect.element(page.getByRole("status", { name: "Loading the workspace" })).toBeVisible();
+
+  projects.set({ loaded: true, projects: [project] });
+  await expect.element(newTaskView()).toBeVisible();
+  await expect.element(promptField()).toHaveFocus();
+});
+
+test("a refused list is one muted line with a real Retry, never the first-run form", async () => {
+  const projects = fakeWatch<ProjectsSnapshot>(
+    { loaded: false, projects: [] },
+    { loaded: true, projects: [] },
+  );
+  projects.fail({
+    name: "projects.watch",
+    label: "project list",
+    error: new Error("no such procedure"),
+  });
+  const tasks = fakeWatch<TasksSnapshot>({ loaded: true, tasks: [] });
+  const sessions = fakeWatch<SessionsSnapshot>({ loaded: true, sessions: [] });
+  const terminals = fakeWatch<TerminalsSnapshot>({ loaded: true, terminals: [] });
+  await render(<App client={fakeLists(newClient(), { projects, tasks, sessions, terminals })} />);
+
+  await expect.element(page.getByText("The server refused the project list.")).toBeVisible();
+  await expect.element(page.getByText("Add a repository to start")).not.toBeInTheDocument();
+
+  await page.getByRole("button", { name: "Retry" }).click();
+  expect(projects.retries()).toBe(1);
+  await expect.element(page.getByText("Add a repository to start")).toBeVisible();
+  await expect
+    .element(page.getByText("The server refused the project list."))
+    .not.toBeInTheDocument();
+});
 
 test("prefix shift+p opens the add-project dialog, where the prefix and its keys are inert", async () => {
   await render(<App client={newClient()} />);

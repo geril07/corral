@@ -108,8 +108,20 @@ async function laneWith(text: string, prepare?: (repo: string) => Promise<void>)
   const chatStore = chatStoreWith([assistant(text)]);
   const client: CorralClient = {
     ...real,
-    tasks: { subscribe: tasks.subscribe, getSnapshot: tasks.getSnapshot, close: () => {} },
-    sessions: { subscribe: sessions.subscribe, getSnapshot: sessions.getSnapshot, close: () => {} },
+    tasks: {
+      subscribe: tasks.subscribe,
+      getSnapshot: tasks.getSnapshot,
+      failure: { subscribe: () => () => {}, getSnapshot: () => undefined },
+      retry: () => {},
+      close: () => {},
+    },
+    sessions: {
+      subscribe: sessions.subscribe,
+      getSnapshot: sessions.getSnapshot,
+      failure: { subscribe: () => () => {}, getSnapshot: () => undefined },
+      retry: () => {},
+      close: () => {},
+    },
     openChat: () => chatStore,
   };
   const { repo } = await appWithProject(client);

@@ -8,6 +8,7 @@ export function createModelPreferencesStore(connection: RpcConnection) {
     { loaded: boolean; items: readonly ModelPreferences[] }
   >(connection, {
     name: "models.watch",
+    label: "model preferences",
     initial: { loaded: false, items: [] },
     watch: (rpc) => rpc.api.models.watch(),
     toSnapshot: (items) => ({ loaded: true, items }),

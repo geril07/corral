@@ -62,6 +62,7 @@ export function createConfigStore(connection: RpcConnection): ConfigStore {
   };
   return createWatchStore<ConfigState, ConfigSnapshot>(connection, {
     name: "config.watch",
+    label: "config",
     initial,
     watch: async (rpc) => {
       const states = await rpc.api.config.watch();

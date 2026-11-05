@@ -137,6 +137,6 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 
 ## Empty states and scope
 
-- No repository: Add a repository to start with an inline path field and Add.
-- Repository but no selection: the new-task composer, never a blank main area.
+- No repository (the project list has loaded and is empty): Add a repository to start with an
+  inline path field and Add.
 - Task without sessions: No sessions with Start agent / Open shell; its tab row still offers +.

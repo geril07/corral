@@ -14,6 +14,7 @@ export type SessionsStore = WatchStore<SessionsSnapshot>;
 export function createSessionsStore(connection: RpcConnection): SessionsStore {
   return createWatchStore<Session, SessionsSnapshot>(connection, {
     name: "sessions.watch",
+    label: "session list",
     initial: { loaded: false, sessions: [] },
     watch: (rpc) => rpc.api.sessions.watch(),
     toSnapshot: (sessions) => ({ loaded: true, sessions }),

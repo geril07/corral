@@ -1,5 +1,6 @@
 import { describeSessionState } from "@corral/client/session-state";
 import { describeError } from "@corral/client/rpc-errors";
+import type { WatchFailure } from "@corral/client/watch-store";
 import { ActionId, taskSettingsFor, type ClientConfig } from "@corral/protocol/config";
 import type { SessionView } from "@corral/protocol/rpc";
 import { useRef, useState } from "react";
@@ -91,6 +92,8 @@ export function WorkspaceScreen({
     selection,
     flatSidebar,
     loaded,
+    watchFailure,
+    retryWatches,
     current,
     currentSession,
     chat,
@@ -408,11 +411,14 @@ export function WorkspaceScreen({
         <TaskContent>
           {handoff !== undefined ? (
             <HandOffNotice target={handoff.target} live={handoff.live} />
+          ) : watchFailure !== undefined ? (
+            <WatchFailureState failure={watchFailure} onRetry={retryWatches} />
+          ) : !loaded ? (
+            <WorkspaceLoading />
           ) : (
             (composer ??
             changesPane ??
-            session ??
-            (loaded && (
+            session ?? (
               <EmptyWorkspace
                 hasProjects={projects.length > 0}
                 task={currentTask}
@@ -422,7 +428,7 @@ export function WorkspaceScreen({
                 onNewTerminal={() => void createTerminal(selection.taskId)}
                 onNewAgent={openAgentPicker}
               />
-            )))
+            ))
           )}
         </TaskContent>
       </MainPanel>
@@ -556,6 +562,37 @@ function HandOffNotice({ target, live }: { target: SessionView; live: boolean })
           ? "The agent keeps running in both views."
           : "The agent keeps its conversation; the frontend starts again."}
       </p>
+    </div>
+  );
+}
+
+/** The main area's wait: no list is a workspace until every watch has delivered once. */
+function WorkspaceLoading() {
+  return (
+    <div
+      className="flex h-full items-center justify-center px-4"
+      role="status"
+      aria-label="Loading the workspace"
+    >
+      <p className="m-0 text-sm text-muted-foreground">Loading the workspace…</p>
+    </div>
+  );
+}
+
+/**
+ * A connected server refused one of the list watches. One muted line names the list, as the
+ * file-link notice does, and Retry watches it again; the first-run form must never stand in for
+ * a workspace we could not read.
+ */
+function WatchFailureState({ failure, onRetry }: { failure: WatchFailure; onRetry: () => void }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-4">
+      <p className="m-0 text-sm text-muted-foreground" role="note">
+        The server refused the {failure.label}.
+      </p>
+      <Button variant="outline" onClick={onRetry}>
+        Retry
+      </Button>
     </div>
   );
 }

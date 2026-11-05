@@ -5,6 +5,7 @@ import { createConfigKeymap } from "@corral/client/prefix-keymap";
 import { describeError } from "@corral/client/rpc-errors";
 import { sessionLabels } from "@corral/client/session-labels";
 import { activeAfterClose, stepActive } from "@corral/client/terminal-selection";
+import type { WatchFailure, WatchStore } from "@corral/client/watch-store";
 import {
   buildFlatSidebar,
   buildWorkspaceTree,
@@ -85,6 +86,11 @@ interface UseWorkspaceOptions {
   onOpenSettings: (search: WorkspaceSearch) => void;
 }
 
+/** One watched list's refusal, for the main area's state; `undefined` while it has not failed. */
+function useWatchFailure<Snapshot>(store: WatchStore<Snapshot>): WatchFailure | undefined {
+  return useSyncExternalStore(store.failure.subscribe, store.failure.getSnapshot);
+}
+
 /** The workspace's state and actions, wired to the client stores and the route's search params. */
 export function useWorkspace({
   active = true,
@@ -99,13 +105,35 @@ export function useWorkspace({
   const prefix = config.keys.prefix;
   const { api } = client.connection;
   const connection = useConnection();
-  const { projects } = useSyncExternalStore(client.projects.subscribe, client.projects.getSnapshot);
-  const { tasks } = useSyncExternalStore(client.tasks.subscribe, client.tasks.getSnapshot);
-  const { sessions } = useSyncExternalStore(client.sessions.subscribe, client.sessions.getSnapshot);
-  const { loaded, terminals } = useSyncExternalStore(
+  const projectsSnapshot = useSyncExternalStore(
+    client.projects.subscribe,
+    client.projects.getSnapshot,
+  );
+  const tasksSnapshot = useSyncExternalStore(client.tasks.subscribe, client.tasks.getSnapshot);
+  const sessionsSnapshot = useSyncExternalStore(
+    client.sessions.subscribe,
+    client.sessions.getSnapshot,
+  );
+  const terminalsSnapshot = useSyncExternalStore(
     client.terminals.subscribe,
     client.terminals.getSnapshot,
   );
+  const { projects } = projectsSnapshot;
+  const { tasks } = tasksSnapshot;
+  const { sessions } = sessionsSnapshot;
+  const { terminals } = terminalsSnapshot;
+  const projectsFailure = useWatchFailure(client.projects);
+  const tasksFailure = useWatchFailure(client.tasks);
+  const sessionsFailure = useWatchFailure(client.sessions);
+  const terminalsFailure = useWatchFailure(client.terminals);
+  // All four lists are the tree (`workspace-tree.ts`); an empty one is only empty once it has
+  // arrived. A failure is a refusal, never a list of zero.
+  const loaded =
+    projectsSnapshot.loaded &&
+    tasksSnapshot.loaded &&
+    sessionsSnapshot.loaded &&
+    terminalsSnapshot.loaded;
+  const watchFailure = projectsFailure ?? tasksFailure ?? sessionsFailure ?? terminalsFailure;
   // Each task's changed files: the Changes tab's rows, the task header's counts and the sidebar's.
   const changes = useSyncExternalStore(client.changes.subscribe, client.changes.getSnapshot);
   const [chosen, setChosen] = useState<Chosen>(() => searchToChosen(search));
@@ -117,7 +145,7 @@ export function useWorkspace({
    * shows whenever no task is selected, so it is a view, not a dialog: nothing captures the
    * keyboard, and Escape only returns to the task that was selected before.
    */
-  const [composing, setComposing] = useState<{ project: Project; opened: number }>();
+  const [composing, setComposing] = useState<{ project?: Project; opened: number }>();
   /**
    * Whether the current task shows its `Changes` tab (`layout.md`, **Changes**). It is the
    * route's `entry=changes` and deliberately not part of `Chosen`: the tab is not a session, so
@@ -601,6 +629,13 @@ export function useWorkspace({
   const openNewTask = (project?: Project) => {
     const target = project ?? currentTaskProject ?? currentProject ?? projects[0];
     if (!target) {
+      // Before the project list arrives there is no project to point at yet; remember the open
+      // so the composer appears as soon as it does. Only a loaded, empty list is a first run.
+      if (!projectsSnapshot.loaded) {
+        composerOpens.current += 1;
+        setComposing({ opened: composerOpens.current });
+        return;
+      }
       const addProject = formatBinding(config, "add-project");
       setFailure(
         addProject === "unbound" ? "Add a project first." : `Add a project first: ${addProject}.`,
@@ -890,6 +925,14 @@ export function useWorkspace({
     fitSize.current = size;
   }, []);
 
+  /** Retries every list; a watch that is still running ignores it, a refused one starts again. */
+  const retryWatches = () => {
+    client.projects.retry();
+    client.tasks.retry();
+    client.sessions.retry();
+    client.terminals.retry();
+  };
+
   return {
     client,
     config,
@@ -902,6 +945,8 @@ export function useWorkspace({
     selection,
     flatSidebar,
     loaded,
+    watchFailure,
+    retryWatches,
     current,
     currentSession,
     chat,
