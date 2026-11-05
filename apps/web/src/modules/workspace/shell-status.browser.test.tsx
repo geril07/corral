@@ -69,11 +69,33 @@ test("a failed action is a kit alert and keeps its whole sentence in a tooltip",
   await expect.element(alert).toMatchTextContent(/The agent could not start/);
 
   // The row keeps one line, so the clipped span carries the full sentence on its hint.
-  const clipped = alert.element().querySelector<HTMLElement>("span[title]");
-  expect(clipped?.getAttribute("title")).toBe(longFailure.message);
-  expect(clipped!.scrollWidth).toBeGreaterThan(clipped!.clientWidth);
-  await userEvent.hover(clipped!);
+  const clipped = () => alert.element().querySelector<HTMLElement>("span[title]");
+  await expect.poll(() => clipped()?.getAttribute("title")).toBe(longFailure.message);
+  expect(clipped()!.scrollWidth).toBeGreaterThan(clipped()!.clientWidth);
+  await userEvent.hover(clipped()!);
   await expect.element(page.getByRole("tooltip")).toMatchTextContent(longFailure.message);
+});
+
+test("a short failure keeps its dismiss beside the message", async () => {
+  const snapshot = await configSnapshot();
+  await render(
+    <Status
+      snapshot={snapshot}
+      placement="strip"
+      failure={{ tone: "error", message: "The agent could not start." }}
+    />,
+  );
+
+  const message = page.getByRole("alert").getByText("The agent could not start.");
+  const dismiss = page.getByRole("button", { name: "Dismiss status" });
+  await expect.element(dismiss).toBeVisible();
+  // A control at the far edge of the row reads as the surface's, not the message's.
+  const gap =
+    dismiss.element().getBoundingClientRect().left -
+    message.element().getBoundingClientRect().right;
+  expect(gap).toBeGreaterThanOrEqual(0);
+  // The alert's own padding and the row's gap, not a spacer or the row's far edge.
+  expect(gap).toBeLessThanOrEqual(16);
 });
 
 test("guidance stays a status and its dismiss sits beside the message", async () => {
@@ -86,9 +108,8 @@ test("guidance stays a status and its dismiss sits beside the message", async ()
     />,
   );
 
-  const notice = page.getByText("Select a task to see its changes.");
+  const notice = page.getByRole("status").filter({ hasText: "Select a task to see its changes." });
   await expect.element(notice).toBeVisible();
-  await expect.element(notice).toHaveAttribute("role", "status");
   await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
 
   const dismiss = page.getByRole("button", { name: "Dismiss status" });
@@ -141,9 +162,9 @@ test("the footer status opens recovery from the button A2 introduced", async () 
   const opener = page.getByRole("button", { name: /^connection:/ });
   await expect.element(opener).toBeVisible();
   // The sr-only live region announces the drop; the row itself is A2's `layout="status"` button.
-  await expect.element(page.getByRole("status")).toMatchTextContent(
-    "Cannot reach the server. Attempt 2.",
-  );
+  await expect
+    .element(page.getByRole("status"))
+    .toMatchTextContent("Cannot reach the server. Attempt 2.");
   await opener.click();
   expect(opened).toEqual([opener.element()]);
 });

@@ -56,13 +56,14 @@ What a user does. Everything below is built and verified end to end, chat views 
   row has Search, grouping and New task. Its footer carries Settings, Add project, the prefix
   hint while disarmed, and the shell status: connection state, config problems, the armed-prefix
   badge and the current failure. When the sidebar is hidden the same status sits in a strip above
-  the main content, so hiding the pane cannot remove it; that strip keeps its row, so arming the
-  prefix does not resize the terminal under it. The sidebar has a default and a narrow-window
+  the main content, so hiding the pane cannot remove it; only the visible placement is mounted,
+  so no live region or connection opener is duplicated, and that strip keeps its row, so arming
+  the prefix does not resize the terminal under it. The sidebar has a default and a narrow-window
   width, dragged between its limits with the edge handle, leaving the main area its minimum at and
   above the supported 1024 px floor — kept per device, reset by a double click, and hidden or shown
-  by `prefix \`. `prefix w` gives the list
-  the keyboard, showing the sidebar first if it was hidden: arrows walk its rows, Enter opens
-  one, and Escape returns the keyboard to where it came from.
+  by `prefix \`. `prefix w` gives the list the keyboard, showing the sidebar first if it was
+  hidden: arrows walk its rows, Enter opens one, and Escape returns the keyboard to where it came
+  from.
 - Project grouping is the default (`prefix l` switches to status groups and the device keeps
   the choice). The bottom Settled shelf spans projects, scrolls independently and pages six at a
   time; selecting older history reveals it without resuming it. Rows are two-line tasks;

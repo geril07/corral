@@ -79,7 +79,8 @@ export function ShellStatus({
   }
   // The strip is mounted for the whole hidden state, even with nothing to say: a surface that
   // appeared with the armed badge would resize the terminal on every human-speed chord.
-  const hasContent = failure !== undefined || connection.status !== "connected" || problems.length > 0 || armed;
+  const hasContent =
+    failure !== undefined || connection.status !== "connected" || problems.length > 0 || armed;
   return (
     <div
       data-slot="shell-status"
@@ -92,11 +93,13 @@ export function ShellStatus({
     >
       {failure !== undefined ? (
         <FailureMessage failure={failure} onDismiss={onDismissFailure} />
-      ) : (
-        <span className="min-w-0 flex-1" />
-      )}
+      ) : undefined}
       {status}
-      {armed && <ArmedBadge />}
+      {armed && (
+        <span className="ml-auto flex shrink-0">
+          <ArmedBadge />
+        </span>
+      )}
     </div>
   );
 }
@@ -114,13 +117,7 @@ function ArmedBadge() {
  * One failure, with the full sentence on the truncated span's tooltip. Dismiss sits beside the
  * message: a control at the far edge of the row reads as the surface's, not the message's.
  */
-function FailureMessage({
-  failure,
-  onDismiss,
-}: {
-  failure: ShellFailure;
-  onDismiss: () => void;
-}) {
+function FailureMessage({ failure, onDismiss }: { failure: ShellFailure; onDismiss: () => void }) {
   const { observe, clipped } = useTruncatedText(failure.message);
   const text = (
     <span ref={observe} className="min-w-0 truncate" title={clipped ? failure.message : undefined}>
