@@ -171,6 +171,16 @@ function TerminalNotice({
       </Alert>
     );
   }
+  if (streamState.status === "capability-refused") {
+    return (
+      <Alert role="status" aria-label="terminal connection">
+        <AlertDescription>
+          The server refused this terminal's capability. Reconnect with the connection status to
+          reattach it.
+        </AlertDescription>
+      </Alert>
+    );
+  }
   if (streamState.status === "not-found") {
     return (
       <Alert role="status" aria-label="terminal connection">

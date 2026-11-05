@@ -1,4 +1,5 @@
 import { resolveServerTarget, type ServerTargetStorage } from "@corral/client/bootstrap";
+import { capabilityProtocols } from "@corral/protocol/handshake";
 import type { CreateSocket } from "@corral/client/reconnecting-socket";
 import type { ServerTarget } from "@corral/protocol/server-target";
 import { expect, test, vi } from "vite-plus/test";
@@ -13,7 +14,8 @@ import {
 } from "../../../test/task-flows.tsx";
 import { realServerClients, screenText } from "../../../test/real-client.ts";
 import { serverTarget } from "../../../test/server-url.ts";
-import { StartupNotice } from "./startup-notice.tsx";
+import { ConnectionNotice } from "./connection-notice.tsx";
+import { CapabilityForm, StartupNotice } from "./startup-notice.tsx";
 
 const { newClient } = realServerClients();
 const connectionStatus = () => page.getByRole("button", { name: /^connection:/ });
@@ -103,6 +105,8 @@ test("a stored pair for another server and an invalid address name the cause", a
     .toBeVisible();
   await expect.element(page.getByText(/not "not-a-url"/)).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Reload" })).toBeVisible();
+  // Fixing the address is the only action: a capability cannot make an invalid URL valid.
+  await expect.element(page.getByRole("textbox", { name: "Capability" })).not.toBeInTheDocument();
   await invalid.unmount();
 });
 
@@ -159,13 +163,58 @@ test("a protocol mismatch reloads in a browser and asks a desktop user to restar
       onReload={reload}
     />,
   );
-  await expect.element(page.getByText("Quit and reopen the app.")).toBeVisible();
+  await expect
+    .element(page.getByText("Stop that server and start the app again.", { exact: false }))
+    .toBeVisible();
   await expect.element(page.getByRole("button", { name: "Reload" })).not.toBeInTheDocument();
   await desktop.unmount();
+
+  const refused = await render(
+    <StartupNotice
+      problem={{ kind: "capability-refused", attempt: 2, startedAt: Date.now() - 1500 }}
+      host="desktop"
+    />,
+  );
+  await expect
+    .element(page.getByText("Stop that server and start the app again.", { exact: false }))
+    .toBeVisible();
+  await refused.unmount();
 });
 
-test("the connection status opens recovery; a pasted capability reconnects with the workspace intact", async () => {
+test("a capability that is not a token is refused in place before it reaches the hash", async () => {
+  const useCapability = vi.fn<(capability: string) => void>();
+  const screen = await render(<CapabilityForm onSubmit={useCapability} />);
+  const field = page.getByRole("textbox", { name: "Capability" });
+
+  await userEvent.fill(field, "bad token");
+  await userEvent.keyboard("{Enter}");
+  await expect.element(page.getByRole("alert")).toMatchTextContent(/not a valid capability/);
+  expect(useCapability).not.toHaveBeenCalled();
+
+  await userEvent.fill(field, "valid-token_123");
+  await userEvent.keyboard("{Enter}");
+  expect(useCapability).toHaveBeenCalledWith("valid-token_123");
+  await screen.unmount();
+});
+
+test("the footer connection status keeps the button but announces the drop", async () => {
+  const open = vi.fn<(opener: HTMLElement) => void>();
+  await render(
+    <ConnectionNotice
+      state={{ status: "disconnected", attempt: 3, startedAt: Date.now() - 2000 }}
+      onOpen={open}
+    />,
+  );
+
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("Cannot reach the server. Attempt 3.");
+  await expect.element(page.getByRole("button", { name: /^connection:/ })).toBeVisible();
+});
+
+test("a refused capability names attempt and time, and recovery reattaches both socket kinds", async () => {
   const target = serverTarget();
+  const rotated = "rotated-capability_2026";
   const original = window.location.href;
   // The dev page carries the tokenless ?server= that the bootstrap pairs with its stored target.
   window.history.replaceState(
@@ -174,8 +223,15 @@ test("the connection status opens recovery; a pasted capability reconnects with 
     `${window.location.pathname}?server=${encodeURIComponent(target.url)}`,
   );
   const sockets: WebSocket[] = [];
+  const handshakes: { url: string; protocols: string[] }[] = [];
   const createSocket: CreateSocket = (url, protocols) => {
-    const socket = new WebSocket(url, protocols);
+    handshakes.push({ url, protocols });
+    // The test server only knows its own capability; a "rotated" one is translated here so the
+    // client still proves which token it read and offered on the new sockets.
+    const socket = new WebSocket(
+      url,
+      protocols[1] === rotated ? capabilityProtocols(target.capability) : protocols,
+    );
     sockets.push(socket);
     return socket;
   };
@@ -202,15 +258,27 @@ test("the connection status opens recovery; a pasted capability reconnects with 
     await createTaskWithShell("Keeps its place");
     await userEvent.keyboard("echo keep-$((2+3)){Enter}");
     await expect.poll(screenText).toContain("keep-5");
+    expect(sockets.length).toBeGreaterThanOrEqual(2);
 
-    sockets[0]?.close(4000, "test drop");
+    // The server refuses the capability on both the RPC socket and the terminal's own socket.
+    for (const socket of sockets) {
+      socket.dispatchEvent(new CloseEvent("close", { code: 4002 }));
+      socket.close();
+    }
+    await expect
+      .poll(() => client.connection.state.getSnapshot().status)
+      .toBe("capability-refused");
     await expect
       .element(connectionStatus())
-      .toMatchTextContent(/Cannot reach the server · attempt 1/);
+      .toMatchTextContent(/The server refused this capability · attempt 1 · \d+ s/);
+    await expect
+      .element(page.getByRole("status", { name: "terminal connection" }))
+      .toMatchTextContent(/refused this terminal's capability/);
 
     await connectionStatus().click();
-    const dialog = page.getByRole("dialog", { name: "Cannot reach the server" });
+    const dialog = page.getByRole("dialog", { name: "The server refused this capability" });
     await expect.element(dialog).toBeVisible();
+    await expect.element(dialog.getByText(/Attempt 1 · \d+ s/)).toBeVisible();
     const field = dialog.getByRole("textbox", { name: "Capability" });
     await expect.element(field).toHaveFocus();
     // The prefix never handles keys while the dialog is open: c is typed into the field and
@@ -223,16 +291,27 @@ test("the connection status opens recovery; a pasted capability reconnects with 
 
     await connectionStatus().click();
     await expect.element(field).toHaveFocus();
-    await field.fill(target.capability);
+    await field.fill(rotated);
     await userEvent.keyboard("{Enter}");
     await expect.element(dialog).not.toBeInTheDocument();
     await expect.element(connectionStatus()).not.toBeInTheDocument();
     await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
 
+    // The pasted capability is the one stored and offered on both reconnected sockets.
+    expect(storage.value).toEqual({ url: target.url, capability: rotated });
+    const offered = handshakes.filter((each) => each.protocols[1] === rotated);
+    expect(offered.some((each) => each.url.includes("/rpc?protocol="))).toBe(true);
+    expect(offered.some((each) => each.url.includes("/terminals/"))).toBe(true);
+
     await expect.element(taskButton("Keeps its place")).toHaveAttribute("aria-current", "true");
     await expect.element(shellTabs()).toHaveLength(1);
     expect(screenText()).toContain("keep-5");
+    await expect
+      .element(page.getByRole("status", { name: "terminal connection" }))
+      .not.toBeInTheDocument();
     await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+    await userEvent.keyboard("echo after-$((4+5)){Enter}");
+    await expect.poll(screenText).toContain("after-9");
   } finally {
     window.history.replaceState(null, "", original);
   }

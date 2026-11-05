@@ -17,6 +17,11 @@ export function ConnectionNotice({
   const now = useNow(1000);
   if (state.status === "connected") return null;
   const label = describe(state, now);
+  const live = (
+    <span className="sr-only" role="status">
+      {announcement(state)}
+    </span>
+  );
   const content = (
     <span className="inline-flex min-w-0 items-center gap-1.5">
       <StatusGlyph state={GLYPH_STATE[state.status]} />
@@ -25,26 +30,49 @@ export function ConnectionNotice({
   );
   if (onOpen === undefined) {
     return (
-      <span
-        className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground"
-        role="status"
-        aria-label={`connection: ${label.name}`}
-      >
-        {content}
-      </span>
+      <>
+        {live}
+        <span
+          className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground"
+          aria-label={`connection: ${label.name}`}
+        >
+          {content}
+        </span>
+      </>
     );
   }
   return (
-    <Button
-      variant="ghost"
-      size="xs"
-      layout="status"
-      aria-label={`connection: ${label.name}`}
-      onClick={(event) => onOpen(event.currentTarget)}
-    >
-      {content}
-    </Button>
+    <>
+      {live}
+      <Button
+        variant="ghost"
+        size="xs"
+        layout="status"
+        aria-label={`connection: ${label.name}`}
+        onClick={(event) => onOpen(event.currentTarget)}
+      >
+        {content}
+      </Button>
+    </>
   );
+}
+
+/** The live-region sentence: no elapsed time, so it changes on state, not once a second. */
+function announcement(state: Exclude<ConnectionState, { status: "connected" }>): string {
+  switch (state.status) {
+    case "connecting":
+      return `Connecting to the server. Attempt ${state.attempt}.`;
+    case "disconnected":
+      return `Cannot reach the server. Attempt ${state.attempt}.`;
+    case "capability-refused":
+      return `The server refused this capability. Attempt ${state.attempt}.`;
+    case "invalid-capability":
+      return "That capability cannot be used.";
+    case "protocol-mismatch":
+      return "Protocol mismatch.";
+    default:
+      return "Connection problem.";
+  }
 }
 
 function describe(
@@ -64,9 +92,11 @@ function describe(
       };
     case "capability-refused":
       return {
-        name: "The server refused this capability",
-        text: "The server refused this capability",
+        name: `The server refused this capability · attempt ${state.attempt} · ${elapsed(now, state.startedAt)}`,
+        text: `The server refused this capability · attempt ${state.attempt} · ${elapsed(now, state.startedAt)}`,
       };
+    case "invalid-capability":
+      return { name: "That capability cannot be used", text: "That capability cannot be used" };
     case "protocol-mismatch":
       return { name: "Protocol mismatch", text: "Protocol mismatch" };
     default:
@@ -83,5 +113,6 @@ const GLYPH_STATE = {
   connected: "done",
   disconnected: "error",
   "capability-refused": "error",
+  "invalid-capability": "error",
   "protocol-mismatch": "error",
 } as const;
