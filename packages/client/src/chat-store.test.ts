@@ -216,7 +216,7 @@ test("a reconnect asks for the events after the last sequence and applies them",
     chat.streams[0]!.push(snapshot(5, idle, [user]));
     await waitFor(() => expect(chat.store.getSnapshot().sequence).toBe(5));
 
-    chat.state.set({ status: "disconnected" });
+    chat.state.set({ status: "disconnected", attempt: 1, startedAt: Date.now() });
     chat.streams[0]!.end();
     chat.state.set({ status: "connected" });
 
@@ -243,7 +243,7 @@ test("a sequence gap makes the store ask for a snapshot and rebuild the timeline
     chat.streams[0]!.push(snapshot(5, idle, [user]));
     await waitFor(() => expect(chat.store.getSnapshot().sequence).toBe(5));
 
-    chat.state.set({ status: "disconnected" });
+    chat.state.set({ status: "disconnected", attempt: 1, startedAt: Date.now() });
     chat.streams[0]!.end();
     chat.state.set({ status: "connected" });
     await waitFor(() => expect(chat.calls).toHaveLength(2));

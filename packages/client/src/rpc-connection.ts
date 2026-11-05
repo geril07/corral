@@ -20,11 +20,17 @@ export interface RpcConnection {
   readonly state: ReadableStore<ConnectionState>;
   /** Stays valid across reconnects; a call made while disconnected rejects. */
   readonly api: ContractRouterClient<Contract>;
+  /** Retry now, e.g. after the user supplies a new capability. */
+  retry(): void;
   close(): void;
 }
 
 export function connectRpc(options: RpcConnectionOptions): RpcConnection {
-  const state = new Store<ConnectionState>({ status: "connecting" });
+  const state = new Store<ConnectionState>({
+    status: "connecting",
+    attempt: 1,
+    startedAt: Date.now(),
+  });
   // oRPC's link is bound to one socket, so each socket gets its own link.
   let link: RPCLink<ClientContext> | undefined;
 
@@ -64,5 +70,5 @@ export function connectRpc(options: RpcConnectionOptions): RpcConnection {
     },
   });
 
-  return { state, api, close: () => socket.close() };
+  return { state, api, retry: () => socket.retry(), close: () => socket.close() };
 }

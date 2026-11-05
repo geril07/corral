@@ -52,6 +52,14 @@ export const PROTOCOL_QUERY_PARAM = "protocol";
  */
 export const PROTOCOL_MISMATCH_CLOSE_CODE = 4001;
 
+/**
+ * A request that presents the Corral marker with a wrong token is closed with this code after
+ * the upgrade, so a client can name the refused capability and stop retrying. It is additive:
+ * a peer from before the code existed treats it as an unknown close and retries, as it does
+ * today. A request with no capability still gets an HTTP rejection before any routing.
+ */
+export const CAPABILITY_REFUSED_CLOSE_CODE = 4002;
+
 export const ProtocolMismatchReason = z.object({ serverProtocolVersion: z.number().int() });
 export type ProtocolMismatchReason = z.infer<typeof ProtocolMismatchReason>;
 

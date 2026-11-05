@@ -8,6 +8,30 @@ export const CAPABILITY_HASH_PARAM = "capability";
 /** Session storage key that keeps the server URL and capability paired across reloads. */
 export const SERVER_TARGET_STORAGE_KEY = "corral.server-target";
 
+/** Why a page could not resolve a server target; the message stays the detailed cause. */
+export type ServerTargetFailure =
+  | { kind: "desktop-endpoint" }
+  | { kind: "invalid-url"; given: string | undefined }
+  | { kind: "empty-capability" }
+  | { kind: "no-capability" }
+  | { kind: "other-server"; storedUrl: string; url: string };
+
+/** A bootstrap failure a surface can name, without parsing the sentence it shows. */
+export class ServerTargetError extends Error {
+  readonly failure: ServerTargetFailure;
+
+  constructor(failure: ServerTargetFailure, message: string) {
+    super(message);
+    this.name = "ServerTargetError";
+    this.failure = failure;
+  }
+}
+
+/** The typed failure behind an error from `resolveServerTarget`, when it is one of ours. */
+export function serverTargetFailure(error: unknown): ServerTargetFailure | undefined {
+  return error instanceof ServerTargetError ? error.failure : undefined;
+}
+
 export interface ServerTargetStorage {
   /** Untrusted JSON from session storage; `resolveServerTarget` validates it. */
   read(): unknown;
@@ -37,16 +61,31 @@ export async function resolveServerTarget(
   if (options.bridge) {
     const target = await options.bridge.server();
     if (!isServerTarget(target)) {
-      throw new Error("The desktop app did not provide a usable server endpoint.");
+      throw new ServerTargetError(
+        { kind: "desktop-endpoint" },
+        "The desktop app did not provide a usable server endpoint.",
+      );
     }
     return target;
   }
 
-  const url = resolveServerUrl(options.location);
+  let url: string;
+  try {
+    url = resolveServerUrl(options.location);
+  } catch (error) {
+    throw new ServerTargetError(
+      {
+        kind: "invalid-url",
+        given: new URLSearchParams(options.location.search).get("server") ?? undefined,
+      },
+      error instanceof Error ? error.message : String(error),
+    );
+  }
   const fromHash = takeCapabilityFromHash(options.location.hash);
   if (fromHash.capability !== undefined) {
     if (fromHash.capability.length === 0) {
-      throw new Error(
+      throw new ServerTargetError(
+        { kind: "empty-capability" },
         "The server capability in the URL is empty. Open this page with the capability from endpoint.json.",
       );
     }
@@ -58,14 +97,16 @@ export async function resolveServerTarget(
 
   const stored = options.storage?.read();
   if (!isServerTarget(stored)) {
-    throw new Error(
+    throw new ServerTargetError(
+      { kind: "no-capability" },
       "No server capability. Start Corral from the desktop app, or open this page with " +
         `#/route?${CAPABILITY_HASH_PARAM}=<capability from endpoint.json>.`,
     );
   }
   if (stored.url !== url) {
     // Never offer a stored capability to a server the user was redirected to.
-    throw new Error(
+    throw new ServerTargetError(
+      { kind: "other-server", storedUrl: stored.url, url },
       `The saved capability belongs to ${stored.url}, not ${url}. Open this page with that ` +
         `server's #/route?${CAPABILITY_HASH_PARAM}=<capability from endpoint.json>.`,
     );

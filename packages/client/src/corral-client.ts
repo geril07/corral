@@ -25,6 +25,8 @@ export interface CorralClientOptions {
 }
 
 export interface CorralClient {
+  /** The endpoint this client was created with, for the surface that names it. */
+  readonly server: ServerTarget;
   readonly connection: RpcConnection;
   readonly config: ConfigStore;
   readonly modelPreferences: ReturnType<typeof createModelPreferencesStore>;
@@ -62,6 +64,7 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
     diff: (input) => connection.api.changes.diff(input),
   });
   return {
+    server: options.server,
     connection,
     config,
     modelPreferences,
