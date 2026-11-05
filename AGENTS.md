@@ -14,9 +14,8 @@ Keyboard-first workspace for running coding agents in terminals: a long-lived No
 ## Local workloads
 
 Before launching a dev stack, browser automation, checks or dependency installation on the Linux
-agent host, read `docs/workrun.md`. Use `pnpm workrun`: task-owned scopes, `start` for background
-services, `run --heavy` for expensive commands, and verified scope cleanup before handoff. It owns
-the shared memory budget and cross-worktree admission; missing protection is reported, not bypassed.
+agent host, read `docs/workrun/agents.md` for managed scopes, heavy admission and verified cleanup.
+Read `docs/workrun/setup.md` only when provisioning or making a user-approved budget change.
 
 ## Verification
 
