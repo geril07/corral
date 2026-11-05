@@ -13,7 +13,7 @@ export function StatusIndicator({
 }: {
   status: AgentStatus | undefined;
   muted?: boolean;
-  /** `chrome` is the 14 px glyph of tabs and the task header (`layout.md`, **Status visuals**). */
+  /** `chrome` is the 14 px glyph of tabs and the task header (`layout.md`, **Task header**, **Session tabs**). */
   size?: StatusGlyphSize;
 }) {
   if (!status) return <span className="w-5 shrink-0" aria-hidden />;

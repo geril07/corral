@@ -1,3 +1,4 @@
+import { attentionWord, isUnseenDone, taskStatus } from "@corral/client/agent-status";
 import type { TaskNode } from "@corral/client/workspace-tree";
 import type { ActionId, ClientConfig } from "@corral/protocol/config";
 import type { Project, PullRequest, Task, TaskChanges } from "@corral/protocol/rpc";
@@ -10,6 +11,7 @@ import {
 } from "../../common/ui/index.ts";
 import { changeCounts, PullRequestBadge } from "../changes/index.ts";
 import { formatBinding } from "../keymap/index.ts";
+import { StatusIndicator } from "../status/index.ts";
 
 interface CopyNotice {
   readonly outcome: "copied" | "refused";
@@ -50,6 +52,12 @@ export function TaskHeader({
   onViewSource,
 }: TaskHeaderProps) {
   const task = node?.task;
+  const status =
+    node === undefined
+      ? undefined
+      : taskStatus(node.sessions.map((entry) => entry.session))?.status;
+  const unseen = task !== undefined && isUnseenDone(task, status);
+  const attention = attentionWord(status);
   const taskTitle = task?.title ?? "New task";
   const where = [project?.name, task?.branch].filter(Boolean).join(" / ");
   const {
@@ -140,6 +148,7 @@ export function TaskHeader({
       {task && (
         <div
           className="ml-auto flex shrink-0 items-center gap-1.5"
+          data-task-header-actions=""
           onMouseDown={(event) => event.preventDefault()}
         >
           {changeCounts(changes) !== undefined && (
@@ -155,6 +164,18 @@ export function TaskHeader({
             </span>
           )}
           {pullRequest !== undefined && <PullRequestBadge request={pullRequest} />}
+          {status !== undefined && (
+            <span className="flex shrink-0 items-center gap-1.5" data-task-status="">
+              <StatusIndicator
+                status={status}
+                size="chrome"
+                muted={status.state === "done" && !unseen}
+              />
+              {attention !== undefined && (
+                <span className="whitespace-nowrap text-xs text-muted-foreground">{attention}</span>
+              )}
+            </span>
+          )}
           <OverflowMenu
             label={`Task menu for ${task.title}`}
             triggerRef={trigger}

@@ -81,7 +81,7 @@ What a user does. Everything below is built and verified end to end, chat views 
   through the user's own `gh`/`glab`, every remote write confirmed by name and URL. While it is
   open the current session keeps its place in the strip and a `+N −M` count sits in the task header
   and the sidebar row when the task changed something; a linked pull request's name and state sit
-  beside the count, and a merged one offers settle.
+  beside the count, and a merged one offers settle in the `Changes` finish bar.
 - The main area never goes blank: with no task selected it is the new-task composer, prefilled
   with the current project. `prefix t` shows the composer over the selected task and Escape
   returns to that task, with the keyboard back in its terminal. Until the projects, tasks,
