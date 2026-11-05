@@ -109,6 +109,7 @@ describe("class literals", () => {
       "text-text-muted",
       "bg-danger-strong",
       "rounded-control",
+      "rounded-(--control-radius)",
       "text-status-blocked",
       "bg-status-done",
       "focus-visible:outline-focus-ring",
@@ -248,19 +249,46 @@ describe("spine scales", () => {
     for (const [source, expected] of [
       ["ring-ring/50", "focus ring outside the recipe in class name: ring-ring/50"],
       ["focus-visible:ring-3", "focus ring outside the recipe in class name: focus-visible:ring-3"],
+      ["ring-3", "focus ring outside the recipe in class name: ring-3"],
+      ["ring-[3px]", "focus ring outside the recipe in class name: ring-[3px]"],
       [
         "ring-1 ring-foreground/10",
         "focus ring outside the recipe in class name: ring-foreground/10",
+      ],
+      [
+        "ring-foreground/10 ring-1",
+        "focus ring outside the recipe in class name: ring-foreground/10",
+      ],
+      [
+        "ring-1 dark:ring-foreground/10",
+        "focus ring outside the recipe in class name: dark:ring-foreground/10",
+      ],
+      [
+        "focus-visible:ring-destructive/20",
+        "focus ring outside the recipe in class name: focus-visible:ring-destructive/20",
+      ],
+      [
+        "dark:focus-visible:ring-destructive/40",
+        "focus ring outside the recipe in class name: dark:focus-visible:ring-destructive/40",
       ],
       ["focus-within:ring-2", "focus ring outside the recipe in class name: focus-within:ring-2"],
       ["text-lg", "type outside the ramp in class name: text-lg"],
       ["text-[13px]", "type outside the ramp in class name: text-[13px]"],
       ["font-bold", "type outside the ramp in class name: font-bold"],
+      ["font-[600]", "type outside the ramp in class name: font-[600]"],
       ["tracking-tight", "type outside the ramp in class name: tracking-tight"],
+      ["tracking-wide", "type outside the ramp in class name: tracking-wide"],
       ["shadow-md", "surface outside the tiers in class name: shadow-md"],
       ["rounded-2xl", "surface outside the tiers in class name: rounded-2xl"],
+      ["backdrop-blur-sm", "surface outside the tiers in class name: backdrop-blur-sm"],
+      ["backdrop-blur", "surface outside the tiers in class name: backdrop-blur"],
+      ["transition", "motion outside the budget in class name: transition"],
+      ["transition!", "motion outside the budget in class name: transition!"],
       ["transition-all", "motion outside the budget in class name: transition-all"],
       ["transition-colors", "motion outside the budget in class name: transition-colors"],
+      ["ease-in", "motion outside the budget in class name: ease-in"],
+      ["ease-in-out", "motion outside the budget in class name: ease-in-out"],
+      ["ease-linear", "motion outside the budget in class name: ease-linear"],
       ["duration-100", "motion outside the budget in class name: duration-100"],
       ["animation-duration-100", "motion outside the budget in class name: animation-duration-100"],
       ["animate-pulse", "motion outside the budget in class name: animate-pulse"],
@@ -269,6 +297,24 @@ describe("spine scales", () => {
       ["text-primary", "primary as a text colour in class name: text-primary"],
     ]) {
       expect(messages(`const cls = "${source}";`, "kit.tsx", "kit")).toContain(`1:${expected}`);
+    }
+  });
+
+  it("keeps aria-invalid's width and alpha rings, and the shared focus recipe", () => {
+    expect(
+      messages(
+        'const cls = "focus-visible:ring-2 focus-visible:ring-ring aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40";',
+        "kit.tsx",
+        "kit",
+      ),
+    ).toEqual([]);
+  });
+
+  it("bans an alpha-weakened ring in a module too", () => {
+    for (const token of ["ring-ring/50", "focus-visible:ring-destructive/20"]) {
+      expect(messages(`const cls = "${token}";`)).toEqual([
+        `1:focus ring outside the recipe in class name: ${token}`,
+      ]);
     }
   });
 
@@ -288,6 +334,10 @@ describe("spine scales", () => {
       // One ring width and offset.
       "focus-visible:ring-2",
       "ring-2",
+      // The declared easing token and Tailwind's default timing function (no class).
+      "ease-surface",
+      "duration-200",
+      "duration-200!",
       // Derived gutters: a step plus the control it clears (icon, indicator, close button).
       "pl-7",
       "pr-8",
@@ -300,8 +350,26 @@ describe("spine scales", () => {
 
   it("leaves the kit's palette and retired-token rules to modules", () => {
     expect(
-      messages('const cls = "w-[36rem] bg-red-500 rounded-control";', "kit.tsx", "kit"),
+      messages(
+        'const cls = "w-[36rem] bg-red-500 rounded-control rounded-(--control-radius)";',
+        "kit.tsx",
+        "kit",
+      ),
     ).toEqual([]);
+  });
+
+  it("keeps the control-radius token, glass, raw type and wide tracking out of modules", () => {
+    for (const [token, message] of [
+      [
+        "rounded-(--control-radius)",
+        "obsolete theme token in class name: rounded-(--control-radius)",
+      ],
+      ["backdrop-blur-sm", "surface outside the tiers in class name: backdrop-blur-sm"],
+      ["font-[600]", "type outside the ramp in class name: font-[600]"],
+      ["tracking-wide", "type outside the ramp in class name: tracking-wide"],
+    ]) {
+      expect(messages(`const cls = "${token}";`)).toContain(`1:${message}`);
+    }
   });
 
   it("holds a module to the spacing steps and the kit's derived gutters to the kit", () => {
@@ -310,7 +378,7 @@ describe("spine scales", () => {
         `1:spacing outside the scale in class name: ${token}`,
       ]);
     }
-    for (const token of ["p-0", "p-2.5", "gap-6", "pl-6", "px-4", "pb-6"]) {
+    for (const token of ["p-0", "p-2.5", "gap-6", "pl-6", "px-4", "pb-6", "p-2!", "p-2.5!"]) {
       expect(messages(`const cls = "${token}";`)).toEqual([]);
     }
   });
