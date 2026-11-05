@@ -16,7 +16,7 @@ export function StoppedSession({ session, restartHint, onRestart }: StoppedSessi
   const launch = launchLine(session);
   return (
     <section className="max-w-md px-4 py-6" aria-label="stopped session">
-      <h2 className="mb-2 text-base">
+      <h2 className="mb-2 text-base font-semibold">
         {session.kind} · {badge}
       </h2>
       <p className="mb-3">{note}</p>

@@ -629,7 +629,7 @@ function NoProjectState({ onAdd }: { onAdd: (path: string) => Promise<void> }) {
         void submit();
       }}
     >
-      <h2 className="m-0 text-base font-medium">Add a repository to start</h2>
+      <h2 className="m-0 text-base font-semibold">Add a repository to start</h2>
       <div className="flex w-full items-center gap-2">
         <Input
           aria-label="Repository path"
