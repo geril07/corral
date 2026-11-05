@@ -1,9 +1,12 @@
 import type { CorralClient } from "@corral/client/corral-client";
+import type { CreateSocket } from "@corral/client/reconnecting-socket";
+import type { TerminalSurface } from "@corral/client/terminal-stream";
 import type { TerminalSize } from "@corral/protocol/rpc";
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { expect, test, vi } from "vite-plus/test";
 import { render } from "vitest-browser-react";
 import { realServerClients } from "../../../test/real-client.ts";
+import { serverTarget } from "../../../test/server-url.ts";
 import { TerminalView } from "./terminal-view.tsx";
 
 const SIZE = { cols: 80, rows: 24 };
@@ -241,4 +244,143 @@ test("a client whose page becomes visible again refits to its own pane", async (
     background.close();
     Reflect.deleteProperty(document, "visibilityState");
   }
+});
+
+const idleSurface: TerminalSurface = {
+  write: (_data, callback) => callback?.(),
+  reset: () => {},
+  resize: () => {},
+};
+
+/** Holds terminal sockets so a test can drop one without touching focus, visibility or layout. */
+function trackTerminalSockets() {
+  const sockets: WebSocket[] = [];
+  const createSocket: CreateSocket = (url, protocols) => {
+    const socket = new WebSocket(url, protocols);
+    if (url.includes("/terminals/")) sockets.push(socket);
+    return socket;
+  };
+  return { sockets, createSocket };
+}
+
+test("a terminal fits its pane when it proposes a size, before the server echoes it", async () => {
+  const client = newClient();
+  await connected(client);
+  const terminal = await client.connection.api.terminals.create({
+    command: "/bin/cat",
+    size: SIZE,
+  });
+  const fits: { size: TerminalSize; host: number; canvas: number }[] = [];
+  await render(
+    <SizedPane name="fit" width={1640} height={979}>
+      <TerminalView
+        client={client}
+        terminal={terminal}
+        onFit={(size) => {
+          fits.push({
+            size,
+            host: widthOf(terminalHost("fit")),
+            canvas: widthOf(canvas("fit")),
+          });
+        }}
+      />
+    </SizedPane>,
+  );
+
+  // The first proposal is this pane's own grid. It must already be on the canvas: the server's
+  // echo is a round-trip later, and a pane showing the old grid until then is the reported defect.
+  const first = await vi.waitFor(() => {
+    const report = fits[0];
+    if (report === undefined) throw new Error("the terminal has not proposed a size");
+    return report;
+  });
+  expect(first.size.cols).toBeGreaterThan(145);
+  // xterm reserves the scrollbar's width; the canvas otherwise fills the host.
+  expect(first.host - first.canvas).toBeLessThan(24);
+
+  // The same holds when the host changes: the settled box reaches the canvas before the server's
+  // echo, so a sidebar drag or window resize does not wait for a round-trip.
+  const beforeResize = fits.length;
+  resizePane("fit", 900, 500);
+  const resized = await vi.waitFor(() => {
+    const report = fits[beforeResize];
+    if (report === undefined) throw new Error("the terminal has not fitted its new box");
+    return report;
+  });
+  expect(resized.size.cols).toBeLessThan(first.size.cols);
+  expect(resized.host - resized.canvas).toBeLessThan(24);
+});
+
+test("a reconnect re-fits this pane to its own size", async () => {
+  const { sockets, createSocket } = trackTerminalSockets();
+  const client = newClient(serverTarget(), createSocket);
+  const other = newClient();
+  await connected(client);
+  await connected(other);
+  const terminal = await client.connection.api.terminals.create({
+    command: "/bin/cat",
+    size: SIZE,
+  });
+  const reports = new Map<string, TerminalSize[]>();
+  await render(
+    <SizedPane name="reconnect" width={500} height={340}>
+      <TerminalView
+        client={client}
+        terminal={terminal}
+        onFit={(size) => {
+          reports.set("reconnect", [...(reports.get("reconnect") ?? []), size]);
+        }}
+      />
+    </SizedPane>,
+  );
+
+  const ownFit = await fitted(reports, "reconnect", 0);
+  await vi.waitFor(async () => expect(await serverSize(client, terminal.id)).toEqual(ownFit));
+
+  // Another client fits the shared PTY while this pane stays attached, focused and visible.
+  const shared = other.attach(terminal.id, idleSurface);
+  const awayFit = { cols: ownFit.cols + 20, rows: ownFit.rows + 5 };
+  shared.resize(awayFit);
+  await vi.waitFor(async () => expect(await serverSize(client, terminal.id)).toEqual(awayFit));
+  await vi.waitFor(() =>
+    expect(widthOf(canvas("reconnect"))).toBeGreaterThan(widthOf(terminalHost("reconnect"))),
+  );
+
+  // Let any fitting already in flight land before taking the baseline.
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100)));
+  });
+
+  // Drop only this terminal's socket. No test action focuses the pane, changes its visibility or
+  // resizes it; the reattachment itself re-proposes this client's own grid.
+  const before = fitCount(reports, "reconnect");
+  const socketsBefore = sockets.length;
+  const socket = sockets.at(-1);
+  if (socket === undefined) throw new Error("the terminal has no socket");
+  socket.close();
+  await vi.waitFor(() => {
+    if (sockets.length === socketsBefore) throw new Error("the terminal has not reattached");
+  });
+  await vi.waitFor(() => {
+    const list = reports.get("reconnect") ?? [];
+    if (list.length <= before) throw new Error("the terminal has not refitted after reattaching");
+    const latest = list.at(-1);
+    if (latest?.cols !== ownFit.cols || latest.rows !== ownFit.rows) {
+      throw new Error(`the terminal refitted ${latest?.cols}x${latest?.rows}, not its own grid`);
+    }
+  });
+  await vi.waitFor(async () => expect(await serverSize(client, terminal.id)).toEqual(ownFit));
+  await vi.waitFor(() =>
+    expect(widthOf(canvas("reconnect"))).toBeLessThanOrEqual(widthOf(terminalHost("reconnect"))),
+  );
+
+  // The shared grid stays authoritative: the other client can still set it, and this pane shows
+  // the clipped grid until its next attach re-asserts its own.
+  const sharedAgain = { cols: awayFit.cols + 10, rows: awayFit.rows + 2 };
+  shared.resize(sharedAgain);
+  await vi.waitFor(async () => expect(await serverSize(client, terminal.id)).toEqual(sharedAgain));
+  await vi.waitFor(() =>
+    expect(widthOf(canvas("reconnect"))).toBeGreaterThan(widthOf(terminalHost("reconnect"))),
+  );
+  shared.close();
 });

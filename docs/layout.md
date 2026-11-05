@@ -85,7 +85,8 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 ## Terminal and chat
 
 - Terminal keeps its own padding, native xterm rendering, and monospace text that does not follow
-  the interface text scale.
+  the interface text scale. It fits its own pane on attach, reconnect, focus and a settled resize,
+  then asks the shared PTY to follow; the PTY's grid stays authoritative for every client.
 - Chat keeps its centered lane, right-aligned user bubble and unboxed assistant text.
   Reasoning and tool calls keep their folds and independently bounded output/diffs.
 - New-task and chat prompts share the bordered composer surface and wrapping control row.
