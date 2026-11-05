@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// UI kit guard for apps/web: no arbitrary values or raw palette colours in class names outside
-// common/ui. Layer boundaries and raw DOM controls are lint rules; this covers class strings,
-// which Oxlint has no configurable rule for. The rules live in web-ui-classes.mjs.
+// UI kit guard for apps/web: class strings must name the scales `docs/ui-kit.md` **Spine** declares,
+// inside `common/ui` and out. Layer boundaries and raw DOM controls are lint rules; this covers
+// class strings, which Oxlint has no configurable rule for. The rules live in web-ui-classes.mjs.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { classViolations } from "./web-ui-classes.mjs";
@@ -25,16 +25,18 @@ function filesIn(directory) {
 
 const problems = [];
 for (const file of filesIn(root)) {
-  if (file.startsWith(`${kit}${path.sep}`)) continue;
   const relative = path.relative(repository, file);
+  // The kit's literals are legitimate geometry, so it answers the type/surface/focus/motion rules
+  // only; a module answers every rule (`ui-kit.md`, **Spine** — ownership).
+  const location = file.startsWith(`${kit}${path.sep}`) ? "kit" : "module";
   const source = readFileSync(file, "utf8");
-  for (const { line, message } of classViolations(source, file)) {
+  for (const { line, message } of classViolations(source, file, location)) {
     problems.push(`${relative}:${line}: ${message}`);
   }
 }
 
 if (problems.length > 0) {
   for (const problem of problems) console.error(problem);
-  console.error(`\n${problems.length} UI kit violation(s) outside common/ui.`);
+  console.error(`\n${problems.length} UI kit violation(s).`);
   process.exit(1);
 }

@@ -1,16 +1,51 @@
-// UI kit class rules: which literal strings in apps/web are class names, and which of those
-// leave common/ui. Parsing is by Oxc's public parser so comments, JSX prose and regular
-// expressions are never mistaken for literals; see scripts/check-web-ui.mjs for the file walk.
+// UI kit class rules: which literal strings in apps/web are class names, and which of those leave
+// the scales `docs/ui-kit.md` **Spine** declares. Parsing is by Oxc's public parser so comments,
+// JSX prose and regular expressions are never mistaken for literals; see
+// scripts/check-web-ui.mjs for the file walk.
 import { parseSync } from "oxc-parser";
 
 const PALETTE =
   /(?:^|[\s:])!?(?:bg|text|border|ring|outline|fill|stroke|from|via|to|shadow|decoration|accent|caret|divide|placeholder)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|white|black)(?:-\d{1,3})?(?:\/\d{1,3})?!?(?=$|\s)/;
 const CLASS_LIKE =
-  /(?:^|[\s:])(?:flex|grid|block|inline|hidden|absolute|relative|fixed|sticky|w-|h-|min-|max-|p-|px-|py-|m-|mx-|my-|gap-|items-|justify-|text-|bg-|border|rounded|font-|leading-|tracking-|overflow-|truncate|whitespace-|cursor-|select-|shadow|ring-|outline-|opacity-|transition|duration-|ease-|z-|top-|left-|right-|bottom-|inset-|col-|row-|self-|place-|content-|list-|object-|align-|order-|basis-|grow|shrink|space-|divide-|fill-|stroke-|from-|via-|to-)/;
+  /(?:^|[\s:])(?:flex|grid|block|inline|hidden|absolute|relative|fixed|sticky|w-|h-|min-|max-|p-|px-|py-|pt-|pb-|pl-|pr-|m-|mx-|my-|gap-|items-|justify-|text-|bg-|border|rounded|font-|leading-|tracking-|overflow-|truncate|whitespace-|cursor-|select-|shadow|ring-|outline-|opacity-|transition|duration-|ease-|animate-|animation-|fade-|zoom-|blur-|z-|top-|left-|right-|bottom-|inset-|col-|row-|self-|place-|content-|list-|object-|align-|order-|basis-|grow|shrink|space-|divide-|fill-|stroke-|from-|via-|to-)/;
 const ARBITRARY = /\[[^\]]+\]/;
 const OBSOLETE_TOKEN =
   /(?:^|[\s:])(?:bg-surface(?:-raised|-active)?|text-text(?:-muted)?|(?:bg|text|border)-danger(?:-strong|-foreground)?|(?:bg|text|border)-accent-strong|(?:bg|text)-status-[a-z]+|outline-focus-ring|rounded-(?:control|panel))(?=\/|\s|$)/;
 const RAW_COLOUR = /\b(?:rgb|hsl)a?\(|#[0-9a-fA-F]{3,8}\b/;
+/** Tailwind's spacing unit is the rhythm; a module names one of these steps, never a value. */
+const SPACING_STEPS = "0|0\\.5|1|1\\.5|2|2\\.5|3|4|5|6";
+const SPACING = new RegExp(
+  `(?:^|[\\s:])(?:p|px|py|pt|pb|pl|pr|gap|gap-x|gap-y)-(?!(?:${SPACING_STEPS})(?=$|[\\s]))[^\\s]+`,
+);
+const TYPE =
+  /(?:^|[\s:])text-(?:lg|xl|[2-9]xl)(?=$|[\s])|(?:^|[\s:])text-\[|(?:^|[\s:])font-(?:bold|extrabold|black)(?=$|[\s])|(?:^|[\s:])tracking-(?:tighter|tight)(?=$|[\s])/;
+const SURFACE =
+  /(?:^|[\s:])(?:shadow-(?:2xs|xs|sm|md|lg|xl|2xl)|rounded-(?:2xl|3xl|4xl))(?=$|[\s])|(?:^|[\s:])rounded-\[(?!2px\])/;
+const FOCUS =
+  /(?:^|[\s:])(?:ring-ring\/|focus-visible:ring-(?:3|\[3px\])|focus-within:ring-)|(?<=ring-1 )ring-foreground\//;
+const MOTION =
+  /(?:^|[\s:])(?:transition-(?:all|colors|\[)|animate-(?:out|ping|pulse|spin|bounce)(?=$|[\s])|(?:fade|zoom)-out-|blur-(?:in|out)(?=$|[\s-])|(?:animation-)?duration-(?!200(?=$|[\s])))/;
+const MOTION_USE = /(?:^|[\s:])(?:animate-|transition-)/;
+const MOTION_REDUCE = /motion-reduce:/;
+const PRIMARY_TEXT = /(?:^|[\s:])text-primary(?![\w-])/;
+
+/**
+ * The class-string rules. `scope: "module"` binds only files outside `common/ui`; `scope: "all"`
+ * binds the kit too, because a broken recipe lives inside the kit and a module-only walk cannot see
+ * it. `guard: "any"` runs the rule on every literal; the rest run only on class-like ones.
+ */
+export const CLASS_RULES = [
+  { label: "arbitrary value", pattern: ARBITRARY, scope: "module" },
+  { label: "raw colour", pattern: RAW_COLOUR, scope: "module" },
+  { label: "obsolete theme token", pattern: OBSOLETE_TOKEN, scope: "module" },
+  { label: "palette colour", pattern: PALETTE, scope: "module", guard: "any" },
+  { label: "spacing outside the scale", pattern: SPACING, scope: "module" },
+  { label: "type outside the ramp", pattern: TYPE, scope: "all" },
+  { label: "surface outside the tiers", pattern: SURFACE, scope: "all" },
+  { label: "focus ring outside the recipe", pattern: FOCUS, scope: "all" },
+  { label: "motion outside the budget", pattern: MOTION, scope: "all" },
+  { label: "primary as a text colour", pattern: PRIMARY_TEXT, scope: "all" },
+];
 /** Props that change how a control looks; behavior and structure travel as their own props. */
 const VISUAL_PROPS = new Set(["className", "style", "color", "width", "height", "render"]);
 
@@ -51,10 +86,12 @@ function collectCodeLiterals(node, found) {
 }
 
 /**
- * Diagnostics for one parsed file: `{ line, message }`. A file the parser rejects yields only
- * parse errors, so malformed source fails the gate instead of being silently skipped.
+ * Diagnostics for one parsed file: `{ line, message }`. `location` is `"module"` for a file
+ * outside `common/ui` and `"kit"` for one inside it; the kit answers only the rules whose scope is
+ * `"all"`. A file the parser rejects yields only parse errors, so malformed source fails the gate
+ * instead of being silently skipped.
  */
-export function classViolations(source, filename) {
+export function classViolations(source, filename, location = "module") {
   const parsed = parseSync(filename, source);
   const line = lineAt(source);
   const diagnostics = [];
@@ -73,29 +110,25 @@ export function classViolations(source, filename) {
   for (const literal of literals) {
     const { value } = literal;
     const classLike = CLASS_LIKE.test(value);
-    if (classLike) {
-      for (const [rule, label] of [
-        [ARBITRARY, "arbitrary value"],
-        [RAW_COLOUR, "raw colour"],
-        [OBSOLETE_TOKEN, "obsolete theme token"],
-      ]) {
-        const match = rule.exec(value);
-        if (match === null) continue;
-        const token = classTokenAt(value, match.index);
-        diagnostics.push({
-          line: line(literal.start + token.start),
-          message: `${label} in class name: ${token.value}`,
-        });
-      }
-    }
-    // Palette utilities are matched on their own: a variant prefix such as `hover:` is not a
-    // word boundary, and `bg-red-500` carries a numeric shade.
-    const palette = PALETTE.exec(value);
-    if (palette !== null) {
-      const token = classTokenAt(value, palette.index + leadingSpace(palette));
+    for (const rule of CLASS_RULES) {
+      if (rule.scope === "module" && location === "kit") continue;
+      if (rule.guard !== "any" && !classLike) continue;
+      const match = rule.pattern.exec(value);
+      if (match === null) continue;
+      const token = classTokenAt(value, match.index + leadingSpace(match));
       diagnostics.push({
         line: line(literal.start + token.start),
-        message: `palette colour in class name: ${token.value}`,
+        message: `${rule.label} in class name: ${token.value}`,
+      });
+    }
+    // Per-element reduced motion: a literal that animates must say what it does when the user
+    // asked for less (`ui-kit.md`, **Spine** — no global kill switch).
+    if (classLike && MOTION_USE.test(value) && !MOTION_REDUCE.test(value)) {
+      const match = MOTION_USE.exec(value);
+      const token = classTokenAt(value, match.index + leadingSpace(match));
+      diagnostics.push({
+        line: line(literal.start + token.start),
+        message: `motion without a reduced-motion pair in class name: ${token.value}`,
       });
     }
   }
