@@ -16,6 +16,7 @@ import {
   screenText,
   realServerClients,
 } from "../../../test/real-client.ts";
+import { writeConfig } from "../../../test/config-command.ts";
 import { serverTarget } from "../../../test/server-url.ts";
 import { App, renderApp } from "../../../test/render-app.tsx";
 import { createGitRepo } from "../../../test/git-repo.ts";
@@ -322,6 +323,257 @@ test("an unreachable server at startup shows the framed notice, not an empty wor
   await expect.element(page.getByRole("textbox", { name: "Capability" })).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Retry now" })).toBeVisible();
   await expect.element(workspace()).not.toBeInTheDocument();
+});
+
+/** A client whose sockets the test can drop, so the workspace stays loaded over a dead server. */
+function droppableClient() {
+  const sockets: WebSocket[] = [];
+  const client = newClient(
+    serverTarget(),
+    (url, protocols) => {
+      const socket = new WebSocket(url, protocols);
+      sockets.push(socket);
+      return socket;
+    },
+    { backoff: { initialMs: 60_000, maxMs: 60_000 } },
+  );
+  return {
+    client,
+    drop: () => {
+      for (const socket of sockets.splice(0)) {
+        socket.dispatchEvent(new CloseEvent("close", { code: 1006 }));
+        socket.close(1006);
+      }
+    },
+  };
+}
+
+/**
+ * A loaded workspace whose connection just dropped. The framed boot notice only covers a first
+ * attempt, so an established tab shows the status surface instead.
+ */
+async function droppedWorkspace() {
+  const { client, drop } = droppableClient();
+  await appWithProject(client);
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
+  drop();
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("disconnected");
+  return client;
+}
+
+const connectionOpener = () => page.getByRole("button", { name: /^connection:/ });
+
+/** The surface a status fact is rendered in: A4's two placements, told apart for the test. */
+function statusSurface(placement: "footer" | "strip") {
+  const surface = connectionOpener()
+    .element()
+    .closest<HTMLElement>(`[data-slot="shell-status"][data-placement="${placement}"]`);
+  if (surface === null) throw new Error(`the status is not in the ${placement} placement`);
+  return surface;
+}
+
+test("the footer status opens the recovery dialog, keeps its guidance, and returns focus", async () => {
+  await droppedWorkspace();
+
+  const opener = connectionOpener();
+  await expect.element(opener).toBeVisible();
+  await expect.element(opener).toMatchTextContent(/Cannot reach the server/);
+  statusSurface("footer");
+
+  await opener.click();
+  const dialog = page.getByRole("dialog", { name: "Cannot reach the server" });
+  await expect.element(dialog).toBeVisible();
+  // A2's guidance survives the merge: the rotated capability's sentence and the field it names.
+  await expect
+    .element(dialog.getByText(/If the server restarted, paste the capability it published in endpoint\.json/))
+    .toBeVisible();
+  await expect.element(dialog.getByRole("textbox", { name: "Capability" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(dialog).not.toBeInTheDocument();
+  await expect.element(opener).toHaveFocus();
+});
+
+test("the hidden strip keeps the connection status and returns focus to it", async () => {
+  await droppedWorkspace();
+  await expect.element(connectionOpener()).toBeVisible();
+
+  await prefixThen("\\");
+  await expect.element(workspace()).not.toBeInTheDocument();
+  statusSurface("strip");
+  await expect.element(connectionOpener()).toBeVisible();
+
+  const opener = connectionOpener();
+  await opener.click();
+  const dialog = page.getByRole("dialog", { name: "Cannot reach the server" });
+  await expect.element(dialog).toBeVisible();
+  await expect.element(dialog.getByText(/endpoint\.json/)).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(dialog).not.toBeInTheDocument();
+  await expect.element(opener).toHaveFocus();
+});
+
+test("config problems keep their icon and dialog with the sidebar hidden", async () => {
+  const client = newClient();
+  await render(<App client={client} />);
+  await writeConfig('[keys.bindings]\nnew-agent = "hyper+q"\n');
+  await vi.waitFor(() => expect(client.config.getSnapshot().problems).toHaveLength(1));
+
+  await prefixThen("\\");
+  await expect.element(workspace()).not.toBeInTheDocument();
+
+  const notice = page.getByRole("button", { name: "config: 1 problem" });
+  await expect.element(notice).toBeVisible();
+  await notice.click();
+  const dialog = page.getByRole("dialog", { name: "Config problems" });
+  await expect.element(dialog).toBeVisible();
+  await expect.element(dialog).toMatchTextContent("keys.bindings.new-agent");
+  await userEvent.keyboard("{Escape}");
+  await expect.element(dialog).not.toBeInTheDocument();
+});
+
+test("a guidance failure can be dismissed", async () => {
+  await appWithProject(newClient());
+  const notice = page.getByText("Select a task to see its changes.");
+
+  await prefixShifted("c");
+  await expect.element(notice).toBeVisible();
+  await expect.element(notice).toHaveAttribute("role", "status");
+
+  const dismiss = page.getByRole("button", { name: "Dismiss status" });
+  await expect.element(dismiss).toBeVisible();
+  expect(dismiss.element().previousElementSibling?.textContent).toBe(
+    "Select a task to see its changes.",
+  );
+  await dismiss.click();
+  await expect.element(notice).not.toBeInTheDocument();
+});
+
+test("a status failure clears when the navigation it asked for arrives", async () => {
+  await appWithProject(newClient());
+  const notice = page.getByText("Select a task to see its changes.");
+
+  await prefixShifted("c");
+  await expect.element(notice).toBeVisible();
+  await createTask("Has a task");
+  await expect.element(notice).not.toBeInTheDocument();
+});
+
+test("a failed action is the kit's alert, not a quiet notice", async () => {
+  await droppedWorkspace();
+  await prefixThen("c");
+
+  const failure = page
+    .getByRole("alert")
+    .filter({ hasText: "The server is not connected, so the action was not sent." });
+  await expect.element(failure).toBeVisible();
+  await expect.element(failure).toHaveAttribute("data-slot", "alert");
+  await expect
+    .element(page.getByText("not connected to the server", { exact: true }))
+    .not.toBeInTheDocument();
+});
+
+test("a failed action keeps its message and the terminal's focus until the next selection", async () => {
+  await appWithProject(newClient());
+  await createTaskWithShell("Stays");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  await prefixThen("g");
+  const notice = page.getByText("No blocked sessions.");
+  await expect.element(notice).toBeVisible();
+  expect(focusedIsTerminal()).toBe(true);
+
+  await taskButton("Stays").click();
+  await expect.element(notice).not.toBeInTheDocument();
+});
+
+test("the status row stays one line at 1024 with the widest sidebar, at 140% too", async () => {
+  await droppedWorkspace();
+  const handle = page.getByRole("separator", { name: "Resize sidebar" });
+  handle.element().focus();
+  await userEvent.keyboard("{ArrowRight}".repeat(20));
+  await expect.element(handle).toHaveAttribute("aria-valuenow", "384");
+
+  const surface = statusSurface("footer");
+  const row = surface.lastElementChild as HTMLElement;
+  const assertRowFits = () => {
+    expect(row.clientHeight).toBeGreaterThan(0);
+    expect(row.scrollHeight).toBeLessThanOrEqual(row.clientHeight + 1);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
+    const asideRect = handle.element().parentElement!.getBoundingClientRect();
+    const hintRect = page.getByText("alt+a").element().getBoundingClientRect();
+    expect(hintRect.left).toBeGreaterThanOrEqual(asideRect.left - 1);
+    expect(hintRect.right).toBeLessThanOrEqual(asideRect.right + 1);
+    expect(connectionOpener().element().getBoundingClientRect().right).toBeLessThanOrEqual(
+      asideRect.right + 1,
+    );
+  };
+  assertRowFits();
+
+  const previous = document.documentElement.style.fontSize;
+  document.documentElement.style.fontSize = "140%";
+  try {
+    // The chrome row reads the interface scale, so the guard is the row's own height, not 36 px.
+    await vi.waitFor(() => expect(row.clientHeight).toBeGreaterThan(36));
+    assertRowFits();
+  } finally {
+    document.documentElement.style.fontSize = previous;
+  }
+});
+
+/** Waits for two frames and a fit round-trip, so a resize the arm caused would have landed. */
+async function settleLayout() {
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100)));
+  });
+}
+
+test("arming the prefix never resizes the terminal", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTaskWithShell("Keeps its height");
+  const pane = page.getByRole("region", { name: "active terminal" });
+  const host = () => {
+    const element = pane.element().querySelector<HTMLElement>(".terminal-host");
+    if (element === null) throw new Error("the terminal has no host");
+    return element;
+  };
+  const ptySize = async () => (await client.connection.api.terminals.list())[0]!.size;
+  /** The size once it stops moving: a PTY that is still fitting must not be the baseline. */
+  const settledSize = async () => {
+    let previous = await ptySize();
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await settleLayout();
+      const next = await ptySize();
+      if (JSON.stringify(next) === JSON.stringify(previous)) return next;
+      previous = next;
+    }
+    return previous;
+  };
+  const measure = async () => {
+    const size = await settledSize();
+    return { height: host().getBoundingClientRect().height, size };
+  };
+  const armed = page.getByRole("status", { name: "prefix mode" });
+
+  // Sidebar shown: the badge replaces the footer's hint in the same row.
+  const shown = await measure();
+  await userEvent.keyboard("{Alt>}a{/Alt}");
+  await expect.element(armed).toBeVisible();
+  expect(await measure()).toEqual(shown);
+  await userEvent.keyboard("q");
+  await expect.element(armed).not.toBeInTheDocument();
+  expect(await measure()).toEqual(shown);
+
+  // Sidebar hidden: the strip keeps its row whether or not the badge is in it.
+  await prefixThen("\\");
+  await expect.element(workspace()).not.toBeInTheDocument();
+  const hidden = await measure();
+  expect(hidden.height).toBeLessThan(shown.height);
+  await userEvent.keyboard("{Alt>}a{/Alt}");
+  await expect.element(armed).toBeVisible();
+  expect(await measure()).toEqual(hidden);
+  await userEvent.keyboard("q");
+  await expect.element(armed).not.toBeInTheDocument();
+  expect(await measure()).toEqual(hidden);
 });
 
 const focusedIsTerminal = () => document.activeElement?.classList.contains("xterm-helper-textarea");

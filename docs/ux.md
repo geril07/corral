@@ -53,13 +53,16 @@ What a user does. Everything below is built and verified end to end, chat views 
   session below them (`layout.md`). The sidebar is a fixed pane the user resizes; the terminal
   takes the rest of the main area. There is no title bar of our own and no global status bar.
 - The sidebar lists tasks only. A wordmark header has the sidebar toggle opposite it; the next
-  row has Search, grouping and New task. Its footer carries Settings, Add project, connection
-  state while disconnected, config problems and the prefix indicator. It has a default and a
-  narrow-window width, dragged between its limits with the edge handle, leaving the main area
-  its minimum at and above the supported 1024 px floor — kept per device, reset by a double
-  click, and hidden or shown by `prefix \`. `prefix w` gives the list the keyboard, showing the
-  sidebar first if it was hidden: arrows walk its rows, Enter opens one, and Escape returns the
-  keyboard to where it came from.
+  row has Search, grouping and New task. Its footer carries Settings, Add project, the prefix
+  hint while disarmed, and the shell status: connection state, config problems, the armed-prefix
+  badge and the current failure. When the sidebar is hidden the same status sits in a strip above
+  the main content, so hiding the pane cannot remove it; that strip keeps its row, so arming the
+  prefix does not resize the terminal under it. The sidebar has a default and a narrow-window
+  width, dragged between its limits with the edge handle, leaving the main area its minimum at and
+  above the supported 1024 px floor — kept per device, reset by a double click, and hidden or shown
+  by `prefix \`. `prefix w` gives the list
+  the keyboard, showing the sidebar first if it was hidden: arrows walk its rows, Enter opens
+  one, and Escape returns the keyboard to where it came from.
 - Project grouping is the default (`prefix l` switches to status groups and the device keeps
   the choice). The bottom Settled shelf spans projects, scrolls independently and pages six at a
   time; selecting older history reveals it without resuming it. Rows are two-line tasks;
@@ -159,7 +162,9 @@ What a user does. Everything below is built and verified end to end, chat views 
   re-reads before every attempt, and one recovery entry point retries the RPC connection and every
   attached terminal, so the task, tab, draft and terminal survive and a refused terminal reattaches
   with the new capability. Nothing behind a boot notice was mounted, so the notice never sits over
-  an empty workspace.
+  an empty workspace. A workspace failure is one status row: a failed action keeps its sentence
+  until the next navigation or selection, guidance that asked for a project or task uses the same
+  row, and either can be dismissed.
 - Chat keeps the composer semantics of the new-task view: Enter sends, Shift+Enter is a newline,
   and while a turn runs Enter steers and Ctrl/Cmd+Enter queues a follow-up (the composer says
   which). `prefix .` aborts the working turn and the palette lists the same action.

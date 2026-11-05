@@ -47,6 +47,7 @@ import type { RenameTarget } from "./rename-dialog.tsx";
 import { terminalLabel } from "./sidebar.tsx";
 import { ADD_PROJECT_BUTTON_ID, SIDEBAR_ROW_SELECTOR, sidebarRowTarget } from "./sidebar-focus.ts";
 import { useSidebarMode } from "./sidebar-mode.ts";
+import type { ShellFailure } from "./shell-status.tsx";
 import { useSidebarPane } from "./sidebar-pane.ts";
 import {
   CHANGES_ENTRY,
@@ -58,6 +59,14 @@ import {
 } from "./workspace-search.ts";
 
 const DEFAULT_SIZE: TerminalSize = { cols: 80, rows: 24 };
+
+/** A failure keeps the client's sentence, unless it is the transport's own internal voice. */
+function failureText(error: unknown): string {
+  const message = describeLaunchError(error) ?? describeError(error);
+  return message === "not connected to the server"
+    ? "The server is not connected, so the action was not sent."
+    : message;
+}
 
 export type DialogState =
   | { kind: "add-project" }
@@ -167,7 +176,7 @@ export function useWorkspace({
     dialogFocus?.remember(opener);
     setDialog(next);
   };
-  const [failure, setFailure] = useState<string>();
+  const [failure, setFailure] = useState<ShellFailure>();
   /**
    * The view a switch in flight is opening; the main area says so instead of showing a pane. `live`
    * is a `both-live` driver's switch, which starts a client of the agent's server beside the live
@@ -190,6 +199,9 @@ export function useWorkspace({
     }
     chosenRef.current = fromRoute;
     setChosen(fromRoute);
+    // Back/Forward and a route that arrives after the first render are navigation too; a stale
+    // failure must not outlive the selection it complained about.
+    setFailure(undefined);
   }, [search]);
 
   const tree = buildWorkspaceTree(projects, tasks, sessions, terminals);
@@ -293,6 +305,8 @@ export function useWorkspace({
       setChosen(merged);
       // Picking a task (or a loose terminal) leaves the composer; Escape has nothing to undo then.
       setComposing(undefined);
+      // The failure asked for this navigation, or the user has moved on; either way it is spent.
+      setFailure(undefined);
       // Any entry choice is a session choice: it also leaves the task's Changes tab.
       setChangesView(false);
       onChange(chosenToSearch(merged));
@@ -343,7 +357,7 @@ export function useWorkspace({
    */
   const openChanges = () => {
     if (selection.taskId === null) {
-      setFailure("Select a task to see its changes.");
+      setFailure({ message: "Select a task to see its changes.", tone: "notice" });
       return;
     }
     setFailure(undefined);
@@ -396,7 +410,7 @@ export function useWorkspace({
     try {
       await work();
     } catch (error) {
-      setFailure(describeLaunchError(error) ?? describeError(error));
+      setFailure({ message: failureText(error), tone: "error" });
     }
   };
 
@@ -417,11 +431,11 @@ export function useWorkspace({
 
   const openAgentPicker = (opener?: HTMLElement) => {
     if (selection.taskId === null) {
-      setFailure("Select a task to start an agent in.");
+      setFailure({ message: "Select a task to start an agent in.", tone: "notice" });
       return;
     }
     if (!AgentKind.options.some((kind) => config.agents[kind].enabled.value)) {
-      setFailure("Every agent is disabled in the config file.");
+      setFailure({ message: "Every agent is disabled in the config file.", tone: "notice" });
       return;
     }
     setFailure(undefined);
@@ -656,7 +670,7 @@ export function useWorkspace({
     if (row) {
       setFailure(undefined);
       jumpTo(row);
-    } else setFailure("No blocked sessions.");
+    } else setFailure({ message: "No blocked sessions.", tone: "notice" });
   };
 
   const toggleSettle = (task: Task) =>
@@ -683,9 +697,11 @@ export function useWorkspace({
         return;
       }
       const addProject = formatBinding(config, "add-project");
-      setFailure(
-        addProject === "unbound" ? "Add a project first." : `Add a project first: ${addProject}.`,
-      );
+      setFailure({
+        message:
+          addProject === "unbound" ? "Add a project first." : `Add a project first: ${addProject}.`,
+        tone: "notice",
+      });
       return;
     }
     setFailure(undefined);
@@ -1027,6 +1043,7 @@ export function useWorkspace({
     composerDraft,
     setComposerDraft,
     failure,
+    dismissFailure: () => setFailure(undefined),
     armed,
     actions,
     rememberFitSize,

@@ -217,7 +217,9 @@ test("prefix s without a task says so instead of opening the picker", async () =
 
   await prefixThen("s");
 
-  await expect.element(page.getByRole("alert")).toMatchTextContent("Select a task");
+  await expect
+    .element(page.getByRole("status").filter({ hasText: "Select a task" }))
+    .toMatchTextContent("Select a task");
   await expect.element(picker()).not.toBeInTheDocument();
 });
 

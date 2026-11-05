@@ -5,14 +5,10 @@ import { ActionId, taskSettingsFor, type ClientConfig } from "@corral/protocol/c
 import type { SessionView } from "@corral/protocol/rpc";
 import { useRef, useState } from "react";
 import {
-  Alert,
-  AlertDescription,
   AppShell,
-  Badge,
   Button,
   IconButton,
   Input,
-  Kbd,
   MainPanel,
   SidebarPanel,
   TaskContent,
@@ -29,24 +25,19 @@ import {
 import { NewTaskView, RemoveTaskDialog, TaskSourceDialog } from "../tasks/index.ts";
 import { TerminalView } from "../terminal/index.ts";
 import {
-  ConnectionNotice,
   ConnectionRecoveryDialog,
   putCapabilityInHash,
   StartupNotice,
   type NoticeProblem,
 } from "../connection/index.ts";
-import {
-  CommandPaletteDialog,
-  ConfigProblemsDialog,
-  ConfigProblemsNotice,
-  formatBinding,
-} from "../keymap/index.ts";
-import { SETTINGS_BUTTON_ID, useAppearance, useSettingsActivity } from "../settings/index.ts";
+import { CommandPaletteDialog, ConfigProblemsDialog, formatBinding } from "../keymap/index.ts";
+import { useAppearance, useSettingsActivity } from "../settings/index.ts";
 import { FindTaskDialog } from "./find-task-dialog.tsx";
 import { RenameDialog } from "./rename-dialog.tsx";
 import { SessionTabs } from "./session-tabs.tsx";
 import { Sidebar } from "./sidebar.tsx";
 import { ADD_PROJECT_BUTTON_ID } from "./sidebar-focus.ts";
+import { ShellStatus } from "./shell-status.tsx";
 import { SidebarResizeHandle } from "./sidebar-resize-handle.tsx";
 import { TaskHeader } from "./task-header.tsx";
 import { useWorkspace } from "./use-workspace.ts";
@@ -124,6 +115,7 @@ export function WorkspaceScreen({
     composerDraft,
     setComposerDraft,
     failure,
+    dismissFailure,
     armed,
     actions,
     rememberFitSize,
@@ -355,53 +347,46 @@ export function WorkspaceScreen({
             onResize={sidebar.setWidth}
             onReset={sidebar.resetWidth}
           />
-          <footer className="shrink-0 border-t border-border">
-            {failure && (
-              <p
-                className="m-0 border-b border-border px-2 py-1 text-xs text-destructive"
-                role="alert"
-              >
-                {failure}
-              </p>
-            )}
-            <div className="flex h-9 items-center gap-1 px-2">
-              <IconButton
-                id={SETTINGS_BUTTON_ID}
-                label="Settings"
-                tooltip={`Settings · ${settingsBinding}`}
-                icon="settings"
-                onClick={(event) => openSettings(event.currentTarget)}
-              />
-              <IconButton
-                id={ADD_PROJECT_BUTTON_ID}
-                label="Add project"
-                tooltip={formatBinding(config, "add-project")}
-                icon="add-project"
-                onClick={() => actions["add-project"].run()}
-              />
-              <ConnectionNotice
-                state={connection}
-                onOpen={(opener) => openConnectionRecovery(opener)}
-              />
-              <ConfigProblemsNotice onOpen={openConfigProblems} />
-              <span
-                className="ml-auto flex items-center gap-1 text-xs text-muted-foreground"
-                role={armed ? "status" : undefined}
-                aria-label={armed ? "prefix mode" : undefined}
-              >
-                {armed ? <Badge variant="secondary">prefix…</Badge> : <Kbd>{prefix}</Kbd>}
-              </span>
-            </div>
-          </footer>
+          <ShellStatus
+            placement="footer"
+            connection={connection}
+            armed={armed}
+            prefix={prefix}
+            failure={failure}
+            onDismissFailure={dismissFailure}
+            onOpenConnection={openConnectionRecovery}
+            onOpenConfigProblems={openConfigProblems}
+            actions={
+              <>
+                <IconButton
+                  label="Settings"
+                  tooltip={`Settings · ${settingsBinding}`}
+                  icon="settings"
+                  onClick={(event) => openSettings(event.currentTarget)}
+                />
+                <IconButton
+                  id={ADD_PROJECT_BUTTON_ID}
+                  label="Add project"
+                  tooltip={formatBinding(config, "add-project")}
+                  icon="add-project"
+                  onClick={() => actions["add-project"].run()}
+                />
+              </>
+            }
+          />
         </SidebarPanel>
       )}
       <MainPanel className="flex min-h-0 flex-col bg-background">
-        {/* The footer carries the alert with the sidebar; a hidden sidebar must not hide it. */}
-        {sidebar.hidden && failure && (
-          <Alert variant="destructive">
-            <AlertDescription>{failure}</AlertDescription>
-          </Alert>
-        )}
+        <ShellStatus
+          placement="strip"
+          connection={connection}
+          armed={armed}
+          prefix={prefix}
+          failure={failure}
+          onDismissFailure={dismissFailure}
+          onOpenConnection={openConnectionRecovery}
+          onOpenConfigProblems={openConfigProblems}
+        />
         {(currentTaskNode || (showComposer && loaded && composerProject !== undefined)) && (
           <TaskHeader
             node={showComposer ? undefined : currentTaskNode}
