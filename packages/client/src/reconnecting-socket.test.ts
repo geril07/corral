@@ -111,6 +111,26 @@ test("a protocol mismatch still stops without scheduling a retry", () => {
   }
 });
 
+test("a WebSocket constructor error becomes a typed cause instead of escaping", () => {
+  const states: ConnectionState[] = [];
+  const socket = new ReconnectingSocket({
+    url: "ws://127.0.0.1:4100/rpc?protocol=12",
+    protocols: ["corral.capability", "bad token"],
+    createSocket: () => {
+      throw new SyntaxError("The string did not match the expected pattern.");
+    },
+    onState: (state) => states.push(state),
+    onOpen: () => undefined,
+    onClose: () => "retry",
+  });
+
+  expect(states.at(-1)).toEqual({
+    status: "invalid-capability",
+    detail: "The string did not match the expected pattern.",
+  });
+  socket.close();
+});
+
 test("retry now opens a new attempt after a refused capability instead of waiting", () => {
   vi.useFakeTimers();
   try {

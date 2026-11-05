@@ -161,6 +161,68 @@ describe("browser bootstrap", () => {
     expect(wrongServer.message).toContain("belongs to ws://127.0.0.1:5173");
   });
 
+  test.for([
+    {
+      kind: "invalid-url",
+      location: { ...page, search: "?server=not-a-url" },
+      bridge: undefined,
+      expected: { kind: "invalid-url", given: "not-a-url" },
+      message: "server URL must be ws:// or wss://",
+    },
+    {
+      kind: "empty-capability",
+      location: { ...page, hash: "#/?capability=" },
+      bridge: undefined,
+      expected: { kind: "empty-capability" },
+      message: "capability in the URL is empty",
+    },
+    {
+      kind: "invalid-capability",
+      location: { ...page, hash: "#/?capability=bad%20token" },
+      bridge: undefined,
+      expected: { kind: "invalid-capability" },
+      message: "not a valid token",
+    },
+    {
+      kind: "desktop-endpoint",
+      location: page,
+      bridge: { server: async () => null, openExternal: async () => undefined },
+      expected: { kind: "desktop-endpoint" },
+      message: "did not provide",
+    },
+  ])(
+    "$kind reaches the surface as a typed failure",
+    async ({ location, bridge, expected, message }) => {
+      const error = await resolveServerTarget({
+        location,
+        storage: memoryStorage(sameServer),
+        ...(bridge === undefined ? {} : { bridge }),
+      }).catch((each: unknown) => each);
+
+      expect(serverTargetFailure(error)).toEqual(expected);
+      if (!(error instanceof Error)) throw new Error("expected a bootstrap error");
+      expect(error.message).toContain(message);
+    },
+  );
+
+  test("an invalid capability is not stored and keeps the previous target", async () => {
+    const storage = memoryStorage(sameServer);
+    let applied: string | undefined;
+
+    await expect(
+      resolveServerTarget({
+        location: { ...page, hash: "#/?capability=bad%20token" },
+        storage,
+        applyHash: (hash) => {
+          applied = hash;
+        },
+      }),
+    ).rejects.toThrow("not a valid token");
+
+    expect(storage.value).toEqual(sameServer);
+    expect(applied).toBeUndefined();
+  });
+
   test("the storage key is stable and holds a target pair, not a bare token", () => {
     expect(SERVER_TARGET_STORAGE_KEY).toBe("corral.server-target");
   });

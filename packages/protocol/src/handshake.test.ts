@@ -4,6 +4,7 @@ import {
   capabilityFromProtocols,
   capabilityProtocols,
   checkProtocolVersion,
+  isCapabilityToken,
   PROTOCOL_VERSION,
   protocolUrl,
 } from "./handshake.ts";
@@ -50,5 +51,13 @@ describe("capability subprotocol", () => {
 
   test("an empty capability is refused instead of opening an unauthenticated socket", () => {
     expect(() => capabilityProtocols("")).toThrow("server capability is empty");
+  });
+
+  test("a capability that is not an HTTP token is refused before WebSocket can throw", () => {
+    expect(isCapabilityToken("abc_DEF-123")).toBe(true);
+    expect(isCapabilityToken("bad token")).toBe(false);
+    expect(isCapabilityToken("line\nbreak")).toBe(false);
+    expect(isCapabilityToken("token\n")).toBe(false);
+    expect(() => capabilityProtocols("bad token")).toThrow("not a valid WebSocket token");
   });
 });

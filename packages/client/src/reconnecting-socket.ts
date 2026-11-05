@@ -110,7 +110,18 @@ export class ReconnectingSocket {
   }
 
   #open(url: string, protocols: string[]): void {
-    const socket = this.#options.createSocket?.(url, protocols) ?? new WebSocket(url, protocols);
+    let socket: WebSocket;
+    try {
+      socket = this.#options.createSocket?.(url, protocols) ?? new WebSocket(url, protocols);
+    } catch (error) {
+      // A capability that is not a valid subprotocol token throws here, before any socket exists.
+      // Retrying the same target cannot help; a new capability can, so `retry()` stays available.
+      this.#options.onState({
+        status: "invalid-capability",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
     socket.binaryType = "arraybuffer";
     this.#socket = socket;
     socket.addEventListener("open", () => {

@@ -70,9 +70,23 @@ export type ProtocolMismatchReason = z.infer<typeof ProtocolMismatchReason>;
  */
 export const CAPABILITY_SUBPROTOCOL = "corral.capability";
 
+/**
+ * A WebSocket subprotocol is an HTTP token (RFC 7230): a capability with a space or other
+ * separator makes the browser's `WebSocket` constructor throw before any connection exists.
+ */
+const CAPABILITY_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+export function isCapabilityToken(capability: string): boolean {
+  // `$` also matches before a final newline, so compare the whole match with the input.
+  return CAPABILITY_TOKEN.exec(capability)?.[0] === capability;
+}
+
 /** What a client offers when it opens a socket to a server. */
 export function capabilityProtocols(capability: string): string[] {
   if (capability.length === 0) throw new Error("server capability is empty");
+  if (!isCapabilityToken(capability)) {
+    throw new TypeError("server capability is not a valid WebSocket token");
+  }
   return [CAPABILITY_SUBPROTOCOL, capability];
 }
 
