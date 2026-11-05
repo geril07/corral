@@ -98,9 +98,11 @@ export function planWorktree(
   if (local.has(branch)) return { kind: "existing-branch", branch, slug: branch };
   if (context.branches.remote.includes(branch)) {
     const localName = localNameOfRemote(branch);
-    return local.has(localName)
-      ? { kind: "existing-branch", branch: localName, slug: localName }
-      : { kind: "track-remote", branch: localName, remoteBranch: branch, slug: localName };
+    if (local.has(localName))
+      return { kind: "existing-branch", branch: localName, slug: localName };
+    const problem = chosenBranchProblem(localName, local);
+    if (problem !== undefined) return { problem };
+    return { kind: "track-remote", branch: localName, remoteBranch: branch, slug: localName };
   }
   return { problem: `no such branch: ${branch}` };
 }

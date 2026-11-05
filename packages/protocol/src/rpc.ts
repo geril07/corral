@@ -788,7 +788,7 @@ export const contract = {
       .errors({ ...projectNotFound, HAS_LIVE_TERMINALS: {} })
       .input(z.object({ id: ProjectId }))
       .output(z.void()),
-    /** Local and remote-tracking branches (`origin/x`) a new worktree can check out, for the create-task form. */
+    /** Local and remote-tracking branches (`origin/x`) a new worktree can check out without a local branch-name conflict, for the create-task form. */
     branches: oc
       .errors({ ...projectNotFound, ...gitFailed })
       .input(z.object({ id: ProjectId }))
