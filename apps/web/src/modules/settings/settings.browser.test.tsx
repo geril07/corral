@@ -346,7 +346,7 @@ provider = "anthropic"
 
 test("the sidebar entry opens settings; Escape and Back return to the same task with focus on the entry", async () => {
   const client = newClient();
-  await appWithProject(client);
+  const { rendered } = await appWithProject(client);
   await createTaskWithShell("Settings trip");
   const terminal = document.querySelector(".terminal-host");
 
@@ -354,14 +354,32 @@ test("the sidebar entry opens settings; Escape and Back return to the same task 
   expect(document.querySelector(".terminal-host")).toBe(terminal);
   await expect.element(settingsHeading()).toBeVisible();
 
+  // The mounted workspace is covered, not exposed: its terminal cannot take focus and AT
+  // does not read it while settings is open.
+  const navigation = page
+    .getByRole("navigation", { name: "workspace", includeHidden: true })
+    .element();
+  expect(navigation.closest("[inert]")).not.toBeNull();
+  expect(navigation.closest('[aria-hidden="true"]')).not.toBeNull();
+
   await userEvent.keyboard("{Escape}");
   await expect.element(settingsHeading()).not.toBeInTheDocument();
   await expect.element(taskButton("Settings trip")).toHaveAttribute("aria-current", "true");
   await expect.element(settingsButton()).toHaveFocus();
+  expect(navigation.closest("[inert]")).toBeNull();
+  expect(navigation.closest('[aria-hidden="true"]')).toBeNull();
 
   await settingsButton().click();
   await expect.element(settingsHeading()).toBeVisible();
   await page.getByRole("button", { name: "Back to workspace" }).click();
+  await expect.element(settingsHeading()).not.toBeInTheDocument();
+  await expect.element(taskButton("Settings trip")).toHaveAttribute("aria-current", "true");
+  await expect.element(settingsButton()).toHaveFocus();
+
+  // History Back is the third close path; it has no dialog onClose call to lean on.
+  await settingsButton().click();
+  await expect.element(settingsHeading()).toBeVisible();
+  rendered.history.back();
   await expect.element(settingsHeading()).not.toBeInTheDocument();
   await expect.element(taskButton("Settings trip")).toHaveAttribute("aria-current", "true");
   await expect.element(settingsButton()).toHaveFocus();

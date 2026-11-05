@@ -1,3 +1,5 @@
+import type { CorralClient } from "@corral/client/corral-client";
+import type { TerminalSurface } from "@corral/client/terminal-stream";
 import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -56,12 +58,69 @@ test("the same key without the prefix's modifier does not arm prefix mode", asyn
 });
 
 const workspace = () => page.getByRole("navigation", { name: "workspace" });
-const boardList = () => page.getByRole("region", { name: "Board" }).getByRole("listbox");
-const boardBack = () =>
-  page.getByRole("region", { name: "Board" }).getByRole("button", { name: "Back to workspace" });
+const hiddenWorkspace = () =>
+  page.getByRole("navigation", { name: "workspace", includeHidden: true });
+const board = () => page.getByRole("region", { name: "Board" });
+const boardList = () => board().getByRole("listbox");
+const boardBack = () => board().getByRole("button", { name: "Back to workspace" });
 // Terminals of the test server run /bin/sh, which the sidebar labels "sh · <folder>".
 const terminalButtons = () => workspace().getByRole("button", { name: /^sh · / });
+const hiddenTerminalButtons = () =>
+  hiddenWorkspace().getByRole("button", { name: /^sh · /, includeHidden: true });
 const selectButton = (index: number) => terminalButtons().nth(index);
+
+const idleSurface: TerminalSurface = {
+  write: () => undefined,
+  reset: () => undefined,
+  resize: () => undefined,
+};
+
+/** Sends input to a live terminal from a second attachment, without touching its keyboard. */
+async function writeTerminal(client: CorralClient, terminalId: string, text: string) {
+  const stream = client.attach(terminalId, idleSurface);
+  await vi.waitFor(() => expect(stream.state.getSnapshot().status).toBe("connected"));
+  stream.input(text);
+  return stream;
+}
+
+interface SeededBoard {
+  client: CorralClient;
+  projectId: string;
+  taskId: string;
+  sessionId: string;
+  terminalId: string;
+  workspaceHref: string;
+  boardHref: string;
+}
+
+/** A project with two active tasks and a live shell, plus the URLs that select one of them. */
+async function seedBoard(): Promise<SeededBoard> {
+  const client = newClient();
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
+  const { api } = client.connection;
+  const project = await api.projects.add({ path: await createGitRepo("board-focus") });
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Board focus",
+    workspace: { type: "main-worktree" },
+  });
+  await api.tasks.create({
+    projectId: project.id,
+    title: "Board second",
+    workspace: { type: "main-worktree" },
+  });
+  const session = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
+  const search = `project=${project.id}&task=${task.id}&entry=${session.id}`;
+  return {
+    client,
+    projectId: project.id,
+    taskId: task.id,
+    sessionId: session.id,
+    terminalId: session.terminalId!,
+    workspaceHref: `/?${search}`,
+    boardHref: `/board?${search}`,
+  };
+}
 
 test("prefix then c opens a terminal that takes the keyboard straight away", async () => {
   await render(<App client={newClient()} />);
@@ -275,7 +334,7 @@ test("prefix b opens the board, which pauses the prefix and closes on Escape", a
   await expect.element(boardBack()).toHaveFocus();
   // The workspace keeps its state but not its keymap while the layer is open.
   await prefixThen("c");
-  await expect.element(terminalButtons()).toHaveLength(1);
+  await expect.element(hiddenTerminalButtons()).toHaveLength(1);
   await userEvent.keyboard("{Escape}");
 
   await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
@@ -317,30 +376,100 @@ test("the board leaves the terminal attached and its grid unchanged underneath",
   const sizeOf = async () => (await client.connection.api.terminals.list())[0]!.size;
   await vi.waitFor(async () => expect((await sizeOf()).cols).toBeGreaterThan(85));
   const size = await sizeOf();
-  // Output that arrives while the board is open proves the stream stayed attached underneath.
-  await userEvent.keyboard("(sleep 1; echo board-kept-$((3*3))){Enter}");
 
   await prefixThen("b");
-  await expect.element(page.getByRole("region", { name: "Board" })).toBeVisible();
+  await expect.element(board()).toBeVisible();
   await expect.element(boardBack()).toHaveFocus();
+  // Output that arrives while the board is open proves the stream stayed attached underneath.
+  const terminalId = (await client.connection.api.terminals.list())[0]!.id;
+  const stream = await writeTerminal(client, terminalId, "echo board-kept-$((3*3))\n");
   await expect.poll(screenText, { timeout: 5000 }).toContain("board-kept-9");
+  stream.close();
   expect(await sizeOf()).toEqual(size);
   await userEvent.keyboard("{Escape}");
 
-  await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
+  await expect.element(board()).not.toBeInTheDocument();
   expect(page.getByRole("region", { name: "active terminal" }).element()).toBe(pane);
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+});
+
+test("a cold /board visit keeps the keyboard in the board over a live terminal", async () => {
+  const seeded = await seedBoard();
+  await renderApp(seeded.client, [seeded.workspaceHref, seeded.boardHref]);
+
+  await expect.element(board()).toBeVisible();
+  await expect.element(boardList()).toHaveFocus();
+
+  // The workspace underneath is a boundary, not just a covered screen.
+  const navigation = hiddenWorkspace().element();
+  expect(navigation.closest("[inert]")).not.toBeNull();
+  expect(navigation.closest('[aria-hidden="true"]')).not.toBeNull();
+
+  // The terminal is live underneath: output written after the board opened reaches its screen.
+  const stream = await writeTerminal(
+    seeded.client,
+    seeded.terminalId,
+    "echo board-cold-$((2+2))\n",
+  );
+  await expect.poll(screenText).toContain("board-cold-4");
+
+  // Arrows move the board's highlight, not the terminal's input.
+  const options = boardList().getByRole("option");
+  await expect.element(options.nth(0)).toHaveAttribute("aria-selected", "true");
+  await userEvent.keyboard("{ArrowDown}");
+  await expect.element(options.nth(1)).toHaveAttribute("aria-selected", "true");
+
+  // Tab cannot reach the terminal. A marker written after the sentinel proves the terminal
+  // parsed the input in order, so the sentinel would be on screen if it had leaked.
+  await userEvent.keyboard("{Tab}");
+  expect(focusedIsTerminal()).toBe(false);
+  await userEvent.keyboard("board-tab-sentinel");
+  stream.input("echo board-after-tab-$((3+3))\n");
+  await expect.poll(screenText).toContain("board-after-tab-6");
+  expect(screenText()).not.toContain("board-tab-sentinel");
+  stream.close();
+});
+
+test("history Back from the board restores the terminal keyboard", async () => {
+  const seeded = await seedBoard();
+  const screen = await renderApp(seeded.client, [seeded.workspaceHref, seeded.boardHref]);
+  await expect.element(board()).toBeVisible();
+  await expect.element(boardList()).toHaveFocus();
+
+  screen.history.back();
+
+  await expect.element(board()).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  expect(screen.history.location.pathname).toBe("/");
+  expect(screen.history.location.search).toContain(`task=${seeded.taskId}`);
+  await userEvent.keyboard("echo history-back-$((5+5)){Enter}");
+  await expect.poll(screenText).toContain("history-back-10");
+});
+
+test("the board's Back control returns to the same task and the terminal keyboard", async () => {
+  const seeded = await seedBoard();
+  const screen = await renderApp(seeded.client, [seeded.workspaceHref, seeded.boardHref]);
+  await expect.element(board()).toBeVisible();
+
+  await boardBack().click();
+
+  await expect.element(board()).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  expect(screen.history.location.pathname).toBe("/");
+  expect(screen.history.location.search).toContain(`project=${seeded.projectId}`);
+  expect(screen.history.location.search).toContain(`task=${seeded.taskId}`);
+  expect(screen.history.location.search).toContain(`entry=${seeded.sessionId}`);
 });
 
 test("a direct /board visit renders the layer over the workspace", async () => {
   const screen = await renderApp(newClient(), ["/board"]);
 
-  await expect.element(page.getByRole("region", { name: "Board" })).toBeVisible();
-  await expect.element(workspace()).toBeVisible();
+  await expect.element(board()).toBeVisible();
+  await expect.element(hiddenWorkspace()).toBeVisible();
   await expect.element(boardBack()).toHaveFocus();
   await userEvent.keyboard("{Escape}");
 
-  await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
+  await expect.element(board()).not.toBeInTheDocument();
   await vi.waitFor(() => expect(screen.history.location.pathname).toBe("/"));
 });
 
