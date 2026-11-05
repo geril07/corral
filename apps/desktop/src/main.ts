@@ -20,6 +20,12 @@ const webDist = path.join(import.meta.dirname, "../../web/dist/index.html");
 const serverEntry = path.join(import.meta.dirname, "../../server/src/main.ts");
 const preload = path.join(import.meta.dirname, "preload.cjs");
 const SERVER_START_TIMEOUT_MS = 15_000;
+// `ux.md`, Known limits: desktop support begins at 1024×640. The window and its starting size
+// share the floor, so neither a resize nor a smaller stored default can start below it.
+const MIN_WINDOW_WIDTH = 1024;
+const MIN_WINDOW_HEIGHT = 640;
+const DEFAULT_WINDOW_WIDTH = 1280;
+const DEFAULT_WINDOW_HEIGHT = 800;
 
 const stateDir = resolveStateDir(process.env, os.homedir());
 let mainWindow: BrowserWindow | undefined;
@@ -51,8 +57,10 @@ ipcMain.handle(DESKTOP_OPEN_EXTERNAL_CHANNEL, (event, value: unknown) => {
 
 async function openWindow() {
   const window = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: Math.max(MIN_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH),
+    height: Math.max(MIN_WINDOW_HEIGHT, DEFAULT_WINDOW_HEIGHT),
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     title: "Corral",
     webPreferences: { preload },
   });

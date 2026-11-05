@@ -86,6 +86,10 @@ async function openedWindow(app: ElectronApplication) {
   return window;
 }
 
+function windowSize(app: ElectronApplication) {
+  return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getSize());
+}
+
 // Playwright sends keys over CDP, past native menu handling, so this cannot catch the Alt
 // menu-bar problem that main.ts guards against; it covers the app reacting to the prefix.
 test("the window shows the app and the prefix chord arms prefix mode", async ({ launchApp }) => {
@@ -94,6 +98,54 @@ test("the window shows the app and the prefix chord arms prefix mode", async ({ 
 
   await window.keyboard.press("Alt+KeyA");
   await expect(window.getByRole("status", { name: "prefix mode" })).toBeVisible();
+});
+
+test("the window and the sidebar keep the 1024×640 floor", async ({ launchApp }) => {
+  const app = await launchApp();
+  const window = await openedWindow(app);
+  const separator = window.getByRole("separator", { name: "Resize sidebar" });
+  await expect(separator).toBeVisible();
+
+  // The host refuses a smaller size; the web layout sees 1024 and leaves the main area 640.
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.setSize(800, 600);
+  });
+  await expect.poll(() => windowSize(app)).toEqual([1024, 640]);
+  await expect.poll(() => window.evaluate<number>("window.innerWidth")).toBe(1024);
+  await expect(separator).toHaveAttribute("aria-valuemax", "384");
+  // The launch default may have been the 1280 px window's; reset at 1024 names the narrow one.
+  await separator.dblclick();
+  await expect(separator).toHaveAttribute("aria-valuenow", "232");
+
+  // The edge stops at 208 and 384, and the main area is exactly its reserve at the maximum.
+  // oxlint-disable-next-line eslint/no-await-in-loop -- each press must land on the new width
+  for (let press = 0; press < 20; press += 1) await separator.press("ArrowRight");
+  await expect(separator).toHaveAttribute("aria-valuenow", "384");
+  expect(await window.locator("main").evaluate((main) => main.getBoundingClientRect().width)).toBe(
+    640,
+  );
+  await separator.press("ArrowLeft");
+  await expect(separator).toHaveAttribute("aria-valuenow", "368");
+  await separator.press("ArrowRight");
+  await expect(separator).toHaveAttribute("aria-valuenow", "384");
+  await separator.press("ArrowRight");
+  await expect(separator).toHaveAttribute("aria-valuenow", "384");
+  // oxlint-disable-next-line eslint/no-await-in-loop -- each press must land on the new width
+  for (let press = 0; press < 20; press += 1) await separator.press("ArrowLeft");
+  await expect(separator).toHaveAttribute("aria-valuenow", "208");
+
+  // Double-click resets to the window-dependent default at both supported widths.
+  await separator.dblclick();
+  await expect(separator).toHaveAttribute("aria-valuenow", "232");
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.setSize(1920, 1080);
+  });
+  await expect.poll(() => windowSize(app)).toEqual([1920, 1080]);
+  await expect.poll(() => window.evaluate<number>("window.innerWidth")).toBe(1920);
+  await expect(separator).toHaveAttribute("aria-valuemax", "420");
+  await expect(separator).toHaveAttribute("aria-valuenow", "232");
+  await separator.dblclick();
+  await expect(separator).toHaveAttribute("aria-valuenow", "264");
 });
 
 test("the window is given the URL of the server the app started, and the capability only over IPC", async ({
