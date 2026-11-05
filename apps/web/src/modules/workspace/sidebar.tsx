@@ -43,6 +43,7 @@ import {
 import { changeCounts, pullRequestShortText } from "../changes/index.ts";
 import { formatBinding } from "../keymap/index.ts";
 import { StatusIndicator } from "../status/index.ts";
+import { SIDEBAR_ROW_SELECTOR, sidebarRowOf } from "./sidebar-focus.ts";
 
 export function terminalLabel(terminal: TerminalInfo): string {
   if (terminal.label) return terminal.label;
@@ -95,6 +96,10 @@ interface SidebarProps {
   onFindTask: (opener?: HTMLElement) => void;
   onToggleSidebar?: (() => void) | undefined;
   onToggleGrouping?: (() => void) | undefined;
+  /** Escape in the list: the keyboard returns to where `prefix w` took it from. */
+  onLeaveList?: (() => void) | undefined;
+  /** Enter on the row that is already open: the task's terminal, chat or composer takes it back. */
+  onReturnToWorkspace?: (() => void) | undefined;
 }
 
 /**
@@ -185,10 +190,49 @@ export function Sidebar(props: SidebarProps) {
     />
   );
 
+  // Escape is taken in the capture phase: a clipped row shows its tooltip on focus, and Base UI's
+  // trigger closes it on Escape before a bubbling handler sees the key. Leaving the list is the
+  // row's own action, so it runs first and the tooltip closes with the lost focus.
+  const onKeyDownCapture = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Escape" || sidebarRowOf(event) === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    props.onLeaveList?.();
+  };
+
+  // Arrows walk the rows; Enter is the row's own button activation.
+  const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    const row = sidebarRowOf(event);
+    if (!row) return;
+    if (event.key === "Enter") {
+      // The button opens its row itself; only the row that is already open has no remount to
+      // return the keyboard, so this is the one case that hands it back explicitly.
+      if (row.getAttribute("aria-current") === "true") props.onReturnToWorkspace?.();
+      return;
+    }
+    const rows = [...event.currentTarget.querySelectorAll<HTMLElement>(SIDEBAR_ROW_SELECTOR)];
+    const index = rows.indexOf(row);
+    const target =
+      event.key === "ArrowDown"
+        ? index + 1
+        : event.key === "ArrowUp"
+          ? index - 1
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? rows.length - 1
+              : undefined;
+    if (target === undefined) return;
+    event.preventDefault();
+    rows[Math.max(0, Math.min(rows.length - 1, target))]?.focus();
+  };
+
   return (
     <nav
       className="flex min-h-0 flex-1 flex-col"
       aria-label="workspace"
+      onKeyDownCapture={onKeyDownCapture}
+      onKeyDown={onKeyDown}
       // Clicking must not take keyboard focus away from the terminal.
       onMouseDown={(event) => event.preventDefault()}
     >
@@ -337,6 +381,7 @@ function TerminalRow({
     <Button
       variant={current ? "secondary" : "ghost"}
       layout="tree"
+      data-sidebar-row
       aria-label={label}
       aria-current={current ? "true" : undefined}
       onClick={onSelect}
@@ -439,6 +484,7 @@ function TaskRow({
       variant={current ? "secondary" : "ghost"}
       size="row"
       layout="tree"
+      data-sidebar-row
       // The second line lives in an overridden subtree, so the accessible name carries it.
       aria-label={detail === undefined ? task.title : `${task.title} — ${detail}`}
       aria-current={current ? "true" : undefined}

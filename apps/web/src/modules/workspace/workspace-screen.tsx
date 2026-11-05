@@ -40,6 +40,7 @@ import { FindTaskDialog } from "./find-task-dialog.tsx";
 import { RenameDialog } from "./rename-dialog.tsx";
 import { SessionTabs } from "./session-tabs.tsx";
 import { Sidebar } from "./sidebar.tsx";
+import { ADD_PROJECT_BUTTON_ID } from "./sidebar-focus.ts";
 import { SidebarResizeHandle } from "./sidebar-resize-handle.tsx";
 import { TaskHeader } from "./task-header.tsx";
 import { useWorkspace } from "./use-workspace.ts";
@@ -110,6 +111,8 @@ export function WorkspaceScreen({
     pullRequests,
     chatFiles,
     sidebar,
+    leaveSidebarList,
+    returnToWorkspace,
     dialog,
     composing,
     composerDraft,
@@ -293,6 +296,8 @@ export function WorkspaceScreen({
             onViewSource={openTaskSource}
             onNewTask={openNewTask}
             onFindTask={openFindTask}
+            onLeaveList={leaveSidebarList}
+            onReturnToWorkspace={returnToWorkspace}
           />
           <SidebarResizeHandle
             width={sidebar.width}
@@ -318,6 +323,7 @@ export function WorkspaceScreen({
                 onClick={(event) => openSettings(event.currentTarget)}
               />
               <IconButton
+                id={ADD_PROJECT_BUTTON_ID}
                 label="Add project"
                 tooltip={formatBinding(config, "add-project")}
                 icon="add-project"

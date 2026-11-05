@@ -27,6 +27,7 @@ import {
   promptField,
   sessionTab,
   shellTabs,
+  startShell,
   taskButton,
   taskHeader,
   newTaskView,
@@ -822,6 +823,108 @@ test("prefix \\ hides the sidebar, gives the window to the terminal, and shows i
 
   await prefixThen("\\");
   await expect.element(page.getByRole("navigation", { name: "workspace" })).toBeVisible();
+});
+
+test("prefix w gives the keyboard to the sidebar list, and Enter or Escape hands it back", async () => {
+  await appWithProject(newClient());
+  await createTaskWithShell("First");
+  // A long title clips in the sidebar and makes the row show its tooltip on focus.
+  await createTask("Second task with a long enough title to clip in the sidebar");
+  await startShell();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  const second = taskButton("Second task with a long enough title");
+
+  // The current row takes the keyboard, ring included, without the terminal losing a key first.
+  await prefixThen("w");
+  await expect.element(second).toHaveFocus();
+  expect(second.element().matches(":focus-visible")).toBe(true);
+
+  // The arrows walk the rows and stop at the ends; Home and End take them.
+  await userEvent.keyboard("{ArrowUp}");
+  await expect.element(taskButton("First")).toHaveFocus();
+  await userEvent.keyboard("{ArrowUp}");
+  await expect.element(taskButton("First")).toHaveFocus();
+  await userEvent.keyboard("{End}");
+  await expect.element(second).toHaveFocus();
+  await userEvent.keyboard("{ArrowDown}");
+  await expect.element(second).toHaveFocus();
+
+  // The existing tab order still runs on from the row, and Shift+Tab walks it back.
+  const handle = page.getByRole("separator", { name: "Resize sidebar" });
+  await userEvent.keyboard("{Tab}");
+  await expect.element(handle).toHaveFocus();
+  await userEvent.keyboard("{Tab}");
+  await expect.element(page.getByRole("button", { name: "Settings" })).toHaveFocus();
+  await userEvent.keyboard("{Tab}");
+  await expect.element(page.getByRole("button", { name: "Add project" })).toHaveFocus();
+  await userEvent.keyboard("{Shift>}{Tab}{/Shift}{Shift>}{Tab}{/Shift}{Shift>}{Tab}{/Shift}");
+  await expect.element(second).toHaveFocus();
+
+  // The focused row still offers its own task menu.
+  await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+  await expect.element(page.getByRole("menuitem", { name: "Settle task" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(second).toHaveFocus();
+
+  // Enter on the row that is already open mounts no pane, so it hands the keyboard back itself.
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  await userEvent.keyboard("echo sidebar-$((3+4)){Enter}");
+  await expect.poll(screenText).toContain("sidebar-7");
+
+  // Escape leaves the list for the terminal it came from, even with the row's tooltip open.
+  await prefixThen("w");
+  await expect.element(second).toHaveFocus();
+  await expect.element(page.getByRole("tooltip")).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  await expect.element(page.getByRole("tooltip")).not.toBeInTheDocument();
+
+  // A composer is an opener too: Escape goes back to its prompt, not to the terminal.
+  await prefixThen("t");
+  await expect.element(promptField()).toHaveFocus();
+  await prefixThen("w");
+  await expect.element(second).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(promptField()).toHaveFocus();
+});
+
+test("prefix w from a stopped session comes back to its button on Escape", async () => {
+  await appWithProject(newClient());
+  await createTaskWithShell("Stopped");
+  await prefixThen("x");
+  const restart = page.getByRole("button", { name: "Start again" });
+  await expect.element(restart).toHaveFocus();
+
+  await prefixThen("w");
+  await expect.element(taskButton("Stopped")).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+
+  await expect.element(restart).toHaveFocus();
+});
+
+test("prefix w shows a hidden sidebar before it focuses the current row", async () => {
+  await appWithProject(newClient());
+  await createTaskWithShell("Hidden");
+  await prefixThen("\\");
+  await expect.element(page.getByRole("navigation", { name: "workspace" })).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  await prefixThen("w");
+
+  await expect.element(page.getByRole("navigation", { name: "workspace" })).toBeVisible();
+  await expect.element(taskButton("Hidden")).toHaveFocus();
+  await expect.element(page.getByRole("button", { name: "Add project" })).not.toHaveFocus();
+});
+
+test("prefix w in an empty workspace focuses Add project and says nothing else", async () => {
+  await render(<App client={newClient()} />);
+  await expect.element(page.getByText("Add a repository to start")).toBeVisible();
+
+  await prefixThen("w");
+
+  await expect.element(page.getByRole("button", { name: "Add project" })).toHaveFocus();
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
 });
 
 test("the sidebar edge resizes, keeps its width, and double-click resets it", async () => {

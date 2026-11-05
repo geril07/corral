@@ -30,7 +30,7 @@ import type {
   TerminalSize,
 } from "@corral/protocol/rpc";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { useDialogFocus } from "../../common/ui/index.ts";
+import { useDialogFocus, useTaskFinalFocus, workspaceInput } from "../../common/ui/index.ts";
 import { createChangesActions, usePullRequests, type ChangesActions } from "../changes/index.ts";
 import { useCorralClient, useConnection } from "../connection/index.ts";
 import { useChatSession, useChatTurn, type ChatFiles } from "../chat/index.ts";
@@ -45,6 +45,7 @@ import { describeLaunchError, type AgentLaunchChoice } from "../sessions/index.t
 import { emptyDraft, type ComposerDraft } from "../tasks/index.ts";
 import type { RenameTarget } from "./rename-dialog.tsx";
 import { terminalLabel } from "./sidebar.tsx";
+import { ADD_PROJECT_BUTTON_ID, SIDEBAR_ROW_SELECTOR, sidebarRowTarget } from "./sidebar-focus.ts";
 import { useSidebarMode } from "./sidebar-mode.ts";
 import { useSidebarPane } from "./sidebar-pane.ts";
 import {
@@ -101,6 +102,8 @@ export function useWorkspace({
 }: UseWorkspaceOptions) {
   const client = useCorralClient();
   const dialogFocus = useDialogFocus();
+  // Where the keyboard goes when it leaves the sidebar list, the way a route dialog returns it.
+  const finalFocus = useTaskFinalFocus();
   const { config, profiles } = useConfig();
   const prefix = config.keys.prefix;
   const { api } = client.connection;
@@ -217,6 +220,11 @@ export function useWorkspace({
   const selection = resolveSelection(tree, chosen);
   const [sidebarMode, toggleSidebarMode] = useSidebarMode();
   const sidebar = useSidebarPane();
+  /** Every request for the sidebar list's keyboard; each one is handled once, after its commit. */
+  const [listFocusRequest, setListFocusRequest] = useState(0);
+  const handledListFocus = useRef(0);
+  /** Enter on the open row returns the keyboard without a remount, so it asks for one here. */
+  const [workspaceFocusRequest, setWorkspaceFocusRequest] = useState(0);
   // Built once here and handed to the sidebar: project mode has no flat list at all, and the
   // sidebar must not build a second one.
   const flatSidebar = sidebarMode === "flat" ? buildFlatSidebar(tree) : undefined;
@@ -290,6 +298,43 @@ export function useWorkspace({
     },
     [onChange],
   );
+
+  /**
+   * `prefix w`: the sidebar list takes the keyboard, so it is shown first when hidden. The opener
+   * is remembered only on the way in from outside the list, so pressing the prefix again and then
+   * Escape still returns the keyboard to the task instead of leaving it on the row.
+   */
+  const focusSidebarList = () => {
+    const activeElement = document.activeElement;
+    if (
+      !(activeElement instanceof HTMLElement) ||
+      activeElement.closest(SIDEBAR_ROW_SELECTOR) === null
+    ) {
+      dialogFocus?.remember();
+    }
+    sidebar.show();
+    setListFocusRequest((request) => request + 1);
+  };
+
+  useEffect(() => {
+    if (listFocusRequest === handledListFocus.current || sidebar.hidden) return;
+    handledListFocus.current = listFocusRequest;
+    const target = sidebarRowTarget() ?? document.getElementById(ADD_PROJECT_BUTTON_ID);
+    // A dialog closed by the same action, such as the palette, returns the keyboard in a
+    // microtask of its own; this one is queued after it so the list, not the dialog's opener, ends
+    // up with the keyboard.
+    queueMicrotask(() => target?.focus());
+  }, [listFocusRequest, sidebar.hidden]);
+
+  // Enter on the row that is already open mounts no pane, so the selected view's input is handed
+  // the keyboard here, after the activation's commit, the way a pane mount would.
+  useEffect(() => {
+    if (workspaceFocusRequest === 0) return;
+    workspaceInput()?.focus();
+  }, [workspaceFocusRequest]);
+
+  const leaveSidebarList = () => finalFocus()?.focus();
+  const returnToWorkspace = () => setWorkspaceFocusRequest((request) => request + 1);
 
   /**
    * Opens the task's `Changes` tab: the route says `entry=changes` and the current session, the
@@ -888,6 +933,12 @@ export function useWorkspace({
       enabled: true,
       run: sidebar.toggle,
     },
+    "focus-sidebar": {
+      label: "Focus the sidebar list",
+      group: "Navigation",
+      enabled: true,
+      run: focusSidebarList,
+    },
     board: {
       label: "Open board",
       group: "Navigation",
@@ -963,6 +1014,8 @@ export function useWorkspace({
     pullRequests,
     chatFiles,
     sidebar,
+    leaveSidebarList,
+    returnToWorkspace,
     taskOrder,
     board,
     dialog,

@@ -31,6 +31,7 @@ export {
   FormError,
   useDialogFocus,
   useTaskFinalFocus,
+  workspaceInput,
 } from "./task-dialog.tsx";
 export { FieldSet, FieldLegend } from "./field.tsx";
 export { FormField, RadioChoice } from "./form-field.tsx";
