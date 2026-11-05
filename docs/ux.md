@@ -43,7 +43,7 @@ What a user does. Everything below is built and verified end to end, chat views 
    aborted, and the palette says "Open the … view" instead of "Switch to …", so no confirmation is
    asked for a busy agent (stage C). Whether Codex's terminal is view-only while chat writes is
    measured when its driver starts.
-5. The sidebar groups tasks by project by default, or flat by status (Needs you, Working and Done); both use one bottom settled shelf; `prefix l` toggles the mode and the device keeps its choice. A task's status is the most urgent of its sessions', ordered: needs approval or input, error, working, completed and unseen, idle. "Completed and unseen" clears when the task is opened or its status changes while it is selected.
+5. The sidebar groups tasks by project by default, or flat by status (Needs you, Working and Done); both use one bottom settled shelf; `prefix l` toggles the mode and the device keeps its choice. A task's status is the most urgent of its sessions', ordered: needs approval or input, error, working, completed and unseen, idle. "Completed and unseen" clears when the task is opened or its status changes while it is selected. A project row only expands or collapses its group; a project with no tasks shows its composer (from Add project, its New task action or its URL), never a loose terminal.
 6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles.
 7. Settings carry the defaults the composer uses: view (global, overridable per project), workspace mode, worktree root, branch prefix, slug mode, naming agent/model; and the agents, whether each is found and which have a chat driver.
 
@@ -67,10 +67,11 @@ What a user does. Everything below is built and verified end to end, chat views 
 - Project grouping is the default (`prefix l` switches to status groups and the device keeps
   the choice). The bottom Settled shelf spans projects, scrolls independently and pages six at a
   time; selecting older history reveals it without resuming it. Rows are two-line tasks;
-  selection uses
-  secondary appearance plus `aria-current`, not a bespoke colored left bar. Titles and paths
-  truncate without losing accessible names. Loose terminals sit in the Scratch section, one line
-  each, and only while some exist.
+  selection uses secondary appearance plus `aria-current` on exactly one task or loose terminal;
+  a project or Scratch container row never carries it, and no row is current while a project's
+  composer is open — not a bespoke colored left bar. Titles and paths truncate without losing
+  accessible names. Loose terminals sit in the Scratch section, one line each, and only while
+  some exist.
 - The main area has two separate rows: repository/task header, then session tabs with a
   Chat/Terminal switch and add-session menu. A draft also keeps both rows. Tabs may sit above
   or below content (device preference). A tab shows its number, real tool logo or working/blocked
@@ -83,8 +84,12 @@ What a user does. Everything below is built and verified end to end, chat views 
   and the sidebar row when the task changed something; a linked pull request's name and state sit
   beside the count, and a merged one offers settle in the `Changes` finish bar.
 - The main area never goes blank: with no task selected it is the new-task composer, prefilled
-  with the current project. `prefix t` shows the composer over the selected task and Escape
-  returns to that task, with the keyboard back in its terminal. Until the projects, tasks,
+  with the current project; a project with no tasks opens its composer, never a loose terminal.
+  A project composer and the sidebar read one value: no row is current and the composer's project
+  is the group shown open. Escape leaves the composer for the selection the URL still names; the
+  composer has no URL of its own and no draft row in the sidebar. `prefix t` shows the composer
+  over the selected task and Escape returns to that task, with the keyboard back in its terminal.
+  Until the projects, tasks,
   sessions and terminals lists have each delivered once, the main area says it is loading; a
   list the server refuses is one muted line naming that list with a Retry, never the first-run
   form.

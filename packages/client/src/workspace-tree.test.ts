@@ -149,17 +149,20 @@ test("a session that is not in the current task is replaced by the task's first 
   expect(resolveSelection(tree, { taskId: "t3", entryId: "sa" }).entryId).toBe("sb");
 });
 
-test("a chosen project selects its first task, or no task when it has none", () => {
+test("a chosen project selects its first task, or the composer when it has none", () => {
   expect(resolveSelection(tree, { projectId: "p2" })).toMatchObject({
     projectId: "p2",
     taskId: "t4",
   });
+  // A project with no tasks is the composer state; its loose terminals belong to an explicit
+  // no-task choice, so a project choice never lands on one (`layout.md`, **Empty states**).
   const bare = buildWorkspaceTree([project("empty")], [], [], terminals);
   expect(resolveSelection(bare, { projectId: "empty" })).toEqual({
     projectId: "empty",
     taskId: null,
-    entryId: "c",
+    entryId: undefined,
   });
+  expect(resolveSelection(bare, { taskId: null }).entryId).toBe("c");
 });
 
 test("a task that no longer exists falls back, while the no-task group can be chosen", () => {

@@ -320,13 +320,11 @@ export function WorkspaceScreen({
             onToggleSidebar={sidebar.toggle}
             onToggleGrouping={actions["sidebar-mode"].run}
             selection={selection}
+            composing={composing}
             flat={flatSidebar}
             config={config}
             changes={changes.byTask}
             pullRequests={pullRequests.byTask}
-            onSelectProject={(project) =>
-              choose({ projectId: project.id, taskId: undefined, entryId: undefined })
-            }
             onSelectTask={showTask}
             onSelectLoose={() => choose({ taskId: null, entryId: undefined })}
             onSelectTerminal={selectEntry}

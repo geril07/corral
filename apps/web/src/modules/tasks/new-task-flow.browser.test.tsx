@@ -324,8 +324,10 @@ test("a sidebar project pick keeps the draft and creates the task in the new pro
   await userEvent.keyboard("feature/x{Enter}");
   await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace feature/x");
 
-  // Project mode lists the projects; selecting one selects it for the composer too.
-  await workspace().getByRole("button", { name: other.name, exact: true }).click();
+  // Project mode lists the projects; the project's New task action opens it for the composer too.
+  await workspace()
+    .getByRole("button", { name: `New task in ${other.name}` })
+    .click();
 
   await expect
     .element(newTaskView().getByRole("combobox", { name: /^Project / }))

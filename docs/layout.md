@@ -31,6 +31,10 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   Search's tooltip carries its effective chord without crowding the compact toolbar.
 - Group by project by default. Status grouping (Needs you, Working, Done) is still available
   through its button and `prefix l`, remembered on this device.
+- A project row is its group's disclosure: the row carries `aria-expanded` and the chevron, and a
+  collapsed group holding the current task shows that row alone. The count sits in the row; the
+  project's New task action overlays the count on hover and keyboard focus and reserves no width,
+  and the count hides while the action shows. No project or container row is the current selection.
 - Two-line task rows: status glyph, clipped title, relative time/attention word;
   secondary metadata names the agent, worktree branch and, outside project groups, project.
   Keep existing change counts and linked request state. Unseen completion stays marked.
@@ -122,6 +126,10 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 
 - Still a main-area composer, not a dialog. `prefix t` opens it; Escape returns to the
   selected task. The task header and draft session row remain visible.
+- A project's composer is the main area while it is open, and the sidebar reads the same value:
+  no task, project or loose-terminal row is current, and the composer's project is the group the
+  sidebar shows open. Escape returns to the selection the URL still names. The composer has no URL
+  of its own and no draft row in the sidebar.
 - Prompt and agent/model, Chat/Terminal and Create controls share the composer. Project and
   workspace setup sit below it, never in ongoing chat. Prompt starts the primary agent;
   a title-only task starts no session. Optional title stays.
@@ -161,4 +169,6 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 
 - No repository (the project list has loaded and is empty): Add a repository to start with an
   inline path field and Add.
+- A project with no tasks opens its composer — from Add project, from its New task action, or on
+  its URL — never a loose terminal.
 - Task without sessions: No sessions with Start agent / Open shell; its tab row still offers +.

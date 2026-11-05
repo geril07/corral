@@ -70,6 +70,12 @@ interface SidebarProps {
   tree: WorkspaceTree;
   selection: Selection;
   /**
+   * The project composer the main area shows, when one is open (`layout.md`, **New task view**).
+   * The sidebar reads the same value: no row is current while it is open, and opening it opens
+   * the composer's project group.
+   */
+  composing?: { project?: Project | undefined; opened: number } | undefined;
+  /**
    * The flat list when the sidebar lists tasks flat by status (`layout.md`, **Sidebar**); absent
    * in project mode, where the tree is shown instead. Built once by the caller.
    */
@@ -80,7 +86,6 @@ interface SidebarProps {
   pullRequests?: ReadonlyMap<string, PullRequest> | undefined;
   /** Effective bindings for the tooltips and the search hint; absent in a bare sidebar test. */
   config?: ClientConfig | undefined;
-  onSelectProject: (project: Project) => void;
   onSelectTask: (task: Task) => void;
   onSelectLoose: () => void;
   /** A loose terminal (the Scratch section); sessions are tabs, not rows. */
@@ -109,9 +114,18 @@ interface SidebarProps {
  * footer the shell draws below it.
  */
 export function Sidebar(props: SidebarProps) {
-  const { tree, selection, config, flat, changes, pullRequests } = props;
+  const { tree, selection, config, flat, changes, pullRequests, composing } = props;
   const [closedProjects, setClosedProjects] = useState<ReadonlySet<string>>(new Set());
   const now = useNow(AGE_REFRESH_MS);
+  // A composer is a view of its project, not a row: while it is open no task, project or loose
+  // terminal is current, and the same value is what the main area shows.
+  const shownSelection = composing === undefined ? selection : undefined;
+  const composingProjectId = composing?.project?.id;
+  // The composer's project is the open group: its closed state is keyed by the open, so each
+  // composer opens the group it belongs to while the other groups keep what the user chose.
+  // Collapsing it is scoped to that composer, and nothing has to be changed from an effect.
+  const groupKey = (projectId: string) =>
+    composingProjectId === projectId ? `${projectId}:${composing?.opened}` : projectId;
 
   const hint = (label: string, action: ActionId) =>
     config ? `${label} · ${formatBinding(config, action)}` : label;
@@ -129,7 +143,6 @@ export function Sidebar(props: SidebarProps) {
       next.delete(projectId);
       return next;
     });
-
   const renderTask = (node: TaskNode) => (
     <TaskRow
       key={node.task.id}
@@ -139,7 +152,7 @@ export function Sidebar(props: SidebarProps) {
           ? tree.projects.find((item) => item.project.id === node.task.projectId)?.project.name
           : undefined
       }
-      selection={selection}
+      selection={shownSelection}
       changes={changes?.get(node.task.id)}
       pullRequest={pullRequests?.get(node.task.id)}
       now={now}
@@ -162,7 +175,7 @@ export function Sidebar(props: SidebarProps) {
     <TaskRow
       key={row.task.id}
       node={row}
-      selection={selection}
+      selection={shownSelection}
       changes={changes?.get(row.task.id)}
       pullRequest={pullRequests?.get(row.task.id)}
       now={now}
@@ -183,7 +196,7 @@ export function Sidebar(props: SidebarProps) {
   const scratch = (
     <Scratch
       entries={tree.loose}
-      selection={selection}
+      selection={shownSelection}
       onSelectLoose={props.onSelectLoose}
       onSelectTerminal={props.onSelectTerminal}
       onCloseTerminal={props.onCloseTerminal}
@@ -287,10 +300,10 @@ export function Sidebar(props: SidebarProps) {
               <ProjectGroup
                 key={node.project.id}
                 node={node}
-                selection={selection}
-                collapsed={closedProjects.has(node.project.id)}
+                selection={shownSelection}
+                collapsed={closedProjects.has(groupKey(node.project.id))}
                 onToggle={toggleProject}
-                onSelectProject={props.onSelectProject}
+                groupKey={groupKey(node.project.id)}
                 onNewTask={(opener) => props.onNewTask(node.project, opener)}
                 renderTask={renderTask}
               />
@@ -301,7 +314,11 @@ export function Sidebar(props: SidebarProps) {
       </div>
       {settled.length > 0 && (
         <ul className="m-0 shrink-0 list-none p-0">
-          <SettledGroup items={settled} currentTaskId={selection.taskId} renderItem={renderTask} />
+          <SettledGroup
+            items={settled}
+            currentTaskId={shownSelection?.taskId ?? null}
+            renderItem={renderTask}
+          />
         </ul>
       )}
     </nav>
@@ -318,7 +335,7 @@ function Scratch({
   onRenameTerminal,
 }: {
   entries: readonly TerminalEntry[];
-  selection: Selection;
+  selection: Selection | undefined;
   onSelectLoose: () => void;
   onSelectTerminal: (entry: TerminalEntry) => void;
   onCloseTerminal: (id: string) => void;
@@ -328,13 +345,7 @@ function Scratch({
   return (
     <li>
       <TreeRow>
-        <Button
-          variant={selection.taskId === null ? "secondary" : "ghost"}
-          layout="tree"
-          aria-label="Scratch"
-          aria-current={selection.taskId === null ? "true" : undefined}
-          onClick={onSelectLoose}
-        >
+        <Button variant="ghost" layout="tree" aria-label="Scratch" onClick={onSelectLoose}>
           <Icon name="terminal" />
           <span className="min-w-0 flex-1 truncate text-left">Scratch</span>
           <span className="text-xs text-muted-foreground">{entries.length}</span>
@@ -346,10 +357,10 @@ function Scratch({
             <TerminalRow
               key={entry.terminal.id}
               entry={entry}
-              current={entry.id === selection.entryId}
+              current={entry.id === selection?.entryId}
               onSelect={() => onSelectTerminal(entry)}
               onClose={() => onCloseTerminal(entry.terminal.id)}
-              onRename={entry.id === selection.entryId ? () => onRenameTerminal(entry) : undefined}
+              onRename={entry.id === selection?.entryId ? () => onRenameTerminal(entry) : undefined}
             />
           ))}
         </ul>
@@ -437,7 +448,7 @@ function TaskRow({
   onViewSource,
 }: {
   node: TaskNode;
-  selection: Selection;
+  selection: Selection | undefined;
   changes: TaskChanges | undefined;
   pullRequest: PullRequest | undefined;
   now: number;
@@ -453,7 +464,7 @@ function TaskRow({
   const { task, sessions } = node;
   const status = row?.status ?? taskStatus(sessions.map((entry) => entry.session))?.status;
   const unseen = row?.unseen ?? isUnseenDone(task, status);
-  const current = task.id === selection.taskId;
+  const current = task.id === selection?.taskId;
   const agent = sessions.find(({ session }) => session.kind !== "shell")?.session.kind;
   const detail =
     [
@@ -567,21 +578,22 @@ function ProjectGroup({
   selection,
   collapsed,
   onToggle,
-  onSelectProject,
+  groupKey,
   onNewTask,
   renderTask,
 }: {
   node: ProjectNode;
-  selection: Selection;
+  selection: Selection | undefined;
   collapsed: boolean;
-  onToggle: (projectId: string) => void;
-  onSelectProject: (project: Project) => void;
+  /** The closed set's key for this group; a composer keys its own project by the open. */
+  groupKey: string;
+  onToggle: (groupKey: string) => void;
   onNewTask: (opener?: HTMLElement) => void;
   renderTask: (node: TaskNode) => React.ReactNode;
 }) {
   const { project, active } = node;
-  const holdsCurrent = active.some(({ task }) => task.id === selection.taskId);
-  const open = !collapsed || holdsCurrent;
+  const currentTask = active.find(({ task }) => task.id === selection?.taskId);
+  const open = !collapsed;
   const status = projectStatus(active);
   const count = active.length;
   const {
@@ -589,36 +601,31 @@ function ProjectGroup({
     clipped: projectClipped,
     display: projectDisplay,
   } = useTruncatedText(project.name);
+  // One control per project: the row itself discloses the group. The count stays in the row and
+  // the action covers it on hover and keyboard focus, so neither reserves an action gutter.
   const select = (
     <Button
-      variant={project.id === selection.projectId ? "secondary" : "ghost"}
+      variant="ghost"
       layout="tree"
       aria-label={project.name}
-      aria-current={project.id === selection.projectId ? "true" : undefined}
-      onClick={() => {
-        if (!open) onToggle(project.id);
-        onSelectProject(project);
-      }}
+      aria-expanded={open}
+      onClick={() => onToggle(groupKey)}
     >
+      <Icon name={open ? "collapse" : "expand"} />
+      {!open && status && <StatusIndicator status={status} />}
       <span ref={observeProject} className="min-w-0 flex-1 truncate">
         {projectDisplay}
       </span>
-      <span className="shrink-0 text-xs text-muted-foreground">{count}</span>
+      <span className="shrink-0 text-xs text-muted-foreground group-hover:invisible group-focus-within:invisible">
+        {count}
+      </span>
     </Button>
   );
   return (
     <li>
-      <TreeRow project current={project.id === selection.projectId} className="group">
-        <IconButton
-          label={`${open ? "Collapse" : "Expand"} ${project.name}`}
-          icon={open ? "collapse" : "expand"}
-          aria-expanded={open}
-          disabled={holdsCurrent}
-          onClick={() => onToggle(project.id)}
-        />
-        {!open && status && <StatusIndicator status={status} />}
+      <TreeRow project className="group relative">
         {projectClipped ? <Hint content={project.name}>{select}</Hint> : select}
-        <span className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
+        <span className="absolute inset-y-0 right-0 flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
           <IconButton
             label={`New task in ${project.name}`}
             icon="add"
@@ -626,7 +633,13 @@ function ProjectGroup({
           />
         </span>
       </TreeRow>
-      {open && <ul className="m-0 list-none p-0">{active.map(renderTask)}</ul>}
+      {open ? (
+        <ul className="m-0 list-none p-0">{active.map(renderTask)}</ul>
+      ) : (
+        currentTask !== undefined && (
+          <ul className="m-0 list-none p-0">{renderTask(currentTask)}</ul>
+        )
+      )}
     </li>
   );
 }

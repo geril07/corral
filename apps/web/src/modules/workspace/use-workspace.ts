@@ -772,7 +772,11 @@ export function useWorkspace({
   const addProject = async (path: string) => {
     const project = await api.projects.add({ path });
     setDialog(undefined);
+    // Adding a project navigates to it, then opens its composer. `choose()` clears the composer,
+    // so the open has to follow it; a zero-task project would otherwise fall back to a loose
+    // terminal (`resolveSelection`), and Add project would land there instead of on New task.
     choose({ projectId: project.id, taskId: undefined, entryId: undefined });
+    openNewTask(project);
   };
 
   const createTask = async (input: CreateTaskInput) => {

@@ -35,6 +35,10 @@ test("a task gets a worktree and a terminal in it, and removing it leaves the br
   await window.keyboard.type(repo);
   await window.keyboard.press("Enter");
   await expect(addProjectDialog).toBeHidden();
+  // Add project lands in the new project's composer, with no sidebar row current.
+  await expect(newTaskView(window)).toBeVisible();
+  await expect(promptField(window)).toBeFocused();
+  await expect(workspace(window).locator('[aria-current="true"]')).toHaveCount(0);
   // The global New task action is enabled once the project is current.
   await expect(
     workspace(window).getByRole("button", { name: "New task", exact: true }),

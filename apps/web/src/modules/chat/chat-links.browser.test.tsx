@@ -143,6 +143,12 @@ async function laneWith(text: string, prepare?: (repo: string) => Promise<void>)
     tasks: [{ ...seededTask(project.id, created.workspacePath), id: created.id }],
   });
   sessions.set({ loaded: true, sessions: [seededSession(created.id)] });
+  // Adding the project left its composer open over the URL's project; choosing the seeded task
+  // is the navigation to its chat lane.
+  await page
+    .getByRole("navigation", { name: "workspace" })
+    .getByRole("button", { name: /^Local links/ })
+    .click();
   await expect.element(page.getByRole("log", { name: "Chat transcript" })).toBeVisible();
   return { real, repo, task: created };
 }

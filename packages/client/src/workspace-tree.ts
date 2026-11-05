@@ -126,13 +126,23 @@ export function resolveSelection(tree: WorkspaceTree, chosen: Chosen): Selection
   }
 
   const entries = entriesOf(tree, task?.id ?? null);
+  // A project choice that names a project with no tasks and no task of its own is the composer
+  // state, not the no-task group: its loose terminals belong to another choice (`layout.md`,
+  // **Empty states**). An explicit `taskId: null` still selects the first loose terminal.
+  const emptyProject =
+    chosen.taskId === undefined &&
+    chosenProject !== undefined &&
+    chosenProject.active.length === 0 &&
+    chosenProject.settled.length === 0;
   return {
     projectId: task?.projectId ?? chosenProject?.project.id,
     taskId: task?.id ?? null,
-    entryId: effectiveActive(
-      entries.map((entry) => entry.id),
-      chosen.entryId,
-    ),
+    entryId: emptyProject
+      ? undefined
+      : effectiveActive(
+          entries.map((entry) => entry.id),
+          chosen.entryId,
+        ),
   };
 }
 
