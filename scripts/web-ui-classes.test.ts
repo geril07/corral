@@ -414,6 +414,14 @@ describe("spine scales", () => {
     ]) {
       expect(messages(source, "kit.tsx", "kit")).toEqual([]);
     }
+
+    // The partner cannot win against a later data-variant rule or an important animation.
+    for (const source of [
+      'const cls = "data-open:animate-[wiggle_1s] motion-reduce:animate-none";',
+      'const cls = "animate-[wiggle_1s]! motion-reduce:animate-none";',
+    ]) {
+      expect(messages(source, "kit.tsx", "kit").length).toBeGreaterThan(0);
+    }
   });
 });
 
