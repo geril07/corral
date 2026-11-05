@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/client";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
@@ -43,6 +44,50 @@ test("a failure stays in the dialog and the path can be corrected", async () => 
   await userEvent.keyboard("{Enter}");
   await vi.waitFor(() => expect(onAdd).toHaveBeenLastCalledWith("/yes"));
   await expect.element(dialog().getByRole("alert")).not.toBeInTheDocument();
+});
+
+test("the server's path refusals stay in the dialog, and Escape still closes it", async () => {
+  const onAdd = vi
+    .fn<(path: string) => Promise<void>>()
+    .mockRejectedValueOnce(
+      new ORPCError("GIT_FAILED", {
+        defined: true,
+        data: { message: "no such directory: /home/me/missing" },
+      }),
+    )
+    .mockRejectedValueOnce(
+      new ORPCError("GIT_FAILED", {
+        defined: true,
+        data: { message: "the project path must be an absolute path or start with ~/" },
+      }),
+    )
+    .mockRejectedValueOnce(
+      new ORPCError("NOT_A_GIT_REPOSITORY", { defined: true, data: { path: "/home/me" } }),
+    );
+  const onClose = vi.fn<() => void>();
+  await render(<AddProjectDialog onAdd={onAdd} onClose={onClose} />);
+
+  await expect.element(input()).toHaveFocus();
+  await userEvent.keyboard("~/missing{Enter}");
+  await expect
+    .element(dialog().getByRole("alert"))
+    .toMatchTextContent("no such directory: /home/me/missing");
+
+  await userEvent.fill(input(), "relative/repo");
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .element(dialog().getByRole("alert"))
+    .toMatchTextContent("the project path must be an absolute path or start with ~/");
+
+  await userEvent.fill(input(), "~/");
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .element(dialog().getByRole("alert"))
+    .toMatchTextContent("/home/me is not inside a git repository.");
+  await expect.element(input()).toHaveFocus();
+
+  await userEvent.keyboard("{Escape}");
+  await vi.waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
 });
 
 test("Escape asks to close", async () => {

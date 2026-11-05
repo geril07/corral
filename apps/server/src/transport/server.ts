@@ -58,6 +58,8 @@ export function startServer(options: {
   dataDir?: string;
   /** Task settings; A0 supplies the config-backed ones, tests may pass their own. */
   settings?: TaskSettings;
+  /** The home directory `~` names; production uses the user's, tests pass their own. */
+  home?: string;
   /**
    * Chat driver deadlines; tests shorten them, production runs the defaults. `drivers` is the
    * service's test seam (`ChatServiceOptions.drivers`): a suite can register a recording driver and
@@ -72,6 +74,7 @@ export function startServer(options: {
   const temporaryDataDir =
     options.dataDir === undefined ? mkdtempSync(join(tmpdir(), "corral-data-")) : undefined;
   const dataDir = options.dataDir ?? temporaryDataDir!;
+  const home = options.home ?? homedir();
   const capability = newCapability();
   const database = openDatabase(dataDir);
   const terminals = new TerminalRegistry();
@@ -128,7 +131,7 @@ export function startServer(options: {
             : { exitGraceMs: options.chat.exitGraceMs }),
         }),
   });
-  const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, homedir())), {
+  const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, home)), {
     dataDir,
   });
   const modelPreferences = new ModelPreferencesStore(database);
@@ -161,12 +164,12 @@ export function startServer(options: {
     projects: projectStore,
     sessions,
     // A0's config supplies the worktree root, branch prefix and slug mode; tests may pass their own.
-    settings: options.settings ?? configTaskSettings(config, { home: homedir() }),
+    settings: options.settings ?? configTaskSettings(config, { home }),
     // `[naming]` and its profiles, read on every create so an edit applies without a restart.
     naming: configNaming(config),
   });
   const issues = new IssueImportService({ timeoutMs: issueImportTimeoutMs(process.env) });
-  const projects = new ProjectService(projectStore, tasks, issues);
+  const projects = new ProjectService(projectStore, tasks, issues, { home });
   // Local links in chat: the allow-list is a task's workspace, so the service needs the tasks.
   const files = new FilesService({ tasks, terminals, config });
   const rpc = new RPCHandler(

@@ -1,4 +1,4 @@
-import { mkdirSync, symlinkSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
@@ -21,6 +21,73 @@ test("add registers the repository, named after its directory", async () => {
   });
   expect(await api.projects.watch().then((updates) => updates.next())).toMatchObject({
     value: [project],
+  });
+});
+
+test("add expands ~ with the server's home, trims the input and stores git's absolute path", async () => {
+  const repo = initRepo(join(server.homeDir, "code", "my", "corral"));
+  const api = await server.rpc();
+
+  const project = await api.projects.add({ path: "  ~/code/my/corral/  " });
+
+  expect(project).toMatchObject({ name: "corral", path: repo, defaultBaseBranch: "main" });
+});
+
+test("~ and ~/ resolve to the server's home", async () => {
+  const home = initRepo(server.homeDir);
+  const api = await server.rpc();
+
+  const project = await api.projects.add({ path: " ~ " });
+  expect(project.path).toBe(home);
+  await api.projects.remove({ id: project.id });
+
+  expect((await api.projects.add({ path: "~/" })).path).toBe(home);
+});
+
+test("a home that is not a repository gets the true not-a-repository sentence", async () => {
+  const api = await server.rpc();
+
+  for (const path of ["~", "~/"]) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- one case at a time keeps failures readable
+    await expect(api.projects.add({ path })).rejects.toMatchObject({
+      code: "NOT_A_GIT_REPOSITORY",
+      data: { path: server.homeDir },
+    });
+  }
+});
+
+test("add of a missing directory, a file or a relative path names its real cause", async () => {
+  const missing = join(server.scratchDir, "missing");
+  const file = join(server.scratchDir, "file");
+  writeFileSync(file, "not a directory\n");
+  const api = await server.rpc();
+
+  await expect(api.projects.add({ path: missing })).rejects.toMatchObject({
+    code: "GIT_FAILED",
+    data: { message: `no such directory: ${missing}` },
+  });
+  await expect(api.projects.add({ path: ` ${file} ` })).rejects.toMatchObject({
+    code: "GIT_FAILED",
+    data: { message: `not a directory: ${file}` },
+  });
+  await expect(api.projects.add({ path: "relative/repo" })).rejects.toMatchObject({
+    code: "GIT_FAILED",
+    data: { message: "the project path must be an absolute path or start with ~/" },
+  });
+  await expect(api.projects.add({ path: "~/missing" })).rejects.toMatchObject({
+    code: "GIT_FAILED",
+    data: { message: `no such directory: ${join(server.homeDir, "missing")}` },
+  });
+});
+
+test("a repository added through ~ is a duplicate of its absolute path", async () => {
+  const repo = initRepo(join(server.homeDir, "app"));
+  const api = await server.rpc();
+  const project = await api.projects.add({ path: "~/app" });
+
+  await expect(api.projects.add({ path: repo })).rejects.toMatchObject({
+    code: "PROJECT_EXISTS",
+    data: { id: project.id },
   });
 });
 
@@ -57,20 +124,26 @@ test("add from a linked worktree registers the main working tree", async () => {
   expect(project).toMatchObject({ name: "app", path: repo, defaultBaseBranch: "main" });
 });
 
-test("add outside a repository, in a missing directory or in a bare repository fails with NOT_A_GIT_REPOSITORY", async () => {
+test("a plain directory outside a repository fails with NOT_A_GIT_REPOSITORY", async () => {
   const plain = join(server.scratchDir, "plain");
   mkdirSync(plain);
+  const api = await server.rpc();
+
+  await expect(api.projects.add({ path: plain })).rejects.toMatchObject({
+    code: "NOT_A_GIT_REPOSITORY",
+    data: { path: plain },
+  });
+  expect(await api.projects.watch().then((updates) => updates.next())).toMatchObject({ value: [] });
+});
+
+test("a bare repository keeps git's work-tree refusal instead of claiming it is not a repository", async () => {
   const { origin } = cloneOfOrigin(join(server.scratchDir));
   const api = await server.rpc();
 
-  for (const path of [plain, join(server.scratchDir, "missing"), origin]) {
-    // oxlint-disable-next-line eslint/no-await-in-loop -- one case at a time keeps failures readable
-    await expect(api.projects.add({ path })).rejects.toMatchObject({
-      code: "NOT_A_GIT_REPOSITORY",
-      data: { path },
-    });
-  }
-  expect(await api.projects.watch().then((updates) => updates.next())).toMatchObject({ value: [] });
+  await expect(api.projects.add({ path: origin })).rejects.toMatchObject({
+    code: "GIT_FAILED",
+    data: { message: expect.stringContaining("must be run in a work tree") },
+  });
 });
 
 test("adding the same repository again fails with PROJECT_EXISTS, also through a subdirectory or a linked worktree", async () => {

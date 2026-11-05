@@ -1,4 +1,5 @@
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute } from "node:path";
+import { expandHomePath } from "./home-path.ts";
 
 /**
  * What is wrong with a worktree root as written, or `undefined` when it is usable: an absolute
@@ -29,7 +30,5 @@ export function worktreeRootProblem(root: string): string | undefined {
 export function expandWorktreeRoot(root: string, home: string): string {
   const problem = worktreeRootProblem(root);
   if (problem !== undefined) throw new Error(problem);
-  if (root === "~") return resolve(home);
-  if (root.startsWith("~/")) return resolve(home, root.slice(1).replace(/^[/\\]+/, ""));
-  return resolve(root);
+  return expandHomePath(root, home);
 }

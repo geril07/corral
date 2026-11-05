@@ -27,6 +27,7 @@ export function useServer(
 ) {
   let server: RunningServer;
   let root: string;
+  let home: string;
   let streams: StreamClient[] = [];
   let rpcClients: RpcClient[] = [];
 
@@ -37,6 +38,7 @@ export function useServer(
       host: "127.0.0.1",
       port: 0,
       dataDir: dataDir(),
+      home,
       ...(fixture.taskSettings === undefined
         ? {}
         : { settings: fixture.taskSettings({ dataDir: dataDir(), scratchDir: scratchDir() }) }),
@@ -55,6 +57,8 @@ export function useServer(
   beforeEach(async () => {
     root = await realpath(await mkdtemp(join(tmpdir(), "corral-test-")));
     await mkdir(join(root, "scratch"));
+    home = join(root, "home");
+    await mkdir(home);
     // The server reads $CORRAL_CONFIG_DIR; never the developer's own ~/.config/corral.
     vi.stubEnv("CORRAL_CONFIG_DIR", join(root, "config"));
     server = await start();
@@ -86,6 +90,10 @@ export function useServer(
     /** An empty directory for the test's repositories, outside the data directory. */
     get scratchDir() {
       return scratchDir();
+    },
+    /** The empty home directory `~` resolves to; a test may make it a repository. */
+    get homeDir() {
+      return home;
     },
     /** The config directory the server reads; it does not exist until a test creates it. */
     get configDir() {
