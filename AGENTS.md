@@ -13,9 +13,9 @@ Keyboard-first workspace for running coding agents in terminals: a long-lived No
 
 ## Local workloads
 
-Before launching local workloads on the Linux agent host, read `docs/workrun/usage.md` for
-managed jobs and heavy classification. Orchestrators also read `docs/workrun/orchestration.md`
-for assignment, isolation and cleanup. `docs/workrun.md` routes host setup and launcher verification.
+Before launching local workloads on the Linux agent host, read `docs/workrun.md` for Corral's
+entrypoints, group and heavy classification. Orchestrators also read
+`docs/workrun/orchestration.md` for assignment, isolation and cleanup.
 
 ## Verification
 
