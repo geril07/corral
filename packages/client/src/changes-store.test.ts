@@ -67,7 +67,11 @@ test("the store tells a task that cannot be read apart from a clean one", async 
 
 test("a refused watch marks changes unavailable, and the next watch that yields clears it", async () => {
   vi.spyOn(console, "error").mockImplementation(() => undefined);
-  const state = new Store<ConnectionState>({ status: "connecting" });
+  const state = new Store<ConnectionState>({
+    status: "connecting",
+    attempt: 1,
+    startedAt: Date.now(),
+  });
   let attempts = 0;
   const source: ChangesSource = {
     state,
@@ -95,7 +99,7 @@ test("a refused watch marks changes unavailable, and the next watch that yields 
     expect(store.getSnapshot().loaded).toBe(true);
 
     // A dropped socket is not a verdict about the server: the next connection's watch yields.
-    state.set({ status: "disconnected" });
+    state.set({ status: "disconnected", attempt: 1, startedAt: Date.now() });
     state.set({ status: "connected" });
     await eventually(() => expect(store.getSnapshot().failed).toBe(false));
     expect(attempts).toBeGreaterThanOrEqual(2);

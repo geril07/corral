@@ -42,7 +42,11 @@ export interface TerminalStreamOptions {
  * dropped connection.
  */
 export class TerminalStream {
-  readonly #state = new Store<TerminalStreamState>({ status: "connecting" });
+  readonly #state = new Store<TerminalStreamState>({
+    status: "connecting",
+    attempt: 1,
+    startedAt: Date.now(),
+  });
   readonly #surface: TerminalSurface;
   readonly #connection: ReconnectingSocket;
   /** The open socket; input is accepted from here on, the server orders it after the snapshot. */

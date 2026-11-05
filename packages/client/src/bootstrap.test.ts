@@ -3,6 +3,7 @@ import { describe, expect, test } from "vite-plus/test";
 import {
   resolveServerTarget,
   SERVER_TARGET_STORAGE_KEY,
+  serverTargetFailure,
   type ServerTargetStorage,
 } from "./bootstrap.ts";
 
@@ -136,6 +137,28 @@ describe("browser bootstrap", () => {
         storage: memoryStorage(sameServer),
       }),
     ).rejects.toThrow("capability in the URL is empty");
+  });
+
+  test("a failure names its kind without changing the sentence the error carries", async () => {
+    const failure = await resolveServerTarget({ location: page, storage: memoryStorage() }).catch(
+      (error: unknown) => error,
+    );
+    expect(serverTargetFailure(failure)).toEqual({ kind: "no-capability" });
+    expect(failure).toBeInstanceOf(Error);
+    if (!(failure instanceof Error)) throw new Error("expected a bootstrap error");
+    expect(failure.message).toContain("No server capability");
+
+    const wrongServer = await resolveServerTarget({
+      location: { ...page, search: "?server=ws%3A%2F%2Fevil.example" },
+      storage: memoryStorage(sameServer),
+    }).catch((error: unknown) => error);
+    expect(serverTargetFailure(wrongServer)).toEqual({
+      kind: "other-server",
+      storedUrl: sameServer.url,
+      url: "ws://evil.example",
+    });
+    if (!(wrongServer instanceof Error)) throw new Error("expected a bootstrap error");
+    expect(wrongServer.message).toContain("belongs to ws://127.0.0.1:5173");
   });
 
   test("the storage key is stable and holds a target pair, not a bare token", () => {

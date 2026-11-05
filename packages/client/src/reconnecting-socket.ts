@@ -1,4 +1,8 @@
-import { PROTOCOL_MISMATCH_CLOSE_CODE, ProtocolMismatchReason } from "@corral/protocol/handshake";
+import {
+  CAPABILITY_REFUSED_CLOSE_CODE,
+  PROTOCOL_MISMATCH_CLOSE_CODE,
+  ProtocolMismatchReason,
+} from "@corral/protocol/handshake";
 import type { ConnectionState } from "./connection-state.ts";
 
 export interface Backoff {
@@ -34,7 +38,11 @@ export interface ReconnectingSocketOptions {
   onState(state: ConnectionState): void;
   /** Every time a socket opens; attach message listeners here. */
   onOpen(socket: WebSocket): void;
-  /** Every time a socket closes except for a protocol mismatch; say whether to try again. */
+  /**
+   * Every time a socket closes; say whether a transient drop should try again. A protocol
+   * mismatch or refused capability also reports here so the caller can clear its socket; the
+   * return value is ignored for those terminal states.
+   */
   onClose(event: CloseEvent): "retry" | "stop";
 }
 
@@ -45,6 +53,8 @@ export class ReconnectingSocket {
   #socket: WebSocket | undefined;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #failures = 0;
+  #attempts = 0;
+  #startedAt = Date.now();
   #stopped = false;
   #refreshing = false;
 
@@ -61,9 +71,22 @@ export class ReconnectingSocket {
     this.#socket = undefined;
   }
 
+  /** Retry now instead of waiting for the backoff; a no-op while one is already in flight. */
+  retry(): void {
+    if (this.#stopped || this.#socket !== undefined || this.#refreshing) return;
+    clearTimeout(this.#timer);
+    this.#timer = undefined;
+    this.#connect();
+  }
+
   #connect(): void {
     if (this.#stopped || this.#refreshing) return;
-    this.#options.onState({ status: "connecting" });
+    this.#attempts += 1;
+    this.#options.onState({
+      status: "connecting",
+      attempt: this.#attempts,
+      startedAt: this.#startedAt,
+    });
     const refresh = this.#options.refreshEndpoint;
     if (!refresh) {
       this.#open(this.#options.url, this.#options.protocols);
@@ -93,6 +116,8 @@ export class ReconnectingSocket {
     socket.addEventListener("open", () => {
       if (this.#socket !== socket) return;
       this.#failures = 0;
+      this.#attempts = 1;
+      this.#startedAt = Date.now();
       // Opened first: whoever reacts to "connected" expects the socket to be wired up.
       this.#options.onOpen(socket);
       this.#options.onState({ status: "connected" });
@@ -104,9 +129,19 @@ export class ReconnectingSocket {
     if (this.#socket !== socket) return;
     this.#socket = undefined;
     if (event.code === PROTOCOL_MISMATCH_CLOSE_CODE) {
+      this.#options.onClose(event);
       this.#options.onState({
         status: "protocol-mismatch",
         serverProtocolVersion: parseServerVersion(event.reason),
+      });
+      return;
+    }
+    if (event.code === CAPABILITY_REFUSED_CLOSE_CODE) {
+      this.#options.onClose(event);
+      this.#options.onState({
+        status: "capability-refused",
+        attempt: this.#attempts,
+        startedAt: this.#startedAt,
       });
       return;
     }
@@ -115,7 +150,13 @@ export class ReconnectingSocket {
   }
 
   #scheduleRetry(): void {
-    this.#options.onState({ status: "disconnected" });
+    // Elapsed time is how long this trouble has lasted, not how long the last connection did.
+    if (this.#failures === 0) this.#startedAt = Date.now();
+    this.#options.onState({
+      status: "disconnected",
+      attempt: this.#attempts,
+      startedAt: this.#startedAt,
+    });
     this.#failures += 1;
     this.#timer = setTimeout(
       () => this.#connect(),

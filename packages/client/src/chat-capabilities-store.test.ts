@@ -31,7 +31,11 @@ function fakeSource(capabilities: () => Promise<{ drivers: ChatDriverCapabilitie
   state: Store<ConnectionState>;
   calls: () => number;
 } {
-  const state = new Store<ConnectionState>({ status: "connecting" });
+  const state = new Store<ConnectionState>({
+    status: "connecting",
+    attempt: 1,
+    startedAt: Date.now(),
+  });
   let calls = 0;
   return {
     source: {
@@ -59,7 +63,7 @@ test("the drivers are asked for once per connection and kept while the socket is
   expect(calls()).toBe(1);
 
   // A reconnect asks the new server: within one protocol version the list changes with a driver.
-  state.set({ status: "disconnected" });
+  state.set({ status: "disconnected", attempt: 1, startedAt: Date.now() });
   // The answer already received is kept, so a reconnecting client keeps the offer it showed.
   expect(store.getSnapshot()).toEqual({ loaded: true, drivers: [PI] });
   state.set({ status: "connected" });
@@ -82,10 +86,10 @@ test("a failed question is asked again at the next connection, and a late answer
 
   // The socket drops while the second question is in flight; its answer belongs to a dead socket.
   fail = false;
-  state.set({ status: "disconnected" });
+  state.set({ status: "disconnected", attempt: 1, startedAt: Date.now() });
   state.set({ status: "connected" });
   await vi.waitFor(() => expect(calls()).toBe(2));
-  state.set({ status: "disconnected" });
+  state.set({ status: "disconnected", attempt: 1, startedAt: Date.now() });
   settle?.({ drivers: [CLAUDE] });
   await new Promise((resolve) => setTimeout(resolve, 10));
   expect(store.getSnapshot()).toEqual({ loaded: false, drivers: [] });
