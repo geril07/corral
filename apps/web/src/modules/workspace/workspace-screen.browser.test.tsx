@@ -1131,12 +1131,12 @@ test("the task header names the task, project and branch without a hidden copy c
   await expect.element(taskHeader().getByRole("heading", { name: "Header facts" })).toBeVisible();
   const where = await vi.waitFor(() => {
     const button = taskHeader()
-      .getByLabelText(/^repo-.* › /)
+      .getByLabelText(/^repo-.* \/ /)
       .element();
-    if (!button.textContent?.includes(" › ")) throw new Error("the branch is not named yet");
+    if (!button.textContent?.includes(" / ")) throw new Error("the branch is not named yet");
     return button.textContent ?? "";
   });
-  expect(where).toMatch(/^repo-[^ ]+ › /);
+  expect(where).toMatch(/^repo-[^ ]+ \/ /);
   await expect
     .element(taskHeader().getByRole("button", { name: /copy workspace path/i }))
     .not.toBeInTheDocument();
