@@ -377,16 +377,20 @@ export function WorkspaceScreen({
         </SidebarPanel>
       )}
       <MainPanel className="flex min-h-0 flex-col bg-background">
-        <ShellStatus
-          placement="strip"
-          connection={connection}
-          armed={armed}
-          prefix={prefix}
-          failure={failure}
-          onDismissFailure={dismissFailure}
-          onOpenConnection={openConnectionRecovery}
-          onOpenConfigProblems={openConfigProblems}
-        />
+        {/* One placement at a time: the footer owns the facts while the pane is shown, so the
+            hidden state gets the strip and none of the live regions is announced twice. */}
+        {sidebar.hidden && (
+          <ShellStatus
+            placement="strip"
+            connection={connection}
+            armed={armed}
+            prefix={prefix}
+            failure={failure}
+            onDismissFailure={dismissFailure}
+            onOpenConnection={openConnectionRecovery}
+            onOpenConfigProblems={openConfigProblems}
+          />
+        )}
         {(currentTaskNode || (showComposer && loaded && composerProject !== undefined)) && (
           <TaskHeader
             node={showComposer ? undefined : currentTaskNode}

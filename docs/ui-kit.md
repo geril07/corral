@@ -82,6 +82,8 @@ context-menu dispatcher.
   maximum. `layout="model"` bounds a model trigger so long native IDs really truncate.
 - Button `layout="status"` keeps the footer's connection opener in its row and truncates the
   label; it opens the connection-recovery dialog.
+- Alert `size="compact"`: one line of a chrome row; the message keeps its own width and truncates,
+  so the row's dismiss control sits beside the message rather than at the surface's far edge.
 - RowMenu composes a real button with Base UI ContextMenu. Right-click, the menu key and
   Shift+F10 reach secondary actions. No permanently reserved invisible action gutter.
   DropdownMenuItem uses the same underlying Base UI menu item in either kind of menu.

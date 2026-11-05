@@ -14,12 +14,12 @@ const alertVariants = cva(
       size: {
         // One line of a chrome row: the message keeps its own width and truncates, so a control
         // placed after it sits beside the message rather than at the row's far edge.
-        compact: "flex w-auto min-w-0 items-center gap-1 rounded-md px-1.5 py-0 text-xs leading-none",
+        compact:
+          "flex w-auto min-w-0 items-center gap-1 rounded-md px-1.5 py-0 text-xs leading-none",
       },
     },
     defaultVariants: {
       variant: "default",
-      size: "default",
     },
   },
 );

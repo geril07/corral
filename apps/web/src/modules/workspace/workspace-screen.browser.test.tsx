@@ -342,7 +342,9 @@ function droppableClient() {
     drop: () => {
       for (const socket of sockets.splice(0)) {
         socket.dispatchEvent(new CloseEvent("close", { code: 1006 }));
-        socket.close(1006);
+        // `close(1006)` is rejected by the platform: 1006 is reserved for a close the browser
+        // observed, so the test dispatches that event and closes the socket with the normal code.
+        socket.close();
       }
     },
   };
@@ -385,7 +387,11 @@ test("the footer status opens the recovery dialog, keeps its guidance, and retur
   await expect.element(dialog).toBeVisible();
   // A2's guidance survives the merge: the rotated capability's sentence and the field it names.
   await expect
-    .element(dialog.getByText(/If the server restarted, paste the capability it published in endpoint\.json/))
+    .element(
+      dialog.getByText(
+        /If the server restarted, paste the capability it published in endpoint\.json/,
+      ),
+    )
     .toBeVisible();
   await expect.element(dialog.getByRole("textbox", { name: "Capability" })).toBeVisible();
   await userEvent.keyboard("{Escape}");
@@ -412,6 +418,20 @@ test("the hidden strip keeps the connection status and returns focus to it", asy
   await expect.element(opener).toHaveFocus();
 });
 
+test("the hidden strip does not take the terminal's keyboard", async () => {
+  const { client, drop } = droppableClient();
+  await appWithProject(client);
+  await createTaskWithShell("Keeps its keyboard");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  drop();
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("disconnected");
+
+  await prefixThen("\\");
+  await expect.element(workspace()).not.toBeInTheDocument();
+  statusSurface("strip");
+  expect(focusedIsTerminal()).toBe(true);
+});
+
 test("config problems keep their icon and dialog with the sidebar hidden", async () => {
   const client = newClient();
   await render(<App client={client} />);
@@ -433,11 +453,10 @@ test("config problems keep their icon and dialog with the sidebar hidden", async
 
 test("a guidance failure can be dismissed", async () => {
   await appWithProject(newClient());
-  const notice = page.getByText("Select a task to see its changes.");
+  const notice = page.getByRole("status").filter({ hasText: "Select a task to see its changes." });
 
   await prefixShifted("c");
   await expect.element(notice).toBeVisible();
-  await expect.element(notice).toHaveAttribute("role", "status");
 
   const dismiss = page.getByRole("button", { name: "Dismiss status" });
   await expect.element(dismiss).toBeVisible();
@@ -486,38 +505,79 @@ test("a failed action keeps its message and the terminal's focus until the next 
   await expect.element(notice).not.toBeInTheDocument();
 });
 
-test("the status row stays one line at 1024 with the widest sidebar, at 140% too", async () => {
+test("the status row stays one line at 1024 at both sidebar widths, at 140% too", async () => {
   await droppedWorkspace();
   const handle = page.getByRole("separator", { name: "Resize sidebar" });
-  handle.element().focus();
-  await userEvent.keyboard("{ArrowRight}".repeat(20));
-  await expect.element(handle).toHaveAttribute("aria-valuenow", "384");
-
   const surface = statusSurface("footer");
   const row = surface.lastElementChild as HTMLElement;
-  const assertRowFits = () => {
+  /** One line, no document overflow, and the row's hint or badge plus the opener inside the pane. */
+  const assertRowFits = (contents: "hint" | "badge") => {
     expect(row.clientHeight).toBeGreaterThan(0);
     expect(row.scrollHeight).toBeLessThanOrEqual(row.clientHeight + 1);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
+    expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(window.innerHeight);
     const asideRect = handle.element().parentElement!.getBoundingClientRect();
-    const hintRect = page.getByText("alt+a").element().getBoundingClientRect();
-    expect(hintRect.left).toBeGreaterThanOrEqual(asideRect.left - 1);
-    expect(hintRect.right).toBeLessThanOrEqual(asideRect.right + 1);
+    const contentsRect =
+      contents === "hint"
+        ? page.getByText("alt+a").element().getBoundingClientRect()
+        : page.getByRole("status", { name: "prefix mode" }).element().getBoundingClientRect();
+    expect(contentsRect.left).toBeGreaterThanOrEqual(asideRect.left - 1);
+    expect(contentsRect.right).toBeLessThanOrEqual(asideRect.right + 1);
+    // The contents stay inside the one row rather than being clipped by its fixed height.
+    const rowRect = row.getBoundingClientRect();
+    expect(contentsRect.top).toBeGreaterThanOrEqual(rowRect.top - 1);
+    expect(contentsRect.bottom).toBeLessThanOrEqual(rowRect.bottom + 1);
     expect(connectionOpener().element().getBoundingClientRect().right).toBeLessThanOrEqual(
       asideRect.right + 1,
     );
   };
-  assertRowFits();
+  const withInterfaceScale = async (read: () => void) => {
+    const previous = document.documentElement.style.fontSize;
+    document.documentElement.style.fontSize = "140%";
+    try {
+      // The chrome row reads the interface scale, so the guard is the row's own height, not 36 px.
+      await vi.waitFor(() => expect(row.clientHeight).toBeGreaterThan(36));
+      read();
+    } finally {
+      document.documentElement.style.fontSize = previous;
+    }
+  };
 
-  const previous = document.documentElement.style.fontSize;
-  document.documentElement.style.fontSize = "140%";
-  try {
-    // The chrome row reads the interface scale, so the guard is the row's own height, not 36 px.
-    await vi.waitFor(() => expect(row.clientHeight).toBeGreaterThan(36));
-    assertRowFits();
-  } finally {
-    document.documentElement.style.fontSize = previous;
-  }
+  // The device default at 1024: the narrowest footer the app shows.
+  await expect.element(handle).toHaveAttribute("aria-valuenow", "232");
+  assertRowFits("hint");
+  await withInterfaceScale(() => assertRowFits("hint"));
+
+  handle.element().focus();
+  await userEvent.keyboard("{ArrowRight}".repeat(20));
+  await expect.element(handle).toHaveAttribute("aria-valuenow", "384");
+  assertRowFits("hint");
+  await withInterfaceScale(() => assertRowFits("hint"));
+
+  // Arming replaces the hint with the badge inside the same row; the row keeps its height.
+  const height = row.clientHeight;
+  await userEvent.keyboard("{Alt>}a{/Alt}");
+  await expect.element(page.getByRole("status", { name: "prefix mode" })).toBeVisible();
+  await expect.element(page.getByText("alt+a")).not.toBeInTheDocument();
+  expect(row.clientHeight).toBe(height);
+  assertRowFits("badge");
+  await withInterfaceScale(() => assertRowFits("badge"));
+  expect(row.clientHeight).toBe(height);
+  assertRowFits("badge");
+});
+
+test("only the placement that is visible is mounted", async () => {
+  await droppedWorkspace();
+  statusSurface("footer");
+  expect(document.querySelectorAll('[data-slot="shell-status"]')).toHaveLength(1);
+
+  await prefixThen("\\");
+  await expect.element(workspace()).not.toBeInTheDocument();
+  statusSurface("strip");
+  // One surface means one live region and one connection opener, not a hidden duplicate.
+  expect(document.querySelectorAll('[data-slot="shell-status"]')).toHaveLength(1);
+  expect(document.querySelectorAll('[data-slot="shell-status"] [role="status"]')).toHaveLength(1);
+  expect(document.querySelectorAll('[aria-label^="connection:"]')).toHaveLength(1);
 });
 
 /** Waits for two frames and a fit round-trip, so a resize the arm caused would have landed. */
@@ -699,13 +759,22 @@ test("the first character typed after Escape reaches the terminal", async () => 
   expect(screenText()).not.toContain("not found");
 });
 
-test("prefix t without a project says so instead of opening the composer", async () => {
+test("prefix t without a project says so, and adding the project clears it", async () => {
   await render(<App client={newClient()} />);
   await expect.element(page.getByText("Add a repository to start")).toBeVisible();
 
   await prefixThen("t");
-  await expect.element(page.getByText(/Add a project first/)).toBeVisible();
+  const notice = page.getByText(/Add a project first/);
+  await expect.element(notice).toBeVisible();
   await expect.element(page.getByRole("form", { name: "New task" })).not.toBeInTheDocument();
+
+  // The failure asked for this add, so completing it spends the message.
+  await userEvent.type(
+    page.getByRole("textbox", { name: "Repository path" }),
+    await createGitRepo("after-prefix-t"),
+  );
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expect.element(notice).not.toBeInTheDocument();
 });
 
 test("prefix b opens the board, which pauses the prefix and closes on Escape", async () => {
