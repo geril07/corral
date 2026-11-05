@@ -18,6 +18,11 @@ async function emulateMotion(reducedMotion: ReducedMotion) {
   });
 }
 
+/** Clearing the feature list restores the host preference instead of emulating the default. */
+async function clearMotion() {
+  await cdp().send("Emulation.setEmulatedMedia", { features: [] });
+}
+
 function elementAt(selector: string): HTMLElement {
   const element = document.querySelector<HTMLElement>(selector);
   if (element === null) throw new Error(`${selector} has not rendered yet`);
@@ -30,7 +35,7 @@ function animationAt(selector: string) {
 }
 
 afterEach(async () => {
-  await emulateMotion("no-preference");
+  await clearMotion();
 });
 
 test("a menu enters only when motion is allowed: 150 ms normally, none under reduce", async () => {

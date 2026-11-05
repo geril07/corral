@@ -145,7 +145,11 @@ export function classViolations(source, filename, location = "module") {
         const token = match[0];
         if (!/(?:^|:)animate-/.test(token) || MOTION_SAFE.test(token)) continue;
         const entry = MOTION_ENTRY.test(token);
-        if (!entry && ANIMATE_REDUCE.test(value)) continue;
+        // A reduce partner cannot beat a `data-*`/`aria-*` rule emitted later, and `!` beats
+        // everything, so the escape hatch is only sound for an unforced, variant-free animation.
+        const variantDependent = /(?:^|:)(?:data|aria)-/.test(token);
+        const forced = token.endsWith("!");
+        if (!entry && !variantDependent && !forced && ANIMATE_REDUCE.test(value)) continue;
         diagnostics.push({
           line: line(literal.start + match.index),
           message: entry
