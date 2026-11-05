@@ -362,6 +362,7 @@ export function WorkspaceScreen({
                   label="Settings"
                   tooltip={`Settings · ${settingsBinding}`}
                   icon="settings"
+                  size="icon-sm"
                   onClick={(event) => openSettings(event.currentTarget)}
                 />
                 <IconButton
@@ -369,6 +370,7 @@ export function WorkspaceScreen({
                   label="Add project"
                   tooltip={formatBinding(config, "add-project")}
                   icon="add-project"
+                  size="icon-sm"
                   onClick={() => actions["add-project"].run()}
                 />
               </>

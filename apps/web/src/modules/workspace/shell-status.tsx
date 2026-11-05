@@ -67,11 +67,11 @@ export function ShellStatus({
             <FailureMessage failure={failure} onDismiss={onDismissFailure} />
           </div>
         )}
-        <div className="flex h-9 min-w-0 items-center gap-1 px-2">
+        <div className="flex h-9 min-w-0 items-center gap-0.5 px-2">
           {actions}
           {status}
           <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-            {armed ? <ArmedBadge /> : <Kbd>{prefix}</Kbd>}
+            {armed ? <ArmedBadge prefix={prefix} /> : <Kbd>{prefix}</Kbd>}
           </span>
         </div>
       </footer>
@@ -97,18 +97,23 @@ export function ShellStatus({
       {status}
       {armed && (
         <span className="ml-auto flex shrink-0">
-          <ArmedBadge />
+          <ArmedBadge prefix={prefix} />
         </span>
       )}
     </div>
   );
 }
 
-/** The armed prefix, named for a screen reader and identical in both placements. */
-function ArmedBadge() {
+/**
+ * The armed prefix, named for a screen reader and identical in both placements. The primary chip
+ * reads as armed rather than as the disarmed hint, while naming the chord the next key completes.
+ */
+function ArmedBadge({ prefix }: { prefix: string }) {
   return (
     <span className="flex shrink-0 items-center gap-1" role="status" aria-label="prefix mode">
-      <Badge variant="secondary">prefix…</Badge>
+      <Badge variant="default" size="compact">
+        {prefix}
+      </Badge>
     </span>
   );
 }
