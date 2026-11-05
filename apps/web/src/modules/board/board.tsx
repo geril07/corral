@@ -1,7 +1,7 @@
 import { describeStatus, formatAge } from "@corral/client/agent-status";
 import type { BoardRow as Row } from "@corral/client/board";
 import { stepActive } from "@corral/client/terminal-selection";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   BoardList,
   BoardRow,
@@ -27,12 +27,16 @@ export function Board({ rows, onJump, onClose }: BoardProps) {
   // Follows the task, not the position, so a status change that reorders rows moves nothing under the cursor.
   const [highlightedTask, setHighlightedTask] = useState<string>();
   const listRef = useRef<HTMLUListElement>(null);
+  const backRef = useRef<HTMLButtonElement>(null);
   const now = useNow(AGE_REFRESH_MS);
   const highlighted = rows.find((row) => row.task.id === highlightedTask) ?? rows[0];
+  const empty = rows.length === 0;
 
-  useEffect(() => {
-    listRef.current?.focus();
-  }, []);
+  // Take the keyboard in the same commit that paints the layer, before a key can reach the
+  // terminal still focused underneath. An empty board has no list, so its Back control takes it.
+  useLayoutEffect(() => {
+    (empty ? backRef.current : listRef.current)?.focus();
+  }, [empty]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -54,9 +58,12 @@ export function Board({ rows, onJump, onClose }: BoardProps) {
     );
 
   return (
-    <section className="flex h-full min-h-0 flex-col p-3" aria-label="Board">
+    <section
+      className="fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-background p-3"
+      aria-label="Board"
+    >
       <div className="mb-2 flex h-8 items-center gap-2 border-b border-border pb-1.5">
-        <Button variant="ghost" aria-label="Back to workspace" onClick={onClose}>
+        <Button ref={backRef} variant="ghost" aria-label="Back to workspace" onClick={onClose}>
           <Icon name="back" />
           Back
         </Button>

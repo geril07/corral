@@ -16,6 +16,7 @@ import {
   appWithProject,
   createTask,
   createTaskWithShell,
+  promptField,
   sessionTab,
   shellTabs,
   taskButton,
@@ -55,6 +56,9 @@ test("the same key without the prefix's modifier does not arm prefix mode", asyn
 });
 
 const workspace = () => page.getByRole("navigation", { name: "workspace" });
+const boardList = () => page.getByRole("region", { name: "Board" }).getByRole("listbox");
+const boardBack = () =>
+  page.getByRole("region", { name: "Board" }).getByRole("button", { name: "Back to workspace" });
 // Terminals of the test server run /bin/sh, which the sidebar labels "sh · <folder>".
 const terminalButtons = () => workspace().getByRole("button", { name: /^sh · / });
 const selectButton = (index: number) => terminalButtons().nth(index);
@@ -261,17 +265,26 @@ test("prefix t without a project says so instead of opening the composer", async
   await expect.element(page.getByRole("form", { name: "New task" })).not.toBeInTheDocument();
 });
 
-test("prefix b opens the board, which Escape closes and returns the keyboard from", async () => {
+test("prefix b opens the board, which pauses the prefix and closes on Escape", async () => {
   await render(<App client={newClient()} />);
   await prefixThen("c");
   await expect.element(terminalButtons()).toHaveLength(1);
 
   await prefixThen("b");
   await expect.element(page.getByRole("region", { name: "Board" })).toBeVisible();
+  await expect.element(boardBack()).toHaveFocus();
+  // The workspace keeps its state but not its keymap while the layer is open.
+  await prefixThen("c");
+  await expect.element(terminalButtons()).toHaveLength(1);
   await userEvent.keyboard("{Escape}");
 
   await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  // The next chord is live again: the sidebar action runs and does not reach the terminal.
+  await prefixThen("\\");
+  await expect.element(workspace()).not.toBeInTheDocument();
+  await prefixThen("\\");
+  await expect.element(workspace()).toBeVisible();
 });
 
 test("Escape on the board returns to the workspace with the previous selection", async () => {
@@ -282,13 +295,115 @@ test("Escape on the board returns to the workspace with the previous selection",
   await expect.element(terminalButtons()).toHaveLength(2);
   await selectButton(0).click();
   await expect.element(selectButton(0)).toHaveAttribute("aria-current", "true");
+  const pane = page.getByRole("region", { name: "active terminal" }).element();
 
   await prefixThen("b");
   await expect.element(page.getByRole("region", { name: "Board" })).toBeVisible();
+  await expect.element(boardBack()).toHaveFocus();
   await userEvent.keyboard("{Escape}");
 
   await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
   await expect.element(selectButton(0)).toHaveAttribute("aria-current", "true");
+  expect(page.getByRole("region", { name: "active terminal" }).element()).toBe(pane);
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+});
+
+test("the board leaves the terminal attached and its grid unchanged underneath", async () => {
+  const client = newClient();
+  await render(<App client={client} />);
+  await prefixThen("c");
+  await expect.element(terminalButtons()).toHaveLength(1);
+  const pane = page.getByRole("region", { name: "active terminal" }).element();
+  const sizeOf = async () => (await client.connection.api.terminals.list())[0]!.size;
+  await vi.waitFor(async () => expect((await sizeOf()).cols).toBeGreaterThan(85));
+  const size = await sizeOf();
+  // Output that arrives while the board is open proves the stream stayed attached underneath.
+  await userEvent.keyboard("(sleep 1; echo board-kept-$((3*3))){Enter}");
+
+  await prefixThen("b");
+  await expect.element(page.getByRole("region", { name: "Board" })).toBeVisible();
+  await expect.element(boardBack()).toHaveFocus();
+  await expect.poll(screenText, { timeout: 5000 }).toContain("board-kept-9");
+  expect(await sizeOf()).toEqual(size);
+  await userEvent.keyboard("{Escape}");
+
+  await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
+  expect(page.getByRole("region", { name: "active terminal" }).element()).toBe(pane);
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+});
+
+test("a direct /board visit renders the layer over the workspace", async () => {
+  const screen = await renderApp(newClient(), ["/board"]);
+
+  await expect.element(page.getByRole("region", { name: "Board" })).toBeVisible();
+  await expect.element(workspace()).toBeVisible();
+  await expect.element(boardBack()).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+
+  await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(screen.history.location.pathname).toBe("/"));
+});
+
+test("the board keeps the new-task draft and returns the keyboard to its prompt", async () => {
+  await appWithProject(newClient());
+  await prefixThen("t");
+  await expect.element(promptField()).toHaveFocus();
+  await userEvent.keyboard("hello board draft");
+
+  await prefixThen("b");
+  await expect.element(page.getByRole("region", { name: "Board" })).toBeVisible();
+  await expect.element(boardBack()).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+
+  await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
+  await expect.element(promptField()).toHaveValue("hello board draft");
+  await expect.element(promptField()).toHaveFocus();
+});
+
+test("the board keeps a collapsed project and the sidebar's scroll", async () => {
+  const { client } = await appWithProject(newClient());
+  const project = client.projects.getSnapshot().projects[0]!;
+  const otherProject = await client.connection.api.projects.add({
+    path: await createGitRepo("other"),
+  });
+  await Promise.all(
+    Array.from({ length: 18 }, (_, index) =>
+      client.connection.api.tasks.create({
+        projectId: project.id,
+        title: `Board task ${index}`,
+        workspace: { type: "main-worktree" },
+      }),
+    ),
+  );
+  await expect.element(taskButton("Board task 17")).toBeVisible();
+  const list = workspace().element().querySelector<HTMLElement>(".overflow-y-auto");
+  if (list === null) throw new Error("the sidebar list is not mounted");
+  await vi.waitFor(() => expect(list.scrollHeight).toBeGreaterThan(list.clientHeight));
+  list.scrollTop = 160;
+  expect(list.scrollTop).toBe(160);
+
+  await prefixThen("b");
+  await expect.element(page.getByRole("region", { name: "Board" })).toBeVisible();
+  await expect.element(boardList()).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
+  expect(list.scrollTop).toBe(160);
+
+  // A project that does not hold the current task can collapse; a board visit must not reopen it.
+  await workspace()
+    .getByRole("button", { name: `Collapse ${otherProject.name}` })
+    .click();
+  await expect
+    .element(workspace().getByRole("button", { name: `Expand ${otherProject.name}` }))
+    .toBeVisible();
+  await prefixThen("b");
+  await expect.element(page.getByRole("region", { name: "Board" })).toBeVisible();
+  await expect.element(boardList()).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
+  await expect
+    .element(workspace().getByRole("button", { name: `Expand ${otherProject.name}` }))
+    .toBeVisible();
 });
 
 test("prefix g with no blocked session says so and leaves the selection alone", async () => {

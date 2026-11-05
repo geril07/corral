@@ -172,6 +172,16 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
     await page.getByRole("tab", { name: /^pi/ }).click();
     await expect.element(composer).toHaveValue("Unsent pi draft");
 
+    // The board is a layer over the mounted workspace, so its round trip keeps the chat draft.
+    await prefixThen("b");
+    await expect.element(page.getByRole("region", { name: "Board" })).toBeVisible();
+    await expect
+      .element(page.getByRole("region", { name: "Board" }).getByRole("listbox"))
+      .toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
+    await expect.element(composer).toHaveValue("Unsent pi draft");
+
     // The palette action is enabled for a working chat turn.
     await prefixThen(" ");
     await userEvent.keyboard("abort");

@@ -111,9 +111,10 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 - A large categorized modal, bounded by the viewport.
   Its left category list selects one panel at a time. Each panel retains its own scroll
   and disclosure state; Appearance does not mix editable device preferences with read-only config.
-- The route stays /settings, backed by a pathless workspace parent: opening it never destroys
-  terminal attachment, chat/new-task draft, selection, caret or scroll. Closing restores focus.
-  Background prefix bindings and completion seen marks pause while the modal is open.
+- The route stays /settings, in the pathless workspace parent shared with the board: opening it
+  never destroys terminal attachment, chat/new-task draft, selection, caret or scroll. Closing
+  restores focus. Background prefix bindings and completion seen marks pause while the modal is
+  open.
 - Appearance edits device-local tab position and interface text scale; the offered range is a
   user-facing promise and is stated in `ux.md`, **Known limits**. Terminal text does not change.
 - Models is an editable, server-shared preference category: provider rail, searchable model list,
@@ -123,9 +124,15 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 - Server config stays read-only: keys, task defaults, naming, project overrides, profiles,
   agent capabilities and config problems. No server config writes or permission bypass.
 
+## Board
+
+- A full-screen layer over the mounted workspace, at /board and reached by key/palette. It is a
+  screen, not a dialog: no scrim and no second scrollbar. Escape and Back return to the same task
+  and URL; closing restores the keyboard. Drafts, collapsed groups, list scroll and terminal
+  attachment survive the visit, and the workspace prefix is paused while it is open.
+
 ## Empty states and scope
 
 - No repository: Add a repository to start with an inline path field and Add.
 - Repository but no selection: the new-task composer, never a blank main area.
 - Task without sessions: No sessions with Start agent / Open shell; its tab row still offers +.
-- Board stays a separate route, reached by key/palette.

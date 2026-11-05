@@ -187,6 +187,28 @@ test("the palette opens from its key, shows bindings, filters, runs an action an
   await expect.poll(() => window.corralScreenText?.() ?? "").toContain("back-14");
 });
 
+test("the palette opens the board and Escape returns to the terminal", async () => {
+  await render(<App client={newClient()} />);
+  await prefixThen("c");
+  await expect.element(terminalButtons()).toHaveLength(1);
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  await prefixThen(" ");
+  await userEvent.keyboard("open board");
+  await expect.element(paletteItem(/Open board/)).toBeVisible();
+  await userEvent.keyboard("{Enter}");
+
+  const board = page.getByRole("region", { name: "Board" });
+  await expect.element(board).toBeVisible();
+  await expect.element(board.getByRole("button", { name: "Back to workspace" })).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+
+  await expect.element(board).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  await userEvent.keyboard("echo board-palette-$((4+4)){Enter}");
+  await expect.poll(() => window.corralScreenText?.() ?? "").toContain("board-palette-8");
+});
+
 test("a focus tooltip does not block the sidebar row underneath it", async () => {
   const { client } = await appWithProject(newClient());
   const project = client.projects.getSnapshot().projects[0]!;

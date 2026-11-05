@@ -90,7 +90,9 @@ context-menu dispatcher.
   (chat/task composer, then terminal). The named picker layout contains the shared ModelPicker.
   Settings uses the named large, viewport-bounded `layout="settings"`, with its own scrolling
   content and categories. It is a route-backed modal over a mounted workspace, not a page that
-  destroys drafts and terminal attachments. Other dialogs keep their existing dimensions.
+  destroys drafts and terminal attachments. The board is a full-screen route layer over the same
+  parent, not a dialog: no scrim, and its close returns the keyboard through the same fallback.
+  Other dialogs keep their existing dimensions.
 - Enter only; the reason is in Direction (**Motion**). RowMenu has no delayed teardown.
 - Hint retains Base UI semantics and 300 ms delay. `useTruncatedText` owns clipping measurement
   and middle ellipsis; full labels remain accessible, with a full-name tooltip when clipped.
