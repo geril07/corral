@@ -14,6 +14,7 @@ export type TerminalsStore = WatchStore<TerminalsSnapshot>;
 export function createTerminalsStore(connection: RpcConnection): TerminalsStore {
   return createWatchStore<TerminalInfo, TerminalsSnapshot>(connection, {
     name: "terminals.watch",
+    label: "terminal list",
     initial: { loaded: false, terminals: [] },
     watch: (rpc) => rpc.api.terminals.watch(),
     toSnapshot: (terminals) => ({ loaded: true, terminals }),

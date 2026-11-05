@@ -14,6 +14,7 @@ export type ProjectsStore = WatchStore<ProjectsSnapshot>;
 export function createProjectsStore(connection: RpcConnection): ProjectsStore {
   return createWatchStore<Project, ProjectsSnapshot>(connection, {
     name: "projects.watch",
+    label: "project list",
     initial: { loaded: false, projects: [] },
     watch: (rpc) => rpc.api.projects.watch(),
     toSnapshot: (projects) => ({ loaded: true, projects }),

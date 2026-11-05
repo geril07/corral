@@ -78,7 +78,10 @@ What a user does. Everything below is built and verified end to end, chat views 
   beside the count, and a merged one offers settle.
 - The main area never goes blank: with no task selected it is the new-task composer, prefilled
   with the current project. `prefix t` shows the composer over the selected task and Escape
-  returns to that task, with the keyboard back in its terminal.
+  returns to that task, with the keyboard back in its terminal. Until the projects, tasks,
+  sessions and terminals lists have each delivered once, the main area says it is loading; a
+  list the server refuses is one muted line naming that list with a Retry, never the first-run
+  form.
 - Clicking navigation, tabs or the task header must not take the keyboard from the terminal; a
   dialog returns focus to its opener and, failing that, to the terminal (see **Focus, keyboard
   and errors**).

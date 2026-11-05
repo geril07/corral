@@ -14,6 +14,7 @@ export type TasksStore = WatchStore<TasksSnapshot>;
 export function createTasksStore(connection: RpcConnection): TasksStore {
   return createWatchStore<Task, TasksSnapshot>(connection, {
     name: "tasks.watch",
+    label: "task list",
     initial: { loaded: false, tasks: [] },
     watch: (rpc) => rpc.api.tasks.watch(),
     toSnapshot: (tasks) => ({ loaded: true, tasks }),

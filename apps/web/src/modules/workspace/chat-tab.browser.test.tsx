@@ -77,11 +77,15 @@ function seededClient(
     tasks: {
       subscribe: tasks.subscribe,
       getSnapshot: tasks.getSnapshot,
+      failure: { subscribe: () => () => {}, getSnapshot: () => undefined },
+      retry: () => {},
       close: () => {},
     },
     sessions: {
       subscribe: sessions.subscribe,
       getSnapshot: sessions.getSnapshot,
+      failure: { subscribe: () => () => {}, getSnapshot: () => undefined },
+      retry: () => {},
       close: () => {},
     },
     connection,
