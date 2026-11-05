@@ -13,6 +13,7 @@ export function ConfigProblemsNotice({ onOpen }: { onOpen: (opener?: HTMLElement
       tooltip={`Config problems · ${count}`}
       icon="warn"
       variant="destructive"
+      size="icon-sm"
       onClick={(event) => onOpen(event.currentTarget)}
     />
   );

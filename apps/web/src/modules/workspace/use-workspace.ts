@@ -1043,7 +1043,12 @@ export function useWorkspace({
     composerDraft,
     setComposerDraft,
     failure,
-    dismissFailure: () => setFailure(undefined),
+    dismissFailure: () => {
+      setFailure(undefined);
+      // The dismissed control goes with the row; hand the keyboard back to the view's input
+      // instead of letting it fall to <body>. An empty shell has none, so this is a no-op.
+      returnToWorkspace();
+    },
     armed,
     actions,
     rememberFitSize,

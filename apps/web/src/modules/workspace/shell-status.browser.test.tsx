@@ -143,7 +143,7 @@ test("the footer keeps one row: the badge replaces the disarmed chord", async ()
 
   await screen.rerender(<Status snapshot={snapshot} placement="footer" armed />);
   await expect.element(page.getByRole("status", { name: "prefix mode" })).toBeVisible();
-  await expect.element(page.getByText("alt+a")).not.toBeInTheDocument();
+  expect(document.querySelector('[data-slot="shell-status"] kbd')).toBeNull();
   expect(surface.getBoundingClientRect().height).toBe(height);
 });
 

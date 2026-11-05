@@ -127,6 +127,7 @@ const terminalButtons = () => workspace().getByRole("button", { name: /^sh · / 
 const hiddenTerminalButtons = () =>
   hiddenWorkspace().getByRole("button", { name: /^sh · /, includeHidden: true });
 const selectButton = (index: number) => terminalButtons().nth(index);
+const noBlockedSessions = () => page.getByText("No blocked sessions.");
 
 const idleSurface: TerminalSurface = {
   write: () => undefined,
@@ -467,14 +468,60 @@ test("a guidance failure can be dismissed", async () => {
   await expect.element(notice).not.toBeInTheDocument();
 });
 
-test("a status failure clears when the navigation it asked for arrives", async () => {
-  await appWithProject(newClient());
-  const notice = page.getByText("Select a task to see its changes.");
+test("selecting a task clears the guidance that asked for one", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Needs a selection");
+
+  // A project that holds a task auto-selects its first task, so the no-task selection needs a
+  // project with none. Adding it through the API keeps the failure out of this step.
+  const other = await client.connection.api.projects.add({ path: await createGitRepo("other") });
+  const otherRow = workspace().getByRole("button", { name: other.name });
+  await expect.element(otherRow).toBeVisible();
+  await otherRow.click();
+  await expect.element(taskButton("Needs a selection")).not.toHaveAttribute("aria-current", "true");
 
   await prefixShifted("c");
+  const notice = page.getByText("Select a task to see its changes.");
   await expect.element(notice).toBeVisible();
-  await createTask("Has a task");
+
+  // The task row is the navigation the notice asked for; choose() spends it.
+  await taskButton("Needs a selection").click();
   await expect.element(notice).not.toBeInTheDocument();
+  await expect.element(taskButton("Needs a selection")).toHaveAttribute("aria-current", "true");
+});
+
+test("a route change clears a failure on push, Back and Forward", async () => {
+  const setup = newClient();
+  await expect.poll(() => setup.connection.state.getSnapshot().status).toBe("connected");
+  const { api } = setup.connection;
+  const project = await api.projects.add({ path: await createGitRepo("route-clear") });
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Route task",
+    workspace: { type: "main-worktree" },
+  });
+  const session = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
+  const projectHref = `/?project=${project.id}`;
+  const taskHref = `/?project=${project.id}&task=${task.id}&entry=${session.id}`;
+  const screen = await renderApp(newClient(), [projectHref]);
+
+  await expect.element(taskButton("Route task")).toBeVisible();
+  await prefixThen("g");
+  await expect.element(noBlockedSessions()).toBeVisible();
+
+  // The pushed route names a task: navigation the effect, not choose(), applies.
+  screen.history.push(taskHref);
+  await expect.element(noBlockedSessions()).not.toBeInTheDocument();
+
+  await prefixThen("g");
+  await expect.element(noBlockedSessions()).toBeVisible();
+  screen.history.back();
+  await expect.element(noBlockedSessions()).not.toBeInTheDocument();
+
+  await prefixThen("g");
+  await expect.element(noBlockedSessions()).toBeVisible();
+  screen.history.forward();
+  await expect.element(noBlockedSessions()).not.toBeInTheDocument();
 });
 
 test("a failed action is the kit's alert, not a quiet notice", async () => {
@@ -505,11 +552,34 @@ test("a failed action keeps its message and the terminal's focus until the next 
   await expect.element(notice).not.toBeInTheDocument();
 });
 
-test("the status row stays one line at 1024 at both sidebar widths, at 140% too", async () => {
+test("dismissing a failure returns the keyboard to the terminal", async () => {
+  await appWithProject(newClient());
+  await createTaskWithShell("Dismisses");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  await prefixThen("g");
+  const notice = page.getByText("No blocked sessions.");
+  await expect.element(notice).toBeVisible();
+  const dismiss = page.getByRole("button", { name: "Dismiss status" });
+  await expect.element(dismiss).toBeVisible();
+  dismiss.element().focus();
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(notice).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  await userEvent.keyboard("echo dismissed-$((7+7)){Enter}");
+  await expect.poll(screenText).toContain("dismissed-14");
+});
+
+test("the status row stays one line at 1024 at both sidebar widths with a config problem, at 140% too", async () => {
+  // The client must load the config problem before its socket drops: the footer keeps it after.
+  await writeConfig('[keys.bindings]\nnew-agent = "hyper+q"\n');
   await droppedWorkspace();
+  await expect.element(page.getByRole("button", { name: "config: 1 problem" })).toBeVisible();
   const handle = page.getByRole("separator", { name: "Resize sidebar" });
   const surface = statusSurface("footer");
-  const row = surface.lastElementChild as HTMLElement;
+  const row = surface.lastElementChild;
+  if (!(row instanceof HTMLElement)) throw new Error("the footer has no row");
   /** One line, no document overflow, and the row's hint or badge plus the opener inside the pane. */
   const assertRowFits = (contents: "hint" | "badge") => {
     expect(row.clientHeight).toBeGreaterThan(0);
@@ -548,22 +618,31 @@ test("the status row stays one line at 1024 at both sidebar widths, at 140% too"
   assertRowFits("hint");
   await withInterfaceScale(() => assertRowFits("hint"));
 
+  // Arming replaces the hint with the chord badge inside the same row; the row keeps its height.
+  const height = row.clientHeight;
+  await userEvent.keyboard("{Alt>}a{/Alt}");
+  await expect.element(page.getByRole("status", { name: "prefix mode" })).toBeVisible();
+  expect(row.querySelector("kbd")).toBeNull();
+  expect(row.clientHeight).toBe(height);
+  assertRowFits("badge");
+  await withInterfaceScale(() => assertRowFits("badge"));
+  expect(row.clientHeight).toBe(height);
+
+  await userEvent.keyboard("q");
+  await expect.element(page.getByRole("status", { name: "prefix mode" })).not.toBeInTheDocument();
   handle.element().focus();
   await userEvent.keyboard("{ArrowRight}".repeat(20));
   await expect.element(handle).toHaveAttribute("aria-valuenow", "384");
   assertRowFits("hint");
   await withInterfaceScale(() => assertRowFits("hint"));
 
-  // Arming replaces the hint with the badge inside the same row; the row keeps its height.
-  const height = row.clientHeight;
   await userEvent.keyboard("{Alt>}a{/Alt}");
   await expect.element(page.getByRole("status", { name: "prefix mode" })).toBeVisible();
-  await expect.element(page.getByText("alt+a")).not.toBeInTheDocument();
+  expect(row.querySelector("kbd")).toBeNull();
   expect(row.clientHeight).toBe(height);
   assertRowFits("badge");
   await withInterfaceScale(() => assertRowFits("badge"));
   expect(row.clientHeight).toBe(height);
-  assertRowFits("badge");
 });
 
 test("only the placement that is visible is mounted", async () => {
@@ -601,7 +680,9 @@ test("arming the prefix never resizes the terminal", async () => {
   const settledSize = async () => {
     let previous = await ptySize();
     for (let attempt = 0; attempt < 10; attempt += 1) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- each poll waits for the previous layout
       await settleLayout();
+      // oxlint-disable-next-line eslint/no-await-in-loop -- each poll waits for the previous layout
       const next = await ptySize();
       if (JSON.stringify(next) === JSON.stringify(previous)) return next;
       previous = next;
@@ -1502,7 +1583,7 @@ test("the sidebar footer shows the prefix pill while the prefix is armed and the
   await expect.element(page.getByRole("status", { name: "prefix mode" })).toBeVisible();
   await expect
     .element(page.getByRole("status", { name: "prefix mode" }))
-    .toMatchTextContent(/prefix…/);
+    .toMatchTextContent(/alt\+a/);
   await userEvent.keyboard("q");
   await expect.element(page.getByRole("status", { name: "prefix mode" })).not.toBeInTheDocument();
 });

@@ -84,6 +84,8 @@ context-menu dispatcher.
   label; it opens the connection-recovery dialog.
 - Alert `size="compact"`: one line of a chrome row; the message keeps its own width and truncates,
   so the row's dismiss control sits beside the message rather than at the surface's far edge.
+- Badge `size="compact"`: the armed-prefix chord in the footer and the hidden strip; the chord,
+  not a word, keeps the row's hint and status inside the sidebar at 140 % interface scale.
 - RowMenu composes a real button with Base UI ContextMenu. Right-click, the menu key and
   Shift+F10 reach secondary actions. No permanently reserved invisible action gutter.
   DropdownMenuItem uses the same underlying Base UI menu item in either kind of menu.

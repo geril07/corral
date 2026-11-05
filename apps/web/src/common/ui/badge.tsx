@@ -8,6 +8,11 @@ const badgeVariants = cva(
   {
     variants: {
       layout: { default: "", truncate: "min-w-0 max-w-1/3 justify-start overflow-hidden" },
+      size: {
+        default: "",
+        // The armed-prefix chip: the chord, not a word, so it fits the footer at 140 %.
+        compact: "px-1",
+      },
       variant: {
         default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
         secondary: "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
@@ -20,6 +25,7 @@ const badgeVariants = cva(
     },
     defaultVariants: {
       variant: "default",
+      size: "default",
     },
   },
 );
@@ -27,6 +33,7 @@ const badgeVariants = cva(
 function Badge({
   className,
   variant = "default",
+  size = "default",
   layout = "default",
   render,
   ...props
@@ -35,7 +42,7 @@ function Badge({
     defaultTagName: "span",
     props: mergeProps<"span">(
       {
-        className: cn(badgeVariants({ variant, layout }), className),
+        className: cn(badgeVariants({ variant, layout, size }), className),
       },
       props,
     ),
