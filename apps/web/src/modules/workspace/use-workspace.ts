@@ -76,6 +76,7 @@ export type DialogState =
   | { kind: "rename"; target: RenameTarget }
   | { kind: "command-palette" }
   | { kind: "config-problems" }
+  | { kind: "connection" }
   | { kind: "chat-model" }
   | { kind: "chat-reasoning" };
 
@@ -702,6 +703,9 @@ export function useWorkspace({
   const openFindTask = (opener?: HTMLElement) => openDialog({ kind: "find-task" }, opener);
   const openConfigProblems = (opener?: HTMLElement) =>
     openDialog({ kind: "config-problems" }, opener);
+  /** The status opens the capability-recovery dialog; no action id, it is a surface. */
+  const openConnectionRecovery = (opener?: HTMLElement) =>
+    openDialog({ kind: "connection" }, opener);
 
   const openRemoveTask = (task: Task | undefined) => {
     if (task) openDialog({ kind: "remove-task", task });
@@ -1056,6 +1060,7 @@ export function useWorkspace({
     openPalette,
     openFindTask,
     openConfigProblems,
+    openConnectionRecovery,
     addProject,
     createTask,
     resolveIssue,

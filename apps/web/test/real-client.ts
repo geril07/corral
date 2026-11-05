@@ -1,6 +1,7 @@
 import { createCorralClient, type CorralClient } from "@corral/client/corral-client";
 import { defaultModelPolicy } from "@corral/protocol/models";
-import type { CreateSocket } from "@corral/client/reconnecting-socket";
+import type { Backoff, CreateSocket } from "@corral/client/reconnecting-socket";
+import type { ServerTarget } from "@corral/protocol/server-target";
 import { afterEach, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 import { writeConfig } from "./config-command.ts";
@@ -63,11 +64,19 @@ export function realServerClients() {
     for (const client of clients.splice(0)) client.close();
   });
 
-  function newClient(target = serverTarget(), createSocket?: CreateSocket): CorralClient {
+  function newClient(
+    target: ServerTarget = serverTarget(),
+    createSocket?: CreateSocket,
+    options?: {
+      backoff?: Backoff;
+      refreshServer?: () => Promise<ServerTarget | undefined>;
+    },
+  ): CorralClient {
     const client = createCorralClient({
       server: target,
-      backoff: { initialMs: 20, maxMs: 100 },
+      backoff: options?.backoff ?? { initialMs: 20, maxMs: 100 },
       ...(createSocket ? { createSocket } : {}),
+      ...(options?.refreshServer ? { refreshServer: options.refreshServer } : {}),
     });
     clients.push(client);
     return client;

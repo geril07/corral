@@ -46,7 +46,11 @@ function readTerminalTheme() {
 /** One xterm.js bound to one server terminal. Output goes stream to xterm, never through React. */
 export function TerminalView({ client, terminal, onFit, exitHint }: TerminalViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const [streamState, setStreamState] = useState<TerminalStreamState>({ status: "connecting" });
+  const [streamState, setStreamState] = useState<TerminalStreamState>({
+    status: "connecting",
+    attempt: 1,
+    startedAt: 0,
+  });
   const terminalId = terminal.id;
 
   useEffect(() => {

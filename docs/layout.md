@@ -38,8 +38,9 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   task reveals itself, even beyond the first page, without resuming it.
   General task search still includes settled history.
 - Loose terminals remain in Scratch when present.
-- Footer: Settings and Add project, exceptional connection/config notices, prefix hint
-  on the right (armed prefix remains visibly distinct).
+- Footer: Settings and Add project, exceptional connection/config notices (the connection
+  status opens the recovery dialog), prefix hint on the right (armed prefix remains visibly
+  distinct).
 
 ## Task header
 

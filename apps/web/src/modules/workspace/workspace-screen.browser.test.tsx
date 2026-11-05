@@ -307,14 +307,21 @@ test("an old protocol 4 server is refused before the keymap or any mutation", as
   await expect.element(terminalButtons()).toHaveLength(0);
 });
 
-test("an unreachable server shows as disconnected and the workspace stays up", async () => {
-  await render(<App client={newClient({ url: "ws://127.0.0.1:1", capability: "unreachable" })} />);
+test("an unreachable server at startup shows the framed notice, not an empty workspace", async () => {
+  await render(
+    <App
+      client={newClient({ url: "ws://127.0.0.1:1", capability: "unreachable" }, undefined, {
+        backoff: { initialMs: 60_000, maxMs: 60_000 },
+      })}
+    />,
+  );
 
   await expect
-    .element(page.getByRole("status", { name: /^connection:/ }))
-    .toMatchTextContent("Disconnected. Retrying…");
-  await expect.element(page.getByText(/If the server restarted/)).toBeVisible();
-  await expect.element(workspace()).toBeVisible();
+    .element(page.getByRole("heading", { name: "Cannot reach the server" }))
+    .toBeVisible();
+  await expect.element(page.getByRole("textbox", { name: "Capability" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Retry now" })).toBeVisible();
+  await expect.element(workspace()).not.toBeInTheDocument();
 });
 
 const focusedIsTerminal = () => document.activeElement?.classList.contains("xterm-helper-textarea");

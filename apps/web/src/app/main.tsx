@@ -1,10 +1,15 @@
-import { resolveServerTarget, SERVER_TARGET_STORAGE_KEY } from "@corral/client/bootstrap";
+import {
+  resolveServerTarget,
+  SERVER_TARGET_STORAGE_KEY,
+  serverTargetFailure,
+} from "@corral/client/bootstrap";
 import { createCorralClient } from "@corral/client/corral-client";
 import type { ServerTarget } from "@corral/protocol/server-target";
 import type { DesktopBridge } from "@corral/protocol/desktop-bridge";
 import { createRoot } from "react-dom/client";
 // oxlint-disable-next-line import/no-unassigned-import -- the Tailwind entry and design tokens
 import "./global.css";
+import { putCapabilityInHash, StartupNotice } from "../modules/connection/startup-notice.tsx";
 import { App } from "./app.tsx";
 
 declare global {
@@ -60,6 +65,18 @@ async function start() {
   createRoot(root).render(<App client={client} />);
 }
 
-void start().catch((error: unknown) => {
-  root.textContent = error instanceof Error ? error.message : String(error);
-});
+function showStartupProblem(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  createRoot(root).render(
+    <StartupNotice
+      problem={{ kind: "boot", failure: serverTargetFailure(error), message }}
+      onReload={() => window.location.reload()}
+      onUseCapability={(capability) => {
+        putCapabilityInHash(capability);
+        window.location.reload();
+      }}
+    />,
+  );
+}
+
+void start().catch(showStartupProblem);

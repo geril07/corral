@@ -28,6 +28,8 @@ const buttonVariants = cva(
         // A session tab takes its content width up to 200 px and the strip's height, then truncates
         // (`layout.md`).
         tab: "h-full min-w-0 max-w-50 justify-start overflow-hidden text-left focus-visible:ring-inset",
+        // A footer status line shares the row with other occupants and truncates its label.
+        status: "min-w-0 flex-1 justify-start overflow-hidden focus-visible:ring-inset",
       },
       size: {
         default:

@@ -80,6 +80,8 @@ context-menu dispatcher.
   file list). `layout="navigation"` fills a settings category's width without vertically
   stretching it. `layout="tab"` fills the tabstrip's height and uses content width up to a
   maximum. `layout="model"` bounds a model trigger so long native IDs really truncate.
+- Button `layout="status"` keeps the footer's connection opener in its row and truncates the
+  label; it opens the connection-recovery dialog.
 - RowMenu composes a real button with Base UI ContextMenu. Right-click, the menu key and
   Shift+F10 reach secondary actions. No permanently reserved invisible action gutter.
   DropdownMenuItem uses the same underlying Base UI menu item in either kind of menu.

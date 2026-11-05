@@ -1,52 +1,87 @@
 import type { ConnectionState } from "@corral/client/connection-state";
-import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
-import { StatusGlyph } from "../../common/ui/index.ts";
+import { Button, StatusGlyph } from "../../common/ui/index.ts";
+import { useNow } from "../../common/hooks/use-now.ts";
 
-export function ConnectionNotice({ state }: { state: ConnectionState }) {
-  if (state.status === "protocol-mismatch") {
+/**
+ * The footer's connection opener. Connected shows nothing; every other state names itself,
+ * the attempt and its elapsed time, and opens the recovery dialog that carries the capability
+ * field. The long bootstrap sentence lives on that surface, not in this row.
+ */
+export function ConnectionNotice({
+  state,
+  onOpen,
+}: {
+  state: ConnectionState;
+  onOpen?: (opener: HTMLElement) => void;
+}) {
+  const now = useNow(1000);
+  if (state.status === "connected") return null;
+  const label = describe(state, now);
+  const content = (
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      <StatusGlyph state={GLYPH_STATE[state.status]} />
+      <span className="truncate">{label.text}</span>
+    </span>
+  );
+  if (onOpen === undefined) {
     return (
-      <div className="mx-auto mt-24 max-w-xl px-4" role="alert">
-        <h1 className="mb-2 text-base font-semibold text-destructive">
-          This app and the server cannot talk to each other
-        </h1>
-        <p>
-          The server speaks protocol version {state.serverProtocolVersion ?? "unknown"}; this app
-          speaks version {PROTOCOL_VERSION}. Update the app or restart the server with a matching
-          version, then reload.
-        </p>
-      </div>
+      <span
+        className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground"
+        role="status"
+        aria-label={`connection: ${label.name}`}
+      >
+        {content}
+      </span>
     );
   }
-  // The sidebar footer carries the little status there is: only an unconnected state shows
-  // (`layout.md`, **Sidebar** footer).
-  if (state.status === "connected") return null;
   return (
-    <>
-      <span
-        className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground"
-        role="status"
-        aria-label={`connection: ${LABELS[state.status]}`}
-      >
-        <StatusGlyph state={GLYPH_STATE[state.status]} />
-        {LABELS[state.status]}
-      </span>
-      {state.status === "disconnected" && window.corral === undefined ? (
-        <p className="my-0.5 text-muted-foreground">
-          If the server restarted, open this page with the new capability from endpoint.json.
-        </p>
-      ) : null}
-    </>
+    <Button
+      variant="ghost"
+      size="xs"
+      layout="status"
+      aria-label={`connection: ${label.name}`}
+      onClick={(event) => onOpen(event.currentTarget)}
+    >
+      {content}
+    </Button>
   );
 }
 
-const LABELS: Record<Exclude<ConnectionState["status"], "protocol-mismatch">, string> = {
-  connecting: "Connecting…",
-  connected: "Connected",
-  disconnected: "Disconnected. Retrying…",
-};
+function describe(
+  state: Exclude<ConnectionState, { status: "connected" }>,
+  now: number,
+): { name: string; text: string } {
+  switch (state.status) {
+    case "connecting":
+      return {
+        name: `Connecting… attempt ${state.attempt}`,
+        text: `Connecting… · attempt ${state.attempt}`,
+      };
+    case "disconnected":
+      return {
+        name: `Cannot reach the server · attempt ${state.attempt} · ${elapsed(now, state.startedAt)}`,
+        text: `Cannot reach the server · attempt ${state.attempt} · ${elapsed(now, state.startedAt)}`,
+      };
+    case "capability-refused":
+      return {
+        name: "The server refused this capability",
+        text: "The server refused this capability",
+      };
+    case "protocol-mismatch":
+      return { name: "Protocol mismatch", text: "Protocol mismatch" };
+    default:
+      return { name: "Connection problem", text: "Connection problem" };
+  }
+}
+
+function elapsed(now: number, startedAt: number): string {
+  return `${Math.max(0, Math.floor((now - startedAt) / 1000))} s`;
+}
 
 const GLYPH_STATE = {
   connecting: "working",
   connected: "done",
   disconnected: "error",
+  "capability-refused": "error",
+  "protocol-mismatch": "error",
 } as const;
