@@ -1,5 +1,5 @@
 import type { ChangesRemote, Project, Task } from "@corral/protocol/rpc";
-import { existsSync } from "node:fs";
+import { existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
 import { cloneOfOrigin, runGit, writeFiles } from "../../test/git-repo.ts";
@@ -101,6 +101,118 @@ test("staging, committing and pushing reach the local bare remote, and no forge 
   );
   // Pushing is git and only git: no forge CLI is involved until a request is created.
   expect(clis.calls()).toEqual([]);
+});
+
+test("staging and unstaging a rename moves both paths, and the commit records the move", async () => {
+  const api = await server.rpc();
+  const created = await projectWithBareRemote(api);
+  const task = await api.tasks.create({
+    projectId: created.project.id,
+    title: "Ship the rename",
+    workspace: { type: "new-branch" },
+  });
+  // Test setup for an R row with nothing staged: a worktree-only rename is `D old` plus `?? new`,
+  // which the read model lists as two rows. Asking git to record the new path as intent-to-add
+  // makes `git diff <base>` see the rename while the index still holds neither change.
+  renameSync(join(task.workspacePath, "README.md"), join(task.workspacePath, "renamed.md"));
+  runGit(task.workspacePath, "add", "-N", "renamed.md");
+
+  const renamed = (await api.changes.files({ id: task.id })).files.find(
+    (file) => file.status === "R",
+  );
+  expect(renamed).toMatchObject({ path: "renamed.md", oldPath: "README.md" });
+  expect((await api.changes.finish({ id: task.id })).staged).toEqual([]);
+
+  const staged = await api.changes.stage({
+    id: task.id,
+    paths: ["README.md", "renamed.md"],
+    staged: true,
+  });
+  expect(staged.staged).toEqual(["README.md", "renamed.md"]);
+  expect(runGit(task.workspacePath, "diff", "--cached", "--name-status").trim()).toBe(
+    "R100\tREADME.md\trenamed.md",
+  );
+
+  // Unstage after Stage all removes both paths from the index and keeps the worktree rename.
+  await api.changes.stage({ id: task.id, paths: "all", staged: true });
+  const unstaged = await api.changes.stage({
+    id: task.id,
+    paths: ["README.md", "renamed.md"],
+    staged: false,
+  });
+  expect(unstaged.staged).toEqual([]);
+  expect(runGit(task.workspacePath, "diff", "--cached", "--name-status").trim()).toBe("");
+  expect(existsSync(join(task.workspacePath, "README.md"))).toBe(false);
+  expect(existsSync(join(task.workspacePath, "renamed.md"))).toBe(true);
+
+  // Stage the selected row again and commit: one rename, and no old file remains in HEAD.
+  await api.changes.stage({ id: task.id, paths: ["README.md", "renamed.md"], staged: true });
+  const committed = await api.changes.commit({
+    id: task.id,
+    message: "refactor: rename the readme",
+  });
+  expect(committed.finish.staged).toEqual([]);
+  expect(runGit(task.workspacePath, "ls-tree", "--name-only", "HEAD").trim().split("\n")).toEqual([
+    "renamed.md",
+  ]);
+  expect(existsSync(join(task.workspacePath, "README.md"))).toBe(false);
+});
+
+test("a committed rename stages and unstages its new path without the missing old one", async () => {
+  const api = await server.rpc();
+  const created = await projectWithBareRemote(api);
+  const task = await api.tasks.create({
+    projectId: created.project.id,
+    title: "Ship the committed rename",
+    workspace: { type: "new-branch" },
+  });
+  renameSync(join(task.workspacePath, "README.md"), join(task.workspacePath, "renamed.md"));
+  await api.changes.stage({
+    id: task.id,
+    paths: ["README.md", "renamed.md"],
+    staged: true,
+  });
+  await api.changes.commit({ id: task.id, message: "refactor: rename the readme" });
+  const committed = runGit(task.workspacePath, "show", "HEAD:renamed.md");
+  writeFiles(task.workspacePath, { "renamed.md": `${committed}HELLO\n` });
+
+  // The read model still shows R README -> renamed against the merge base, so the bar sends both.
+  const renamed = (await api.changes.files({ id: task.id })).files.find(
+    (file) => file.status === "R",
+  );
+  expect(renamed).toMatchObject({ path: "renamed.md", oldPath: "README.md" });
+
+  // The old path is in neither the index nor the worktree; it is dropped and the edit stages.
+  const staged = await api.changes.stage({
+    id: task.id,
+    paths: ["README.md", "renamed.md"],
+    staged: true,
+  });
+  expect(staged.staged).toEqual(["renamed.md"]);
+  expect(runGit(task.workspacePath, "diff", "--cached", "--name-status").trim()).toBe(
+    "M\trenamed.md",
+  );
+
+  // A second Stage click from the same row is safe, and Unstage drops the missing old path too.
+  const again = await api.changes.stage({
+    id: task.id,
+    paths: ["README.md", "renamed.md"],
+    staged: true,
+  });
+  expect(again.staged).toEqual(["renamed.md"]);
+  const unstaged = await api.changes.stage({
+    id: task.id,
+    paths: ["README.md", "renamed.md"],
+    staged: false,
+  });
+  expect(unstaged.staged).toEqual([]);
+  expect(runGit(task.workspacePath, "diff", "--cached", "--name-status").trim()).toBe("");
+  expect(runGit(task.workspacePath, "status", "--porcelain").trim()).toBe("M renamed.md");
+
+  // A path that exists nowhere is still a refusal, not a silent no-op.
+  await expect(
+    api.changes.stage({ id: task.id, paths: ["README.md"], staged: true }),
+  ).rejects.toMatchObject({ code: "GIT_FAILED" });
 });
 
 test("a push refuses a remote URL or a branch that is not the one confirmed", async () => {

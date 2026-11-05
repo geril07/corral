@@ -18,8 +18,13 @@ export async function stagePaths(
 ): Promise<void> {
   if (staged) {
     // `git add` records a deletion too (git ≥ 2.0), so a removed file stages as a removal, and
-    // `--all` without a pathspec is the whole worktree.
-    await git(workspace, ["add", "--all", ...pathArgs(paths)], { env: WRITE_ENV });
+    // `--all` without a pathspec is the whole worktree. An explicit path that is in neither the
+    // index nor the worktree is dropped first: a committed rename still shows the old path in the
+    // read model, but `git add` would refuse that pathspec instead of staging the new file.
+    const targets = paths === "all" ? "all" : await presentPaths(workspace, paths);
+    // Keep git's own refusal when no explicit path exists: a typo is an error, not a silent no-op.
+    const requested = Array.isArray(targets) && targets.length === 0 ? paths : targets;
+    await git(workspace, ["add", "--all", ...pathArgs(requested)], { env: WRITE_ENV });
     return;
   }
   /*
@@ -35,16 +40,37 @@ export async function stagePaths(
   // `git restore --staged` always wants a pathspec, so "everything" is `.` from the workspace root
   // (the task's worktree or the main tree). It also needs HEAD, so a repository with no commit yet
   // falls back to taking the paths out of the index directly — the first-commit case a staging UI
-  // reaches before any commit exists.
+  // reaches before any commit exists. Only the staged paths go back: an explicit path from a
+  // committed rename is gone and `git restore` would refuse it.
   try {
-    await git(workspace, ["restore", "--staged", ...unstageArgs(paths)], { env: WRITE_ENV });
+    await git(workspace, ["restore", "--staged", ...unstageArgs(targets)], { env: WRITE_ENV });
   } catch (error) {
     if (!(error instanceof GitError) || !/could not resolve 'HEAD'/.test(error.message))
       throw error;
-    await git(workspace, ["rm", "--cached", "--quiet", "-r", ...unstageArgs(paths)], {
+    await git(workspace, ["rm", "--cached", "--quiet", "-r", ...unstageArgs(targets)], {
       env: WRITE_ENV,
     });
   }
+}
+
+/**
+ * The explicit paths that exist in the index or the worktree. A directory matches through the files
+ * below it, and an ignored file does not match: `git add --all` would not stage it either.
+ */
+async function presentPaths(workspace: string, paths: readonly string[]): Promise<string[]> {
+  const listing = await gitRead(workspace, [
+    "ls-files",
+    "--cached",
+    "--others",
+    "--exclude-standard",
+    "-z",
+    "--",
+    ...paths,
+  ]);
+  const present = listing.split("\0").filter((path) => path !== "");
+  return paths.filter((path) =>
+    present.some((entry) => entry === path || entry.startsWith(`${path}/`)),
+  );
 }
 
 /** Paths in the index, sorted; the workspace's own staged set, not the whole repository's. */

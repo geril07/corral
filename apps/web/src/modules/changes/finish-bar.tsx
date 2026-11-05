@@ -22,6 +22,8 @@ export interface FinishBarProps {
   actions: ChangesActions;
   /** The file the diff pane shows, so "stage this file" works on the selection. */
   selectedPath: string | undefined;
+  /** The path before a rename; staging or unstaging the row moves it with `selectedPath`. */
+  selectedOldPath: string | null | undefined;
   /** The request linked to this task, when one is. */
   pullRequest: PullRequest | undefined;
   /** A request this bar created or refreshed, for the header and the sidebar. */
@@ -40,6 +42,7 @@ export function FinishBar({
   task,
   actions,
   selectedPath,
+  selectedOldPath,
   pullRequest,
   onPullRequest,
   onSettle,
@@ -93,6 +96,16 @@ export function FinishBar({
   };
 
   const staged = finish?.staged ?? [];
+  // A rename's old path can be gone after its commit, so only the selected (new) path answers
+  // whether the row is staged. Pairing still moves both paths when an uncommitted rename has them.
+  const selectedPaths =
+    selectedPath === undefined
+      ? []
+      : selectedOldPath === null ||
+          selectedOldPath === undefined ||
+          selectedOldPath === selectedPath
+        ? [selectedPath]
+        : [selectedOldPath, selectedPath];
   const selectedStaged = selectedPath !== undefined && staged.includes(selectedPath);
   const branch = finish?.branch ?? null;
   const base = finish?.base ?? null;
@@ -186,7 +199,7 @@ export function FinishBar({
             size="xs"
             variant="ghost"
             disabled={pending !== false}
-            onClick={() => void stage([selectedPath], !selectedStaged)}
+            onClick={() => void stage(selectedPaths, !selectedStaged)}
           >
             {selectedStaged ? "Unstage" : "Stage"} {selectedPath}
           </Button>
