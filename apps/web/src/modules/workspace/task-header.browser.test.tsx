@@ -12,7 +12,7 @@ const project: Project = {
   defaultBaseBranch: "main",
 };
 
-const task = (id: string, branch: string, title: string): Task => ({
+const task = (id: string, branch: string, title: string, ownsWorktree = true): Task => ({
   id,
   projectId: project.id,
   title,
@@ -21,14 +21,14 @@ const task = (id: string, branch: string, title: string): Task => ({
   primarySessionId: null,
   branch,
   workspacePath: `/work/${branch}`,
-  ownsWorktree: true,
+  ownsWorktree,
   state: "active",
   seenAt: null,
   createdAt: 0,
 });
 
-const nodeOf = (id: string, branch: string, title: string): TaskNode => ({
-  task: task(id, branch, title),
+const nodeOf = (id: string, branch: string, title: string, ownsWorktree = true): TaskNode => ({
+  task: task(id, branch, title, ownsWorktree),
   sessions: [],
 });
 
@@ -37,12 +37,20 @@ const nodeOf = (id: string, branch: string, title: string): TaskNode => ({
  * switch can happen while the main area has no width yet (its first paint, a hidden pane), and the
  * branch line must follow the task anyway (`docs/ux.md`, **Task header**).
  */
-function Harness({ node, narrow }: { node: TaskNode; narrow: boolean }) {
+function Harness({
+  node,
+  project: headerProject = project,
+  narrow,
+}: {
+  node: TaskNode;
+  project?: Project;
+  narrow: boolean;
+}) {
   return (
     <div className={narrow ? "w-0 overflow-hidden" : "w-full"}>
       <TaskHeader
         node={node}
-        project={project}
+        project={headerProject}
         onSettle={() => {}}
         onRename={() => {}}
         onRemove={() => {}}
@@ -59,14 +67,14 @@ test("the branch line follows a task switch even when the pane has no width yet"
     <Harness node={nodeOf("t1", "alpha-branch", "First task")} narrow={false} />,
   );
   await expect.element(page.getByText(/alpha-branch/)).toBeVisible();
-  expect(branchLine()?.textContent).toBe("alpha › alpha-branch");
+  expect(branchLine()?.textContent).toBe("alpha / alpha-branch");
 
   // The switch lands while the pane is zero wide: the accessible label is fresh, so the visible
   // line must be too — the previous task's branch stayed on screen for as long as the width did.
   await screen.rerender(<Harness node={nodeOf("t2", "beta-branch", "Second task")} narrow />);
-  expect(branchLine()?.getAttribute("aria-label")).toBe("alpha › beta-branch");
-  expect(branchLine()?.textContent).toBe("alpha › beta-branch");
-  await vi.waitFor(() => expect(branchLine()?.textContent).toBe("alpha › beta-branch"));
+  expect(branchLine()?.getAttribute("aria-label")).toBe("alpha / beta-branch");
+  expect(branchLine()?.textContent).toBe("alpha / beta-branch");
+  await vi.waitFor(() => expect(branchLine()?.textContent).toBe("alpha / beta-branch"));
 });
 
 test("a switch with a laid-out pane shows the new branch and keeps measuring", async () => {
@@ -77,5 +85,38 @@ test("a switch with a laid-out pane shows the new branch and keeps measuring", a
     <Harness node={nodeOf("t2", "beta-branch", "Second task")} narrow={false} />,
   );
 
-  await vi.waitFor(() => expect(branchLine()?.textContent).toBe("alpha › beta-branch"));
+  await vi.waitFor(() => expect(branchLine()?.textContent).toBe("alpha / beta-branch"));
+});
+
+test("the where segment uses the branch whether or not the task owns its worktree", async () => {
+  const screen = await render(
+    <Harness node={nodeOf("t1", "main", "Main task", false)} narrow={false} />,
+  );
+  expect(branchLine()?.textContent).toBe("alpha / main");
+  await expect.element(page.getByRole("heading", { name: "Main task" })).toBeVisible();
+  expect(document.querySelector("header")?.textContent).not.toContain("›");
+
+  await screen.rerender(
+    <Harness node={nodeOf("t2", "", "Branchless task", false)} narrow={false} />,
+  );
+  expect(branchLine()?.textContent).toBe("alpha");
+  expect(branchLine()?.getAttribute("aria-label")).toBe("alpha");
+  await expect.element(page.getByRole("heading", { name: "Branchless task" })).toBeVisible();
+});
+
+test("a long project and branch truncate in the middle and keep the full context", async () => {
+  const longProject = { ...project, name: "orbit-observability-platform" };
+  const longBranch = "feature/header-context-with-a-long-name";
+  const where = `${longProject.name} / ${longBranch}`;
+  await render(
+    <Harness
+      node={nodeOf("t1", longBranch, "Long context")}
+      project={longProject}
+      narrow={false}
+    />,
+  );
+
+  await vi.waitFor(() => expect(branchLine()?.getAttribute("title")).toBe(where));
+  expect(branchLine()?.textContent).toContain("…");
+  expect(branchLine()?.getAttribute("aria-label")).toBe(where);
 });

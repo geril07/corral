@@ -24,7 +24,7 @@ export interface TaskHeaderProps {
   onViewSource?: ((task: Task, opener?: HTMLElement) => void) | undefined;
 }
 
-/** Repository/task context is separate from session navigation; copying a path is explicit. */
+/** Repository/branch context is separate from session navigation; copying a path is explicit. */
 export function TaskHeader({
   node,
   project,
@@ -39,9 +39,7 @@ export function TaskHeader({
 }: TaskHeaderProps) {
   const task = node?.task;
   const taskTitle = task?.title ?? "New task";
-  const where = [project?.name, task?.ownsWorktree ? task.branch : undefined]
-    .filter(Boolean)
-    .join(" › ");
+  const where = [project?.name, task?.branch].filter(Boolean).join(" / ");
   const {
     observe: observeTitle,
     clipped: titleClipped,

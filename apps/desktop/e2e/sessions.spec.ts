@@ -145,7 +145,7 @@ test("two sessions of one task are tabs that switch by click and by key, and the
   // A header names the task, its project, its branch and its agent.
   const header = window.getByRole("group", { name: "task header" });
   await expect(header.getByRole("heading", { name: "Tabbed" })).toBeVisible();
-  await expect(header.locator("[data-task-repository]")).toContainText(" › ");
+  await expect(header.locator("[data-task-repository]")).toContainText(" / ");
 
   // Clicking the shell's tab shows that terminal and leaves the keyboard with it.
   await sessionTab(window, "shell").click();
