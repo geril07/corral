@@ -11,6 +11,13 @@ Keyboard-first workspace for running coding agents in terminals: a long-lived No
 
 `pnpm check` is the full gate: format, lint, type check, Node tests. Browser and Electron suites: `pnpm test:browser`, `pnpm test:e2e`.
 
+## Local workloads
+
+Before launching a dev stack, browser automation, checks or dependency installation on the Linux
+agent host, read `docs/workrun.md`. Use `pnpm workrun`: task-owned scopes, `start` for background
+services, `run --heavy` for expensive commands, and verified scope cleanup before handoff. It owns
+the shared memory budget and cross-worktree admission; missing protection is reported, not bypassed.
+
 ## Verification
 
 - Run what the change can break, not the whole pipeline: the test file next to the code, that package's type check, format and lint of the files touched. Per-file commands: `docs/engineering.md`, **Testing**.
