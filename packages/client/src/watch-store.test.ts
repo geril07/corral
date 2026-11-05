@@ -40,7 +40,11 @@ function storeWith(
 
 test("a refused watch is a failure the store reports, and Retry starts it again", async () => {
   vi.spyOn(console, "error").mockImplementation(() => undefined);
-  const state = new Store<ConnectionState>({ status: "connecting" });
+  const state = new Store<ConnectionState>({
+    status: "connecting",
+    attempt: 1,
+    startedAt: Date.now(),
+  });
   const error = new Error("no such procedure");
   let attempts = 0;
   const store = storeWith(state, async () => {
@@ -78,7 +82,11 @@ test("a refused watch is a failure the store reports, and Retry starts it again"
 
 test("a refusal clears when the connection returns and a list arrives", async () => {
   vi.spyOn(console, "error").mockImplementation(() => undefined);
-  const state = new Store<ConnectionState>({ status: "connecting" });
+  const state = new Store<ConnectionState>({
+    status: "connecting",
+    attempt: 1,
+    startedAt: Date.now(),
+  });
   let attempts = 0;
   const store = storeWith(state, async () => {
     attempts += 1;
@@ -90,7 +98,7 @@ test("a refusal clears when the connection returns and a list arrives", async ()
     state.set({ status: "connected" });
     await vi.waitFor(() => expect(store.failure.getSnapshot()?.name).toBe("projects.watch"));
 
-    state.set({ status: "disconnected" });
+    state.set({ status: "disconnected", attempt: 1, startedAt: Date.now() });
     state.set({ status: "connected" });
     await vi.waitFor(() =>
       expect(store.getSnapshot()).toEqual({ loaded: true, items: [{ id: "reconnected" }] }),
@@ -124,7 +132,7 @@ test("a dropped socket keeps the last list and is not a refusal", async () => {
   try {
     await vi.waitFor(() => expect(store.getSnapshot().items).toEqual([{ id: "kept" }]));
     // The socket goes away while the watch is suspended; that ends the stream, not the server.
-    state.set({ status: "disconnected" });
+    state.set({ status: "disconnected", attempt: 1, startedAt: Date.now() });
     await vi.waitFor(() => expect(reading).toBe(true));
     drop?.(new Error("socket closed"));
     await new Promise((resolve) => setTimeout(resolve, 10));
