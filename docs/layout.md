@@ -9,13 +9,17 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 ## Shell
 
 - Two columns: resizable sidebar and one task workspace. No synthetic title bar or global
-  status bar. Independent shells are session tabs, never a separate chat dock.
+  status bar. The shell status carries connection state, config problems, the armed prefix and
+  the current failure: in the sidebar footer while the pane is shown, and in a strip above the
+  main content while it is hidden. The hidden placement keeps its row whether or not it has
+  something to say, so arming the prefix never resizes the terminal under it. Independent
+  shells are session tabs, never a separate chat dock.
 - Sidebar has a default width, a narrow-window default and a drag range that leaves the main
   area its minimum at and above the supported floor (`sidebar-pane.ts` owns the numbers). The
   width persists per device, a window shrink only clamps the shown width, and an edge
   double-click resets it.
-- The sidebar toggle is opposite the corral wordmark. While hidden it is in the main header;
-  `prefix \\` still works.
+- The sidebar toggle is opposite the corral wordmark. While hidden it is in the task header, or
+  above the content when no task or draft has a header; `prefix \\` still works.
 - Two distinct rows remain visible for a task or draft: repository/task header, then session
   navigation. A device setting puts the session row above or below content.
   No rows are invented before the first repository is added.
@@ -39,8 +43,9 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   General task search still includes settled history.
 - Loose terminals remain in Scratch when present.
 - Footer: Settings and Add project, exceptional connection/config notices (the connection
-  status opens the recovery dialog), prefix hint on the right (armed prefix remains visibly
-  distinct).
+  status opens the recovery dialog), failures and guidance, and the prefix hint on the right
+  while disarmed (armed prefix remains visibly distinct). While the sidebar is hidden the strip
+  above the main content carries the same facts.
 
 ## Task header
 

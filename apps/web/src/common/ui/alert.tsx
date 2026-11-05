@@ -11,9 +11,15 @@ const alertVariants = cva(
         destructive:
           "bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current",
       },
+      size: {
+        // One line of a chrome row: the message keeps its own width and truncates, so a control
+        // placed after it sits beside the message rather than at the row's far edge.
+        compact: "flex w-auto min-w-0 items-center gap-1 rounded-md px-1.5 py-0 text-xs leading-none",
+      },
     },
     defaultVariants: {
       variant: "default",
+      size: "default",
     },
   },
 );
@@ -21,13 +27,14 @@ const alertVariants = cva(
 function Alert({
   className,
   variant,
+  size,
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
   return (
     <div
       data-slot="alert"
       role="alert"
-      className={cn(alertVariants({ variant }), className)}
+      className={cn(alertVariants({ variant, size }), className)}
       {...props}
     />
   );
