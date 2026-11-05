@@ -1,7 +1,7 @@
 import { describeStatus, formatAge } from "@corral/client/agent-status";
 import type { BoardRow as Row } from "@corral/client/board";
 import { stepActive } from "@corral/client/terminal-selection";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   BoardList,
   BoardRow,
@@ -26,17 +26,31 @@ const AGE_REFRESH_MS = 30_000;
 export function Board({ rows, onJump, onClose }: BoardProps) {
   // Follows the task, not the position, so a status change that reorders rows moves nothing under the cursor.
   const [highlightedTask, setHighlightedTask] = useState<string>();
+  const sectionRef = useRef<HTMLElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const backRef = useRef<HTMLButtonElement>(null);
   const now = useNow(AGE_REFRESH_MS);
   const highlighted = rows.find((row) => row.task.id === highlightedTask) ?? rows[0];
   const empty = rows.length === 0;
 
+  const focusTarget = useCallback(() => (empty ? backRef.current : listRef.current), [empty]);
+
   // Take the keyboard in the same commit that paints the layer, before a key can reach the
   // terminal still focused underneath. An empty board has no list, so its Back control takes it.
   useLayoutEffect(() => {
-    (empty ? backRef.current : listRef.current)?.focus();
-  }, [empty]);
+    focusTarget()?.focus();
+  }, [focusTarget]);
+
+  // A terminal mounted by the same cold load focuses in its own effect, which runs after the
+  // layout effect above. Take the keyboard back once all mount effects have run, and again after
+  // the next frame if a late focus (xterm opening, a store update) landed outside the layer.
+  useEffect(() => {
+    focusTarget()?.focus();
+    const frame = requestAnimationFrame(() => {
+      if (!sectionRef.current?.contains(document.activeElement)) focusTarget()?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusTarget]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -59,6 +73,7 @@ export function Board({ rows, onJump, onClose }: BoardProps) {
 
   return (
     <section
+      ref={sectionRef}
       className="fixed inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-background p-3"
       aria-label="Board"
     >

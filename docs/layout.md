@@ -112,7 +112,8 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   Its left category list selects one panel at a time. Each panel retains its own scroll
   and disclosure state; Appearance does not mix editable device preferences with read-only config.
 - The route stays /settings, in the pathless workspace parent shared with the board: opening it
-  never destroys terminal attachment, chat/new-task draft, selection, caret or scroll. Closing
+  never destroys terminal attachment, chat/new-task draft, selection, caret or scroll. The covered
+  workspace is inert while the modal is open, so its terminal cannot take the keyboard. Closing
   restores focus. Background prefix bindings and completion seen marks pause while the modal is
   open.
 - Appearance edits device-local tab position and interface text scale; the offered range is a
@@ -127,9 +128,11 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 ## Board
 
 - A full-screen layer over the mounted workspace, at /board and reached by key/palette. It is a
-  screen, not a dialog: no scrim and no second scrollbar. Escape and Back return to the same task
-  and URL; closing restores the keyboard. Drafts, collapsed groups, list scroll and terminal
-  attachment survive the visit, and the workspace prefix is paused while it is open.
+  screen, not a dialog: no scrim and no second scrollbar. The covered workspace is inert and hidden
+  from the accessibility tree while it is open, so its terminal cannot take the keyboard. Escape
+  and Back return to the same task and URL; closing restores the keyboard. Drafts, collapsed
+  groups, list scroll and terminal attachment survive the visit, and the workspace prefix is paused
+  while it is open.
 
 ## Empty states and scope
 
