@@ -15,6 +15,11 @@ import { appWithProject } from "../../../test/task-flows.tsx";
 import { workingChat } from "../../../test/recorded-chat.ts";
 
 const { newClient } = realServerClients();
+const openSeededTask = (title: string) =>
+  page
+    .getByRole("navigation", { name: "workspace" })
+    .getByRole("button", { name: new RegExp(`^${title}`) })
+    .click();
 
 /**
  * A running chat session and its task are seeded through the client's own stores. The server owns
@@ -144,6 +149,9 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
     tasks.set({ loaded: true, tasks: [task] });
     sessions.set({ loaded: true, sessions: [session] });
 
+    // Adding the project left its composer open over the URL's project; choosing the seeded task
+    // leaves it for the chat lane.
+    await openSeededTask("Chat tab");
     // The workspace picks the only session of the task and renders the chat lane, not a terminal.
     await expect.element(page.getByRole("log", { name: "Chat transcript" })).toBeVisible();
     const composer = page.getByRole("textbox", { name: "Message" });
@@ -269,6 +277,7 @@ test("the chat model and reasoning controls apply what the driver reports, from 
     tasks.set({ loaded: true, tasks: [task] });
     sessions.set({ loaded: true, sessions: [session] });
 
+    await openSeededTask("Chat settings");
     // The row shows what the driver reported, not a client guess.
     await expect.element(page.getByRole("button", { name: "Model Stub One" })).toBeVisible();
     await expect.element(page.getByRole("button", { name: "Reasoning medium" })).toBeVisible();
@@ -383,6 +392,7 @@ test("a refused model keeps the chooser open with a sentence, not the RPC code",
     tasks.set({ loaded: true, tasks: [task] });
     sessions.set({ loaded: true, sessions: [session] });
 
+    await openSeededTask("Refused model");
     await page.getByRole("button", { name: "Model Stub One" }).click();
     const dialog = page.getByRole("dialog", { name: "Chat model" });
     await expect.element(dialog).toBeVisible();

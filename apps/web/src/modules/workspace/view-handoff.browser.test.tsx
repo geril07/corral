@@ -155,6 +155,12 @@ function seededSession(
 const palette = () => page.getByRole("dialog", { name: "Command palette" });
 const paletteItem = (name: RegExp) => palette().getByRole("option", { name });
 
+const openSeededTask = (title: string) =>
+  page
+    .getByRole("navigation", { name: "workspace" })
+    .getByRole("button", { name: new RegExp(`^${title}`) })
+    .click();
+
 async function openPalette() {
   await prefixThen(" ");
   await userEvent.keyboard("switch view");
@@ -187,6 +193,9 @@ test("prefix v is offered by what chat.capabilities says, and the palette says w
         seededSession("agent-claude", task.id, "claude", "terminal"),
       ],
     });
+    // Adding the project left its composer open over the URL's project; choosing the seeded task
+    // leaves it for the task the URL does not name.
+    await openSeededTask("Handoff");
     await expect.element(page.getByRole("tab", { name: /^pi/ })).toBeVisible();
 
     // The pi session is selected, and the server's list says only claude has a driver: disabled.
@@ -248,6 +257,7 @@ test("a busy agent is asked before prefix v switches, and the confirmation says 
   try {
     tasks.set({ loaded: true, tasks: [task] });
     sessions.set({ loaded: true, sessions: [seededSession("agent-pi", task.id, "pi", "chat")] });
+    await openSeededTask("Handoff");
     await expect.element(page.getByRole("log", { name: "Chat transcript" })).toBeVisible();
 
     // While the turn is working, `prefix v` asks first: the turn is aborted and nothing else.
@@ -309,6 +319,7 @@ test("a both-live agent opens the other view beside the running one: no handoff,
       loaded: true,
       sessions: [seededSession("agent-oc", task.id, "opencode", "chat")],
     });
+    await openSeededTask("Handoff");
     await expect.element(page.getByRole("log", { name: "Chat transcript" })).toBeVisible();
 
     const composer = page.getByRole("textbox", { name: "Message" });
@@ -373,6 +384,7 @@ test("a busy terminal says its turn is cut, not aborted, because it has no abort
         }),
       ],
     });
+    await openSeededTask("Handoff");
     await expect.element(page.getByRole("tab", { name: /^claude/ })).toBeVisible();
 
     // A terminal's status is what the server hears from the agent; a working one asks first, but

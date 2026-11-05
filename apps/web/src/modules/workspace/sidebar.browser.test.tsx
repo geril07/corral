@@ -14,7 +14,7 @@ import {
 } from "@corral/protocol/config";
 import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
-import { page } from "vite-plus/test/browser";
+import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { Sidebar } from "./sidebar.tsx";
 
@@ -84,7 +84,6 @@ const config: ClientConfig = {
 };
 
 const handlers = () => ({
-  onSelectProject: vi.fn<(project: Project) => void>(),
   onSelectTask: vi.fn<(task: Task) => void>(),
   onSelectLoose: vi.fn<() => void>(),
   onSelectTerminal: vi.fn<(entry: TerminalEntry) => void>(),
@@ -103,6 +102,7 @@ function renderSidebar(
   tasks: Task[] = [task("a"), task("b"), task("old", "settled")],
   narrow = false,
   mode: SidebarMode = "project",
+  composing?: { project?: Project; opened: number },
 ) {
   const tree = buildWorkspaceTree([project("p1"), project("p2")], tasks, sessions, [
     terminal("term-s1", "a", "s1"),
@@ -115,6 +115,7 @@ function renderSidebar(
       <Sidebar
         tree={tree}
         selection={resolveSelection(tree, chosen)}
+        composing={composing}
         flat={mode === "flat" ? buildFlatSidebar(tree) : undefined}
         config={config}
         {...spies}
@@ -209,10 +210,58 @@ test("one bottom shelf contains settled tasks from every project and reveals the
     .not.toBeInTheDocument();
 });
 
-test("the group opens by itself while it holds the current task", async () => {
-  await renderSidebar({ taskId: "old" }).rendered;
+test("a collapsed group holding the current task shows that row alone", async () => {
+  await renderSidebar({ taskId: "a", entryId: "s2" }).rendered;
+  const header = nav().getByRole("button", { name: "repo-p1" });
 
-  await expect.element(row("task old")).toHaveAttribute("aria-current", "true");
+  await header.click();
+  await expect.element(header).toHaveAttribute("aria-expanded", "false");
+  // The control is enabled, and the current row stays visible inside the closed group.
+  await expect.element(header).toBeEnabled();
+  await expect.element(row("task a")).toHaveAttribute("aria-current", "true");
+  await expect.element(row("task b")).not.toBeInTheDocument();
+
+  await header.click();
+  await expect.element(row("task b")).toBeVisible();
+});
+
+test("the current row is the task or loose terminal, never a project or Scratch", async () => {
+  const taskState = renderSidebar({ taskId: "a", entryId: "s2" });
+  const taskScreen = await taskState.rendered;
+  expect(nav().element().querySelectorAll('[aria-current="true"]')).toHaveLength(1);
+  await expect.element(row("task a")).toHaveAttribute("aria-current", "true");
+  for (const container of ["repo-p1", "repo-p2", "Scratch"])
+    expect(
+      nav().getByRole("button", { name: container }).element().getAttribute("aria-current"),
+    ).toBeNull();
+  await taskScreen.unmount();
+
+  const looseState = renderSidebar({ taskId: null, entryId: "loose" });
+  const looseScreen = await looseState.rendered;
+  expect(nav().element().querySelectorAll('[aria-current="true"]')).toHaveLength(1);
+  await expect
+    .element(nav().getByRole("button", { name: /^sh · / }))
+    .toHaveAttribute("aria-current", "true");
+  await expect
+    .element(nav().getByRole("button", { name: "Scratch" }))
+    .not.toHaveAttribute("aria-current");
+  await looseScreen.unmount();
+
+  // While a project's composer is open the sidebar and the composer read one value: no row is
+  // current, and the composer's project is the group shown open.
+  const composingState = renderSidebar(
+    { taskId: "a", entryId: "s2" },
+    defaultSessions,
+    [task("a"), task("old", "settled"), { ...task("b"), projectId: "p2" }],
+    false,
+    "project",
+    { project: project("p2"), opened: 1 },
+  );
+  await composingState.rendered;
+  expect(nav().element().querySelectorAll('[aria-current="true"]')).toHaveLength(0);
+  await expect
+    .element(nav().getByRole("button", { name: "repo-p2" }))
+    .toHaveAttribute("aria-expanded", "true");
 });
 
 test("the current task is marked", async () => {
@@ -246,6 +295,61 @@ test("a project group's header offers a new task in that project", async () => {
   );
 });
 
+test("the project action overlays the count without taking a slot from the row", async () => {
+  const { rendered } = renderSidebar({}, defaultSessions, undefined, true);
+  await rendered;
+  const header = nav().getByRole("button", { name: "repo-p1" });
+  const rowBox = header.element().parentElement;
+  if (!rowBox) throw new Error("the project header has no row");
+
+  // The whole row is the disclosure button; the add action is not a flex sibling.
+  expect(header.element().getBoundingClientRect().width).toBeCloseTo(
+    rowBox.getBoundingClientRect().width,
+    0,
+  );
+  const add = nav().getByRole("button", { name: "New task in repo-p1" });
+  const action = add.element().parentElement;
+  if (!action) throw new Error("the project action has no wrapper");
+  expect(getComputedStyle(action).opacity).toBe("0");
+
+  // Hovering shows the action over the count, which hides without leaving the layout: the name
+  // and the row do not move.
+  const name = header.element().querySelector(".truncate");
+  if (!name) throw new Error("the project name is not mounted");
+  const before = name.getBoundingClientRect().width;
+  await userEvent.hover(header.element());
+  await expect.poll(() => getComputedStyle(action).opacity).toBe("1");
+  const count = header.element().lastElementChild;
+  if (count === null) throw new Error("the project count is not mounted");
+  expect(getComputedStyle(count).visibility).toBe("hidden");
+  expect(name.getBoundingClientRect().width).toBeCloseTo(before, 0);
+  expect(header.element().getBoundingClientRect().height).toBe(
+    rowBox.getBoundingClientRect().height,
+  );
+});
+
+test("opening a composer opens the composer's project group", async () => {
+  const tree = buildWorkspaceTree([project("p1"), project("p2")], [task("a")], defaultSessions, []);
+  const spies = handlers();
+  const sidebar = (composing?: { project?: Project; opened: number }) => (
+    <Sidebar
+      tree={tree}
+      selection={resolveSelection(tree, { taskId: "a" })}
+      composing={composing}
+      config={config}
+      {...spies}
+    />
+  );
+  const rendered = await render(sidebar());
+  const header = nav().getByRole("button", { name: "repo-p1" });
+
+  await header.click();
+  await expect.element(header).toHaveAttribute("aria-expanded", "false");
+  await rendered.rerender(sidebar({ project: project("p1"), opened: 1 }));
+  await expect.element(header).toHaveAttribute("aria-expanded", "true");
+  expect(nav().element().querySelectorAll('[aria-current="true"]')).toHaveLength(0);
+});
+
 test("clicking reports what was picked", async () => {
   const { rendered, handlers: spies } = renderSidebar();
   await rendered;
@@ -253,8 +357,9 @@ test("clicking reports what was picked", async () => {
   await row("task b").click();
   expect(spies.onSelectTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
 
+  // The project row is its group's disclosure, not a navigation: it reports no selection.
   await nav().getByRole("button", { name: "repo-p2" }).click();
-  expect(spies.onSelectProject).toHaveBeenCalledWith(expect.objectContaining({ id: "p2" }));
+  expect(spies.onSelectTask).toHaveBeenCalledOnce();
 
   await row("task a").click();
   await row("task a").click({ button: "right" });
@@ -348,15 +453,17 @@ test("a stopped session keeps only the done or error status it had", async () =>
 test("a collapsed project shows its count and expands again from its header", async () => {
   const tasks = [task("a"), { ...task("b"), projectId: "p2" }, task("old", "settled")];
   await renderSidebar({}, defaultSessions, tasks).rendered;
-  await nav().getByRole("button", { name: "Collapse repo-p2" }).click();
-  await expect
-    .element(nav().getByRole("button", { name: "Expand repo-p2" }))
-    .toHaveAttribute("aria-expanded", "false");
-  await expect.element(row("task b")).not.toBeInTheDocument();
-  await expect.element(nav().getByRole("button", { name: "repo-p2" })).toMatchTextContent("1");
+  const header = nav().getByRole("button", { name: "repo-p2" });
+  await expect.element(header).toHaveAttribute("aria-expanded", "true");
 
-  await nav().getByRole("button", { name: "repo-p2" }).click();
+  await header.click();
+  await expect.element(header).toHaveAttribute("aria-expanded", "false");
+  await expect.element(row("task b")).not.toBeInTheDocument();
+  await expect.element(header).toMatchTextContent("1");
+
+  await header.click();
   await expect.element(row("task b")).toBeVisible();
+  await expect.element(header).toHaveAttribute("aria-expanded", "true");
 });
 
 test("every icon action is named and its tooltip carries the effective binding", async () => {

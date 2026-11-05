@@ -475,12 +475,12 @@ test("selecting a task clears the guidance that asked for one", async () => {
   const { client } = await appWithProject(newClient());
   await createTask("Needs a selection");
 
-  // A project that holds a task auto-selects its first task, so the no-task selection needs a
-  // project with none. Adding it through the API keeps the failure out of this step.
-  const other = await client.connection.api.projects.add({ path: await createGitRepo("other") });
-  const otherRow = workspace().getByRole("button", { name: other.name });
-  await expect.element(otherRow).toBeVisible();
-  await otherRow.click();
+  // A loose terminal is the no-task selection: the scratch group itself is a container, not a
+  // row that can be current.
+  await client.connection.api.terminals.create({ size: SIZE });
+  const loose = workspace().getByRole("button", { name: /^sh · / });
+  await expect.element(loose).toBeVisible();
+  await loose.click();
   await expect.element(taskButton("Needs a selection")).not.toHaveAttribute("aria-current", "true");
 
   await prefixShifted("c");
@@ -903,6 +903,66 @@ test("prefix t without a project says so, and adding the project clears it", asy
   await expect.element(notice).not.toBeInTheDocument();
 });
 
+test("Add project lands in the new project's composer, not a loose terminal", async () => {
+  const client = newClient();
+  await render(<App client={client} />);
+  await expect.element(page.getByText("Add a repository to start")).toBeVisible();
+  await prefixThen("c");
+  await expect.element(selectButton(0)).toHaveAttribute("aria-current", "true");
+
+  const repo = await createGitRepo("add-composer");
+  await prefixShifted("p");
+  const dialog = page.getByRole("dialog", { name: "Add project" });
+  await expect.element(dialog.getByRole("textbox")).toHaveFocus();
+  await userEvent.keyboard(`${repo}{Enter}`);
+  await expect.element(dialog).not.toBeInTheDocument();
+
+  // The new project is zero-task: its composer is the main area, and neither the new project
+  // nor the loose terminal is current while it is open.
+  await expect.element(newTaskView()).toBeVisible();
+  await expect.element(promptField()).toHaveFocus();
+  expect(workspace().element().querySelectorAll('[aria-current="true"]')).toHaveLength(0);
+
+  const project = await vi.waitFor(() => {
+    const found = client.projects.getSnapshot().projects.find((each) => each.path === repo);
+    if (found === undefined) throw new Error("the project is not in the list yet");
+    return found;
+  });
+  await expect
+    .element(workspace().getByRole("button", { name: project.name }))
+    .toHaveAttribute("aria-expanded", "true");
+  await expect.element(workspace().getByRole("button", { name: "New task" })).toBeEnabled();
+});
+
+test("New task in a project opens its composer, and Escape returns to the selected task", async () => {
+  const { client } = await appWithProject(newClient());
+  const other = await client.connection.api.projects.add({
+    path: await createGitRepo("other-project"),
+  });
+  await createTask("Stays selected");
+  const selected = taskButton("Stays selected");
+  await expect.element(selected).toHaveAttribute("aria-current", "true");
+
+  await workspace()
+    .getByRole("button", { name: `New task in ${other.name}` })
+    .click();
+  await expect.element(newTaskView()).toBeVisible();
+  await expect.element(promptField()).toHaveFocus();
+  await expect
+    .element(newTaskView().getByRole("combobox", { name: `Project ${other.name}` }))
+    .toBeVisible();
+
+  // One value for the composer and the sidebar: no row is current, and the composer's project
+  // is the group shown open. Escape leaves the composer for the selection the URL still names.
+  expect(workspace().element().querySelectorAll('[aria-current="true"]')).toHaveLength(0);
+  await expect
+    .element(workspace().getByRole("button", { name: other.name }))
+    .toHaveAttribute("aria-expanded", "true");
+  await userEvent.keyboard("{Escape}");
+  await expect.element(newTaskView()).not.toBeInTheDocument();
+  await expect.element(selected).toHaveAttribute("aria-current", "true");
+});
+
 test("prefix b opens the board, which pauses the prefix and closes on Escape", async () => {
   await render(<App client={newClient()} />);
   await prefixThen("c");
@@ -1098,20 +1158,15 @@ test("the board keeps a collapsed project and the sidebar's scroll", async () =>
   expect(list.scrollTop).toBe(160);
 
   // A project that does not hold the current task can collapse; a board visit must not reopen it.
-  await workspace()
-    .getByRole("button", { name: `Collapse ${otherProject.name}` })
-    .click();
-  await expect
-    .element(workspace().getByRole("button", { name: `Expand ${otherProject.name}` }))
-    .toBeVisible();
+  const otherHeader = workspace().getByRole("button", { name: otherProject.name });
+  await otherHeader.click();
+  await expect.element(otherHeader).toHaveAttribute("aria-expanded", "false");
   await prefixThen("b");
   await expect.element(page.getByRole("region", { name: "Board" })).toBeVisible();
   await expect.element(boardList()).toHaveFocus();
   await userEvent.keyboard("{Escape}");
   await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
-  await expect
-    .element(workspace().getByRole("button", { name: `Expand ${otherProject.name}` }))
-    .toBeVisible();
+  await expect.element(otherHeader).toHaveAttribute("aria-expanded", "false");
 });
 
 test("prefix g with no blocked session says so and leaves the selection alone", async () => {
@@ -1154,6 +1209,34 @@ test("a refused path keeps the field and says why", async () => {
   await expect.element(page.getByText("Add a repository to start")).toBeVisible();
 });
 
+test("removing a project's last task falls back to its composer, not an empty main area", async () => {
+  const { client } = await appWithProject(newClient());
+  const project = client.projects.getSnapshot().projects[0]!;
+  await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "Only task",
+    workspace: { type: "main-worktree" },
+  });
+  const row = taskButton("Only task");
+  await row.click();
+  await expect.element(row).toHaveAttribute("aria-current", "true");
+
+  await row.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove task…" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect.element(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Remove task" }).click();
+  await expect.element(dialog).not.toBeInTheDocument();
+
+  // The resolver's fallback is the project's composer: the main area is never blank and no row
+  // is current after the task it named is gone.
+  await expect.element(newTaskView()).toBeVisible();
+  expect(workspace().element().querySelectorAll('[aria-current="true"]')).toHaveLength(0);
+  await expect
+    .element(workspace().getByRole("button", { name: project.name }))
+    .toHaveAttribute("aria-expanded", "true");
+});
+
 test("a task without sessions shows the empty state with its two ways to start one", async () => {
   const { client } = await appWithProject(newClient());
   const project = client.projects.getSnapshot().projects[0]!;
@@ -1163,6 +1246,8 @@ test("a task without sessions shows the empty state with its two ways to start o
     workspace: { type: "new-branch" },
   });
 
+  // Adding the project left its composer open; choosing the task is the navigation out of it.
+  await taskButton("Untouched").click();
   await expect.element(taskButton("Untouched")).toHaveAttribute("aria-current", "true");
   await expect.element(page.getByText("No sessions")).toBeVisible();
   await page.getByRole("button", { name: "Open shell" }).click();
@@ -1485,11 +1570,12 @@ test("prefix w gives the keyboard to the sidebar list, and Enter or Escape hands
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
   await expect.element(page.getByRole("tooltip")).not.toBeInTheDocument();
 
-  // A composer is an opener too: Escape goes back to its prompt, not to the terminal.
+  // A composer is an opener too: no row is current, so the list's first row takes the keyboard
+  // and Escape goes back to the prompt, not to the terminal.
   await prefixThen("t");
   await expect.element(promptField()).toHaveFocus();
   await prefixThen("w");
-  await expect.element(second).toHaveFocus();
+  await expect.element(taskButton("First")).toHaveFocus();
   await userEvent.keyboard("{Escape}");
   await expect.element(promptField()).toHaveFocus();
 });

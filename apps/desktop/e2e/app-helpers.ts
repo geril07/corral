@@ -77,6 +77,11 @@ export async function addProject(window: Page, repo: string) {
   // second project would not satisfy by leaving the previous one selected.
   await expect.poll(() => selectedProject(window)).not.toBe(before);
   expect(selectedProject(window)).toEqual(expect.any(String));
+  // Add project lands in the new project's composer: no sidebar row is current, and the prompt
+  // has the keyboard (`layout.md`, **New task view**).
+  await expect(newTaskView(window)).toBeVisible();
+  await expect(promptField(window)).toBeFocused();
+  await expect(workspace(window).locator('[aria-current="true"]')).toHaveCount(0);
 }
 
 /** The new-task composer in the main area (`layout.md`, **New task view**): a view, not a dialog. */
