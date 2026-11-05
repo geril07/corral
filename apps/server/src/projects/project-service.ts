@@ -20,6 +20,17 @@ function ioErrorCode(error: unknown): string | undefined {
     : undefined;
 }
 
+/** A `stat` failure as a sentence about the path the user asked for, never a raw system error. */
+function statFailure(error: unknown, path: string): GitError {
+  const code = ioErrorCode(error);
+  if (code === "ENOENT" || code === "ENOTDIR") return new GitError(`no such directory: ${path}`);
+  if (code === "EACCES" || code === "EPERM") return new GitError(`permission denied: ${path}`);
+  if (code === "ELOOP") return new GitError(`too many levels of symbolic links: ${path}`);
+  if (code === "ENAMETOOLONG") return new GitError(`path is too long: ${path}`);
+  const cause = error instanceof Error ? error.message : String(error);
+  return new GitError(`cannot read ${path}: ${cause}`);
+}
+
 /**
  * The absolute directory an add-project input names. Trimming and `~` happen on the server,
  * because the path is the server's filesystem fact; a client on another machine cannot know it.
@@ -34,9 +45,7 @@ async function resolveProjectPath(input: string, home: string): Promise<string> 
   try {
     info = await stat(path);
   } catch (error) {
-    const code = ioErrorCode(error);
-    if (code === "ENOENT" || code === "ENOTDIR") throw new GitError(`no such directory: ${path}`);
-    throw error;
+    throw statFailure(error, path);
   }
   if (!info.isDirectory()) throw new GitError(`not a directory: ${path}`);
   return path;
