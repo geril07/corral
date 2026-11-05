@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 export const ROOT_SLICE = "workrun.slice";
 export const MANAGED = "# Managed by workrun.\n";
 export const BUSY = 75;
+export const DEFAULT_HEAVY_SLOTS = 1;
 
 export function identifier(value, kind = "name") {
   if (!/^[a-z0-9][a-z0-9_-]{0,47}$/.test(value ?? "")) {
@@ -16,24 +17,31 @@ function escape(value) {
   return identifier(value).replaceAll("-", "\\x2d");
 }
 
-export function sliceFor(scope) {
-  return `workrun-${escape(scope)}.slice`;
+export function sliceFor(group) {
+  return `workrun-${escape(group)}.slice`;
 }
 
-export function unitFor(scope, name) {
-  return `workrun-${escape(scope)}-${escape(name)}.service`;
+export function unitFor(group, name) {
+  return `workrun-${escape(group)}-${escape(name)}.service`;
 }
 
 export function jobFromUnit(unit) {
   const parts = /^workrun-([^-]+)-([^-]+)\.service$/.exec(unit);
   if (!parts) return undefined;
-  const scope = parts[1].replaceAll("\\x2d", "-");
+  const group = parts[1].replaceAll("\\x2d", "-");
   const name = parts[2].replaceAll("\\x2d", "-");
   try {
-    return unitFor(scope, name) === unit ? { scope, name } : undefined;
+    return unitFor(group, name) === unit ? { group, name } : undefined;
   } catch {
     return undefined;
   }
+}
+
+export function heavySlots(value) {
+  if (!/^[1-9]\d*$/.test(value ?? "") || !Number.isSafeInteger(Number(value))) {
+    throw new Error("heavy-slots must be a positive integer");
+  }
+  return Number(value);
 }
 
 export function memoryBytes(value) {
@@ -75,9 +83,11 @@ export function parse(argv) {
     args: separator < 0 ? argv : argv.slice(0, separator),
     allowPositionals: true,
     options: {
-      scope: { type: "string" },
+      group: { type: "string" },
       name: { type: "string" },
       heavy: { type: "boolean" },
+      "no-wait": { type: "boolean" },
+      "heavy-slots": { type: "string" },
       all: { type: "boolean" },
       json: { type: "boolean" },
       follow: { type: "boolean" },
@@ -89,25 +99,28 @@ export function parse(argv) {
   });
   if (values.help) return { action: "help", values, command, positionals: [] };
   const action = positionals.shift();
+  const budgets = ["memory-high", "memory-max", "cpu-quota"];
   const permitted = {
-    setup: ["memory-high", "memory-max", "cpu-quota"],
-    scope: ["memory-high", "memory-max", "cpu-quota"],
-    run: ["scope", "name", "heavy"],
-    start: ["scope", "heavy"],
-    list: ["scope", "json"],
-    status: ["scope", "json"],
-    logs: ["scope", "follow"],
-    stop: ["scope", "all"],
+    setup: budgets,
+    group: [...budgets, "heavy-slots"],
+    run: ["group", "name", "heavy", "no-wait"],
+    start: ["group", "heavy", "no-wait"],
+    list: ["group", "json"],
+    status: ["group", "json"],
+    logs: ["group", "follow"],
+    stop: ["group", "all"],
   };
   if (!permitted[action])
-    throw new Error("expected setup, scope set, run, start, list, status, logs or stop");
+    throw new Error("expected setup, group set, run, start, list, status, logs or stop");
   for (const key of Object.keys(values)) {
     if (!permitted[action].includes(key)) throw new Error(`--${key} is not valid for ${action}`);
   }
-  if (values.scope !== undefined) identifier(values.scope, "scope");
-  if (["run", "start", "status", "logs", "stop"].includes(action) && !values.scope) {
-    throw new Error(`${action} requires an explicit --scope`);
+  if (values.group !== undefined) identifier(values.group, "group");
+  if (["run", "start", "status", "logs", "stop"].includes(action) && !values.group) {
+    throw new Error(`${action} requires an explicit --group`);
   }
+  if (values["heavy-slots"] !== undefined) heavySlots(values["heavy-slots"]);
+  if (values["no-wait"] && !values.heavy) throw new Error("--no-wait requires --heavy");
   if (action === "run" || action === "start") {
     if (!command.length) throw new Error(`${action} requires -- followed by a command`);
     if (action === "start") {
@@ -119,10 +132,10 @@ export function parse(argv) {
     }
   } else {
     if (separator >= 0) throw new Error(`${action} does not accept a command`);
-    if (action === "scope") {
+    if (action === "group") {
       if (positionals.length !== 2 || positionals[0] !== "set")
-        throw new Error("expected scope set NAME");
-      identifier(positionals[1], "scope");
+        throw new Error("expected group set NAME");
+      identifier(positionals[1], "group");
     } else if (action === "status" || action === "logs" || (action === "stop" && !values.all)) {
       if (positionals.length !== 1) throw new Error(`${action} requires one job name`);
       identifier(positionals[0]);
@@ -131,13 +144,8 @@ export function parse(argv) {
     if (action === "setup" && (!values["memory-high"] || !values["memory-max"])) {
       throw new Error("setup requires --memory-high and --memory-max for the shared budget");
     }
-    if (
-      action === "scope" &&
-      !values["memory-high"] &&
-      !values["memory-max"] &&
-      !values["cpu-quota"]
-    ) {
-      throw new Error("scope set requires --memory-high, --memory-max or --cpu-quota");
+    if (action === "group" && ![...budgets, "heavy-slots"].some((key) => values[key])) {
+      throw new Error("group set requires a budget or --heavy-slots");
     }
   }
   return { action, values, command, positionals };

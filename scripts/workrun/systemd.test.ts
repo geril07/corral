@@ -6,13 +6,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { capture, jobs, properties } from "./systemd.mjs";
+import { capture, existingLimits, jobs, properties } from "./systemd.mjs";
 import { sliceFor, unitFor } from "./model.mjs";
 
 const cli = fileURLToPath(new URL("./cli.mjs", import.meta.url));
 const enabled = process.env.WORKRUN_SYSTEMD_TEST === "1";
-const scope = `test-${randomUUID().slice(0, 8)}`;
-const other = `${scope}-other`;
+const group = `test-${randomUUID().slice(0, 8)}`;
+const other = `${group}-other`;
 const children = new Set<ChildProcess>();
 let directory: string;
 
@@ -40,7 +40,13 @@ function command(args: string[], options: { cwd?: string; env?: NodeJS.ProcessEn
       });
     },
   );
-  return { child, done };
+  return {
+    child,
+    done,
+    get stderr() {
+      return stderr;
+    },
+  };
 }
 
 async function invoke(args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv }) {
@@ -72,8 +78,8 @@ async function file(path: string) {
   }
 }
 
-async function status(name: string, target = scope) {
-  const result = await invoke(["--scope", target, "status", name, "--json"]);
+async function status(name: string, target = group) {
+  const result = await invoke(["--group", target, "status", name, "--json"]);
   return result.code === 0 ? JSON.parse(result.stdout) : undefined;
 }
 
@@ -92,12 +98,34 @@ describe.skipIf(!enabled)(
     });
 
     afterEach(async () => {
-      for (const target of [scope, other]) await invoke(["--scope", target, "stop", "--all"]);
       for (const child of children) child.kill("SIGTERM");
+      await until(
+        () => children.size,
+        (value) => value === 0,
+      );
+      for (const target of [group, other]) {
+        await successful(["--group", target, "stop", "--all"]);
+        const remaining = await jobs(target);
+        if (remaining.length)
+          throw new Error(`test cleanup left jobs: ${JSON.stringify(remaining)}`);
+        await successful([
+          "group",
+          "set",
+          target,
+          "--heavy-slots",
+          "1",
+          "--memory-high",
+          "inherit",
+          "--memory-max",
+          "inherit",
+          "--cpu-quota",
+          "inherit",
+        ]);
+      }
     });
 
     afterAll(async () => {
-      for (const target of [scope, other]) {
+      for (const target of [group, other]) {
         await capture("systemctl", ["--user", "stop", sliceFor(target)]).catch(() => {});
         const config = join(
           process.env.XDG_CONFIG_HOME || join(homedir(), ".config"),
@@ -119,11 +147,11 @@ describe.skipIf(!enabled)(
     });
 
     it("preserves cwd, environment, empty arguments, dollars, specifiers and exit status", async () => {
-      const args = ["", "$HOME", "%n", "quote'\"", "a\nb", "--scope"];
+      const args = ["", "$HOME", "%n", "quote'\"", "a\nb", "--group"];
       const result = await invoke(
         [
-          "--scope",
-          scope,
+          "--group",
+          group,
           "run",
           "--",
           process.execPath,
@@ -141,8 +169,8 @@ describe.skipIf(!enabled)(
       const marker = join(directory, "must-not-execute");
       const result = await invoke(
         [
-          "--scope",
-          scope,
+          "--group",
+          group,
           "run",
           "--",
           process.execPath,
@@ -157,9 +185,9 @@ describe.skipIf(!enabled)(
     });
 
     it("tracks a background process after its launcher returns; isolates duplicate names and stop --all", async () => {
-      for (const target of [scope, other]) {
+      for (const target of [group, other]) {
         await successful([
-          "--scope",
+          "--group",
           target,
           "start",
           "server",
@@ -170,8 +198,8 @@ describe.skipIf(!enabled)(
         ]);
       }
       const duplicate = await invoke([
-        "--scope",
-        scope,
+        "--group",
+        group,
         "start",
         "server",
         "--",
@@ -181,19 +209,19 @@ describe.skipIf(!enabled)(
       ]);
       expect(duplicate.code).not.toBe(0);
       expect((await status("server")).state).toBe("active");
-      await successful(["--scope", scope, "stop", "--all"]);
-      expect(await jobs(scope)).toEqual([]);
+      await successful(["--group", group, "stop", "--all"]);
+      expect(await jobs(group)).toEqual([]);
       expect((await status("server", other)).state).toBe("active");
     });
 
-    it("admits one background heavy job across scopes/worktrees, including orphan descendants", async () => {
+    it("shares capacity across worktrees, but not across project groups, including orphan descendants", async () => {
       const childFile = join(directory, "heavy-child");
       const program = `const {spawn}=require('node:child_process'); const fs=require('node:fs');
       const child=spawn(process.execPath,['-e',${JSON.stringify(hold)}],{detached:true,stdio:'ignore'});
       fs.writeFileSync(${JSON.stringify(childFile)},String(child.pid)); child.unref();`;
       await successful([
-        "--scope",
-        scope,
+        "--group",
+        group,
         "start",
         "heavy",
         "--heavy",
@@ -204,19 +232,30 @@ describe.skipIf(!enabled)(
       ]);
       await until(() => file(childFile), Boolean);
       await until(
-        () => properties(unitFor(scope, "heavy")),
+        () => properties(unitFor(group, "heavy")),
         (value) => value.MainPID === "0",
       );
-      const denied = await invoke(
-        ["--scope", other, "run", "--heavy", "--", process.execPath, "-e", "process.exit(0)"],
-        { cwd: tmpdir() },
-      );
+      const denied = await invoke(["--group", group, "run", "--heavy", "--no-wait", "--", "true"], {
+        cwd: tmpdir(),
+      });
       expect(denied).toMatchObject({ code: 75 });
-      expect(denied.stderr).toContain("heavy slot busy");
-      await successful(["--scope", scope, "stop", "heavy"]);
-      const allowed = await invoke([
-        "--scope",
+      expect(denied.stderr).toContain("heavy slots busy");
+      await successful([
+        "--group",
         other,
+        "start",
+        "heavy",
+        "--heavy",
+        "--",
+        process.execPath,
+        "-e",
+        hold,
+      ]);
+      await successful(["--group", group, "run", "--", "true"]);
+      await successful(["--group", group, "stop", "heavy"]);
+      const allowed = await invoke([
+        "--group",
+        group,
         "run",
         "--heavy",
         "--",
@@ -224,18 +263,21 @@ describe.skipIf(!enabled)(
         "-e",
         "process.exit(17)",
       ]);
-      expect(allowed).toMatchObject({ code: 17 });
+      expect(allowed.code).toBe(17);
+      expect((await status("heavy", other)).state).toBe("active");
     });
 
-    it("serializes simultaneous heavy admission across scopes", async () => {
+    it("atomically admits exactly N simultaneous heavy jobs within a group", async () => {
+      await successful(["group", "set", group, "--heavy-slots", "2"]);
       const outcomes = await Promise.all(
-        [scope, other].map((target) =>
+        ["one", "two", "three", "four"].map((name) =>
           invoke([
-            "--scope",
-            target,
+            "--group",
+            group,
             "start",
-            "race",
+            name,
             "--heavy",
+            "--no-wait",
             "--",
             process.execPath,
             "-e",
@@ -245,20 +287,181 @@ describe.skipIf(!enabled)(
       );
       expect(
         outcomes.map((result) => result.code).toSorted((a, b) => (a ?? -1) - (b ?? -1)),
-      ).toEqual([0, 75]);
-      expect(
-        (await jobs()).filter((job) => job.heavy && [scope, other].includes(job.scope)),
-      ).toHaveLength(1);
+      ).toEqual([0, 0, 75, 75]);
+      expect((await jobs(group)).filter((job) => job.heavy)).toHaveLength(2);
     });
 
-    it("keeps the foreground heavy slot until completion", async () => {
-      const marker = join(directory, "heavy-ready");
-      const running = command([
-        "--scope",
-        scope,
+    it("waits without launching a foreground payload, then returns its result", async () => {
+      await successful([
+        "--group",
+        group,
+        "start",
+        "owner",
+        "--heavy",
+        "--",
+        process.execPath,
+        "-e",
+        hold,
+      ]);
+      const marker = join(directory, "waiter-ran");
+      const waiting = command([
+        "--group",
+        group,
         "run",
         "--name",
-        "front-heavy",
+        "waiter",
+        "--heavy",
+        "--",
+        process.execPath,
+        "-e",
+        `require('node:fs').writeFileSync(${JSON.stringify(marker)},'ran'); process.exit(23)`,
+      ]);
+      await until(
+        () => waiting.stderr,
+        (value) => value.includes("waiting for a heavy slot"),
+      );
+      expect(await file(marker)).toBe("");
+      expect((await jobs(group)).map((job) => job.name)).toEqual(["owner"]);
+      await successful(["--group", group, "stop", "owner"]);
+      expect((await waiting.done).code).toBe(23);
+      expect(await file(marker)).toBe("ran");
+    });
+
+    it("makes start wait for admission, then returns while its heavy job stays alive", async () => {
+      await successful([
+        "--group",
+        group,
+        "start",
+        "owner",
+        "--heavy",
+        "--",
+        process.execPath,
+        "-e",
+        hold,
+      ]);
+      const waiting = command([
+        "--group",
+        group,
+        "start",
+        "next",
+        "--heavy",
+        "--",
+        process.execPath,
+        "-e",
+        hold,
+      ]);
+      let completed = false;
+      void waiting.done.then(() => {
+        completed = true;
+      });
+      await until(
+        () => waiting.stderr,
+        (value) => value.includes("waiting for a heavy slot"),
+      );
+      expect(completed).toBe(false);
+      expect(await status("next")).toBeUndefined();
+      await successful(["--group", group, "stop", "owner"]);
+      expect((await waiting.done).code).toBe(0);
+      expect((await status("next")).state).toBe("active");
+      expect(
+        (await invoke(["--group", group, "run", "--heavy", "--no-wait", "--", "true"])).code,
+      ).toBe(75);
+    });
+
+    it.each([
+      ["SIGINT", 130],
+      ["SIGTERM", 143],
+      ["SIGHUP", 129],
+    ] as const)(
+      "cancels a same-named waiter with %s without launching or stopping the incumbent",
+      async (signal, code) => {
+        await successful([
+          "--group",
+          group,
+          "start",
+          "owner",
+          "--heavy",
+          "--",
+          process.execPath,
+          "-e",
+          hold,
+        ]);
+        const original = await status("owner");
+        const marker = join(directory, `cancelled-${signal}`);
+        const waiting = command([
+          "--group",
+          group,
+          "run",
+          "--name",
+          "owner",
+          "--heavy",
+          "--",
+          process.execPath,
+          "-e",
+          `require('node:fs').writeFileSync(${JSON.stringify(marker)},'bad')`,
+        ]);
+        await until(
+          () => waiting.stderr,
+          (value) => value.includes("waiting for a heavy slot"),
+        );
+        waiting.child.kill(signal);
+        expect((await waiting.done).code).toBe(code);
+        expect(await file(marker)).toBe("");
+        expect(await status("owner")).toMatchObject({ MainPID: original.MainPID, state: "active" });
+        await successful(["--group", group, "stop", "owner"]);
+        await successful(["--group", group, "run", "--heavy", "--", "true"]);
+        expect(await file(marker)).toBe("");
+      },
+    );
+
+    it("lets configuration changes unblock waiters without pre-empting existing jobs", async () => {
+      await successful([
+        "--group",
+        group,
+        "start",
+        "one",
+        "--heavy",
+        "--",
+        process.execPath,
+        "-e",
+        hold,
+      ]);
+      const waiting = command([
+        "--group",
+        group,
+        "start",
+        "two",
+        "--heavy",
+        "--",
+        process.execPath,
+        "-e",
+        hold,
+      ]);
+      await until(
+        () => waiting.stderr,
+        (value) => value.includes("waiting for a heavy slot"),
+      );
+      await successful(["group", "set", group, "--heavy-slots", "2"]);
+      expect((await waiting.done).code).toBe(0);
+      await successful(["group", "set", group, "--heavy-slots", "1"]);
+      expect((await jobs(group)).filter((job) => job.heavy)).toHaveLength(2);
+      await successful(["--group", group, "stop", "one"]);
+      expect(
+        (await invoke(["--group", group, "run", "--heavy", "--no-wait", "--", "true"])).code,
+      ).toBe(75);
+      await successful(["--group", group, "stop", "two"]);
+      await successful(["--group", group, "run", "--heavy", "--", "true"]);
+    });
+
+    it("counts foreground heavy jobs without reducing N slots to one and preserves a payload exit 75", async () => {
+      await successful(["group", "set", group, "--heavy-slots", "2"]);
+      const marker = join(directory, "front-heavy-ready");
+      const running = command([
+        "--group",
+        group,
+        "run",
+        "--name",
+        "front",
         "--heavy",
         "--",
         process.execPath,
@@ -266,20 +469,95 @@ describe.skipIf(!enabled)(
         `require('node:fs').writeFileSync(${JSON.stringify(marker)},'ready'); ${hold}`,
       ]);
       await until(() => file(marker), Boolean);
+      await successful([
+        "--group",
+        group,
+        "start",
+        "back",
+        "--heavy",
+        "--",
+        process.execPath,
+        "-e",
+        hold,
+      ]);
       expect(
-        (await invoke(["--scope", other, "start", "denied", "--heavy", "--", "true"])).code,
+        (await invoke(["--group", group, "run", "--heavy", "--no-wait", "--", "true"])).code,
       ).toBe(75);
-      await successful(["--scope", scope, "stop", "front-heavy"]);
+      await successful(["--group", group, "stop", "front"]);
       await running.done;
-      expect((await invoke(["--scope", other, "run", "--heavy", "--", "true"])).code).toBe(0);
+      const payload = await invoke([
+        "--group",
+        group,
+        "run",
+        "--heavy",
+        "--no-wait",
+        "--",
+        process.execPath,
+        "-e",
+        "process.exit(75)",
+      ]);
+      expect(payload.code).toBe(75);
+      expect(payload.stderr).not.toContain("heavy slots busy");
     });
 
-    it("stops detached descendants that ignore SIGTERM, without touching another scope", async () => {
+    it("holds a slot while a job is deactivating with a stubborn descendant", async () => {
+      const marker = join(directory, "heavy-stubborn");
+      const stubborn = `process.on('SIGTERM',()=>{}); require('node:fs').writeFileSync(${JSON.stringify(marker)},'ready'); ${hold}`;
+      await successful([
+        "--group",
+        group,
+        "start",
+        "heavy-tree",
+        "--heavy",
+        "--",
+        process.execPath,
+        "-e",
+        `require('node:child_process').spawn(process.execPath,['-e',${JSON.stringify(stubborn)}],{detached:true,stdio:'ignore'}); ${hold}`,
+      ]);
+      await until(() => file(marker), Boolean);
+      const stopping = command(["--group", group, "stop", "heavy-tree"]);
+      await until(
+        () => properties(unitFor(group, "heavy-tree")),
+        (value) => value.ActiveState === "deactivating",
+      );
+      expect(
+        (await invoke(["--group", group, "run", "--heavy", "--no-wait", "--", "true"])).code,
+      ).toBe(75);
+      expect((await stopping.done).code).toBe(0);
+      await successful(["--group", group, "run", "--heavy", "--", "true"]);
+    }, 20_000);
+
+    it("persists heavy settings and preserves omitted CPU and memory budgets", async () => {
+      await successful([
+        "group",
+        "set",
+        group,
+        "--heavy-slots",
+        "2",
+        "--memory-max",
+        "256M",
+        "--cpu-quota",
+        "100%",
+      ]);
+      await successful(["group", "set", group, "--memory-high", "128M"]);
+      const settings = await existingLimits(sliceFor(group));
+      expect(settings).toMatchObject({ heavySlots: 2, high: "128M", max: "256M", cpu: "100%" });
+      const output = await successful(["group", "set", group, "--heavy-slots", "3"]);
+      expect(output.stdout).toContain("heavy-slots=3");
+      expect(await existingLimits(sliceFor(group))).toMatchObject({
+        heavySlots: 3,
+        high: "128M",
+        max: "256M",
+        cpu: "100%",
+      });
+    });
+
+    it("stops detached descendants that ignore SIGTERM, without touching another group", async () => {
       const marker = join(directory, "stubborn");
       const stubborn = `process.on('SIGTERM',()=>{}); require('node:fs').writeFileSync(${JSON.stringify(marker)}, String(process.pid)); ${hold}`;
       await successful([
-        "--scope",
-        scope,
+        "--group",
+        group,
         "start",
         "tree",
         "--",
@@ -289,11 +567,11 @@ describe.skipIf(!enabled)(
       ]);
       const pid = Number(await until(() => file(marker), Boolean));
       const cgroup = (await readFile(`/proc/${pid}/cgroup`, "utf8")).trim();
-      const parent = await properties(unitFor(scope, "tree"));
+      const parent = await properties(unitFor(group, "tree"));
       expect(cgroup).toContain(parent.ControlGroup);
-      expect(parent.Slice).toBe(sliceFor(scope));
+      expect(parent.Slice).toBe(sliceFor(group));
       expect(parent.ControlGroup).toContain("/workrun.slice/");
-      await successful(["--scope", scope, "stop", "tree"]);
+      await successful(["--group", group, "stop", "tree"]);
       await until(
         () => file(`/proc/${pid}/stat`),
         (value) => !value || value.split(" ")[2] === "Z",
@@ -303,8 +581,8 @@ describe.skipIf(!enabled)(
     it("interrupts a foreground run and removes its whole cgroup", async () => {
       const marker = join(directory, "foreground");
       const running = command([
-        "--scope",
-        scope,
+        "--group",
+        group,
         "run",
         "--name",
         "interrupt",
@@ -314,21 +592,21 @@ describe.skipIf(!enabled)(
         `require('node:fs').writeFileSync(${JSON.stringify(marker)},'ready'); ${hold}`,
       ]);
       await until(() => file(marker), Boolean);
-      const group = (await status("interrupt")).ControlGroup;
+      const cgroup = (await status("interrupt")).ControlGroup;
       running.child.kill("SIGINT");
       expect((await running.done).code).toBe(130);
       await until(
-        () => file(join("/sys/fs/cgroup", group, "cgroup.events")),
+        () => file(join("/sys/fs/cgroup", cgroup, "cgroup.events")),
         (value) => !value || value.includes("populated 0"),
       );
-      expect(await jobs(scope)).toEqual([]);
+      expect(await jobs(group)).toEqual([]);
     });
 
     it("exposes journal output and memory summed over multiple jobs", async () => {
       const marker = join(directory, "allocated");
       await successful([
-        "--scope",
-        scope,
+        "--group",
+        group,
         "start",
         "one",
         "--",
@@ -337,22 +615,22 @@ describe.skipIf(!enabled)(
         `global.data=Buffer.alloc(16*1024*1024,1); console.log('workrun-journal-proof'); require('node:fs').writeFileSync(${JSON.stringify(marker)},'ready'); ${hold}`,
       ]);
       await until(() => file(marker), Boolean);
-      await successful(["--scope", scope, "start", "two", "--", process.execPath, "-e", hold]);
+      await successful(["--group", group, "start", "two", "--", process.execPath, "-e", hold]);
       const one = await status("one");
       const two = await status("two");
-      const slice = await properties(sliceFor(scope));
+      const slice = await properties(sliceFor(group));
       expect(Number(slice.MemoryCurrent)).toBeGreaterThan(Number(one.MemoryCurrent));
       expect(Number(slice.MemoryCurrent)).toBeGreaterThan(Number(two.MemoryCurrent));
       const output = await until(
-        () => invoke(["--scope", scope, "logs", "one"]),
+        () => invoke(["--group", group, "logs", "one"]),
         (value) => value.stdout.includes("workrun-journal-proof"),
       );
       expect(output.code).toBe(0);
     });
 
     it("refuses a payload when the kernel no longer enforces its configured ceiling", async () => {
-      await successful(["scope", "set", scope, "--memory-max", "128M"]);
-      const unit = sliceFor(scope);
+      await successful(["group", "set", group, "--memory-max", "128M"]);
+      const unit = sliceFor(group);
       await capture("systemctl", [
         "--user",
         "set-property",
@@ -363,8 +641,8 @@ describe.skipIf(!enabled)(
       try {
         const marker = join(directory, "must-not-bypass-kernel-limit");
         const result = await invoke([
-          "--scope",
-          scope,
+          "--group",
+          group,
           "run",
           "--",
           process.execPath,
@@ -376,14 +654,14 @@ describe.skipIf(!enabled)(
         expect(await file(marker)).toBe("");
       } finally {
         await capture("systemctl", ["--user", "set-property", "--runtime", unit, "MemoryMax=128M"]);
-        await successful(["scope", "set", scope, "--memory-max", "inherit"]);
+        await successful(["group", "set", group, "--memory-max", "inherit"]);
       }
     });
 
-    it("applies CPU quota to the whole scope and observes kernel throttling", async () => {
-      await successful(["scope", "set", scope, "--cpu-quota", "50%"]);
-      const group = (await properties(sliceFor(scope))).ControlGroup;
-      const path = join("/sys/fs/cgroup", group);
+    it("applies CPU quota to the whole group and observes kernel throttling", async () => {
+      await successful(["group", "set", group, "--cpu-quota", "50%"]);
+      const cgroup = (await properties(sliceFor(group))).ControlGroup;
+      const path = join("/sys/fs/cgroup", cgroup);
       const [quota, period] = (await readFile(join(path, "cpu.max"), "utf8"))
         .trim()
         .split(/\s+/)
@@ -393,8 +671,8 @@ describe.skipIf(!enabled)(
         Number(/^nr_throttled (\d+)$/m.exec(await readFile(join(path, "cpu.stat"), "utf8"))?.[1]);
       const before = await throttled();
       await successful([
-        "--scope",
-        scope,
+        "--group",
+        group,
         "start",
         "cpu",
         "--",
@@ -403,25 +681,25 @@ describe.skipIf(!enabled)(
         "while(true){}",
       ]);
       await until(throttled, (value) => value > before);
-      await successful(["--scope", scope, "stop", "cpu"]);
-      await successful(["scope", "set", scope, "--cpu-quota", "inherit"]);
-      expect((await properties(sliceFor(scope))).CPUQuotaPerSecUSec).toBe("infinity");
+      await successful(["--group", group, "stop", "cpu"]);
+      await successful(["group", "set", group, "--cpu-quota", "inherit"]);
+      expect((await properties(sliceFor(group))).CPUQuotaPerSecUSec).toBe("infinity");
       // systemd may disable the subtree CPU controller once no child needs a local quota.
       const reset = await file(join(path, "cpu.max"));
       expect(reset === "" || reset.startsWith("max ")).toBe(true);
     });
 
-    it("applies and removes a scope budget; a bounded OOM kills only that job", async () => {
-      await successful(["--scope", other, "start", "healthy", "--", process.execPath, "-e", hold]);
-      await successful(["scope", "set", scope, "--memory-high", "48M", "--memory-max", "64M"]);
-      const slice = await properties(sliceFor(scope));
+    it("applies and removes a group budget; a bounded OOM kills only that job", async () => {
+      await successful(["--group", other, "start", "healthy", "--", process.execPath, "-e", hold]);
+      await successful(["group", "set", group, "--memory-high", "48M", "--memory-max", "64M"]);
+      const slice = await properties(sliceFor(group));
       expect(slice.MemoryMax).toBe(String(64 * 1024 ** 2));
       expect(slice.MemoryHigh).toBe(String(48 * 1024 ** 2));
       // Test the hard boundary, not the intentionally unbounded reclaim delays of memory.high.
-      await successful(["scope", "set", scope, "--memory-high", "inherit"]);
+      await successful(["group", "set", group, "--memory-high", "inherit"]);
       const oom = await invoke([
-        "--scope",
-        scope,
+        "--group",
+        group,
         "run",
         "--",
         process.execPath,
@@ -429,24 +707,24 @@ describe.skipIf(!enabled)(
         "const data=[]; setInterval(()=>data.push(Buffer.alloc(4*1024*1024,1)),5)",
       ]);
       expect(oom.code).not.toBe(0);
-      const group = (await properties(sliceFor(scope))).ControlGroup;
-      const events = await readFile(join("/sys/fs/cgroup", group, "memory.events"), "utf8");
+      const cgroup = (await properties(sliceFor(group))).ControlGroup;
+      const events = await readFile(join("/sys/fs/cgroup", cgroup, "memory.events"), "utf8");
       expect(Number(/^oom_kill (\d+)$/m.exec(events)?.[1])).toBeGreaterThan(0);
       expect((await status("healthy", other)).state).toBe("active");
       await successful([
-        "scope",
+        "group",
         "set",
-        scope,
+        group,
         "--memory-high",
         "inherit",
         "--memory-max",
         "inherit",
       ]);
-      const inherited = await properties(sliceFor(scope));
+      const inherited = await properties(sliceFor(group));
       const root = await properties("workrun.slice");
       expect(inherited.MemoryMax).toBe("infinity");
       expect(inherited.EffectiveMemoryMax).toBe(root.MemoryMax);
-      expect((await invoke(["--scope", other, "run", "--", "true"])).code).toBe(0);
+      expect((await invoke(["--group", other, "run", "--", "true"])).code).toBe(0);
     }, 30_000);
   },
 );

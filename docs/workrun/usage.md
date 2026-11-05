@@ -1,86 +1,112 @@
-# Workrun — commands and services
+# Workrun — use a job
 
-Kind: **engineering rules**. For consumers on an already configured host. Read
-[Setup](setup.md) only when provisioning or deliberately changing a budget; report missing
-protection instead of bypassing it. Coding agents also follow [their ownership workflow](agents.md).
+Kind: **engineering rules**. For callers on an already configured host. [Setup](setup.md) is for
+provisioning and resource changes; [orchestration](orchestration.md) is for assigning agent work.
 
-## Choose a scope and launch
+## Group and job
 
-Every launch requires `--scope`: a project or assignment namespace. Names are 1–48 lowercase
-letters, digits, underscores or hyphens, starting with a letter or digit. Job names are local to a
-scope. A scope groups resources/processes; it is not a separate filesystem or network.
+Every launch requires `--group`. Use the project's group in every worktree; use distinct job
+names for concurrent assignments. Groups are flat names, not directories or nested namespaces.
+Names are 1–48 lowercase letters, digits, underscores or hyphens, starting with a letter or digit.
+
+A group shares CPU/RAM and heavy capacity; it does not isolate source files, ports or databases.
+The current directory is the command's working directory.
 
 ```sh
-# Foreground: inherit cwd/environment, stream output, return the command's exit code.
-pnpm workrun --scope corral run -- pnpm seed
-
-# Background: keep running independently of the launching terminal.
-pnpm workrun --scope corral start web -- pnpm dev --fake-agents
-
-# One cross-project heavy slot, available for either lifetime.
-pnpm workrun --scope corral run --heavy -- pnpm check
-pnpm workrun --scope corral start browser-tests --heavy -- pnpm test:browser
+pnpm workrun --group corral run -- pnpm install --frozen-lockfile
+pnpm workrun --group corral run -- pnpm typecheck
+pnpm workrun --group corral start issue135-dev -- pnpm dev --fake-agents
+pnpm workrun --group corral run --name issue135-check --heavy -- pnpm check
 ```
 
-`--` is required before the executable. Arguments stay literal: no implicit shell or systemd
-variable expansion. Executables resolve through the caller's PATH. Normal environment variables
-are forwarded without embedding secret values in the launcher's argv; systemd parent
-identity/socket variables are replaced by the new service's context. The environment remains
-accessible to the same user: this is not a secret store.
+On a checkout without dependencies, use `node scripts/workrun/cli.mjs` instead of `pnpm workrun`.
+No launch changes the configured budget.
 
-`run` prints its generated job name on stderr and waits for **all processes** in its cgroup,
-including detached children. Use `--name NAME` before `--` for a predictable name. SIGINT, SIGTERM
-and SIGHUP request whole-job cleanup; interruption returns 128 + signal number. A terminal uses a
-PTY; redirected output uses a pipe. It is not an interactive login session.
+## Which commands are heavy?
 
-`start NAME` refuses an existing name; it neither replaces jobs nor restarts failed commands.
-Success means exec succeeded, **not** application readiness: wait for the service's own readiness
-signal. Output goes to the user journal. Forked daemons remain tracked after their original
-parent exits.
+**Only a full test suite takes `--heavy`.** All other workloads still use workrun's CPU/RAM budget.
+
+| Workload                                                        | Heavy |
+| --------------------------------------------------------------- | ----- |
+| Full Node, browser, Electron/e2e or launcher test suite         | Yes   |
+| Aggregate gate that includes a full suite, such as `pnpm check` | Yes   |
+| Selected test files or a filtered test case                     | No    |
+| Install dependencies, typecheck, lint, format, build            | No    |
+| Development stack or seed command                               | No    |
+
+Heavy is caller-declared, not inferred from executable names. Internal suite workers/shards still
+need their own bound; for example use `CORRAL_BROWSER_SHARDS=2` for a full browser run on a modest
+shared budget. CPU/RAM ceilings protect the host, but competing workloads can slow down or exhaust
+the jobs' own shared memory budget.
+
+## Run or start
+
+`run` streams the command's output, waits for every process in its job, and returns the command's
+exit status. Its generated name is printed to stderr; `--name JOB` makes it predictable.
+SIGINT, SIGTERM and SIGHUP cancel admission or stop the running job; interruption returns
+128 + signal number. A terminal uses a PTY; redirected output uses a pipe.
+
+`start JOB` returns after successful exec, **not application readiness**. Observe the application's
+readiness separately. Output goes to the user journal. The job outlives the CLI, including detached
+descendants after the original process exits. It has no automatic restart or reboot start.
+An existing job name in the same group is refused, not replaced; other groups may reuse the name.
+
+`--` is required before the executable. Arguments stay literal; there is no implicit shell or
+systemd variable expansion. Executables resolve through the caller's PATH. Environment variables
+are forwarded without embedding secret values in launcher argv; systemd identity/socket variables
+are replaced by the new service's context. The environment is accessible to the same user:
+workrun is not a secret store.
 
 ## Heavy admission
 
-`--heavy` uses one shared admission lock in `$XDG_RUNTIME_DIR/workrun-heavy.lock`. An active or
-deactivating heavy job keeps the slot until its entire cgroup exits, even after a background
-launcher returns. Busy exits **75** without waiting; a payload can also return 75, so inspect the
-diagnostic. Schedule a later attempt rather than polling. A nested heavy invocation finds its
-parent's slot occupied.
-
-One job can itself spawn many workers. Bound that parallelism separately, for example:
+Each group has one heavy slot by default; the host owner can set another positive
+`--heavy-slots` count with `group set`. Different groups admit independently, while all jobs
+still share the root resource budget. Active, activating and deactivating heavy jobs retain
+capacity until their entire cgroup exits.
 
 ```sh
-CORRAL_BROWSER_SHARDS=2 pnpm workrun --scope corral run --heavy -- pnpm test:browser
+# Wait for this project's capacity, then execute exactly once.
+pnpm workrun --group corral run --name issue135-check --heavy -- pnpm check
+
+# Opt out of waiting: busy admission returns 75 without launching the command.
+pnpm workrun --group corral run --heavy --no-wait -- pnpm test:browser
 ```
 
-Only cooperating launcher calls serialize. Direct commands bypass both admission and the budget.
+Waiting prints a message and stays in the invoking CLI; it is not completion, a durable queue or
+a FIFO promise. The launcher rechecks systemd capacity with an idle timer, not a busy loop.
+Do not add agent sleep/retry loops. Set the caller's timeout to cover both waiting and execution.
+Cancel the waiting CLI to withdraw it: no payload has started, and no existing job is stopped.
+Waiters are not yet systemd jobs, so they do not appear in `list` and `stop` does not cancel them.
+
+`start JOB --heavy` also waits for admission before returning after exec. Its background job keeps
+the slot afterwards. A nested heavy invocation in a full group waits for its own parent;
+run the whole suite under one admission and leave its child commands unmarked.
+A payload can itself exit 75; only the explicit admission diagnostic means capacity was busy.
 
 ## Inspect and stop
 
 ```sh
 pnpm workrun list
-pnpm workrun --scope corral list
-pnpm workrun --scope corral status web
-pnpm workrun --scope corral logs web
-pnpm workrun --scope corral logs web --follow
-pnpm workrun --scope corral stop web
-pnpm workrun --scope corral stop --all
+pnpm workrun --group corral list --json
+pnpm workrun --group corral status issue135-dev --json
+pnpm workrun --group corral logs issue135-dev --follow
+pnpm workrun --group corral stop issue135-dev
+pnpm workrun --group corral stop --all
 ```
 
-`list` and `status` accept `--json`. Status includes PID, memory, CPU usage and cgroup. Live and
-failed background units remain visible; successful units may be unloaded. Journal output follows
-system retention; repeated use of one scope/name shares its history. Foreground output is streamed,
-not automatically journal-copied: capture it explicitly when it must survive.
+`list` and `status` accept `--json`; job records identify `group` and `name`.
+Status includes PID, memory, CPU usage and cgroup. Live and failed background jobs remain visible;
+successful jobs may be unloaded. Journal retention is system-managed; reusing a group/name shares
+its journal history. Foreground output is not journal-copied: save it when it must survive.
 
-Stop sends SIGTERM to the whole cgroup, waits up to five seconds, then uses SIGKILL for remaining
-processes. `stop --all` requires an explicit scope and stops only its managed jobs, including
-failed ones; it resets failed state so names can be reused. It deletes no application data,
-worktrees, logs or budgets. Completion means systemd completed the stop.
+Stop targets the whole cgroup: SIGTERM, up to five seconds, then SIGKILL for remaining processes.
+It also resets failed state so names can be reused. `stop --all` requires a group and affects every
+managed job in that group, including other worktrees. Stop completes only after systemd's stop
+finishes. It deletes no worktrees, application data, budgets or logs.
 
-## Ownership limits
+## Ownership boundary
 
-Background jobs deliberately outlive their launcher. SIGKILL or a host crash cannot execute
-foreground cleanup handlers. After an interrupted owner, inspect `list` and stop its jobs.
-
-Calling an **existing external daemon** (tmux, a browser daemon, Docker or another systemd service)
-can route work outside this cgroup. Launch a fresh owned daemon inside the unit and verify the
-actual process's `/proc/<pid>/cgroup`; wrapping a client does not relocate an existing daemon.
+A background job is not cleaned up merely because its agent exited. The caller or orchestrator
+must stop it. Direct launches bypass workrun. An existing external daemon (browser, tmux, Docker,
+another service) may spawn work outside the invoking job; wrapping its client does not relocate
+it. External shared browser daemons are not promised containment by this workflow.

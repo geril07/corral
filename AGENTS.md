@@ -13,9 +13,9 @@ Keyboard-first workspace for running coding agents in terminals: a long-lived No
 
 ## Local workloads
 
-Before launching a dev stack, browser automation, checks or dependency installation on the Linux
-agent host, read `docs/workrun/agents.md` for managed scopes, heavy admission and verified cleanup.
-Read `docs/workrun/setup.md` only when provisioning or making a user-approved budget change.
+Before launching local workloads on the Linux agent host, read `docs/workrun/usage.md` for
+managed jobs and heavy classification. Orchestrators also read `docs/workrun/orchestration.md`
+for assignment, isolation and cleanup. `docs/workrun.md` routes host setup and launcher verification.
 
 ## Verification
 
