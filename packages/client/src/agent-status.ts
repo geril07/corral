@@ -67,6 +67,11 @@ export function isUnseenDone(task: Pick<Task, "seenAt">, status: AgentStatus | u
   return status?.state === "done" && hasUnseen(task, status);
 }
 
+/** A `done` update the user has already seen: the sidebar row and task header mute it. */
+export function isSeenDone(status: AgentStatus | undefined, unseen: boolean): boolean {
+  return status?.state === "done" && !unseen;
+}
+
 /**
  * The word a flat sidebar row shows instead of the age while the task needs the user. The state
  * name stays visible next to its glyph (`ux.md`: no status by shape or color alone).

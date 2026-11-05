@@ -10,6 +10,7 @@ import {
   focusedIsTerminal,
   sessionTab,
   taskButton,
+  taskHeader,
   workspace,
 } from "../../../test/task-flows.tsx";
 
@@ -40,9 +41,12 @@ test("a blocked agent shows on its session and task; the board and prefix g jump
   await startClaude();
 
   await report({ state: "blocked", kind: "permission", msg: "Run rm -rf build?" });
-  // The row and selected session say what needs attention, without repeating it in the header.
+  // The row, selected session and task header all name what needs attention.
   await expect
     .element(workspace().getByRole("img", { name: "blocked · permission" }))
+    .toBeVisible();
+  await expect
+    .element(taskHeader().getByRole("img", { name: "blocked · permission" }))
     .toBeVisible();
   await expect.element(taskButton("Alpha")).toHaveAttribute("title", "Run rm -rf build?");
 

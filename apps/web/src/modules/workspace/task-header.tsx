@@ -1,4 +1,4 @@
-import { attentionWord, isUnseenDone, taskStatus } from "@corral/client/agent-status";
+import { attentionWord, isSeenDone, isUnseenDone, taskStatus } from "@corral/client/agent-status";
 import type { TaskNode } from "@corral/client/workspace-tree";
 import type { ActionId, ClientConfig } from "@corral/protocol/config";
 import type { Project, PullRequest, Task, TaskChanges } from "@corral/protocol/rpc";
@@ -166,11 +166,7 @@ export function TaskHeader({
           {pullRequest !== undefined && <PullRequestBadge request={pullRequest} />}
           {status !== undefined && (
             <span className="flex shrink-0 items-center gap-1.5" data-task-status="">
-              <StatusIndicator
-                status={status}
-                size="chrome"
-                muted={status.state === "done" && !unseen}
-              />
+              <StatusIndicator status={status} size="chrome" muted={isSeenDone(status, unseen)} />
               {attention !== undefined && (
                 <span className="whitespace-nowrap text-xs text-muted-foreground">{attention}</span>
               )}

@@ -2,6 +2,7 @@ import {
   attentionWord,
   compareStatuses,
   formatAge,
+  isSeenDone,
   isUnseenDone,
   taskStatus,
   type TaskStatus,
@@ -522,7 +523,7 @@ function TaskRow({
   return (
     <li>
       <TreeRow current={current}>
-        <StatusIndicator status={status} muted={status?.state === "done" && !unseen} />
+        <StatusIndicator status={status} muted={isSeenDone(status, unseen)} />
         <RowMenu
           label={`Task actions for ${task.title}`}
           hint={

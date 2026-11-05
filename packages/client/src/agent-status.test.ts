@@ -6,6 +6,7 @@ import {
   describeStatus,
   formatAge,
   hasUnseen,
+  isSeenDone,
   isUnseenDone,
   sessionStatus,
   STATES_BY_URGENCY,
@@ -120,6 +121,12 @@ test("a done update newer than the task's seenAt is completed and unseen", () =>
   expect(isUnseenDone(seenTask(3), status("done", 2))).toBe(false);
   expect(isUnseenDone(seenTask(1), status("working", 2))).toBe(false);
   expect(isUnseenDone(seenTask(1), undefined)).toBe(false);
+
+  // The one mute rule both the sidebar row and the task header use.
+  expect(isSeenDone(status("done", 1), false)).toBe(true);
+  expect(isSeenDone(status("done", 1), true)).toBe(false);
+  expect(isSeenDone(status("working", 1), false)).toBe(false);
+  expect(isSeenDone(undefined, false)).toBe(false);
 
   // Any newer status is an update the user has not seen; only `done` marks the task as finished.
   expect(hasUnseen(seenTask(1), status("idle", 2))).toBe(true);
