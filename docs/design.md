@@ -72,7 +72,7 @@ Codex 0.166.0's app-server follows the same rule with a filesystem boundary inst
 
 ## Domain model
 
-- **Project**: a git repository, added by path.
+- **Project**: a git repository, added by path. The server trims the input, expands a leading `~` with its own home and requires an absolute path; a relative path is refused. The stored `Project.path` is git's absolute main working tree, so a subdirectory, symlink or linked worktree names the one project.
 - **Task**: title, state (active / settled), workspace, optional branch. Settled means the work is done (T3 Code's "settle"): the task moves to a collapsed shelf, keeps its worktree and branch, and its running sessions are stopped; making it active again resumes the sessions that were running. A merged pull request **offers** settle on the task (`layout.md`, **Task header**); the click is still the user's, and automatic settling (merged, inactivity) comes later.
   - **Creation**: the new-task composer takes a prompt plus project, agent or launch profile, an optional native model override, view (chat by default, or terminal) and workspace, all prefilled from settings. Submitting creates the task and starts its primary agent session with the prompt (the TUI receives it as its launch argument); no shell starts on its own. A task can also start without a prompt; it then keeps a placeholder title until it is renamed or named from the agent's first message.
   - **Workspace**: the project's main working tree by default; a new worktree (new or existing branch, off the project's default branch) is an option chosen in the composer or made the default in settings.

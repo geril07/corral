@@ -1,12 +1,46 @@
 import type { IssueProvider, Project, TaskSource } from "@corral/protocol/rpc";
-import { basename } from "node:path";
+import { stat } from "node:fs/promises";
+import { basename, isAbsolute } from "node:path";
 import { ChangeFeed } from "../changes/change-feed.ts";
+import { expandHomePath } from "../config/home-path.ts";
 import { GitError } from "../git/git.ts";
 import { defaultBaseBranch, findMainWorkingTree, listBranches } from "../git/repository.ts";
 import type { IssueImportService } from "../issues/issue-import.ts";
 import { newId } from "../storage/ids.ts";
 import { NotAGitRepositoryError, ProjectExistsError, ProjectNotFoundError } from "./errors.ts";
 import type { ProjectStore } from "./project-store.ts";
+
+/** What a project path must be before git sees it: absolute, or relative to the server's home. */
+const PROJECT_PATH_RULE = "the project path must be an absolute path or start with ~/";
+
+/** The `code` of a failed filesystem call, for mapping it to a refusal. */
+function ioErrorCode(error: unknown): string | undefined {
+  return typeof error === "object" && error !== null && "code" in error
+    ? String(error.code)
+    : undefined;
+}
+
+/**
+ * The absolute directory an add-project input names. Trimming and `~` happen on the server,
+ * because the path is the server's filesystem fact; a client on another machine cannot know it.
+ * A missing path and a file keep the cause git would have reported in its own words.
+ */
+async function resolveProjectPath(input: string, home: string): Promise<string> {
+  const written = input.trim();
+  if (written !== "~" && !written.startsWith("~/") && !isAbsolute(written))
+    throw new GitError(PROJECT_PATH_RULE);
+  const path = expandHomePath(written, home);
+  let info;
+  try {
+    info = await stat(path);
+  } catch (error) {
+    const code = ioErrorCode(error);
+    if (code === "ENOENT" || code === "ENOTDIR") throw new GitError(`no such directory: ${path}`);
+    throw error;
+  }
+  if (!info.isDirectory()) throw new GitError(`not a directory: ${path}`);
+  return path;
+}
 
 /** What removing a project needs from the tasks that belong to it. */
 export interface ProjectTasks {
@@ -20,12 +54,19 @@ export class ProjectService {
   readonly #store: ProjectStore;
   readonly #tasks: ProjectTasks;
   readonly #issues: IssueImportService;
+  readonly #home: string;
   readonly #changes = new ChangeFeed();
 
-  constructor(store: ProjectStore, tasks: ProjectTasks, issues: IssueImportService) {
+  constructor(
+    store: ProjectStore,
+    tasks: ProjectTasks,
+    issues: IssueImportService,
+    options: { home: string },
+  ) {
     this.#store = store;
     this.#tasks = tasks;
     this.#issues = issues;
+    this.#home = options.home;
   }
 
   list(): Project[] {
@@ -42,12 +83,16 @@ export class ProjectService {
     return project;
   }
 
-  async add(path: string): Promise<Project> {
+  async add(input: string): Promise<Project> {
+    const path = await resolveProjectPath(input, this.#home);
     let root: string;
     try {
       root = await findMainWorkingTree(path);
     } catch (error) {
-      if (error instanceof GitError) throw new NotAGitRepositoryError(path);
+      // git also fails for a missing directory, a bare repository and a broken repository; only
+      // its own not-a-repository refusal becomes the typed error, so the rest keeps its cause.
+      if (error instanceof GitError && error.message.includes("not a git repository"))
+        throw new NotAGitRepositoryError(path);
       throw error;
     }
     const baseBranch = await defaultBaseBranch(root);
