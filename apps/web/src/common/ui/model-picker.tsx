@@ -140,7 +140,7 @@ export function ModelPicker({ title, anchor, onClose, ...props }: ModelPickerPro
               props.focus === "search" ? search : props.focus === "thinking" ? thinking : instance
             }
             finalFocus={props.restoreFocus === "anchor" ? anchor : finalFocus}
-            className="flex max-h-(--available-height) w-[36rem] max-w-(--available-width) flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-xl outline-none"
+            className="flex max-h-(--available-height) w-[36rem] max-w-(--available-width) flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-floating outline-none"
           >
             <Popover.Close className="sr-only">Close picker</Popover.Close>
             {content}
@@ -240,11 +240,11 @@ function PickerContent({
               value={item.key}
               aria-label={item.name}
               disabled={busy}
-              className="relative flex size-9 shrink-0 items-center justify-center rounded-lg border border-transparent text-muted-foreground outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring data-checked:border-border data-checked:bg-accent data-checked:text-foreground"
+              className="relative flex size-9 shrink-0 items-center justify-center rounded-(--control-radius) border border-transparent text-muted-foreground hover:bg-accent focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring data-checked:border-border data-checked:bg-accent data-checked:text-foreground"
             >
               <AgentIcon kind={item.kind} size="chrome" />
               {item.badge && (
-                <span className="absolute right-0 bottom-0 rounded-sm bg-muted px-0.5 text-[8px] leading-3 text-foreground">
+                <span className="absolute right-0 bottom-0 rounded-sm bg-muted px-0.5 text-xs text-foreground">
                   {item.badge}
                 </span>
               )}

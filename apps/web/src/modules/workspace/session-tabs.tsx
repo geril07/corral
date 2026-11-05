@@ -70,7 +70,7 @@ export function SessionTabs(props: SessionTabsProps) {
         ref={strip}
         role="tablist"
         aria-label="Sessions"
-        className="no-scrollbar flex h-8 min-w-0 flex-1 items-stretch gap-0.5 overflow-x-auto"
+        className="no-scrollbar flex h-(--tabstrip) min-w-0 flex-1 items-stretch gap-0.5 overflow-x-auto"
         onMouseDown={(event) => event.preventDefault()}
         onKeyDown={(event) => {
           if (event.defaultPrevented) return;

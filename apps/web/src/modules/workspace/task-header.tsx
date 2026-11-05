@@ -63,7 +63,7 @@ export function TaskHeader({
   };
   return (
     <header
-      className="flex h-11 shrink-0 items-center gap-2 px-3"
+      className="flex h-(--chrome-header) shrink-0 items-center gap-2 px-3"
       role="group"
       aria-label="task header"
       onMouseDown={(event) => event.preventDefault()}

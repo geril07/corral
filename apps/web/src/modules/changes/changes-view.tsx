@@ -115,7 +115,7 @@ export function ChangesView({
     return (
       <div className="flex h-full flex-col gap-2 p-2" aria-label="Changes loading" role="status">
         {Array.from({ length: 5 }, (_, index) => (
-          <div key={index} className="h-7 animate-pulse rounded-sm bg-muted" />
+          <div key={index} className="h-7 rounded-sm bg-muted" />
         ))}
       </div>
     );

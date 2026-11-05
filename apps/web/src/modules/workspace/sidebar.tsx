@@ -192,13 +192,13 @@ export function Sidebar(props: SidebarProps) {
       // Clicking must not take keyboard focus away from the terminal.
       onMouseDown={(event) => event.preventDefault()}
     >
-      <div className="flex h-11 shrink-0 items-center justify-between px-3">
-        <span className="text-sm font-semibold tracking-tight">corral</span>
+      <div className="flex h-(--chrome-header) shrink-0 items-center justify-between px-3">
+        <span className="text-sm font-semibold">corral</span>
         {props.onToggleSidebar && (
           <IconButton label="Hide sidebar" icon="hide-sidebar" onClick={props.onToggleSidebar} />
         )}
       </div>
-      <div className="flex h-10 shrink-0 items-center gap-1 px-1.5">
+      <div className="flex h-(--chrome-row) shrink-0 items-center gap-1 px-1.5">
         <Button
           variant="ghost"
           layout="tree"
@@ -571,7 +571,7 @@ function ProjectGroup({
         />
         {!open && status && <StatusIndicator status={status} />}
         {projectClipped ? <Hint content={project.name}>{select}</Hint> : select}
-        <span className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        <span className="opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
           <IconButton
             label={`New task in ${project.name}`}
             icon="add"
