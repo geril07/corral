@@ -34,9 +34,9 @@ same CPU/RAM budget. Classification is not authorization to run an otherwise out
 | Dependency installation, typecheck, lint, format, build                        | No    |
 | Development stack or seed command                                              | No    |
 
-For full browser runs on the shared agent host, set `CORRAL_BROWSER_SHARDS=2` or 1. A heavy slot
-does not bound the suite's internal parallelism. Test selection and required gates remain in
-[Engineering — Testing](engineering.md#testing); this table only chooses admission.
+Test selection and required gates remain in [Engineering — Testing](engineering.md#testing);
+this table only chooses admission. The shared workrun budget applies without an additional
+host-specific test-worker or shard limit.
 
 Let workrun wait for heavy capacity instead of adding sleep/retry loops. Give the invoking tool
 enough time for waiting plus execution and cancel that invocation to withdraw a waiter.
