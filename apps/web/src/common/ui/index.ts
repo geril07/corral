@@ -30,6 +30,7 @@ export {
   DialogFocusProvider,
   FormError,
   useDialogFocus,
+  useTaskFinalFocus,
 } from "./task-dialog.tsx";
 export { FieldSet, FieldLegend } from "./field.tsx";
 export { FormField, RadioChoice } from "./form-field.tsx";
@@ -45,7 +46,7 @@ export { Markdown, type MarkdownAnchorProps, type MarkdownLinks } from "./stream
 export { DiffView } from "./diff-view.tsx";
 export { ChangeFileRow, DiffPane } from "./change-row.tsx";
 export { Kbd } from "./kbd.tsx";
-export { AppShell, ContentLane, MainPanel, Screen, SidebarPanel, TaskContent } from "./layout.tsx";
+export { AppShell, ContentLane, MainPanel, SidebarPanel, TaskContent } from "./layout.tsx";
 export { OverflowMenu } from "./overflow-menu.tsx";
 export { RowMenu } from "./row-menu.tsx";
 export { AgentIcon } from "./agent-icon.tsx";

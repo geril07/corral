@@ -67,12 +67,3 @@ export function TaskContent({ children }: { children: ReactNode }) {
     </section>
   );
 }
-
-/** A screen that fills the window, for routes without the workspace sidebar. */
-export function Screen({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <section className={cn("flex h-screen min-h-0 flex-col bg-background", className)}>
-      {children}
-    </section>
-  );
-}

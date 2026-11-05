@@ -382,6 +382,12 @@ export function useWorkspace({
     onOpenSettings(chosenToSearch(chosenRef.current));
   };
 
+  /** The board overlays the mounted workspace too, so its close restores the same opener. */
+  const openBoard = () => {
+    dialogFocus?.remember();
+    onOpenBoard(chosenToSearch(chosenRef.current));
+  };
+
   const closeTerminal = (id: string) =>
     attempt(async () => {
       if (id === selection.entryId) {
@@ -851,7 +857,7 @@ export function useWorkspace({
       label: "Open board",
       group: "Navigation",
       enabled: true,
-      run: () => onOpenBoard(chosenToSearch(chosenRef.current)),
+      run: openBoard,
     },
     "jump-blocked": {
       label: "Jump to blocked session",

@@ -6,11 +6,13 @@ export const Route = createFileRoute("/_workspace")({
   component: WorkspaceRoute,
 });
 
-/** A pathless parent keeps sessions, drafts and scroll mounted underneath /settings. */
+/** A pathless parent keeps sessions, drafts and scroll mounted underneath the board and /settings. */
 function WorkspaceRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const active = useLocation({ select: (location) => location.pathname !== "/settings" });
+  const active = useLocation({
+    select: (location) => location.pathname !== "/settings" && location.pathname !== "/board",
+  });
   return (
     <>
       <WorkspaceScreen

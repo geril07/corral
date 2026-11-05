@@ -136,12 +136,15 @@ test("a reload reconnects through the preload bridge and keeps the hash route", 
 
   await window.evaluate("window.location.hash = '#/board'");
   await expect(window).toHaveURL(/#\/board$/);
+  await expect(window.getByRole("region", { name: "Board" })).toBeVisible();
   await window.reload();
   await window.waitForURL(/[?&]server=/);
 
   await expect(window).toHaveURL(/#\/board$/);
+  await expect(window.getByRole("region", { name: "Board" })).toBeVisible();
   // Back on the workspace after the reload, the terminal list comes from the reconnected RPC.
   await window.evaluate("window.location.hash = '#/'");
+  await expect(window.getByRole("region", { name: "Board" })).toBeHidden();
   await expect(nav.getByRole("button", { name: /^sh · / })).toHaveCount(1);
 });
 
