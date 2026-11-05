@@ -17,7 +17,7 @@ const { newClient } = realServerClients();
 
 const board = () => page.getByRole("region", { name: "Board" });
 const boardRow = (title: string) => board().getByRole("option", { name: new RegExp(title) });
-/** Status is carried by task rows and working/blocked tabs, not duplicated in the header. */
+/** Status is carried by sidebar rows, working/blocked tabs and the task header. */
 const indicators = (name: string) => page.getByRole("img", { name });
 const claudeButton = () => sessionTab(/^claude/);
 

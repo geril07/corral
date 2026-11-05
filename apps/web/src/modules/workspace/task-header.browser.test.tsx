@@ -1,5 +1,12 @@
-import type { TaskNode } from "@corral/client/workspace-tree";
-import type { Project, Task } from "@corral/protocol/rpc";
+import type { SessionEntry, TaskNode } from "@corral/client/workspace-tree";
+import type {
+  AgentStatus,
+  Project,
+  PullRequest,
+  Session,
+  Task,
+  TaskChanges,
+} from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
@@ -33,6 +40,76 @@ const nodeOf = (id: string, branch: string, title: string, ownsWorktree = true):
   sessions: [],
 });
 
+const sessionWithStatus = (status: AgentStatus): SessionEntry => {
+  const session: Session = {
+    id: "s1",
+    taskId: "t1",
+    kind: "claude",
+    view: "terminal",
+    agentSessionId: null,
+    terminalId: "term-1",
+    state: "running",
+    status,
+    createdAt: 0,
+  };
+  return { type: "session", id: session.id, session, terminal: undefined };
+};
+
+const nodeWithStatus = (
+  status: AgentStatus,
+  options: {
+    seenAt?: number | null;
+    state?: Task["state"];
+    title?: string;
+  } = {},
+): TaskNode => ({
+  task: {
+    ...task("t1", "alpha-branch", options.title ?? "Status task"),
+    state: options.state ?? "active",
+    seenAt: options.seenAt ?? null,
+  },
+  sessions: [sessionWithStatus(status)],
+});
+
+const changes: TaskChanges = {
+  taskId: "t1",
+  base: { commit: "abc123", label: "main", fallback: null },
+  files: [],
+  additions: 8,
+  deletions: 1,
+  truncated: false,
+  error: null,
+};
+
+const request: PullRequest = {
+  taskId: "t1",
+  provider: "github",
+  host: "github.com",
+  repository: "acme/alpha",
+  number: 7,
+  url: "https://github.com/acme/alpha/pull/7",
+  title: "Show the status",
+  branch: "alpha-branch",
+  base: "main",
+  state: "open",
+  stateReason: null,
+  checks: null,
+  fetchedAt: 0,
+};
+
+/** The header's own status slot; absent when no session reports a status. */
+const header = () => page.getByRole("group", { name: "task header" });
+
+/** The color a theme token resolves to, read through a throwaway element. */
+function tokenColor(token: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = `var(${token})`;
+  document.body.append(probe);
+  const value = getComputedStyle(probe).color;
+  probe.remove();
+  return value;
+}
+
 /**
  * The header where the workspace mounts it, with the pane width under the test's control: a task
  * switch can happen while the main area has no width yet (its first paint, a hidden pane), and the
@@ -41,10 +118,14 @@ const nodeOf = (id: string, branch: string, title: string, ownsWorktree = true):
 function Harness({
   node,
   project: headerProject = project,
+  changes: headerChanges,
+  pullRequest,
   narrow,
 }: {
-  node: TaskNode;
-  project?: Project;
+  node?: TaskNode | undefined;
+  project?: Project | undefined;
+  changes?: TaskChanges | undefined;
+  pullRequest?: PullRequest | undefined;
   narrow: boolean;
 }) {
   return (
@@ -52,6 +133,30 @@ function Harness({
       <TaskHeader
         node={node}
         project={headerProject}
+        changes={headerChanges}
+        pullRequest={pullRequest}
+        onSettle={() => {}}
+        onRename={() => {}}
+        onRemove={() => {}}
+      />
+    </div>
+  );
+}
+
+const MAIN_AREA_WIDTH = {
+  1024: "w-3/4",
+  1920: "w-5/6",
+} as const;
+
+/** The header at the main area's width, without mounting the shell around it. */
+function WidthHarness({ node, width }: { node: TaskNode; width: keyof typeof MAIN_AREA_WIDTH }) {
+  return (
+    <div className={MAIN_AREA_WIDTH[width]}>
+      <TaskHeader
+        node={node}
+        project={project}
+        changes={changes}
+        pullRequest={request}
         onSettle={() => {}}
         onRename={() => {}}
         onRemove={() => {}}
@@ -120,6 +225,137 @@ test("a long project and branch truncate in the middle and keep the full context
   await vi.waitFor(() => expect(branchLine()?.getAttribute("title")).toBe(where));
   expect(branchLine()?.textContent).toContain("…");
   expect(branchLine()?.getAttribute("aria-label")).toBe(where);
+});
+
+test("a blocked task shows its attention word and the status AT reads from the header", async () => {
+  await render(
+    <Harness
+      node={nodeWithStatus({
+        state: "blocked",
+        kind: "permission",
+        message: "Run rm -rf build?",
+        updatedAt: 1,
+      })}
+      narrow={false}
+    />,
+  );
+
+  await expect.element(header().getByText("needs approval")).toBeVisible();
+  const glyph = header().getByRole("img", { name: "blocked · permission" });
+  await expect.element(glyph).toBeVisible();
+  await expect.element(glyph).toHaveAttribute("title", "blocked · permission: Run rm -rf build?");
+});
+
+test("a working task shows only the status glyph", async () => {
+  await render(
+    <Harness node={nodeWithStatus({ state: "working", updatedAt: 1 })} narrow={false} />,
+  );
+
+  await expect.element(header().getByRole("img", { name: "working" })).toBeVisible();
+  expect(header().element().textContent).not.toContain("working");
+});
+
+test("a seen done status stays muted and wordless, also for a settled task", async () => {
+  await render(
+    <Harness
+      node={nodeWithStatus({ state: "done", updatedAt: 1 }, { seenAt: 2, state: "settled" })}
+      narrow={false}
+    />,
+  );
+
+  const glyph = header().getByRole("img", { name: "done" });
+  await expect.element(glyph).toBeVisible();
+  const marker = glyph.element().querySelector("[data-status]");
+  expect(marker).not.toBeNull();
+  expect(getComputedStyle(marker!).color).toBe(tokenColor("--muted-foreground"));
+  expect(header().element().textContent).not.toContain("done");
+});
+
+test("the draft header keeps no status, counts, badge or menu", async () => {
+  await render(<Harness node={undefined} changes={changes} pullRequest={request} narrow={false} />);
+
+  const element = header().element();
+  expect(branchLine()?.textContent).toBe("alpha");
+  await expect.element(header().getByRole("heading", { name: "New task" })).toBeVisible();
+  expect(element.querySelector("[data-task-status]")).toBeNull();
+  expect(element.querySelector("[data-task-header-actions]")).toBeNull();
+  await expect
+    .element(header().getByRole("button", { name: /Task menu for/ }))
+    .not.toBeInTheDocument();
+});
+
+test("a task with no reported status renders no status slot or spacer", async () => {
+  await render(<Harness node={nodeOf("t1", "alpha-branch", "Quiet task")} narrow={false} />);
+
+  const element = header().element();
+  expect(element.querySelector("[data-task-status]")).toBeNull();
+  expect(element.querySelector('[role="img"]')).toBeNull();
+  // The right cluster holds only the overflow menu; no width is reserved for a missing status.
+  const actions = element.querySelector("[data-task-header-actions]");
+  expect(actions?.children).toHaveLength(1);
+});
+
+test("the counts and request badge sit before the status instead of replacing it", async () => {
+  await render(
+    <Harness
+      node={nodeWithStatus({
+        state: "blocked",
+        kind: "permission",
+        message: "Run rm -rf build?",
+        updatedAt: 1,
+      })}
+      changes={changes}
+      pullRequest={request}
+      narrow={false}
+    />,
+  );
+
+  await expect.element(header().getByText("+8 −1")).toBeVisible();
+  await expect.element(header().getByRole("button", { name: /PR #7/ })).toBeVisible();
+  await expect.element(header().getByText("needs approval")).toBeVisible();
+  const actions = header().element().querySelector("[data-task-header-actions]");
+  expect(actions).not.toBeNull();
+  expect([...actions!.children].map((child) => child.hasAttribute("data-task-status"))).toEqual([
+    false,
+    false,
+    true,
+    false,
+  ]);
+});
+
+test("a long title truncates and the cluster stays inside the row at 1024 and 1920", async () => {
+  // Roughly the main area beside the narrow-window sidebar, then the 1920 window's default sidebar.
+  const node = nodeWithStatus(
+    { state: "blocked", kind: "permission", message: "Run rm -rf build?", updatedAt: 1 },
+    { title: "A task title long enough to truncate beside the whole status cluster ".repeat(6) },
+  );
+  const originalScale = document.documentElement.style.fontSize;
+  const originalViewport = { width: window.innerWidth, height: window.innerHeight };
+  const screen = await render(<WidthHarness node={node} width={1024} />);
+  const assertRow = async (width: keyof typeof MAIN_AREA_WIDTH, scale: number) => {
+    await page.viewport(width, width === 1024 ? 640 : 1080);
+    document.documentElement.style.fontSize = `${scale}%`;
+    await screen.rerender(<WidthHarness node={node} width={width} />);
+    await vi.waitFor(() => {
+      const element = header().element();
+      if (!(element instanceof HTMLElement)) throw new Error("the task header is not an element");
+      const actions = element.querySelector<HTMLElement>("[data-task-header-actions]")!;
+      const title = element.querySelector("h1")!;
+      const row = element.getBoundingClientRect();
+      expect(element.scrollWidth).toBeLessThanOrEqual(element.clientWidth);
+      expect(element.scrollHeight).toBeLessThanOrEqual(element.clientHeight);
+      expect(actions.getBoundingClientRect().right).toBeLessThanOrEqual(row.right);
+      expect(title.scrollWidth).toBeGreaterThan(title.clientWidth);
+    });
+  };
+  try {
+    await assertRow(1024, 100);
+    await assertRow(1920, 100);
+    await assertRow(1024, 140);
+  } finally {
+    document.documentElement.style.fontSize = originalScale;
+    await page.viewport(originalViewport.width, originalViewport.height);
+  }
 });
 
 const copyStatus = () => document.querySelector('header [role="status"]');
