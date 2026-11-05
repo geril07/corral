@@ -3,6 +3,7 @@ import type { Project, Task } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
+import { removeClipboard, stubClipboard } from "../../../test/clipboard.ts";
 import { TaskHeader } from "./task-header.tsx";
 
 const project: Project = {
@@ -119,4 +120,74 @@ test("a long project and branch truncate in the middle and keep the full context
   await vi.waitFor(() => expect(branchLine()?.getAttribute("title")).toBe(where));
   expect(branchLine()?.textContent).toContain("…");
   expect(branchLine()?.getAttribute("aria-label")).toBe(where);
+});
+
+const copyStatus = () => document.querySelector('header [role="status"]');
+
+test("both copy items write their text and confirm it in the header's status line", async () => {
+  const clipboard = stubClipboard(async () => undefined);
+  try {
+    await render(<Harness node={nodeOf("t1", "alpha-branch", "Copyable")} narrow={false} />);
+
+    await page.getByRole("button", { name: "Task menu for Copyable" }).click();
+    await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
+    await vi.waitFor(() => expect(copyStatus()?.textContent).toBe("Workspace path copied"));
+    await expect.element(page.getByRole("status")).toBeVisible();
+    await expect.element(page.getByRole("status")).toHaveAttribute("aria-live", "polite");
+    await expect.element(page.getByRole("status")).toHaveAttribute("aria-atomic", "true");
+    expect(clipboard.writeText).toHaveBeenLastCalledWith("/work/alpha-branch");
+
+    // The pointer's own mousedown also clears; the keyboard test isolates the menu's onOpenChange.
+    await page.getByRole("button", { name: "Task menu for Copyable" }).click();
+    await vi.waitFor(() => expect(copyStatus()?.textContent).toBe(""));
+    await page.getByRole("menuitem", { name: "Copy branch" }).click();
+    await vi.waitFor(() => expect(copyStatus()?.textContent).toBe("Branch copied"));
+    expect(clipboard.writeText).toHaveBeenLastCalledWith("alpha-branch");
+  } finally {
+    clipboard.restore();
+  }
+});
+
+test("the branch copy item exists only when the task has a branch", async () => {
+  await render(<Harness node={nodeOf("t1", "", "Branchless")} narrow={false} />);
+
+  await page.getByRole("button", { name: "Task menu for Branchless" }).click();
+  await expect.element(page.getByRole("menuitem", { name: "Copy workspace path" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Copy branch" })).not.toBeInTheDocument();
+});
+
+test("a refused clipboard keeps the host's sentence in the status line", async () => {
+  const clipboard = stubClipboard(() =>
+    Promise.reject(new Error("The system denied clipboard access.")),
+  );
+  try {
+    await render(<Harness node={nodeOf("t1", "alpha-branch", "Refused")} narrow={false} />);
+
+    await page.getByRole("button", { name: "Task menu for Refused" }).click();
+    await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
+    await vi.waitFor(() =>
+      expect(copyStatus()?.textContent).toBe("The system denied clipboard access."),
+    );
+    await expect.element(page.getByRole("status")).toBeVisible();
+  } finally {
+    clipboard.restore();
+  }
+});
+
+test("a host without a clipboard API refuses the copy in the status line", async () => {
+  const clipboard = removeClipboard();
+  try {
+    await render(<Harness node={nodeOf("t1", "alpha-branch", "No clipboard")} narrow={false} />);
+
+    await page.getByRole("button", { name: "Task menu for No clipboard" }).click();
+    await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
+    await vi.waitFor(() =>
+      expect(copyStatus()?.textContent).toBe("Clipboard access is unavailable."),
+    );
+    await expect.element(page.getByRole("status")).toBeVisible();
+    await expect.element(page.getByRole("status")).toHaveAttribute("aria-live", "polite");
+    await expect.element(page.getByRole("status")).toHaveAttribute("aria-atomic", "true");
+  } finally {
+    clipboard.restore();
+  }
 });

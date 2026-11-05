@@ -16,6 +16,7 @@ import {
   screenText,
   realServerClients,
 } from "../../../test/real-client.ts";
+import { stubClipboard } from "../../../test/clipboard.ts";
 import { writeConfig } from "../../../test/config-command.ts";
 import { serverTarget } from "../../../test/server-url.ts";
 import { App, renderApp } from "../../../test/render-app.tsx";
@@ -117,6 +118,8 @@ test("the same key without the prefix's modifier does not arm prefix mode", asyn
 });
 
 const workspace = () => page.getByRole("navigation", { name: "workspace" });
+/** The header's one live region (`docs/layout.md`, **Task header**). */
+const headerStatus = () => taskHeader().getByRole("status");
 const hiddenWorkspace = () =>
   page.getByRole("navigation", { name: "workspace", includeHidden: true });
 const board = () => page.getByRole("region", { name: "Board" });
@@ -1202,6 +1205,157 @@ test("the settle action in the header settles the task, and its menu offers rena
   await expect.element(page.getByRole("menuitem", { name: "Copy workspace path" })).toBeVisible();
   await userEvent.keyboard("{Escape}");
   expect(task.title).toBe("Settle me");
+});
+
+test("the header's copy items write the path and branch and announce each outcome", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Copy facts", { workspace: "new-worktree" });
+  const task = client.tasks.getSnapshot().tasks[0]!;
+  const clipboard = stubClipboard(async () => undefined);
+  try {
+    await taskHeader().getByRole("button", { name: "Task menu for Copy facts" }).click();
+    await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
+    await expect.element(headerStatus()).toHaveTextContent("Workspace path copied");
+    expect(clipboard.writeText).toHaveBeenLastCalledWith(task.workspacePath);
+
+    await taskHeader().getByRole("button", { name: "Task menu for Copy facts" }).click();
+    await vi.waitFor(() => expect(headerStatus().element().textContent).toBe(""));
+    await page.getByRole("menuitem", { name: "Copy branch" }).click();
+    await expect.element(headerStatus()).toHaveTextContent("Branch copied");
+    expect(clipboard.writeText).toHaveBeenLastCalledWith(task.branch);
+  } finally {
+    clipboard.restore();
+  }
+});
+
+test("a refused clipboard says so in the header and the next action clears it", async () => {
+  await appWithProject(newClient());
+  await createTask("Refuses copy");
+  const clipboard = stubClipboard(() =>
+    Promise.reject(new Error("The system denied clipboard access.")),
+  );
+  try {
+    await taskHeader().getByRole("button", { name: "Task menu for Refuses copy" }).click();
+    await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
+    await expect.element(headerStatus()).toHaveTextContent("The system denied clipboard access.");
+
+    await taskHeader().getByRole("button", { name: "Task menu for Refuses copy" }).click();
+    await vi.waitFor(() => expect(headerStatus().element().textContent).toBe(""));
+  } finally {
+    clipboard.restore();
+    await userEvent.keyboard("{Escape}");
+  }
+});
+
+test("both copy items and the announcement are reachable from the keyboard", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Keyboard copy", { workspace: "new-worktree" });
+  const task = client.tasks.getSnapshot().tasks[0]!;
+  const clipboard = stubClipboard(async () => undefined);
+  const trigger = taskHeader().getByRole("button", { name: "Task menu for Keyboard copy" });
+  try {
+    trigger.element().focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByRole("menuitem", { name: "Settle task" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+    await expect.element(headerStatus()).toHaveTextContent("Workspace path copied");
+    expect(clipboard.writeText).toHaveBeenLastCalledWith(task.workspacePath);
+
+    // Keyboard focus does not clear the line; opening the menu does, before the next copy.
+    trigger.element().focus();
+    await expect.element(headerStatus()).toHaveTextContent("Workspace path copied");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByRole("menuitem", { name: "Settle task" })).toHaveFocus();
+    await vi.waitFor(() => expect(headerStatus().element().textContent).toBe(""));
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{Enter}");
+    await expect.element(headerStatus()).toHaveTextContent("Branch copied");
+    expect(clipboard.writeText).toHaveBeenLastCalledWith(task.branch);
+  } finally {
+    clipboard.restore();
+  }
+});
+
+test("a copy confirmation belongs to its task and clears on a task switch", async () => {
+  await appWithProject(newClient());
+  await createTask("First copy");
+  await createTask("Second copy");
+  const clipboard = stubClipboard(async () => undefined);
+  try {
+    await taskHeader().getByRole("button", { name: "Task menu for Second copy" }).click();
+    await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
+    await expect.element(headerStatus()).toHaveTextContent("Workspace path copied");
+
+    await taskButton("First copy").click();
+    await expect.element(page.getByRole("heading", { name: "First copy" })).toBeVisible();
+    await vi.waitFor(() => expect(headerStatus().element().textContent).toBe(""));
+  } finally {
+    clipboard.restore();
+  }
+});
+
+test("Show sidebar clears a copy confirmation on keyboard activation", async () => {
+  await appWithProject(newClient());
+  await createTask("Sidebar notice");
+  const clipboard = stubClipboard(async () => undefined);
+  try {
+    await page.getByRole("button", { name: "Hide sidebar" }).click();
+    const showSidebar = page.getByRole("button", { name: "Show sidebar" });
+    await expect.element(showSidebar).toBeVisible();
+
+    await taskHeader().getByRole("button", { name: "Task menu for Sidebar notice" }).click();
+    await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
+    await expect.element(headerStatus()).toHaveTextContent("Workspace path copied");
+
+    showSidebar.element().focus();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(workspace()).toBeVisible();
+    await vi.waitFor(() => expect(headerStatus().element().textContent).toBe(""));
+  } finally {
+    clipboard.restore();
+  }
+});
+
+test("the header's branch and title can be selected with the mouse", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Selectable title", { workspace: "new-worktree" });
+  const task = client.tasks.getSnapshot().tasks[0]!;
+
+  const title = taskHeader()
+    .getByRole("heading", { name: "Selectable title" })
+    .element()
+    .querySelector<HTMLElement>("[data-header-text]");
+  if (title === null) throw new Error("the title text has no selection span");
+  await userEvent.tripleClick(title);
+  await vi.waitFor(() => expect(window.getSelection()?.toString().trim()).toBe("Selectable title"));
+
+  await taskHeader()
+    .getByLabelText(/^repo-.* \/ /)
+    .tripleClick();
+  await vi.waitFor(() => expect(window.getSelection()?.toString()).toContain(task.branch));
+});
+
+test("a header control keeps the terminal's focus on mousedown", async () => {
+  await appWithProject(newClient());
+  await createTaskWithShell("Keeps focus");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  const trigger = taskHeader().getByRole("button", { name: "Task menu for Keeps focus" }).element();
+  const controlDown = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  trigger.dispatchEvent(controlDown);
+  expect(controlDown.defaultPrevented).toBe(true);
+  expect(focusedIsTerminal()).toBe(true);
+
+  const heading = taskHeader().getByRole("heading", { name: "Keeps focus" }).element();
+  const title = heading.querySelector<HTMLElement>("[data-header-text]");
+  if (title === null) throw new Error("the title text has no selection span");
+
+  // Only the title text is the selection route; the rest of the h1 still keeps the terminal.
+  const titleDown = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  title.dispatchEvent(titleDown);
+  expect(titleDown.defaultPrevented).toBe(false);
+  const headingDown = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+  heading.dispatchEvent(headingDown);
+  expect(headingDown.defaultPrevented).toBe(true);
 });
 
 test("tabs switch by click and by prefix n without losing the keyboard", async () => {
