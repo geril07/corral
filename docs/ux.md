@@ -118,7 +118,8 @@ What a user does. Everything below is built and verified end to end, chat views 
 
 - Dialogs capture their opener, suspend prefix handling and restore the connected
   opener, with the active chat/task composer or terminal textarea as fallback. Keyboard-opened dialogs
-  capture the current target rather than reusing a previous pointer opener.
+  capture the current target rather than reusing a previous pointer opener. The connection-recovery
+  dialog puts its capability field first; Enter submits and Escape closes it.
 - First input receives focus; destructive confirmation starts on Cancel. Escape and
   outside interaction use Base UI behavior; destructive outside clicks do not close.
 - Menus, dialogs, popups and the palette keep the shared focus ring and the declared enter
@@ -144,7 +145,16 @@ What a user does. Everything below is built and verified end to end, chat views 
   lets the untouched fields follow the new project's settings. An Enter that confirms an IME
   composition is never a submission, whichever order the platform reports the keydown and the
   composition end; the user's next plain Enter submits normally.
-  Connection/protocol mismatch notices remain app-level, not transient success toasts.
+  Connection and protocol-mismatch notices remain app-level, not transient success toasts. A page
+  that cannot use the server — no capability, a stored pair for another server, an invalid
+  `?server=`, a server that cannot be reached at startup, a protocol mismatch, or a refused
+  capability — shows one framed notice with the cause in one sentence and only the actions the
+  host has: a capability field and Reload at boot, Retry for an unreachable server, Reload in a
+  browser and "Quit and reopen the app" on desktop for a protocol mismatch. While the workspace
+  is running, the connection status names `attempt N` and the elapsed time and opens the same
+  capability field as a dialog; submitting writes it into the hash the client re-reads before
+  every attempt, so the task, tab, draft and terminal survive. Nothing behind a boot notice was
+  mounted, so the notice never sits over an empty workspace.
 - Chat keeps the composer semantics of the new-task view: Enter sends, Shift+Enter is a newline,
   and while a turn runs Enter steers and Ctrl/Cmd+Enter queues a follow-up (the composer says
   which). `prefix .` aborts the working turn and the palette lists the same action.

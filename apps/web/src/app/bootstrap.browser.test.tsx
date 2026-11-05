@@ -5,6 +5,7 @@ import type { ServerTarget } from "@corral/protocol/server-target";
 import { expect, test } from "vite-plus/test";
 import { realServerClients } from "../../test/real-client.ts";
 import { serverTarget } from "../../test/server-url.ts";
+import { hashWithCapability } from "../modules/connection/startup-notice.tsx";
 
 const DEADLINE_MS = 10_000;
 const SENTINEL = "BROWSER_BOOTSTRAP_SENTINEL_6c1d";
@@ -134,6 +135,32 @@ test("a capability in the hash survives reloads, keeps the route and connects bo
     } finally {
       stream.close();
     }
+  } finally {
+    window.history.replaceState(null, "", original);
+  }
+});
+
+test("the startup field's hash form keeps the route and the bootstrap strips only the capability", async () => {
+  const target = serverTarget();
+  const original = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const storage = memoryStorage();
+  try {
+    replacePage(`?server=${encodeURIComponent(target.url)}#/tasks/abc?entry=e1`);
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}${hashWithCapability(window.location.hash, target.capability)}`,
+    );
+
+    const resolved = await resolveServerTarget({
+      location: window.location,
+      storage,
+      applyHash: applyRouteHash,
+    });
+
+    expect(resolved).toEqual(target);
+    expect(storage.value).toEqual(target);
+    expect(window.location.hash).toBe("#/tasks/abc?entry=e1");
   } finally {
     window.history.replaceState(null, "", original);
   }

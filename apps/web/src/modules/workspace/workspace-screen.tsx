@@ -28,7 +28,13 @@ import {
 } from "../sessions/index.ts";
 import { NewTaskView, RemoveTaskDialog, TaskSourceDialog } from "../tasks/index.ts";
 import { TerminalView } from "../terminal/index.ts";
-import { ConnectionNotice } from "../connection/index.ts";
+import {
+  ConnectionNotice,
+  ConnectionRecoveryDialog,
+  putCapabilityInHash,
+  StartupNotice,
+  type NoticeProblem,
+} from "../connection/index.ts";
 import {
   CommandPaletteDialog,
   ConfigProblemsDialog,
@@ -148,6 +154,7 @@ export function WorkspaceScreen({
     openTaskSource,
     openFindTask,
     openConfigProblems,
+    openConnectionRecovery,
     addProject,
     createTask,
     resolveIssue,
@@ -160,6 +167,38 @@ export function WorkspaceScreen({
     onOpenBoard,
     onOpenSettings,
   });
+  // A first attempt that has not failed yet is a normal load; after that, every retry keeps
+  // the boot notice up instead of flashing an empty workspace between attempts.
+  const startupProblem: NoticeProblem | undefined =
+    connection.status === "disconnected"
+      ? {
+          kind: "unreachable",
+          attempt: connection.attempt,
+          startedAt: connection.startedAt,
+          serverUrl: client.server.url,
+        }
+      : connection.status === "capability-refused"
+        ? { kind: "capability-refused", serverUrl: client.server.url }
+        : connection.status === "connecting" && connection.attempt > 1
+          ? {
+              kind: "unreachable",
+              attempt: connection.attempt,
+              startedAt: connection.startedAt,
+              serverUrl: client.server.url,
+            }
+          : undefined;
+  if (!loaded && startupProblem !== undefined) {
+    return (
+      <StartupNotice
+        problem={startupProblem}
+        onRetry={() => client.connection.retry()}
+        onUseCapability={(capability) => {
+          putCapabilityInHash(capability);
+          client.connection.retry();
+        }}
+      />
+    );
+  }
   const restartKey = keyHint(config, "restart-session");
   // The Changes tab is the route's `entry=changes`; it needs a task and nothing of a session.
   const changesCurrent = changesView && currentTask !== undefined;
@@ -329,7 +368,10 @@ export function WorkspaceScreen({
                 icon="add-project"
                 onClick={() => actions["add-project"].run()}
               />
-              <ConnectionNotice state={connection} />
+              <ConnectionNotice
+                state={connection}
+                onOpen={(opener) => openConnectionRecovery(opener)}
+              />
               <ConfigProblemsNotice onOpen={openConfigProblems} />
               <span
                 className="ml-auto flex items-center gap-1 text-xs text-muted-foreground"
@@ -540,6 +582,9 @@ export function WorkspaceScreen({
       )}
       {dialog?.kind === "config-problems" && (
         <ConfigProblemsDialog onClose={() => setDialog(undefined)} />
+      )}
+      {dialog?.kind === "connection" && (
+        <ConnectionRecoveryDialog onClose={() => setDialog(undefined)} />
       )}
     </AppShell>
   );

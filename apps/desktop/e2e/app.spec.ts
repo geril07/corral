@@ -260,8 +260,8 @@ test("a server restart with a new capability reconnects without quitting the app
     )
     .not.toBe(oldCapability);
 
-  // The footer only shows connection state while it is not connected.
-  await expect(window.getByRole("status", { name: /^connection:/ })).toHaveCount(0);
+  // The footer's connection opener only shows while it is not connected.
+  await expect(window.getByRole("button", { name: /^connection:/ })).toHaveCount(0);
   await expect(selectedTask).toHaveAttribute("aria-current", "true");
 
   const shells = sessionTabs(window).getByRole("tab", { name: /^shell(?: \d+)?$/ });
