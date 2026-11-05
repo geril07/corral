@@ -218,33 +218,39 @@ test("existing-branch on a remote-tracking branch whose local branch exists uses
   expect(runGit(task.workspacePath, "branch", "--show-current").trim()).toBe("release/1.0");
 });
 
-test("a branch checked out in another worktree, or in the main working tree, fails with git's message", async () => {
+test("a branch taken after the branch list was read is refused by name and the worktree that holds it", async () => {
   const { project, repo } = await addProject(server);
   runGit(repo, "branch", "busy");
   const api = await server.rpc();
-  await api.tasks.create({
-    projectId: project.id,
-    title: "First",
-    workspace: { type: "existing-branch", branch: "busy" },
-  });
+  // The list the composer read: `main` is held by the main tree, `busy` is still free.
+  expect(await api.projects.branches({ id: project.id })).toEqual(["busy"]);
 
-  const again = api.tasks.create({
-    projectId: project.id,
-    title: "Second",
-    workspace: { type: "existing-branch", branch: "busy" },
-  });
-  const checkedOutHere = api.tasks.create({
-    projectId: project.id,
-    title: "Third",
-    workspace: { type: "existing-branch", branch: "main" },
-  });
+  // Before the choice arrives, another worktree takes `busy`.
+  const linked = join(server.scratchDir, "linked");
+  runGit(repo, "worktree", "add", "--", linked, "busy");
 
-  await expect(again).rejects.toMatchObject({
+  await expect(
+    api.tasks.create({
+      projectId: project.id,
+      title: "Second",
+      workspace: { type: "existing-branch", branch: "busy" },
+    }),
+  ).rejects.toMatchObject({
     code: "GIT_FAILED",
-    data: { message: expect.stringContaining("busy") },
+    data: { message: `branch 'busy' is already checked out at ${linked}; choose another branch` },
   });
-  await expect(checkedOutHere).rejects.toMatchObject({ code: "GIT_FAILED" });
-  expect(worktreePaths(repo)).toHaveLength(2);
+  await expect(
+    api.tasks.create({
+      projectId: project.id,
+      title: "Third",
+      workspace: { type: "existing-branch", branch: "main" },
+    }),
+  ).rejects.toMatchObject({
+    code: "GIT_FAILED",
+    data: { message: `branch 'main' is already checked out at ${repo}; choose another branch` },
+  });
+  expect(worktreePaths(repo)).toEqual([repo, linked]);
+  expect((await api.tasks.watch().then((updates) => updates.next())).value).toEqual([]);
 });
 
 test("a main-worktree task works in the repository itself and owns no worktree", async () => {

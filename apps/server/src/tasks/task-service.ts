@@ -16,6 +16,7 @@ import {
   addWorktreeOnExistingBranch,
   addWorktreeOnNewBranch,
   addWorktreeTrackingRemote,
+  checkedOutBranches,
   currentBranch,
   deleteBranch,
   isValidBranchName,
@@ -248,6 +249,15 @@ export class TaskService implements ProjectTasks {
         ? this.#generatedSlugOf(fields.name, branchPrefix)
         : undefined;
     const plan = await this.#planWorktree(workspace, project, fields.title, slug);
+    // The picker's list is a snapshot; the worktree list is read again immediately before the
+    // branch is checked out, so a branch taken since then is named instead of echoing git stderr.
+    if (plan.kind !== "new-branch") {
+      const held = (await checkedOutBranches(project.path)).get(plan.branch);
+      if (held !== undefined)
+        throw new GitError(
+          `branch '${plan.branch}' is already checked out at ${held}; choose another branch`,
+        );
+    }
     const path = this.#freeWorktreePath(project, plan.slug);
     await mkdir(join(path, ".."), { recursive: true });
     try {

@@ -2,6 +2,7 @@ import type { CreateTaskInput } from "@corral/protocol/rpc";
 import {
   branchConflict,
   branchNameTaken,
+  localNameOfRemote,
   sanitizeSlug,
   slugifyTitle,
   takenAncestor,
@@ -96,7 +97,7 @@ export function planWorktree(
   const { branch } = workspace;
   if (local.has(branch)) return { kind: "existing-branch", branch, slug: branch };
   if (context.branches.remote.includes(branch)) {
-    const localName = branch.slice(branch.indexOf("/") + 1);
+    const localName = localNameOfRemote(branch);
     return local.has(localName)
       ? { kind: "existing-branch", branch: localName, slug: localName }
       : { kind: "track-remote", branch: localName, remoteBranch: branch, slug: localName };

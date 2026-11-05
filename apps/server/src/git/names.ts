@@ -62,6 +62,11 @@ export function branchConflict(name: string, existing: ReadonlySet<string>): str
   return undefined;
 }
 
+/** The local branch a remote-tracking ref (`origin/x`) would check out as: `x`. */
+export function localNameOfRemote(remoteBranch: string): string {
+  return remoteBranch.slice(remoteBranch.indexOf("/") + 1);
+}
+
 /** One safe path segment for a directory named after `name` (a branch or project name). Never empty. */
 export function directoryName(name: string): string {
   const segment = name.replaceAll(/[^A-Za-z0-9._-]+/g, "-").replaceAll(/^[-.]+|[-.]+$/g, "");

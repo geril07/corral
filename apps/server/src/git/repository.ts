@@ -36,6 +36,22 @@ export async function defaultBaseBranch(repo: string): Promise<string | undefine
   return ["main", "master"].find((name) => local.includes(name)) ?? local[0];
 }
 
+/**
+ * Every branch checked out in the repository's worktrees (the main tree included), by branch name,
+ * with the path of the worktree that holds it. A detached worktree holds no branch.
+ */
+export async function checkedOutBranches(repo: string): Promise<Map<string, string>> {
+  const listing = await git(repo, ["worktree", "list", "--porcelain"]);
+  const checkedOut = new Map<string, string>();
+  let path: string | undefined;
+  for (const line of listing.split("\n")) {
+    if (line.startsWith("worktree ")) path = line.slice("worktree ".length);
+    else if (line.startsWith("branch refs/heads/") && path !== undefined)
+      checkedOut.set(line.slice("branch refs/heads/".length), path);
+  }
+  return checkedOut;
+}
+
 export async function listBranches(repo: string): Promise<Branches> {
   const out = await git(repo, [
     "for-each-ref",

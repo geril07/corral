@@ -4,7 +4,13 @@ import { basename, isAbsolute } from "node:path";
 import { ChangeFeed } from "../changes/change-feed.ts";
 import { expandHomePath } from "../config/home-path.ts";
 import { GitError } from "../git/git.ts";
-import { defaultBaseBranch, findMainWorkingTree, listBranches } from "../git/repository.ts";
+import { localNameOfRemote } from "../git/names.ts";
+import {
+  checkedOutBranches,
+  defaultBaseBranch,
+  findMainWorkingTree,
+  listBranches,
+} from "../git/repository.ts";
 import type { IssueImportService } from "../issues/issue-import.ts";
 import { newId } from "../storage/ids.ts";
 import { NotAGitRepositoryError, ProjectExistsError, ProjectNotFoundError } from "./errors.ts";
@@ -129,10 +135,20 @@ export class ProjectService {
     this.#changes.notify();
   }
 
-  /** Local branches, then remote-tracking ones (`origin/x`). */
+  /**
+   * Local branches, then remote-tracking ones (`origin/x`), for targets a new worktree can check
+   * out: a branch no worktree of the project holds, and a remote whose local branch is free.
+   */
   async branches(id: string): Promise<string[]> {
-    const { local, remote } = await listBranches(this.get(id).path);
-    return [...local, ...remote];
+    const { path } = this.get(id);
+    const [{ local, remote }, checkedOut] = await Promise.all([
+      listBranches(path),
+      checkedOutBranches(path),
+    ]);
+    return [
+      ...local.filter((branch) => !checkedOut.has(branch)),
+      ...remote.filter((branch) => !checkedOut.has(localNameOfRemote(branch))),
+    ];
   }
 
   /** Reads one issue through the server's CLI inside the project, with no remote changes. */

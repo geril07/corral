@@ -238,18 +238,24 @@ test("without origin/HEAD the default base branch is the checked-out branch", as
   expect((await api.projects.add({ path: plain })).defaultBaseBranch).toBe("develop");
 });
 
-test("branches lists local branches, then remote-tracking ones without origin/HEAD", async () => {
+test("branches offers only targets a worktree can check out, from the main tree and every linked one", async () => {
   const { clone } = cloneOfOrigin(server.scratchDir);
+  runGit(clone, "branch", "free");
   runGit(clone, "branch", "feature/login");
+  const linked = join(server.scratchDir, "linked");
+  runGit(clone, "worktree", "add", "--", linked, "feature/login");
+  // A local branch checked out in a linked worktree hides it and its remote-tracking ref.
+  runGit(clone, "branch", "release/1.0", "--no-track", "origin/trunk");
+  const heldRemote = join(server.scratchDir, "held-remote");
+  runGit(clone, "worktree", "add", "--", heldRemote, "release/1.0");
+  // A remote-tracking ref whose local branch is free stays offered.
+  runGit(clone, "push", "origin", "trunk:keep");
+  runGit(clone, "fetch", "origin");
   const api = await server.rpc();
   const project = await api.projects.add({ path: clone });
 
-  expect(await api.projects.branches({ id: project.id })).toEqual([
-    "feature/login",
-    "trunk",
-    "origin/release/1.0",
-    "origin/trunk",
-  ]);
+  // `trunk` is held by the main tree, `feature/login` and `release/1.0` by linked worktrees.
+  expect(await api.projects.branches({ id: project.id })).toEqual(["free", "origin/keep"]);
 });
 
 test("branches fails with typed errors for an unknown project and for a repository that is gone", async () => {
