@@ -79,20 +79,22 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
     const unpublish = publishScreenText(xterm);
 
     const stream = client.attach(terminalId, xterm);
-    const unsubscribe = stream.state.subscribe(() => setStreamState(stream.state.getSnapshot()));
     xterm.onData((data) => stream.input(data));
     // Legacy mouse reports arrive as a binary string: one byte per character.
     xterm.onBinary((data) => stream.input(Uint8Array.from(data, (char) => char.charCodeAt(0))));
 
-    // The terminal follows the server's size; the container only proposes one. A window that is
-    // still being laid out (or dragged) walks through a chain of sizes, and resizing the shell
-    // for each of them reflows the restored screen for nothing, so only a size that holds for
-    // a frame is proposed.
+    // The terminal fits this box locally; the server's grid stays authoritative for every
+    // attachment. A window that is still being laid out (or dragged) walks through a chain of
+    // sizes, and resizing the shell for each of them reflows the restored screen for nothing, so
+    // only a size that holds for a frame is proposed.
     let frame = 0;
     let held = "";
     const applySize = () => {
       const size = fit.proposeDimensions();
       if (!size || !(size.cols > 0 && size.rows > 0)) return;
+      // The server's snapshot may have put another client's grid on this canvas. Fit this pane
+      // first, then ask the shared grid to follow it; the echo updates every attachment.
+      fit.fit();
       stream.resize(size);
       onFit(size);
     };
@@ -106,14 +108,20 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
       held = size;
       frame = requestAnimationFrame(() => proposeSize());
     };
+    // A fresh attachment starts on the server's grid, which may be another client's size. The
+    // state subscription is the attach hook: reconnect, tab return and the first mount all pass
+    // through it. Coming back to the terminal (`focusin`) or to the page (`visibilitychange` to
+    // visible) re-proposes its own too, which is where a canvas clipped by another client's grid
+    // gets its size back. The trigger is this host, not a document-level `focus`, for attribution:
+    // a page or window that regains focus must refit the one terminal that got the keyboard, not
+    // every mounted one. A page that opens unfocused still fits through the observer above.
+    const unsubscribe = stream.state.subscribe(() => {
+      const state = stream.state.getSnapshot();
+      setStreamState(state);
+      if (state.status === "connected") proposeSize();
+    });
     const observer = new ResizeObserver(proposeSize);
     observer.observe(host);
-    // The PTY has one grid for every attached client, so this one may be showing the size another
-    // client fitted last. Coming back to the terminal (`focusin`) or to the page (`visibilitychange`
-    // to visible) re-proposes its own, which is where its canvas gets its size back. The trigger is
-    // this host, not a document-level `focus`, for attribution: a page or window that regains focus
-    // must refit the one terminal that got the keyboard, not every mounted one. A page that opens
-    // unfocused still fits through the observer above.
     const refitOnFocus = () => proposeSize();
     const refitOnVisible = () => {
       if (document.visibilityState === "visible") proposeSize();
