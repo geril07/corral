@@ -78,7 +78,13 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
     }
     const unpublish = publishScreenText(xterm);
 
-    const stream = client.attach(terminalId, xterm);
+    const stream = client.attach(terminalId, xterm, {
+      // The connected state arrives before the replay snapshot, which resets the canvas to the
+      // shared grid. Fit after that replay so the local grid is not overwritten by it.
+      onSnapshot: () => {
+        if (document.visibilityState === "visible") proposeSize();
+      },
+    });
     xterm.onData((data) => stream.input(data));
     // Legacy mouse reports arrive as a binary string: one byte per character.
     xterm.onBinary((data) => stream.input(Uint8Array.from(data, (char) => char.charCodeAt(0))));
@@ -108,18 +114,13 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
       held = size;
       frame = requestAnimationFrame(() => proposeSize());
     };
-    // A fresh attachment starts on the server's grid, which may be another client's size. The
-    // state subscription is the attach hook: reconnect, tab return and the first mount all pass
-    // through it. Coming back to the terminal (`focusin`) or to the page (`visibilitychange` to
-    // visible) re-proposes its own too, which is where a canvas clipped by another client's grid
-    // gets its size back. The trigger is this host, not a document-level `focus`, for attribution:
-    // a page or window that regains focus must refit the one terminal that got the keyboard, not
-    // every mounted one. A page that opens unfocused still fits through the observer above.
-    const unsubscribe = stream.state.subscribe(() => {
-      const state = stream.state.getSnapshot();
-      setStreamState(state);
-      if (state.status === "connected") proposeSize();
-    });
+    // A fresh attachment or reconnect starts on the server's grid, which may be another client's
+    // size. The snapshot callback above re-proposes after the replay; a hidden or background
+    // client leaves the shared grid alone until a `visibilitychange` to visible. Focus is
+    // attributed to this host, not a document-level `focus`, so a window that regains focus
+    // refits only the terminal that got the keyboard. Mount focuses xterm through this same host
+    // path, and a page that opens unfocused still fits through the observer below.
+    const unsubscribe = stream.state.subscribe(() => setStreamState(stream.state.getSnapshot()));
     const observer = new ResizeObserver(proposeSize);
     observer.observe(host);
     const refitOnFocus = () => proposeSize();
