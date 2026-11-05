@@ -857,6 +857,58 @@ test("a window shrink shows the clamped width and growing again restores the pre
   }
 });
 
+test("an arrow at the display maximum raises the preference instead of lowering it", async () => {
+  const original = window.innerWidth;
+
+  try {
+    pretendWindowWidth(1600);
+    await render(<App client={newClient()} />);
+    const handle = page.getByRole("separator", { name: "Resize sidebar" });
+    handle.element().focus();
+    await userEvent.keyboard("{ArrowRight}".repeat(20));
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "420");
+    expect(window.localStorage.getItem("corral.sidebar-width")).toBe("420");
+
+    // At 1024 the display stops at 384 while the preference is wider. ArrowRight asks for 400, so
+    // the preference must move up (or stay at 420), never down to the display maximum.
+    pretendWindowWidth(1024);
+    await expect.element(handle).toHaveAttribute("aria-valuemax", "384");
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "384");
+    handle.element().focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "384");
+    expect(Number(window.localStorage.getItem("corral.sidebar-width"))).toBeGreaterThanOrEqual(400);
+
+    // ArrowLeft still moves the display and stores what the user asked for.
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "368");
+    expect(window.localStorage.getItem("corral.sidebar-width")).toBe("368");
+  } finally {
+    pretendWindowWidth(original);
+  }
+});
+
+test("double-click at 1920 px restores the wider default", async () => {
+  const original = window.innerWidth;
+
+  try {
+    pretendWindowWidth(1920);
+    await render(<App client={newClient()} />);
+    const handle = page.getByRole("separator", { name: "Resize sidebar" });
+    await expect.element(handle).toHaveAttribute("aria-valuemax", "420");
+
+    // Move away from the default so the reset is observable.
+    handle.element().focus();
+    await userEvent.keyboard("{ArrowRight}".repeat(20));
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "420");
+    await handle.dblClick();
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "264");
+    expect(window.localStorage.getItem("corral.sidebar-width")).toBe("264");
+  } finally {
+    pretendWindowWidth(original);
+  }
+});
+
 test("a stored width starts clamped, returns on a grow, and a later drag wins", async () => {
   const original = window.innerWidth;
   window.localStorage.setItem("corral.sidebar-width", "420");

@@ -25,9 +25,14 @@ export function maxSidebarWidth(windowWidth: number): number {
   );
 }
 
+/** The stored preference's range: the slider's static bounds, never the current window's maximum. */
+export function clampSidebarPreference(width: number): number {
+  return Math.round(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width)));
+}
+
 /** Keeps a width inside 208–420 px and inside what the window can spare for the main area. */
 export function clampSidebarWidth(width: number, windowWidth = window.innerWidth): number {
-  return Math.round(Math.min(maxSidebarWidth(windowWidth), Math.max(SIDEBAR_MIN_WIDTH, width)));
+  return Math.round(Math.min(maxSidebarWidth(windowWidth), clampSidebarPreference(width)));
 }
 
 /** The width a device starts with, before the user has dragged the edge. */
@@ -80,8 +85,10 @@ export interface SidebarPane {
  * The sidebar's width and visibility, the resize handle's setters and `prefix \`. The stored width
  * is the device preference, not the live width: the rendered width is derived from it and the
  * current window, so a shrink only clamps what is shown and growing again restores the preference.
- * Only a user action writes the preference: mounting must not freeze today's window-dependent
- * default into storage, or the Shell defaults would be one-shot per profile.
+ * A resize request updates the preference within the static 208–420 px range, so an arrow at the
+ * window's display maximum cannot lower the stored width. Only a user action writes the preference:
+ * mounting must not freeze today's window-dependent default into storage, or the Shell defaults
+ * would be one-shot per profile.
  */
 export function useSidebarPane(): SidebarPane {
   const [preference, setPreference] = useState(readWidth);
@@ -100,7 +107,7 @@ export function useSidebarPane(): SidebarPane {
   const width = clampSidebarWidth(preference, windowWidth);
 
   const setWidth = useCallback((next: number) => {
-    const value = clampSidebarWidth(next);
+    const value = clampSidebarPreference(next);
     setPreference(value);
     store(WIDTH_KEY, String(value));
   }, []);

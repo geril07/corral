@@ -13,6 +13,9 @@ trap 'kill "$sway" 2>/dev/null || true; rm -rf "$dir"' EXIT
 cat >"$dir/sway.conf" <<'EOF'
 output HEADLESS-1 mode --custom 2560x1440@120Hz
 default_border none
+# Corral's Electron windows manage their own size: tests set exact widths, and tiling would
+# resize a window when another worker's window opens or closes in the same workspace.
+for_window [app_id="corral-desktop"] floating enable
 EOF
 
 before=$(ls "$runtime" | grep -E '^wayland-[0-9]+$' || true)

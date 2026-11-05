@@ -55,9 +55,9 @@ What a user does. Everything below is built and verified end to end, chat views 
 - The sidebar lists tasks only. A wordmark header has the sidebar toggle opposite it; the next
   row has Search, grouping and New task. Its footer carries Settings, Add project, connection
   state while disconnected, config problems and the prefix indicator. It has a default and a
-  narrow-window width, dragged between its limits with the edge handle — never so wide that the
-  main area drops below its minimum — kept per device, reset by a double click, and hidden or
-  shown by `prefix \`.
+  narrow-window width, dragged between its limits with the edge handle, leaving the main area
+  its minimum at and above the supported 1024 px floor — kept per device, reset by a double
+  click, and hidden or shown by `prefix \`.
 - Project grouping is the default (`prefix l` switches to status groups and the device keeps
   the choice). The bottom Settled shelf spans projects, scrolls independently and pages six at a
   time; selecting older history reveals it without resuming it. Rows are two-line tasks;
