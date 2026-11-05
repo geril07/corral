@@ -245,39 +245,48 @@ test("Escape leaves the composer and returns the keyboard to the task that was s
   await expect.poll(() => screenText()).toContain("back-4");
 });
 
-test("git's refusal stays in the composer and keeps the prompt", async () => {
-  const { client } = await appWithProject(newClient(), ["feature/x"]);
+test("a branch taken since the list was read is refused by name and keeps the prompt", async () => {
+  const { client } = await appWithProject(newClient(), ["feature/x", "free"]);
   await prefixThen("t");
-  await userEvent.keyboard("Take the branch");
   await openWorkspacePicker();
+  // The main tree holds `main`, so only the free branches are offered.
+  await expect.element(page.getByRole("option", { name: "feature/x" })).toBeVisible();
+  await expect.element(page.getByRole("option", { name: "free" })).toBeVisible();
+  await expect
+    .element(page.getByRole("option", { name: "main", exact: true }))
+    .not.toBeInTheDocument();
   await userEvent.keyboard("feature/x{Enter}");
   await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace feature/x");
   await userEvent.click(promptField());
-  await userEvent.keyboard("{Enter}");
-  await expect.element(taskButton("Take the branch")).toHaveAttribute("aria-current", "true");
-  const first = client.tasks.getSnapshot().tasks[0]!;
-  expect(first.branch).toBe("feature/x");
+  await userEvent.keyboard("Take the branch");
 
-  // The same branch cannot be checked out in a second worktree; git's own words come back.
-  await prefixThen("t");
-  await userEvent.keyboard("Second try");
-  await openWorkspacePicker();
-  await userEvent.keyboard("feature/x{Enter}");
+  // Another worktree takes the branch after this list was read, before the composer submits.
+  const project = client.projects.getSnapshot().projects[0]!;
+  const holder = await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "Branch holder",
+    workspace: { type: "existing-branch", branch: "feature/x" },
+  });
+
   await userEvent.click(promptField());
   await userEvent.keyboard("{Enter}");
 
   await expect
     .element(newTaskView().getByRole("alert"))
-    .toMatchTextContent(/already used by worktree/);
-  await expect.element(promptField()).toHaveValue("Second try");
-  expect(client.tasks.getSnapshot().tasks).toHaveLength(1);
+    .toMatchTextContent(
+      `branch 'feature/x' is already checked out at ${holder.workspacePath}; choose another branch`,
+    );
+  await expect.element(promptField()).toHaveValue("Take the branch");
+  expect(client.tasks.getSnapshot().tasks.some((task) => task.title === "Take the branch")).toBe(
+    false,
+  );
 
   // Escape is refused while the error is showing: leaving would throw the draft away, and
   // `ux.md` promises that a failed submission preserves its input.
   await userEvent.keyboard("{Escape}");
   await expect.element(newTaskView()).toBeVisible();
   await expect.element(newTaskView().getByRole("alert")).toBeVisible();
-  await expect.element(promptField()).toHaveValue("Second try");
+  await expect.element(promptField()).toHaveValue("Take the branch");
 
   // Fixing the workspace is enough: the same prompt now creates the task.
   await openWorkspacePicker();
@@ -285,10 +294,11 @@ test("git's refusal stays in the composer and keeps the prompt", async () => {
   await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace new worktree");
   await userEvent.click(promptField());
   await userEvent.keyboard("{Enter}");
-  await expect.element(taskButton("Second try")).toHaveAttribute("aria-current", "true");
-  const tasks = client.tasks.getSnapshot().tasks;
-  expect(tasks).toHaveLength(2);
-  expect(tasks.find((task) => task.title === "Second try")?.branch).not.toBe("feature/x");
+  await expect.element(taskButton("Take the branch")).toHaveAttribute("aria-current", "true");
+  const task = client.tasks
+    .getSnapshot()
+    .tasks.find((candidate) => candidate.title === "Take the branch");
+  expect(task?.branch).not.toBe("feature/x");
 });
 
 test("a sidebar project pick keeps the draft and creates the task in the new project", async () => {
