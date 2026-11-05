@@ -52,10 +52,12 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 
 - Read-only repository/worktree-branch context, separator, task title; both truncate with their
   complete accessible name and a tooltip. The draft names its actual repository and New task.
-- The task's status is the most urgent of its sessions' (`ux.md`), in the sidebar's vocabulary:
-  a glyph alone for working, the glyph with its attention word (`needs approval`, `needs input`,
-  `needs auth`, `error`, `blocked`) when the task needs the user, a muted glyph for a seen `done`,
-  and nothing when no session reports a status. A settled task shows it as the sidebar does.
+- The task's status sits after the change counts and linked-request badge, before the overflow
+  menu. It is the most urgent of its sessions' (`ux.md`), in the sidebar's vocabulary: a glyph alone
+  for working, a muted glyph and no word for idle, the glyph with its attention word (`needs
+  approval`, `needs input`, `needs auth`, `error`, `blocked`) when the task needs the user, and a
+  `done` glyph that is muted once seen. Nothing renders when no session reports a status. A settled
+  task shows it as the sidebar does.
 - The context and title are text: a mouse drag selects them, while the row's controls keep
   `mousedown` cancelled so clicking one does not take the keyboard from the terminal.
 - The repository label never secretly copies a path.

@@ -271,6 +271,22 @@ test("a seen done status stays muted and wordless, also for a settled task", asy
   expect(header().element().textContent).not.toContain("done");
 });
 
+test("a settled idle task keeps the sidebar's muted idle glyph and no word", async () => {
+  await render(
+    <Harness
+      node={nodeWithStatus({ state: "idle", updatedAt: 1 }, { state: "settled" })}
+      narrow={false}
+    />,
+  );
+
+  const glyph = header().getByRole("img", { name: "idle" });
+  await expect.element(glyph).toBeVisible();
+  const marker = glyph.element().querySelector("[data-status]");
+  expect(marker).not.toBeNull();
+  expect(getComputedStyle(marker!).color).toBe(tokenColor("--muted-foreground"));
+  expect(header().element().textContent).not.toContain("idle");
+});
+
 test("the draft header keeps no status, counts, badge or menu", async () => {
   await render(<Harness node={undefined} changes={changes} pullRequest={request} narrow={false} />);
 
@@ -284,15 +300,27 @@ test("the draft header keeps no status, counts, badge or menu", async () => {
     .not.toBeInTheDocument();
 });
 
-test("a task with no reported status renders no status slot or spacer", async () => {
-  await render(<Harness node={nodeOf("t1", "alpha-branch", "Quiet task")} narrow={false} />);
+test("a task with no reported status keeps counts, badge and menu without a status slot", async () => {
+  await render(
+    <Harness
+      node={nodeOf("t1", "alpha-branch", "Quiet task")}
+      changes={changes}
+      pullRequest={request}
+      narrow={false}
+    />,
+  );
 
   const element = header().element();
   expect(element.querySelector("[data-task-status]")).toBeNull();
   expect(element.querySelector('[role="img"]')).toBeNull();
-  // The right cluster holds only the overflow menu; no width is reserved for a missing status.
+  await expect.element(header().getByText("+8 −1")).toBeVisible();
+  await expect.element(header().getByRole("button", { name: /PR #7/ })).toBeVisible();
+  await expect
+    .element(header().getByRole("button", { name: "Task menu for Quiet task" }))
+    .toBeVisible();
+  // No width is reserved for a missing status between the badge and the menu.
   const actions = element.querySelector("[data-task-header-actions]");
-  expect(actions?.children).toHaveLength(1);
+  expect(actions?.children).toHaveLength(3);
 });
 
 test("the counts and request badge sit before the status instead of replacing it", async () => {
