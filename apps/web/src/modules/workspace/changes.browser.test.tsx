@@ -138,6 +138,35 @@ test("the task header and the sidebar row show the compact counts only when non-
     .toBeVisible();
 });
 
+test("a file row spans the list and a long path truncates instead of widening it", async () => {
+  const data = await seed({ files: false });
+  const longPath = `src/${`deeply-nested-directory-name/`.repeat(6)}${`long-file-name-`.repeat(8)}.ts`;
+  await writeFilesIn(data.task.workspacePath, {
+    "README.md": "changed\n",
+    [longPath]: "export const value = 1;\n",
+  });
+  await renderApp(newClient(), [data.href]);
+  await prefixShifted("c");
+
+  await expect.element(fileRow("README\\.md")).toBeVisible();
+  await expect.element(fileRow("long-file-name")).toBeVisible();
+
+  const list = fileList().element();
+  const rows = [...list.querySelectorAll<HTMLElement>('[role="option"]')];
+  expect(rows).toHaveLength(2);
+  for (const row of rows) {
+    // The row, its hover/selected fill and its click target span the list.
+    expect(Math.abs(row.getBoundingClientRect().width - list.clientWidth)).toBeLessThan(1);
+  }
+  // The long path takes the component's ellipsis instead of widening the scroll container.
+  expect(list.scrollWidth).toBeLessThanOrEqual(list.clientWidth);
+  const longRow = rows.find((row) => row.textContent?.includes("long-file-name"));
+  const path = longRow?.querySelector<HTMLElement>('span[dir="rtl"]');
+  expect(path).toBeDefined();
+  expect(path!.scrollWidth).toBeGreaterThan(path!.clientWidth);
+  expect(getComputedStyle(path!).textOverflow).toBe("ellipsis");
+});
+
 test("the keyboard moves through the file list and the diff follows the selection", async () => {
   const { href } = await seed();
   await renderApp(newClient(), [href]);
