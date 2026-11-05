@@ -31,6 +31,8 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   Keep existing change counts and linked request state. Unseen completion stays marked.
 - Right-click / menu key / Shift+F10 opens secondary task actions. No action gutter takes
   permanent width. Full names stay accessible and get a tooltip when clipped.
+- `prefix w` hands the list the keyboard: arrows and Home/End walk its rows, Enter opens one and
+  Escape leaves. Rows stay in the tab order; the arrows are a shortcut, not a replacement.
 - One Settled shelf is anchored below the active list, above the footer, across all projects.
   It starts collapsed, expands in pages and has a separately scrolling list. A selected older
   task reveals itself, even beyond the first page, without resuming it.
