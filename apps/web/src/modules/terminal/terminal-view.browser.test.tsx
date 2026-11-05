@@ -263,55 +263,160 @@ function trackTerminalSockets() {
   return { sockets, createSocket };
 }
 
-test("a terminal fits its pane when it proposes a size, before the server echoes it", async () => {
+/** Holds the server's resize echoes until the test releases them. */
+function holdResizeEchoes() {
+  const snapshots: string[] = [];
+  const held: (() => void)[] = [];
+  let released = false;
+  const createSocket: CreateSocket = (url, protocols) => {
+    const socket = new WebSocket(url, protocols);
+    if (!url.includes("/terminals/")) return socket;
+    const add = socket.addEventListener.bind(socket);
+    const intercept = ((
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+      options?: boolean | AddEventListenerOptions,
+    ) => {
+      if (type !== "message") return add(type, listener, options);
+      const deliver = (event: Event) => {
+        if (typeof listener === "function") listener.call(socket, event);
+        else listener.handleEvent(event);
+      };
+      return add(
+        "message",
+        (event) => {
+          if (typeof event.data !== "string") return deliver(event);
+          try {
+            const message: unknown = JSON.parse(event.data);
+            if (typeof message === "object" && message !== null) {
+              const messageType = "type" in message ? message.type : undefined;
+              if (messageType === "snapshot") snapshots.push(event.data);
+              if (messageType === "resized" && !released) {
+                held.push(() => deliver(event));
+                return;
+              }
+            }
+          } catch {
+            // Not a control message; deliver it anyway.
+          }
+          deliver(event);
+        },
+        options,
+      );
+    }) as typeof socket.addEventListener;
+    Object.defineProperty(socket, "addEventListener", { value: intercept });
+    return socket;
+  };
+  return {
+    createSocket,
+    snapshots,
+    held,
+    release: () => {
+      released = true;
+      for (const deliver of held.splice(0)) deliver();
+    },
+  };
+}
+
+/** xterm reserves the scrollbar's width; the canvas otherwise fills the host on either side. */
+function expectFitted(label: string, rect: { host: number; canvas: number }) {
+  expect(rect.canvas, `${label}: canvas is wider than the host`).toBeLessThanOrEqual(
+    rect.host + 0.5,
+  );
+  expect(rect.canvas, `${label}: canvas is narrower than the host`).toBeGreaterThanOrEqual(
+    rect.host - 24,
+  );
+}
+
+test("a terminal fits after the replay snapshot, before the resize echo", async () => {
+  const echoes = holdResizeEchoes();
+  const client = newClient(serverTarget(), echoes.createSocket);
+  await connected(client);
+  const terminal = await client.connection.api.terminals.create({
+    command: "/bin/cat",
+    size: SIZE,
+  });
+  await render(
+    <SizedPane name="fit" width={1640} height={979}>
+      <TerminalView client={client} terminal={terminal} onFit={() => {}} />
+    </SizedPane>,
+  );
+
+  // The replay snapshot resets the canvas to the 80-column PTY grid; hold the server's resize
+  // echo so only a fit after that replay can fill the pane.
+  await vi.waitFor(() => {
+    if (echoes.snapshots.length === 0) throw new Error("the snapshot has not arrived");
+  });
+  await vi.waitFor(() => {
+    if (echoes.held.length === 0) throw new Error("the resize echo is not waiting");
+  });
+  const fittedRect = await vi.waitFor(() => {
+    const rect = { host: widthOf(terminalHost("fit")), canvas: widthOf(canvas("fit")) };
+    if (rect.canvas < rect.host - 24 || rect.canvas > rect.host + 0.5) {
+      throw new Error(`the canvas is still ${rect.canvas}px in a ${rect.host}px host`);
+    }
+    return rect;
+  });
+  expectFitted("1920 attach", fittedRect);
+  expect(echoes.held.length).toBeGreaterThan(0);
+  echoes.release();
+});
+
+test("a settled host fits locally on grow and shrink, before the resize echo", async () => {
   const client = newClient();
   await connected(client);
   const terminal = await client.connection.api.terminals.create({
     command: "/bin/cat",
     size: SIZE,
   });
-  const fits: { size: TerminalSize; host: number; canvas: number }[] = [];
+  const reports: { size: TerminalSize; host: number; canvas: number }[] = [];
   await render(
-    <SizedPane name="fit" width={1640} height={979}>
+    <SizedPane name="resize" width={900} height={500}>
       <TerminalView
         client={client}
         terminal={terminal}
         onFit={(size) => {
-          fits.push({
+          reports.push({
             size,
-            host: widthOf(terminalHost("fit")),
-            canvas: widthOf(canvas("fit")),
+            host: widthOf(terminalHost("resize")),
+            canvas: widthOf(canvas("resize")),
           });
         }}
       />
     </SizedPane>,
   );
 
-  // The first proposal is this pane's own grid. It must already be on the canvas: the server's
-  // echo is a round-trip later, and a pane showing the old grid until then is the reported defect.
-  const first = await vi.waitFor(() => {
-    const report = fits[0];
+  const initial = await vi.waitFor(() => {
+    const report = reports.find(
+      (each) => Math.abs(each.host - widthOf(terminalHost("resize"))) < 0.5,
+    );
     if (report === undefined) throw new Error("the terminal has not proposed a size");
     return report;
   });
-  expect(first.size.cols).toBeGreaterThan(145);
-  // xterm reserves the scrollbar's width; the canvas otherwise fills the host.
-  expect(first.host - first.canvas).toBeLessThan(24);
+  expectFitted("initial host", { host: initial.host, canvas: initial.canvas });
+  await vi.waitFor(async () => expect(await serverSize(client, terminal.id)).toEqual(initial.size));
 
-  // The same holds when the host changes: the settled box reaches the canvas before the server's
-  // echo, so a sidebar drag or window resize does not wait for a round-trip.
-  const beforeResize = fits.length;
-  resizePane("fit", 900, 500);
-  const resized = await vi.waitFor(() => {
-    const report = fits[beforeResize];
-    if (report === undefined) throw new Error("the terminal has not fitted its new box");
+  const resize = async (width: number, label: string) => {
+    const from = reports.length;
+    resizePane("resize", width, 500);
+    // The section keeps its 8 px frame on each side, so the host is 16 px narrower than the pane.
+    const expectedHost = widthOf(pane("resize")) - 16;
+    const report = await vi.waitFor(() => {
+      const next = reports.slice(from).find((each) => Math.abs(each.host - expectedHost) < 0.5);
+      if (next === undefined) throw new Error(`the ${label} report has not arrived`);
+      return next;
+    });
+    expectFitted(label, { host: report.host, canvas: report.canvas });
     return report;
-  });
-  expect(resized.size.cols).toBeLessThan(first.size.cols);
-  expect(resized.host - resized.canvas).toBeLessThan(24);
+  };
+
+  const grown = await resize(1640, "grow");
+  expect(grown.size.cols).toBeGreaterThan(initial.size.cols);
+  const shrunk = await resize(900, "shrink");
+  expect(shrunk.size.cols).toBeLessThan(grown.size.cols);
 });
 
-test("a reconnect re-fits this pane to its own size", async () => {
+test("a reconnect re-fits at the same host size", async () => {
   const { sockets, createSocket } = trackTerminalSockets();
   const client = newClient(serverTarget(), createSocket);
   const other = newClient();
@@ -321,66 +426,96 @@ test("a reconnect re-fits this pane to its own size", async () => {
     command: "/bin/cat",
     size: SIZE,
   });
-  const reports = new Map<string, TerminalSize[]>();
+  const reports: { size: TerminalSize; width: number; height: number }[] = [];
   await render(
     <SizedPane name="reconnect" width={500} height={340}>
       <TerminalView
         client={client}
         terminal={terminal}
         onFit={(size) => {
-          reports.set("reconnect", [...(reports.get("reconnect") ?? []), size]);
+          const host = terminalHost("reconnect");
+          reports.push({ size, width: widthOf(host), height: host.getBoundingClientRect().height });
         }}
       />
     </SizedPane>,
   );
 
-  const ownFit = await fitted(reports, "reconnect", 0);
-  await vi.waitFor(async () => expect(await serverSize(client, terminal.id)).toEqual(ownFit));
+  const own = await vi.waitFor(() => {
+    const report = reports[0];
+    if (report === undefined) throw new Error("the terminal has not fitted its box");
+    return report;
+  });
+  await vi.waitFor(async () => expect(await serverSize(client, terminal.id)).toEqual(own.size));
+
+  // The disconnected notice otherwise shrinks the host and makes the ResizeObserver refit. Pin
+  // the host so only the attach path can produce a new report, and record any size it still sees.
+  const host = terminalHost("reconnect");
+  const preDrop = { width: widthOf(host), height: host.getBoundingClientRect().height };
+  host.style.flex = "0 0 auto";
+  host.style.height = `${preDrop.height}px`;
+  const heights: number[] = [];
+  const watcher = new ResizeObserver(() => heights.push(host.getBoundingClientRect().height));
+  watcher.observe(host);
 
   // Another client fits the shared PTY while this pane stays attached, focused and visible.
   const shared = other.attach(terminal.id, idleSurface);
-  const awayFit = { cols: ownFit.cols + 20, rows: ownFit.rows + 5 };
+  const awayFit = { cols: own.size.cols + 20, rows: own.size.rows + 5 };
   shared.resize(awayFit);
   await vi.waitFor(async () => expect(await serverSize(client, terminal.id)).toEqual(awayFit));
-  await vi.waitFor(() =>
-    expect(widthOf(canvas("reconnect"))).toBeGreaterThan(widthOf(terminalHost("reconnect"))),
-  );
+  await vi.waitFor(() => expect(widthOf(canvas("reconnect"))).toBeGreaterThan(widthOf(host)));
 
   // Let any fitting already in flight land before taking the baseline.
   await new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 100)));
   });
 
-  // Drop only this terminal's socket. No test action focuses the pane, changes its visibility or
-  // resizes it; the reattachment itself re-proposes this client's own grid.
-  const before = fitCount(reports, "reconnect");
-  const socketsBefore = sockets.length;
-  const socket = sockets.at(-1);
-  if (socket === undefined) throw new Error("the terminal has no socket");
-  socket.close();
-  await vi.waitFor(() => {
-    if (sockets.length === socketsBefore) throw new Error("the terminal has not reattached");
-  });
-  await vi.waitFor(() => {
-    const list = reports.get("reconnect") ?? [];
-    if (list.length <= before) throw new Error("the terminal has not refitted after reattaching");
-    const latest = list.at(-1);
-    if (latest?.cols !== ownFit.cols || latest.rows !== ownFit.rows) {
-      throw new Error(`the terminal refitted ${latest?.cols}x${latest?.rows}, not its own grid`);
-    }
-  });
-  await vi.waitFor(async () => expect(await serverSize(client, terminal.id)).toEqual(ownFit));
-  await vi.waitFor(() =>
-    expect(widthOf(canvas("reconnect"))).toBeLessThanOrEqual(widthOf(terminalHost("reconnect"))),
-  );
+  try {
+    // Drop only this terminal's socket. No test action focuses the pane, changes its visibility or
+    // resizes it; the reattachment's snapshot must produce a report at the pre-drop host size.
+    const before = reports.length;
+    const socketsBefore = sockets.length;
+    const socket = sockets.at(-1);
+    if (socket === undefined) throw new Error("the terminal has no socket");
+    socket.close();
+    await vi.waitFor(() => {
+      if (sockets.length === socketsBefore) throw new Error("the terminal has not reattached");
+    });
+    const refit = await vi.waitFor(() => {
+      const report = reports
+        .slice(before)
+        .find(
+          (each) =>
+            Math.abs(each.width - preDrop.width) < 0.5 &&
+            Math.abs(each.height - preDrop.height) < 0.5,
+        );
+      if (report === undefined) throw new Error("no report at the pre-drop host size");
+      if (report.size.cols !== own.size.cols || report.size.rows !== own.size.rows) {
+        throw new Error(`the terminal refitted ${report.size.cols}x${report.size.rows}`);
+      }
+      return report;
+    });
+    expect(refit.size).toEqual(own.size);
+    expect(heights.every((height) => Math.abs(height - preDrop.height) < 0.5)).toBe(true);
+    expect(widthOf(host)).toBeCloseTo(preDrop.width, 0);
+    expect(host.getBoundingClientRect().height).toBeCloseTo(preDrop.height, 0);
+    await vi.waitFor(async () => expect(await serverSize(client, terminal.id)).toEqual(own.size));
+    await vi.waitFor(() => {
+      const rect = { host: widthOf(host), canvas: widthOf(canvas("reconnect")) };
+      if (rect.canvas < rect.host - 24 || rect.canvas > rect.host + 0.5) {
+        throw new Error(`the canvas is ${rect.canvas}px in a ${rect.host}px host`);
+      }
+    });
 
-  // The shared grid stays authoritative: the other client can still set it, and this pane shows
-  // the clipped grid until its next attach re-asserts its own.
-  const sharedAgain = { cols: awayFit.cols + 10, rows: awayFit.rows + 2 };
-  shared.resize(sharedAgain);
-  await vi.waitFor(async () => expect(await serverSize(client, terminal.id)).toEqual(sharedAgain));
-  await vi.waitFor(() =>
-    expect(widthOf(canvas("reconnect"))).toBeGreaterThan(widthOf(terminalHost("reconnect"))),
-  );
-  shared.close();
+    // The shared grid stays authoritative: the other client can still set it, and this pane shows
+    // the clipped grid until its next attach re-asserts its own.
+    const sharedAgain = { cols: awayFit.cols + 10, rows: awayFit.rows + 2 };
+    shared.resize(sharedAgain);
+    await vi.waitFor(async () =>
+      expect(await serverSize(client, terminal.id)).toEqual(sharedAgain),
+    );
+    await vi.waitFor(() => expect(widthOf(canvas("reconnect"))).toBeGreaterThan(widthOf(host)));
+  } finally {
+    watcher.disconnect();
+    shared.close();
+  }
 });

@@ -14,7 +14,11 @@ import { connectRpc, type RpcConnection } from "./rpc-connection.ts";
 import { createSessionsStore, type SessionsStore } from "./sessions-store.ts";
 import { createTasksStore, type TasksStore } from "./tasks-store.ts";
 import { createTerminalsStore, type TerminalsStore } from "./terminals-store.ts";
-import { TerminalStream, type TerminalSurface } from "./terminal-stream.ts";
+import {
+  TerminalStream,
+  type TerminalStreamOptions,
+  type TerminalSurface,
+} from "./terminal-stream.ts";
 
 export interface CorralClientOptions {
   server: ServerTarget;
@@ -39,7 +43,11 @@ export interface CorralClient {
   /** Each task's changed files, for the Changes tab, the task header and the sidebar rows. */
   readonly changes: ChangesStore;
   /** Shows the terminal on `surface` until the caller closes the returned stream. */
-  attach(terminalId: string, surface: TerminalSurface): TerminalStream;
+  attach(
+    terminalId: string,
+    surface: TerminalSurface,
+    options?: Pick<TerminalStreamOptions, "onSnapshot">,
+  ): TerminalStream;
   /**
    * Retry the RPC connection and every attached terminal now, with the target the next attempt
    * reads. The one recovery entry point: a refused socket is separate from the RPC socket.
@@ -80,10 +88,11 @@ export function createCorralClient(options: CorralClientOptions): CorralClient {
     terminals,
     chatCapabilities,
     changes,
-    attach: (terminalId, surface) => {
+    attach: (terminalId, surface, attachOptions) => {
       let stream!: TerminalStream;
       stream = new TerminalStream({
         ...options,
+        ...attachOptions,
         terminalId,
         surface,
         onClosed: () => streams.delete(stream),

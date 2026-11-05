@@ -36,6 +36,8 @@ export interface TerminalStreamOptions {
   createSocket?: CreateSocket;
   /** Called when the caller closes this stream; the client uses it to drop it from recovery. */
   onClosed?: (() => void) | undefined;
+  /** Called after a snapshot has reset and replayed the surface. */
+  onSnapshot?: (() => void) | undefined;
 }
 
 /**
@@ -156,12 +158,13 @@ export class TerminalStream {
         const { size, data } = message;
         this.#serverSize = size;
         this.#lastSentSize = undefined;
-        // In write order, so output still queued is parsed before the screen is replaced.
+        // In write order, so output still queued is parsed before the screen is replaced. The
+        // callback runs after the replay, when a fit would no longer be overwritten by it.
         this.#surface.write("", () => {
           this.#surface.reset();
           this.#surface.resize(size.cols, size.rows);
         });
-        this.#surface.write(data);
+        this.#surface.write(data, () => this.#options.onSnapshot?.());
         if (this.#attached !== socket) {
           this.#attached = socket;
           this.#sendDesiredSize();
