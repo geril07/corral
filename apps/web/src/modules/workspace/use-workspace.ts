@@ -332,13 +332,32 @@ export function useWorkspace({
   };
 
   useEffect(() => {
-    if (listFocusRequest === handledListFocus.current || sidebar.hidden) return;
+    if (listFocusRequest === handledListFocus.current || sidebar.hidden) return undefined;
     handledListFocus.current = listFocusRequest;
-    const target = sidebarRowTarget() ?? document.getElementById(ADD_PROJECT_BUTTON_ID);
+    const request = listFocusRequest;
+    let frame: number | undefined;
+    let cancelled = false;
     // A dialog closed by the same action, such as the palette, returns the keyboard in a
     // microtask of its own; this one is queued after it so the list, not the dialog's opener, ends
-    // up with the keyboard.
-    queueMicrotask(() => target?.focus());
+    // up with the keyboard. The row is looked up after the next frame because the shown sidebar
+    // measures its rows there: a clipped row gains its tooltip wrapper and is replaced, so a row
+    // captured before that render would be detached and would keep the keyboard where it was.
+    queueMicrotask(() => {
+      if (cancelled) return;
+      const origin = document.activeElement;
+      frame = requestAnimationFrame(() => {
+        if (cancelled || handledListFocus.current !== request) return;
+        const focused = document.activeElement;
+        // The user moved on while the frame was pending; leave their focus alone.
+        if (focused !== origin && origin instanceof HTMLElement && origin.isConnected) return;
+        const target = sidebarRowTarget() ?? document.getElementById(ADD_PROJECT_BUTTON_ID);
+        if (target?.isConnected) target.focus();
+      });
+    });
+    return () => {
+      cancelled = true;
+      if (frame !== undefined) cancelAnimationFrame(frame);
+    };
   }, [listFocusRequest, sidebar.hidden]);
 
   // Enter on the row that is already open mounts no pane, so the selected view's input is handed
