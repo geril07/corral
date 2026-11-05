@@ -391,20 +391,29 @@ describe("spine scales", () => {
     }
   });
 
-  it("requires a reduced-motion pair wherever a literal animates", () => {
-    expect(messages('const cls = "animate-in fade-in-0 zoom-in-95";', "kit.tsx", "kit")).toEqual([
-      "1:motion without a reduced-motion pair in class name: animate-in",
-    ]);
+  it("requires entry animations to be motion-safe, while transitions keep a reduce partner", () => {
+    // A reduce partner cannot beat the later data-open rule at equal specificity, so a bare entry
+    // is a violation in the kit and in a module even when the partner is present.
+    for (const location of ["kit", "module"] as const) {
+      expect(messages('const cls = "data-open:animate-in";', "sample.tsx", location)).toEqual([
+        "1:entry animation without motion-safe in class name: data-open:animate-in",
+      ]);
+    }
     expect(
       messages('const cls = "animate-in fade-in-0 motion-reduce:animate-none";', "kit.tsx", "kit"),
-    ).toEqual([]);
-    expect(
-      messages(
-        'const cls = "transition-transform ease-surface motion-reduce:transition-none";',
-        "kit.tsx",
-        "kit",
-      ),
-    ).toEqual([]);
+    ).toEqual(["1:entry animation without motion-safe in class name: animate-in"]);
+
+    for (const source of [
+      'const cls = "data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0";',
+      'const cls = "motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95";',
+      'const cls = "motion-safe:data-open:animate-in";',
+      // The reduce partner itself stays legal, and a non-entry animation may keep one.
+      'const cls = "motion-reduce:animate-none";',
+      'const cls = "animate-wiggle motion-reduce:animate-none";',
+      'const cls = "transition-transform ease-surface motion-reduce:transition-none";',
+    ]) {
+      expect(messages(source, "kit.tsx", "kit")).toEqual([]);
+    }
   });
 });
 
