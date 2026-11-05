@@ -739,6 +739,28 @@ async function assertSidebarRowFocused() {
   });
 }
 
+/** Holds animation frames so a test can take focus before the list's scheduled frame runs. */
+function holdAnimationFrames() {
+  const pending: FrameRequestCallback[] = [];
+  const spy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    pending.push(callback);
+    return pending.length;
+  });
+  let held = true;
+  const restore = () => {
+    if (!held) return;
+    held = false;
+    spy.mockRestore();
+  };
+  return {
+    flush() {
+      restore();
+      for (const callback of pending.splice(0)) callback(performance.now());
+    },
+    restore,
+  };
+}
+
 test("the main area names the wait until all four lists have delivered", async () => {
   const projects = fakeWatch<ProjectsSnapshot>({ loaded: false, projects: [] });
   const tasks = fakeWatch<TasksSnapshot>({ loaded: false, tasks: [] });
@@ -1374,6 +1396,16 @@ test("prefix w from a hidden sidebar focuses the live current row at 140%", asyn
     await prefixThen("w");
     await expect.element(page.getByRole("navigation", { name: "workspace" })).toBeVisible();
     await assertSidebarRowFocused();
+
+    // Enter on the already-open row hands the keyboard back to its terminal.
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+    await userEvent.keyboard("echo scale-$((6*7)){Enter}");
+    await expect.poll(screenText).toContain("scale-42");
+
+    // Escape still leaves the list for the terminal at 140%.
+    await prefixThen("w");
+    await assertSidebarRowFocused();
     await userEvent.keyboard("{Escape}");
     await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
   });
@@ -1390,6 +1422,56 @@ test("prefix w from a hidden sidebar focuses the live current row at 140%", asyn
   // With the sidebar already visible, the same action still focuses the current row.
   await prefixThen("w");
   await assertSidebarRowFocused();
+});
+
+test("prefix w does not steal focus when the opener is replaced and a session tab has it", async () => {
+  await appWithProject(newClient());
+  await createTaskWithShell("Moved on");
+  const row = taskButton("Moved on");
+  const tab = sessionTab("shell");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  const frames = holdAnimationFrames();
+  try {
+    await prefixThen("w");
+    await vi.waitFor(() =>
+      expect(document.querySelector('nav[aria-label="workspace"]')).not.toBeNull(),
+    );
+    // The terminal's textarea was replaced, as a remount does, and the user went to the tab strip.
+    const origin = page.getByRole("textbox", { name: "Terminal input" }).element();
+    origin.replaceWith(origin.cloneNode(true));
+    tab.element().focus();
+    frames.flush();
+
+    await expect.element(tab).toHaveFocus();
+    await expect.element(row).not.toHaveFocus();
+  } finally {
+    frames.restore();
+  }
+});
+
+test("prefix w does not steal focus when the user clicks the opener before the frame", async () => {
+  await appWithProject(newClient());
+  await createTaskWithShell("Clicked back");
+  const row = taskButton("Clicked back");
+  const terminal = page.getByRole("textbox", { name: "Terminal input" });
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  const frames = holdAnimationFrames();
+  try {
+    await prefixThen("w");
+    await vi.waitFor(() =>
+      expect(document.querySelector('nav[aria-label="workspace"]')).not.toBeNull(),
+    );
+    // A click on the element that already had focus changes no focus state; the pointer is the signal.
+    terminal.element().dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    frames.flush();
+
+    await expect.element(terminal).toHaveFocus();
+    await expect.element(row).not.toHaveFocus();
+  } finally {
+    frames.restore();
+  }
 });
 
 test("prefix w in an empty workspace focuses Add project and says nothing else", async () => {

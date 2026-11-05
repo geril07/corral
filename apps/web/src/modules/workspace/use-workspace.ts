@@ -337,6 +337,17 @@ export function useWorkspace({
     const request = listFocusRequest;
     let frame: number | undefined;
     let cancelled = false;
+    let watching = false;
+    let moved = false;
+    const noteMove = () => {
+      moved = true;
+    };
+    const stopWatching = () => {
+      if (!watching) return;
+      watching = false;
+      document.removeEventListener("pointerdown", noteMove, true);
+      document.removeEventListener("keydown", noteMove, true);
+    };
     // A dialog closed by the same action, such as the palette, returns the keyboard in a
     // microtask of its own; this one is queued after it so the list, not the dialog's opener, ends
     // up with the keyboard. The row is looked up after the next frame because the shown sidebar
@@ -345,17 +356,26 @@ export function useWorkspace({
     queueMicrotask(() => {
       if (cancelled) return;
       const origin = document.activeElement;
+      // A pointer or key after the dialog's microtask is the user taking the keyboard back, even
+      // when it lands on the same element the action started from.
+      watching = true;
+      document.addEventListener("pointerdown", noteMove, true);
+      document.addEventListener("keydown", noteMove, true);
       frame = requestAnimationFrame(() => {
-        if (cancelled || handledListFocus.current !== request) return;
+        stopWatching();
+        if (cancelled || moved || handledListFocus.current !== request) return;
         const focused = document.activeElement;
-        // The user moved on while the frame was pending; leave their focus alone.
-        if (focused !== origin && origin instanceof HTMLElement && origin.isConnected) return;
+        // The opener is gone, or another live element has the keyboard: the user moved on.
+        if (!(origin instanceof HTMLElement) || !origin.isConnected) return;
+        if (focused instanceof HTMLElement && focused !== document.body && focused !== origin)
+          return;
         const target = sidebarRowTarget() ?? document.getElementById(ADD_PROJECT_BUTTON_ID);
         if (target?.isConnected) target.focus();
       });
     });
     return () => {
       cancelled = true;
+      stopWatching();
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
   }, [listFocusRequest, sidebar.hidden]);
