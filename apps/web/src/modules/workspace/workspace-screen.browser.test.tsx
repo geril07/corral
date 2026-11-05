@@ -719,6 +719,26 @@ test("arming the prefix never resizes the terminal", async () => {
 
 const focusedIsTerminal = () => document.activeElement?.classList.contains("xterm-helper-textarea");
 
+/** Runs `read` with the interface scale applied, then restores the page's own setting. */
+async function withInterfaceScaleAt(scale: string, read: () => Promise<void>) {
+  const previous = document.documentElement.style.fontSize;
+  document.documentElement.style.fontSize = scale;
+  try {
+    await read();
+  } finally {
+    document.documentElement.style.fontSize = previous;
+  }
+}
+
+/** The keyboard is on the live current row, not on a detached copy or the terminal. */
+async function assertSidebarRowFocused() {
+  await vi.waitFor(() => {
+    const active = document.activeElement;
+    expect(active instanceof HTMLElement && active.isConnected).toBe(true);
+    expect(active?.matches('[data-sidebar-row][aria-current="true"]')).toBe(true);
+  });
+}
+
 test("the main area names the wait until all four lists have delivered", async () => {
   const projects = fakeWatch<ProjectsSnapshot>({ loaded: false, projects: [] });
   const tasks = fakeWatch<TasksSnapshot>({ loaded: false, tasks: [] });
@@ -1324,6 +1344,52 @@ test("prefix w shows a hidden sidebar before it focuses the current row", async 
   await expect.element(page.getByRole("navigation", { name: "workspace" })).toBeVisible();
   await expect.element(taskButton("Hidden")).toHaveFocus();
   await expect.element(page.getByRole("button", { name: "Add project" })).not.toHaveFocus();
+});
+
+test("prefix w from a hidden sidebar focuses the live current row at 140%", async () => {
+  const { client } = await appWithProject(newClient());
+  const project = client.projects.getSnapshot().projects[0]!;
+  await createTaskWithShell("Shell: inspect the build");
+  const current = taskButton("Shell: inspect the build");
+  // Enough rows to overflow the list at 1024, as the verification's loaded workspace had.
+  await Promise.all(
+    Array.from({ length: 20 }, (_, index) =>
+      client.connection.api.tasks.create({
+        projectId: project.id,
+        title: `Filler task ${index}`,
+        workspace: { type: "main-worktree" },
+      }),
+    ),
+  );
+  await expect.element(current).toHaveAttribute("aria-current", "true");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  // At 140% the shown list measures its rows again; the current row's tooltip wrapper replaces
+  // the row after the focus request, so focusing the row captured before that render lands on a
+  // detached node and the terminal keeps the keyboard.
+  await prefixThen("\\");
+  await expect.element(page.getByRole("navigation", { name: "workspace" })).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  await withInterfaceScaleAt("140%", async () => {
+    await prefixThen("w");
+    await expect.element(page.getByRole("navigation", { name: "workspace" })).toBeVisible();
+    await assertSidebarRowFocused();
+    await userEvent.keyboard("{Escape}");
+    await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  });
+
+  // The 100% control follows the same path; the fix must not depend on the scale.
+  await prefixThen("\\");
+  await expect.element(page.getByRole("navigation", { name: "workspace" })).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  await prefixThen("w");
+  await assertSidebarRowFocused();
+  await userEvent.keyboard("{Escape}");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  // With the sidebar already visible, the same action still focuses the current row.
+  await prefixThen("w");
+  await assertSidebarRowFocused();
 });
 
 test("prefix w in an empty workspace focuses Add project and says nothing else", async () => {
