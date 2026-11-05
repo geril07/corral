@@ -116,8 +116,8 @@ What a user does. Everything below is built and verified end to end, chat views 
   capture the current target rather than reusing a previous pointer opener.
 - First input receives focus; destructive confirmation starts on Cancel. Escape and
   outside interaction use Base UI behavior; destructive outside clicks do not close.
-- Menus, dialogs, popups and the palette keep their stock focus treatment and enter
-  transitions, but close immediately: a closing popup must not hold the keyboard, so
+- Menus, dialogs, popups and the palette keep the shared focus ring and the declared enter
+  transition, but close immediately: a closing popup must not hold the keyboard, so
   no exit animation delays its unmount. Tests then assert one live popup or the
   terminal's first character instead of waiting for a transition. The prefix never
   handles keys while a task dialog is open.

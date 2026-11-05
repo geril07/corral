@@ -16,9 +16,40 @@ This paragraph is the one place a visual reference is named; a new study replace
 The theme in `apps/web/src/app/global.css` follows T3 Code's dark neutral palette (MIT): black
 canvas, raised neutral surfaces, white low-opacity borders/hover and blue primary. Reuse the
 existing semantic tokens.
-The installed Geist font, radius derivation and most primitive dimensions remain. Interface text
-follows the device scale, and the interface text scale is device-local and rem-based, independent
-of the terminal's fixed font.
+The installed Geist font and the radius derivation remain. Interface text follows the device scale,
+and the interface text scale is device-local and rem-based, independent of the terminal's fixed
+font; primitive dimensions, type, elevation, motion and focus follow **Spine**.
+
+### Spine
+
+- **Spacing** — Tailwind's spacing unit is the rhythm, steps `0`–`6`; a gutter above 24 px is a
+  _derived_ inset (a step plus the control it clears) and lives only in the kit; a raw width
+  appears only to compensate a border, to keep a ring or hairline from scaling, or to bound a
+  popup.
+- **Type** — three sizes: `text-xs` meta, `text-sm` body/controls/rows, `text-base` the one heading
+  step; weights 400/500/600; leading from the size, with `leading-snug` for two-line titles and
+  `leading-relaxed` for prose; tracking 0 except an uppercase label; mono is a role (paths, code,
+  terminal-adjacent), not a size.
+- **Radii** — one ladder off `--radius`; `--control-radius` for every box control and free to move
+  independently; an inner radius is its shell minus the shell's inset; a badge is a pill.
+- **Elevation** — canvas, raised surface, floating popup, dialog with its scrim, and one inverted
+  tooltip; a border separates first; only the two floating tiers carry a shadow; surface, border
+  and shadow are the primitive's choice and a caller cannot add one.
+- **Motion** — two durations by role and one decelerating easing token; only opacity and transform
+  animate; nothing loops; every animated primitive carries its own `motion-reduce:` pair and there
+  is no global kill switch; **enter only — no exit animation, because a closing popup must not
+  hold the keyboard** (`ux.md`, Focus).
+- **Density** — control heights are kit sizes; a control takes the height of the row it sits in; a
+  full-width row uses a row size; a tab fills the tabstrip; a chrome band reads the chrome tokens;
+  there is no comfort/compact mode.
+- **Focus** — one pair and one width, keyboard only: outside the box for a control with room, inset
+  for a full-width row in a scroll container, `has-[:focus-visible]` for containers, and the
+  base-layer outline for raw DOM focusables.
+- **Ownership** — a module names a variant and never a value; the gate keeps class/style/colour/
+  dimensions off controls and restricts module class strings to these ramps, and the kit is held to
+  the same recipes.
+- **Known deviation** — non-text hairlines stay below 1.4.11's 3:1 (both references do the same; the
+  direction is "restrained borders").
 
 The previous official shadcn generation commands, provenance and stock-only migration are
 archived in [research/shadcn-baseline.md](research/shadcn-baseline.md). They are a baseline for
@@ -27,9 +58,11 @@ upstream diffs, not a prohibition on the accepted theme.
 ## Boundary (law)
 
 All interactive primitives live in `apps/web/src/common/ui`. Modules compose them, never
-import Base UI, cmdk or Lucide directly. Keep `scripts/check-web-ui.mjs` (class-string gates:
-arbitrary values, palette, retired tokens, kit props and spreads) and the lint rules for layer
-boundaries and raw DOM controls enabled.
+import Base UI, cmdk or Lucide directly. Keep `scripts/check-web-ui.mjs` and the lint rules for
+layer boundaries and raw DOM controls enabled. Its class-string gates cover arbitrary values,
+palette, retired tokens, kit props and spreads, and the **Spine** ramps — spacing steps, type,
+radius and shadow, the focus ring and motion — and the kit itself answers the type, surface, focus
+and motion rules.
 
 A kit control cannot receive `className`, `style`, `render`, color/dimensions or opaque prop
 spreads from a module. Add a named variant for a demonstrated need. Modules own plain structural
@@ -42,9 +75,10 @@ context-menu dispatcher.
 ## Compositions (current state)
 
 - Button `layout="tree"`: allocation/truncation inside a horizontal task/project row;
-  `size="row"`: the two-line task. `layout="navigation"` fills a settings category's width
-  without vertically stretching it. `layout="tab"` uses content width up to a maximum.
-  `layout="model"` bounds a model trigger so long native IDs really truncate.
+  `size="row"`: the two-line task; `size="row-sm"`: a dense single-line list row (the Changes
+  file list). `layout="navigation"` fills a settings category's width without vertically
+  stretching it. `layout="tab"` fills the tabstrip's height and uses content width up to a
+  maximum. `layout="model"` bounds a model trigger so long native IDs really truncate.
 - RowMenu composes a real button with Base UI ContextMenu. Right-click, the menu key and
   Shift+F10 reach secondary actions. No permanently reserved invisible action gutter.
   DropdownMenuItem uses the same underlying Base UI menu item in either kind of menu.
@@ -56,8 +90,7 @@ context-menu dispatcher.
   Settings uses the named large, viewport-bounded `layout="settings"`, with its own scrolling
   content and categories. It is a route-backed modal over a mounted workspace, not a page that
   destroys drafts and terminal attachments. Other dialogs keep their existing dimensions.
-- Popup exit animations remain removed: keeping closing menus mounted delayed focus and
-  swallowed the first character after Escape. RowMenu has no delayed teardown.
+- Enter only; the reason is in Direction (**Motion**). RowMenu has no delayed teardown.
 - Hint retains Base UI semantics and 300 ms delay. `useTruncatedText` owns clipping measurement
   and middle ellipsis; full labels remain accessible, with a full-name tooltip when clipped.
 - AgentIcon owns the four real tool logos and the shell glyph. Source and MIT notice:
@@ -67,7 +100,8 @@ context-menu dispatcher.
   TaskContent is a size container so a prompt capped at 50cqh fits half the content area,
   excluding the task/session chrome rather than growing to half the entire window. Sidebar sizing is
   device-local; text scale never applies a CSS transform that would confuse popup coordinates.
-- ComposerSurface and ComposerToolbar own the shared prompt frame and wrapping control row.
+- ComposerSurface and ComposerToolbar own the shared prompt frame and wrapping control row. The
+  frame shows the shared focus ring only while a keyboard focus is inside it.
   Textarea `frame="composer"` removes its duplicate inner border without changing prompt/chat
   growth limits. ModelPicker owns the Base UI popover, radio rail, cmdk model list and vertical
   thinking toolbar; modules supply driver/config data and actions, not control skins.
