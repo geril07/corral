@@ -1,7 +1,7 @@
 import type { TaskNode } from "@corral/client/workspace-tree";
 import type { ActionId, ClientConfig } from "@corral/protocol/config";
 import type { Project, PullRequest, Task, TaskChanges } from "@corral/protocol/rpc";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import {
   DropdownMenuItem,
   IconButton,
@@ -10,6 +10,18 @@ import {
 } from "../../common/ui/index.ts";
 import { changeCounts, PullRequestBadge } from "../changes/index.ts";
 import { formatBinding } from "../keymap/index.ts";
+
+interface CopyNotice {
+  readonly outcome: "copied" | "refused";
+  readonly message: string;
+}
+
+/** The host's own refusal sentence, or ours when the clipboard is absent. */
+function clipboardRefusal(error: unknown): string {
+  return error instanceof Error && error.message.trim() !== ""
+    ? error.message
+    : "Clipboard access is unavailable.";
+}
 
 export interface TaskHeaderProps {
   node?: TaskNode | undefined;
@@ -51,27 +63,49 @@ export function TaskHeader({
     display: repositoryDisplay,
   } = useTruncatedText(where, "middle");
   const trigger = useRef<HTMLButtonElement>(null);
+  const [copyNotice, setCopyNotice] = useState<CopyNotice | undefined>(undefined);
+  const clearCopyNotice = () => setCopyNotice(undefined);
   const hint = (label: string, action: ActionId) =>
     config ? `${label} · ${formatBinding(config, action)}` : label;
-  const copyPath = () => {
-    if (!task) return;
-    void navigator.clipboard?.writeText(task.workspacePath).catch(() => {
-      /* The host can refuse clipboard access. */
-    });
+  const copy = async (text: string, copied: string) => {
+    clearCopyNotice();
+    try {
+      const clipboard = navigator.clipboard;
+      if (clipboard === undefined) throw new Error("Clipboard access is unavailable.");
+      await clipboard.writeText(text);
+      setCopyNotice({ outcome: "copied", message: copied });
+    } catch (error) {
+      setCopyNotice({ outcome: "refused", message: clipboardRefusal(error) });
+    }
   };
   return (
     <header
       className="flex h-(--chrome-header) shrink-0 items-center gap-2 px-3"
       role="group"
       aria-label="task header"
-      onMouseDown={(event) => event.preventDefault()}
+      onMouseDown={(event) => {
+        clearCopyNotice();
+        // Text keeps the browser's selection default; every other part of the row keeps focus
+        // where it was, as the row controls themselves do below.
+        if (event.target instanceof Element && event.target.closest("[data-header-text]")) return;
+        event.preventDefault();
+      }}
     >
       {onShowSidebar && (
-        <IconButton label="Show sidebar" icon="show-sidebar" onClick={onShowSidebar} />
+        <IconButton
+          label="Show sidebar"
+          icon="show-sidebar"
+          onClick={() => {
+            clearCopyNotice();
+            onShowSidebar();
+          }}
+          onMouseDown={(event) => event.preventDefault()}
+        />
       )}
       <span
         ref={observeRepository}
         data-task-repository=""
+        data-header-text=""
         aria-label={where}
         className="max-w-48 min-w-0 shrink truncate text-xs text-muted-foreground"
         title={repositoryClipped ? where : undefined}
@@ -86,10 +120,28 @@ export function TaskHeader({
         className="m-0 min-w-0 flex-1 truncate text-sm font-medium"
         title={titleClipped ? taskTitle : undefined}
       >
-        {titleDisplay}
+        <span data-header-text="">{titleDisplay}</span>
       </h1>
+      <p
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        title={copyNotice?.message}
+        className={
+          copyNotice === undefined
+            ? "sr-only"
+            : copyNotice.outcome === "refused"
+              ? "max-w-56 min-w-0 shrink truncate text-xs text-destructive"
+              : "max-w-56 min-w-0 shrink truncate text-xs text-muted-foreground"
+        }
+      >
+        {copyNotice?.message}
+      </p>
       {task && (
-        <div className="ml-auto flex shrink-0 items-center gap-1.5">
+        <div
+          className="ml-auto flex shrink-0 items-center gap-1.5"
+          onMouseDown={(event) => event.preventDefault()}
+        >
           {changeCounts(changes) !== undefined && (
             <span
               className="font-mono text-xs tabular-nums text-muted-foreground"
@@ -103,27 +155,57 @@ export function TaskHeader({
             </span>
           )}
           {pullRequest !== undefined && <PullRequestBadge request={pullRequest} />}
-          <OverflowMenu label={`Task menu for ${task.title}`} triggerRef={trigger}>
+          <OverflowMenu
+            label={`Task menu for ${task.title}`}
+            triggerRef={trigger}
+            onOpenChange={(open) => {
+              if (open) clearCopyNotice();
+            }}
+          >
             <DropdownMenuItem
               title={hint("Settle or unsettle task", "settle-task")}
-              onClick={() => onSettle(task)}
+              onClick={() => {
+                clearCopyNotice();
+                onSettle(task);
+              }}
             >
               {task.state === "active" ? "Settle task" : "Unsettle task"}
             </DropdownMenuItem>
             {onViewSource && task.source !== undefined && (
               <DropdownMenuItem
-                onClick={(event) => onViewSource(task, trigger.current ?? event.currentTarget)}
+                onClick={(event) => {
+                  clearCopyNotice();
+                  onViewSource(task, trigger.current ?? event.currentTarget);
+                }}
               >
                 View issue source…
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
-              onClick={(event) => onRename(task, trigger.current ?? event.currentTarget)}
+              onClick={(event) => {
+                clearCopyNotice();
+                onRename(task, trigger.current ?? event.currentTarget);
+              }}
             >
               Rename task…
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={copyPath}>Copy workspace path</DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onClick={() => onRemove(task)}>
+            <DropdownMenuItem
+              onClick={() => void copy(task.workspacePath, "Workspace path copied")}
+            >
+              Copy workspace path
+            </DropdownMenuItem>
+            {task.branch !== "" && (
+              <DropdownMenuItem onClick={() => void copy(task.branch, "Branch copied")}>
+                Copy branch
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => {
+                clearCopyNotice();
+                onRemove(task);
+              }}
+            >
               Remove task…
             </DropdownMenuItem>
           </OverflowMenu>

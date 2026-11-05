@@ -52,10 +52,16 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 
 - Read-only repository/worktree-branch context, separator, task title; both truncate with their
   complete accessible name and a tooltip. The draft names its actual repository and New task.
+- The context and title are text: a mouse drag selects them, while the row's controls keep
+  `mousedown` cancelled so clicking one does not take the keyboard from the terminal.
 - The repository label never secretly copies a path.
 - Keep existing nonzero change counts and linked pull-request badge; Changes is not redesigned.
 - A discoverable task overflow menu holds settle/unsettle, rename, explicit Copy workspace path,
-  imported issue source when present, and remove. No duplicate model or unexplained sync badge.
+  Copy branch when the task has a branch, imported issue source when present, and remove. No
+  duplicate model or unexplained sync badge.
+- Each copy names its outcome in one `role="status"` line inside the header: "Workspace path
+  copied", "Branch copied", or the clipboard's own refusal sentence. The line is a polite live
+  region, is reachable by the menu's keyboard path, and the next header action clears it.
 
 ## Session tabs
 

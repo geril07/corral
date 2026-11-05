@@ -395,6 +395,7 @@ export function WorkspaceScreen({
         )}
         {(currentTaskNode || (showComposer && loaded && composerProject !== undefined)) && (
           <TaskHeader
+            key={showComposer ? "draft" : currentTaskNode?.task.id}
             node={showComposer ? undefined : currentTaskNode}
             onShowSidebar={sidebar.hidden ? sidebar.toggle : undefined}
             project={showComposer ? composerProject : currentTaskProject}

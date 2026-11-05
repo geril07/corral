@@ -10,6 +10,7 @@ export function OverflowMenu({
   triggerRef,
   icon = "more",
   tooltip,
+  onOpenChange,
 }: {
   label: string;
   children: ReactNode;
@@ -17,9 +18,10 @@ export function OverflowMenu({
   /** The trigger's glyph; the tab strip's trailing "+" is the same stock menu. */
   icon?: IconName;
   tooltip?: ReactNode;
+  onOpenChange?: ((open: boolean) => void) | undefined;
 }) {
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger
         render={<IconButton ref={triggerRef} label={label} tooltip={tooltip} icon={icon} />}
       />
