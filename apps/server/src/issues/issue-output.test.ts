@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "vite-plus/test";
-import { IssueResponseInvalidError } from "./errors.ts";
+import { IssueFetchFailedError, IssueResponseInvalidError } from "./errors.ts";
 import { parseIssueOutput } from "./issue-output.ts";
 import { parseIssueUrl } from "./issue-url.ts";
 
@@ -97,6 +97,28 @@ test("GitLab JSON reads description as the body and a null description as empty"
       1,
     ),
   ).toMatchObject({ body: "" });
+});
+
+test("a CLI answer that names a pull request is refused as a pull request, not an unreadable issue", () => {
+  const pullRequest = JSON.stringify({
+    number: 42,
+    title: "A pull request",
+    body: "",
+    url: "https://github.com/acme/app/pull/42",
+  });
+  expect(() => parseIssueOutput("github", pullRequest, ref, 1)).toThrow(IssueFetchFailedError);
+  expect(() => parseIssueOutput("github", pullRequest, ref, 1)).toThrow(
+    "That URL is a pull request, not an issue. Import an issue URL or create the task manually.",
+  );
+
+  const mergeRequest = JSON.stringify({
+    iid: 7,
+    title: "A merge request",
+    description: "",
+    web_url: "https://gitlab.com/group/project/-/merge_requests/7",
+  });
+  expect(() => parseIssueOutput("gitlab", mergeRequest, labRef, 1)).toThrow(IssueFetchFailedError);
+  expect(() => parseIssueOutput("gitlab", mergeRequest, labRef, 1)).toThrow(/pull request/);
 });
 
 test("malformed or mismatched output is refused as a domain error, never guessed", () => {

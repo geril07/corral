@@ -70,7 +70,7 @@ export class IssueResponseInvalidError extends Error {
   }
 }
 
-/** The CLI failed for any other reason; `message` is bounded and safe to show. */
+/** The CLI failed, or answered with a pull request for an issue read; `message` is bounded and safe to show. */
 export class IssueFetchFailedError extends Error {
   readonly provider: IssueProvider;
   constructor(provider: IssueProvider, message: string) {
