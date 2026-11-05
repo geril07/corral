@@ -428,6 +428,33 @@ test("malformed or mismatched CLI output is a domain error, and no task is inven
   expect(await firstTaskList(api)).toEqual([]);
 });
 
+test("a CLI answer that resolves the issue URL to a pull request is refused as a pull request", async () => {
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+
+  clis.answer({
+    number: 1,
+    title: "A pull request",
+    body: "",
+    url: "https://github.com/acme/app/pull/1",
+  });
+  await expect(
+    api.projects.resolveIssue({
+      projectId: project.id,
+      url: "https://github.com/acme/app/issues/1",
+    }),
+  ).rejects.toMatchObject({
+    code: "ISSUE_FETCH_FAILED",
+    data: {
+      provider: "github",
+      message:
+        "That URL is a pull request, not an issue. Import an issue URL or create the task manually.",
+    },
+  });
+
+  expect(await firstTaskList(api)).toEqual([]);
+});
+
 test("auth, network and output-size failures stay bounded and typed", async () => {
   const { project } = await addProject(server);
   const api = await server.rpc();

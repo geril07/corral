@@ -121,6 +121,40 @@ test("an explicit GitHub import fills the prompt, keeps a local title, and the s
   await expect.element(taskMenuTarget("My local title")).toHaveFocus();
 });
 
+test("a CLI answer that names a pull request is refused as a pull request and keeps the URL", async () => {
+  await appWithProject();
+  await setServerEnv("FAKE_ISSUE_MODE", "ok");
+  await setServerEnv(
+    "FAKE_ISSUE_RESPONSE",
+    JSON.stringify({
+      number: 7,
+      title: "A pull request",
+      body: "",
+      url: "https://github.com/acme/app/pull/7",
+    }),
+  );
+
+  await prefixThen("t");
+  await openIssueImport();
+  await userEvent.fill(issueUrlField(), GITHUB_URL);
+  await importIssueButton().click();
+  await expect
+    .element(newTaskView().getByRole("alert"))
+    .toMatchTextContent(
+      "That URL is a pull request, not an issue. Import an issue URL or create the task manually.",
+    );
+  await expect.element(issueUrlField()).toHaveValue(GITHUB_URL);
+
+  // The same field still imports once the answer names an issue.
+  await setServerEnv("FAKE_ISSUE_RESPONSE", issue("Issue body"));
+  await importIssueButton().click();
+  await expect
+    .element(newTaskView().getByRole("status"))
+    .toMatchTextContent("Imported GitHub issue acme/app#7");
+  await expect.element(issueUrlField()).toHaveValue(GITHUB_URL);
+  await expect.element(promptField()).toHaveValue(`Issue title\n\n${GITHUB_URL}`);
+});
+
 test("a self-hosted host asks for GitHub or GitLab before the second explicit import", async () => {
   await clearIssueCliCalls();
   const { client, repo } = await appWithProject();
@@ -184,6 +218,7 @@ test("malformed, auth, network and missing-CLI failures leave manual creation wo
   await expect
     .element(newTaskView().getByRole("alert"))
     .toMatchTextContent("The issue tool returned something Corral could not read.");
+  await expect.element(issueUrlField()).toHaveValue(GITHUB_URL);
 
   await setServerEnv("FAKE_ISSUE_MODE", "fail");
   await setServerEnv("FAKE_ISSUE_EXIT", "4");
