@@ -178,23 +178,34 @@ export function WorkspaceScreen({
           serverUrl: client.server.url,
         }
       : connection.status === "capability-refused"
-        ? { kind: "capability-refused", serverUrl: client.server.url }
-        : connection.status === "connecting" && connection.attempt > 1
+        ? {
+            kind: "capability-refused",
+            attempt: connection.attempt,
+            startedAt: connection.startedAt,
+            serverUrl: client.server.url,
+          }
+        : connection.status === "invalid-capability"
           ? {
-              kind: "unreachable",
-              attempt: connection.attempt,
-              startedAt: connection.startedAt,
+              kind: "invalid-capability",
+              detail: connection.detail,
               serverUrl: client.server.url,
             }
-          : undefined;
+          : connection.status === "connecting" && connection.attempt > 1
+            ? {
+                kind: "unreachable",
+                attempt: connection.attempt,
+                startedAt: connection.startedAt,
+                serverUrl: client.server.url,
+              }
+            : undefined;
   if (!loaded && startupProblem !== undefined) {
     return (
       <StartupNotice
         problem={startupProblem}
-        onRetry={() => client.connection.retry()}
+        onRetry={() => client.recover()}
         onUseCapability={(capability) => {
           putCapabilityInHash(capability);
-          client.connection.retry();
+          client.recover();
         }}
       />
     );

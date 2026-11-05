@@ -146,15 +146,20 @@ What a user does. Everything below is built and verified end to end, chat views 
   composition is never a submission, whichever order the platform reports the keydown and the
   composition end; the user's next plain Enter submits normally.
   Connection and protocol-mismatch notices remain app-level, not transient success toasts. A page
-  that cannot use the server — no capability, a stored pair for another server, an invalid
-  `?server=`, a server that cannot be reached at startup, a protocol mismatch, or a refused
-  capability — shows one framed notice with the cause in one sentence and only the actions the
-  host has: a capability field and Reload at boot, Retry for an unreachable server, Reload in a
-  browser and "Quit and reopen the app" on desktop for a protocol mismatch. While the workspace
-  is running, the connection status names `attempt N` and the elapsed time and opens the same
-  capability field as a dialog; submitting writes it into the hash the client re-reads before
-  every attempt, so the task, tab, draft and terminal survive. Nothing behind a boot notice was
-  mounted, so the notice never sits over an empty workspace.
+  that cannot use the server — no capability, a stored pair for another server, a malformed
+  capability, an invalid `?server=`, a server that cannot be reached at startup, a protocol
+  mismatch, or a refused capability — shows one framed notice with the cause in one sentence and
+  only the actions the host has. Boot failures with a usable address offer a capability field and
+  Reload; an invalid `?server=` offers only Reload — fix the address, then reload, because a
+  capability cannot repair it. An unreachable server offers Retry. A protocol mismatch offers
+  Reload in a browser and tells desktop to stop that server and start the app again (the server
+  outlives a quit). A refused capability offers the field and, on desktop, the same restart hint.
+  While the workspace is running, the connection status names `attempt N` and the elapsed time
+  and opens the same capability field as a dialog; submitting writes it into the hash the client
+  re-reads before every attempt, and one recovery entry point retries the RPC connection and every
+  attached terminal, so the task, tab, draft and terminal survive and a refused terminal reattaches
+  with the new capability. Nothing behind a boot notice was mounted, so the notice never sits over
+  an empty workspace.
 - Chat keeps the composer semantics of the new-task view: Enter sends, Shift+Enter is a newline,
   and while a turn runs Enter steers and Ctrl/Cmd+Enter queues a follow-up (the composer says
   which). `prefix .` aborts the working turn and the palette lists the same action.

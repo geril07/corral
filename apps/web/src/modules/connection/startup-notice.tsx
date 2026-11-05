@@ -1,6 +1,6 @@
 import { CAPABILITY_HASH_PARAM, type ServerTargetFailure } from "@corral/client/bootstrap";
 import type { ConnectionState } from "@corral/client/connection-state";
-import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
+import { isCapabilityToken, PROTOCOL_VERSION } from "@corral/protocol/handshake";
 import { useEffect, useState } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
 import { Button, ContentLane, FormField, Input, TaskDialog } from "../../common/ui/index.ts";
@@ -21,7 +21,13 @@ export type NoticeProblem =
       startedAt: number;
       serverUrl?: string | undefined;
     }
-  | { kind: "capability-refused"; serverUrl?: string | undefined }
+  | {
+      kind: "capability-refused";
+      attempt: number;
+      startedAt: number;
+      serverUrl?: string | undefined;
+    }
+  | { kind: "invalid-capability"; detail?: string | undefined; serverUrl?: string | undefined }
   | { kind: "protocol-mismatch"; serverProtocolVersion: number | undefined };
 
 export type NoticeHost = "browser" | "desktop";
@@ -72,19 +78,32 @@ export function CapabilityForm({
   autoFocus?: boolean;
 }) {
   const [value, setValue] = useState("");
+  const [error, setError] = useState<string | undefined>(undefined);
   return (
     <form
       className="flex flex-col gap-2"
       onSubmit={(event) => {
         event.preventDefault();
         const capability = value.trim();
-        if (capability !== "") onSubmit(capability);
+        if (capability === "") return;
+        if (!isCapabilityToken(capability)) {
+          setError(
+            "That is not a valid capability: paste the token from endpoint.json (no spaces or line breaks).",
+          );
+          return;
+        }
+        setError(undefined);
+        onSubmit(capability);
       }}
     >
       <FormField label="Capability">
         <Input
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setError(undefined);
+          }}
+          aria-invalid={error !== undefined}
           placeholder="Paste the capability from endpoint.json"
           autoComplete="off"
           autoCapitalize="none"
@@ -93,6 +112,11 @@ export function CapabilityForm({
           autoFocus={autoFocus}
         />
       </FormField>
+      {error !== undefined && (
+        <p className="m-0 text-xs leading-relaxed text-destructive" role="alert">
+          {error}
+        </p>
+      )}
       {hint !== undefined && (
         <p className="m-0 text-xs leading-relaxed text-muted-foreground">{hint}</p>
       )}
@@ -136,7 +160,15 @@ function bootContent(failure: ServerTargetFailure | undefined, message: string):
       return {
         heading: "The server address is not valid",
         cause: `Corral can only connect to a ws:// or wss:// address, not "${failure.given ?? "the one in this page's URL"}".`,
-        hint: "Fix ?server= in this page's address, then reload, or paste a capability below.",
+        hint: "Fix ?server= in this page's address, then reload. A capability cannot repair an invalid address.",
+        field: false,
+      };
+    case "invalid-capability":
+      return {
+        heading: "That capability cannot be used",
+        cause:
+          "The capability is not a valid WebSocket token. Corral did not store it or open a socket.",
+        hint: "Paste the capability Corral published in endpoint.json below.",
         field: true,
       };
     case "desktop-endpoint":
@@ -181,10 +213,23 @@ function describeProblem(problem: NoticeProblem, host: NoticeHost, now: number):
       return {
         heading: "The server refused this capability",
         cause: `The server${problem.serverUrl === undefined ? "" : ` at ${problem.serverUrl}`} did not accept this page's capability.`,
+        status: `Attempt ${problem.attempt} · ${formatElapsed(now, problem.startedAt)}`,
         hint:
           host === "browser"
-            ? "Paste the capability the server published in endpoint.json."
-            : undefined,
+            ? "Paste the capability the server published in endpoint.json. Recovery also reattaches the open terminals."
+            : "Stop that server and start the app again. It was left running, so its sessions are untouched.",
+        field: host === "browser",
+      };
+    case "invalid-capability":
+      return {
+        heading: "That capability cannot be used",
+        cause:
+          problem.detail ??
+          "The capability is not a valid WebSocket token. Corral did not open a socket.",
+        hint:
+          host === "browser"
+            ? "Paste the capability Corral published in endpoint.json. The previous target is kept until a valid one is supplied."
+            : "Stop that server and start the app again. It was left running, so its sessions are untouched.",
         field: host === "browser",
       };
     case "protocol-mismatch":
@@ -195,7 +240,10 @@ function describeProblem(problem: NoticeProblem, host: NoticeHost, now: number):
           host === "browser"
             ? "Update Corral or the server so both speak the same version, then reload."
             : undefined,
-        instruction: host === "desktop" ? "Quit and reopen the app." : undefined,
+        instruction:
+          host === "desktop"
+            ? "Stop that server and start the app again. It was left running, so its sessions are untouched."
+            : undefined,
         field: false,
       };
     default:
@@ -297,7 +345,15 @@ const RECOVERY_PROBLEM = (connection: ConnectionState, serverUrl: string): Notic
     };
   }
   if (connection.status === "capability-refused") {
-    return { kind: "capability-refused", serverUrl };
+    return {
+      kind: "capability-refused",
+      attempt: connection.attempt,
+      startedAt: connection.startedAt,
+      serverUrl,
+    };
+  }
+  if (connection.status === "invalid-capability") {
+    return { kind: "invalid-capability", detail: connection.detail, serverUrl };
   }
   return {
     kind: "unreachable",
@@ -327,11 +383,17 @@ export function ConnectionRecoveryDialog({ onClose }: { onClose: () => void }) {
             {content.status}
           </p>
         )}
+        {content.hint !== undefined && !content.field && (
+          <p className="m-0 text-sm leading-relaxed text-muted-foreground">{content.hint}</p>
+        )}
+        {content.instruction !== undefined && (
+          <p className="m-0 text-sm font-medium">{content.instruction}</p>
+        )}
         {content.field && (
           <CapabilityForm
             onSubmit={(capability) => {
               putCapabilityInHash(capability);
-              client.connection.retry();
+              client.recover();
             }}
             hint={content.hint}
             submitLabel="Reconnect"
@@ -339,7 +401,7 @@ export function ConnectionRecoveryDialog({ onClose }: { onClose: () => void }) {
         )}
         {retry && (
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => client.connection.retry()}>
+            <Button variant="outline" onClick={() => client.recover()}>
               Retry now
             </Button>
           </div>
