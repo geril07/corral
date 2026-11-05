@@ -47,9 +47,8 @@ export function ChangesView({
   const list = useRef<HTMLDivElement>(null);
   const focusedOnce = useRef(false);
   // A selection that the new read model no longer lists falls back to the first file.
-  const activePath = files.some((file) => file.path === selectedPath)
-    ? selectedPath
-    : files[0]?.path;
+  const activeFile = files.find((file) => file.path === selectedPath) ?? files[0];
+  const activePath = activeFile?.path;
 
   // The tab becoming current is a mount: ask the server to recompute, and again when the window
   // regains focus, because an edit made outside Corral (or by a terminal agent) never reaches us.
@@ -137,6 +136,7 @@ export function ChangesView({
           task={task}
           actions={actions}
           selectedPath={undefined}
+          selectedOldPath={undefined}
           pullRequest={pullRequest}
           onPullRequest={onPullRequest}
           onSettle={onSettle}
@@ -159,6 +159,7 @@ export function ChangesView({
         task={task}
         actions={actions}
         selectedPath={activePath}
+        selectedOldPath={activeFile?.oldPath}
         pullRequest={pullRequest}
         onPullRequest={onPullRequest}
         onSettle={onSettle}

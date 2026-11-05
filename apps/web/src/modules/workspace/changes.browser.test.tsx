@@ -14,6 +14,7 @@ const SIZE = { cols: 80, rows: 24 };
 const changesTab = () => page.getByRole("tab", { name: "Changes" });
 const fileList = () => page.getByRole("listbox", { name: "Changed files" });
 const fileRow = (path: string) => fileList().getByRole("option", { name: new RegExp(path) });
+const finish = () => page.getByRole("group", { name: "Finish" });
 
 /** A diff line the library rendered, from its shadow root: the diff is real, not an error shell. */
 function diffLines(): HTMLElement[] {
@@ -191,6 +192,138 @@ test("the keyboard moves through the file list and the diff follows the selectio
   await expect.element(fileRow("README\\.md")).toHaveAttribute("aria-selected", "true");
   await userEvent.keyboard("{End}");
   await expect.element(fileRow("src/new\\.ts")).toHaveAttribute("aria-selected", "true");
+});
+
+test("Stage on a renamed row stages both paths and a commit records the rename", async () => {
+  const data = await seed({ files: false });
+  // Test setup for an R row with nothing staged: a worktree-only rename is `D old` plus `?? new`,
+  // which the read model lists as two rows. Asking git to record the new path as intent-to-add
+  // makes `git diff <base>` see the rename while the index still holds neither change.
+  await runGitIn(data.task.workspacePath, ["mv", "README.md", "renamed.md"]);
+  await runGitIn(data.task.workspacePath, ["reset", "HEAD", "--", "README.md", "renamed.md"]);
+  await runGitIn(data.task.workspacePath, ["add", "-N", "renamed.md"]);
+
+  await renderApp(newClient(), [data.href]);
+  await prefixShifted("c");
+
+  const row = fileRow("README\\.md → renamed\\.md");
+  await expect.element(row).toBeVisible();
+  await expect.element(row).toHaveAttribute("aria-selected", "true");
+  await expect.element(finish().getByText("nothing staged")).toBeVisible();
+
+  // Stage on the R row moves the deletion and the addition: the index records one rename, and the
+  // bar counts both index paths.
+  await finish().getByRole("button", { name: "Stage renamed.md" }).click();
+  await expect.element(finish().getByText("2 staged")).toBeVisible();
+  expect(
+    (await runGitIn(data.task.workspacePath, ["diff", "--cached", "--name-status"])).trim(),
+  ).toBe("R100\tREADME.md\trenamed.md");
+  await expect.element(finish().getByRole("button", { name: "Unstage renamed.md" })).toBeVisible();
+
+  // Commit from the bar: the rename is one commit and no old file remains in HEAD.
+  await userEvent.fill(
+    finish().getByRole("textbox", { name: "Commit message" }),
+    "refactor: rename the readme",
+  );
+  await finish().getByRole("button", { name: "Commit", exact: true }).click();
+  await expect.element(finish().getByText("nothing staged")).toBeVisible();
+  expect(
+    (await runGitIn(data.task.workspacePath, ["diff", "--cached", "--name-status"])).trim(),
+  ).toBe("");
+  expect(
+    (await runGitIn(data.task.workspacePath, ["ls-tree", "--name-only", "HEAD"]))
+      .trim()
+      .split("\n"),
+  ).toEqual(["renamed.md"]);
+
+  // The committed R row still names the old path, which is now in neither the index nor the
+  // worktree. An edit to the new path stages without that path, and the bar offers Unstage on the
+  // new path alone; a second Stage after Unstage is safe.
+  const committed = await runGitIn(data.task.workspacePath, ["show", "HEAD:renamed.md"]);
+  await writeFilesIn(data.task.workspacePath, {
+    "renamed.md": `${committed}edited after commit\n`,
+  });
+  await finish().getByRole("button", { name: "Stage renamed.md" }).click();
+  await expect.element(finish().getByText("1 staged")).toBeVisible();
+  await expect.element(finish().getByRole("alert")).not.toBeInTheDocument();
+  expect(
+    (await runGitIn(data.task.workspacePath, ["diff", "--cached", "--name-status"])).trim(),
+  ).toBe("M\trenamed.md");
+  await expect.element(finish().getByRole("button", { name: "Unstage renamed.md" })).toBeVisible();
+  await finish().getByRole("button", { name: "Unstage renamed.md" }).click();
+  await expect.element(finish().getByText("nothing staged")).toBeVisible();
+  expect(
+    (await runGitIn(data.task.workspacePath, ["diff", "--cached", "--name-status"])).trim(),
+  ).toBe("");
+  await finish().getByRole("button", { name: "Stage renamed.md" }).click();
+  await expect.element(finish().getByText("1 staged")).toBeVisible();
+  await expect.element(finish().getByRole("alert")).not.toBeInTheDocument();
+});
+
+test("a half-staged rename still offers Stage and stages both paths", async () => {
+  const data = await seed({ files: false });
+  // Half-staged: the deletion is in the index, the new path is not; intent-to-add keeps the read
+  // model's one R row, and the bar must offer Stage rather than Unstage.
+  await runGitIn(data.task.workspacePath, ["mv", "README.md", "renamed.md"]);
+  await runGitIn(data.task.workspacePath, ["reset", "HEAD", "--", "renamed.md"]);
+  await runGitIn(data.task.workspacePath, ["add", "-N", "renamed.md"]);
+
+  await renderApp(newClient(), [data.href]);
+  await prefixShifted("c");
+
+  await expect.element(fileRow("README\\.md → renamed\\.md")).toBeVisible();
+  await expect.element(finish().getByText("1 staged")).toBeVisible();
+  await finish().getByRole("button", { name: "Stage renamed.md" }).click();
+  await expect.element(finish().getByText("2 staged")).toBeVisible();
+  expect(
+    (await runGitIn(data.task.workspacePath, ["diff", "--cached", "--name-status"])).trim(),
+  ).toBe("R100\tREADME.md\trenamed.md");
+  await expect.element(finish().getByRole("button", { name: "Unstage renamed.md" })).toBeVisible();
+});
+
+test("Unstage on a renamed row removes both paths and keeps the worktree rename", async () => {
+  const data = await seed({ files: false });
+  // `git mv` leaves the rename staged, the state Stage all produces.
+  await runGitIn(data.task.workspacePath, ["mv", "README.md", "renamed.md"]);
+
+  await renderApp(newClient(), [data.href]);
+  await prefixShifted("c");
+
+  const renamedRow = fileRow("README\\.md → renamed\\.md");
+  await expect.element(renamedRow).toBeVisible();
+  await expect.element(renamedRow).toHaveAttribute("aria-selected", "true");
+  await expect.element(finish().getByText("2 staged")).toBeVisible();
+  await finish().getByRole("button", { name: "Unstage renamed.md" }).click();
+
+  // Both index paths are gone; the worktree still holds only the new path, and the selected new
+  // path is an unstaged addition whose button offers Stage again.
+  await expect.element(finish().getByText("nothing staged")).toBeVisible();
+  expect(
+    (await runGitIn(data.task.workspacePath, ["diff", "--cached", "--name-status"])).trim(),
+  ).toBe("");
+  expect(
+    (await runGitIn(data.task.workspacePath, ["status", "--porcelain"]))
+      .trimEnd()
+      .split("\n")
+      .toSorted(),
+  ).toEqual([" D README.md", "?? renamed.md"]);
+  // The R row splits into its deletion and addition, so the list falls back to the first row; both
+  // are unstaged again, and selecting the new path offers Stage.
+  await expect.element(fileRow("README\\.md")).toHaveAttribute("aria-selected", "true");
+  await expect.element(finish().getByRole("button", { name: "Stage README.md" })).toBeVisible();
+  await fileRow("renamed\\.md").click();
+  await expect.element(fileRow("renamed\\.md")).toHaveAttribute("aria-selected", "true");
+  await expect.element(finish().getByRole("button", { name: "Stage renamed.md" })).toBeVisible();
+
+  // Stage all brings the rename back, and Unstage on the R row again moves both paths.
+  await finish().getByRole("button", { name: "Stage all" }).click();
+  await expect.element(renamedRow).toBeVisible();
+  await expect.element(finish().getByText("2 staged")).toBeVisible();
+  await finish().getByRole("button", { name: "Unstage renamed.md" }).click();
+  await expect.element(finish().getByText("nothing staged")).toBeVisible();
+  expect(
+    (await runGitIn(data.task.workspacePath, ["diff", "--cached", "--name-status"])).trim(),
+  ).toBe("");
 });
 
 test("a clean task shows the empty state, and the 1024x640 list takes the top third", async () => {
