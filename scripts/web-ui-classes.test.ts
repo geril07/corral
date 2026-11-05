@@ -8,8 +8,10 @@ import { classViolations } from "./web-ui-classes.mjs";
 const repository = path.join(import.meta.dirname, "..");
 const script = path.join(import.meta.dirname, "check-web-ui.mjs");
 
-function messages(source: string, filename = "sample.tsx") {
-  return classViolations(source, filename).map(({ line, message }) => `${line}:${message}`);
+function messages(source: string, filename = "sample.tsx", location: "module" | "kit" = "module") {
+  return classViolations(source, filename, location).map(
+    ({ line, message }) => `${line}:${message}`,
+  );
 }
 
 const temporaryRoots: string[] = [];
@@ -80,14 +82,16 @@ describe("class literals", () => {
       'const d = "hover:bg-[#fff]";',
     ].join("\n");
     const reported = messages(source);
-    expect(reported).toHaveLength(7);
+    expect(reported).toHaveLength(9);
     expect(reported.filter((line) => line.startsWith("1:"))).toEqual([
       "1:arbitrary value in class name: bg-[#fff]",
       "1:raw colour in class name: bg-[#fff]",
     ]);
     expect(reported).toContain("2:arbitrary value in class name: p-[3px]");
+    expect(reported).toContain("2:spacing outside the scale in class name: p-[3px]");
     expect(reported).toContain("3:arbitrary value in class name: text-[hsl(0_0%_0%)]");
     expect(reported).toContain("3:raw colour in class name: text-[hsl(0_0%_0%)]");
+    expect(reported).toContain("3:type outside the ramp in class name: text-[hsl(0_0%_0%)]");
     expect(reported).toContain("4:arbitrary value in class name: hover:bg-[#fff]");
     expect(reported).toContain("4:raw colour in class name: hover:bg-[#fff]");
   });
@@ -239,6 +243,95 @@ describe("kit control appearance", () => {
   });
 });
 
+describe("spine scales", () => {
+  it("rejects every banned form inside the kit, not only in modules", () => {
+    for (const [source, expected] of [
+      ["ring-ring/50", "focus ring outside the recipe in class name: ring-ring/50"],
+      ["focus-visible:ring-3", "focus ring outside the recipe in class name: focus-visible:ring-3"],
+      [
+        "ring-1 ring-foreground/10",
+        "focus ring outside the recipe in class name: ring-foreground/10",
+      ],
+      ["focus-within:ring-2", "focus ring outside the recipe in class name: focus-within:ring-2"],
+      ["text-lg", "type outside the ramp in class name: text-lg"],
+      ["text-[13px]", "type outside the ramp in class name: text-[13px]"],
+      ["font-bold", "type outside the ramp in class name: font-bold"],
+      ["tracking-tight", "type outside the ramp in class name: tracking-tight"],
+      ["shadow-md", "surface outside the tiers in class name: shadow-md"],
+      ["rounded-2xl", "surface outside the tiers in class name: rounded-2xl"],
+      ["transition-all", "motion outside the budget in class name: transition-all"],
+      ["transition-colors", "motion outside the budget in class name: transition-colors"],
+      ["duration-100", "motion outside the budget in class name: duration-100"],
+      ["animation-duration-100", "motion outside the budget in class name: animation-duration-100"],
+      ["animate-pulse", "motion outside the budget in class name: animate-pulse"],
+      ["fade-out-0", "motion outside the budget in class name: fade-out-0"],
+      ["blur-in", "motion outside the budget in class name: blur-in"],
+      ["text-primary", "primary as a text colour in class name: text-primary"],
+    ]) {
+      expect(messages(`const cls = "${source}";`, "kit.tsx", "kit")).toContain(`1:${expected}`);
+    }
+  });
+
+  it("allows the raw shapes the kit needs and nothing the gate owns", () => {
+    for (const token of [
+      // A border-compensating inset: a spacing step plus or minus the hairline.
+      "p-[calc(var(--spacing)*2-1px)]",
+      // A chip whose box must not multiply with the device scale.
+      "h-[calc(var(--spacing)*5.25)]",
+      // Popup and viewport bounds.
+      "w-[36rem]",
+      "min-w-[96px]",
+      "max-h-[25.5rem]",
+      "max-h-[calc(100dvh-2rem)]",
+      // The tooltip arrow keeps its 2 px radius.
+      "rounded-[2px]",
+      // One ring width and offset.
+      "focus-visible:ring-2",
+      "ring-2",
+      // Derived gutters: a step plus the control it clears (icon, indicator, close button).
+      "pl-7",
+      "pr-8",
+      "pr-12",
+      "pr-18",
+    ]) {
+      expect(messages(`const cls = "${token}";`, "kit.tsx", "kit")).toEqual([]);
+    }
+  });
+
+  it("leaves the kit's palette and retired-token rules to modules", () => {
+    expect(
+      messages('const cls = "w-[36rem] bg-red-500 rounded-control";', "kit.tsx", "kit"),
+    ).toEqual([]);
+  });
+
+  it("holds a module to the spacing steps and the kit's derived gutters to the kit", () => {
+    for (const token of ["pl-7", "pr-18", "p-7", "gap-7", "px-24"]) {
+      expect(messages(`const cls = "${token}";`)).toEqual([
+        `1:spacing outside the scale in class name: ${token}`,
+      ]);
+    }
+    for (const token of ["p-0", "p-2.5", "gap-6", "pl-6", "px-4", "pb-6"]) {
+      expect(messages(`const cls = "${token}";`)).toEqual([]);
+    }
+  });
+
+  it("requires a reduced-motion pair wherever a literal animates", () => {
+    expect(messages('const cls = "animate-in fade-in-0 zoom-in-95";', "kit.tsx", "kit")).toEqual([
+      "1:motion without a reduced-motion pair in class name: animate-in",
+    ]);
+    expect(
+      messages('const cls = "animate-in fade-in-0 motion-reduce:animate-none";', "kit.tsx", "kit"),
+    ).toEqual([]);
+    expect(
+      messages(
+        'const cls = "transition-transform ease-surface motion-reduce:transition-none";',
+        "kit.tsx",
+        "kit",
+      ),
+    ).toEqual([]);
+  });
+});
+
 describe("guard CLI", () => {
   it("fails a module control override with its source location", () => {
     const root = fixture({
@@ -278,13 +371,24 @@ describe("guard CLI", () => {
     );
   });
 
-  it("exempts common/ui", () => {
+  it("leaves common/ui's palette literals to the kit", () => {
     const root = fixture({
       "apps/web/src/common/ui/panel.tsx": 'export const panel = "bg-red-500";\n',
     });
     const result = guard(root);
     expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
+  });
+
+  it("walks common/ui for the kit rules too", () => {
+    const root = fixture({
+      "apps/web/src/common/ui/panel.tsx": 'export const panel = "flex text-lg";\n',
+    });
+    const result = guard(root);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "apps/web/src/common/ui/panel.tsx:1: type outside the ramp in class name: text-lg",
+    );
   });
 
   it("fails malformed files with their position", () => {
