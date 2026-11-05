@@ -57,7 +57,9 @@ What a user does. Everything below is built and verified end to end, chat views 
   state while disconnected, config problems and the prefix indicator. It has a default and a
   narrow-window width, dragged between its limits with the edge handle, leaving the main area
   its minimum at and above the supported 1024 px floor — kept per device, reset by a double
-  click, and hidden or shown by `prefix \`.
+  click, and hidden or shown by `prefix \`. `prefix w` gives the list the keyboard, showing the
+  sidebar first if it was hidden: arrows walk its rows, Enter opens one, and Escape returns the
+  keyboard to where it came from.
 - Project grouping is the default (`prefix l` switches to status groups and the device keeps
   the choice). The bottom Settled shelf spans projects, scrolls independently and pages six at a
   time; selecting older history reveals it without resuming it. Rows are two-line tasks;
@@ -124,6 +126,13 @@ What a user does. Everything below is built and verified end to end, chat views 
   no exit animation delays its unmount. Tests then assert one live popup or the
   terminal's first character instead of waiting for a transition. The prefix never
   handles keys while a task dialog is open.
+- The terminal behaves like a terminal: Tab, Shift+Tab, Escape, F6 and Ctrl+Tab belong to the PTY,
+  so navigation does not take them. `prefix w` is the keyboard's way out of it and works whatever
+  has the keyboard — the terminal, chat, a composer or a stopped session. It focuses the current
+  task row, else the list's first row, else Add project in the footer; arrows and Home/End walk
+  the rows; Enter opens a row and hands the keyboard back to that task's terminal, chat or
+  composer; Escape returns it to the field or terminal the list took it from. Shift+F10 on a row
+  still opens its task menu.
 - Errors stay with the form at `role="alert"`; failed submissions preserve input. The composer
   is a view, so it holds no opener: Enter submits, Shift+Enter is a newline in the prompt, Escape
   returns to the previously selected task, and a create that waits for naming (worktree mode)
@@ -157,8 +166,9 @@ What a user does. Everything below is built and verified end to end, chat views 
   user picks such an agent in the composer the view control moves to `terminal` and says why. A user request
   arrives as the last timeline item with the keyboard: arrows and Enter answer `select` and
   `confirm`, Enter answers `input`, Ctrl/Cmd+Enter answers `editor`, and Escape dismisses any of
-  them. Prefix mode is the window capture-phase handler, so it works while the composer and the
-  chat have the keyboard and plain keys stay in the field. The transcript is a focusable `log`: PageUp/PageDown,
+  them. Prefix mode is the window capture-phase handler, so it works while the composer, the chat
+  and the terminal have the keyboard; plain keys stay in the field, and Tab, Shift+Tab, Escape, F6
+  and Ctrl+Tab stay in the PTY (see **Focus, keyboard and errors**). The transcript is a focusable `log`: PageUp/PageDown,
   Home/End and the arrow keys scroll it without a pointer; moving up releases the end follow and
   End takes it again. A fold that expands while the user reads above the end does not drag the
   view back to the tail.
