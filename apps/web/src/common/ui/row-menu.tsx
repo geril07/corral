@@ -23,7 +23,7 @@ export function RowMenu({
         <ContextMenu.Positioner className="isolate z-50 outline-none" sideOffset={4}>
           <ContextMenu.Popup
             aria-label={label}
-            className="max-h-(--available-height) min-w-44 max-w-(--available-width) overflow-y-auto rounded-lg bg-popover p-1 text-popover-foreground shadow-lg ring-1 ring-foreground/10 outline-none"
+            className="max-h-(--available-height) min-w-44 max-w-(--available-width) overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-floating outline-none"
           >
             {children}
           </ContextMenu.Popup>

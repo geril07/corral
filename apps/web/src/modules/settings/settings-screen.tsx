@@ -87,7 +87,7 @@ export function SettingsScreen({
       {closing && modelsDirty && (
         <div
           role="alert"
-          className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-2"
+          className="flex h-(--chrome-header) shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-2"
         >
           <span className="text-xs">Model preferences have unsaved changes.</span>
           <div className="flex gap-1">

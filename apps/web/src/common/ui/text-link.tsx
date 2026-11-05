@@ -29,7 +29,7 @@ export function LinkAnchor({
 }) {
   return (
     <a
-      className="wrap-anywhere font-medium text-primary underline"
+      className="wrap-anywhere font-medium text-primary-text underline"
       data-streamdown="link"
       href={href}
       title={title}
@@ -79,7 +79,7 @@ export function ActionLink({
   return (
     <button
       type="button"
-      className="wrap-anywhere inline cursor-pointer border-0 bg-transparent p-0 text-left font-medium text-primary underline"
+      className="wrap-anywhere inline cursor-pointer border-0 bg-transparent p-0 text-left font-medium text-primary-text underline"
       title={title}
       aria-label={ariaLabel}
       onClick={onActivate}

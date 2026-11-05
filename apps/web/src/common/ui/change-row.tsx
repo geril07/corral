@@ -4,7 +4,7 @@ import { Button } from "./button.tsx";
 import { useDarkTheme } from "./diff-theme.ts";
 
 /**
- * One 28 px changed-file row (`layout.md`, **Changes**): the status letter, the path in 13 px mono
+ * One 28 px changed-file row (`layout.md`, **Changes**): the status letter, the path in 12 px mono
  * truncated from the left so the file name stays visible, and the counts right-aligned. A rename
  * names both paths. Selected is the row whose diff the pane shows, not a keyboard focus state.
  */
@@ -27,16 +27,15 @@ export function ChangeFileRow({
       aria-selected={selected}
       tabIndex={selected ? 0 : -1}
       variant={selected ? "secondary" : "ghost"}
-      size="xs"
+      size="row-sm"
       layout="tree"
       data-path={file.path}
       title={file.note === null ? shown : `${shown} — ${file.note}`}
-      className="h-7 w-full gap-2 rounded-sm px-2"
       onClick={onSelect}
     >
       <span className="w-3 shrink-0 font-mono text-xs text-muted-foreground">{file.status}</span>
       {/* `dir="rtl"` puts the ellipsis at the start of a long path, keeping the file name in view. */}
-      <span dir="rtl" className="min-w-0 flex-1 truncate text-left font-mono text-[13px]">
+      <span dir="rtl" className="min-w-0 flex-1 truncate text-left font-mono text-xs">
         {shown}
       </span>
       <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">

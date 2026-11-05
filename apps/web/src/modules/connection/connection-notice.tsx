@@ -6,7 +6,7 @@ export function ConnectionNotice({ state }: { state: ConnectionState }) {
   if (state.status === "protocol-mismatch") {
     return (
       <div className="mx-auto mt-24 max-w-xl px-4" role="alert">
-        <h1 className="mb-2 text-lg text-destructive">
+        <h1 className="mb-2 text-base font-semibold text-destructive">
           This app and the server cannot talk to each other
         </h1>
         <p>
