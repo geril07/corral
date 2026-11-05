@@ -1,4 +1,4 @@
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
@@ -31,6 +31,15 @@ test("add expands ~ with the server's home, trims the input and stores git's abs
   const project = await api.projects.add({ path: "  ~/code/my/corral/  " });
 
   expect(project).toMatchObject({ name: "corral", path: repo, defaultBaseBranch: "main" });
+
+  // Trimmed to nothing, whitespace is still a refusal: an empty input must not become the cwd.
+  for (const path of [" ", "\t\n"]) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- one case at a time keeps failures readable
+    await expect(api.projects.add({ path })).rejects.toMatchObject({
+      code: "GIT_FAILED",
+      data: { message: "the project path must be an absolute path or start with ~/" },
+    });
+  }
 });
 
 test("~ and ~/ resolve to the server's home", async () => {
@@ -70,15 +79,53 @@ test("add of a missing directory, a file or a relative path names its real cause
     code: "GIT_FAILED",
     data: { message: `not a directory: ${file}` },
   });
-  await expect(api.projects.add({ path: "relative/repo" })).rejects.toMatchObject({
-    code: "GIT_FAILED",
-    data: { message: "the project path must be an absolute path or start with ~/" },
-  });
+  for (const path of ["relative/repo", "~foo", "~user/repo"]) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- one case at a time keeps failures readable
+    await expect(api.projects.add({ path })).rejects.toMatchObject({
+      code: "GIT_FAILED",
+      data: { message: "the project path must be an absolute path or start with ~/" },
+    });
+  }
   await expect(api.projects.add({ path: "~/missing" })).rejects.toMatchObject({
     code: "GIT_FAILED",
     data: { message: `no such directory: ${join(server.homeDir, "missing")}` },
   });
 });
+
+test.runIf(process.platform !== "win32")(
+  "a symlink loop names the loop instead of becoming an internal error",
+  async () => {
+    const loop = join(server.scratchDir, "loop");
+    symlinkSync(loop, loop);
+    const api = await server.rpc();
+
+    await expect(api.projects.add({ path: loop })).rejects.toMatchObject({
+      code: "GIT_FAILED",
+      data: { message: `too many levels of symbolic links: ${loop}` },
+    });
+  },
+);
+
+test.runIf(process.platform !== "win32" && process.getuid?.() !== 0)(
+  "a directory the server cannot search names the permission refusal",
+  async () => {
+    const locked = join(server.scratchDir, "locked");
+    const child = join(locked, "child");
+    mkdirSync(locked);
+    chmodSync(locked, 0o000);
+    const api = await server.rpc();
+
+    try {
+      await expect(api.projects.add({ path: child })).rejects.toMatchObject({
+        code: "GIT_FAILED",
+        data: { message: `permission denied: ${child}` },
+      });
+    } finally {
+      // The fixture must be able to delete the scratch directory afterwards.
+      chmodSync(locked, 0o700);
+    }
+  },
+);
 
 test("a repository added through ~ is a duplicate of its absolute path", async () => {
   const repo = initRepo(join(server.homeDir, "app"));
