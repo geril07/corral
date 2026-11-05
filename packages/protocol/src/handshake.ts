@@ -34,9 +34,11 @@ import { z } from "zod";
  * C6 grew 10's write path as well, with the same rule: `changes.finish`, `changes.stage`,
  * `changes.commit`, `changes.push`, `changes.createPullRequest` and `changes.pullRequest` are
  * procedures a daemon from before C6 answers as unknown, so the Changes tab says the action is
- * unavailable there and the badge stays absent instead of showing a write that never ran. */
-// Version 11 requires shared models.watch/save and scoped catalog discovery on every client.
-export const PROTOCOL_VERSION = 11;
+ * unavailable there and the badge stays absent instead of showing a write that never ran. Version
+ * 11 requires the shared `models.watch/save/catalog` contract on every client. Version 12 adds the
+ * focus-sidebar action: a version 11 server strips that binding from its exhaustive keys. */
+// Version 12 adds the focus-sidebar action and its binding.
+export const PROTOCOL_VERSION = 12;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in

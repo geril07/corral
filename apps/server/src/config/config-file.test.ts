@@ -188,7 +188,7 @@ const browserChords: [file: string, path: string, warns: boolean][] = [
   ['[keys.bindings]\nboard = "ctrl+tab"\n', "keys.bindings.board", true],
   ['[keys]\nprefix = "ctrl+t"\n', "keys.prefix", true],
   // The prefix is already consumed when a binding fires, so a plain key is never browser-owned.
-  ['[keys.bindings]\nnew-agent = "w"\n', "keys.bindings.new-agent", false],
+  ['[keys.bindings]\nnew-agent = "u"\n', "keys.bindings.new-agent", false],
   ['[keys.bindings]\nnew-agent = "y"\n', "keys.bindings.new-agent", false],
   // Alt takes a chord past the browser's own handling.
   ['[keys.bindings]\nnew-agent = "alt+ctrl+w"\n', "keys.bindings.new-agent", false],

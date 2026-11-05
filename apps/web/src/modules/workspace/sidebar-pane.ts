@@ -79,10 +79,13 @@ export interface SidebarPane {
   setWidth: (width: number) => void;
   resetWidth: () => void;
   toggle: () => void;
+  /** Show the sidebar if it was hidden; `prefix w` needs its rows before it can focus one. */
+  show: () => void;
 }
 
 /**
- * The sidebar's width and visibility, the resize handle's setters and `prefix \`. The stored width
+ * The sidebar's width and visibility, the resize handle's setters, `prefix \` and the `show`
+ * `prefix w` needs. The stored width
  * is the device preference, not the live width: the rendered width is derived from it and the
  * current window, so a shrink only clamps what is shown and growing again restores the preference.
  * A resize request updates the preference within the static 208–420 px range, so an arrow at the
@@ -121,5 +124,10 @@ export function useSidebarPane(): SidebarPane {
     setHidden(next);
     store(HIDDEN_KEY, String(next));
   }, [hidden]);
-  return { width, hidden, maxWidth, setWidth, resetWidth, toggle };
+  const show = useCallback(() => {
+    if (!hidden) return;
+    setHidden(false);
+    store(HIDDEN_KEY, "false");
+  }, [hidden]);
+  return { width, hidden, maxWidth, setWidth, resetWidth, toggle, show };
 }

@@ -380,7 +380,7 @@ and optionally `model`; the server validates them and returns the snapshot.
 
 ## Protocol and old daemons
 
-The combined client/server contract is protocol version 10. Version 3 added launch profiles
+The combined client/server contract is protocol version 12. Version 3 added launch profiles
 and their revision pin; version 4 added the settings action; version 5 protects task-source
 inputs; version 6 adds the task title source, `tasks.rename`, the rename-task/session-number
 actions and the required task, naming and project settings; version 7 adds the sidebar-mode
@@ -390,7 +390,9 @@ session's `view` (optional until B1's migration), `sessions.setView`, the
 abort-turn/change-model/change-reasoning/switch-view bindings, `[tasks] view = "chat"`,
 `[agents.<kind>]` with `AGENT_DISABLED`, and `ConfigState.agents`; version 10 turns
 `chat.capabilities` from a driver list into the per-agent capability record (`kind`, `steer`,
-`followUp`, `approvals`, `modelSwitch`, `reasoningLevels`, `terminalView`). A protocol 4 daemon would
+`followUp`, `approvals`, `modelSwitch`, `reasoningLevels`, `terminalView`); version 11 requires
+the shared model catalog (`models.watch/save/catalog`) on every client; version 12 adds the
+focus-sidebar action and its binding. A protocol 4 daemon would
 strip task sources, a
 protocol 3 daemon sends an exhaustive bindings record without `settings`, and a protocol 2
 daemon would strip launch fields and start the agent natively; a protocol 5 daemon strips the
@@ -398,7 +400,8 @@ title source and its bindings, a protocol 6 daemon strips `seenAt` and the sideb
 and has no `tasks.markSeen`, a protocol 7 daemon strips the toggle-sidebar binding, a
 protocol 8 daemon has no `chat.*` procedures, no `sessions.setView` and its sessions carry no
 `view`, and a protocol 9 daemon answers `chat.capabilities` with a bare driver list instead of
-the capability record. Clients
+the capability record, a protocol 10 daemon has no `models.*` contract, and a protocol 11 daemon
+strips the focus-sidebar binding. Clients
 must therefore refuse older versions: the endpoint check reports a protocol mismatch, and a
 WebSocket handshake on an older version closes with `4001` and the server's version before any
 route, keymap or session mutation. The old daemon is left running with its sessions; nothing

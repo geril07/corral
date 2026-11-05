@@ -66,6 +66,39 @@ test("a config file rebinds an action and the key hint follows it", async () => 
   await expect.element(picker()).not.toBeInTheDocument();
 });
 
+test("the sidebar-list action is listed, rebindable, and a file chord on its default conflicts", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTaskWithShell("Keyboard way out");
+  const row = taskButton("Keyboard way out");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  await prefixThen(" ");
+  await expect.element(paletteItem(/Focus the sidebar list/)).toMatchTextContent("alt+a w");
+  // Running it from the palette leaves the keyboard on the row, not on the closing dialog.
+  await userEvent.keyboard("focus the sidebar list{Enter}");
+  await expect.element(row).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  // A chord in the file wins over the default, and the default key then does nothing.
+  await applyConfig(client, '[keys.bindings]\nfocus-sidebar = "y"\n', () =>
+    expect(client.config.getSnapshot().config.keys.bindings["focus-sidebar"]).toBe("y"),
+  );
+  await prefixThen("w");
+  await expect.element(row).not.toHaveFocus();
+  await prefixThen("y");
+  await expect.element(row).toHaveFocus();
+
+  // The default is not a chord the file can take: the explicit entry is dropped and reported.
+  await applyConfig(client, '[keys.bindings]\nboard = "w"\n', () =>
+    expect(client.config.getSnapshot().problems).toHaveLength(1),
+  );
+  expect(client.config.getSnapshot().problems[0]).toMatchObject({ path: "keys.bindings.board" });
+  await userEvent.keyboard("{Escape}");
+  await prefixThen("w");
+  await expect.element(row).toHaveFocus();
+});
+
 test("a config file unbinds an action, whose key then does nothing", async () => {
   const client = newClient();
   await render(<App client={client} />);

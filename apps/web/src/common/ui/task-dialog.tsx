@@ -20,8 +20,8 @@ import { createContext, useContext, useMemo, useRef, type ReactNode } from "reac
 const FINAL_FOCUS_SELECTOR =
   'textarea[aria-label="Message"], textarea[aria-label="Prompt"], .terminal-host .xterm-helper-textarea';
 
-/** The selected view owns the fallback, including a newly started chat. */
-function workspaceInput(): HTMLElement | null {
+/** The selected view's input: the chat or task composer, else the terminal. */
+export function workspaceInput(): HTMLElement | null {
   return document.querySelector<HTMLElement>(FINAL_FOCUS_SELECTOR);
 }
 
@@ -41,8 +41,8 @@ interface DialogFocus {
 const DialogFocusContext = createContext<DialogFocus | undefined>(undefined);
 
 /**
- * Remembers what opened a dialog, before the dialog takes the focus. Keyboard flows remember the
- * terminal; a pointer flow can pass the button it started from.
+ * Remembers what had the keyboard before a dialog or the sidebar list took it. Keyboard flows
+ * remember the terminal; a pointer flow can pass the button it started from.
  */
 export function DialogFocusProvider({ children }: { children: ReactNode }) {
   const target = useRef<HTMLElement | null>(null);
