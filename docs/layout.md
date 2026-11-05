@@ -10,9 +10,10 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 
 - Two columns: resizable sidebar and one task workspace. No synthetic title bar or global
   status bar. Independent shells are session tabs, never a separate chat dock.
-- Sidebar has a default width, a narrow-window default and a drag range that always reserves a
-  minimum for the main area (`sidebar-pane.ts` owns the numbers), persists per device, resets on
-  edge double-click.
+- Sidebar has a default width, a narrow-window default and a drag range that leaves the main
+  area its minimum at and above the supported floor (`sidebar-pane.ts` owns the numbers). The
+  width persists per device, a window shrink only clamps the shown width, and an edge
+  double-click resets it.
 - The sidebar toggle is opposite the corral wordmark. While hidden it is in the main header;
   `prefix \\` still works.
 - Two distinct rows remain visible for a task or draft: repository/task header, then session

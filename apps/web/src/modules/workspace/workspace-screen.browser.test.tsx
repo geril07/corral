@@ -830,6 +830,63 @@ test("a shrinking window re-clamps the sidebar and its maximum without losing a 
   }
 });
 
+test("a window shrink shows the clamped width and growing again restores the preference", async () => {
+  await render(<App client={newClient()} />);
+  const handle = page.getByRole("separator", { name: "Resize sidebar" });
+  const original = window.innerWidth;
+
+  try {
+    pretendWindowWidth(1600);
+    handle.element().focus();
+    await userEvent.keyboard("{ArrowRight}".repeat(20));
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "420");
+    expect(window.localStorage.getItem("corral.sidebar-width")).toBe("420");
+
+    // The shrink clamps what is shown but leaves the stored preference alone.
+    pretendWindowWidth(900);
+    await expect.element(handle).toHaveAttribute("aria-valuemax", "260");
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "260");
+    expect(window.localStorage.getItem("corral.sidebar-width")).toBe("420");
+
+    pretendWindowWidth(1600);
+    await expect.element(handle).toHaveAttribute("aria-valuemax", "420");
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "420");
+    expect(window.localStorage.getItem("corral.sidebar-width")).toBe("420");
+  } finally {
+    pretendWindowWidth(original);
+  }
+});
+
+test("a stored width starts clamped, returns on a grow, and a later drag wins", async () => {
+  const original = window.innerWidth;
+  window.localStorage.setItem("corral.sidebar-width", "420");
+
+  try {
+    pretendWindowWidth(900);
+    await render(<App client={newClient()} />);
+    const handle = page.getByRole("separator", { name: "Resize sidebar" });
+    await expect.element(handle).toHaveAttribute("aria-valuemax", "260");
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "260");
+    expect(window.localStorage.getItem("corral.sidebar-width")).toBe("420");
+
+    pretendWindowWidth(1600);
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "420");
+    expect(window.localStorage.getItem("corral.sidebar-width")).toBe("420");
+
+    // A drag at the narrow width is the user's new preference; growing does not resurrect 420.
+    pretendWindowWidth(900);
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "260");
+    handle.element().focus();
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "244");
+    expect(window.localStorage.getItem("corral.sidebar-width")).toBe("244");
+    pretendWindowWidth(1600);
+    await expect.element(handle).toHaveAttribute("aria-valuenow", "244");
+  } finally {
+    pretendWindowWidth(original);
+  }
+});
+
 test("the sidebar footer shows the prefix pill while the prefix is armed and the settings icon", async () => {
   await render(<App client={newClient()} />);
 
