@@ -250,13 +250,39 @@ test("branches offers only targets a worktree can check out, from the main tree 
   runGit(clone, "worktree", "add", "--", heldRemote, "release/1.0");
   // A remote-tracking ref whose local branch is free stays offered.
   runGit(clone, "push", "origin", "trunk:keep");
+  // Remote refs whose derived local names conflict with a local namespace stay hidden:
+  // `origin/feature` would need local `feature`, which `feature/login` blocks; the same for
+  // `origin/blocked/x` under the free local `blocked`.
+  runGit(clone, "branch", "blocked");
+  runGit(clone, "push", "origin", "feature/login:feature", "trunk:blocked/x");
   runGit(clone, "fetch", "origin");
   const api = await server.rpc();
   const project = await api.projects.add({ path: clone });
 
   // `trunk` is held by the main tree, `feature/login` and `release/1.0` by linked worktrees.
-  expect(await api.projects.branches({ id: project.id })).toEqual(["free", "origin/keep"]);
+  expect(await api.projects.branches({ id: project.id })).toEqual([
+    "blocked",
+    "free",
+    "origin/keep",
+  ]);
 });
+
+test.runIf(process.platform !== "win32")(
+  "a worktree path with a newline is one holding path, not a false branch line",
+  async () => {
+    const repo = initRepo(join(server.scratchDir, "app"));
+    runGit(repo, "branch", "held");
+    runGit(repo, "branch", "injected");
+    const linked = join(server.scratchDir, "held\nbranch refs/heads/injected");
+    runGit(repo, "worktree", "add", "--", linked, "held");
+    const api = await server.rpc();
+    const project = await api.projects.add({ path: repo });
+
+    // Splitting the listing on newlines would read the path's second line as `injected`'s
+    // holding branch and hide it; the real holder is `held`.
+    expect(await api.projects.branches({ id: project.id })).toEqual(["injected"]);
+  },
+);
 
 test("branches fails with typed errors for an unknown project and for a repository that is gone", async () => {
   const repo = initRepo(join(server.scratchDir, "app"));

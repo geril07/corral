@@ -140,6 +140,21 @@ test("an existing local branch is used; a remote-tracking one gets a tracking lo
   ).toEqual({ kind: "existing-branch", branch: "x", slug: "x" });
 });
 
+test("a remote whose derived local name conflicts with a local branch namespace is refused", () => {
+  expect(
+    planWorktree(
+      { type: "existing-branch", branch: "origin/feature" },
+      context(["feature/login"], ["origin/feature"]),
+    ),
+  ).toEqual({ problem: "a branch named 'feature/login' is nested under 'feature'" });
+  expect(
+    planWorktree(
+      { type: "existing-branch", branch: "origin/feature/login" },
+      context(["feature"], ["origin/feature/login"]),
+    ),
+  ).toEqual({ problem: "a branch named 'feature' blocks 'feature/login'" });
+});
+
 test("an unknown branch is a problem", () => {
   expect(planWorktree({ type: "existing-branch", branch: "nope" }, context(["main"]))).toEqual({
     problem: "no such branch: nope",

@@ -4,7 +4,7 @@ import { basename, isAbsolute } from "node:path";
 import { ChangeFeed } from "../changes/change-feed.ts";
 import { expandHomePath } from "../config/home-path.ts";
 import { GitError } from "../git/git.ts";
-import { localNameOfRemote } from "../git/names.ts";
+import { branchConflict, localNameOfRemote } from "../git/names.ts";
 import {
   checkedOutBranches,
   defaultBaseBranch,
@@ -137,7 +137,8 @@ export class ProjectService {
 
   /**
    * Local branches, then remote-tracking ones (`origin/x`), for targets a new worktree can check
-   * out: a branch no worktree of the project holds, and a remote whose local branch is free.
+   * out: a branch no worktree of the project holds, and a remote whose derived local branch is
+   * free and does not conflict with a local branch above or below it.
    */
   async branches(id: string): Promise<string[]> {
     const { path } = this.get(id);
@@ -145,9 +146,13 @@ export class ProjectService {
       listBranches(path),
       checkedOutBranches(path),
     ]);
+    const localNames = new Set(local);
     return [
       ...local.filter((branch) => !checkedOut.has(branch)),
-      ...remote.filter((branch) => !checkedOut.has(localNameOfRemote(branch))),
+      ...remote.filter((branch) => {
+        const localName = localNameOfRemote(branch);
+        return !checkedOut.has(localName) && branchConflict(localName, localNames) === undefined;
+      }),
     ];
   }
 

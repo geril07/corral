@@ -1,5 +1,6 @@
 import { GitError, git } from "./git.ts";
 import { changedPaths } from "./status-porcelain.ts";
+import { worktreeRecords } from "./worktree-porcelain.ts";
 
 export interface Branches {
   /** `main`, `feature/x` */
@@ -12,10 +13,10 @@ export interface Branches {
 export async function findMainWorkingTree(path: string): Promise<string> {
   await git(path, ["rev-parse", "--show-toplevel"]);
   // The first entry is always the main working tree, also when `path` is in a linked one.
-  const listing = await git(path, ["worktree", "list", "--porcelain"]);
-  const first = listing.split("\n")[0] ?? "";
-  if (!first.startsWith("worktree ")) throw new GitError(`unexpected worktree list: ${listing}`);
-  return first.slice("worktree ".length);
+  const listing = await git(path, ["worktree", "list", "--porcelain", "-z"]);
+  const first = worktreeRecords(listing)[0];
+  if (first === undefined) throw new GitError(`unexpected worktree list: ${listing}`);
+  return first.path;
 }
 
 /** Checked-out branch of the working tree at `path`; undefined when HEAD is detached. */
@@ -41,14 +42,10 @@ export async function defaultBaseBranch(repo: string): Promise<string | undefine
  * with the path of the worktree that holds it. A detached worktree holds no branch.
  */
 export async function checkedOutBranches(repo: string): Promise<Map<string, string>> {
-  const listing = await git(repo, ["worktree", "list", "--porcelain"]);
+  const listing = await git(repo, ["worktree", "list", "--porcelain", "-z"]);
   const checkedOut = new Map<string, string>();
-  let path: string | undefined;
-  for (const line of listing.split("\n")) {
-    if (line.startsWith("worktree ")) path = line.slice("worktree ".length);
-    else if (line.startsWith("branch refs/heads/") && path !== undefined)
-      checkedOut.set(line.slice("branch refs/heads/".length), path);
-  }
+  for (const record of worktreeRecords(listing))
+    if (record.branch !== undefined) checkedOut.set(record.branch, record.path);
   return checkedOut;
 }
 
@@ -89,21 +86,21 @@ export async function requireCommit(repo: string, rev: string): Promise<void> {
   }
 }
 
-export async function addWorktreeOnNewBranch(
+/** Creates local `branch` at `base` without an upstream; rejects when the branch exists. */
+export async function createBranch(
   repo: string,
-  options: { path: string; branch: string; base: string },
+  options: { branch: string; base: string },
 ): Promise<void> {
   // --no-track: the new branch must not push to or pull from the branch it started at.
-  await git(repo, [
-    "worktree",
-    "add",
-    "--no-track",
-    "-b",
-    options.branch,
-    "--",
-    options.path,
-    options.base,
-  ]);
+  await git(repo, ["branch", "--no-track", "--", options.branch, options.base]);
+}
+
+/** Creates local `branch` tracking `remoteBranch` (`origin/x`); rejects when the branch exists. */
+export async function createTrackingBranch(
+  repo: string,
+  options: { branch: string; remoteBranch: string },
+): Promise<void> {
+  await git(repo, ["branch", "--track", "--", options.branch, options.remoteBranch]);
 }
 
 export async function addWorktreeOnExistingBranch(
@@ -111,23 +108,6 @@ export async function addWorktreeOnExistingBranch(
   options: { path: string; branch: string },
 ): Promise<void> {
   await git(repo, ["worktree", "add", "--", options.path, options.branch]);
-}
-
-/** Creates local `branch` tracking `remoteBranch` (`origin/x`). */
-export async function addWorktreeTrackingRemote(
-  repo: string,
-  options: { path: string; branch: string; remoteBranch: string },
-): Promise<void> {
-  await git(repo, [
-    "worktree",
-    "add",
-    "--track",
-    "-b",
-    options.branch,
-    "--",
-    options.path,
-    options.remoteBranch,
-  ]);
 }
 
 export async function removeWorktree(repo: string, path: string, force: boolean): Promise<void> {

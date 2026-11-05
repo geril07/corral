@@ -14,9 +14,9 @@ import { GitError } from "../git/git.ts";
 import { directoryName, uniqueName } from "../git/names.ts";
 import {
   addWorktreeOnExistingBranch,
-  addWorktreeOnNewBranch,
-  addWorktreeTrackingRemote,
   checkedOutBranches,
+  createBranch,
+  createTrackingBranch,
   currentBranch,
   deleteBranch,
   isValidBranchName,
@@ -46,6 +46,27 @@ import {
   type WorktreePlan,
 } from "./worktree-plan.ts";
 
+type BranchCreatingPlan = Extract<WorktreePlan, { kind: "new-branch" | "track-remote" }>;
+
+export interface WorktreeOperations {
+  /** Creates the branch the plan needs; rejects when another process already created it. */
+  createBranch(repo: string, plan: BranchCreatingPlan): Promise<void>;
+  /** Adds the worktree for the plan's branch, which this attempt owns by then. */
+  addWorktree(repo: string, path: string, plan: WorktreePlan): Promise<void>;
+}
+
+/** The real git operations; a test replaces one of them to fail between planning and undo. */
+const gitWorktrees: WorktreeOperations = {
+  createBranch(repo, plan) {
+    return plan.kind === "new-branch"
+      ? createBranch(repo, { branch: plan.branch, base: plan.base })
+      : createTrackingBranch(repo, { branch: plan.branch, remoteBranch: plan.remoteBranch });
+  },
+  addWorktree(repo, path, plan) {
+    return addWorktreeOnExistingBranch(repo, { path, branch: plan.branch });
+  },
+};
+
 /** What tasks need from the sessions that run in them. */
 export interface TaskSessions {
   hasRunningIn(taskIds: ReadonlySet<string>): boolean;
@@ -71,6 +92,7 @@ export class TaskService implements ProjectTasks {
   readonly #sessions: TaskSessions;
   readonly #settings: TaskSettings;
   readonly #naming: NamingSettingsSource;
+  readonly #worktree: WorktreeOperations;
   readonly #changes = new ChangeFeed();
   // Branch and directory names are picked, then used, with git calls in between.
   readonly #mutations = new SerialQueue();
@@ -81,12 +103,15 @@ export class TaskService implements ProjectTasks {
     sessions: TaskSessions;
     settings: TaskSettings;
     naming: NamingSettingsSource;
+    /** Test seam; production runs git. */
+    worktree?: Partial<WorktreeOperations>;
   }) {
     this.#store = options.store;
     this.#projects = options.projects;
     this.#sessions = options.sessions;
     this.#settings = options.settings;
     this.#naming = options.naming;
+    this.#worktree = { ...gitWorktrees, ...options.worktree };
   }
 
   list(): Task[] {
@@ -260,10 +285,18 @@ export class TaskService implements ProjectTasks {
     }
     const path = this.#freeWorktreePath(project, plan.slug);
     await mkdir(join(path, ".."), { recursive: true });
+    // The branch is created first, in one atomic git call: if another process already made it,
+    // `createdBranch` stays false and undo leaves that branch alone. Only a branch this attempt
+    // created is deleted when the worktree cannot be added.
+    let createdBranch = false;
     try {
-      await addWorktree(project.path, path, plan);
+      if (plan.kind !== "existing-branch") {
+        await this.#worktree.createBranch(project.path, plan);
+        createdBranch = true;
+      }
+      await this.#worktree.addWorktree(project.path, path, plan);
     } catch (error) {
-      await undoWorktree(project.path, path, plan);
+      await undoWorktree(project.path, path, plan, createdBranch);
       throw error;
     }
     task.branch = plan.branch;
@@ -443,22 +476,15 @@ export class TaskService implements ProjectTasks {
   }
 }
 
-function addWorktree(repo: string, path: string, plan: WorktreePlan): Promise<void> {
-  if (plan.kind === "new-branch")
-    return addWorktreeOnNewBranch(repo, { path, branch: plan.branch, base: plan.base });
-  if (plan.kind === "track-remote")
-    return addWorktreeTrackingRemote(repo, {
-      path,
-      branch: plan.branch,
-      remoteBranch: plan.remoteBranch,
-    });
-  return addWorktreeOnExistingBranch(repo, { path, branch: plan.branch });
-}
-
-/** Leaves the repository as it was before the attempt; a branch the plan created goes too. */
-async function undoWorktree(repo: string, path: string, plan: WorktreePlan): Promise<void> {
+/** Leaves the repository as it was before the attempt; a branch this attempt created goes too. */
+async function undoWorktree(
+  repo: string,
+  path: string,
+  plan: WorktreePlan,
+  createdBranch: boolean,
+): Promise<void> {
   await removeWorktree(repo, path, true).catch(() => undefined);
   await rm(path, { recursive: true, force: true });
   await pruneWorktrees(repo).catch(() => undefined);
-  if (plan.kind !== "existing-branch") await deleteBranch(repo, plan.branch).catch(() => undefined);
+  if (createdBranch) await deleteBranch(repo, plan.branch).catch(() => undefined);
 }
