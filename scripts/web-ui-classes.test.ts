@@ -318,6 +318,14 @@ describe("spine scales", () => {
     }
   });
 
+  it("bans bare transitions and the undeclared easings in a module too", () => {
+    for (const token of ["transition", "ease-in", "ease-in-out", "ease-linear"]) {
+      expect(messages(`const cls = "${token}";`)).toEqual([
+        `1:motion outside the budget in class name: ${token}`,
+      ]);
+    }
+  });
+
   it("allows the raw shapes the kit needs and nothing the gate owns", () => {
     for (const token of [
       // A border-compensating inset: a spacing step plus or minus the hairline.
