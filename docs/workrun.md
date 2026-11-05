@@ -1,16 +1,15 @@
 # Workrun
 
-Kind: **engineering rules**. A general-purpose Linux launcher for scoped commands and background
-services, using systemd for lifecycle/resource limits and flock for heavy-job admission.
+Kind: **engineering rules**. Linux command and background-job launcher: one shared CPU/RAM
+budget, optional group budgets, and per-group heavy admission. A group normally represents a
+project; jobs distinguish assignments and worktrees.
 
-Read the part for your task:
+| Task                                                           | Read                                      |
+| -------------------------------------------------------------- | ----------------------------------------- |
+| Run, inspect or stop a job; decide whether it is heavy         | [Usage](workrun/usage.md)                 |
+| Assign agent jobs, coordinate worktrees and hand off resources | [Orchestration](workrun/orchestration.md) |
+| Provision the host or deliberately change budgets/admission    | [Setup](workrun/setup.md)                 |
+| Change or verify the launcher                                  | [Verification](workrun/testing.md)        |
 
-| Task                                               | Read                                  |
-| -------------------------------------------------- | ------------------------------------- |
-| Run commands, inspect logs, stop services          | [Usage](workrun/usage.md)             |
-| Launch and clean up workloads as a coding agent    | [Agent workflow](workrun/agents.md)   |
-| Provision a machine or change shared/scope budgets | [Setup and budgets](workrun/setup.md) |
-| Change or verify the launcher itself               | [Launcher tests](workrun/testing.md)  |
-
-An already configured host needs no setup step before ordinary use. Budget changes are deliberate
-host changes, not an automatic response to a failed command.
+Configured hosts need no setup before ordinary use. Resource changes are host-owner decisions,
+not an automatic response to a slow or failed command.
