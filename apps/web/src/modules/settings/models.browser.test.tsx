@@ -98,6 +98,52 @@ function holdNextSave(client: ReturnType<typeof newClient>) {
   return { release };
 }
 
+const rail = () => settings().getByRole("navigation", { name: "Settings categories" });
+const railButton = (name: string) => rail().getByRole("button", { name, exact: true });
+const firstModelControl = () =>
+  models().getByRole("combobox", { name: "Model tool/profile", exact: true });
+
+/** Every targeted open starts on the panel's first control and one Tab stays in that panel. */
+async function assertTargetedModelsFocus() {
+  await expect.element(settings()).toBeVisible();
+  await expect.element(checkbox("Show Stub One · stub")).toBeVisible();
+  await expect.element(firstModelControl()).toHaveFocus();
+  await expect.element(railButton("Appearance")).not.toHaveFocus();
+  expect(models().element().contains(document.activeElement)).toBe(true);
+
+  await userEvent.keyboard("{Tab}");
+  expect(models().element().contains(document.activeElement)).toBe(true);
+  expect(rail().element().contains(document.activeElement)).toBe(false);
+}
+
+test("Manage models starts and keeps the keyboard in the Models panel at 1024 and 1920", async () => {
+  await openManager();
+  const originalViewport = { width: window.innerWidth, height: window.innerHeight };
+  try {
+    await assertTargetedModelsFocus();
+
+    // Close from the panel, resize and take the same real targeted path again.
+    await settings().getByRole("button", { name: "Back to workspace" }).click();
+    await expect.element(settings()).not.toBeInTheDocument();
+    await expect.element(picker()).toBeVisible();
+    await page.viewport(1920, 1080);
+    await picker().getByRole("button", { name: "Manage models…" }).click();
+    await assertTargetedModelsFocus();
+
+    // The reported bug: Enter reached the rail's Appearance button and left Models.
+    firstModelControl().element().focus();
+    await expect.element(firstModelControl()).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(models()).toBeVisible();
+    await expect.element(railButton("Models")).toHaveAttribute("aria-current", "true");
+    await expect
+      .element(page.getByRole("region", { name: "Appearance", exact: true }))
+      .not.toBeInTheDocument();
+  } finally {
+    await page.viewport(originalViewport.width, originalViewport.height);
+  }
+});
+
 test("the shared manager saves an exact whitelist and returns to picker search, focus and composer draft", async () => {
   const { client, composer } = await openManager();
   const peer = newClient();

@@ -38,6 +38,15 @@ function firstPanelControl(id: SectionId) {
   return document.getElementById(panelId(id))?.querySelector<HTMLElement>(FOCUSABLE) ?? null;
 }
 
+/** The visible panel's first control, else its heading; never a control from a hidden panel. */
+function firstPanelFocus(id: SectionId) {
+  const panel = document.getElementById(panelId(id));
+  if (!panel || panel.hidden) return null;
+  return (
+    panel.querySelector<HTMLElement>(FOCUSABLE) ?? document.getElementById(`${panelId(id)}-title`)
+  );
+}
+
 /** Hidden panels keep disclosures and data subscriptions while their own scroll is restored. */
 function SettingsSection({
   id,
@@ -56,7 +65,7 @@ function SettingsSection({
       aria-labelledby={heading}
       className={id === "models" && id === current ? "flex h-full min-h-0 flex-col" : undefined}
     >
-      <h2 id={heading} className="mt-0 mb-3 text-sm font-semibold">
+      <h2 id={heading} tabIndex={-1} className="mt-0 mb-3 text-sm font-semibold">
         {SECTIONS.find(([key]) => key === id)![1]}
       </h2>
       {children}
@@ -152,7 +161,12 @@ export function SettingsScreen({
     return firstPanelControl(current);
   };
   return (
-    <TaskDialog title="Settings" layout="settings" onClose={close}>
+    <TaskDialog
+      title="Settings"
+      layout="settings"
+      onClose={close}
+      initialFocus={modelTarget ? () => firstPanelFocus("models") : undefined}
+    >
       {modelsBusy && refusedBusy && (
         <div role="status" className="shrink-0 border-b border-border px-5 py-2 text-xs">
           The save must finish before Settings can close.

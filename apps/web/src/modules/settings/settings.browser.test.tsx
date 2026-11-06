@@ -76,6 +76,10 @@ async function section(name: string) {
   return page.getByRole("region", { name, exact: true });
 }
 const settingsButton = () => page.getByRole("button", { name: "Settings" });
+const settingsRailButton = (name: string) =>
+  page
+    .getByRole("navigation", { name: "Settings categories" })
+    .getByRole("button", { name, exact: true });
 const modelEditor = () => page.getByRole("region", { name: "Models", exact: true });
 const modelCheckbox = (name: string) => modelEditor().getByRole("checkbox", { name, exact: true });
 const discardConfirm = () =>
@@ -428,6 +432,8 @@ test("the sidebar entry opens settings; Escape and Back return to the same task 
   await settingsButton().click();
   expect(document.querySelector(".terminal-host")).toBe(terminal);
   await expect.element(settingsHeading()).toBeVisible();
+  // A plain open has no model target: Base UI keeps starting on the rail's Appearance button.
+  await expect.element(settingsRailButton("Appearance")).toHaveFocus();
 
   // The mounted workspace is covered, not exposed: its terminal cannot take focus and AT
   // does not read it while settings is open.
@@ -702,6 +708,7 @@ test("the settings action is a configurable key and a palette entry, never a har
 
   await prefixThen("q");
   await expect.element(settingsHeading()).toBeVisible();
+  await expect.element(settingsRailButton("Appearance")).toHaveFocus();
   await expect.element(await section("Effective keys")).toMatchTextContent(/Settings\s*alt\+a q/);
 
   await userEvent.keyboard("{Escape}");
@@ -715,4 +722,5 @@ test("the settings action is a configurable key and a palette entry, never a har
   await userEvent.keyboard("settings{Enter}");
   await expect.element(palette).not.toBeInTheDocument();
   await expect.element(settingsHeading()).toBeVisible();
+  await expect.element(settingsRailButton("Appearance")).toHaveFocus();
 });

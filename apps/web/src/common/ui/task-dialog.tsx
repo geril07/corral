@@ -93,6 +93,7 @@ export interface DialogProps {
 }
 
 type DialogFinalFocus = ComponentProps<typeof DialogContent>["finalFocus"];
+type DialogInitialFocus = ComponentProps<typeof DialogContent>["initialFocus"];
 type AlertFinalFocus = ComponentProps<typeof AlertDialogContent>["finalFocus"];
 
 const DestructiveContext = createContext(false);
@@ -123,11 +124,14 @@ export function TaskDialog({
   onClose,
   showCloseButton = true,
   layout = "default",
+  initialFocus,
   finalFocus: explicitFinalFocus,
   children,
 }: DialogProps & {
   showCloseButton?: boolean;
   layout?: "default" | "settings" | "picker";
+  /** Overrides where the keyboard starts, for a dialog that opens on a named control. */
+  initialFocus?: DialogInitialFocus;
   /** Overrides the remembered opener, for a dialog opened from another dialog. */
   finalFocus?: DialogFinalFocus;
 }) {
@@ -145,6 +149,7 @@ export function TaskDialog({
         }
         padding={layout === "default" ? "default" : "none"}
         closeLabel={layout === "settings" ? "Back to workspace" : "Close"}
+        initialFocus={initialFocus}
         finalFocus={finalFocus}
         showCloseButton={showCloseButton}
       >
