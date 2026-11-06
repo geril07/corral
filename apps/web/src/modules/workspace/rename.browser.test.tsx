@@ -10,6 +10,7 @@ import {
 import { App, renderApp } from "../../../test/render-app.tsx";
 import {
   appWithProject,
+  clientWithHeldTaskRename,
   createTaskWithShell,
   focusedIsTerminal,
   sessionTab,
@@ -161,6 +162,50 @@ test("a task is renamed from its key, and its branch and worktree stay as they w
   });
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 });
+
+for (const [width, height] of [
+  [1024, 640],
+  [1920, 1080],
+] as const) {
+  test(`Enter closes the rename before the held save and typing goes to the terminal at ${width}×${height}`, async () => {
+    const originalViewport = { width: window.innerWidth, height: window.innerHeight };
+    await page.viewport(width, height);
+    const held = clientWithHeldTaskRename(newClient());
+    try {
+      const { client } = await appWithProject(held.client);
+      await createTaskWithShell("WT audit gamma");
+      const task = client.tasks.getSnapshot().tasks[0]!;
+
+      await prefixThen("e");
+      const title = dialog().getByRole("textbox", { name: "Title" });
+      await expect.element(title).toHaveFocus();
+      await userEvent.fill(title, "  WT audit gamma reviewed  ");
+      await userEvent.keyboard("{Enter}");
+
+      await vi.waitFor(() => expect(held.rename).toHaveBeenCalledOnce());
+      expect(held.rename).toHaveBeenCalledWith({ id: task.id, title: "WT audit gamma reviewed" });
+      await expect.element(dialog()).not.toBeInTheDocument();
+      await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+      expect(document.activeElement).not.toBe(document.body);
+
+      // The save is held: the old title stays, and the keyboard already belongs to the terminal.
+      expect(client.tasks.getSnapshot().tasks[0]?.title).toBe("WT audit gamma");
+      await userEvent.keyboard("echo XYZ{Enter}");
+      await expect.poll(screenText).toContain("XYZ");
+
+      held.release();
+      await expect
+        .element(workspace().getByRole("button", { name: /^WT audit gamma reviewed/ }))
+        .toHaveAttribute("aria-current", "true");
+      expect(client.tasks.getSnapshot().tasks.map((each) => each.title)).toEqual([
+        "WT audit gamma reviewed",
+      ]);
+    } finally {
+      held.release();
+      await page.viewport(originalViewport.width, originalViewport.height);
+    }
+  });
+}
 
 test("the palette lists the task rename and the session numbers with their keys", async () => {
   await appWithProject(newClient());

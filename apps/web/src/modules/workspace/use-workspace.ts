@@ -699,12 +699,15 @@ export function useWorkspace({
     }
   };
 
-  const renameEntry = async (target: RenameTarget, name: string | null) => {
-    if (target.type === "task") {
-      if (name !== null) await api.tasks.rename({ id: target.id, title: name });
-    } else if (target.type === "terminal")
-      await api.terminals.setLabel({ id: target.id, label: name });
-    else await api.sessions.setLabel({ id: target.id, label: name });
+  /** Saves a rename after its dialog has closed; a refusal is the workspace's notice sentence. */
+  const renameEntry = (target: RenameTarget, name: string | null) => {
+    void attempt(async () => {
+      if (target.type === "task") {
+        if (name !== null) await api.tasks.rename({ id: target.id, title: name });
+      } else if (target.type === "terminal")
+        await api.terminals.setLabel({ id: target.id, label: name });
+      else await api.sessions.setLabel({ id: target.id, label: name });
+    });
   };
 
   const selectEntry = (entry: Entry) =>

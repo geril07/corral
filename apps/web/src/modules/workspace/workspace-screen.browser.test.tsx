@@ -24,6 +24,7 @@ import { createGitRepo } from "../../../test/git-repo.ts";
 import {
   openAgentSessionPicker,
   appWithProject,
+  clientWithHeldTaskRename,
   createTask,
   createTaskWithShell,
   promptField,
@@ -318,6 +319,52 @@ test("a non-current loose terminal is renamed from its own menu without being se
     ]),
   );
 });
+
+for (const [width, height] of [
+  [1024, 640],
+  [1920, 1080],
+] as const) {
+  test(`a held rename refusal keeps the old title and one notice at ${width}×${height}`, async () => {
+    const originalViewport = { width: window.innerWidth, height: window.innerHeight };
+    await page.viewport(width, height);
+    const held = clientWithHeldTaskRename(newClient(), "refuse");
+    try {
+      const { client } = await appWithProject(held.client);
+      await createTaskWithShell("WT audit old");
+      const task = client.tasks.getSnapshot().tasks[0]!;
+
+      await prefixThen("e");
+      const dialog = page.getByRole("dialog", { name: /^Rename / });
+      const title = dialog.getByRole("textbox", { name: "Title" });
+      await expect.element(title).toHaveFocus();
+      await userEvent.fill(title, "WT audit gamma");
+      await userEvent.keyboard("{Enter}");
+
+      await vi.waitFor(() =>
+        expect(held.rename).toHaveBeenCalledWith({ id: task.id, title: "WT audit gamma" }),
+      );
+      await expect.element(dialog).not.toBeInTheDocument();
+      await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+      held.release();
+
+      const failure = page.getByRole("alert").filter({ hasText: "This task no longer exists." });
+      await expect.element(failure).toBeVisible();
+      expect(page.getByRole("alert").elements()).toHaveLength(1);
+      await expect.element(taskButton("WT audit old")).toHaveAttribute("aria-current", "true");
+      expect(client.tasks.getSnapshot().tasks[0]).toMatchObject({
+        id: task.id,
+        title: "WT audit old",
+      });
+      await expect.element(dialog).not.toBeInTheDocument();
+      expect(focusedIsTerminal()).toBe(true);
+      expect(document.activeElement).not.toBe(document.body);
+    } finally {
+      held.release();
+      await page.viewport(originalViewport.width, originalViewport.height);
+    }
+  });
+}
 
 test("Restart reopens an exited loose terminal with the same command, folder, name and fit", async () => {
   const client = newClient();

@@ -562,10 +562,7 @@ export function WorkspaceScreen({
       {dialog?.kind === "rename" && (
         <RenameDialog
           target={dialog.target}
-          onSave={async (name) => {
-            await renameEntry(dialog.target, name);
-            setDialog(undefined);
-          }}
+          onSave={(name) => renameEntry(dialog.target, name)}
           onClose={() => setDialog(undefined)}
         />
       )}

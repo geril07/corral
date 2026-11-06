@@ -134,8 +134,9 @@ What a user does. Everything below is built and verified end to end, chat views 
   resolver's fallback — the URL, the Changes tab and the composer follow it — never on a blank one.
 - Rename is a focused dialog, the same one for a task's title, a session label and a loose
   terminal label. Every loose terminal row offers it, not only the current one, and naming a row
-  does not select it. Session labels persist; loose terminal labels survive only for their
-  terminal's lifetime. The historical first-character risk remains unexplained; changing kits
+  does not select it. Enter closes the dialog before the save; a failed save is a workspace
+  notice, not a reopened dialog. Session labels persist; loose terminal labels survive only for
+  their terminal's lifetime. The historical first-character risk remains unexplained; changing kits
   is not evidence of a fix.
 - An exited loose terminal also offers Restart: a new terminal with the same command, arguments,
   folder and label at the current size, selected, and the dead row closed. A restart the server
