@@ -1,5 +1,6 @@
 import { Session } from "@corral/protocol/rpc";
-import { mkdtemp } from "node:fs/promises";
+import { workspaceMissingMessage } from "@corral/protocol/workspace";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vite-plus/test";
@@ -216,6 +217,55 @@ test("an unknown task is TASK_NOT_FOUND", async () => {
     code: "TASK_NOT_FOUND",
     data: { id: "nope" },
   });
+});
+
+test("a shell started after its workspace was deleted outside keeps a stopped pane that names the path", async () => {
+  vi.stubEnv("SHELL", "/bin/sh");
+  const { api, task } = await addTask(server, "Deleted outside");
+  await rm(task.workspacePath, { recursive: true, force: true });
+
+  const session = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
+
+  const sentence = workspaceMissingMessage(task.workspacePath);
+  // Kept rather than thrown, so the pane has a session to show the sentence on; no terminal was
+  // created, so there is no raw `chdir(2)` line and no fake shell to attach to.
+  expect(session).toMatchObject({ state: "stopped", terminalId: null, launchError: sentence });
+  expect(await api.terminals.list()).toEqual([]);
+  expect(await sessionsOf(api)).toEqual([session]);
+});
+
+test("an agent is not launched when the task's workspace is gone, and its session names the path", async () => {
+  const { api, task } = await addTask(server, "Agent gone");
+  await rm(task.workspacePath, { recursive: true, force: true });
+
+  const session = await api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE });
+
+  expect(session).toMatchObject({
+    state: "stopped",
+    terminalId: null,
+    launchError: workspaceMissingMessage(task.workspacePath),
+  });
+  expect(await agents.launches()).toEqual([]);
+  expect(await api.terminals.list()).toEqual([]);
+});
+
+test("restarting a session after its workspace is deleted names the path and leaves it stopped", async () => {
+  vi.stubEnv("SHELL", "/bin/sh");
+  const { api, task } = await addTask(server, "Restart gone");
+  const session = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
+  await api.sessions.stop({ id: session.id });
+  await rm(task.workspacePath, { recursive: true, force: true });
+
+  const sentence = workspaceMissingMessage(task.workspacePath);
+  await expect(api.sessions.restart({ id: session.id, size: SIZE })).rejects.toMatchObject({
+    code: "LAUNCH_FAILED",
+    data: { kind: "shell", message: sentence },
+  });
+
+  expect(await sessionsOf(api)).toEqual([
+    { ...session, state: "stopped", terminalId: null, launchError: sentence },
+  ]);
+  expect(await api.terminals.list()).toEqual([]);
 });
 
 test("an agent that exits by itself leaves a stopped session whose exited terminal is still listed", async () => {

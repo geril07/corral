@@ -32,6 +32,7 @@ import {
   FileTooLargeError,
   FileTypeUnsupportedError,
   FileUnreadableError,
+  WorkspaceMissingError,
 } from "../files/errors.ts";
 import type { FilesService } from "../files/files-service.ts";
 import { GitError } from "../git/git.ts";
@@ -207,6 +208,10 @@ function launchError(
     return errors.LAUNCH_VIEW_UNSUPPORTED({ data: { kind: error.kind, view: error.view } });
   if (error instanceof AgentDisabledError)
     return errors.AGENT_DISABLED({ data: { kind: error.kind } });
+  // A workspace deleted outside Corral answers through the existing launch refusal, with the
+  // named sentence as its message; no wire code of its own.
+  if (error instanceof WorkspaceMissingError)
+    return errors.LAUNCH_FAILED({ data: { kind: error.kind, message: error.message } });
   if (error instanceof LaunchSpawnError)
     return errors.LAUNCH_FAILED({ data: { kind: error.kind, message: error.summary } });
   return undefined;

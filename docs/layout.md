@@ -11,10 +11,11 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 - Two columns: resizable sidebar and one task workspace. No synthetic title bar or global
   status bar. The shell status carries connection state, config problems, the armed prefix and
   the current failure, rendered exactly once: in the sidebar footer while the pane is shown, and
-  in a fixed-height strip above the main content while it is hidden. The footer keeps its row by
-  swapping the armed badge for the prefix hint; the hidden strip keeps its row whether or not it
-  has something to say, so arming the prefix never resizes the terminal under it. Independent
-  shells are session tabs, never a separate chat dock.
+  in a strip above the main content while it is hidden. The footer keeps its row by swapping the
+  armed badge for the prefix hint. Without a failure the hidden strip keeps its fixed row whether
+  or not it has something to say, so arming the prefix never resizes the terminal under it; a
+  failure's sentence wraps and the strip grows for it, then returns to that fixed row when the
+  failure is dismissed. Independent shells are session tabs, never a separate chat dock.
 - Sidebar has a default width, a narrow-window default and a drag range that leaves the main
   area its minimum at and above the supported floor (`sidebar-pane.ts` owns the numbers). The
   width persists per device, a window shrink only clamps the shown width, and an edge

@@ -11,23 +11,31 @@ import {
 
 interface RemoveTaskDialogProps {
   task: Task;
+  /** The preflight found the workspace directory already gone; the copy then says so. */
+  workspaceMissing?: boolean;
   /** Resolves once the task is removed; a rejection is shown in the dialog. */
   onRemove: (force: boolean) => Promise<void>;
   onClose: () => void;
 }
 
-export function RemoveTaskDialog({ task, onRemove, onClose }: RemoveTaskDialogProps) {
+export function RemoveTaskDialog({
+  task,
+  workspaceMissing = false,
+  onRemove,
+  onClose,
+}: RemoveTaskDialogProps) {
   const attempt = useAttempt();
   const dirtyFiles = attempt.failed ? dirtyWorktreeFiles(attempt.error) : undefined;
+  const description = !task.ownsWorktree
+    ? "Stops its sessions. The project's working tree and the branch stay."
+    : workspaceMissing
+      ? `The directory for this task's workspace is already gone at ${task.workspacePath}. Removing stops its sessions, closes the terminals in the workspace, including loose ones, prunes the stale git worktree entry, and keeps the branch ${task.branch}.`
+      : `Stops its sessions, closes the terminals in the workspace, including loose ones, and removes the worktree at ${task.workspacePath}. The branch ${task.branch} stays.`;
 
   return (
     <DestructiveTaskDialog
       title={`Remove task "${task.title}"?`}
-      description={
-        task.ownsWorktree
-          ? `Stops its sessions, closes the terminals in the workspace, including loose ones, and removes the worktree at ${task.workspacePath}. The branch ${task.branch} stays.`
-          : "Stops its sessions. The project's working tree and the branch stay."
-      }
+      description={description}
       onClose={onClose}
     >
       {dirtyFiles && (

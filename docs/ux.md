@@ -60,13 +60,14 @@ What a user does. Everything below is built and verified end to end, chat views 
   so the state word keeps the row's width; it returns when connected, and the armed badge still
   replaces it. When the sidebar is hidden the same status sits in a strip above
   the main content, so hiding the pane cannot remove it; only the visible placement is mounted,
-  so no live region or connection opener is duplicated, and that strip keeps its row, so arming
-  the prefix does not resize the terminal under it. The sidebar has a default and a narrow-window
-  width, dragged between its limits with the edge handle, leaving the main area its minimum at and
-  above the supported 1024 px floor — kept per device, reset by a double click, and hidden or shown
-  by `prefix \`. `prefix w` gives the list the keyboard, showing the sidebar first if it was
-  hidden: arrows walk its rows, Enter opens one, and Escape returns the keyboard to where it came
-  from.
+  so no live region or connection opener is duplicated, and without a failure that strip keeps
+  its fixed row, so arming the prefix does not resize the terminal under it; a failure's sentence
+  wraps and the strip grows for it, then returns to the row when dismissed. The sidebar has a
+  default and a narrow-window width, dragged between its limits with the edge handle, leaving the
+  main area its minimum at and above the supported 1024 px floor — kept per device, reset by a
+  double click, and hidden or shown by `prefix \`. `prefix w` gives the list the keyboard, showing
+  the sidebar first if it was hidden: arrows walk its rows, Enter opens one, and Escape returns
+  the keyboard to where it came from.
 - Project grouping is the default (`prefix l` switches to status groups and the device keeps
   the choice). The bottom Settled shelf spans projects with one order in both modes
   (`layout.md`, **Sidebar**), scrolls independently and pages by the rows its box fits; selecting
@@ -129,7 +130,12 @@ What a user does. Everything below is built and verified end to end, chat views 
 - Remove task keeps [the confirmation for local content](design.md#domain-model); keyed buttons
   prevent a single Enter from confirming both stages. It closes the terminals in the worktree it
   owns, loose ones included, before removing it, and no branch is deleted implicitly except
-  [the one a failed create made](design.md#domain-model).
+  [the one a failed create made](design.md#domain-model). When its directory is already gone, the
+  confirmation says so, and that removing prunes the stale git worktree entry and keeps the
+  branch; the post-removal notice says what happened instead of a silent prune.
+- A session started after its workspace was deleted outside Corral does not show the OS `chdir`
+  line: the failed pane names the sentence with the path, the Changes tab shows the same sentence,
+  and Remove is the recovery.
 - Remove project is a project row's destructive action: its confirmation names the project and,
   when it has any, how many tasks it forgets (a zero-task project is named without a count), and
   says the worktrees and branches stay on disk. A project with a
@@ -195,9 +201,10 @@ What a user does. Everything below is built and verified end to end, chat views 
   recovery entry point retries the RPC connection and every attached terminal, so the task, tab,
   draft and terminal survive and a refused terminal reattaches with the new capability. Nothing
   behind a boot notice was mounted, so the notice never sits over an empty workspace. A workspace
-  failure is one status row: a failed action keeps its sentence until the next navigation or
-  selection, guidance that asked for a project or task uses the same row, and either can be
-  dismissed.
+  failure is one status surface: a failed action keeps its whole sentence, wrapped when it does not
+  fit, until the next navigation or selection; guidance that asked for a project or task uses the
+  same surface; the footer or strip grows for the wrapped text and returns to its fixed row when the
+  failure is dismissed.
 - Chat keeps the composer semantics of the new-task view: Enter sends, Shift+Enter is a newline,
   and while a turn runs Enter steers and Ctrl/Cmd+Enter queues a follow-up where the driver
   declares one (the composer says which). Without that declaration both keys steer, Queue is

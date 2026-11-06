@@ -1,7 +1,8 @@
 import type { Project, Session, Task } from "@corral/protocol/rpc";
+import { workspaceMissingMessage } from "@corral/protocol/workspace";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
-import { writeFilesIn } from "../../../test/files-client.ts";
+import { removeDirectoryIn, writeFilesIn } from "../../../test/files-client.ts";
 import { runGitIn } from "../../../test/git-client.ts";
 import { createGitRepo } from "../../../test/git-repo.ts";
 import { prefixShifted, realServerClients } from "../../../test/real-client.ts";
@@ -374,6 +375,22 @@ test("a deleted base branch says why in the summary row instead of failing", asy
     expect(document.body.textContent).toContain("'main' is gone; compared with HEAD"),
   );
   await expect.element(fileRow("local\\.txt")).toBeVisible();
+});
+
+test("a workspace deleted outside Corral is the named sentence in Changes, not git's raw line", async () => {
+  const { task, href } = await seed();
+  await renderApp(newClient(), [href]);
+  // The directory goes away behind Corral's back; its git worktree entry stays stale, as it does
+  // when a user removes the folder by hand.
+  await removeDirectoryIn(task.workspacePath);
+
+  await prefixShifted("c");
+
+  const alert = page.getByRole("alert");
+  await expect.element(alert).toMatchTextContent(workspaceMissingMessage(task.workspacePath));
+  await expect.element(alert).not.toMatchTextContent("no such directory");
+  // No files and no counts are claimed for a workspace that is gone.
+  await expect.element(fileList()).not.toBeInTheDocument();
 });
 
 test("a capped list and a lower-bound total say so in the tab, the header and the sidebar row", async () => {

@@ -32,6 +32,20 @@ export function ioErrorCode(error: unknown): string | undefined {
     : undefined;
 }
 
+/**
+ * Whether a task's workspace is still a directory on disk. A workspace deleted outside Corral is
+ * the named state `WorkspaceMissingError`; only `ENOENT`/`ENOTDIR` mean gone, so an unreadable
+ * workspace is not reported as deleted.
+ */
+export async function workspaceExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch (error) {
+    const code = ioErrorCode(error);
+    return code !== "ENOENT" && code !== "ENOTDIR";
+  }
+}
+
 /** True for `base` itself and everything under it, false for a sibling such as `/ws2`. */
 export function isInside(base: string, candidate: string): boolean {
   const path = relative(base, candidate);

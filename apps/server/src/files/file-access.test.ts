@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, relative as relativePath } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vite-plus/test";
 import { FileNotFoundError, FileOutsideWorkspaceError } from "./errors.ts";
-import { isInsideResolved, resolveWorkspaceEntry } from "./file-access.ts";
+import { isInsideResolved, resolveWorkspaceEntry, workspaceExists } from "./file-access.ts";
 
 let root: string;
 let workspace: string;
@@ -162,4 +162,12 @@ test("both sides resolve through their real paths when they exist, so a symlink 
   // A cwd reached through a link that points outside is outside, whatever its spelling.
   symlinkSync(outside, join(workspace, "out-link"));
   expect(await isInsideResolved(workspace, join(workspace, "out-link"))).toBe(false);
+});
+
+test("a workspace is present only while it is a directory, so a file at its path is not one", async () => {
+  expect(await workspaceExists(workspace)).toBe(true);
+  expect(await workspaceExists(join(workspace, "src"))).toBe(true);
+  // A deleted workspace is gone; a file at the recorded path is not a workspace either.
+  expect(await workspaceExists(join(root, "gone"))).toBe(false);
+  expect(await workspaceExists(join(workspace, "shot.png"))).toBe(false);
 });

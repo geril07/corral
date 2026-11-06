@@ -1,3 +1,22 @@
+import { workspaceMissingMessage } from "@corral/protocol/workspace";
+import type { SessionKind } from "@corral/protocol/rpc";
+
+/**
+ * A task's workspace directory is gone from disk. Session launch and the Changes read share the
+ * sentence (`workspaceMissingMessage`); `kind` lets the launch wire answer through the existing
+ * `LAUNCH_FAILED`, with no code of its own.
+ */
+export class WorkspaceMissingError extends Error {
+  readonly path: string;
+  readonly kind: SessionKind;
+  constructor(path: string, kind: SessionKind) {
+    super(workspaceMissingMessage(path));
+    this.name = "WorkspaceMissingError";
+    this.path = path;
+    this.kind = kind;
+  }
+}
+
 /**
  * Reading a local path behind a chat link. Each refusal names its own reason so the client can
  * tell "not a file of this workspace" apart from "gone" or "too large" — and so a test can pin

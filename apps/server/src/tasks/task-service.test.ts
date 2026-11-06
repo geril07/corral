@@ -46,9 +46,13 @@ function service(repo: string, closeTerminalsIn: (workspacePath: string) => Prom
   const projects = new ProjectStore(db);
   projects.insert({ id: "p", name: "app", path: repo, defaultBaseBranch: "main" });
   const closed: string[] = [];
+  const removed: string[] = [];
   const sessions: TaskSessions = {
     hasRunningIn: () => false,
-    removeAllIn: () => Promise.resolve(),
+    removeAllIn: (ids) => {
+      removed.push(...ids);
+      return Promise.resolve();
+    },
     closeTerminalsIn: (workspacePath) => {
       closed.push(workspacePath);
       return closeTerminalsIn(workspacePath);
@@ -67,7 +71,7 @@ function service(repo: string, closeTerminalsIn: (workspacePath: string) => Prom
     settings: defaultTaskSettings({ dataDir }),
     naming: disabledNaming(),
   });
-  return { tasks, closed };
+  return { tasks, closed, removed };
 }
 
 test("removing a worktree task closes the terminals in its workspace before the worktree goes", async () => {
@@ -114,6 +118,27 @@ test("a worktree already gone outside Corral is still swept before git forgets i
   expect(worktreePaths(repo)).toEqual([repo]);
   expect(localBranches(repo)).toContain("gone");
   expect(tasks.list()).toEqual([]);
+});
+
+test("a missing worktree that git cannot prune keeps its task and its sessions instead of claiming the entry is gone", async () => {
+  const repo = initRepo(join(root, "repo"));
+  const { tasks, closed, removed } = service(repo, () => Promise.resolve());
+  const task = await tasks.create({
+    projectId: "p",
+    title: "Unprunable",
+    workspace: { type: "new-branch" },
+  });
+  await rm(task.workspacePath, { recursive: true, force: true });
+  // Break the repository after the worktree is already gone. Prune runs before the teardown, so
+  // its failure must not have stopped sessions or closed terminals for a removal that refuses.
+  await rm(join(repo, ".git"), { recursive: true, force: true });
+
+  await expect(tasks.remove(task.id, false)).rejects.toThrow(/not a git repository/);
+
+  // The removal did not claim a prune it did not do: the task is still there, untouched.
+  expect(tasks.list()).toEqual([task]);
+  expect(removed).toEqual([]);
+  expect(closed).toEqual([]);
 });
 
 test("a main-worktree task closes no terminal in the project's own tree", async () => {

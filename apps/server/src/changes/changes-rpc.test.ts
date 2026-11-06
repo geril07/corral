@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TaskChanges, type Task } from "@corral/protocol/rpc";
+import { workspaceMissingMessage } from "@corral/protocol/workspace";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
@@ -265,16 +266,26 @@ test("the watch lists every task, and a chat tool call makes it read again", asy
   expect(taskIdsOf(second.value)).toEqual([task.id]);
 });
 
-test("a task whose workspace is gone stays in the list with its reason", async () => {
+test("a task whose workspace is gone stays in the list with the named sentence, not git's raw line", async () => {
   const api = await server.rpc();
   const { task, repo } = await worktreeTask(api);
   // Removing the directory behind Corral's back is what a user cleaning up by hand does.
   runGit(repo, "worktree", "remove", "--force", task.workspacePath);
 
+  // The watch first: its list is computed from an empty cache, so this exercises the snapshot
+  // preflight rather than a snapshot `files` already computed. `files` then recomputes.
+  const watch = await api.changes.watch();
+  const first = z.array(TaskChanges).parse((await within(watch.next(), "the changes list")).value);
+  await watch.return?.();
+  expect(first.find((each) => each.taskId === task.id)?.error).toBe(
+    workspaceMissingMessage(task.workspacePath),
+  );
+
   const snapshot = await api.changes.files({ id: task.id });
 
   expect(snapshot.files).toEqual([]);
-  expect(snapshot.error).toContain(task.workspacePath);
+  expect(snapshot.error).toBe(workspaceMissingMessage(task.workspacePath));
+  expect(snapshot.error).not.toContain("no such directory");
 });
 
 test("reading a task's changes writes nothing to the index", async () => {
