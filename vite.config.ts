@@ -90,6 +90,15 @@ if (!Number.isInteger(BROWSER_SHARDS) || BROWSER_SHARDS < 1) {
   throw new Error("BROWSER_SHARDS must be a positive integer");
 }
 
+// The shards start together, and each would run Vite's dependency optimizer against the one
+// shared cache and race on the same deps rename. A serial pre-pass collects every browser test
+// file without running a test, so the cache is warm before any shard reads it.
+const browserWarmTask = {
+  command: "vp test run --config vite.config.ts --testNamePattern=CORRAL_BROWSER_WARM_NO_MATCH",
+  cwd: "apps/web",
+  cache: false,
+} as const;
+
 // Per-task cache:false is the one cache control Vite+ does not let a CLI flag override.
 const browserShardTasks = Object.fromEntries(
   Array.from({ length: BROWSER_SHARDS }, (_, offset) => {
@@ -100,6 +109,7 @@ const browserShardTasks = Object.fromEntries(
         command: `vp test run --config vite.config.ts --shard=${shard}/${BROWSER_SHARDS}`,
         cwd: "apps/web",
         cache: false,
+        dependsOn: ["browser-warm"],
       },
     ] as const;
   }),
@@ -108,6 +118,7 @@ const browserShardTasks = Object.fromEntries(
 export default defineConfig({
   run: {
     tasks: {
+      "browser-warm": browserWarmTask,
       ...browserShardTasks,
       "browser-all": {
         command: 'node -e ""',
