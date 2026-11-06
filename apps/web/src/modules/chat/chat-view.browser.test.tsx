@@ -374,6 +374,29 @@ test("an accepted send keeps text typed while it was in flight and the next Ente
   await expect.element(composer).toHaveValue("");
 });
 
+test("a leading-space draft removes its raw snapshot and sends only an in-flight append", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: IDLE_CHAT }), {
+    onSend: () => pending.promise,
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await expect.element(composer).toHaveFocus();
+  await composer.fill("  Fix the test  ");
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
+  await expect.element(composer).toHaveFocus();
+
+  await userEvent.keyboard(" and run lint");
+  await expect.element(composer).toHaveValue("  Fix the test   and run lint");
+  pending.resolve();
+  // The raw snapshot is what acceptance removes; trimming it would keep the whole draft here.
+  await expect.element(composer).toHaveValue(" and run lint");
+
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(chat.sent[1]).toEqual({ text: "and run lint", mode: "prompt" }));
+});
+
 test("a whitespace-only edit during a send is kept and does not send", async () => {
   const pending = Promise.withResolvers<void>();
   const chat = await renderChat(recorded([], { state: IDLE_CHAT }), {
@@ -384,6 +407,7 @@ test("a whitespace-only edit during a send is kept and does not send", async () 
   await expect.element(composer).toHaveFocus();
   await userEvent.keyboard("Fix the test{Enter}");
   await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
+  await expect.element(composer).toHaveFocus();
 
   await userEvent.keyboard(" ");
   await expect.element(composer).toHaveValue("Fix the test ");
@@ -404,6 +428,7 @@ test("a draft edited in place during a send keeps its whole text", async () => {
   await expect.element(composer).toHaveFocus();
   await userEvent.keyboard("Fix the test{Enter}");
   await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
+  await expect.element(composer).toHaveFocus();
 
   await composer.fill("Fix this test");
   pending.resolve();

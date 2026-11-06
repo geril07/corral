@@ -151,8 +151,8 @@ export function ChatView({
     setFailure(undefined);
     try {
       await onSend(text, mode);
-      // Remove exactly the submitted draft and keep text inserted around it; an edit inside the
-      // submitted text keeps the whole draft instead of silently losing what the user wrote.
+      // Acceptance removes only the submitted draft: text inserted before, between or after it
+      // stays. Any other in-place edit keeps the whole draft instead of losing what was written.
       setDraft((current) => draftLeftAfterSend(current, submitted) ?? current);
     } catch (error) {
       // A refused send keeps the text, so the user does not type it again (`ux.md`, errors).
