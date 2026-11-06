@@ -1,10 +1,10 @@
 /**
- * The draft left after a send is accepted, or `null` when the user edited it in place.
+ * The draft left after a send is accepted, or `null` when the draft was not a pure insertion.
  *
- * `submitted` is the draft as it was when the user sent it. The longest common prefix is the
- * part the send consumed; whatever follows it in `current` is text typed since. If the rest of
- * the submitted draft no longer ends `current`, the draft was replaced or edited inside the
- * sent text, so the caller keeps it whole instead of guessing what to remove.
+ * `submitted` is the draft as it was when the user sent it. Text inserted before, between or
+ * after the submitted text is kept. If the common prefix and the submitted suffix do not cover
+ * `current`, the draft was replaced or edited in place, so the caller keeps it whole instead of
+ * guessing what to remove.
  */
 export function draftLeftAfterSend(current: string, submitted: string): string | null {
   let from = 0;
