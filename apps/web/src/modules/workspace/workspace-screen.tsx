@@ -569,7 +569,8 @@ export function WorkspaceScreen({
       {dialog?.kind === "remove-project" && (
         <RemoveProjectDialog
           project={dialog.project}
-          taskCount={dialog.taskCount}
+          // Read live, so a task created or settled while the dialog is open is still counted.
+          taskCount={tasks.filter((task) => task.projectId === dialog.project.id).length}
           onRemove={() => removeProject(dialog.project)}
           onClose={() => setDialog(undefined)}
         />

@@ -727,6 +727,22 @@ function ProjectGroup({
       </span>
     </Button>
   );
+  // The + covers the row's right end. A right-click there is the row's menu too: forward it to
+  // the trigger instead of letting the action swallow it and open the browser's own menu.
+  const contextMenuFromAction = (event: React.MouseEvent<HTMLElement>) => {
+    const trigger = menuTrigger.current;
+    if (trigger === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    trigger.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: event.clientX,
+        clientY: event.clientY,
+      }),
+    );
+  };
   return (
     <li>
       <TreeRow project className="group relative">
@@ -743,7 +759,10 @@ function ProjectGroup({
             Remove project…
           </DropdownMenuItem>
         </RowMenu>
-        <span className="absolute inset-y-0 right-0 flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
+        <span
+          className="absolute inset-y-0 right-0 flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
+          onContextMenu={contextMenuFromAction}
+        >
           <IconButton
             label={`New task in ${project.name}`}
             icon="add"

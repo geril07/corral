@@ -1267,8 +1267,8 @@ test("a task without sessions shows the empty state with its two ways to start o
   await expect.element(shellTabs()).toHaveLength(1);
 });
 
-test("a project row's menu forgets it after naming its tasks, and Cancel keeps the keyboard on the row", async () => {
-  const { client } = await appWithProject(newClient());
+test("a project row's menu forgets it after naming its tasks, and Cancel or Escape keeps the keyboard on the row", async () => {
+  const { client, rendered } = await appWithProject(newClient());
   const api = client.connection.api;
   const project = client.projects.getSnapshot().projects[0]!;
   await Promise.all(
@@ -1277,17 +1277,24 @@ test("a project row's menu forgets it after naming its tasks, and Cancel keeps t
     ),
   );
   const fallbackProject = await api.projects.add({ path: await createGitRepo("fallback") });
-  await api.tasks.create({
+  const fallback = await api.tasks.create({
     projectId: fallbackProject.id,
     title: "Fallback task",
     workspace: { type: "main-worktree" },
   });
   await taskButton("First").click();
   await expect.element(taskButton("First")).toHaveAttribute("aria-current", "true");
+  // The Changes tab belongs to the task whose project is about to go; removal must leave it too.
+  const changesTab = page.getByRole("tab", { name: "Changes" });
+  await prefixShifted("c");
+  await expect.element(changesTab).toHaveAttribute("aria-selected", "true");
 
   const projectRow = workspace().getByRole("button", { name: new RegExp(`^${project.name}\\b`) });
-  await projectRow.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Remove project…" }).click();
+  const openRemove = async () => {
+    await projectRow.click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Remove project…" }).click();
+  };
+  await openRemove();
 
   const dialog = page.getByRole("alertdialog");
   await expect.element(dialog).toBeVisible();
@@ -1303,18 +1310,118 @@ test("a project row's menu forgets it after naming its tasks, and Cancel keeps t
   await expect.element(dialog).not.toBeInTheDocument();
   await expect.element(projectRow).toHaveFocus();
 
-  await projectRow.click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Remove project…" }).click();
+  // Escape closes the same dialog and returns the keyboard to the same row.
+  await openRemove();
+  await expect.element(dialog).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(dialog).not.toBeInTheDocument();
+  await expect.element(projectRow).toHaveFocus();
+
+  await openRemove();
   await dialog.getByRole("button", { name: "Remove project" }).click();
   await expect.element(dialog).not.toBeInTheDocument();
 
-  // Project and rows are gone; the resolver's fallback is the other project's first task.
+  // Project and rows are gone; the resolver's fallback is the other project's first task, and
+  // the URL and the Changes tab follow it instead of keeping the removed ids.
   await expect.element(projectRow).not.toBeInTheDocument();
   await expect.element(taskButton("First")).not.toBeInTheDocument();
   await expect.element(taskButton("Fallback task")).toHaveAttribute("aria-current", "true");
+  await expect.element(changesTab).toHaveAttribute("aria-selected", "false");
+  await expect.poll(() => rendered.history.location.search).toContain(`task=${fallback.id}`);
+  expect(rendered.history.location.search).toContain(`project=${fallbackProject.id}`);
   expect(client.projects.getSnapshot().projects.map((each) => each.id)).toEqual([
     fallbackProject.id,
   ]);
+});
+
+test("removing a project that is not current leaves the selected task, its Changes tab and the URL alone", async () => {
+  const { client, rendered } = await appWithProject(newClient());
+  const api = client.connection.api;
+  const currentProject = client.projects.getSnapshot().projects[0]!;
+  const otherProject = await api.projects.add({ path: await createGitRepo("other-project") });
+  const currentTask = await api.tasks.create({
+    projectId: currentProject.id,
+    title: "Current",
+    workspace: { type: "main-worktree" },
+  });
+  await api.tasks.create({
+    projectId: otherProject.id,
+    title: "Other",
+    workspace: { type: "main-worktree" },
+  });
+  await taskButton("Current").click();
+  await expect.element(taskButton("Current")).toHaveAttribute("aria-current", "true");
+  const changesTab = page.getByRole("tab", { name: "Changes" });
+  await prefixShifted("c");
+  await expect.element(changesTab).toHaveAttribute("aria-selected", "true");
+
+  const otherRow = workspace().getByRole("button", {
+    name: new RegExp(`^${otherProject.name}\\b`),
+  });
+  await otherRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove project…" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Remove project" }).click();
+  await expect.element(otherRow).not.toBeInTheDocument();
+
+  await expect.element(taskButton("Current")).toHaveAttribute("aria-current", "true");
+  await expect.element(changesTab).toHaveAttribute("aria-selected", "true");
+  expect(rendered.history.location.search).toContain(`project=${currentProject.id}`);
+  expect(rendered.history.location.search).toContain(`task=${currentTask.id}`);
+});
+
+test("removing the project whose composer is open closes it for the fallback task", async () => {
+  const { client, rendered } = await appWithProject(newClient());
+  const api = client.connection.api;
+  const project = client.projects.getSnapshot().projects[0]!;
+  const fallbackProject = await api.projects.add({
+    path: await createGitRepo("composer-fallback"),
+  });
+  const fallback = await api.tasks.create({
+    projectId: fallbackProject.id,
+    title: "Fallback task",
+    workspace: { type: "main-worktree" },
+  });
+  // Add project left this zero-task project's composer open.
+  await expect.element(newTaskView()).toBeVisible();
+  await expect.element(promptField()).toHaveFocus();
+
+  const projectRow = workspace().getByRole("button", { name: new RegExp(`^${project.name}\\b`) });
+  await projectRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove project…" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect
+    .element(dialog)
+    .toMatchTextContent("Forgets this project; worktrees and branches stay on disk.");
+  await expect.element(dialog).not.toMatchTextContent("0 tasks");
+  await dialog.getByRole("button", { name: "Remove project" }).click();
+  await expect.element(dialog).not.toBeInTheDocument();
+
+  await expect.element(newTaskView()).not.toBeInTheDocument();
+  await expect.element(taskButton("Fallback task")).toHaveAttribute("aria-current", "true");
+  await expect.poll(() => rendered.history.location.search).toContain(`task=${fallback.id}`);
+});
+
+test("removing the last project lands on the empty workspace and clears its ids from the URL", async () => {
+  const { client, rendered } = await appWithProject(newClient());
+  const api = client.connection.api;
+  const project = client.projects.getSnapshot().projects[0]!;
+  await api.tasks.create({
+    projectId: project.id,
+    title: "Last",
+    workspace: { type: "main-worktree" },
+  });
+  await taskButton("Last").click();
+  await expect.element(taskButton("Last")).toHaveAttribute("aria-current", "true");
+
+  const projectRow = workspace().getByRole("button", { name: new RegExp(`^${project.name}\\b`) });
+  await projectRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove project…" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Remove project" }).click();
+  await expect.element(page.getByRole("alertdialog")).not.toBeInTheDocument();
+
+  await expect.element(page.getByText("Add a repository to start")).toBeVisible();
+  await expect.element(projectRow).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(rendered.history.location.search).not.toContain(project.id));
 });
 
 test("removing a project with a running terminal is refused and changes nothing", async () => {

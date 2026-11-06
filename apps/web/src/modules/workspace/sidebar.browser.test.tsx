@@ -862,6 +862,24 @@ test("a project row's menu opens by right-click, menu key and Shift+F10", async 
   await expect.element(projectRow).toHaveFocus();
 });
 
+test("right-clicking a project row's New task action opens the row menu", async () => {
+  await renderSidebar().rendered;
+  const projectRow = containerRow("repo-p1");
+  const plus = nav().getByRole("button", { name: "New task in repo-p1" });
+  // The + overlay covers the row's right end (the count is under it); the natural target for a
+  // right-click there is the action, not the row button.
+  const rowRect = projectRow.element().getBoundingClientRect();
+  expect(plus.element().getBoundingClientRect().left).toBeGreaterThan(
+    rowRect.left + rowRect.width / 2,
+  );
+
+  await plus.click({ button: "right" });
+
+  await expect.element(page.getByRole("menu")).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "New task in repo-p1" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Remove project…" })).toBeVisible();
+});
+
 test("a project's row menu starts a task in it and asks to remove it, with the row as the opener", async () => {
   const { rendered, handlers: spies } = renderSidebar();
   await rendered;

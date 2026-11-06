@@ -20,11 +20,17 @@ export function RemoveProjectDialog({
 }: RemoveProjectDialogProps) {
   const attempt = useAttempt();
   const tasks = taskCount === 1 ? "1 task" : `${taskCount} tasks`;
+  // A project with nothing in it has no count to name; the project and the disk consequence
+  // are the whole sentence.
+  const description =
+    taskCount === 0
+      ? "Forgets this project; worktrees and branches stay on disk."
+      : `Forgets this project and its ${tasks}; worktrees and branches stay on disk.`;
 
   return (
     <DestructiveTaskDialog
       title={`Remove project "${project.name}"?`}
-      description={`Forgets this project and its ${tasks}; worktrees and branches stay on disk.`}
+      description={description}
       onClose={onClose}
     >
       {attempt.failed && <FormError>{describeError(attempt.error)}</FormError>}
