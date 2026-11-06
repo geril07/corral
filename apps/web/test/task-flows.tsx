@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/client";
 import type { CorralClient } from "@corral/client/corral-client";
 import { expect, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -71,6 +72,40 @@ export async function appWithProject(client: CorralClient, branches: string[] = 
     expect(rendered.history.location.search).toContain(`project=${project.id}`),
   );
   return { client, repo, rendered };
+}
+
+/**
+ * A client whose task rename waits on the test's gate, with every other call left to the real
+ * server. `save` performs the real write on release; `refuse` rejects with the server's error.
+ */
+export function clientWithHeldTaskRename(real: CorralClient, outcome: "save" | "refuse" = "save") {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const write = real.connection.api.tasks.rename.bind(real.connection.api.tasks);
+  const rename = vi.fn<(input: { id: string; title: string }) => Promise<unknown>>(
+    async (input) => {
+      await gate;
+      if (outcome === "refuse")
+        throw new ORPCError("TASK_NOT_FOUND", { defined: true, data: { id: input.id } });
+      return write(input);
+    },
+  );
+  const api = new Proxy(real.connection.api, {
+    get(target, property, receiver) {
+      if (property !== "tasks") return Reflect.get(target, property, receiver);
+      const tasks = Reflect.get(target, property, receiver) as object;
+      return new Proxy(tasks, {
+        get(taskTarget, taskProperty, taskReceiver) {
+          if (taskProperty === "rename") return rename;
+          return Reflect.get(taskTarget, taskProperty, taskReceiver);
+        },
+      });
+    },
+  });
+  const connection = { ...real.connection, api } as CorralClient["connection"];
+  return { client: { ...real, connection }, rename, release: () => release() };
 }
 
 export interface CreateTaskOptions {

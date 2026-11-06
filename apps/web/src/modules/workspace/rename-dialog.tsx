@@ -1,8 +1,6 @@
-import { describeError } from "@corral/client/rpc-errors";
 import { Label, MAX_LABEL_LENGTH } from "@corral/protocol/label";
 import type { FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
-import { useAttempt } from "../../common/hooks/use-attempt.ts";
 import {
   Button,
   TaskDialog,
@@ -24,8 +22,8 @@ export interface RenameTarget {
 
 interface RenameDialogProps {
   target: RenameTarget;
-  /** Resolves once the name is stored; a rejection is shown in the dialog. */
-  onSave: (name: string | null) => Promise<void>;
+  /** Starts the save; the dialog closes at once, and a refusal is the workspace's notice. */
+  onSave: (name: string | null) => void;
   onClose: () => void;
 }
 
@@ -39,7 +37,6 @@ const HELP: Readonly<Record<RenameTarget["type"], string>> = {
 
 /** Enter saves, Escape cancels; an empty name gives an entry its natural one back, a task needs one. */
 export function RenameDialog({ target, onSave, onClose }: RenameDialogProps) {
-  const attempt = useAttempt();
   const input = useRef<HTMLInputElement>(null);
   const [problem, setProblem] = useState<string>();
   const renamesTask = target.type === "task";
@@ -66,7 +63,8 @@ export function RenameDialog({ target, onSave, onClose }: RenameDialogProps) {
       return;
     }
     setProblem(undefined);
-    void attempt.run(() => onSave(name === "" ? null : name));
+    onSave(name === "" ? null : name);
+    onClose();
   };
 
   return (
@@ -75,14 +73,12 @@ export function RenameDialog({ target, onSave, onClose }: RenameDialogProps) {
         <FormField label={renamesTask ? "Title" : "Name"}>
           <Input ref={input} defaultValue={target.value} />
         </FormField>
-        {(problem ?? (attempt.failed ? describeError(attempt.error) : undefined)) && (
-          <FormError>{problem ?? describeError(attempt.error)}</FormError>
-        )}
+        {problem && <FormError>{problem}</FormError>}
         <DialogActions>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="outline" type="submit" disabled={attempt.pending}>
+          <Button variant="outline" type="submit">
             Save
           </Button>
         </DialogActions>

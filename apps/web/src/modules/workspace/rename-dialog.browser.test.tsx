@@ -1,4 +1,3 @@
-import { ORPCError } from "@orpc/client";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
@@ -14,8 +13,9 @@ const target: RenameTarget = {
 const dialog = () => page.getByRole("dialog", { name: "Rename shell 2" });
 const name = () => dialog().getByRole("textbox", { name: "Name" });
 
-test("the name field starts focused with the current label, and Enter saves the trimmed name", async () => {
-  const onSave = vi.fn<(name: string | null) => Promise<void>>(() => Promise.resolve());
+test("the name field starts focused with the current label, and Enter closes with the trimmed name before the save settles", async () => {
+  // The save never settles: a closing dialog must not wait for it, nor hold its field.
+  const onSave = vi.fn<(name: string | null) => Promise<void>>(() => new Promise(() => undefined));
   const onClose = vi.fn<() => void>();
   await render(
     <RenameDialog target={{ ...target, value: "old" }} onSave={onSave} onClose={onClose} />,
@@ -26,20 +26,22 @@ test("the name field starts focused with the current label, and Enter saves the 
   await userEvent.fill(name(), "  build  ");
   await userEvent.keyboard("{Enter}");
 
-  await vi.waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith("build"));
-  expect(onClose).not.toHaveBeenCalled();
+  expect(onSave).toHaveBeenCalledExactlyOnceWith("build");
+  expect(onClose).toHaveBeenCalledOnce();
 });
 
 test("an empty name saves nothing, so the natural name comes back", async () => {
-  const onSave = vi.fn<(name: string | null) => Promise<void>>(() => Promise.resolve());
+  const onSave = vi.fn<(name: string | null) => void>();
+  const onClose = vi.fn<() => void>();
   await render(
-    <RenameDialog target={{ ...target, value: "old" }} onSave={onSave} onClose={() => undefined} />,
+    <RenameDialog target={{ ...target, value: "old" }} onSave={onSave} onClose={onClose} />,
   );
 
   await userEvent.fill(name(), "   ");
   await userEvent.keyboard("{Enter}");
 
-  await vi.waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith(null));
+  expect(onSave).toHaveBeenCalledExactlyOnceWith(null);
+  expect(onClose).toHaveBeenCalledOnce();
 });
 
 test("Escape cancels without saving", async () => {
@@ -68,24 +70,8 @@ test("a name that cannot be used is refused in the dialog, which stays open for 
 
   await userEvent.fill(name(), "build");
   await userEvent.keyboard("{Enter}");
-  await vi.waitFor(() => expect(onSave).toHaveBeenLastCalledWith("build"));
-});
-
-test("a refusal from the server shows in the dialog, which stays open", async () => {
-  const onSave = vi
-    .fn<(name: string | null) => Promise<void>>()
-    .mockRejectedValueOnce(
-      new ORPCError("SESSION_NOT_FOUND", { defined: true, data: { id: "s1" } }),
-    )
-    .mockResolvedValue(undefined);
-  const onClose = vi.fn<() => void>();
-  await render(<RenameDialog target={target} onSave={onSave} onClose={onClose} />);
-
-  await userEvent.fill(name(), "build");
-  await userEvent.keyboard("{Enter}");
-
-  await expect.element(dialog().getByRole("alert")).toMatchTextContent("no longer exists");
-  expect(onClose).not.toHaveBeenCalled();
+  expect(onSave).toHaveBeenLastCalledWith("build");
+  expect(onClose).toHaveBeenCalledOnce();
 });
 
 test("the dialog says what a rename does not change and how long the name lasts", async () => {
@@ -108,17 +94,14 @@ test("the dialog says what a rename does not change and how long the name lasts"
     .toMatchTextContent("ends with the server");
 });
 
-test("a task is renamed by its title, which cannot be emptied, and a server refusal keeps the dialog open", async () => {
+test("a task is renamed by its title, which cannot be emptied, and Enter closes with the trimmed title", async () => {
   const task: RenameTarget = {
     type: "task",
     id: "t1",
     name: "Fix the login bug",
     value: "Fix the login bug",
   };
-  const onSave = vi
-    .fn<(name: string | null) => Promise<void>>()
-    .mockRejectedValueOnce(new ORPCError("TASK_NOT_FOUND", { defined: true, data: { id: "t1" } }))
-    .mockResolvedValue(undefined);
+  const onSave = vi.fn<(name: string | null) => Promise<void>>(() => new Promise(() => undefined));
   const onClose = vi.fn<() => void>();
   await render(<RenameDialog target={task} onSave={onSave} onClose={onClose} />);
 
@@ -140,9 +123,6 @@ test("a task is renamed by its title, which cannot be emptied, and a server refu
 
   await userEvent.fill(title, "  Login fails on Safari  ");
   await userEvent.keyboard("{Enter}");
-  await expect
-    .element(page.getByRole("dialog", { name: "Rename Fix the login bug" }).getByRole("alert"))
-    .toMatchTextContent("no longer exists");
   expect(onSave).toHaveBeenCalledExactlyOnceWith("Login fails on Safari");
-  expect(onClose).not.toHaveBeenCalled();
+  expect(onClose).toHaveBeenCalledOnce();
 });
