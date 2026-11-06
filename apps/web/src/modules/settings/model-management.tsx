@@ -14,7 +14,7 @@ import {
   type ModelPreferences,
   type ModelScope,
 } from "@corral/protocol/models";
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   Button,
   Checkbox,
@@ -221,6 +221,9 @@ function ModelPolicyEditor({
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string>();
   const [preview, setPreview] = useState(false);
+  const saveButton = useRef<HTMLButtonElement>(null);
+  const statusLine = useRef<HTMLSpanElement>(null);
+  const returnFocus = useRef<"status" | "save" | null>(null);
   const dirty = JSON.stringify(policy) !== JSON.stringify(base.policy);
   if (!dirty && latest.revision > base.revision) {
     const next = { scope, revision: latest.revision, policy: latest.policy };
@@ -251,6 +254,7 @@ function ModelPolicyEditor({
   );
   const save = async () => {
     if (busy || !latest.loaded) return;
+    const fromSave = document.activeElement === saveButton.current;
     setBusy(true);
     onBusy(true);
     setFailure(undefined);
@@ -263,15 +267,26 @@ function ModelPolicyEditor({
       setBase(next);
       applyPolicy(next.policy);
       onDirty(false);
+      if (fromSave) returnFocus.current = "status";
     } catch {
       setFailure(
         "Could not save. Your draft is intact. If another client changed these preferences, load the latest version before retrying.",
       );
+      if (fromSave) returnFocus.current = "save";
     } finally {
       setBusy(false);
       onBusy(false);
     }
   };
+  // Disabling Save for the request drops the keyboard to the body, so return it to the outcome
+  // (or to Save when the request failed) unless the user moved it while the save was in flight.
+  useEffect(() => {
+    const target = returnFocus.current;
+    if (!target || (target === "status" && dirty) || (target === "save" && busy)) return;
+    returnFocus.current = null;
+    if (document.activeElement !== document.body) return;
+    (target === "status" ? statusLine.current : saveButton.current)?.focus();
+  }, [busy, dirty]);
   const discard = () => {
     const next = { scope, revision: latest.revision, policy: latest.policy };
     setBase(next);
@@ -514,7 +529,12 @@ function ModelPolicyEditor({
         </FormError>
       )}
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
-        <span className="text-xs text-muted-foreground">
+        <span
+          ref={statusLine}
+          role="status"
+          tabIndex={-1}
+          className="rounded-sm text-xs text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
+        >
           {dirty ? "Unsaved changes" : "Saved"} · revision {base.revision}
         </span>
         <div className="flex flex-wrap gap-1">
@@ -542,7 +562,12 @@ function ModelPolicyEditor({
           <Button size="sm" variant="ghost" disabled={!dirty || busy} onClick={discard}>
             Discard
           </Button>
-          <Button size="sm" disabled={!dirty || busy || !latest.loaded} onClick={() => void save()}>
+          <Button
+            ref={saveButton}
+            size="sm"
+            disabled={!dirty || busy || !latest.loaded}
+            onClick={() => void save()}
+          >
             Save
           </Button>
         </div>
