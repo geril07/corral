@@ -117,9 +117,10 @@ async function assertTargetedModelsFocus() {
 }
 
 test("Manage models starts and keeps the keyboard in the Models panel at 1024 and 1920", async () => {
-  await openManager();
   const originalViewport = { width: window.innerWidth, height: window.innerHeight };
   try {
+    await page.viewport(1024, 640);
+    await openManager();
     await assertTargetedModelsFocus();
 
     // Close from the panel, resize and take the same real targeted path again.
