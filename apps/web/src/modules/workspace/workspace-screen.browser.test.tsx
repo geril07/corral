@@ -1401,11 +1401,58 @@ test("removing the project whose composer is open closes it for the fallback tas
   await expect.poll(() => rendered.history.location.search).toContain(`task=${fallback.id}`);
 });
 
+test("removing a project that only holds the open composer closes it and leaves the selected task alone", async () => {
+  const { client, rendered } = await appWithProject(newClient());
+  const api = client.connection.api;
+  const selectedProject = client.projects.getSnapshot().projects[0]!;
+  const selected = await api.tasks.create({
+    projectId: selectedProject.id,
+    title: "Selected",
+    workspace: { type: "main-worktree" },
+  });
+  const composerProject = await api.projects.add({ path: await createGitRepo("composer-only") });
+  await taskButton("Selected").click();
+  await expect.element(taskButton("Selected")).toHaveAttribute("aria-current", "true");
+  const changesTab = page.getByRole("tab", { name: "Changes" });
+  await prefixShifted("c");
+  await expect.element(changesTab).toHaveAttribute("aria-selected", "true");
+  const before = rendered.history.location.search;
+  expect(before).toContain("entry=changes");
+
+  // The + opens that project's composer over the selected task, without changing the URL.
+  await workspace()
+    .getByRole("button", { name: `New task in ${composerProject.name}` })
+    .click();
+  await expect.element(newTaskView()).toBeVisible();
+  await expect
+    .element(newTaskView().getByRole("combobox", { name: `Project ${composerProject.name}` }))
+    .toBeVisible();
+  // A notice raised while the composer is open survives the removal of a project it does not name.
+  await prefixThen("g");
+  await expect.element(page.getByText("No blocked sessions.")).toBeVisible();
+
+  const composerRow = workspace().getByRole("button", {
+    name: new RegExp(`^${composerProject.name}\\b`),
+  });
+  await composerRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove project…" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Remove project" }).click();
+  await expect.element(page.getByRole("alertdialog")).not.toBeInTheDocument();
+
+  // Escape-close parity: the composer goes, the selection's Changes tab, failure and URL stay.
+  await expect.element(newTaskView()).not.toBeInTheDocument();
+  await expect.element(taskButton("Selected")).toHaveAttribute("aria-current", "true");
+  await expect.element(changesTab).toHaveAttribute("aria-selected", "true");
+  await expect.element(page.getByText("No blocked sessions.")).toBeVisible();
+  expect(rendered.history.location.search).toBe(before);
+  expect(rendered.history.location.search).toContain(`task=${selected.id}`);
+});
+
 test("removing the last project lands on the empty workspace and clears its ids from the URL", async () => {
   const { client, rendered } = await appWithProject(newClient());
   const api = client.connection.api;
   const project = client.projects.getSnapshot().projects[0]!;
-  await api.tasks.create({
+  const last = await api.tasks.create({
     projectId: project.id,
     title: "Last",
     workspace: { type: "main-worktree" },
@@ -1421,7 +1468,43 @@ test("removing the last project lands on the empty workspace and clears its ids 
 
   await expect.element(page.getByText("Add a repository to start")).toBeVisible();
   await expect.element(projectRow).not.toBeInTheDocument();
-  await vi.waitFor(() => expect(rendered.history.location.search).not.toContain(project.id));
+  await vi.waitFor(() => expect(rendered.history.location.search).toContain("task=none"));
+  expect(rendered.history.location.search).not.toContain(project.id);
+  expect(rendered.history.location.search).not.toContain(last.id);
+});
+
+test("the remove-project dialog counts tasks created while it is open", async () => {
+  const { client } = await appWithProject(newClient());
+  const api = client.connection.api;
+  const project = client.projects.getSnapshot().projects[0]!;
+  await api.tasks.create({
+    projectId: project.id,
+    title: "Counted",
+    workspace: { type: "main-worktree" },
+  });
+
+  const projectRow = workspace().getByRole("button", { name: new RegExp(`^${project.name}\\b`) });
+  await projectRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove project…" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect
+    .element(dialog)
+    .toMatchTextContent(
+      "Forgets this project and its 1 task; worktrees and branches stay on disk.",
+    );
+
+  // The dialog host reads the count live from the task list, not a copy taken when it opened.
+  await api.tasks.create({
+    projectId: project.id,
+    title: "Counted later",
+    workspace: { type: "main-worktree" },
+  });
+  await expect
+    .element(dialog)
+    .toMatchTextContent(
+      "Forgets this project and its 2 tasks; worktrees and branches stay on disk.",
+    );
+  await dialog.getByRole("button", { name: "Cancel" }).click();
 });
 
 test("removing a project with a running terminal is refused and changes nothing", async () => {

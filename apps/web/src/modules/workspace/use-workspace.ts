@@ -847,16 +847,19 @@ export function useWorkspace({
     );
 
   const removeProject = async (project: Project) => {
-    // A project the workspace currently names is what falls back; removing any other leaves the
-    // selection, the URL and the Changes tab alone.
-    const affected = selection.projectId === project.id || composing?.project?.id === project.id;
-    const fallback = affected ? selectionWithoutProject(project) : undefined;
+    // The selection is what falls back to another project. The composer is only a view of its
+    // project, so removing that project closes it the way Escape does: the selected task's
+    // Changes tab, the failure and the URL stay exactly as they were.
+    const fallback =
+      selection.projectId === project.id ? selectionWithoutProject(project) : undefined;
+    const composingRemoved = composing?.project?.id === project.id;
     await api.projects.remove({ id: project.id });
     setDialog(undefined);
     // `choose` is the one place that clears the composer, the failure and the Changes tab and
     // rewrites the URL. Without it the removed project's ids would stay in the URL and the tab
     // would keep showing a task that no longer exists.
     if (fallback) choose(fallback);
+    else if (composingRemoved) setComposing(undefined);
   };
 
   const actions: ActionTable = {
