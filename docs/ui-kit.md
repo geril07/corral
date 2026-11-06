@@ -92,8 +92,9 @@ context-menu dispatcher.
 - OverflowMenu is the discoverable task-header and add-session menu, with one compact
   minimum width. Menus fit available width/height. Combo search popups default to a readable
   width, not the tiny trigger width, bounded by the available viewport.
-- TaskDialog / DestructiveTaskDialog retain remembered opener and workspace-input fallback
-  (chat/task composer, then terminal). The named picker layout contains the shared ModelPicker.
+- TaskDialog / DestructiveTaskDialog retain the remembered opener, or the explicit final-focus
+  target its caller passes, and the workspace-input fallback (chat/task composer, then terminal).
+  The named picker layout contains the shared ModelPicker.
   Settings uses the named large, viewport-bounded `layout="settings"`, with its own scrolling
   content and categories. It is a route-backed modal over a mounted workspace, not a page that
   destroys drafts and terminal attachments. The board is a full-screen route layer over the same

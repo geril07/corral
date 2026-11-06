@@ -1,10 +1,12 @@
 import type { CorralClient } from "@corral/client/corral-client";
+import { createHashHistory } from "@tanstack/react-router";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { writeConfig } from "../../../test/config-command.ts";
 import { prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
+import { App as RootApp } from "../../../src/app/app.tsx";
 import {
   appWithProject,
   createTaskWithShell,
@@ -74,10 +76,83 @@ async function section(name: string) {
   return page.getByRole("region", { name, exact: true });
 }
 const settingsButton = () => page.getByRole("button", { name: "Settings" });
+const modelEditor = () => page.getByRole("region", { name: "Models", exact: true });
+const modelCheckbox = (name: string) => modelEditor().getByRole("checkbox", { name, exact: true });
+const discardConfirm = () =>
+  page.getByRole("alertdialog", { name: "Discard unsaved model preferences?" });
+const settingsDialog = () => page.getByRole("dialog", { name: "Settings", exact: true });
+const focusInSettings = () => settingsDialog().element().contains(document.activeElement);
+const closeRefusal = () =>
+  page.getByRole("status").filter({ hasText: "The save must finish before Settings can close." });
 
-async function renderSettings(client: CorralClient) {
-  await render(<App client={client} initialEntries={["/settings"]} />);
+async function renderSettings(client: CorralClient, initialEntries = ["/settings"]) {
+  await render(<App client={client} initialEntries={initialEntries} />);
   await expect.element(settingsHeading()).toBeVisible();
+}
+
+/** The real hash history, so browser Back and Forward go through popstate where blockers run. */
+async function renderHashApp(client: CorralClient, entries: string[]) {
+  const original = window.location.href;
+  window.history.replaceState({}, "", `/#${entries[0]}`);
+  const history = createHashHistory();
+  for (const entry of entries.slice(1)) {
+    history.push(entry);
+    history.flush();
+  }
+  const rendered = await render(<RootApp client={client} history={history} />);
+  return {
+    ...rendered,
+    history,
+    restore: () => {
+      history.destroy();
+      window.history.replaceState({}, "", original);
+    },
+  };
+}
+
+/** Holds the next models.save until the test releases it, then saves or fails. */
+function holdNextSave(
+  client: ReturnType<typeof newClient>,
+  outcome: "resolve" | "reject" = "resolve",
+) {
+  const api = client.connection.api;
+  const save = api.models.save;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const gatedModels = new Proxy(api.models, {
+    get(target, property, receiver) {
+      if (property === "save")
+        return async (input: Parameters<typeof save>[0]) => {
+          await gate;
+          if (outcome === "reject") throw new Error("save refused by test");
+          return save(input);
+        };
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  Object.defineProperty(client.connection, "api", {
+    configurable: true,
+    value: new Proxy(api, {
+      get(target, property, receiver) {
+        if (property === "models") return gatedModels;
+        return Reflect.get(target, property, receiver);
+      },
+    }),
+  });
+  return { release };
+}
+
+/** A draft the server does not have: select only Stub Two. */
+async function makeModelsDirty() {
+  await section("Models");
+  await expect.element(modelCheckbox("Show Stub Two · stub")).toBeVisible();
+  await modelEditor().getByRole("button", { name: "Only selected", exact: true }).click();
+  await modelCheckbox("Show Stub Two · stub").click();
+  await expect
+    .element(modelEditor().getByRole("button", { name: "Save", exact: true }))
+    .toBeEnabled();
 }
 
 test("the settings surface shows effective keys, profiles with reference names, and the file's problems", async () => {
@@ -376,13 +451,201 @@ test("the sidebar entry opens settings; Escape and Back return to the same task 
   await expect.element(taskButton("Settings trip")).toHaveAttribute("aria-current", "true");
   await expect.element(settingsButton()).toHaveFocus();
 
-  // History Back is the third close path; it has no dialog onClose call to lean on.
+  // Clean history Back is the third close path and closes without a discard prompt.
   await settingsButton().click();
   await expect.element(settingsHeading()).toBeVisible();
   rendered.history.back();
   await expect.element(settingsHeading()).not.toBeInTheDocument();
   await expect.element(taskButton("Settings trip")).toHaveAttribute("aria-current", "true");
   await expect.element(settingsButton()).toHaveFocus();
+});
+
+test("a dirty Models draft refuses X and Escape until Keep editing or Discard", async () => {
+  const client = newClient();
+  await writeConfig('[tasks]\nagent = "pi"\n');
+  const { rendered } = await appWithProject(client);
+  await createTaskWithShell("Dirty settings");
+  await settingsButton().click();
+  await expect.element(settingsHeading()).toBeVisible();
+  await makeModelsDirty();
+
+  // X / "Back to workspace": the confirm takes focus on Keep editing and the URL stays put.
+  await page.getByRole("button", { name: "Back to workspace" }).click();
+  await expect.element(discardConfirm()).toBeVisible();
+  await expect.element(discardConfirm()).toMatchTextContent("visibility and favorites");
+  await expect
+    .element(discardConfirm().getByRole("button", { name: "Keep editing", exact: true }))
+    .toHaveFocus();
+  expect(rendered.history.location.pathname).toBe("/settings");
+  await discardConfirm().getByRole("button", { name: "Keep editing", exact: true }).click();
+  await expect.element(discardConfirm()).not.toBeInTheDocument();
+  await expect.element(settingsHeading()).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Back to workspace" })).toHaveFocus();
+  await expect
+    .element(modelEditor().getByRole("button", { name: "Save", exact: true }))
+    .toBeEnabled();
+  await vi.waitFor(() => expect(focusInSettings()).toBe(true));
+
+  // Escape opens the same confirm; a second Escape closes only the confirm.
+  await userEvent.keyboard("{Escape}");
+  await expect.element(discardConfirm()).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(discardConfirm()).not.toBeInTheDocument();
+  await expect.element(settingsHeading()).toBeVisible();
+  expect(rendered.history.location.pathname).toBe("/settings");
+  await expect
+    .element(modelEditor().getByRole("button", { name: "Save", exact: true }))
+    .toBeEnabled();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(discardConfirm()).toBeVisible();
+  await discardConfirm().getByRole("button", { name: "Keep editing", exact: true }).click();
+
+  // Discard closes without a second prompt and returns to the task.
+  await page.getByRole("button", { name: "Back to workspace" }).click();
+  await expect.element(discardConfirm()).toBeVisible();
+  await discardConfirm().getByRole("button", { name: "Discard and close", exact: true }).click();
+  await expect.element(settingsHeading()).not.toBeInTheDocument();
+  await expect.element(discardConfirm()).not.toBeInTheDocument();
+  await expect.element(taskButton("Dirty settings")).toHaveAttribute("aria-current", "true");
+  expect(rendered.history.location.pathname).toBe("/");
+});
+
+test("a dirty Models draft refuses browser Back at /settings until Keep editing or Discard", async () => {
+  const client = newClient();
+  await writeConfig('[tasks]\nagent = "pi"\n');
+  const { history, restore } = await renderHashApp(client, ["/", "/settings"]);
+  try {
+    await expect.element(settingsHeading()).toBeVisible();
+    await makeModelsDirty();
+
+    history.back();
+    await expect.element(discardConfirm()).toBeVisible();
+    await discardConfirm().getByRole("button", { name: "Keep editing", exact: true }).click();
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+    await expect.element(settingsHeading()).toBeVisible();
+    await expect.element(modelCheckbox("Show Stub Two · stub")).toHaveFocus();
+    await expect
+      .element(modelEditor().getByRole("button", { name: "Save", exact: true }))
+      .toBeEnabled();
+    // The popstate revert runs after the pending navigation resolves; it settles at /settings.
+    await vi.waitFor(() => expect(window.location.hash).toMatch(/^#\/settings/));
+
+    history.back();
+    await expect.element(discardConfirm()).toBeVisible();
+    await discardConfirm().getByRole("button", { name: "Discard and close", exact: true }).click();
+    await expect.element(settingsHeading()).not.toBeInTheDocument();
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(window.location.hash).toBe("#/"));
+  } finally {
+    restore();
+  }
+});
+
+test("a dirty Models draft refuses browser Forward and stays at /settings", async () => {
+  const client = newClient();
+  await writeConfig('[tasks]\nagent = "pi"\n');
+  const { history, restore } = await renderHashApp(client, ["/settings", "/"]);
+  try {
+    history.back();
+    await expect.element(settingsHeading()).toBeVisible();
+    await makeModelsDirty();
+
+    history.forward();
+    await expect.element(discardConfirm()).toBeVisible();
+    await discardConfirm().getByRole("button", { name: "Keep editing", exact: true }).click();
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+    await expect.element(settingsHeading()).toBeVisible();
+    await vi.waitFor(() => expect(window.location.hash).toMatch(/^#\/settings/));
+  } finally {
+    restore();
+  }
+});
+
+test("a close request during an in-flight save is refused and keeps the draft", async () => {
+  const client = newClient();
+  await writeConfig('[tasks]\nagent = "pi"\n');
+  const { history, restore } = await renderHashApp(client, ["/", "/settings"]);
+  try {
+    await expect.element(settingsHeading()).toBeVisible();
+    await makeModelsDirty();
+
+    const { release } = holdNextSave(client);
+    const saveButton = modelEditor().getByRole("button", { name: "Save", exact: true });
+    await saveButton.click();
+    await expect.element(saveButton).toBeDisabled();
+
+    // A history close is refused and reset immediately, not held until the save settles.
+    history.back();
+    await expect.element(settingsHeading()).toBeVisible();
+    await expect.element(closeRefusal()).toHaveLength(1);
+    await vi.waitFor(() => expect(window.location.hash).toBe("#/settings"));
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+    await expect.element(modelCheckbox("Show Stub Two · stub")).toBeChecked();
+
+    await page.getByRole("button", { name: "Back to workspace" }).click();
+    await expect.element(closeRefusal()).toHaveLength(1);
+    await expect.element(settingsHeading()).toBeVisible();
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+
+    await userEvent.keyboard("{Escape}");
+    await expect.element(closeRefusal()).toHaveLength(1);
+    await expect.element(settingsHeading()).toBeVisible();
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+    await expect
+      .element(modelEditor().getByRole("button", { name: "Save", exact: true }))
+      .toBeDisabled();
+
+    release();
+    await expect.element(modelEditor().getByText("Saved ·", { exact: false })).toBeVisible();
+    expect(window.location.hash).toBe("#/settings");
+    await expect.element(closeRefusal()).not.toBeInTheDocument();
+    history.back();
+    await expect.element(settingsHeading()).not.toBeInTheDocument();
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+  } finally {
+    restore();
+  }
+});
+
+test("a failed save leaves no held history close and no discard confirm", async () => {
+  const client = newClient();
+  await writeConfig('[tasks]\nagent = "pi"\n');
+  const { history, restore } = await renderHashApp(client, ["/", "/settings"]);
+  try {
+    await expect.element(settingsHeading()).toBeVisible();
+    await makeModelsDirty();
+    const { release } = holdNextSave(client, "reject");
+    const saveButton = modelEditor().getByRole("button", { name: "Save", exact: true });
+    await saveButton.click();
+    await expect.element(saveButton).toBeDisabled();
+
+    history.back();
+    await expect.element(settingsHeading()).toBeVisible();
+    await expect.element(closeRefusal()).toHaveLength(1);
+    await vi.waitFor(() => expect(window.location.hash).toBe("#/settings"));
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+    await expect.element(modelCheckbox("Show Stub Two · stub")).toBeChecked();
+
+    release();
+    await expect.element(modelEditor()).toMatchTextContent("Could not save.");
+    await expect.element(closeRefusal()).not.toBeInTheDocument();
+    expect(window.location.hash).toBe("#/settings");
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+    await expect.element(modelCheckbox("Show Stub Two · stub")).toBeChecked();
+    await expect.element(saveButton).toBeEnabled();
+
+    // After settle, a new Back is a normal dirty close, not the earlier busy refusal.
+    history.back();
+    await expect.element(discardConfirm()).toBeVisible();
+    await expect
+      .element(discardConfirm().getByRole("button", { name: "Keep editing", exact: true }))
+      .toHaveFocus();
+    await discardConfirm().getByRole("button", { name: "Keep editing", exact: true }).click();
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(window.location.hash).toBe("#/settings"));
+  } finally {
+    restore();
+  }
 });
 
 test("settings preserve a draft and its caret, pause background keys and keep appearance on this device", async () => {

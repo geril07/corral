@@ -15,7 +15,14 @@ import {
   DialogFooter,
 } from "./dialog.tsx";
 import { CommandDialog } from "./command.tsx";
-import { createContext, useContext, useMemo, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useMemo,
+  useRef,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 
 const FINAL_FOCUS_SELECTOR =
   'textarea[aria-label="Message"], textarea[aria-label="Prompt"], .terminal-host .xterm-helper-textarea';
@@ -85,6 +92,9 @@ export interface DialogProps {
   children: ReactNode;
 }
 
+type DialogFinalFocus = ComponentProps<typeof DialogContent>["finalFocus"];
+type AlertFinalFocus = ComponentProps<typeof AlertDialogContent>["finalFocus"];
+
 const DestructiveContext = createContext(false);
 
 export function TaskCommandDialog({
@@ -113,9 +123,16 @@ export function TaskDialog({
   onClose,
   showCloseButton = true,
   layout = "default",
+  finalFocus: explicitFinalFocus,
   children,
-}: DialogProps & { showCloseButton?: boolean; layout?: "default" | "settings" | "picker" }) {
-  const finalFocus = useTaskFinalFocus();
+}: DialogProps & {
+  showCloseButton?: boolean;
+  layout?: "default" | "settings" | "picker";
+  /** Overrides the remembered opener, for a dialog opened from another dialog. */
+  finalFocus?: DialogFinalFocus;
+}) {
+  const defaultFinalFocus = useTaskFinalFocus();
+  const finalFocus = explicitFinalFocus ?? defaultFinalFocus;
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent
@@ -149,8 +166,15 @@ export function TaskDialog({
   );
 }
 
-export function DestructiveTaskDialog({ title, description, onClose, children }: DialogProps) {
-  const finalFocus = useTaskFinalFocus();
+export function DestructiveTaskDialog({
+  title,
+  description,
+  onClose,
+  finalFocus: explicitFinalFocus,
+  children,
+}: DialogProps & { finalFocus?: AlertFinalFocus }) {
+  const defaultFinalFocus = useTaskFinalFocus();
+  const finalFocus = explicitFinalFocus ?? defaultFinalFocus;
   return (
     <AlertDialog open onOpenChange={(open) => !open && onClose()}>
       <AlertDialogContent
