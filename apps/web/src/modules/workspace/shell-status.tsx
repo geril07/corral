@@ -1,6 +1,6 @@
 import type { ConnectionState } from "@corral/client/connection-state";
 import type { ReactNode } from "react";
-import { Alert, Badge, Hint, IconButton, Kbd, useTruncatedText } from "../../common/ui/index.ts";
+import { Alert, Badge, IconButton, Kbd } from "../../common/ui/index.ts";
 import { ConnectionNotice } from "../connection/index.ts";
 import { ConfigProblemsNotice, useConfig } from "../keymap/index.ts";
 
@@ -88,9 +88,11 @@ export function ShellStatus({
       data-slot="shell-status"
       data-placement="strip"
       className={
-        hasContent
-          ? "flex h-(--chrome-row) min-w-0 shrink-0 items-center gap-1 border-b border-border px-2"
-          : "flex h-(--chrome-row) min-w-0 shrink-0 items-center gap-1 px-2"
+        failure !== undefined
+          ? "flex min-w-0 shrink-0 items-center gap-1 border-b border-border px-2 py-1"
+          : hasContent
+            ? "flex h-(--chrome-row) min-w-0 shrink-0 items-center gap-1 border-b border-border px-2"
+            : "flex h-(--chrome-row) min-w-0 shrink-0 items-center gap-1 px-2"
       }
     >
       {failure !== undefined ? (
@@ -121,26 +123,25 @@ function ArmedBadge({ prefix }: { prefix: string }) {
 }
 
 /**
- * One failure, with the full sentence on the truncated span's tooltip. Dismiss sits beside the
+ * One failure. Its sentence wraps when the row is too narrow, and the surface grows for it: the
+ * full sentence is on screen, never only in a tooltip (`docs/ux.md`). Dismiss sits beside the
  * message: a control at the far edge of the row reads as the surface's, not the message's.
  */
 function FailureMessage({ failure, onDismiss }: { failure: ShellFailure; onDismiss: () => void }) {
-  const { observe, clipped } = useTruncatedText(failure.message);
-  const text = (
-    <span ref={observe} className="min-w-0 truncate" title={clipped ? failure.message : undefined}>
-      {failure.message}
-    </span>
-  );
-  const message = clipped ? <Hint content={failure.message}>{text}</Hint> : text;
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1">
       {failure.tone === "error" ? (
         <Alert variant="destructive" size="compact">
-          {message}
+          <span className="min-w-0 whitespace-pre-wrap break-words text-xs leading-tight">
+            {failure.message}
+          </span>
         </Alert>
       ) : (
-        <p role="status" className="m-0 min-w-0 truncate text-xs text-muted-foreground">
-          {message}
+        <p
+          role="status"
+          className="m-0 min-w-0 whitespace-pre-wrap break-words text-xs text-muted-foreground"
+        >
+          {failure.message}
         </p>
       )}
       <IconButton label="Dismiss status" icon="close" size="icon-xs" onClick={onDismiss} />

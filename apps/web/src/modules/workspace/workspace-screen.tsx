@@ -149,6 +149,7 @@ export function WorkspaceScreen({
     closeNewTask,
     loadBranches,
     openRemoveTask,
+    closeRemoveTask,
     openRemoveProject,
     openRemoveSession,
     openTaskSource,
@@ -569,8 +570,9 @@ export function WorkspaceScreen({
       {dialog?.kind === "remove-task" && (
         <RemoveTaskDialog
           task={dialog.task}
+          workspaceMissing={dialog.workspaceMissing === true}
           onRemove={(force) => removeTask(dialog.task, force)}
-          onClose={() => setDialog(undefined)}
+          onClose={closeRemoveTask}
         />
       )}
       {dialog?.kind === "remove-project" && (

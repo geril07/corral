@@ -10,6 +10,7 @@ import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ChangeFeed } from "../changes/change-feed.ts";
+import { workspaceExists } from "../files/file-access.ts";
 import { GitError } from "../git/git.ts";
 import { directoryName, uniqueName } from "../git/names.ts";
 import {
@@ -483,11 +484,17 @@ export class TaskService implements ProjectTasks {
   async #remove(id: string, force: boolean): Promise<void> {
     const task = this.get(id);
     const project = this.#project(task.projectId);
-    const worktreeOnDisk = task.ownsWorktree && existsSync(task.workspacePath);
+    const worktreeOnDisk = task.ownsWorktree && (await workspaceExists(task.workspacePath));
 
     if (worktreeOnDisk && !force) {
       const files = await uncommittedPaths(task.workspacePath);
       if (files.length > 0) throw new WorktreeDirtyError(files);
+    }
+    // The directory is already gone, so pruning only touches git metadata and no live process is
+    // in its way. It runs before the teardown: a prune that fails must refuse the removal without
+    // having stopped the task's sessions or closed their terminals first.
+    if (!worktreeOnDisk && task.ownsWorktree) {
+      await pruneWorktrees(project.path);
     }
     await this.#sessions.removeAllIn(new Set([id]));
     // The session terminals are gone; a loose terminal in the workspace is not a session and would
@@ -496,9 +503,6 @@ export class TaskService implements ProjectTasks {
     if (task.ownsWorktree) await this.#sessions.closeTerminalsIn(task.workspacePath);
     if (worktreeOnDisk) {
       await removeWorktree(project.path, task.workspacePath, force);
-    } else if (task.ownsWorktree) {
-      // The directory is gone; make git forget the worktree entry. Nothing is left to protect.
-      await pruneWorktrees(project.path).catch(() => undefined);
     }
     this.#store.delete(id);
     this.#changes.notify();

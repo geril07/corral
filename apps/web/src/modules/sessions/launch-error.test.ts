@@ -1,4 +1,5 @@
 import { expect, test } from "vite-plus/test";
+import { workspaceMissingMessage } from "@corral/protocol/workspace";
 import { describeLaunchError, launchErrorCode } from "./launch-error.ts";
 
 const defined = (code: string, data: unknown) => ({ code, defined: true, data });
@@ -48,6 +49,15 @@ test("an unexpected spawn failure shows its redacted summary", () => {
       defined("LAUNCH_FAILED", { kind: "claude", message: "spawn /usr/bin/claude EAGAIN" }),
     ),
   ).toBe("The claude session could not be launched: spawn /usr/bin/claude EAGAIN.");
+});
+
+test("a missing workspace sentence is not wrapped in the generic launch failure", () => {
+  const path = "/data/worktrees/app/fix-login";
+  expect(
+    describeLaunchError(
+      defined("LAUNCH_FAILED", { kind: "shell", message: workspaceMissingMessage(path) }),
+    ),
+  ).toBe(workspaceMissingMessage(path));
 });
 
 test("errors outside the launch contract fall through to the generic describer", () => {

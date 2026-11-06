@@ -5,6 +5,7 @@ import { defineConfig } from "vite-plus";
 import { playwright } from "vite-plus/test/browser-playwright";
 import { createGitRepo, createGitRepoWithRemote } from "./test/git-repos.ts";
 import { runGitIn } from "./test/run-git.ts";
+import { removeDirectoryIn } from "./test/remove-directory.ts";
 import { writeFilesIn } from "./test/write-files.ts";
 import { writeConfigFile } from "./test/config-file.ts";
 import { clearIssueCliCalls, issueCliCalls, issueCliPath } from "./test/issue-clis.ts";
@@ -55,6 +56,7 @@ export default defineConfig({
         createGitRepoWithRemote,
         writeFilesIn,
         runGitIn,
+        removeDirectoryIn,
         agentLaunches,
         serverEnv,
         writeRepoFile,

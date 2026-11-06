@@ -8,6 +8,8 @@ import type {
   Task,
   TaskChanges,
 } from "@corral/protocol/rpc";
+import { workspaceMissingMessage } from "@corral/protocol/workspace";
+import { workspaceExists } from "../files/file-access.ts";
 import { readChanges, readFileDiff } from "../git/diff.ts";
 import {
   checkedOutBranch,
@@ -378,6 +380,10 @@ export class ChangesService {
     if (project === undefined) {
       return failed(task.id, "the task's project is gone");
     }
+    // The task stays listed with a reason it can act on, rather than git's raw "no such directory".
+    if (!(await workspaceExists(task.workspacePath))) {
+      return failed(task.id, workspaceMissingMessage(task.workspacePath));
+    }
     try {
       const { base, files, truncated } = await readChanges(task.workspacePath, {
         worktree: task.ownsWorktree,
@@ -393,6 +399,11 @@ export class ChangesService {
         error: null,
       };
     } catch (error) {
+      // The directory can disappear between the preflight above and git's first read; that window
+      // still names the state instead of surfacing git's `no such directory`.
+      if (!(await workspaceExists(task.workspacePath))) {
+        return failed(task.id, workspaceMissingMessage(task.workspacePath));
+      }
       // A missing worktree is the common case: the task stays listed, its tab says why it is empty.
       return failed(task.id, error instanceof Error ? error.message : String(error));
     }

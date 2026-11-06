@@ -1,4 +1,6 @@
 import { expect, test } from "vite-plus/test";
+import { workspaceMissingMessage } from "@corral/protocol/workspace";
+import { WorkspaceMissingError } from "../files/errors.ts";
 import { LaunchSpawnError } from "./errors.ts";
 import { launchDiagnostic, launchFailureReason, redactLaunchError } from "./launch-diagnostics.ts";
 
@@ -39,4 +41,16 @@ test("an unknown error keeps a safe name and OS code without quoting its message
   expect(reason).not.toContain(SECRET);
   expect(reason).not.toContain("see the server log");
   expect(launchDiagnostic(error)).not.toContain(SECRET);
+});
+
+test("a workspace gone from disk is its named sentence, not a generic launch failure", () => {
+  const path = "/data/worktrees/app/fix-login";
+  const error = new WorkspaceMissingError(path, "shell");
+
+  expect(launchFailureReason(error)).toBe(workspaceMissingMessage(path));
+  expect(launchFailureReason(error)).not.toContain("could not be launched");
+  const diagnostic = launchDiagnostic(error);
+  expect(diagnostic).toContain("WorkspaceMissingError");
+  expect(diagnostic).toContain(workspaceMissingMessage(path));
+  expect(diagnostic).not.toMatch(/chdir|ENOENT/);
 });

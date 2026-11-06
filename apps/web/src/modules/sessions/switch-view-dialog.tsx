@@ -2,6 +2,7 @@ import { describeError } from "@corral/client/rpc-errors";
 import type { Session, SessionView } from "@corral/protocol/rpc";
 import { useAttempt } from "../../common/hooks/use-attempt.ts";
 import { Button, DestructiveTaskDialog, DialogActions, FormError } from "../../common/ui/index.ts";
+import { describeLaunchError } from "./launch-error.ts";
 
 interface SwitchViewDialogProps {
   session: Session;
@@ -51,7 +52,9 @@ export function SwitchViewDialog({
         .join(" ")}
       onClose={onClose}
     >
-      {attempt.failed && <FormError>{describeError(attempt.error)}</FormError>}
+      {attempt.failed && (
+        <FormError>{describeLaunchError(attempt.error) ?? describeError(attempt.error)}</FormError>
+      )}
       <DialogActions>
         <Button variant="outline" onClick={onClose}>
           Cancel

@@ -1,4 +1,5 @@
 import { MissingEnvRefError, ReservedEnvRefError } from "../agents/launch-env.ts";
+import { WorkspaceMissingError } from "../files/errors.ts";
 import {
   AgentDisabledError,
   AgentNotFoundError,
@@ -48,6 +49,7 @@ export function launchFailureReason(error: unknown): string {
   if (error instanceof ReservedEnvRefError) {
     return "the saved launch sets a reserved environment variable";
   }
+  if (error instanceof WorkspaceMissingError) return error.message;
   if (error instanceof LaunchSpawnError) return error.summary;
   if (
     error instanceof AgentDisabledError ||
@@ -68,6 +70,7 @@ export function launchFailureReason(error: unknown): string {
 /** The redacted text for the log; only a wrapped spawn error or a known choice error is quoted. */
 export function launchDiagnostic(error: unknown): string {
   if (error instanceof LaunchSpawnError) return error.diagnostic;
+  if (error instanceof WorkspaceMissingError) return `${error.name}: ${error.message}`;
   if (
     error instanceof MissingEnvRefError ||
     error instanceof ReservedEnvRefError ||

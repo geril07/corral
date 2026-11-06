@@ -30,6 +30,7 @@ import type {
   Task,
   TerminalSize,
 } from "@corral/protocol/rpc";
+import { workspaceMissingPath } from "@corral/protocol/workspace";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useDialogFocus, useTaskFinalFocus, workspaceInput } from "../../common/ui/index.ts";
 import { createChangesActions, usePullRequests, type ChangesActions } from "../changes/index.ts";
@@ -72,7 +73,7 @@ function failureText(error: unknown): string {
 
 export type DialogState =
   | { kind: "add-project" }
-  | { kind: "remove-task"; task: Task }
+  | { kind: "remove-task"; task: Task; workspaceMissing?: boolean }
   | { kind: "remove-project"; project: Project }
   | { kind: "task-source"; task: Task }
   | { kind: "pick-agent"; taskId: string }
@@ -157,6 +158,13 @@ export function useWorkspace({
   const routeSearchRef = useRef(search);
   const [dialog, setDialog] = useState<DialogState>();
   /**
+   * The remove dialog's workspace read, kept by task. Cancel aborts it; a confirmation reads the
+   * workspace again, so a stale copy or a read that failed is never turned into a silent prune.
+   */
+  const removeWorkspaceRead = useRef<{ taskId: string; controller: AbortController } | undefined>(
+    undefined,
+  );
+  /**
    * The main area's new-task view (`layout.md`, **New task view**). It is also what the main area
    * shows whenever no task is selected, so it is a view, not a dialog: nothing captures the
    * keyboard, and Escape only returns to the task that was selected before.
@@ -176,6 +184,9 @@ export function useWorkspace({
   /** How many times `prefix t` opened the composer; each open hands the keyboard to the prompt. */
   const composerOpens = useRef(0);
   const openDialog = (next: DialogState, opener?: HTMLElement) => {
+    // A remove that is still reading its workspace must not outlive its dialog: Cancel, Escape or
+    // another dialog aborts it before the read can reach `tasks.remove`.
+    removeWorkspaceRead.current?.controller.abort();
     dialogFocus?.remember(opener);
     setDialog(next);
   };
@@ -813,7 +824,34 @@ export function useWorkspace({
     openDialog({ kind: "connection" }, opener);
 
   const openRemoveTask = (task: Task | undefined) => {
-    if (task) openDialog({ kind: "remove-task", task });
+    if (!task) return;
+    openDialog({ kind: "remove-task", task });
+    if (!task.ownsWorktree) return;
+    // `tasks.remove` returns nothing, so the question is answered before it is asked: the same
+    // read the Changes tab shows tells whether the directory is already gone. A task in the main
+    // tree owns no worktree to prune, and a failed read keeps the ordinary copy.
+    const controller = new AbortController();
+    removeWorkspaceRead.current = { taskId: task.id, controller };
+    void api.changes
+      .files({ id: task.id })
+      .then((snapshot) => {
+        if (controller.signal.aborted) return;
+        const workspaceMissing = workspaceMissingPath(snapshot.error ?? "") !== undefined;
+        setDialog((open) =>
+          open?.kind === "remove-task" &&
+          open.task.id === task.id &&
+          removeWorkspaceRead.current?.controller === controller
+            ? { ...open, workspaceMissing }
+            : open,
+        );
+      })
+      .catch(() => undefined);
+  };
+
+  /** Cancel/Escape: the read may still finish, but it must not remove anything after the answer. */
+  const closeRemoveTask = () => {
+    removeWorkspaceRead.current?.controller.abort();
+    setDialog(undefined);
   };
   const openRemoveProject = (project: Project, opener?: HTMLElement) =>
     openDialog({ kind: "remove-project", project }, opener);
@@ -861,6 +899,23 @@ export function useWorkspace({
     );
 
   const removeTask = async (task: Task, force: boolean) => {
+    // The dialog's copy may be stale by the time the user confirms, and a read that failed must not
+    // become a silent prune: read the workspace once more, here, and abort if the dialog closed.
+    const read =
+      removeWorkspaceRead.current?.taskId === task.id ? removeWorkspaceRead.current : undefined;
+    const controller = read?.controller ?? new AbortController();
+    let workspaceMissing = false;
+    if (task.ownsWorktree) {
+      try {
+        const snapshot = await api.changes.files({ id: task.id });
+        if (controller.signal.aborted) return;
+        workspaceMissing = workspaceMissingPath(snapshot.error ?? "") !== undefined;
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        throw error;
+      }
+    }
+    if (controller.signal.aborted) return;
     const next = taskOrder.find(
       (candidate) =>
         candidate.id ===
@@ -872,6 +927,15 @@ export function useWorkspace({
     await api.tasks.remove({ id: task.id, force });
     setDialog(undefined);
     if (task.id === selection.taskId) showTask(next);
+    // `showTask` clears the failure, so the notice goes after it. The server pruned the stale git
+    // entry because the directory was already gone (a failed prune refuses the removal); the
+    // branch is untouched.
+    if (workspaceMissing) {
+      setFailure({
+        message: `The directory was already gone. The stale git entry was pruned; the branch ${task.branch} remains.`,
+        tone: "notice",
+      });
+    }
   };
 
   /** The selection the resolver settles on once the removed project's rows are gone. */
@@ -1254,6 +1318,7 @@ export function useWorkspace({
     closeNewTask,
     loadBranches,
     openRemoveTask,
+    closeRemoveTask,
     openRemoveProject,
     openRemoveSession,
     openTaskSource,

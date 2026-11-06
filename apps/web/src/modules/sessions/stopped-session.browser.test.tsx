@@ -1,4 +1,5 @@
 import type { Session } from "@corral/protocol/rpc";
+import { workspaceMissingMessage } from "@corral/protocol/workspace";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
@@ -152,4 +153,22 @@ test("a safe launch error stays visible next to the restart button", async () =>
   await expect
     .element(pane("failed").getByRole("alert"))
     .toMatchTextContent("no environment variable CLAUDE_TOKEN");
+});
+
+test("a workspace deleted outside Corral names the sentence and the path, never the OS line", async () => {
+  const path = "/data/worktrees/repo/fix-login";
+  await render(
+    <StoppedSession
+      session={{ ...session("stopped", "shell"), launchError: workspaceMissingMessage(path) }}
+      restartHint="alt+a r"
+      onRestart={() => undefined}
+    />,
+  );
+
+  const alert = pane("failed").getByRole("alert");
+  await expect.element(alert).toMatchTextContent(workspaceMissingMessage(path));
+  await expect.element(alert).toMatchTextContent(path);
+  await expect.element(alert).not.toMatchTextContent("chdir");
+  await expect.element(alert).not.toMatchTextContent("Process exited with code 1");
+  await expect.element(pane("failed").getByRole("button", { name: "Restart" })).toBeVisible();
 });

@@ -1,3 +1,4 @@
+import { ORPCError } from "@orpc/client";
 import type { CorralClient } from "@corral/client/corral-client";
 import type { ProjectsSnapshot } from "@corral/client/projects-store";
 import type { SessionsSnapshot } from "@corral/client/sessions-store";
@@ -7,6 +8,8 @@ import type { TerminalsSnapshot } from "@corral/client/terminals-store";
 import type { TerminalSurface } from "@corral/client/terminal-stream";
 import type { WatchFailure, WatchStore } from "@corral/client/watch-store";
 import { PROTOCOL_VERSION } from "@corral/protocol/handshake";
+import type { TaskChanges } from "@corral/protocol/rpc";
+import { workspaceMissingMessage } from "@corral/protocol/workspace";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
@@ -18,6 +21,8 @@ import {
 } from "../../../test/real-client.ts";
 import { stubClipboard } from "../../../test/clipboard.ts";
 import { writeConfig } from "../../../test/config-command.ts";
+import { removeDirectoryIn } from "../../../test/files-client.ts";
+import { runGitIn } from "../../../test/git-client.ts";
 import { serverTarget } from "../../../test/server-url.ts";
 import { App, renderApp } from "../../../test/render-app.tsx";
 import { createGitRepo } from "../../../test/git-repo.ts";
@@ -50,6 +55,32 @@ const claimOldProtocolVersion: (url: string, protocols: string[]) => WebSocket =
 
 const SIZE = { cols: 80, rows: 24 };
 const { newClient } = realServerClients();
+
+/** A client whose remove-dialog `changes.files` is the test's, with everything else real. */
+function clientWithWorkspaceFiles(
+  real: CorralClient,
+  files: (input: { id: string }) => Promise<TaskChanges>,
+) {
+  const changes = new Proxy(Reflect.get(real.connection.api, "changes"), {
+    get(target, property, receiver) {
+      return property === "files" ? files : Reflect.get(target, property, receiver);
+    },
+  });
+  const api = new Proxy(real.connection.api, {
+    get(target, property, receiver) {
+      return property === "changes" ? changes : Reflect.get(target, property, receiver);
+    },
+  });
+  const connection = { ...real.connection, api } as CorralClient["connection"];
+  return { client: { ...real, connection } as CorralClient };
+}
+
+/** The last line a wrapped text laid out, from its own range: a `toBeVisible` alone can pass on clipped text. */
+function lastTextLine(element: HTMLElement): DOMRect {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  return [...range.getClientRects()].at(-1)!;
+}
 
 interface FakeWatch<Snapshot> {
   store: WatchStore<Snapshot>;
@@ -1547,6 +1578,174 @@ test("removing a project's last task falls back to its composer, not an empty ma
   await expect
     .element(workspace().getByRole("button", { name: new RegExp(`^${project.name}\\b`) }))
     .toHaveAttribute("aria-expanded", "true");
+});
+
+test("removing a task whose worktree was deleted outside says it was already gone, prunes the entry and keeps the branch", async () => {
+  const { client, repo } = await appWithProject(newClient());
+  await createTask("Gone worktree", { workspace: "new-worktree" });
+  const task = client.tasks.getSnapshot().tasks[0]!;
+
+  // Only the directory goes away: its git worktree entry stays stale for the server to prune.
+  await removeDirectoryIn(task.workspacePath);
+  expect(await runGitIn(repo, ["worktree", "list", "--porcelain"])).toContain(task.workspacePath);
+
+  await taskButton("Gone worktree").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove task…" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect.element(dialog).toMatchTextContent("already gone");
+  await expect.element(dialog).toMatchTextContent(task.workspacePath);
+  await expect.element(dialog).toMatchTextContent("prunes the stale git worktree entry");
+  await expect.element(dialog).toMatchTextContent(`keeps the branch ${task.branch}`);
+
+  await dialog.getByRole("button", { name: "Remove task" }).click();
+  await expect.element(dialog).not.toBeInTheDocument();
+  await expect.element(taskButton("Gone worktree")).not.toBeInTheDocument();
+
+  // The branch stays; git no longer lists the worktree the removal pruned.
+  expect(await runGitIn(repo, ["worktree", "list", "--porcelain"])).not.toContain(
+    task.workspacePath,
+  );
+  expect(
+    (await runGitIn(repo, ["for-each-ref", "--format=%(refname:short)", "refs/heads"])).split("\n"),
+  ).toContain(task.branch);
+  // The action says what actually happened, and the branch fact is laid out, not clipped behind a
+  // tooltip, in the 232 px footer.
+  const notice = page.getByRole("status").filter({ hasText: "The directory was already gone." });
+  await expect.element(notice).toBeVisible();
+  const element = notice.element();
+  if (!(element instanceof HTMLElement)) throw new Error("the notice is not an HTML element");
+  const surface = element.closest('[data-slot="shell-status"]')!.getBoundingClientRect();
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  expect(range.getClientRects().length).toBeGreaterThan(1);
+  expect(lastTextLine(element).bottom).toBeLessThanOrEqual(surface.bottom + 1);
+  expect(element.scrollWidth).toBeLessThanOrEqual(element.clientWidth + 1);
+  expect(element.textContent).toContain(`the branch ${task.branch} remains`);
+});
+
+test("confirming Remove before the workspace read returns still says the directory was already gone", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const real = newClient();
+  const { client } = clientWithWorkspaceFiles(real, async (input) => {
+    await gate;
+    return real.connection.api.changes.files(input);
+  });
+  const { repo } = await appWithProject(client);
+  await createTask("Held read", { workspace: "new-worktree" });
+  const task = client.tasks.getSnapshot().tasks[0]!;
+  await removeDirectoryIn(task.workspacePath);
+
+  await taskButton("Held read").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove task…" }).click();
+  const dialog = page.getByRole("alertdialog");
+  // The read is held, so the ordinary copy is what the user confirms.
+  await expect.element(dialog).toMatchTextContent("removes the worktree at");
+  await dialog.getByRole("button", { name: "Remove task" }).click();
+  release();
+
+  await expect.element(dialog).not.toBeInTheDocument();
+  await expect
+    .element(page.getByRole("status").filter({ hasText: "The directory was already gone." }))
+    .toBeVisible();
+  expect(await runGitIn(repo, ["worktree", "list", "--porcelain"])).not.toContain(
+    task.workspacePath,
+  );
+  expect(
+    (await runGitIn(repo, ["for-each-ref", "--format=%(refname:short)", "refs/heads"])).split("\n"),
+  ).toContain(task.branch);
+});
+
+test("Cancel while the confirmation's workspace read is pending removes nothing", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let reads = 0;
+  let bothReads!: () => void;
+  const settled = new Promise<void>((resolve) => {
+    bothReads = resolve;
+  });
+  const real = newClient();
+  const { client } = clientWithWorkspaceFiles(real, async (input) => {
+    await gate;
+    const snapshot = await real.connection.api.changes.files(input);
+    reads += 1;
+    if (reads === 2) bothReads();
+    return snapshot;
+  });
+  const { repo } = await appWithProject(client);
+  await createTask("Cancel me", { workspace: "new-worktree" });
+  const task = client.tasks.getSnapshot().tasks[0]!;
+  await removeDirectoryIn(task.workspacePath);
+
+  await taskButton("Cancel me").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove task…" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect.element(dialog).toMatchTextContent("removes the worktree at");
+  await dialog.getByRole("button", { name: "Remove task" }).click();
+  // The confirmation is waiting for its own read; Cancel is still the user's to press.
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect.element(dialog).not.toBeInTheDocument();
+
+  release();
+  await settled;
+  await vi.waitFor(() => expect(reads).toBe(2));
+
+  // The read answered after the dialog closed; the abort means nothing was removed.
+  expect(client.tasks.getSnapshot().tasks.map((each) => each.id)).toContain(task.id);
+  await expect.element(taskButton("Cancel me")).toBeVisible();
+  expect(await runGitIn(repo, ["worktree", "list", "--porcelain"])).toContain(task.workspacePath);
+  await expect
+    .element(page.getByRole("status").filter({ hasText: "The directory was already gone." }))
+    .not.toBeInTheDocument();
+});
+
+test("a failed workspace read refuses the removal instead of pruning silently", async () => {
+  const real = newClient();
+  const { client } = clientWithWorkspaceFiles(real, () =>
+    Promise.reject(
+      new ORPCError("GIT_FAILED", {
+        defined: true,
+        data: { message: "fatal: not a git repository" },
+      }),
+    ),
+  );
+  const { repo } = await appWithProject(client);
+  await createTask("Read fails", { workspace: "new-worktree" });
+  const task = client.tasks.getSnapshot().tasks[0]!;
+  await removeDirectoryIn(task.workspacePath);
+
+  await taskButton("Read fails").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove task…" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect.element(dialog).toMatchTextContent("removes the worktree at");
+  await dialog.getByRole("button", { name: "Remove task" }).click();
+
+  await expect.element(dialog.getByRole("alert")).toMatchTextContent("fatal: not a git repository");
+  await expect.element(dialog).toBeVisible();
+  expect(client.tasks.getSnapshot().tasks.map((each) => each.id)).toContain(task.id);
+  expect(await runGitIn(repo, ["worktree", "list", "--porcelain"])).toContain(task.workspacePath);
+});
+
+test("starting a shell in a worktree deleted outside shows the named sentence in the pane, with no terminal", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Shell away", { workspace: "new-worktree" });
+  const task = client.tasks.getSnapshot().tasks[0]!;
+  await removeDirectoryIn(task.workspacePath);
+
+  await page.getByRole("button", { name: "Open shell" }).click();
+
+  const pane = page.getByRole("region", { name: "failed session" });
+  await expect.element(pane).toBeVisible();
+  const alert = pane.getByRole("alert");
+  await expect.element(alert).toMatchTextContent(workspaceMissingMessage(task.workspacePath));
+  // The raw line node-pty prints for a missing cwd is what this preflight replaces.
+  await expect.element(alert).not.toMatchTextContent("chdir");
+  await expect.element(alert).not.toMatchTextContent("Process exited with code 1");
+  await expect.element(shellTabs()).toHaveLength(1);
 });
 
 test("a task without sessions shows the empty state with its two ways to start one", async () => {

@@ -59,6 +59,21 @@ test("Tab then Enter removes without force", async () => {
   await vi.waitFor(() => expect(onRemove).toHaveBeenCalledExactlyOnceWith(false));
 });
 
+test("a workspace directory that is already gone is named, and the copy says what removal does then", async () => {
+  const onRemove = vi.fn<(force: boolean) => Promise<void>>(() => Promise.resolve());
+  await render(
+    <RemoveTaskDialog task={task} workspaceMissing onRemove={onRemove} onClose={() => undefined} />,
+  );
+
+  await expect.element(dialog()).toMatchTextContent("already gone");
+  await expect.element(dialog()).toMatchTextContent(task.workspacePath);
+  await expect.element(dialog()).toMatchTextContent("prunes the stale git worktree entry");
+  await expect.element(dialog()).toMatchTextContent(`keeps the branch ${task.branch}`);
+  // The ordinary promise to remove the worktree would be false here.
+  await expect.element(dialog()).not.toMatchTextContent("removes the worktree at");
+  await expect.element(button("Cancel")).toHaveFocus();
+});
+
 test("a task in the main working tree says the working tree stays", async () => {
   await render(
     <RemoveTaskDialog

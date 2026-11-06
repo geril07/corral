@@ -1,3 +1,5 @@
+import { workspaceMissingPath } from "@corral/protocol/workspace";
+
 interface DefinedError {
   code: string;
   data: unknown;
@@ -51,8 +53,11 @@ export function describeLaunchError(error: unknown): string | undefined {
     case "LAUNCH_ENV_RESERVED":
       return `A profile may not set ${String(field(defined.data, "name"))}.`;
     case "LAUNCH_FAILED": {
-      const message = String(field(defined.data, "message")).replace(/\.$/, "");
-      return `The ${String(field(defined.data, "kind"))} session could not be launched: ${message}.`;
+      const message = String(field(defined.data, "message"));
+      // A workspace gone from disk is already a sentence with its path; the launch wrapper would
+      // only bury it. An unexpected spawn failure keeps the wrapper.
+      if (workspaceMissingPath(message) !== undefined) return message;
+      return `The ${String(field(defined.data, "kind"))} session could not be launched: ${message.replace(/\.$/, "")}.`;
     }
     default:
       return undefined;

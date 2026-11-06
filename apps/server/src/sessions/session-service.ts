@@ -29,7 +29,8 @@ import { isExecutable } from "../agents/executable-lookup.ts";
 import { resolveEnvRefs } from "../agents/launch-env.ts";
 import { ChangeFeed } from "../changes/change-feed.ts";
 import type { ConfigWatcher } from "../config/config-watcher.ts";
-import { isInsideResolved } from "../files/file-access.ts";
+import { isInsideResolved, workspaceExists } from "../files/file-access.ts";
+import { WorkspaceMissingError } from "../files/errors.ts";
 import { newId } from "../storage/ids.ts";
 import { TaskNotFoundError } from "../tasks/errors.ts";
 import { SerialQueue } from "../tasks/serial-queue.ts";
@@ -246,14 +247,16 @@ export class SessionService {
       const prompt = this.#promptFor(kind, choice.prompt);
       await this.#launch(stored, task, size, "start", prompt);
     } catch (error) {
-      if (!keepFailedLaunch) throw error;
+      // A start that finds the workspace gone keeps its session like a primary creation does:
+      // the pane then names the sentence instead of the raw PTY line a missing cwd prints.
+      if (!keepFailedLaunch && !(error instanceof WorkspaceMissingError)) throw error;
       const reason = launchFailureReason(error);
       const failed: StoredSession = { ...stored, state: "stopped" };
       this.#store.insert(failed);
       this.#launchErrors.set(failed.id, reason);
       this.#changes.notify();
       console.error(
-        `corral-server: could not start the primary session of task ${taskId} (${kind}): ${reason}`,
+        `corral-server: could not start ${keepFailedLaunch ? "the primary session" : "a session"} of task ${taskId} (${kind}): ${reason}`,
         launchDiagnostic(error),
       );
       return this.#withTerminal(failed);
@@ -770,6 +773,11 @@ export class SessionService {
     prompt: string | null = null,
   ): Promise<void> {
     const adapter = stored.kind === "shell" ? undefined : AGENTS[stored.kind];
+    // node-pty does not throw for a missing cwd: the child prints `chdir(2) failed` and exits 1.
+    // So the workspace is checked before a terminal, an agent server or a chat child is acquired.
+    if (!(await workspaceExists(task.workspacePath))) {
+      throw new WorkspaceMissingError(task.workspacePath, stored.kind);
+    }
     const statusToken = newStatusToken();
     const { env, referencedValues } = this.#launchEnv(stored);
     // One resume decision for both legs: how the frontend opens the conversation, decided by the

@@ -1,6 +1,7 @@
 import { commands } from "vite-plus/test/browser";
 
 type WriteFilesIn = (directory: string, files: Record<string, string>) => Promise<void>;
+type RemoveDirectoryIn = (path: string) => Promise<void>;
 
 /** Writes files into a task's worktree from the test run's Node process (see `write-files.ts`). */
 export function writeFilesIn(directory: string, files: Record<string, string>): Promise<void> {
@@ -8,4 +9,12 @@ export function writeFilesIn(directory: string, files: Record<string, string>): 
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion
   const write = (commands as unknown as { writeFilesIn: WriteFilesIn }).writeFilesIn;
   return write(directory, files);
+}
+
+/** Deletes a directory without touching git, leaving a stale worktree entry (see `remove-directory.ts`). */
+export function removeDirectoryIn(path: string): Promise<void> {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  const remove = (commands as unknown as { removeDirectoryIn: RemoveDirectoryIn })
+    .removeDirectoryIn;
+  return remove(path);
 }

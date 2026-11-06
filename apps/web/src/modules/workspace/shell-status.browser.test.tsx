@@ -1,7 +1,7 @@
 import type { ConfigSnapshot } from "@corral/client/config-store";
 import type { ConnectionState } from "@corral/client/connection-state";
 import { expect, test } from "vite-plus/test";
-import { page, userEvent } from "vite-plus/test/browser";
+import { page } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { realServerClients } from "../../../test/real-client.ts";
 import { KeymapProvider } from "../keymap/index.ts";
@@ -59,21 +59,31 @@ const longFailure: ShellFailure = {
     "The agent could not start: the workspace is on a branch this profile cannot launch, and the agent's own environment did not name a usable executable, so nothing was started.",
 };
 
-test("a failed action is a kit alert and keeps its whole sentence in a tooltip", async () => {
+test("a failed action is a kit alert whose whole sentence wraps instead of hiding in a tooltip", async () => {
   const snapshot = await configSnapshot();
-  await render(<Status snapshot={snapshot} placement="strip" failure={longFailure} />);
+  await render(
+    <div className="w-58">
+      <Status snapshot={snapshot} placement="strip" failure={longFailure} />
+    </div>,
+  );
 
   const alert = page.getByRole("alert");
   await expect.element(alert).toBeVisible();
   await expect.element(alert).toHaveAttribute("data-slot", "alert");
   await expect.element(alert).toMatchTextContent(/The agent could not start/);
 
-  // The row keeps one line, so the clipped span carries the full sentence on its hint.
-  const clipped = () => alert.element().querySelector<HTMLElement>("span[title]");
-  await expect.poll(() => clipped()?.getAttribute("title")).toBe(longFailure.message);
-  expect(clipped()!.scrollWidth).toBeGreaterThan(clipped()!.clientWidth);
-  await userEvent.hover(clipped()!);
-  await expect.element(page.getByRole("tooltip")).toMatchTextContent(longFailure.message);
+  // The strip grows for a wrapped sentence; the last line is laid out inside the surface and the
+  // full text is the alert's own, with no tooltip carrying the only copy.
+  const element = alert.element();
+  if (!(element instanceof HTMLElement)) throw new Error("the alert is not an HTML element");
+  const surface = element.closest('[data-slot="shell-status"]')!.getBoundingClientRect();
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  const lines = [...range.getClientRects()];
+  expect(lines.length).toBeGreaterThan(1);
+  expect(lines.at(-1)!.bottom).toBeLessThanOrEqual(surface.bottom + 1);
+  expect(element.scrollWidth).toBeLessThanOrEqual(element.clientWidth + 1);
+  expect(element.querySelector("span[title]")).toBeNull();
 });
 
 test("a short failure keeps its dismiss beside the message", async () => {
@@ -117,6 +127,74 @@ test("guidance stays a status and its dismiss sits beside the message", async ()
   expect(dismiss.element().previousElementSibling?.textContent).toBe(
     "Select a task to see its changes.",
   );
+});
+
+test.each([
+  { width: 232, size: "w-58" },
+  { width: 264, size: "w-66" },
+])(
+  "a long notice wraps inside the $width px footer, so its last fact is laid out, not clipped",
+  async ({ size }) => {
+    const snapshot = await configSnapshot();
+    const noticeMessage =
+      "The directory was already gone. The stale git entry was pruned; the branch workspace-deleted-outside remains.";
+    await render(
+      <div className={size}>
+        <Status
+          snapshot={snapshot}
+          placement="footer"
+          failure={{ tone: "notice", message: noticeMessage }}
+        />
+      </div>,
+    );
+    const notice = page.getByRole("status").filter({ hasText: "The directory was already gone." });
+    await expect.element(notice).toBeVisible();
+    const element = notice.element();
+    if (!(element instanceof HTMLElement)) throw new Error("the notice is not an HTML element");
+    const surface = element.closest('[data-slot="shell-status"]')!.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    const lines = [...range.getClientRects()];
+    // Wrapped, not one truncated line with the fact only in a tooltip: the branch's last line is
+    // inside the footer's box and the text has no horizontal overflow.
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.at(-1)!.bottom).toBeLessThanOrEqual(surface.bottom + 1);
+    expect(element.scrollWidth).toBeLessThanOrEqual(element.clientWidth + 1);
+    expect(element.textContent).toContain("branch workspace-deleted-outside remains.");
+  },
+);
+
+test("the strip grows for a wrapped failure and returns to its fixed row when it is dismissed", async () => {
+  const snapshot = await configSnapshot();
+  const failure: ShellFailure = {
+    tone: "notice",
+    message:
+      "The directory was already gone. The stale git entry was pruned; the branch workspace-deleted-outside remains.",
+  };
+  const screen = await render(
+    <div className="w-58">
+      <Status snapshot={snapshot} placement="strip" />
+    </div>,
+  );
+  const surface = document.querySelector<HTMLElement>('[data-slot="shell-status"]')!;
+  const rowHeight = surface.getBoundingClientRect().height;
+  expect(rowHeight).toBeGreaterThan(0);
+
+  await screen.rerender(
+    <div className="w-58">
+      <Status snapshot={snapshot} placement="strip" failure={failure} />
+    </div>,
+  );
+  await expect.element(page.getByRole("status").filter({ hasText: "already gone" })).toBeVisible();
+  expect(surface.getBoundingClientRect().height).toBeGreaterThan(rowHeight);
+
+  await screen.rerender(
+    <div className="w-58">
+      <Status snapshot={snapshot} placement="strip" />
+    </div>,
+  );
+  await expect.element(page.getByRole("status")).not.toBeInTheDocument();
+  expect(surface.getBoundingClientRect().height).toBe(rowHeight);
 });
 
 test("the strip keeps its row while the prefix arms", async () => {

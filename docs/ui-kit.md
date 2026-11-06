@@ -83,8 +83,9 @@ context-menu dispatcher.
 - Button `layout="status"` keeps the footer's connection opener in its row; the visible label is
   the connection state word, shortened when the row cannot hold it, and the sentence with attempt
   and elapsed is its `Hint` and the recovery dialog. It opens that dialog.
-- Alert `size="compact"`: one line of a chrome row; the message keeps its own width and truncates,
-  so the row's dismiss control sits beside the message rather than at the surface's far edge.
+- Alert `size="compact"`: the message keeps its own width in a chrome row; a sentence that does
+  not fit wraps and the status surface grows for it, so the row's dismiss control sits beside the
+  message rather than at the surface's far edge.
 - Badge `size="compact"`: the armed-prefix chord in the footer and the hidden strip; the chord,
   not a word, keeps the row's hint and status inside the sidebar at 140 % interface scale.
 - RowMenu composes a real button with Base UI ContextMenu. Right-click, the menu key and
