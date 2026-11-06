@@ -6,7 +6,7 @@ const weights: Readonly<Record<string, number>> = shardWeights;
 const knownSeconds = Object.values(weights)
   .filter((seconds) => Number.isFinite(seconds) && seconds > 0)
   .toSorted((a, b) => a - b);
-// A new test file gets the median of the recorded durations until it is measured.
+// A new test file gets the median recorded duration until its own weight is recorded.
 const fallbackSeconds = knownSeconds[Math.floor(knownSeconds.length / 2)] ?? 1;
 
 /**
