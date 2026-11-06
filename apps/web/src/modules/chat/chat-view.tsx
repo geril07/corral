@@ -45,6 +45,11 @@ export interface ChatViewProps {
   onDraftChange: Dispatch<SetStateAction<string>>;
   /** The agent's name for the placeholder ("Ask pi…"); the session's kind. */
   agent: AgentKind;
+  /**
+   * The matched driver's `followUp` declaration. `undefined` until the capabilities answer, or
+   * when this build has no record for the agent, keeps today's offer instead of stripping it.
+   */
+  followUp: boolean | undefined;
   canChooseAgent: boolean;
   modelPickerAnchor?: Ref<HTMLButtonElement> | undefined;
   reasoningPickerAnchor?: Ref<HTMLButtonElement> | undefined;
@@ -71,6 +76,7 @@ export function ChatView({
   draft,
   onDraftChange: setDraft,
   agent,
+  followUp,
   canChooseAgent,
   modelPickerAnchor,
   reasoningPickerAnchor,
@@ -100,6 +106,12 @@ export function ChatView({
   );
   const requestId = request?.id;
   const working = snapshot.state.turn === "working";
+  // A driver that does not declare follow-ups gets steer from both Enter and the chord, and the
+  // hint names only the actions it does offer (`chat.capabilities`, protocol 10).
+  const followUpOffered = followUp !== false;
+  const workingHint = followUpOffered
+    ? `Enter steer · ⌘/Ctrl+Enter follow-up · ${abortHint ?? "no key"} abort`
+    : `Enter steer · ${abortHint ?? "no key"} abort`;
 
   // The composer overlays the timeline, so the list keeps a matching end spacer
   // (`layout.md`: "at the bottom of the lane, overlaying the timeline's end").
@@ -245,7 +257,9 @@ export function ChatView({
                     if (event.shiftKey) return;
                     event.preventDefault();
                     if (!working) void send("prompt");
-                    else void send(event.metaKey || event.ctrlKey ? "follow-up" : "steer");
+                    else if (followUpOffered && (event.metaKey || event.ctrlKey))
+                      void send("follow-up");
+                    else void send("steer");
                   }}
                 />
                 <ComposerToolbar>
@@ -274,24 +288,24 @@ export function ChatView({
                     </span>
                   </Button>
                   <span className="ml-auto text-xs text-muted-foreground">
-                    {working
-                      ? `Enter steer · ⌘/Ctrl+Enter follow-up · ${abortHint ?? "no key"} abort`
-                      : "Enter send · Shift+Enter newline"}
+                    {working ? workingHint : "Enter send · Shift+Enter newline"}
                   </span>
                   {working && (
                     <>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={draft.trim() === "" || sending}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={(event) => {
-                          keepKeyboardInComposer(event);
-                          void send("follow-up");
-                        }}
-                      >
-                        Queue
-                      </Button>
+                      {followUpOffered && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={draft.trim() === "" || sending}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={(event) => {
+                            keepKeyboardInComposer(event);
+                            void send("follow-up");
+                          }}
+                        >
+                          Queue
+                        </Button>
+                      )}
                       <Button
                         variant="destructive"
                         size="sm"

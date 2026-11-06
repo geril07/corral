@@ -95,6 +95,7 @@ export function WorkspaceScreen({
     current,
     currentSession,
     chat,
+    chatDriver,
     chatDrivers,
     capabilitiesReady,
     handoff,
@@ -292,6 +293,7 @@ export function WorkspaceScreen({
         }}
         files={chatFiles}
         agent={currentSession.kind}
+        followUp={chatDriver?.followUp}
         modelPickerAnchor={modelPickerAnchor}
         reasoningPickerAnchor={reasoningPickerAnchor}
         canChooseAgent={Object.values(config.agents).some((agent) => agent.enabled.value)}

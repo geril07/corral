@@ -110,8 +110,9 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 - Chat keeps its centered lane, right-aligned user bubble and unboxed assistant text.
   Reasoning and tool calls keep their folds and independently bounded output/diffs.
 - New-task and chat prompts share the bordered composer surface and wrapping control row.
-  Send/steer/follow-up, abort and IME protection retain their existing semantics.
-  Repository/checkout/branch controls never belong to an existing-task chat composer.
+  Send/steer, abort and IME protection retain their existing semantics; follow-up is offered only
+  where the driver declares it. Repository/checkout/branch controls never belong to an
+  existing-task chat composer.
 - One bounded picker serves creation, add-agent and live chat: tool/profile icon rail, searchable
   model column and the selected model\'s thinking column. A live-chat popup anchors above its
   control and fits available width/height; add-agent anchors to the session adder. Without an

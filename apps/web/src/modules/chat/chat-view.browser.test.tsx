@@ -50,6 +50,7 @@ interface ChatActionHooks {
 async function renderChat(
   messages: readonly ChatStreamMessage[] = RECORDED_CHAT,
   hooks: ChatActionHooks = {},
+  options: { followUp?: boolean | undefined } = { followUp: true },
 ) {
   const script = scriptedChat(messages);
   chats.push(script);
@@ -63,6 +64,7 @@ async function renderChat(
       <ChatView
         store={script.store}
         agent="pi"
+        followUp={options.followUp}
         files={NO_FILES}
         abortHint={ABORT_HINT}
         onSend={async (text, mode) => {
@@ -447,6 +449,38 @@ test("a deferred keyboard abort returns the keyboard to the composer", async () 
   await expect.element(composer).toHaveFocus();
 });
 
+test("a driver without follow-up hides Queue and turns Ctrl/Cmd+Enter into steer", async () => {
+  const chat = await renderChat(recorded([], { state: workingChat() }), {}, { followUp: false });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await expect.element(composer).toHaveFocus();
+
+  // Codex's declaration: no Queue and no follow-up clause in the hint, abort still named.
+  await expect.element(page.getByRole("button", { name: "Queue" })).not.toBeInTheDocument();
+  await expect.element(page.getByText(`Enter steer · ${ABORT_HINT} abort`)).toBeVisible();
+  await expect.element(page.getByText(/follow-up/)).not.toBeInTheDocument();
+
+  // Plain Enter still steers; the chord is the same action rather than a refused follow-up.
+  await userEvent.keyboard("Steer this{Enter}");
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Steer this", mode: "steer" }]));
+  await userEvent.keyboard("And this{Control>}{Enter}{/Control}");
+  await vi.waitFor(() => expect(chat.sent[1]).toEqual({ text: "And this", mode: "steer" }));
+});
+
+test("an unanswered driver capability keeps the follow-up offer", async () => {
+  // `undefined` is the store before its answer, or an agent without a record: not a refusal.
+  const chat = await renderChat(recorded([], { state: workingChat() }), {}, {});
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await expect.element(composer).toHaveFocus();
+
+  await expect.element(page.getByRole("button", { name: "Queue" })).toBeVisible();
+  await expect.element(page.getByText(/Enter steer · ⌘\/Ctrl\+Enter follow-up/)).toBeVisible();
+
+  await userEvent.keyboard("Queue this{Control>}{Enter}{/Control}");
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Queue this", mode: "follow-up" }]));
+});
+
 test("send, steer and queue a follow-up from the keyboard; Shift+Enter is a newline", async () => {
   const chat = await renderChat(recorded([], { state: IDLE_CHAT }));
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
@@ -528,6 +562,7 @@ function PrefixHarness({
       <ChatView
         store={store}
         agent="pi"
+        followUp={true}
         files={NO_FILES}
         abortHint={ABORT_HINT}
         onSend={async () => {}}
@@ -885,6 +920,7 @@ test("a refused watch shows the store's failure and the view does not retry it i
       <ChatView
         store={store}
         agent="pi"
+        followUp={true}
         files={NO_FILES}
         abortHint={ABORT_HINT}
         onSend={async () => {}}
