@@ -1,9 +1,9 @@
 import { chmodSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative as relativePath } from "node:path";
 import { afterEach, beforeEach, expect, test } from "vite-plus/test";
 import { FileNotFoundError, FileOutsideWorkspaceError } from "./errors.ts";
-import { resolveWorkspaceEntry } from "./file-access.ts";
+import { isInsideResolved, resolveWorkspaceEntry } from "./file-access.ts";
 
 let root: string;
 let workspace: string;
@@ -134,4 +134,32 @@ test("nothing at the path is a not-found refusal, and so is a dangling symlink",
   symlinkSync(join(workspace, "gone.ts"), join(workspace, "dangling.ts"));
   await expect(resolveWorkspaceEntry(workspace, "dangling.ts")).rejects.toThrow(FileNotFoundError);
   await expect(resolveWorkspaceEntry(workspace, "")).rejects.toThrow(FileNotFoundError);
+});
+
+test("a sibling with a shared prefix is outside, and a directory that no longer exists is compared lexically", async () => {
+  mkdirSync(join(root, "workspace-2"));
+  expect(await isInsideResolved(workspace, join(root, "workspace-2"))).toBe(false);
+  expect(await isInsideResolved(workspace, join(workspace, "src"))).toBe(true);
+
+  const gone = join(root, "gone");
+  mkdirSync(gone);
+  expect(await isInsideResolved(gone, join(gone, "child"))).toBe(true);
+  rmSync(gone, { recursive: true });
+  // The directory is deleted, as a removed worktree's can be; the cwd string still matches.
+  expect(await isInsideResolved(gone, join(gone, "child"))).toBe(true);
+  expect(await isInsideResolved(gone, join(root, "gone-2"))).toBe(false);
+});
+
+test("a relative cwd is resolved against the server's own cwd before the compare", async () => {
+  const relative = relativePath(process.cwd(), join(workspace, "src"));
+  expect(await isInsideResolved(workspace, relative)).toBe(true);
+});
+
+test("both sides resolve through their real paths when they exist, so a symlink inside the workspace is not masked", async () => {
+  symlinkSync(workspace, join(root, "workspace-link"));
+  expect(await isInsideResolved(join(root, "workspace-link"), join(workspace, "src"))).toBe(true);
+
+  // A cwd reached through a link that points outside is outside, whatever its spelling.
+  symlinkSync(outside, join(workspace, "out-link"));
+  expect(await isInsideResolved(workspace, join(workspace, "out-link"))).toBe(false);
 });

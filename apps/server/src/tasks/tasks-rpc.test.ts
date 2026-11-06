@@ -1,13 +1,14 @@
-import type { Task } from "@corral/protocol/rpc";
+import { Task } from "@corral/protocol/rpc";
 import { appendFileSync, chmodSync, existsSync, writeFileSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vite-plus/test";
 import { useFakeAgents } from "../../test/fake-agents.ts";
+import { sh } from "../../test/programs.ts";
 import { cloneOfOrigin, commitFile, runGit, writeFiles } from "../../test/git-repo.ts";
 import { addProject } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
-import { launchesOf, sessionsOf } from "../../test/session-helpers.ts";
+import { launchesOf, processExists, sessionsOf } from "../../test/session-helpers.ts";
 import { MAX_LOCAL_PATHS } from "../git/repository.ts";
 import { openDatabase } from "../storage/database.ts";
 import { TaskStore } from "./task-store.ts";
@@ -381,6 +382,76 @@ test("removing a clean task deletes its worktree and keeps the branch with its c
   await expect(api.tasks.remove({ id: task.id })).rejects.toMatchObject({
     code: "TASK_NOT_FOUND",
   });
+});
+
+test("removing a worktree task closes its session and the loose terminals in that workspace; outside and sibling terminals survive", async () => {
+  const { project, repo } = await addProject(server);
+  const api = await server.rpc();
+  const doomed = await api.tasks.create({
+    projectId: project.id,
+    title: "Twin",
+    workspace: { type: "new-branch" },
+  });
+  const sibling = await api.tasks.create({
+    projectId: project.id,
+    title: "Twin",
+    workspace: { type: "new-branch" },
+  });
+  expect(doomed.workspacePath).toBe(join(server.dataDir, "worktrees", "app", "twin"));
+  // `twin` and `twin-2` share a prefix but not a directory: removing one must not sweep the other.
+  expect(sibling.workspacePath).toBe(`${doomed.workspacePath}-2`);
+
+  const session = await api.sessions.start({
+    taskId: doomed.id,
+    kind: "claude",
+    size: SIZE,
+  });
+  const [sessionLaunch] = await launchesOf(agents, "claude", 1);
+  expect(sessionLaunch).toBeDefined();
+
+  const start = async (cwd: string, name: string) => {
+    const pidFile = join(server.scratchDir, name);
+    const info = await server.createTerminal(sh(`echo $$ > ${pidFile}; echo ready; read x`), {
+      cwd,
+    });
+    const client = await server.attach(info.id);
+    await client.waitForScreen("ready");
+    return { info, pid: Number(await readFile(pidFile, "utf8")) };
+  };
+  const inside = await start(doomed.workspacePath, "inside.pid");
+  const outside = await start(server.scratchDir, "outside.pid");
+  const inSibling = await start(sibling.workspacePath, "sibling.pid");
+  expect((await api.terminals.list()).map((terminal) => terminal.id)).toEqual([
+    session.terminalId,
+    inside.info.id,
+    outside.info.id,
+    inSibling.info.id,
+  ]);
+
+  await api.tasks.remove({ id: doomed.id });
+
+  expect((await api.terminals.list()).map((terminal) => terminal.id)).toEqual([
+    outside.info.id,
+    inSibling.info.id,
+  ]);
+  expect(await sessionsOf(api)).toEqual([]);
+  await expect
+    .poll(() => processExists(sessionLaunch!.pid), { timeout: 10_000, message: "the session" })
+    .toBe(false);
+  await expect
+    .poll(() => processExists(inside.pid), { timeout: 10_000, message: "the loose terminal" })
+    .toBe(false);
+  // The terminals that were never in the workspace keep running, and so does their directory.
+  expect(processExists(outside.pid)).toBe(true);
+  expect(processExists(inSibling.pid)).toBe(true);
+  expect(existsSync(doomed.workspacePath)).toBe(false);
+  expect(existsSync(sibling.workspacePath)).toBe(true);
+  expect(worktreePaths(repo)).toEqual([repo, sibling.workspacePath]);
+  expect(branches(repo)).toEqual(["main", "twin", "twin-2"]);
+  const updates = await api.tasks.watch();
+  const listed = Task.array().parse((await within(updates.next(), "the tasks")).value);
+  expect(listed.map((task) => task.id)).toEqual([sibling.id]);
+  await updates.return?.();
 });
 
 test("a task created under the old layout keeps its stored path and can still be removed", async () => {

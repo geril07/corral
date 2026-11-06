@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,6 +7,7 @@ import { afterEach, beforeEach, expect, test } from "vite-plus/test";
 import { cloneOfOrigin, initRepo, runGit } from "../../test/git-repo.ts";
 import { GitError } from "../git/git.ts";
 import { disabledNaming } from "../naming/naming.ts";
+import { ProjectNotFoundError } from "../projects/errors.ts";
 import { ProjectStore } from "../projects/project-store.ts";
 import { openDatabase } from "../storage/database.ts";
 import { TaskService, type TaskSessions, type WorktreeOperations } from "./task-service.ts";
@@ -26,6 +28,7 @@ afterEach(async () => {
 const sessions: TaskSessions = {
   hasRunningIn: () => false,
   removeAllIn: () => Promise.resolve(),
+  closeTerminalsIn: () => Promise.resolve(),
   suspendAllIn: () => Promise.resolve(),
   resumeAllIn: () => Promise.resolve(),
   startPrimary: () => {
@@ -45,7 +48,11 @@ const worktreePaths = (repo: string) =>
     .map((field) => field.slice("worktree ".length));
 
 /** The real stores on a temp database and real git, with the worktree operations under test control. */
-function service(repo: string, worktree?: Partial<WorktreeOperations>) {
+function service(
+  repo: string,
+  worktree?: Partial<WorktreeOperations>,
+  sessionsOverride: Partial<TaskSessions> = {},
+) {
   const dataDir = join(root, "data");
   const db = openDatabase(dataDir);
   databases.push(db);
@@ -54,17 +61,17 @@ function service(repo: string, worktree?: Partial<WorktreeOperations>) {
   const tasks = new TaskService({
     store: new TaskStore(db),
     projects,
-    sessions,
+    sessions: { ...sessions, ...sessionsOverride },
     settings: defaultTaskSettings({ dataDir }),
     naming: disabledNaming(),
     ...(worktree === undefined ? {} : { worktree }),
   });
-  return tasks;
+  return { tasks, projects };
 }
 
 test("a new branch another process created after planning survives the failed attempt", async () => {
   const repo = initRepo(join(root, "repo"));
-  const tasks = service(repo, {
+  const { tasks } = service(repo, {
     async createBranch(repository, plan) {
       // The other process wins the same race git would refuse.
       runGit(repository, "branch", plan.branch);
@@ -83,7 +90,7 @@ test("a new branch another process created after planning survives the failed at
 
 test("a remote-tracking branch another process created after planning survives the failed attempt", async () => {
   const { clone } = cloneOfOrigin(join(root, "scratch"));
-  const tasks = service(clone, {
+  const { tasks } = service(clone, {
     async createBranch(repository, plan) {
       runGit(repository, "branch", plan.branch);
       throw new GitError(`a branch named '${plan.branch}' already exists`);
@@ -105,7 +112,7 @@ test("a remote-tracking branch another process created after planning survives t
 
 test("a branch this attempt created is deleted when the worktree cannot be added", async () => {
   const repo = initRepo(join(root, "repo"));
-  const tasks = service(repo, {
+  const { tasks } = service(repo, {
     addWorktree() {
       return Promise.reject(new GitError("could not add the worktree"));
     },
@@ -118,4 +125,92 @@ test("a branch this attempt created is deleted when the worktree cannot be added
   expect(localBranches(repo)).not.toContain("doomed");
   expect(worktreePaths(repo)).toEqual([repo]);
   expect(tasks.list()).toEqual([]);
+});
+
+test("a project removed while the worktree is being added leaves no row, worktree or branch, and a retry makes one", async () => {
+  const repo = initRepo(join(root, "repo"));
+  let removed = false;
+  const { tasks, projects } = service(repo, {
+    async addWorktree(repository, path, plan) {
+      runGit(repository, "worktree", "add", "--", path, plan.branch);
+      // The other window removes the project after the first lookup and before the row.
+      if (!removed) {
+        removed = true;
+        projects.delete("p");
+      }
+    },
+  });
+  const before = localBranches(repo);
+  const hookedPath = join(root, "data", "worktrees", "app", "hooked");
+
+  await expect(
+    tasks.create({ projectId: "p", title: "Hooked", workspace: { type: "new-branch" } }),
+  ).rejects.toBeInstanceOf(ProjectNotFoundError);
+
+  expect(tasks.list()).toEqual([]);
+  expect(worktreePaths(repo)).toEqual([repo]);
+  expect(localBranches(repo)).toEqual(before);
+  expect(existsSync(hookedPath)).toBe(false);
+
+  // The project comes back and the same create is retried: one worktree and one branch, no `-2`.
+  projects.insert({ id: "p", name: "app", path: repo, defaultBaseBranch: "main" });
+  const retried = await tasks.create({
+    projectId: "p",
+    title: "Hooked",
+    workspace: { type: "new-branch" },
+  });
+
+  expect(retried.workspacePath).toBe(hookedPath);
+  expect(worktreePaths(repo)).toEqual([repo, hookedPath]);
+  expect(localBranches(repo).toSorted()).toEqual([...before, "hooked"].toSorted());
+});
+
+test("a pre-existing branch is never deleted when the create fails after the worktree exists", async () => {
+  const repo = initRepo(join(root, "repo"));
+  runGit(repo, "branch", "keep");
+  const { tasks, projects } = service(repo, {
+    async addWorktree(repository, path, plan) {
+      runGit(repository, "worktree", "add", "--", path, plan.branch);
+      projects.delete("p");
+    },
+  });
+
+  await expect(
+    tasks.create({
+      projectId: "p",
+      title: "Existing",
+      workspace: { type: "existing-branch", branch: "keep" },
+    }),
+  ).rejects.toBeInstanceOf(ProjectNotFoundError);
+
+  expect(localBranches(repo)).toEqual(["keep", "main"]);
+  expect(worktreePaths(repo)).toEqual([repo]);
+  expect(tasks.list()).toEqual([]);
+});
+
+test("a primary session that throws after the row exists keeps the task, its worktree and its branch", async () => {
+  const repo = initRepo(join(root, "repo"));
+  const { tasks } = service(repo, undefined, {
+    startPrimary: () => Promise.reject(new Error("the launch exploded")),
+  });
+  const updates = tasks.watch(undefined);
+  expect((await updates.next()).value).toEqual([]);
+
+  await expect(
+    tasks.create({
+      projectId: "p",
+      title: "Kept",
+      agent: { kind: "claude" },
+      workspace: { type: "new-branch" },
+    }),
+  ).rejects.toThrow("the launch exploded");
+
+  const [task] = tasks.list();
+  expect(task).toMatchObject({ title: "Kept", branch: "kept", ownsWorktree: true });
+  expect(existsSync(task!.workspacePath)).toBe(true);
+  expect(worktreePaths(repo)).toContain(task!.workspacePath);
+  expect(localBranches(repo)).toContain("kept");
+  // The row is the user's now, so the feed names it even though the call failed.
+  expect((await updates.next()).value).toHaveLength(1);
+  await updates.return(undefined);
 });

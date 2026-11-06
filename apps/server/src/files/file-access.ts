@@ -32,10 +32,37 @@ export function ioErrorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-/** True for the workspace itself and everything under it, false for a sibling such as `/ws2`. */
-function isInside(base: string, candidate: string): boolean {
+/** True for `base` itself and everything under it, false for a sibling such as `/ws2`. */
+export function isInside(base: string, candidate: string): boolean {
   const path = relative(base, candidate);
   return path === "" || (!path.startsWith(`..${sep}`) && path !== ".." && !isAbsolute(path));
+}
+
+/**
+ * Whether a directory such as a terminal's cwd is `base` or inside it. Both sides are compared by
+ * their real paths when both exist, so a workspace reached through a symlink is the same directory;
+ * when either is gone — a terminal whose cwd the removal already deleted, or a worktree deleted
+ * outside Corral — the lexical resolution is the only one left. `candidate` is resolved first, as
+ * node-pty resolves a relative cwd against the server's own cwd.
+ */
+export async function isInsideResolved(base: string, candidate: string): Promise<boolean> {
+  const lexicalBase = resolve(base);
+  const lexicalCandidate = resolve(candidate);
+  const [realBase, realCandidate] = await Promise.all([
+    realPathOrUndefined(lexicalBase),
+    realPathOrUndefined(lexicalCandidate),
+  ]);
+  return realBase !== undefined && realCandidate !== undefined
+    ? isInside(realBase, realCandidate)
+    : isInside(lexicalBase, lexicalCandidate);
+}
+
+async function realPathOrUndefined(path: string): Promise<string | undefined> {
+  try {
+    return await realpath(path);
+  } catch {
+    return undefined;
+  }
 }
 
 /**

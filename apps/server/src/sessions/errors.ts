@@ -123,3 +123,26 @@ export class LaunchViewUnsupportedError extends Error {
     this.view = view;
   }
 }
+
+/**
+ * A terminal whose cwd is in a task's workspace did not close. Removal stops there, before the
+ * worktree or the task row is touched; the message names the terminal so the remove dialog can
+ * show which one held it.
+ */
+export class TerminalCloseFailedError extends Error {
+  readonly terminalId: string;
+  readonly label: string | null;
+  constructor(
+    terminal: { id: string; label?: string | null | undefined; cwd: string },
+    cause: unknown,
+  ) {
+    const label = terminal.label ?? null;
+    const name = label === null ? terminal.id : `${label} (${terminal.id})`;
+    super(
+      `Could not close the terminal "${name}" in ${terminal.cwd}; the task and its worktree were not removed.`,
+      { cause },
+    );
+    this.terminalId = terminal.id;
+    this.label = label;
+  }
+}
