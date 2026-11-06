@@ -10,6 +10,7 @@ import { writeConfigFile } from "./test/config-file.ts";
 import { clearIssueCliCalls, issueCliCalls, issueCliPath } from "./test/issue-clis.ts";
 import { writeRepoFile } from "./test/repo-files.ts";
 import { agentLaunches, serverEnv } from "./test/server-agents.ts";
+import { WeightedShardSequencer } from "./test/weighted-shard-sequencer.ts";
 
 export default defineConfig({
   // Relative asset paths so Electron can load the build from a file:// URL.
@@ -40,6 +41,7 @@ export default defineConfig({
     globalSetup: ["test/real-server.ts"],
     // The files share one real server, and each test cleans up all of it afterwards.
     fileParallelism: false,
+    sequence: { sequencer: WeightedShardSequencer },
     browser: {
       enabled: true,
       headless: true,

@@ -86,6 +86,20 @@ const upFromModule = [
 ];
 
 export default defineConfig({
+  run: {
+    // Shards are real test runs, never replays of a cached result.
+    cache: { tasks: false },
+    tasks: {
+      "browser-shard-1": "cd apps/web && vp test run --config vite.config.ts --shard=1/4",
+      "browser-shard-2": "cd apps/web && vp test run --config vite.config.ts --shard=2/4",
+      "browser-shard-3": "cd apps/web && vp test run --config vite.config.ts --shard=3/4",
+      "browser-shard-4": "cd apps/web && vp test run --config vite.config.ts --shard=4/4",
+      "browser-all": {
+        command: 'node -e ""',
+        dependsOn: ["browser-shard-1", "browser-shard-2", "browser-shard-3", "browser-shard-4"],
+      },
+    },
+  },
   staged: {
     "*": "vp check --fix",
   },
