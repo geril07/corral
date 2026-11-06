@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ComponentProps, CSSProperties, ReactNode } from "react";
 import { cn } from "../lib/cn.ts";
 
 /**
@@ -65,5 +65,22 @@ export function TaskContent({ children }: { children: ReactNode }) {
     >
       {children}
     </section>
+  );
+}
+
+/**
+ * A block whose maximum height the browser measured (the Settled shelf is one measured page). The
+ * measurement belongs to its caller; a raw inline style belongs to the kit.
+ */
+export function MeasuredBox({
+  maxHeight,
+  className,
+  children,
+  ...props
+}: ComponentProps<"div"> & { maxHeight: number }) {
+  return (
+    <div {...props} className={className} style={{ maxHeight }}>
+      {children}
+    </div>
   );
 }

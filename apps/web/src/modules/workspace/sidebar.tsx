@@ -26,7 +26,7 @@ import type {
   TaskChanges,
   TerminalInfo,
 } from "@corral/protocol/rpc";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
 import { cn } from "../../common/lib/cn.ts";
 import {
@@ -35,6 +35,7 @@ import {
   IconButton,
   Icon,
   DropdownMenuItem,
+  MeasuredBox,
   RowMenu,
   Hint,
   TreeIndent,
@@ -45,6 +46,13 @@ import { changeCounts, pullRequestShortText } from "../changes/index.ts";
 import { formatBinding } from "../keymap/index.ts";
 import { StatusIndicator } from "../status/index.ts";
 import { SIDEBAR_ROW_SELECTOR, sidebarRowOf } from "./sidebar-focus.ts";
+import {
+  SHELF_MIN_ACTIVE_ROWS,
+  shelfMountedRows,
+  shelfPageSize,
+  useSidebarDevice,
+  type ShelfState,
+} from "./sidebar-view.ts";
 
 export function terminalLabel(terminal: TerminalInfo): string {
   if (terminal.label) return terminal.label;
@@ -115,7 +123,8 @@ interface SidebarProps {
  */
 export function Sidebar(props: SidebarProps) {
   const { tree, selection, config, flat, changes, pullRequests, composing } = props;
-  const [closedProjects, setClosedProjects] = useState<ReadonlySet<string>>(new Set());
+  const { closedProjects, toggleProject, openProject, shelf, setShelf } = useSidebarDevice();
+  const listRef = useRef<HTMLDivElement>(null);
   const now = useNow(AGE_REFRESH_MS);
   // A composer is a view of its project, not a row: while it is open no task, project or loose
   // terminal is current, and the same value is what the main area shows.
@@ -130,19 +139,28 @@ export function Sidebar(props: SidebarProps) {
   const hint = (label: string, action: ActionId) =>
     config ? `${label} · ${formatBinding(config, action)}` : label;
 
-  const toggleProject = (projectId: string) =>
-    setClosedProjects((closed) => {
-      const next = new Set(closed);
-      if (!next.delete(projectId)) next.add(projectId);
-      return next;
-    });
-  const openProject = (projectId: string) =>
-    setClosedProjects((closed) => {
-      if (!closed.has(projectId)) return closed;
-      const next = new Set(closed);
-      next.delete(projectId);
-      return next;
-    });
+  // The selected row stays in view when the selection moves (`prefix j`/`k`/`f`) and when the
+  // list's visible area changes: a group opening or closing, the shelf taking its page.
+  const revealSelectedRow = useCallback((..._changed: unknown[]) => {
+    listRef.current
+      ?.querySelector<HTMLElement>(`${SIDEBAR_ROW_SELECTOR}[aria-current="true"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  }, []);
+  useLayoutEffect(() => {
+    revealSelectedRow(shownSelection?.taskId, shownSelection?.entryId);
+  }, [revealSelectedRow, shownSelection?.entryId, shownSelection?.taskId]);
+  useEffect(() => {
+    const list = listRef.current;
+    if (list === null) return undefined;
+    // The rows' own height changes when a group opens or closes or grouping swaps them, and the
+    // list's height changes when the shelf takes its page: both reveal the selected row again.
+    const observer = new ResizeObserver(revealSelectedRow);
+    observer.observe(list);
+    const content = list.firstElementChild;
+    if (content instanceof Element) observer.observe(content);
+    return () => observer.disconnect();
+  }, [revealSelectedRow]);
+
   const renderTask = (node: TaskNode) => (
     <TaskRow
       key={node.task.id}
@@ -283,7 +301,7 @@ export function Sidebar(props: SidebarProps) {
           onClick={(event) => props.onNewTask(undefined, event.currentTarget)}
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={listRef} data-sidebar-list className="min-h-0 flex-1 overflow-y-auto">
         {flat !== undefined ? (
           <ul className="m-0 list-none p-0">
             {flat.sections.map((section) => (
@@ -317,6 +335,8 @@ export function Sidebar(props: SidebarProps) {
           <SettledGroup
             items={settled}
             currentTaskId={shownSelection?.taskId ?? null}
+            shelf={shelf}
+            setShelf={setShelf}
             renderItem={renderTask}
           />
         </ul>
@@ -497,6 +517,7 @@ function TaskRow({
       size="row"
       layout="tree"
       data-sidebar-row
+      data-task-row
       // The second line lives in an overridden subtree, so the accessible name carries it.
       aria-label={detail === undefined ? task.title : `${task.title} — ${detail}`}
       aria-current={current ? "true" : undefined}
@@ -647,52 +668,135 @@ function ProjectGroup({
 function SettledGroup({
   items,
   currentTaskId,
+  shelf,
+  setShelf,
   renderItem,
 }: {
   items: readonly TaskNode[];
   currentTaskId: string | null;
+  shelf: ShelfState;
+  setShelf: (update: (current: ShelfState) => ShelfState) => void;
   renderItem: (item: TaskNode) => React.ReactNode;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const [limit, setLimit] = useState(6);
-  const list = useRef<HTMLUListElement>(null);
+  // One measured page: the box is the room the active list's floor leaves, and the page is the
+  // rows it fits. The interface scale and the window decide it; nothing here is a fixed count.
+  const [metrics, setMetrics] = useState<{ row: number; pageSize: number }>({
+    row: 0,
+    pageSize: 1,
+  });
+  const [autoOpen, setAutoOpen] = useState(false);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const currentIndex = items.findIndex((item) => item.task.id === currentTaskId);
-  const holdsCurrent = currentIndex >= 0;
-  const open = expanded || holdsCurrent;
-  const visible = Math.max(limit, currentIndex + 1);
+  const current = currentIndex >= 0 ? items[currentIndex] : undefined;
+  const open = shelf.expanded || autoOpen;
+  const rows = shelfMountedRows(items.length, metrics.pageSize, shelf.page, currentIndex);
+  const pageHeight = metrics.pageSize * metrics.row;
+
+  // The budget: the nav minus its chrome, the toggle and Show more rows, and the active list's
+  // four-row floor. Show more is the box's last row; reserving the toggle's height for it keeps
+  // the page stable while the control comes and goes at the end of the list.
+  useLayoutEffect(() => {
+    const toggle = toggleRef.current;
+    if (toggle === null) return undefined;
+    const nav = toggle.closest("nav");
+    if (nav === null) return undefined;
+    const measure = () => {
+      const list = nav.querySelector<HTMLElement>("[data-sidebar-list]");
+      const rootFont = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+      const row =
+        nav.querySelector<HTMLElement>("[data-task-row]")?.getBoundingClientRect().height ??
+        (Number.isFinite(rootFont) ? rootFont * 3.25 : 52);
+      const chrome =
+        list === null ? 0 : list.getBoundingClientRect().top - nav.getBoundingClientRect().top;
+      const toggleHeight = toggle.getBoundingClientRect().height;
+      // Show more is the same single-line row as the toggle; reserving its height keeps the page
+      // stable while that control comes and goes at the end of the list.
+      const box = Math.max(
+        0,
+        nav.clientHeight - chrome - toggleHeight * 2 - SHELF_MIN_ACTIVE_ROWS * row,
+      );
+      const pageSize = shelfPageSize(box, row);
+      setMetrics((previous) =>
+        previous.row === row && previous.pageSize === pageSize ? previous : { row, pageSize },
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(nav);
+    observer.observe(toggle);
+    const list = nav.querySelector<HTMLElement>("[data-sidebar-list]");
+    if (list !== null) observer.observe(list);
+    return () => observer.disconnect();
+  }, []);
+
+  // A selection entering the shelf opens it; leaving collapses only what the selection opened.
+  // A shelf the user expanded stays open. Mounting keeps the persisted state, so a reload with a
+  // settled task shows that row alone until something is selected.
+  const previousTask = useRef(currentTaskId);
   useEffect(() => {
-    if (open && currentTaskId !== null)
-      list.current
-        ?.querySelector<HTMLElement>('[aria-current="true"]')
-        ?.scrollIntoView({ block: "nearest" });
-  }, [open, currentTaskId]);
+    if (previousTask.current === currentTaskId) return;
+    previousTask.current = currentTaskId;
+    setAutoOpen(currentIndex >= 0);
+  }, [currentIndex, currentTaskId]);
+
+  // The selected row is revealed inside the box; after Show more, the appended page is what you
+  // see. Both use the box's own scrolling, never the window's.
+  const previousRows = useRef(rows);
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    const before = previousRows.current;
+    previousRows.current = rows;
+    if (!open || list === null) return;
+    const rendered = [...list.querySelectorAll<HTMLElement>("[data-task-row]")];
+    const selected = currentIndex >= 0 ? rendered[currentIndex] : undefined;
+    if (selected !== undefined) {
+      selected.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    if (rows > before && before > 0) rendered[before]?.scrollIntoView({ block: "start" });
+  }, [currentIndex, open, rows]);
+
+  // Show more appends one measured page to what is mounted, not one fixed page count.
+  const showMore = () => {
+    const pages = Math.ceil(rows / metrics.pageSize) + 1;
+    setShelf((state) => ({ ...state, page: Math.max(state.page + 1, pages) }));
+  };
+
+  const toggle = () => {
+    setAutoOpen(false);
+    setShelf((state) => ({ ...state, expanded: !open }));
+  };
+
   return (
     <li>
       <TreeRow>
-        <Button
-          variant="ghost"
-          layout="tree"
-          aria-expanded={open}
-          disabled={holdsCurrent}
-          onClick={() => setExpanded((each) => !each)}
-        >
+        <Button ref={toggleRef} variant="ghost" layout="tree" aria-expanded={open} onClick={toggle}>
           <Icon name={open ? "collapse" : "expand"} />
           <span className="min-w-0 flex-1 truncate text-muted-foreground">
             Settled ({items.length})
           </span>
         </Button>
       </TreeRow>
-      {open && (
+      {open ? (
         <>
-          <ul ref={list} className="m-0 max-h-60 list-none overflow-y-auto p-0">
-            {items.slice(0, visible).map(renderItem)}
-          </ul>
-          {visible < items.length && (
-            <Button variant="ghost" onClick={() => setLimit((each) => each + 6)}>
-              Show more
-            </Button>
+          <MeasuredBox data-shelf-list maxHeight={pageHeight} className="overflow-y-auto">
+            <ul ref={listRef} className="m-0 list-none p-0">
+              {items.slice(0, rows).map(renderItem)}
+            </ul>
+          </MeasuredBox>
+          {rows < items.length && (
+            <TreeRow>
+              <Button variant="ghost" onClick={showMore}>
+                Show more
+              </Button>
+            </TreeRow>
           )}
         </>
+      ) : (
+        // A collapsed shelf still shows the current task's row alone, so closing it never hides
+        // the task the main area is showing.
+        current !== undefined && <ul className="m-0 list-none p-0">{renderItem(current)}</ul>
       )}
     </li>
   );

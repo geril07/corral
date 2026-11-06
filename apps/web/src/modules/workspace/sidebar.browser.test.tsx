@@ -111,7 +111,7 @@ function renderSidebar(
   ]);
   const spies = handlers();
   const rendered = render(
-    <div className={narrow ? "w-52" : undefined}>
+    <div className={narrow ? "flex h-screen w-52 flex-col" : "flex h-screen flex-col"}>
       <Sidebar
         tree={tree}
         selection={resolveSelection(tree, chosen)}
@@ -120,13 +120,53 @@ function renderSidebar(
         config={config}
         {...spies}
       />
+      {/* The shell footer the pane sits above, so the shelf measures the page a real window gives it. */}
+      <div aria-hidden className="h-(--chrome-row) shrink-0" />
     </div>,
   );
   return { rendered, handlers: spies };
 }
 
+/** A sidebar whose selection the test can move without a real workspace or server. */
+async function renderSelectableSidebar(
+  chosen: Chosen,
+  sessions: Session[] = defaultSessions,
+  tasks: Task[] = [task("a"), task("b"), task("old", "settled")],
+) {
+  const tree = buildWorkspaceTree([project("p1"), project("p2")], tasks, sessions, [
+    terminal("term-s1", "a", "s1"),
+    terminal("term-s2", "a", "s2"),
+    terminal("loose", null, null),
+  ]);
+  const spies = handlers();
+  const element = (next: Chosen) => (
+    <div className="flex h-screen flex-col">
+      <Sidebar tree={tree} selection={resolveSelection(tree, next)} config={config} {...spies} />
+      <div aria-hidden className="h-(--chrome-row) shrink-0" />
+    </div>
+  );
+  return { rendered: await render(element(chosen)), select: (next: Chosen) => element(next) };
+}
+
 const nav = () => page.getByRole("navigation", { name: "workspace" });
 const row = (title: string) => nav().getByRole("button", { name: new RegExp(`^${title}`) });
+const shelfBox = () => {
+  const box = nav().element().querySelector<HTMLElement>("[data-shelf-list]");
+  if (box === null) throw new Error("the shelf box is not mounted");
+  return box;
+};
+const activeList = () => {
+  const list = nav().element().querySelector<HTMLElement>("[data-sidebar-list]");
+  if (list === null) throw new Error("the active list is not mounted");
+  return list;
+};
+const taskRowsIn = (root: ParentNode) => [...root.querySelectorAll<HTMLElement>("[data-task-row]")];
+/** Whether a row sits wholly inside a box's visible area. */
+function visibleIn(element: Element, box: Element): boolean {
+  const area = box.getBoundingClientRect();
+  const rect = element.getBoundingClientRect();
+  return rect.top >= area.top - 1 && rect.bottom <= area.bottom + 1;
+}
 
 test("tasks are the only rows; loose terminals sit under Scratch", async () => {
   await renderSidebar().rendered;
@@ -177,37 +217,248 @@ test("settled tasks stay collapsed until the group is opened", async () => {
   await expect.element(row("task old")).not.toBeInTheDocument();
 });
 
-test("one bottom shelf contains settled tasks from every project and reveals them in bounded pages", async () => {
+test("one bottom shelf spans every project and pages by its measured box", async () => {
   const tasks = [
     task("current"),
     ...Array.from({ length: 14 }, (_, index) => ({
       ...task(`settled-${index}`, "settled"),
       projectId: index % 2 === 0 ? "p1" : "p2",
+      createdAt: index + 1,
     })),
   ];
   await renderSidebar({ taskId: "current" }, [], tasks).rendered;
   const shelf = nav().getByRole("button", { name: "Settled (14)" });
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "false");
+  await expect.element(shelf).toBeEnabled();
   await shelf.click();
-  expect(
-    nav()
-      .getByRole("button", { name: /^task settled-/ })
-      .elements(),
-  ).toHaveLength(6);
-  await nav().getByRole("button", { name: "Show more", exact: true }).click();
-  expect(
-    nav()
-      .getByRole("button", { name: /^task settled-/ })
-      .elements(),
-  ).toHaveLength(12);
-  await nav().getByRole("button", { name: "Show more", exact: true }).click();
-  expect(
-    nav()
-      .getByRole("button", { name: /^task settled-/ })
-      .elements(),
-  ).toHaveLength(14);
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
+
+  // One measured page: the rows the box fits. At 1024×640 and 100% that is four.
+  const rowHeight = () => taskRowsIn(shelfBox())[0]!.getBoundingClientRect().height;
+  expect(taskRowsIn(shelfBox())).toHaveLength(4);
+  expect(shelfBox().clientHeight).toBeCloseTo(4 * rowHeight(), 0);
+  expect(shelfBox().scrollHeight).toBeLessThanOrEqual(shelfBox().clientHeight + 1);
+  expect(taskRowsIn(shelfBox()).filter((item) => visibleIn(item, shelfBox()))).toHaveLength(4);
+  const showMore = nav().getByRole("button", { name: "Show more", exact: true });
+  await expect.element(showMore).toBeVisible();
+  // The control is the shelf's last row, inside the pane, never below the fold.
+  expect(showMore.element().getBoundingClientRect().bottom).toBeLessThanOrEqual(
+    nav().element().getBoundingClientRect().bottom + 1,
+  );
+
+  // Show more appends exactly one measured page, and the appended page is what you see.
+  const appendPage = async (mounted: number) => {
+    await showMore.click();
+    await vi.waitFor(() => expect(taskRowsIn(shelfBox())).toHaveLength(mounted));
+    const appended = taskRowsIn(shelfBox()).slice(mounted - 4, mounted);
+    await vi.waitFor(() =>
+      expect(appended.every((item) => visibleIn(item, shelfBox()))).toBe(true),
+    );
+    await expect.element(showMore).toBeVisible();
+  };
+  await appendPage(8);
+  await appendPage(12);
+
+  await showMore.click();
+  await vi.waitFor(() => expect(taskRowsIn(shelfBox())).toHaveLength(14));
+  const appended = taskRowsIn(shelfBox()).slice(12);
+  await vi.waitFor(() => expect(appended.every((item) => visibleIn(item, shelfBox()))).toBe(true));
   await expect
     .element(nav().getByRole("button", { name: "Show more", exact: true }))
     .not.toBeInTheDocument();
+});
+
+test("at 140% interface scale the shelf shrinks first and the active list keeps four rows", async () => {
+  const tasks = [
+    task("current"),
+    ...Array.from({ length: 14 }, (_, index) => ({
+      ...task(`settled-${index}`, "settled"),
+      createdAt: index + 1,
+    })),
+  ];
+  const previous = document.documentElement.style.fontSize;
+  try {
+    await renderSidebar({ taskId: "current" }, [], tasks).rendered;
+    await nav().getByRole("button", { name: "Settled (14)" }).click();
+    const rowHeight = () => taskRowsIn(shelfBox())[0]!.getBoundingClientRect().height;
+    expect(taskRowsIn(shelfBox())).toHaveLength(4);
+    expect(activeList().clientHeight).toBeGreaterThanOrEqual(4 * rowHeight() - 1);
+
+    // Growing the interface shrinks the shelf's box before it takes rows from the active list.
+    document.documentElement.style.fontSize = "140%";
+    await vi.waitFor(() => expect(rowHeight()).toBeGreaterThan(52 * 1.3));
+    await vi.waitFor(() => {
+      const pageRows = Math.max(1, Math.floor(shelfBox().clientHeight / rowHeight()));
+      expect(pageRows).toBeLessThan(4);
+      expect(taskRowsIn(shelfBox())).toHaveLength(pageRows);
+    });
+    expect(activeList().clientHeight).toBeGreaterThanOrEqual(4 * rowHeight() - 1);
+    expect(shelfBox().clientHeight).toBeCloseTo(rowHeight(), 0);
+  } finally {
+    document.documentElement.style.fontSize = previous;
+  }
+});
+
+test("a collapsed shelf shows the current task's row alone, and expanding it never clips that row", async () => {
+  const tasks = Array.from({ length: 20 }, (_, index) => ({
+    ...task(`archived-${index}`, "settled"),
+    createdAt: index + 1,
+  }));
+  // No active tasks: the shelf is the whole list, and the current row sits on its fourth page.
+  await renderSidebar({ taskId: "archived-10" }, [], tasks).rendered;
+  const shelf = nav().getByRole("button", { name: "Settled (20)" });
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "false");
+  await expect.element(shelf).toBeEnabled();
+  expect(taskRowsIn(nav().element())).toHaveLength(1);
+  const currentRow = nav().getByRole("button", { name: /^task archived-10/ });
+  await expect.element(currentRow).toHaveAttribute("aria-current", "true");
+  expect(visibleIn(currentRow.element(), nav().element())).toBe(true);
+
+  await shelf.click();
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
+  await expect.element(shelf).toBeEnabled();
+  // The mount is bounded to the page holding the row plus at most one beyond it.
+  await vi.waitFor(() => expect(taskRowsIn(shelfBox())).toHaveLength(16));
+  await vi.waitFor(() => expect(visibleIn(currentRow.element(), shelfBox())).toBe(true));
+
+  await shelf.click();
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "false");
+  expect(taskRowsIn(nav().element())).toHaveLength(1);
+  await expect.element(currentRow).toHaveAttribute("aria-current", "true");
+});
+
+test("a shelf the selection opened collapses when the selection leaves; a user-expanded one stays", async () => {
+  const tree = buildWorkspaceTree(
+    [project("p1")],
+    [task("a"), task("old", "settled")],
+    defaultSessions,
+    [],
+  );
+  const spies = handlers();
+  const sidebar = (chosen: Chosen) => (
+    <div className="flex h-screen flex-col">
+      <Sidebar tree={tree} selection={resolveSelection(tree, chosen)} config={config} {...spies} />
+      <div aria-hidden className="h-(--chrome-row) shrink-0" />
+    </div>
+  );
+  const rendered = await render(sidebar({ taskId: "a" }));
+  const shelf = nav().getByRole("button", { name: "Settled (1)" });
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "false");
+
+  // Selecting a settled task opens the shelf; `j` into it does the same in the workspace.
+  await rendered.rerender(sidebar({ taskId: "old" }));
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
+  await expect.element(row("task old")).toHaveAttribute("aria-current", "true");
+  // Leaving the shelf collapses what the selection opened.
+  await rendered.rerender(sidebar({ taskId: "a" }));
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "false");
+  await expect.element(row("task old")).not.toBeInTheDocument();
+
+  // A shelf the user expanded stays open when the selection leaves.
+  await shelf.click();
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
+  await rendered.rerender(sidebar({ taskId: "old" }));
+  await expect.element(row("task old")).toHaveAttribute("aria-current", "true");
+  await rendered.rerender(sidebar({ taskId: "a" }));
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
+});
+
+test("a settled task beyond page 1 opens the shelf with a bounded mount and reveals its row", async () => {
+  const tasks = [
+    task("live"),
+    ...Array.from({ length: 20 }, (_, index) => ({
+      ...task(`deep-${index}`, "settled"),
+      createdAt: index + 1,
+    })),
+  ];
+  const { rendered, select } = await renderSelectableSidebar({ taskId: "live" }, [], tasks);
+  await rendered.rerender(select({ taskId: "deep-10" }));
+  const shelf = nav().getByRole("button", { name: "Settled (20)" });
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
+  const currentRow = nav().getByRole("button", { name: /^task deep-10/ });
+  await expect.element(currentRow).toHaveAttribute("aria-current", "true");
+  // Mounted through the page holding the row plus one page, not the whole history.
+  expect(taskRowsIn(shelfBox())).toHaveLength(16);
+  await vi.waitFor(() => expect(visibleIn(currentRow.element(), shelfBox())).toBe(true));
+});
+
+test("the selected row is revealed when the selection moves and when the list changes", async () => {
+  const first = Array.from({ length: 12 }, (_, index) => task(`first-${index}`));
+  const second = Array.from({ length: 8 }, (_, index) => ({
+    ...task(`second-${index}`),
+    projectId: "p2",
+  }));
+  const { rendered, select } = await renderSelectableSidebar(
+    { taskId: "first-0" },
+    [],
+    [...first, ...second, task("old", "settled")],
+  );
+  await rendered.rerender(select({ taskId: "second-0" }));
+  const selected = row("task second-0");
+  await vi.waitFor(() => expect(visibleIn(selected.element(), activeList())).toBe(true));
+
+  // Opening the shelf shrinks the list; the revealed row stays visible.
+  await nav().getByRole("button", { name: "Settled (1)" }).click();
+  await vi.waitFor(() => expect(visibleIn(selected.element(), activeList())).toBe(true));
+
+  // Expanding the group above the row pushes it down; the list reveals it again.
+  const firstProject = nav().getByRole("button", { name: "repo-p1" });
+  await firstProject.click();
+  await expect.element(firstProject).toHaveAttribute("aria-expanded", "false");
+  await vi.waitFor(() => expect(visibleIn(selected.element(), activeList())).toBe(true));
+  await firstProject.click();
+  await expect.element(firstProject).toHaveAttribute("aria-expanded", "true");
+  await vi.waitFor(() => expect(visibleIn(selected.element(), activeList())).toBe(true));
+});
+
+test("collapsed groups and the shelf page survive hiding the sidebar and a reload", async () => {
+  const tasks = [
+    task("a"),
+    { ...task("b"), projectId: "p2" },
+    ...Array.from({ length: 12 }, (_, index) => ({
+      ...task(`settled-${index}`, "settled"),
+      createdAt: index + 1,
+    })),
+  ];
+  const first = renderSidebar({ taskId: "a" }, [], tasks);
+  const firstView = await first.rendered;
+  const header = nav().getByRole("button", { name: "repo-p2" });
+  await header.click();
+  await expect.element(header).toHaveAttribute("aria-expanded", "false");
+  await nav().getByRole("button", { name: "Settled (12)" }).click();
+  await nav().getByRole("button", { name: "Show more", exact: true }).click();
+  await vi.waitFor(() => expect(taskRowsIn(shelfBox())).toHaveLength(8));
+  expect(JSON.parse(window.localStorage.getItem("corral.sidebar-collapsed") ?? "null")).toEqual([
+    "p2",
+  ]);
+  expect(JSON.parse(window.localStorage.getItem("corral.sidebar-shelf") ?? "null")).toEqual({
+    expanded: true,
+    page: 2,
+  });
+
+  // Hiding the sidebar unmounts it; mounting again reads the device state back.
+  await firstView.unmount();
+  await renderSidebar({ taskId: "a" }, [], tasks).rendered;
+  await expect
+    .element(nav().getByRole("button", { name: "repo-p2" }))
+    .toHaveAttribute("aria-expanded", "false");
+  await expect
+    .element(nav().getByRole("button", { name: "Settled (12)" }))
+    .toHaveAttribute("aria-expanded", "true");
+  expect(taskRowsIn(shelfBox())).toHaveLength(8);
+});
+
+test("a corrupt device record falls back to the defaults instead of breaking the list", async () => {
+  window.localStorage.setItem("corral.sidebar-collapsed", "not json");
+  window.localStorage.setItem("corral.sidebar-shelf", '{"expanded":"yes","page":0}');
+  await renderSidebar().rendered;
+
+  await expect
+    .element(nav().getByRole("button", { name: "repo-p1" }))
+    .toHaveAttribute("aria-expanded", "true");
+  const shelf = nav().getByRole("button", { name: "Settled (1)" });
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "false");
+  await expect.element(shelf).toBeEnabled();
 });
 
 test("a collapsed group holding the current task shows that row alone", async () => {
@@ -607,7 +858,7 @@ test("flat mode lists every project's tasks by status, each row naming its proje
   await expect.element(nav().getByRole("img", { name: "unseen" })).toHaveLength(1);
 });
 
-test("flat mode keeps settled tasks on a collapsed shelf that opens itself for the current one", async () => {
+test("flat mode keeps settled tasks on a collapsed shelf until it is opened", async () => {
   await renderSidebar({}, defaultSessions, undefined, false, "flat").rendered;
 
   const toggle = nav().getByRole("button", { name: "Settled (1)" });

@@ -105,7 +105,9 @@ context-menu dispatcher.
 - AgentIcon owns the four real tool logos and the shell glyph. Source and MIT notice:
   `agent-logos.ts` / `agent-logos.LICENSE`. StatusGlyph still distinguishes states by shape
   and color; its sizes match the tab's tool icon slot.
-- AppShell, SidebarPanel, MainPanel, TaskContent and ContentLane own structural layout.
+- AppShell, SidebarPanel, MainPanel, TaskContent, ContentLane and MeasuredBox own structural
+  layout. MeasuredBox is a scrolling block with a maximum height the caller measured (the Settled
+  shelf's one page); a raw inline style stays in the kit.
   TaskContent is a size container so a prompt capped at 50cqh fits half the content area,
   excluding the task/session chrome rather than growing to half the entire window. Sidebar sizing is
   device-local; text scale never applies a CSS transform that would confuse popup coordinates.

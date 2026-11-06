@@ -47,7 +47,14 @@ export { Markdown, type MarkdownAnchorProps, type MarkdownLinks } from "./stream
 export { DiffView } from "./diff-view.tsx";
 export { ChangeFileRow, DiffPane } from "./change-row.tsx";
 export { Kbd } from "./kbd.tsx";
-export { AppShell, ContentLane, MainPanel, SidebarPanel, TaskContent } from "./layout.tsx";
+export {
+  AppShell,
+  ContentLane,
+  MainPanel,
+  MeasuredBox,
+  SidebarPanel,
+  TaskContent,
+} from "./layout.tsx";
 export { OverflowMenu } from "./overflow-menu.tsx";
 export { RowMenu } from "./row-menu.tsx";
 export { AgentIcon } from "./agent-icon.tsx";

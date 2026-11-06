@@ -2021,3 +2021,162 @@ test("the terminal fills the padded main area and refits when the sidebar is dra
   await userEvent.keyboard("{ArrowRight}".repeat(8));
   await vi.waitFor(async () => expect((await sizeOf()).cols).toBeLessThan(before.cols));
 });
+
+/** The active list's scroll box, outside the Settled shelf's own. */
+const activeListBox = () => {
+  const list = workspace().element().querySelector<HTMLElement>("[data-sidebar-list]");
+  if (list === null) throw new Error("the active list is not mounted");
+  return list;
+};
+const settledBox = () => {
+  const box = workspace().element().querySelector<HTMLElement>("[data-shelf-list]");
+  if (box === null) throw new Error("the settled shelf is not mounted");
+  return box;
+};
+const settledRows = () => settledBox().querySelectorAll("[data-task-row]").length;
+const taskState = (client: CorralClient, id: string) =>
+  client.tasks.getSnapshot().tasks.find((task) => task.id === id)?.state;
+/** Whether a element sits wholly inside a scroll box's visible area. */
+function visibleInBox(element: Element, box: Element): boolean {
+  const area = box.getBoundingClientRect();
+  const rect = element.getBoundingClientRect();
+  return rect.top >= area.top - 1 && rect.bottom <= area.bottom + 1;
+}
+const currentActiveRow = () =>
+  activeListBox().querySelector<HTMLElement>('[data-task-row][aria-current="true"]');
+const activeRowLabels = () =>
+  [...activeListBox().querySelectorAll<HTMLElement>("[data-task-row]")].map(
+    (row) => row.getAttribute("aria-label") ?? "",
+  );
+
+test("j, k and find leave the selected row in view, and j steps from the active list into the shelf", async () => {
+  const { client } = await appWithProject(newClient());
+  const project = client.projects.getSnapshot().projects[0]!;
+  const titles = Array.from({ length: 20 }, (_, index) => `Step ${String(index).padStart(2, "0")}`);
+  for (const title of titles) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- creation order is the sidebar's order
+    await client.connection.api.tasks.create({
+      projectId: project.id,
+      title,
+      workspace: { type: "main-worktree" },
+    });
+  }
+  // One settled task ends the walk: `j` from the last active row selects it.
+  const archived = await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "Shelf task",
+    workspace: { type: "main-worktree" },
+  });
+  await client.connection.api.tasks.setState({ id: archived.id, state: "settled" });
+  await expect.element(taskButton("Step 00")).toBeVisible();
+  await taskButton("Step 00").click();
+  await expect.element(taskButton("Step 00")).toHaveAttribute("aria-current", "true");
+
+  const labels = activeRowLabels();
+  expect(labels).toHaveLength(20);
+  // Every `j` keeps the newly selected row inside the active list's visible area.
+  await labels.slice(1).reduce(async (previous, label) => {
+    await previous;
+    await prefixThen("j");
+    await vi.waitFor(() => {
+      const current = currentActiveRow();
+      if (current === null) throw new Error("no row is current");
+      expect(current.getAttribute("aria-label")).toBe(label);
+      expect(visibleInBox(current, activeListBox())).toBe(true);
+    });
+  }, Promise.resolve());
+
+  // From the last active row, `j` selects the shelf's first row and opens it visibly.
+  await prefixThen("j");
+  const shelf = workspace().getByRole("button", { name: "Settled (1)" });
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
+  await expect.element(shelf).toBeEnabled();
+  const archivedRow = workspace().getByRole("button", { name: /^Shelf task/ });
+  await expect.element(archivedRow).toHaveAttribute("aria-current", "true");
+  await vi.waitFor(() => expect(visibleInBox(archivedRow.element(), settledBox())).toBe(true));
+  // Inspecting it must never resume it.
+  expect(taskState(client, archived.id)).toBe("settled");
+
+  // `k` from the shelf's first row returns to the last active row and reveals it again.
+  await prefixThen("k");
+  const lastActive = workspace().getByRole("button", { name: labels.at(-1)!, exact: true });
+  await expect.element(lastActive).toHaveAttribute("aria-current", "true");
+  await vi.waitFor(() => expect(visibleInBox(lastActive.element(), activeListBox())).toBe(true));
+  // The shelf the selection opened collapses when the selection leaves it.
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "false");
+  await expect.element(archivedRow).not.toBeInTheDocument();
+
+  // `prefix f` reveals the first row, even from the bottom of a long list.
+  await prefixThen("f");
+  const dialog = page.getByRole("dialog", { name: "Find task" });
+  await expect.element(dialog).toBeVisible();
+  await userEvent.keyboard(labels[0]!);
+  await expect
+    .element(dialog.getByRole("option", { name: new RegExp(`^${labels[0]}`) }))
+    .toBeVisible();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(dialog).not.toBeInTheDocument();
+  const firstRow = workspace().getByRole("button", { name: labels[0]!, exact: true });
+  await expect.element(firstRow).toHaveAttribute("aria-current", "true");
+  await vi.waitFor(() => expect(visibleInBox(firstRow.element(), activeListBox())).toBe(true));
+});
+
+test("prefix \\ twice and a reload keep collapsed groups and the shelf page", async () => {
+  const { client, rendered } = await appWithProject(newClient());
+  const project = client.projects.getSnapshot().projects[0]!;
+  for (const index of Array.from({ length: 14 }, (_, each) => each)) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- each settled task needs the previous id
+    const task = await client.connection.api.tasks.create({
+      projectId: project.id,
+      title: `Archived ${String(index).padStart(2, "0")}`,
+      workspace: { type: "main-worktree" },
+    });
+    // oxlint-disable-next-line eslint/no-await-in-loop -- the task exists only after the create
+    await client.connection.api.tasks.setState({ id: task.id, state: "settled" });
+  }
+  await expect.element(workspace().getByRole("button", { name: "Settled (14)" })).toBeVisible();
+
+  // Opening the shelf is the user's choice, so it stays open after the selection leaves.
+  await workspace().getByRole("button", { name: "Settled (14)" }).click();
+  await workspace()
+    .getByRole("button", { name: /^Archived 00/ })
+    .click();
+  await workspace().getByRole("button", { name: "Show more", exact: true }).click();
+  await vi.waitFor(() => expect(settledRows()).toBe(8));
+
+  // The composer is closed by the row click, so the project's own group key is the one stored.
+  const header = workspace().getByRole("button", { name: project.name });
+  await header.click();
+  await expect.element(header).toHaveAttribute("aria-expanded", "false");
+  expect(JSON.parse(window.localStorage.getItem("corral.sidebar-collapsed") ?? "null")).toEqual([
+    project.id,
+  ]);
+  expect(JSON.parse(window.localStorage.getItem("corral.sidebar-shelf") ?? "null")).toEqual({
+    expanded: true,
+    page: 2,
+  });
+
+  // Hiding the sidebar unmounts it; showing it again reads the device state back.
+  await prefixThen("\\");
+  await expect.element(workspace()).not.toBeInTheDocument();
+  await prefixThen("\\");
+  await expect.element(workspace()).toBeVisible();
+  await expect
+    .element(workspace().getByRole("button", { name: project.name }))
+    .toHaveAttribute("aria-expanded", "false");
+  await expect
+    .element(workspace().getByRole("button", { name: "Settled (14)" }))
+    .toHaveAttribute("aria-expanded", "true");
+  expect(settledRows()).toBe(8);
+
+  // A reload keeps the same two facts.
+  await rendered.unmount();
+  await render(<App client={client} />);
+  await expect
+    .element(workspace().getByRole("button", { name: project.name }))
+    .toHaveAttribute("aria-expanded", "false");
+  await expect
+    .element(workspace().getByRole("button", { name: "Settled (14)" }))
+    .toHaveAttribute("aria-expanded", "true");
+  await vi.waitFor(() => expect(settledRows()).toBe(8));
+});

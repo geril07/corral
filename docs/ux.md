@@ -65,8 +65,9 @@ What a user does. Everything below is built and verified end to end, chat views 
   hidden: arrows walk its rows, Enter opens one, and Escape returns the keyboard to where it came
   from.
 - Project grouping is the default (`prefix l` switches to status groups and the device keeps
-  the choice). The bottom Settled shelf spans projects, scrolls independently and pages six at a
-  time; selecting older history reveals it without resuming it. Rows are two-line tasks;
+  the choice). The bottom Settled shelf spans projects, scrolls independently and pages by the
+  rows its box fits (`layout.md`, **Sidebar**); selecting older history reveals it without
+  resuming it. Rows are two-line tasks;
   selection uses secondary appearance plus `aria-current` on exactly one task or loose terminal;
   a project or Scratch container row never carries it, and no row is current while a project's
   composer is open — not a bespoke colored left bar. Titles and paths truncate without losing
