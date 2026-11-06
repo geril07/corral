@@ -298,6 +298,7 @@ export function WorkspaceScreen({
         reasoningPickerAnchor={reasoningPickerAnchor}
         canChooseAgent={Object.values(config.agents).some((agent) => agent.enabled.value)}
         abortHint={keyHint(config, "abort-turn")}
+        aborting={chat.aborting}
         onSend={chat.send}
         onAbort={chat.abort}
         onRespond={chat.respond}

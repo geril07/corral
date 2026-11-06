@@ -56,6 +56,8 @@ export interface ChatViewProps {
   /** The abort action's effective chord (`formatBinding`), or undefined when it is unbound. */
   abortHint: string | undefined;
   onSend: ChatSend;
+  /** Shared by the button, prefix and palette; true while the abort RPC is pending. */
+  aborting: boolean;
   onAbort: () => Promise<void>;
   onRespond: (requestId: string, value: ChatAnswer) => Promise<void>;
   /** Opens the model chooser; the workspace owns the dialog so the palette can open it too. */
@@ -82,6 +84,7 @@ export function ChatView({
   reasoningPickerAnchor,
   abortHint,
   onSend,
+  aborting,
   onAbort,
   onRespond,
   onChangeModel,
@@ -92,7 +95,6 @@ export function ChatView({
   const reasoning = snapshot.state.reasoning ?? "Thinking";
   const { observe: observeReasoning, clipped: clippedReasoning } = useTruncatedText(reasoning);
   const [sending, setSending] = useState(false);
-  const [aborting, setAborting] = useState(false);
   const [failure, setFailure] = useState<string>();
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -159,14 +161,11 @@ export function ChatView({
 
   const abort = async () => {
     if (aborting) return;
-    setAborting(true);
     setFailure(undefined);
     try {
       await onAbort();
     } catch (error) {
       setFailure(describeError(error));
-    } finally {
-      setAborting(false);
     }
   };
 

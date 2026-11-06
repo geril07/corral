@@ -2,12 +2,14 @@ import type { ChatStore } from "@corral/client/chat-store";
 import type { CorralClient } from "@corral/client/corral-client";
 import type { ChatAnswer, ChatModelRef } from "@corral/protocol/chat";
 import type { ChatSendMode, Session } from "@corral/protocol/rpc";
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 /** What the workspace needs to show one session's chat and act on it. */
 export interface ChatSessionHandle {
   store: ChatStore;
   send: (text: string, mode: ChatSendMode) => Promise<void>;
+  /** True while this session's abort RPC is pending, from the button, prefix or palette. */
+  aborting: boolean;
   abort: () => Promise<void>;
   respond: (requestId: string, value: ChatAnswer) => Promise<void>;
   /** Runs the session on another model from its `models` list. */
@@ -32,6 +34,9 @@ export function useChatSession(
     [client, sessionId],
   );
   useEffect(() => () => store?.close(), [store]);
+  const [pendingAborts, setPendingAborts] = useState<ReadonlySet<string>>(() => new Set());
+  const abortPending = useRef(new Set<string>());
+  const aborting = sessionId !== undefined && pendingAborts.has(sessionId);
   const send = useCallback(
     async (text: string, mode: ChatSendMode) => {
       if (sessionId === undefined) return;
@@ -40,8 +45,15 @@ export function useChatSession(
     [client, sessionId],
   );
   const abort = useCallback(async () => {
-    if (sessionId === undefined) return;
-    await client.connection.api.chat.abort({ sessionId });
+    if (sessionId === undefined || abortPending.current.has(sessionId)) return;
+    abortPending.current.add(sessionId);
+    setPendingAborts(new Set(abortPending.current));
+    try {
+      await client.connection.api.chat.abort({ sessionId });
+    } finally {
+      abortPending.current.delete(sessionId);
+      setPendingAborts(new Set(abortPending.current));
+    }
   }, [client, sessionId]);
   const respond = useCallback(
     async (requestId: string, value: ChatAnswer) => {
@@ -66,7 +78,7 @@ export function useChatSession(
   );
   return store === undefined || sessionId === undefined
     ? undefined
-    : { store, send, abort, respond, setModel, setReasoning };
+    : { store, send, abort, aborting, respond, setModel, setReasoning };
 }
 
 const NEVER_SUBSCRIBE = () => () => {};

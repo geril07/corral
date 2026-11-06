@@ -215,11 +215,37 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
       .element(page.getByRole("dialog", { name: "Command palette" }))
       .not.toBeInTheDocument();
 
-    // `prefix .` runs the action's `chat.abort` with the selected session.
+    // `prefix .` runs the action's `chat.abort` with the selected session. The pending state
+    // lives with the RPC, so this path and the button share the Stopping control and busy row.
+    const pendingAbort = Promise.withResolvers<void>();
+    abort.mockImplementation(() => pendingAbort.promise);
     composer.element().focus();
     await expect.element(composer).toHaveFocus();
     await prefixThen(".");
     await vi.waitFor(() => expect(abort).toHaveBeenCalledWith({ sessionId: chatSession }));
+    const stopping = page.getByRole("button", { name: "Stopping…" });
+    await expect.element(stopping).toBeDisabled();
+    await expect.element(stopping).toHaveTextContent("Stopping…");
+    const row = stopping.element().parentElement!;
+    await expect.poll(() => row.getAttribute("aria-busy")).toBe("true");
+
+    pendingAbort.resolve();
+    await expect.element(page.getByRole("button", { name: "Abort" })).toBeEnabled();
+    await expect.poll(() => row.getAttribute("aria-busy")).toBe("false");
+
+    // A refused button abort clears the same shared state and shows the composer's alert.
+    const rejectedAbort = Promise.withResolvers<void>();
+    abort.mockImplementation(async () => {
+      await rejectedAbort.promise;
+      throw new Error("The agent refused the abort.");
+    });
+    await page.getByRole("button", { name: "Abort" }).click();
+    await vi.waitFor(() => expect(abort).toHaveBeenCalledTimes(2));
+    await expect.element(page.getByRole("button", { name: "Stopping…" })).toBeDisabled();
+    rejectedAbort.resolve();
+    await expect.element(page.getByRole("alert")).toHaveTextContent("The agent refused the abort.");
+    await expect.element(page.getByRole("button", { name: "Abort" })).toBeEnabled();
+    await expect.poll(() => row.getAttribute("aria-busy")).toBe("false");
   } finally {
     // Nothing here reached the server as a task, session or driver; close what we seeded and prove
     // the server stayed clean so the next file starts from its own defaults.

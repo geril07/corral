@@ -486,6 +486,29 @@ test("a pending abort says it is stopping and marks the composer row busy", asyn
   await expect.element(steer).toBeEnabled();
 });
 
+test("a rejected abort clears the stopping state and shows its sentence", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: workingChat() }), {
+    onAbort: async () => {
+      await pending.promise;
+      throw new Error("The agent refused the abort.");
+    },
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const abort = page.getByRole("button", { name: "Abort" });
+  const row = abort.element().parentElement!;
+
+  await userEvent.click(abort);
+  await vi.waitFor(() => expect(chat.aborts).toHaveLength(1));
+  await expect.element(page.getByRole("button", { name: "Stopping…" })).toBeDisabled();
+  await expect.poll(() => row.getAttribute("aria-busy")).toBe("true");
+
+  pending.resolve();
+  await expect.element(page.getByRole("alert")).toHaveTextContent("The agent refused the abort.");
+  await expect.element(page.getByRole("button", { name: "Abort" })).toBeEnabled();
+  await expect.poll(() => row.getAttribute("aria-busy")).toBe("false");
+});
+
 test("a driver without follow-up hides Queue and turns Ctrl/Cmd+Enter into steer", async () => {
   const chat = await renderChat(recorded([], { state: workingChat() }), {}, { followUp: false });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
