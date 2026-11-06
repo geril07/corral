@@ -834,7 +834,8 @@ test("the settled shelf keeps one order across grouping modes, so toggling leave
     reporting(session("s0", "active", "claude"), { state: "working", updatedAt: 1 }),
     reporting(session("s1", "settled-newest", "claude"), { state: "done", updatedAt: 90 }),
     reporting(session("s2", "settled-middle", "codex"), { state: "done", updatedAt: 60 }),
-    reporting(session("s3", "settled-oldest", "pi"), { state: "done", updatedAt: 20 }),
+    // The oldest row is blocked: urgency rank would put it first, activity order puts it last.
+    reporting(session("s3", "settled-oldest", "pi"), { state: "blocked", updatedAt: 20 }),
   ];
   const tasks = [
     task("active"),
@@ -866,7 +867,7 @@ test("the settled shelf keeps one order across grouping modes, so toggling leave
   await vi.waitFor(() => expect(shelfTitles()).toEqual(expected));
 });
 
-test("settling from a row menu counts the row and places it by recent activity", async () => {
+test("settling a done task from a row menu counts it and places it by recent activity", async () => {
   const sessions = [
     reporting(session("s1", "other", "shell"), { state: "working", updatedAt: 5 }),
     reporting(session("s2", "fresh", "claude"), { state: "done", updatedAt: 100 }),
@@ -875,6 +876,7 @@ test("settling from a row menu counts the row and places it by recent activity",
   ];
   const tasks = [
     task("other"),
+    // `fresh` reports done; a statusless settle would fall back to creation (recorded limit).
     task("fresh"),
     { ...task("settled-old", "settled"), projectId: "p1", createdAt: 500 },
     { ...task("settled-middle", "settled"), projectId: "p2", createdAt: 600 },
