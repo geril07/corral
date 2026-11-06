@@ -99,6 +99,7 @@ const handlers = () => ({
   onSelectTerminal: vi.fn<(entry: TerminalEntry) => void>(),
   onCloseTerminal: vi.fn<(id: string) => void>(),
   onRenameTerminal: vi.fn<(entry: TerminalEntry) => void>(),
+  onRestartTerminal: vi.fn<(entry: TerminalEntry) => void>(),
   onRenameTask: vi.fn<(task: Task, opener?: HTMLElement) => void>(),
   onToggleSettle: vi.fn<(task: Task) => void>(),
   onRemoveTask: vi.fn<(task: Task) => void>(),
@@ -1372,6 +1373,71 @@ test("an exited loose terminal carries its exit in the name, description and too
   expect(document.getElementById(describedBy ?? "")?.textContent).toBe("exited (3)");
   button.element().focus();
   await expect.element(page.getByRole("tooltip")).toMatchTextContent("exited (3)");
+});
+
+test("an exited loose terminal offers Restart beside Rename… and Close terminal…", async () => {
+  const tree = buildWorkspaceTree(
+    [project("p1")],
+    [],
+    [],
+    [{ ...terminal("loose", null, null, "build logs"), exit: { exitCode: 3 } }],
+  );
+  const spies = handlers();
+  await render(
+    <Sidebar
+      tree={tree}
+      selection={resolveSelection(tree, { taskId: null, entryId: "loose" })}
+      config={config}
+      {...spies}
+    />,
+  );
+
+  await nav().getByRole("button", { name: "build logs — exited (3)" }).click({ button: "right" });
+  await expect.element(page.getByRole("menuitem", { name: "Restart" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Rename…" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Close terminal…" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Restart" }).click();
+
+  expect(spies.onRestartTerminal).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ type: "terminal", id: "loose" }),
+  );
+});
+
+test("every loose terminal row offers Rename… and Close; renaming a non-current one selects nothing", async () => {
+  const tree = buildWorkspaceTree(
+    [project("p1")],
+    [task("a")],
+    [],
+    [terminal("build", null, null, "build logs"), terminal("serve", null, null, "dev server")],
+  );
+  const spies = handlers();
+  await render(
+    <Sidebar
+      tree={tree}
+      selection={resolveSelection(tree, { taskId: "a" })}
+      config={config}
+      {...spies}
+    />,
+  );
+  const currentTask = nav().getByRole("button", { name: /^task a/ });
+  await expect.element(currentTask).toHaveAttribute("aria-current", "true");
+
+  // Both menus offer the same actions while a task is current, and neither offers Restart yet.
+  const renameFromMenu = async (label: string, id: string) => {
+    await nav().getByRole("button", { name: label, exact: true }).click({ button: "right" });
+    await expect.element(page.getByRole("menuitem", { name: "Rename…" })).toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "Close terminal…" })).toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "Restart" })).not.toBeInTheDocument();
+    await page.getByRole("menuitem", { name: "Rename…" }).click();
+    expect(spies.onRenameTerminal).toHaveBeenLastCalledWith(expect.objectContaining({ id }));
+  };
+  await renameFromMenu("build logs", "build");
+  await renameFromMenu("dev server", "serve");
+
+  // Renaming reports the row it belongs to; the task stays current and no terminal is selected.
+  await expect.element(currentTask).toHaveAttribute("aria-current", "true");
+  expect(spies.onRenameTerminal).toHaveBeenCalledTimes(2);
+  expect(spies.onSelectTerminal).not.toHaveBeenCalled();
 });
 
 test("a clipped project row carries its absolute path and count", async () => {

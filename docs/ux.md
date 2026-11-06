@@ -130,9 +130,15 @@ What a user does. Everything below is built and verified end to end, chat views 
   task whose terminal runs is refused and nothing changes; Cancel and Escape return the keyboard
   to the row. Because the removed project named the selection, the main area lands on the
   resolver's fallback — the URL, the Changes tab and the composer follow it — never on a blank one.
-- Rename is a focused dialog, the same one for a task's title, a session label and a loose terminal label. Session labels persist; loose terminal labels survive
-  only for their terminal's lifetime. The historical first-character risk remains
-  unexplained; changing kits is not evidence of a fix.
+- Rename is a focused dialog, the same one for a task's title, a session label and a loose
+  terminal label. Every loose terminal row offers it, not only the current one, and naming a row
+  does not select it. Session labels persist; loose terminal labels survive only for their
+  terminal's lifetime. The historical first-character risk remains unexplained; changing kits
+  is not evidence of a fix.
+- An exited loose terminal also offers Restart: a new terminal with the same command, arguments,
+  folder and label at the current size, selected, and the dead row closed. A restart the server
+  refuses leaves the dead row and its label and shows the failure; the exit badge and the pane's
+  exit line stay until then.
 - Imported source is immutable original title/body/link context, displayed as escaped
   text. Pending/cancel/project-switch guards and manual-title preservation remain.
 

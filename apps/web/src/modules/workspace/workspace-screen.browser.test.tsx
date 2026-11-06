@@ -289,6 +289,108 @@ test("a terminal whose process ended stays listed as exited until it is closed",
   await expect.element(page.getByText("Add a repository to start")).toBeVisible();
 });
 
+test("a non-current loose terminal is renamed from its own menu without being selected", async () => {
+  const client = newClient();
+  await appWithProject(client);
+  await createTask("Stays selected");
+  await client.connection.api.terminals.create({ command: "/bin/sh", size: SIZE });
+  const natural = workspace().getByRole("button", { name: /^sh · / });
+  await expect.element(natural).toBeVisible();
+  await expect.element(natural).not.toHaveAttribute("aria-current", "true");
+
+  await natural.click({ button: "right" });
+  await expect.element(page.getByRole("menuitem", { name: "Rename…" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Close terminal…" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Rename…" }).click();
+
+  const dialog = page.getByRole("dialog", { name: /^Rename / });
+  await expect.element(dialog).toBeVisible();
+  await userEvent.fill(dialog.getByRole("textbox", { name: "Name" }), "build logs");
+  await userEvent.keyboard("{Enter}");
+
+  const renamed = workspace().getByRole("button", { name: "build logs", exact: true });
+  await expect.element(renamed).toBeVisible();
+  await expect.element(renamed).not.toHaveAttribute("aria-current", "true");
+  await expect.element(taskButton("Stays selected")).toHaveAttribute("aria-current", "true");
+  await vi.waitFor(() =>
+    expect(client.terminals.getSnapshot().terminals.map((terminal) => terminal.label)).toEqual([
+      "build logs",
+    ]),
+  );
+});
+
+test("Restart reopens an exited loose terminal in the same folder, named and selected", async () => {
+  const client = newClient();
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
+  const { api } = client.connection;
+  const folder = await createGitRepo("restart-loose");
+  const dead = await api.terminals.create({
+    command: "/bin/sh",
+    args: [],
+    cwd: folder,
+    size: SIZE,
+  });
+  await api.terminals.setLabel({ id: dead.id, label: "build logs" });
+  await writeTerminal(client, dead.id, "exit 3\n");
+  await render(<App client={client} />);
+
+  const deadRow = workspace().getByRole("button", { name: "build logs — exited (3)" });
+  await expect.element(deadRow).toBeVisible();
+  await deadRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Restart" }).click();
+
+  const liveRow = workspace().getByRole("button", { name: "build logs", exact: true });
+  await expect.element(liveRow).toBeVisible();
+  await expect.element(liveRow).toHaveAttribute("aria-current", "true");
+  await expect.element(deadRow).not.toBeInTheDocument();
+  await expect
+    .element(page.getByRole("status", { name: "terminal exited" }))
+    .not.toBeInTheDocument();
+  await expect.element(page.getByRole("region", { name: "active terminal" })).toBeVisible();
+
+  await vi.waitFor(async () => {
+    const listed = await api.terminals.list();
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({
+      command: "/bin/sh",
+      args: [],
+      cwd: folder,
+      label: "build logs",
+      exit: null,
+    });
+  });
+});
+
+test("a failed Restart keeps the dead row and its name, and shows the failure", async () => {
+  const { client, drop } = droppableClient();
+  await render(<App client={client} />);
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
+  const { api } = client.connection;
+  const dead = await api.terminals.create({
+    command: "/bin/sh",
+    args: ["-c", "exit 2"],
+    size: SIZE,
+  });
+  await api.terminals.setLabel({ id: dead.id, label: "build logs" });
+  const deadRow = workspace().getByRole("button", { name: "build logs — exited (2)" });
+  await expect.element(deadRow).toBeVisible();
+
+  drop();
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("disconnected");
+  await deadRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Restart" }).click();
+
+  await expect
+    .element(
+      page
+        .getByRole("alert")
+        .filter({ hasText: "The server is not connected, so the action was not sent." }),
+    )
+    .toBeVisible();
+  await expect.element(deadRow).toBeVisible();
+  await expect.element(deadRow).toHaveAttribute("aria-label", "build logs — exited (2)");
+});
+
 test("a server on another protocol version gets a clear message instead of the workspace", async () => {
   await render(<App client={newClient(serverTarget(), claimNextProtocolVersion)} />);
 
