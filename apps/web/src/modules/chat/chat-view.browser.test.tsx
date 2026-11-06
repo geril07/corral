@@ -350,6 +350,91 @@ test("a deferred send does not pull focus back from where the user moved it", as
   await expect.element(log).toHaveFocus();
 });
 
+test("an accepted send keeps text typed while it was in flight and the next Enter sends only that", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: IDLE_CHAT }), {
+    onSend: () => pending.promise,
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard("Fix the test{Enter}");
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
+  await expect.element(composer).toHaveValue("Fix the test");
+
+  await userEvent.keyboard(" and run lint");
+  await expect.element(composer).toHaveValue("Fix the test and run lint");
+
+  pending.resolve();
+  // Acceptance removes only the submitted snapshot; the text typed since stays.
+  await expect.element(composer).toHaveValue(" and run lint");
+
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(chat.sent[1]).toEqual({ text: "and run lint", mode: "prompt" }));
+  await expect.element(composer).toHaveValue("");
+});
+
+test("a whitespace-only edit during a send is kept and does not send", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: IDLE_CHAT }), {
+    onSend: () => pending.promise,
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard("Fix the test{Enter}");
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
+
+  await userEvent.keyboard(" ");
+  await expect.element(composer).toHaveValue("Fix the test ");
+  pending.resolve();
+  await expect.element(composer).toHaveValue(" ");
+
+  await userEvent.keyboard("{Enter}");
+  expect(chat.sent).toHaveLength(1);
+});
+
+test("a draft edited in place during a send keeps its whole text", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: IDLE_CHAT }), {
+    onSend: () => pending.promise,
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard("Fix the test{Enter}");
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
+
+  await composer.fill("Fix this test");
+  pending.resolve();
+  await expect.element(composer).toHaveValue("Fix this test");
+
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(chat.sent[1]).toEqual({ text: "Fix this test", mode: "prompt" }));
+});
+
+test("a refused send keeps the whole draft and shows its sentence", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: IDLE_CHAT }), {
+    onSend: async () => {
+      await pending.promise;
+      throw new Error("The agent refused the send.");
+    },
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const send = page.getByRole("button", { name: "Send" });
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard("Fix the test{Enter}");
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
+  await userEvent.keyboard(" and run lint");
+
+  pending.resolve();
+  await expect.element(page.getByRole("alert")).toHaveTextContent("The agent refused the send.");
+  await expect.element(composer).toHaveValue("Fix the test and run lint");
+  await expect.element(send).toBeEnabled();
+});
+
 test("a deferred pointer queue keeps the keyboard in the composer", async () => {
   const pending = Promise.withResolvers<void>();
   const chat = await renderChat(recorded([], { state: workingChat() }), {

@@ -26,6 +26,7 @@ import {
   Textarea,
   useTruncatedText,
 } from "../../common/ui/index.ts";
+import { draftLeftAfterSend } from "./chat-draft.ts";
 import { pendingRequest } from "./chat-rows.ts";
 import { ChatTimeline } from "./chat-timeline.tsx";
 import {
@@ -145,12 +146,14 @@ export function ChatView({
   const send = async (mode: ChatSendMode) => {
     const text = draft.trim();
     if (text === "" || sending) return;
+    const submitted = draft;
     setSending(true);
     setFailure(undefined);
     try {
       await onSend(text, mode);
-      // Keep anything typed while the send was in flight; clear only what was sent.
-      setDraft((current) => (current.trim() === text ? "" : current));
+      // Remove exactly the submitted draft and keep text inserted around it; an edit inside the
+      // submitted text keeps the whole draft instead of silently losing what the user wrote.
+      setDraft((current) => draftLeftAfterSend(current, submitted) ?? current);
     } catch (error) {
       // A refused send keeps the text, so the user does not type it again (`ux.md`, errors).
       setFailure(describeError(error));
