@@ -5,6 +5,7 @@ import {
   buildWorkspaceTree,
   currentEntry,
   entriesOf,
+  flatRank,
   flatTaskOrder,
   resolveSelection,
   tasksInOrder,
@@ -163,6 +164,39 @@ test("a chosen project selects its first task, or the composer when it has none"
     entryId: undefined,
   });
   expect(resolveSelection(bare, { taskId: null }).entryId).toBe("c");
+});
+
+test("a fallback into an all-settled project starts at its newest activity", () => {
+  const allSettled = buildWorkspaceTree(
+    [project("p1")],
+    [
+      { ...task("settled-blocked", "p1", "settled"), createdAt: 500 },
+      { ...task("settled-newest", "p1", "settled"), createdAt: 100 },
+    ],
+    [
+      reported("sb", "settled-blocked", "blocked", 100),
+      reported("sn", "settled-newest", "done", 900),
+    ],
+    [],
+  );
+  // The blocked row is first in the old project/creation fallback, but not by recent activity.
+  expect(resolveSelection(allSettled, {}).taskId).toBe("settled-newest");
+  expect(resolveSelection(allSettled, { projectId: "p1" }).taskId).toBe("settled-newest");
+  expect(resolveSelection(allSettled, { taskId: "gone" }).taskId).toBe("settled-newest");
+});
+
+test("a fallback to a project with active tasks keeps the first active task", () => {
+  const mixed = buildWorkspaceTree(
+    [project("p1")],
+    [
+      { ...task("settled-newest", "p1", "settled"), createdAt: 100 },
+      { ...task("active", "p1"), createdAt: 50 },
+    ],
+    [reported("sn", "settled-newest", "done", 900)],
+    [],
+  );
+  expect(resolveSelection(mixed, {}).taskId).toBe("active");
+  expect(resolveSelection(mixed, { taskId: "gone" }).taskId).toBe("active");
 });
 
 test("a zero-task project with a stale task id is still the composer, not a loose terminal", () => {
@@ -328,7 +362,8 @@ test("both grouping modes share one settled-shelf order by recent activity", () 
     { ...task("settled-e", "p1", "settled"), createdAt: 50 },
   ];
   const shelfSessions = [
-    reported("sa", "settled-a", "done", 100),
+    // The oldest row is blocked: urgency rank would put it first, activity order puts it last.
+    reported("sa", "settled-a", "blocked", 100),
     reported("sb", "settled-b", "done", 700),
     reported("sc", "settled-c", "done", 700),
     // d and e report nothing: creation decides, then the id.
@@ -346,6 +381,12 @@ test("both grouping modes share one settled-shelf order by recent activity", () 
   expect(tasksInOrder(shelfTree).map((each) => each.id)).toEqual(["active", ...expected]);
   const flat = buildFlatSidebar(shelfTree);
   expect(flat.settled.map((row) => row.task.id)).toEqual(expected);
+  const blocked = flat.settled.find((row) => row.task.id === "settled-a");
+  const newest = flat.settled.find((row) => row.task.id === "settled-c");
+  if (blocked === undefined || newest === undefined)
+    throw new Error("the shelf fixture is incomplete");
+  // This is the regression: flatRank alone would put the blocked row before the newer done row.
+  expect(flatRank(blocked)).toBeLessThan(flatRank(newest));
   expect(flatTaskOrder(flat).map((each) => each.id)).toEqual(["active", ...expected]);
 });
 

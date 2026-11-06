@@ -106,9 +106,13 @@ function compareSettled(a: TaskNode, b: TaskNode): number {
   );
 }
 
+function settledNodesInOrder(nodes: readonly TaskNode[]): TaskNode[] {
+  return nodes.toSorted(compareSettled);
+}
+
 /** The Settled shelf's rows, across every project, in their one order (`layout.md`, **Sidebar**). */
 export function settledInOrder(tree: WorkspaceTree): TaskNode[] {
-  return tree.projects.flatMap(({ settled }) => settled).toSorted(compareSettled);
+  return settledNodesInOrder(tree.projects.flatMap(({ settled }) => settled));
 }
 
 /** Project groups first, then the shared bottom Settled shelf: the sidebar navigation order. */
@@ -139,9 +143,9 @@ export interface Selection {
  * Settles what is current from the choice and the data. A chosen task always wins. A chosen project
  * that names an existing project with no tasks and no task choice of its own is the composer state,
  * so it never falls to a loose terminal; an explicit `taskId: null` still selects the first loose
- * terminal. Any other missing choice falls back: a missing task to the first task of the chosen
- * (else first) project, or to no task when that project has none; a missing entry to the first one
- * of the group.
+ * terminal. Any other missing choice falls back: a missing task to the first active task of the
+ * chosen (else first) project, else that project's settled shelf's first row, or to no task when
+ * the project has none; a missing entry to the first one of the group.
  */
 export function resolveSelection(tree: WorkspaceTree, chosen: Chosen): Selection {
   const tasks = tasksInOrder(tree);
@@ -153,7 +157,9 @@ export function resolveSelection(tree: WorkspaceTree, chosen: Chosen): Selection
   let task: Task | undefined;
   if (chosenTask) task = chosenTask;
   else if (chosen.taskId !== null) {
-    task = [...(chosenProject?.active ?? []), ...(chosenProject?.settled ?? [])][0]?.task;
+    task = chosenProject
+      ? (chosenProject.active[0] ?? settledNodesInOrder(chosenProject.settled)[0])?.task
+      : undefined;
   }
 
   const entries = entriesOf(tree, task?.id ?? null);
