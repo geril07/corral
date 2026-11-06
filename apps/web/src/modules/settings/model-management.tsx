@@ -221,6 +221,7 @@ function ModelPolicyEditor({
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string>();
   const [preview, setPreview] = useState(false);
+  const previewButton = useRef<HTMLButtonElement>(null);
   const saveButton = useRef<HTMLButtonElement>(null);
   const statusLine = useRef<HTMLSpanElement>(null);
   const returnFocus = useRef<"status" | "save" | null>(null);
@@ -562,7 +563,7 @@ function ModelPolicyEditor({
           >
             Show all
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setPreview(true)}>
+          <Button ref={previewButton} size="sm" variant="outline" onClick={() => setPreview(true)}>
             Preview
           </Button>
           <Button size="sm" variant="ghost" disabled={!dirty || busy} onClick={discard}>
@@ -603,6 +604,7 @@ function ModelPolicyEditor({
             </span>
           }
           onClose={() => setPreview(false)}
+          finalFocus={previewButton}
         />
       )}
     </div>
