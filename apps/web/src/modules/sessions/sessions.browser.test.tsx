@@ -26,10 +26,12 @@ const { newClient } = realServerClients();
 const wrappedScreen = () => screenText().replaceAll("\n", "");
 const picker = () => page.getByRole("dialog", { name: "New agent session" });
 const removeDialog = () => page.getByRole("alertdialog");
-/** A session tab: `claude`, or `claude stopped` once it is not running. */
+/** A session tab: `claude`, or `claude stopped` / `claude failed` / `claude unresumable` when it is
+ * not running. */
 const sessionButton = (kind: string, state?: string) =>
   sessionTabs().getByRole("tab", { name: state ? `${kind} ${state}` : new RegExp(`^${kind}$`) });
-const stoppedPane = () => page.getByRole("region", { name: "stopped session" });
+/** The pane of a session that is not running; its region is named by the state badge. */
+const stoppedPane = () => page.getByRole("region", { name: /^(?:stopped|failed) session$/ });
 const exitedNotice = () => page.getByRole("status", { name: "terminal exited" });
 
 const restoredEnv: [string, string | null][] = [];

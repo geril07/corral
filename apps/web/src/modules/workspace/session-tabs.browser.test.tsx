@@ -258,6 +258,26 @@ test("a stopped shell and a failed start differ in glyph and name, and both offe
   expect(props.onRestart).toHaveBeenLastCalledWith(expect.objectContaining({ id: "s2" }));
 });
 
+test("a status-only error is still a failed tab and its tooltip carries the reason", async () => {
+  const { rendered } = renderTabs(
+    [
+      session(
+        "s1",
+        "claude",
+        { state: "error", updatedAt: 1, message: "claude crashed" },
+        "stopped",
+      ),
+    ],
+    "s1",
+  );
+  await rendered;
+
+  const failed = strip().getByRole("tab", { name: "claude failed" });
+  await expect.element(failed).toBeVisible();
+  expect(failed.element().querySelector('[data-status="error"]')).not.toBeNull();
+  expect(failed.element().getAttribute("title")).toContain("claude crashed");
+});
+
 test("an unresumable session's menu offers a new conversation, not a restart", async () => {
   const { rendered, props } = renderTabs([session("s1", "codex", null, "unresumable")], "s1");
   await rendered;
