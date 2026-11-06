@@ -3,9 +3,10 @@ import type { CreateSocket } from "@corral/client/reconnecting-socket";
 import type { TerminalSurface } from "@corral/client/terminal-stream";
 import type { TerminalSize } from "@corral/protocol/rpc";
 import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { expect, test, vi } from "vite-plus/test";
+import { afterEach, expect, test, vi } from "vite-plus/test";
+import { cdp, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
-import { realServerClients } from "../../../test/real-client.ts";
+import { realServerClients, screenText } from "../../../test/real-client.ts";
 import { serverTarget } from "../../../test/server-url.ts";
 import { TerminalView } from "./terminal-view.tsx";
 
@@ -517,5 +518,147 @@ test("a reconnect re-fits at the same host size", async () => {
   } finally {
     watcher.disconnect();
     shared.close();
+  }
+});
+
+type ReducedMotion = "no-preference" | "reduce";
+
+/** Chromium's media emulation is the only way to change what a CSS media query sees. */
+async function emulateMotion(reducedMotion: ReducedMotion) {
+  await cdp().send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-reduced-motion", value: reducedMotion }],
+  });
+}
+
+/** Clearing the feature list restores the host preference instead of emulating the default. */
+async function clearMotion() {
+  await cdp().send("Emulation.setEmulatedMedia", { features: [] });
+}
+
+afterEach(async () => {
+  await clearMotion();
+});
+
+/**
+ * The DOM renderer draws the cursor as an element with a CSS blink animation, which is what the
+ * test can observe; WebGL draws it to a canvas whose buffer is not readable after a frame.
+ */
+function withoutWebgl2(): () => void {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
+  const original = descriptor?.value;
+  if (typeof original !== "function") throw new Error("the canvas has no getContext");
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    ...descriptor,
+    value: function (this: HTMLCanvasElement, contextId: string) {
+      if (contextId === "2d") return Reflect.apply(original, this, ["2d"]);
+      // WebGL2 is the renderer the component falls back from; the 2D canvas is the theme probe.
+      return null;
+    },
+  });
+  return () => {
+    if (descriptor) Object.defineProperty(HTMLCanvasElement.prototype, "getContext", descriptor);
+  };
+}
+
+function terminalCursor(name: string): HTMLElement {
+  const cursor = pane(name).querySelector<HTMLElement>(".xterm-cursor");
+  if (!cursor) throw new Error(`the ${name} pane has no terminal cursor`);
+  return cursor;
+}
+
+/** Whether the cursor is painted rather than merely present in the DOM. */
+function cursorIsVisible(cursor: HTMLElement): boolean {
+  return getComputedStyle(cursor).backgroundColor !== "rgba(0, 0, 0, 0)";
+}
+
+/** Samples the cursor's painted background every 200 ms; the delay is the blink cadence under test. */
+async function sampleCursor(cursor: () => HTMLElement, count: number): Promise<string[]> {
+  const samples: string[] = [];
+  for (let index = 0; index < count; index++) {
+    samples.push(getComputedStyle(cursor()).backgroundColor);
+    // oxlint-disable-next-line eslint/no-await-in-loop -- the gap is the blink cadence; parallel samples would share one instant.
+    if (index < count - 1) await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return samples;
+}
+
+test("reduced motion keeps the cursor steady, and a live toggle resumes blinking without a remount", async () => {
+  const restoreGetContext = withoutWebgl2();
+  try {
+    await emulateMotion("reduce");
+    const client = newClient();
+    await connected(client);
+    const terminal = await client.connection.api.terminals.create({
+      command: "/bin/cat",
+      size: SIZE,
+    });
+    await render(
+      <SizedPane name="motion" width={500} height={340}>
+        <TerminalView client={client} terminal={terminal} onFit={() => {}} />
+      </SizedPane>,
+    );
+
+    const host = terminalHost("motion");
+    const screen = pane("motion").querySelector<HTMLElement>(".xterm-screen");
+    const input = host.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
+    if (!input || !screen) throw new Error("the terminal is not mounted");
+    input.focus();
+    expect(document.activeElement).toBe(input);
+
+    // Reduced motion: no blink animation, and the cursor is drawn on every frame.
+    await vi.waitFor(() => {
+      const cursor = terminalCursor("motion");
+      if (cursor.classList.contains("xterm-cursor-blink")) {
+        throw new Error("the cursor is still blinking under reduced motion");
+      }
+    });
+    const steadyCursor = terminalCursor("motion");
+    expect(getComputedStyle(steadyCursor).animationName).toBe("none");
+    expect(cursorIsVisible(steadyCursor)).toBe(true);
+    const steadyFrames = await sampleCursor(() => terminalCursor("motion"), 6);
+    expect(new Set(steadyFrames).size).toBe(1);
+    expect(steadyFrames[0]).not.toBe("rgba(0, 0, 0, 0)");
+
+    // Motion allowed: the same cursor gets the one-second blink animation.
+    await emulateMotion("no-preference");
+    const blinkingCursor = await vi.waitFor(() => {
+      const cursor = terminalCursor("motion");
+      if (!cursor.classList.contains("xterm-cursor-blink")) {
+        throw new Error("the cursor did not resume blinking");
+      }
+      return cursor;
+    });
+    const blinkAnimation = getComputedStyle(blinkingCursor).animationName;
+    expect(blinkAnimation).toMatch(/^blink_block_/);
+    expect(getComputedStyle(blinkingCursor).animationIterationCount).toBe("infinite");
+    const blinkedFrames = await sampleCursor(() => terminalCursor("motion"), 8);
+    expect(new Set(blinkedFrames).size).toBeGreaterThan(1);
+
+    // Turning reduced motion back on stops the blink on the same live terminal.
+    await emulateMotion("reduce");
+    const steadyAgain = await vi.waitFor(() => {
+      const cursor = terminalCursor("motion");
+      if (cursor.classList.contains("xterm-cursor-blink")) {
+        throw new Error("the cursor is still blinking");
+      }
+      if (!cursorIsVisible(cursor)) throw new Error("the cursor is not visible");
+      return cursor;
+    });
+    expect(getComputedStyle(steadyAgain).animationName).toBe("none");
+    const steadyAgainFrames = await sampleCursor(() => terminalCursor("motion"), 6);
+    expect(new Set(steadyAgainFrames).size).toBe(1);
+    expect(steadyAgainFrames[0]).not.toBe("rgba(0, 0, 0, 0)");
+
+    // No remount: the host, screen and input are the same elements.
+    expect(terminalHost("motion")).toBe(host);
+    expect(pane("motion").querySelector(".xterm-screen")).toBe(screen);
+    expect(input.isConnected).toBe(true);
+
+    // The stream is still attached: input after the toggles reaches the shell and comes back.
+    input.focus();
+    await userEvent.keyboard("after-motion{Enter}");
+    await expect.poll(screenText).toContain("after-motion");
+  } finally {
+    restoreGetContext();
   }
 });

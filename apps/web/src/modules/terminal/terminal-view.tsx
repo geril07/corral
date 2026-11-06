@@ -56,10 +56,12 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return undefined;
+    // The cursor is the terminal's only motion. Reduced motion leaves it steady and visible.
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const xterm = new Terminal({
       // The server's snapshots carry about this much scrollback.
       scrollback: 5000,
-      cursorBlink: true,
+      cursorBlink: !reducedMotion.matches,
       fontFamily:
         getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim() ||
         "monospace",
@@ -68,6 +70,10 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
     });
     const fit = new FitAddon();
     xterm.loadAddon(fit);
+    const onMotionChange = () => {
+      xterm.options.cursorBlink = !reducedMotion.matches;
+    };
+    reducedMotion.addEventListener("change", onMotionChange);
     xterm.open(host);
     try {
       const webgl = new WebglAddon();
@@ -133,6 +139,7 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
     xterm.focus();
 
     return () => {
+      reducedMotion.removeEventListener("change", onMotionChange);
       cancelAnimationFrame(frame);
       host.removeEventListener("focusin", refitOnFocus);
       document.removeEventListener("visibilitychange", refitOnVisible);
