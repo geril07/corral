@@ -573,6 +573,12 @@ test("a close request during an in-flight save is refused and keeps the draft", 
     const saveButton = modelEditor().getByRole("button", { name: "Save", exact: true });
     await saveButton.click();
     await expect.element(saveButton).toBeDisabled();
+    await expect
+      .element(modelEditor().getByRole("status").filter({ hasText: "Saving…" }))
+      .toHaveTextContent("Saving…");
+    await expect
+      .element(modelEditor().getByRole("status").filter({ hasText: "Unsaved changes" }))
+      .not.toBeInTheDocument();
 
     // A history close is refused and reset immediately, not held until the save settles.
     history.back();
