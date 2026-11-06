@@ -165,6 +165,22 @@ test("a chosen project selects its first task, or the composer when it has none"
   expect(resolveSelection(bare, { taskId: null }).entryId).toBe("c");
 });
 
+test("a zero-task project with a stale task id is still the composer, not a loose terminal", () => {
+  const bare = buildWorkspaceTree([project("empty")], [], [], terminals);
+  expect(resolveSelection(bare, { projectId: "empty", taskId: "gone" })).toEqual({
+    projectId: "empty",
+    taskId: null,
+    entryId: undefined,
+  });
+  // No choice keeps the old default: the first loose terminal, even when the fallback project
+  // itself has no tasks.
+  expect(resolveSelection(bare, {})).toEqual({
+    projectId: "empty",
+    taskId: null,
+    entryId: "c",
+  });
+});
+
 test("a task that no longer exists falls back, while the no-task group can be chosen", () => {
   expect(resolveSelection(tree, { taskId: "removed" }).taskId).toBe("t1");
   expect(resolveSelection(tree, { taskId: null })).toEqual({

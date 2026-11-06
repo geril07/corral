@@ -108,16 +108,19 @@ export interface Selection {
 }
 
 /**
- * Settles what is current from the choice and the data. A choice that no longer exists falls back:
- * a missing task to the first task of the chosen (else first) project, or to no task when that
- * project has none; a missing entry to the first one of the group.
+ * Settles what is current from the choice and the data. A chosen task always wins. A chosen project
+ * that names an existing project with no tasks and no task choice of its own is the composer state,
+ * so it never falls to a loose terminal; an explicit `taskId: null` still selects the first loose
+ * terminal. Any other missing choice falls back: a missing task to the first task of the chosen
+ * (else first) project, or to no task when that project has none; a missing entry to the first one
+ * of the group.
  */
 export function resolveSelection(tree: WorkspaceTree, chosen: Chosen): Selection {
   const tasks = tasksInOrder(tree);
   const chosenTask =
     typeof chosen.taskId === "string" ? tasks.find((task) => task.id === chosen.taskId) : undefined;
-  const chosenProject =
-    tree.projects.find(({ project }) => project.id === chosen.projectId) ?? tree.projects[0];
+  const namedProject = tree.projects.find(({ project }) => project.id === chosen.projectId);
+  const chosenProject = namedProject ?? tree.projects[0];
 
   let task: Task | undefined;
   if (chosenTask) task = chosenTask;
@@ -126,14 +129,16 @@ export function resolveSelection(tree: WorkspaceTree, chosen: Chosen): Selection
   }
 
   const entries = entriesOf(tree, task?.id ?? null);
-  // A project choice that names a project with no tasks and no task of its own is the composer
-  // state, not the no-task group: its loose terminals belong to another choice (`layout.md`,
-  // **Empty states**). An explicit `taskId: null` still selects the first loose terminal.
+  // A chosen project that names an existing project with no tasks, and no task choice of its own,
+  // is the composer state, not the no-task group: its loose terminals belong to another choice
+  // (`layout.md`, **Empty states**). An explicit `taskId: null` still selects the first loose
+  // terminal; a missing project id keeps the old fallback to the first project.
   const emptyProject =
-    chosen.taskId === undefined &&
-    chosenProject !== undefined &&
-    chosenProject.active.length === 0 &&
-    chosenProject.settled.length === 0;
+    chosen.taskId !== null &&
+    chosenTask === undefined &&
+    namedProject !== undefined &&
+    namedProject.active.length === 0 &&
+    namedProject.settled.length === 0;
   return {
     projectId: task?.projectId ?? chosenProject?.project.id,
     taskId: task?.id ?? null,

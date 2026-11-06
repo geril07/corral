@@ -85,10 +85,12 @@ What a user does. Everything below is built and verified end to end, chat views 
   beside the count, and a merged one offers settle in the `Changes` finish bar.
 - The main area never goes blank: with no task selected it is the new-task composer, prefilled
   with the current project; a project with no tasks opens its composer, never a loose terminal.
-  A project composer and the sidebar read one value: no row is current and the composer's project
-  is the group shown open. Escape leaves the composer for the selection the URL still names; the
-  composer has no URL of its own and no draft row in the sidebar. `prefix t` shows the composer
-  over the selected task and Escape returns to that task, with the keyboard back in its terminal.
+  A project composer and the sidebar read one value: no row is current. A composer opened over a
+  selection opens its project's group, and Escape leaves it for the selection the URL still names;
+  a URL that names a zero-task project is itself the composer state, so its group follows the
+  collapse state and Escape has no earlier selection to return to. The composer has no URL of its
+  own and no draft row in the sidebar. `prefix t` shows the composer over the selected task and
+  Escape returns to that task, with the keyboard back in its terminal.
   Until the projects, tasks,
   sessions and terminals lists have each delivered once, the main area says it is loading; a
   list the server refuses is one muted line naming that list with a Retry, never the first-run

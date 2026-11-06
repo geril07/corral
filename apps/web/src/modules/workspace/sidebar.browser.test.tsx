@@ -111,7 +111,7 @@ function renderSidebar(
   ]);
   const spies = handlers();
   const rendered = render(
-    <div className={narrow ? "w-60" : undefined}>
+    <div className={narrow ? "w-52" : undefined}>
       <Sidebar
         tree={tree}
         selection={resolveSelection(tree, chosen)}
@@ -295,13 +295,16 @@ test("a project group's header offers a new task in that project", async () => {
   );
 });
 
-test("the project action overlays the count without taking a slot from the row", async () => {
+test("the project action overlays the count at 208 px and is keyboard reachable", async () => {
   const { rendered } = renderSidebar({}, defaultSessions, undefined, true);
   await rendered;
   const header = nav().getByRole("button", { name: "repo-p1" });
   const rowBox = header.element().parentElement;
   if (!rowBox) throw new Error("the project header has no row");
+  expect(rowBox.getBoundingClientRect().width).toBe(208);
 
+  // One disclosure control: the row itself. No separate collapse button returns.
+  await expect.element(nav().getByRole("button", { name: /^Collapse / })).not.toBeInTheDocument();
   // The whole row is the disclosure button; the add action is not a flex sibling.
   expect(header.element().getBoundingClientRect().width).toBeCloseTo(
     rowBox.getBoundingClientRect().width,
@@ -312,16 +315,24 @@ test("the project action overlays the count without taking a slot from the row",
   if (!action) throw new Error("the project action has no wrapper");
   expect(getComputedStyle(action).opacity).toBe("0");
 
-  // Hovering shows the action over the count, which hides without leaving the layout: the name
-  // and the row do not move.
+  // Tab from the header reaches the action; focus shows it over the count, which hides without
+  // leaving the layout: the name and the row do not move.
   const name = header.element().querySelector(".truncate");
   if (!name) throw new Error("the project name is not mounted");
   const before = name.getBoundingClientRect().width;
-  await userEvent.hover(header.element());
-  await expect.poll(() => getComputedStyle(action).opacity).toBe("1");
   const count = header.element().lastElementChild;
   if (count === null) throw new Error("the project count is not mounted");
+  const countBox = count.getBoundingClientRect();
+  header.element().focus();
+  await userEvent.keyboard("{Tab}");
+  await expect.element(add).toHaveFocus();
+  await expect.poll(() => getComputedStyle(action).opacity).toBe("1");
   expect(getComputedStyle(count).visibility).toBe("hidden");
+  const actionBox = action.getBoundingClientRect();
+  // The action sits at the row's right edge and covers the count's place.
+  expect(actionBox.right).toBeCloseTo(rowBox.getBoundingClientRect().right, 0);
+  expect(actionBox.left).toBeLessThanOrEqual(countBox.left);
+  expect(actionBox.right).toBeGreaterThanOrEqual(countBox.right);
   expect(name.getBoundingClientRect().width).toBeCloseTo(before, 0);
   expect(header.element().getBoundingClientRect().height).toBe(
     rowBox.getBoundingClientRect().height,
