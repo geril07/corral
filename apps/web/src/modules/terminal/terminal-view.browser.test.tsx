@@ -4,7 +4,7 @@ import type { TerminalSurface } from "@corral/client/terminal-stream";
 import type { TerminalSize } from "@corral/protocol/rpc";
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vite-plus/test";
-import { cdp, userEvent } from "vite-plus/test/browser";
+import { cdp, page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { realServerClients, screenText } from "../../../test/real-client.ts";
 import { serverTarget } from "../../../test/server-url.ts";
@@ -571,6 +571,77 @@ function cursorIsVisible(cursor: HTMLElement): boolean {
   return getComputedStyle(cursor).backgroundColor !== "rgba(0, 0, 0, 0)";
 }
 
+const isMediaQueryList = (target: EventTarget): target is MediaQueryList =>
+  "media" in target && typeof (target as { media?: unknown }).media === "string";
+
+/** Counts the media-query change listeners the component adds, so an unmount can be checked. */
+function trackMotionListeners(): { active: () => number; restore: () => void } {
+  const listeners = new Map<EventTarget, Set<EventListenerOrEventListenerObject>>();
+  const addDescriptor = Object.getOwnPropertyDescriptor(EventTarget.prototype, "addEventListener");
+  const removeDescriptor = Object.getOwnPropertyDescriptor(
+    EventTarget.prototype,
+    "removeEventListener",
+  );
+  const originalAdd = addDescriptor?.value;
+  const originalRemove = removeDescriptor?.value;
+  if (typeof originalAdd !== "function" || typeof originalRemove !== "function") {
+    throw new Error("the browser has no event listeners");
+  }
+  Object.defineProperty(EventTarget.prototype, "addEventListener", {
+    ...addDescriptor,
+    value: function (
+      this: EventTarget,
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+      options?: boolean | AddEventListenerOptions,
+    ) {
+      if (type === "change" && isMediaQueryList(this)) {
+        const added = listeners.get(this) ?? new Set();
+        added.add(listener);
+        listeners.set(this, added);
+      }
+      return Reflect.apply(originalAdd, this, [type, listener, options]);
+    },
+  });
+  Object.defineProperty(EventTarget.prototype, "removeEventListener", {
+    ...removeDescriptor,
+    value: function (
+      this: EventTarget,
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+      options?: boolean | EventListenerOptions,
+    ) {
+      if (type === "change" && isMediaQueryList(this)) listeners.get(this)?.delete(listener);
+      return Reflect.apply(originalRemove, this, [type, listener, options]);
+    },
+  });
+  return {
+    active: () => [...listeners.values()].reduce((count, added) => count + added.size, 0),
+    restore: () => {
+      if (addDescriptor)
+        Object.defineProperty(EventTarget.prototype, "addEventListener", addDescriptor);
+      if (removeDescriptor)
+        Object.defineProperty(EventTarget.prototype, "removeEventListener", removeDescriptor);
+    },
+  };
+}
+
+/** Records errors and unhandled rejections from a leaked listener running after unmount. */
+function trackPageErrors(): { errors: unknown[]; restore: () => void } {
+  const errors: unknown[] = [];
+  const onError = (event: ErrorEvent) => errors.push(event.error ?? event.message);
+  const onRejection = (event: PromiseRejectionEvent) => errors.push(event.reason);
+  window.addEventListener("error", onError);
+  window.addEventListener("unhandledrejection", onRejection);
+  return {
+    errors,
+    restore: () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    },
+  };
+}
+
 /** Samples the cursor's painted background every 200 ms; the delay is the blink cadence under test. */
 async function sampleCursor(cursor: () => HTMLElement, count: number): Promise<string[]> {
   const samples: string[] = [];
@@ -628,9 +699,7 @@ test("reduced motion keeps the cursor steady, and a live toggle resumes blinking
       }
       return cursor;
     });
-    const blinkAnimation = getComputedStyle(blinkingCursor).animationName;
-    expect(blinkAnimation).toMatch(/^blink_block_/);
-    expect(getComputedStyle(blinkingCursor).animationIterationCount).toBe("infinite");
+    expect(blinkingCursor.getAnimations()).not.toHaveLength(0);
     const blinkedFrames = await sampleCursor(() => terminalCursor("motion"), 8);
     expect(new Set(blinkedFrames).size).toBeGreaterThan(1);
 
@@ -649,6 +718,31 @@ test("reduced motion keeps the cursor steady, and a live toggle resumes blinking
     expect(new Set(steadyAgainFrames).size).toBe(1);
     expect(steadyAgainFrames[0]).not.toBe("rgba(0, 0, 0, 0)");
 
+    // A scrolled viewport keeps its position while the preference changes.
+    const slider = host.querySelector<HTMLElement>(
+      ".xterm-scrollable-element > .scrollbar.vertical .slider",
+    );
+    if (!slider) throw new Error("the terminal has no scrollbar");
+    await userEvent.keyboard(
+      Array.from({ length: 80 }, (_, index) => `scroll-${index + 1}{Enter}`).join(""),
+    );
+    await expect.poll(screenText).toContain("scroll-80");
+    const atBottom = slider.style.top;
+    await userEvent.wheel(page.getByRole("region", { name: "active terminal" }), {
+      delta: { y: -2000 },
+    });
+    await vi.waitFor(() => expect(slider.style.top).not.toBe(atBottom));
+    const scrolled = slider.style.top;
+    await emulateMotion("no-preference");
+    await vi.waitFor(() =>
+      expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(false),
+    );
+    await emulateMotion("reduce");
+    await vi.waitFor(() =>
+      expect(window.matchMedia("(prefers-reduced-motion: reduce)").matches).toBe(true),
+    );
+    expect(slider.style.top).toBe(scrolled);
+
     // No remount: the host, screen and input are the same elements.
     expect(terminalHost("motion")).toBe(host);
     expect(pane("motion").querySelector(".xterm-screen")).toBe(screen);
@@ -659,6 +753,45 @@ test("reduced motion keeps the cursor steady, and a live toggle resumes blinking
     await userEvent.keyboard("after-motion{Enter}");
     await expect.poll(screenText).toContain("after-motion");
   } finally {
+    restoreGetContext();
+  }
+});
+
+test("unmounting the terminal removes its motion listener, so later preference changes touch nothing", async () => {
+  const restoreGetContext = withoutWebgl2();
+  const motionListeners = trackMotionListeners();
+  const pageErrors = trackPageErrors();
+  try {
+    await emulateMotion("reduce");
+    const client = newClient();
+    await connected(client);
+    const terminal = await client.connection.api.terminals.create({
+      command: "/bin/cat",
+      size: SIZE,
+    });
+    const rendered = await render(
+      <SizedPane name="unmount" width={500} height={340}>
+        <TerminalView client={client} terminal={terminal} onFit={() => {}} />
+      </SizedPane>,
+    );
+
+    // The effect is mounted and listening; then the view goes away with it.
+    await vi.waitFor(() => terminalCursor("unmount"));
+    expect(motionListeners.active()).toBe(1);
+    await rendered.unmount();
+    expect(motionListeners.active()).toBe(0);
+    expect(document.querySelector(".xterm-cursor")).toBeNull();
+    expect(document.querySelector(".xterm")).toBeNull();
+
+    // A leaked listener would reach the disposed xterm here. Toggling must touch nothing.
+    await emulateMotion("no-preference");
+    await emulateMotion("reduce");
+    expect(motionListeners.active()).toBe(0);
+    expect(document.querySelector(".xterm-cursor")).toBeNull();
+    expect(pageErrors.errors).toEqual([]);
+  } finally {
+    pageErrors.restore();
+    motionListeners.restore();
     restoreGetContext();
   }
 });
