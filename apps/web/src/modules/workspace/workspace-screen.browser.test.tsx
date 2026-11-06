@@ -319,20 +319,40 @@ test("a non-current loose terminal is renamed from its own menu without being se
   );
 });
 
-test("Restart reopens an exited loose terminal in the same folder, named and selected", async () => {
+test("Restart reopens an exited loose terminal with the same command, folder, name and fit", async () => {
   const client = newClient();
+  await render(<App client={client} />);
   await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
   const { api } = client.connection;
   const folder = await createGitRepo("restart-loose");
-  const dead = await api.terminals.create({
-    command: "/bin/sh",
-    args: [],
+  // An odd request size proves the mounted pane, not the create request, is what fits it.
+  const control = await api.terminals.create({
+    command: "/usr/bin/env",
+    args: ["sh", "-i"],
     cwd: folder,
-    size: SIZE,
+    size: { cols: 20, rows: 5 },
+  });
+  await api.terminals.setLabel({ id: control.id, label: "live control" });
+  const dead = await api.terminals.create({
+    command: "/usr/bin/env",
+    args: ["sh", "-i"],
+    cwd: folder,
+    size: { cols: 30, rows: 8 },
   });
   await api.terminals.setLabel({ id: dead.id, label: "build logs" });
   await writeTerminal(client, dead.id, "exit 3\n");
-  await render(<App client={client} />);
+
+  // Mount the control terminal, so the pane has a fitted size the restarted one must match.
+  const controlRow = workspace().getByRole("button", { name: "live control", exact: true });
+  await expect.element(controlRow).toBeVisible();
+  await controlRow.click();
+  await expect.element(page.getByRole("region", { name: "active terminal" })).toBeVisible();
+  await settleLayout();
+  const fitted = await vi.waitFor(async () => {
+    const size = (await api.terminals.list()).find((terminal) => terminal.id === control.id)!.size;
+    expect(size).not.toEqual({ cols: 20, rows: 5 });
+    return size;
+  });
 
   const deadRow = workspace().getByRole("button", { name: "build logs — exited (3)" });
   await expect.element(deadRow).toBeVisible();
@@ -350,12 +370,54 @@ test("Restart reopens an exited loose terminal in the same folder, named and sel
 
   await vi.waitFor(async () => {
     const listed = await api.terminals.list();
-    expect(listed).toHaveLength(1);
-    expect(listed[0]).toMatchObject({
-      command: "/bin/sh",
-      args: [],
+    expect(listed).toHaveLength(2);
+    expect(listed.map((terminal) => terminal.id)).not.toContain(dead.id);
+    const restarted = listed.find((terminal) => terminal.id !== control.id)!;
+    expect(restarted).toMatchObject({
+      command: "/usr/bin/env",
+      args: ["sh", "-i"],
       cwd: folder,
       label: "build logs",
+      exit: null,
+    });
+    expect(restarted.size).toEqual(fitted);
+  });
+});
+
+test("Restart works on a dead non-current loose terminal while a task is selected", async () => {
+  const client = newClient();
+  await appWithProject(client);
+  await createTask("Stays selected");
+  const { api } = client.connection;
+  const dead = await api.terminals.create({
+    command: "/usr/bin/env",
+    args: ["sh", "-i"],
+    size: SIZE,
+  });
+  await api.terminals.setLabel({ id: dead.id, label: "dead row" });
+  await writeTerminal(client, dead.id, "exit 6\n");
+  const deadRow = workspace().getByRole("button", { name: "dead row — exited (6)" });
+  await expect.element(deadRow).toBeVisible();
+  await expect.element(taskButton("Stays selected")).toHaveAttribute("aria-current", "true");
+
+  await deadRow.click({ button: "right" });
+  await expect.element(page.getByRole("menuitem", { name: "Restart" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Restart" }).click();
+
+  const liveRow = workspace().getByRole("button", { name: "dead row", exact: true });
+  await expect.element(liveRow).toBeVisible();
+  await expect.element(liveRow).toHaveAttribute("aria-current", "true");
+  await expect.element(deadRow).not.toBeInTheDocument();
+  await expect.element(taskButton("Stays selected")).not.toHaveAttribute("aria-current", "true");
+
+  await vi.waitFor(async () => {
+    const listed = await api.terminals.list();
+    expect(listed).toHaveLength(1);
+    expect(listed[0]!.id).not.toBe(dead.id);
+    expect(listed[0]).toMatchObject({
+      command: "/usr/bin/env",
+      args: ["sh", "-i"],
+      label: "dead row",
       exit: null,
     });
   });
