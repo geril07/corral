@@ -100,6 +100,8 @@ export function WorkspaceScreen({
     current,
     currentSession,
     chat,
+    chatPicker,
+    canShowChatPicker,
     chatDriver,
     chatDrivers,
     capabilitiesReady,
@@ -124,13 +126,12 @@ export function WorkspaceScreen({
     dismissFailure,
     armed,
     actions,
+    invoke,
     rememberFitSize,
     choose,
     showTask,
     openTask,
     continueTask,
-    createTerminal,
-    openAgentPicker,
     startAgent,
     openSettings,
     closeTerminal,
@@ -141,7 +142,6 @@ export function WorkspaceScreen({
     removeSession,
     openRenameEntry,
     openRenameTask,
-    openChanges,
     renameEntry,
     selectEntry,
     toggleSettle,
@@ -310,8 +310,8 @@ export function WorkspaceScreen({
         onSend={chat.send}
         onAbort={chat.abort}
         onRespond={chat.respond}
-        onChangeModel={() => setDialog({ kind: "chat-model" })}
-        onChangeReasoning={() => setDialog({ kind: "chat-reasoning" })}
+        onChangeModel={() => invoke("change-model")}
+        onChangeReasoning={() => invoke("change-reasoning")}
       />
     ) : currentSession && currentSession.state !== "running" ? (
       <StoppedSession
@@ -347,7 +347,10 @@ export function WorkspaceScreen({
             onRemoveTask={openRemoveTask}
             onRemoveProject={openRemoveProject}
             onViewSource={openTaskSource}
-            onNewTask={openNewTask}
+            onNewTask={(project) =>
+              project === undefined ? invoke("new-task") : openNewTask(project)
+            }
+            newTaskEnabled={actions["new-task"].enabled}
             onFindTask={openFindTask}
             onLeaveList={leaveSidebarList}
             onReturnToWorkspace={returnToWorkspace}
@@ -441,7 +444,7 @@ export function WorkspaceScreen({
                     reason: actions["switch-view"].enabled
                       ? undefined
                       : actions["switch-view"].reason,
-                    onSwitch: actions["switch-view"].run,
+                    onSwitch: () => invoke("switch-view"),
                   }
             }
             labels={currentSessionLabels}
@@ -451,18 +454,26 @@ export function WorkspaceScreen({
                 ? undefined
                 : {
                     current: changesCurrent,
-                    onSelect: openChanges,
+                    onSelect: () => invoke("changes"),
                     hint: keyHint(config, "changes"),
                   }
             }
             config={config}
             onSelect={selectEntry}
-            onStop={(each) => void stopSession(each)}
-            onRestart={(each) => void restartSession(each)}
-            onRemove={openRemoveSession}
-            onRename={openRenameEntry}
-            onNewShell={() => void createTerminal(selection.taskId)}
-            onNewAgent={openAgentPicker}
+            onStop={(each) =>
+              each.id === currentSession?.id ? invoke("stop-session") : void stopSession(each)
+            }
+            onRestart={(each) =>
+              each.id === currentSession?.id ? invoke("restart-session") : void restartSession(each)
+            }
+            onRemove={(each) =>
+              each.id === currentSession?.id ? invoke("remove-session") : openRemoveSession(each)
+            }
+            onRename={(entry, opener) =>
+              entry.id === current?.id ? invoke("rename-session") : openRenameEntry(entry, opener)
+            }
+            onNewShell={() => invoke("new-terminal")}
+            onNewAgent={() => invoke("new-agent")}
           />
         )}
         {sidebar.hidden && !currentTaskNode && composerProject === undefined && (
@@ -487,8 +498,8 @@ export function WorkspaceScreen({
                 terminalHint={pressHint(config, "new-terminal")}
                 agentHint={pressHint(config, "new-agent")}
                 onAddProject={addProject}
-                onNewTerminal={() => void createTerminal(selection.taskId)}
-                onNewAgent={openAgentPicker}
+                onNewTerminal={() => invoke("new-terminal")}
+                onNewAgent={() => invoke("new-agent")}
               />
             ))
           )}
@@ -511,23 +522,22 @@ export function WorkspaceScreen({
         />
       )}
       {(dialog?.kind === "chat-model" || dialog?.kind === "chat-reasoning") &&
-        chat !== undefined &&
-        currentSession !== undefined &&
-        currentSession.kind !== "shell" && (
+        canShowChatPicker &&
+        chatPicker !== undefined && (
           <ChatChoiceDialog
-            context={{ taskId: currentSession.taskId }}
-            store={chat.store}
-            agent={currentSession.kind}
-            launch={currentSession.launch}
+            context={{ taskId: chatPicker.session.taskId }}
+            store={chatPicker.chat.store}
+            agent={chatPicker.session.kind}
+            launch={chatPicker.session.launch}
             profiles={profiles}
             agents={config.agents}
             settings={taskSettingsFor(config, currentTaskProject?.path ?? "")}
             chatDrivers={chatDrivers}
             anchor={dialog.kind === "chat-model" ? modelPickerAnchor : reasoningPickerAnchor}
-            onStart={(choice) => startAgent(currentSession.taskId, choice)}
+            onStart={(choice) => startAgent(chatPicker.session.taskId, choice)}
             kind={dialog.kind === "chat-model" ? "model" : "reasoning"}
-            onSetModel={chat.setModel}
-            onSetReasoning={chat.setReasoning}
+            onSetModel={chatPicker.chat.setModel}
+            onSetReasoning={chatPicker.chat.setReasoning}
             onClose={() => setDialog(undefined)}
           />
         )}
@@ -598,7 +608,7 @@ export function WorkspaceScreen({
           actions={actions}
           onRun={(action) => {
             setDialog(undefined);
-            actions[action].run();
+            invoke(action);
           }}
           onClose={() => setDialog(undefined)}
         />

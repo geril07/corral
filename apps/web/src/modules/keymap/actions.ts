@@ -2,14 +2,25 @@ import type { ActionId, ClientConfig } from "@corral/protocol/config";
 
 export type ActionGroup = "Sessions" | "Tasks" | "Projects" | "Navigation" | "General";
 
-export interface ActionEntry {
+interface ActionEntryFields {
   label: string;
   group: ActionGroup;
-  /** False when the action cannot do anything in the current state; the palette shows it disabled. */
-  enabled: boolean;
-  /** Why a disabled action cannot run; the palette shows it beside the label. */
-  reason?: string;
   run: () => void;
+}
+
+/** A disabled entry always carries the one sentence saying why it cannot run now. */
+export type ActionEntry = ActionEntryFields &
+  ({ enabled: true; reason?: string } | { enabled: false; reason: string });
+
+/**
+ * An entry's enabled bit with its reason. Spreading this keeps the table honest: `false` cannot be
+ * written without the sentence the palette and the refused chord show.
+ */
+export function actionAvailability(
+  enabled: boolean,
+  reason: string,
+): { enabled: true } | { enabled: false; reason: string } {
+  return enabled ? { enabled: true } : { enabled: false, reason };
 }
 
 /** Every action the keymap dispatches and the command palette lists, in one table. */

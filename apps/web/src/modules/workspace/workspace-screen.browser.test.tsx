@@ -961,6 +961,19 @@ test("prefix t during the wait opens the composer when the project list arrives"
   const terminals = fakeWatch<TerminalsSnapshot>({ loaded: true, terminals: [] });
   await render(<App client={fakeLists(real, { projects, tasks, sessions, terminals })} />);
 
+  // The same fact the chord uses: New task is enabled while the list loads, in the palette,
+  // the sidebar button and the action itself.
+  await prefixThen(" ");
+  await expect
+    .element(
+      page
+        .getByRole("dialog", { name: "Command palette" })
+        .getByRole("option", { name: /^New task/ }),
+    )
+    .toHaveAttribute("aria-disabled", "false");
+  await userEvent.keyboard("{Escape}");
+  await expect.element(workspace().getByRole("button", { name: "New task" })).toBeEnabled();
+
   await prefixThen("t");
   await expect.element(page.getByRole("status", { name: "Loading the workspace" })).toBeVisible();
 
@@ -1429,6 +1442,35 @@ test("a task without sessions shows the empty state with its two ways to start o
   await expect.element(page.getByText("No sessions")).toBeVisible();
   await page.getByRole("button", { name: "Open shell" }).click();
   await expect.element(shellTabs()).toHaveLength(1);
+});
+
+test("a disabled Start agent button shows the chord's reason and opens no picker", async () => {
+  await writeConfig(
+    "[agents.claude]\nenabled = false\n[agents.codex]\nenabled = false\n[agents.pi]\nenabled = false\n[agents.opencode]\nenabled = false\n",
+  );
+  const { client } = await appWithProject(newClient());
+  const project = client.projects.getSnapshot().projects[0]!;
+  await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "No agents",
+    workspace: { type: "new-branch" },
+  });
+  await taskButton("No agents").click();
+  await expect.element(page.getByText("No sessions")).toBeVisible();
+
+  const reason = page.getByText("Every agent is disabled in the config file.");
+  await page.getByRole("button", { name: "Start agent" }).click();
+  await expect.element(reason).toBeVisible();
+  await expect
+    .element(page.getByRole("dialog", { name: "New agent session" }))
+    .not.toBeInTheDocument();
+
+  // The chord is refused by the same entry and shows the same sentence.
+  await prefixThen("s");
+  await expect.element(reason).toBeVisible();
+  await expect
+    .element(page.getByRole("dialog", { name: "New agent session" }))
+    .not.toBeInTheDocument();
 });
 
 test("a project row's menu forgets it after naming its tasks, and Cancel or Escape keeps the keyboard on the row", async () => {

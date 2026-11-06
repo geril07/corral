@@ -44,10 +44,19 @@ export function CommandPaletteDialog({ actions, onRun, onClose }: CommandPalette
                       disabled={!enabled}
                       onSelect={() => onRun(action)}
                     >
-                      <span className="flex-1 truncate">{label}</span>
-                      {!enabled && reason && (
-                        <span className="truncate text-xs text-muted-foreground">{reason}</span>
-                      )}
+                      <span className="flex min-w-0 flex-1 flex-col">
+                        <span data-palette-label="" className="truncate">
+                          {label}
+                        </span>
+                        {!enabled && reason && (
+                          <span
+                            data-palette-reason=""
+                            className="truncate text-xs text-muted-foreground"
+                          >
+                            {reason}
+                          </span>
+                        )}
+                      </span>
                       <Kbd>{formatBinding(config, action)}</Kbd>
                     </CommandItem>
                   );

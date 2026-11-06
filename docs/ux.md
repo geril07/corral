@@ -36,9 +36,10 @@ What a user does. Everything below is built and verified end to end, chat views 
    names both, per direction, together with what survives (the conversation the agent already wrote). While the switch runs, the main area says "Switching this session to …" instead
    of showing a half-switched pane. Only an agent with a chat driver has two views: the palette
    shows the action disabled with the reason for a shell or a driverless agent, and pressing the key
-   there does nothing. A handoff whose second start fails leaves the session stopped in the target
-   view with the launch error and its Restart button, and `prefix v` on a stopped session only
-   chooses the view its next start opens in. An agent whose driver keeps both views live (OpenCode)
+   there shows the same reason instead. A handoff whose second start fails leaves the session stopped
+   in the target view with the launch error and its Restart button, and `prefix v` on a stopped
+   session only chooses the view its next start opens in. An agent whose driver keeps both views
+   live (OpenCode)
    does not hand over at all: `prefix v` opens the other frontend beside the running one, nothing is
    aborted, and the palette says "Open the … view" instead of "Switch to …", so no confirmation is
    asked for a busy agent (stage C). Whether Codex's terminal is view-only while chat writes is
