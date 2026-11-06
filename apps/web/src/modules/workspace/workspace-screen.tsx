@@ -134,6 +134,7 @@ export function WorkspaceScreen({
     startAgent,
     openSettings,
     closeTerminal,
+    restartLooseTerminal,
     stopSession,
     restartSession,
     switchView,
@@ -339,6 +340,7 @@ export function WorkspaceScreen({
             onSelectLoose={() => choose({ taskId: null, entryId: undefined })}
             onSelectTerminal={selectEntry}
             onRenameTerminal={openRenameEntry}
+            onRestartTerminal={(entry) => void restartLooseTerminal(entry)}
             onCloseTerminal={(id) => void closeTerminal(id)}
             onRenameTask={openRenameTask}
             onToggleSettle={(task) => void toggleSettle(task)}

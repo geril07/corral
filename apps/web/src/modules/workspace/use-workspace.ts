@@ -17,6 +17,7 @@ import {
   tasksInOrder,
   type Chosen,
   type Entry,
+  type TerminalEntry,
 } from "@corral/client/workspace-tree";
 import { AgentKind, type ActionId } from "@corral/protocol/config";
 import type {
@@ -531,6 +532,32 @@ export function useWorkspace({
         choose({ taskId: selection.taskId, entryId: activeAfterClose(entryIds, id) });
       }
       await api.terminals.close({ id });
+    });
+
+  /**
+   * A dead loose terminal's Restart: the same command, arguments, folder and name at the current
+   * fit size, selected before the dead row goes. Only a create that fails leaves the dead row and
+   * its label in place; a name that cannot be set takes its new terminal with it, because a
+   * restart that loses the name has done something else.
+   */
+  const restartLooseTerminal = (entry: TerminalEntry) =>
+    attempt(async () => {
+      const dead = entry.terminal;
+      const label = dead.label ?? null;
+      const created = await api.terminals.create({
+        command: dead.command,
+        args: dead.args,
+        cwd: dead.cwd,
+        size: fitSize.current,
+      });
+      try {
+        if (label !== null) await api.terminals.setLabel({ id: created.id, label });
+      } catch (error) {
+        await api.terminals.close({ id: created.id }).catch(() => undefined);
+        throw error;
+      }
+      choose({ taskId: null, entryId: created.id });
+      await api.terminals.close({ id: dead.id });
     });
 
   const stopSession = (session: Session) =>
@@ -1145,6 +1172,7 @@ export function useWorkspace({
     startAgent,
     openSettings,
     closeTerminal,
+    restartLooseTerminal,
     stopSession,
     restartSession,
     switchView,

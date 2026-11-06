@@ -116,6 +116,8 @@ interface SidebarProps {
   /** A loose terminal (the Scratch section); sessions are tabs, not rows. */
   onSelectTerminal: (entry: TerminalEntry) => void;
   onRenameTerminal: (entry: TerminalEntry) => void;
+  /** Replaces an exited loose terminal with a new one carrying its command, folder and label. */
+  onRestartTerminal: (entry: TerminalEntry) => void;
   onCloseTerminal: (id: string) => void;
   onRenameTask: (task: Task, opener?: HTMLElement) => void;
   onToggleSettle: (task: Task) => void;
@@ -238,6 +240,7 @@ export function Sidebar(props: SidebarProps) {
       onSelectTerminal={props.onSelectTerminal}
       onCloseTerminal={props.onCloseTerminal}
       onRenameTerminal={props.onRenameTerminal}
+      onRestartTerminal={props.onRestartTerminal}
     />
   );
 
@@ -373,6 +376,7 @@ function Scratch({
   onSelectTerminal,
   onCloseTerminal,
   onRenameTerminal,
+  onRestartTerminal,
 }: {
   entries: readonly TerminalEntry[];
   selection: Selection | undefined;
@@ -380,6 +384,7 @@ function Scratch({
   onSelectTerminal: (entry: TerminalEntry) => void;
   onCloseTerminal: (id: string) => void;
   onRenameTerminal: (entry: TerminalEntry) => void;
+  onRestartTerminal: (entry: TerminalEntry) => void;
 }) {
   if (entries.length === 0) return undefined;
   return (
@@ -405,7 +410,8 @@ function Scratch({
               current={entry.id === selection?.entryId}
               onSelect={() => onSelectTerminal(entry)}
               onClose={() => onCloseTerminal(entry.terminal.id)}
-              onRename={entry.id === selection?.entryId ? () => onRenameTerminal(entry) : undefined}
+              onRename={() => onRenameTerminal(entry)}
+              onRestart={() => onRestartTerminal(entry)}
             />
           ))}
         </ul>
@@ -420,12 +426,14 @@ function TerminalRow({
   onSelect,
   onClose,
   onRename,
+  onRestart,
 }: {
   entry: TerminalEntry;
   current: boolean;
   onSelect: () => void;
   onClose: () => void;
-  onRename?: (() => void) | undefined;
+  onRename: () => void;
+  onRestart: () => void;
 }) {
   const { terminal } = entry;
   const label = terminalLabel(terminal);
@@ -469,7 +477,8 @@ function TerminalRow({
           hint={terminalClipped || exit !== undefined ? name : undefined}
           trigger={select}
         >
-          {onRename && <DropdownMenuItem onClick={onRename}>Rename…</DropdownMenuItem>}
+          {terminal.exit && <DropdownMenuItem onClick={onRestart}>Restart</DropdownMenuItem>}
+          <DropdownMenuItem onClick={onRename}>Rename…</DropdownMenuItem>
           <DropdownMenuItem variant="destructive" onClick={onClose}>
             Close terminal…
           </DropdownMenuItem>

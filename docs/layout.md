@@ -45,12 +45,17 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   absolute path, and an exited loose terminal names its exit code. Unseen completion stays
   marked.
 - Right-click / menu key / Shift+F10 opens secondary row actions: a task's, a loose
-  terminal's and a project's. A project's menu offers New task in `<project>`, the keyboard path
-  to its `+`, and Remove project…, which names the project and its task count and keeps the
-  worktrees and branches on disk. The `+` overlays the row's right end and forwards a
-  right-click to the row menu, so that edge opens the menu too. No action gutter takes permanent
-  width. Full names stay accessible and get a tooltip when clipped; the row has no native title,
-  and the tooltip wrapper stays mounted when clipping starts or stops.
+  terminal's and a project's. A loose terminal's menu offers Rename… and Close terminal… on
+  every row, current or not, and renaming one does not select it; once the process has exited
+  it also offers Restart, which replaces the dead row with the same command, arguments, folder
+  and name at the current fit size, selected, and closes the dead one. A restart the server
+  refuses leaves the dead row, its name and its exit, and reports the failure in the footer. A
+  project's menu offers New task in `<project>`, the keyboard path to its `+`, and Remove
+  project…, which names the project and its task count and keeps the worktrees and branches on
+  disk. The `+` overlays the row's right end and forwards a right-click to the row menu, so that
+  edge opens the menu too. No action gutter takes permanent width. Full names stay accessible and
+  get a tooltip when clipped; the row has no native title, and the tooltip wrapper stays mounted
+  when clipping starts or stops.
 - A focused row keeps focus and its ring across a sidebar resize, including when clipping starts
   or stops.
 - `prefix w` hands the list the keyboard: arrows and Home/End walk its rows, Enter opens one and
@@ -75,7 +80,8 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   when the selection leaves; a user-expanded one stays open. Collapsed project groups, the shelf's
   expanded state and its page are remembered on this device.
   General task search still includes settled history.
-- Loose terminals remain in Scratch when present.
+- Loose terminals remain in Scratch when present; an exited one stays listed, marked with its
+  exit code, until it is closed or restarted.
 - Footer: Settings and Add project, exceptional connection/config notices (the connection
   status opens the recovery dialog), failures and guidance, and the prefix hint on the right
   while disarmed (armed prefix remains visibly distinct). While the sidebar is hidden the strip
