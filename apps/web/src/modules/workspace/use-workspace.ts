@@ -896,7 +896,7 @@ export function useWorkspace({
     "abort-turn": {
       label: "Abort the working turn",
       group: "Sessions",
-      enabled: chat !== undefined && chatTurn === "working",
+      enabled: chat !== undefined && chatTurn === "working" && !chat.aborting,
       run: () => void attempt(() => chat?.abort() ?? Promise.resolve()),
     },
     "change-model": {
