@@ -1,6 +1,10 @@
 import { defaultModelPolicy, modelScopeKey } from "@corral/protocol/models";
+import { createHashHistory } from "@tanstack/react-router";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
+import { render } from "vitest-browser-react";
+import { App as RootApp } from "../../../src/app/app.tsx";
+import { createGitRepo } from "../../../test/git-repo.ts";
 import { realServerClients, prefixThen } from "../../../test/real-client.ts";
 import { writeConfig } from "../../../test/config-command.ts";
 import {
@@ -17,11 +21,33 @@ const picker = () => page.getByRole("dialog", { name: "Agent and model", exact: 
 const settings = () => page.getByRole("dialog", { name: "Settings", exact: true });
 const models = () => page.getByRole("region", { name: "Models", exact: true });
 const checkbox = (name: string) => models().getByRole("checkbox", { name, exact: true });
+const closeRefusal = () =>
+  page.getByRole("status").filter({ hasText: "The save must finish before Settings can close." });
+
+/** The real hash history, so a picker-owned Settings close is tested against browser Back. */
+async function renderHashApp(client: ReturnType<typeof newClient>, entries: string[]) {
+  const original = window.location.href;
+  window.history.replaceState({}, "", `/#${entries[0]}`);
+  const history = createHashHistory();
+  for (const entry of entries.slice(1)) {
+    history.push(entry);
+    history.flush();
+  }
+  const rendered = await render(<RootApp client={client} history={history} />);
+  return {
+    ...rendered,
+    history,
+    restore: () => {
+      history.destroy();
+      window.history.replaceState({}, "", original);
+    },
+  };
+}
 
 async function openManager() {
   const client = newClient();
   await writeConfig('[tasks]\nagent = "pi"\n');
-  await appWithProject(client);
+  const { rendered } = await appWithProject(client);
   await prefixThen("t");
   await promptField().fill("Keep this prompt and selection");
   const composer = promptField().element();
@@ -33,7 +59,37 @@ async function openManager() {
   await picker().getByRole("button", { name: "Manage models…" }).click();
   await expect.element(settings()).toBeVisible();
   await expect.element(checkbox("Show Stub One · stub")).toBeVisible();
-  return { client, composer };
+  return { client, composer, rendered };
+}
+
+/** Holds the next models.save until the test releases it, then saves. */
+function holdNextSave(client: ReturnType<typeof newClient>) {
+  const api = client.connection.api;
+  const save = api.models.save;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const gatedModels = new Proxy(api.models, {
+    get(target, property, receiver) {
+      if (property === "save")
+        return async (input: Parameters<typeof save>[0]) => {
+          await gate;
+          return save(input);
+        };
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  Object.defineProperty(client.connection, "api", {
+    configurable: true,
+    value: new Proxy(api, {
+      get(target, property, receiver) {
+        if (property === "models") return gatedModels;
+        return Reflect.get(target, property, receiver);
+      },
+    }),
+  });
+  return { release };
 }
 
 test("the shared manager saves an exact whitelist and returns to picker search, focus and composer draft", async () => {
@@ -83,6 +139,36 @@ test("long profile names stay inside Settings with an actual-overflow full-name 
   expect(field.getBoundingClientRect().width).toBeLessThanOrEqual(320);
 });
 
+test("picker-owned Settings announces a busy close, keeps the draft and does not navigate", async () => {
+  const { client, rendered } = await openManager();
+  const url = rendered.history.location.href;
+  await models().getByRole("button", { name: "Only selected", exact: true }).click();
+  await checkbox("Show Stub Two · stub").click();
+  const { release } = holdNextSave(client);
+  const save = models().getByRole("button", { name: "Save", exact: true });
+  await save.click();
+  await expect.element(save).toBeDisabled();
+  const close = settings().getByRole("button", { name: "Back to workspace" });
+
+  await close.click();
+  await expect.element(closeRefusal()).toHaveLength(1);
+  await expect.element(settings()).toBeVisible();
+  await expect.element(checkbox("Show Stub Two · stub")).toBeChecked();
+  expect(rendered.history.location.href).toBe(url);
+
+  await userEvent.keyboard("{Escape}");
+  await expect.element(closeRefusal()).toHaveLength(1);
+  await expect.element(settings()).toBeVisible();
+  await expect.element(checkbox("Show Stub Two · stub")).toBeChecked();
+  expect(rendered.history.location.href).toBe(url);
+
+  release();
+  await expect.element(models().getByText("Saved ·", { exact: false })).toBeVisible();
+  await expect.element(closeRefusal()).not.toBeInTheDocument();
+  await expect.element(settings()).toBeVisible();
+  expect(rendered.history.location.href).toBe(url);
+});
+
 test("another client's save cannot replace or overwrite an editor draft; dirty close is explicit", async () => {
   const { client } = await openManager();
   await models().getByRole("button", { name: "Only selected", exact: true }).click();
@@ -100,15 +186,70 @@ test("another client's save cannot replace or overwrite an editor draft; dirty c
   await expect.element(models().getByText("Could not save.", { exact: false })).toBeVisible();
   await expect.element(checkbox("Show Stub Two · stub")).toBeChecked();
   await settings().getByRole("button", { name: "Back to workspace" }).click();
+  const confirm = page.getByRole("alertdialog", {
+    name: "Discard unsaved model preferences?",
+  });
+  await expect.element(confirm).toBeVisible();
   await expect
-    .element(settings().getByText("Model preferences have unsaved changes.", { exact: true }))
-    .toBeVisible();
-  await settings().getByRole("button", { name: "Keep editing" }).click();
+    .element(confirm.getByRole("button", { name: "Keep editing", exact: true }))
+    .toHaveFocus();
+  await confirm.getByRole("button", { name: "Keep editing", exact: true }).click();
+  await expect.element(confirm).not.toBeInTheDocument();
+  await expect.element(checkbox("Show Stub Two · stub")).toBeChecked();
   await models().getByRole("button", { name: "Discard", exact: true }).click();
   await expect.element(checkbox("Show Stub Two · stub")).not.toBeChecked();
   await expect.element(checkbox("Show Stub Two · stub")).toBeDisabled();
   await settings().getByRole("button", { name: "Back to workspace" }).click();
   await expect.element(picker().getByRole("combobox", { name: "Models" })).toHaveValue("stub");
+});
+
+test("picker-owned Settings keeps its local confirm and does not register the routed history blocker", async () => {
+  const client = newClient();
+  await writeConfig('[tasks]\nagent = "pi"\n');
+  await vi.waitFor(() => expect(client.connection.state.getSnapshot().status).toBe("connected"));
+  const repo = await createGitRepo("picker-settings");
+  const project = await client.connection.api.projects.add({ path: repo });
+  await vi.waitFor(() =>
+    expect(client.projects.getSnapshot().projects.some((each) => each.id === project.id)).toBe(
+      true,
+    ),
+  );
+  const { history, restore } = await renderHashApp(client, ["/", `/?project=${project.id}`]);
+  try {
+    await prefixThen("t");
+    await promptField().fill("Keep this prompt and selection");
+    await newTaskView()
+      .getByRole("button", { name: /^Agent pi/ })
+      .click();
+    await expect.element(picker().getByRole("option", { name: /Stub Two/ })).toBeVisible();
+    await picker().getByRole("combobox", { name: "Models" }).fill("stub");
+    await picker().getByRole("button", { name: "Manage models…" }).click();
+    await expect.element(settings()).toBeVisible();
+    await expect.element(checkbox("Show Stub One · stub")).toBeVisible();
+    await models().getByRole("button", { name: "Only selected", exact: true }).click();
+    await checkbox("Show Stub Two · stub").click();
+
+    const confirm = page.getByRole("alertdialog", {
+      name: "Discard unsaved model preferences?",
+    });
+    await settings().getByRole("button", { name: "Back to workspace" }).click();
+    await expect.element(confirm).toBeVisible();
+    await expect
+      .element(confirm.getByRole("button", { name: "Keep editing", exact: true }))
+      .toHaveFocus();
+    await confirm.getByRole("button", { name: "Keep editing", exact: true }).click();
+    await expect.element(confirm).not.toBeInTheDocument();
+    await expect
+      .element(settings().getByRole("button", { name: "Back to workspace" }))
+      .toHaveFocus();
+
+    // No routed blocker here: browser Back navigates instead of asking the routed discard.
+    history.back();
+    await vi.waitFor(() => expect(window.location.hash).toBe("#/"));
+    await expect.element(confirm).not.toBeInTheDocument();
+  } finally {
+    restore();
+  }
 });
 
 test("hiding a live model keeps its session, thinking, draft and composer node; other clients can reveal it again", async () => {

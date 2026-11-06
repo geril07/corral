@@ -1,5 +1,13 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Badge, Button, RadioChoice, RadioGroup, TaskDialog } from "../../common/ui/index.ts";
+import {
+  Badge,
+  Button,
+  DestructiveTaskDialog,
+  DialogActions,
+  RadioChoice,
+  RadioGroup,
+  TaskDialog,
+} from "../../common/ui/index.ts";
 import { useConfig } from "../keymap/index.ts";
 import { useAppearance, UI_SCALES } from "./appearance.tsx";
 import { AgentsSection } from "./agents.tsx";
@@ -23,6 +31,12 @@ const SECTIONS = [
 ] as const;
 type SectionId = (typeof SECTIONS)[number][0];
 const panelId = (id: SectionId) => `settings-panel-${id}`;
+const FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function firstPanelControl(id: SectionId) {
+  return document.getElementById(panelId(id))?.querySelector<HTMLElement>(FOCUSABLE) ?? null;
+}
 
 /** Hidden panels keep disclosures and data subscriptions while their own scroll is restored. */
 function SettingsSection({
@@ -50,12 +64,29 @@ function SettingsSection({
   );
 }
 
+export interface SettingsNavigationGuard {
+  cancel: () => void;
+  proceed: () => void;
+}
+
 export function SettingsScreen({
   onClose,
   modelTarget,
+  onDirtyChange,
+  onBusyChange,
+  onBusyCloseRefused,
+  busyNotice,
+  navigationGuard,
 }: {
   onClose: () => void;
   modelTarget?: ModelManagementTarget | undefined;
+  onDirtyChange?: (dirty: boolean) => void;
+  onBusyChange?: (busy: boolean) => void;
+  /** The routed screen records a refused close so it survives the immediate navigation reset. */
+  onBusyCloseRefused?: (() => void) | undefined;
+  busyNotice?: boolean | undefined;
+  /** The routed screen passes the pending history navigation; picker-owned Settings does not. */
+  navigationGuard?: SettingsNavigationGuard | undefined;
 }) {
   const { profiles } = useConfig();
   const registerSettings = useSettingsActivity()?.register;
@@ -64,7 +95,9 @@ export function SettingsScreen({
   const [current, setCurrent] = useState<SectionId>(modelTarget ? "models" : "appearance");
   const [modelsDirty, setModelsDirty] = useState(false);
   const [modelsBusy, setModelsBusy] = useState(false);
+  const [localBusyNotice, setLocalBusyNotice] = useState(false);
   const [closing, setClosing] = useState(false);
+  const lastFocused = useRef<HTMLElement | null>(null);
   const content = useRef<HTMLDivElement>(null);
   const positions = useRef(new Map<SectionId, number>());
   const visit = (id: SectionId) => {
@@ -74,30 +107,55 @@ export function SettingsScreen({
   useLayoutEffect(() => {
     if (content.current) content.current.scrollTop = positions.current.get(current) ?? 0;
   }, [current, content, positions]);
+  useLayoutEffect(() => {
+    const remember = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      // The confirm is the thing being dismissed; its controls are never the return target.
+      if (target.closest('[data-slot="alert-dialog-content"]')) return;
+      lastFocused.current = target;
+    };
+    document.addEventListener("focusin", remember, true);
+    return () => document.removeEventListener("focusin", remember, true);
+  }, []);
+  const confirmOpen = (closing || navigationGuard !== undefined) && modelsDirty && !modelsBusy;
+  const refusedBusy = busyNotice ?? localBusyNotice;
+  const close = () => {
+    if (modelsBusy) {
+      setLocalBusyNotice(true);
+      onBusyCloseRefused?.();
+      return;
+    }
+    if (modelsDirty) {
+      setClosing(true);
+      return;
+    }
+    onClose();
+  };
+  const keepEditing = () => {
+    setClosing(false);
+    navigationGuard?.cancel();
+  };
+  const discard = () => {
+    setClosing(false);
+    if (navigationGuard) navigationGuard.proceed();
+    else onClose();
+  };
+  const finalFocus = () => {
+    const target = lastFocused.current;
+    if (
+      target?.isConnected &&
+      target.closest('[data-slot="dialog-content"]') &&
+      !target.closest("[hidden]")
+    )
+      return target;
+    return firstPanelControl(current);
+  };
   return (
-    <TaskDialog
-      title="Settings"
-      layout="settings"
-      onClose={() => {
-        if (modelsBusy) return;
-        if (modelsDirty) setClosing(true);
-        else onClose();
-      }}
-    >
-      {closing && modelsDirty && (
-        <div
-          role="alert"
-          className="flex h-(--chrome-header) shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-5 py-2"
-        >
-          <span className="text-xs">Model preferences have unsaved changes.</span>
-          <div className="flex gap-1">
-            <Button size="sm" variant="ghost" onClick={() => setClosing(false)}>
-              Keep editing
-            </Button>
-            <Button size="sm" variant="destructive" disabled={modelsBusy} onClick={onClose}>
-              Discard and close
-            </Button>
-          </div>
+    <TaskDialog title="Settings" layout="settings" onClose={close}>
+      {modelsBusy && refusedBusy && (
+        <div role="status" className="shrink-0 border-b border-border px-5 py-2 text-xs">
+          The save must finish before Settings can close.
         </div>
       )}
       <div className="flex min-h-0 flex-1">
@@ -162,8 +220,15 @@ export function SettingsScreen({
             <ModelManagement
               active={current === "models"}
               target={modelTarget}
-              onDirty={setModelsDirty}
-              onBusy={setModelsBusy}
+              onDirty={(dirty) => {
+                setModelsDirty(dirty);
+                onDirtyChange?.(dirty);
+              }}
+              onBusy={(busy) => {
+                setModelsBusy(busy);
+                if (!busy) setLocalBusyNotice(false);
+                onBusyChange?.(busy);
+              }}
             />
           </SettingsSection>
           <SettingsSection id="keys" current={current}>
@@ -189,6 +254,23 @@ export function SettingsScreen({
           </SettingsSection>
         </div>
       </div>
+      {confirmOpen && (
+        <DestructiveTaskDialog
+          title="Discard unsaved model preferences?"
+          description="Model preferences, including visibility and favorites, have not been saved."
+          onClose={keepEditing}
+          finalFocus={finalFocus}
+        >
+          <DialogActions>
+            <Button variant="outline" autoFocus onClick={keepEditing}>
+              Keep editing
+            </Button>
+            <Button variant="destructive" onClick={discard}>
+              Discard and close
+            </Button>
+          </DialogActions>
+        </DestructiveTaskDialog>
+      )}
     </TaskDialog>
   );
 }
