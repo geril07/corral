@@ -85,18 +85,34 @@ const upFromModule = [
   "../../../routes/**",
 ];
 
+const BROWSER_SHARDS = 4;
+if (!Number.isInteger(BROWSER_SHARDS) || BROWSER_SHARDS < 1) {
+  throw new Error("BROWSER_SHARDS must be a positive integer");
+}
+
+// Per-task cache:false is the one cache control Vite+ does not let a CLI flag override.
+const browserShardTasks = Object.fromEntries(
+  Array.from({ length: BROWSER_SHARDS }, (_, offset) => {
+    const shard = offset + 1;
+    return [
+      `browser-shard-${shard}`,
+      {
+        command: `vp test run --config vite.config.ts --shard=${shard}/${BROWSER_SHARDS}`,
+        cwd: "apps/web",
+        cache: false,
+      },
+    ] as const;
+  }),
+);
+
 export default defineConfig({
   run: {
-    // Shards are real test runs, never replays of a cached result.
-    cache: { tasks: false },
     tasks: {
-      "browser-shard-1": "cd apps/web && vp test run --config vite.config.ts --shard=1/4",
-      "browser-shard-2": "cd apps/web && vp test run --config vite.config.ts --shard=2/4",
-      "browser-shard-3": "cd apps/web && vp test run --config vite.config.ts --shard=3/4",
-      "browser-shard-4": "cd apps/web && vp test run --config vite.config.ts --shard=4/4",
+      ...browserShardTasks,
       "browser-all": {
         command: 'node -e ""',
-        dependsOn: ["browser-shard-1", "browser-shard-2", "browser-shard-3", "browser-shard-4"],
+        dependsOn: Object.keys(browserShardTasks),
+        cache: false,
       },
     },
   },

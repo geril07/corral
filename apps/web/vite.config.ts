@@ -41,6 +41,7 @@ export default defineConfig({
     globalSetup: ["test/real-server.ts"],
     // The files share one real server, and each test cleans up all of it afterwards.
     fileParallelism: false,
+    retry: 0,
     sequence: { sequencer: WeightedShardSequencer },
     browser: {
       enabled: true,

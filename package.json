@@ -9,7 +9,7 @@
     "lint": "vp lint",
     "typecheck": "vp run -r typecheck",
     "test": "vp test run --project node",
-    "test:browser": "vp run browser-all",
+    "test:browser": "vp run --concurrency-limit 4 browser-all",
     "test:e2e": "vp run -r test:e2e",
     "test:contracts": "vp run -r test:contracts",
     "dev": "node scripts/dev.mjs",
