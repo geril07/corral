@@ -740,26 +740,31 @@ function SettledGroup({
     setAutoOpen(currentIndex >= 0);
   }, [currentIndex, currentTaskId]);
 
-  // The selected row is revealed inside the box; after Show more, the appended page is what you
-  // see. Both use the box's own scrolling, never the window's.
+  // The selected row is revealed inside the box. An explicit Show more instead reveals the page
+  // it appended, so a current row cannot pull the new page back below the fold; the action origin
+  // is tracked here rather than inferred from the selection.
   const previousRows = useRef(rows);
+  const revealAppendedPage = useRef(false);
   useLayoutEffect(() => {
     const list = listRef.current;
     const before = previousRows.current;
     previousRows.current = rows;
     if (!open || list === null) return;
     const rendered = [...list.querySelectorAll<HTMLElement>("[data-task-row]")];
-    const selected = currentIndex >= 0 ? rendered[currentIndex] : undefined;
-    if (selected !== undefined) {
-      selected.scrollIntoView({ block: "nearest" });
+    const appended = revealAppendedPage.current && rows > before && before > 0;
+    revealAppendedPage.current = false;
+    if (appended) {
+      rendered[before]?.scrollIntoView({ block: "start" });
       return;
     }
-    if (rows > before && before > 0) rendered[before]?.scrollIntoView({ block: "start" });
+    const selected = currentIndex >= 0 ? rendered[currentIndex] : undefined;
+    selected?.scrollIntoView({ block: "nearest" });
   }, [currentIndex, open, rows]);
 
   // Show more appends one measured page to what is mounted, not one fixed page count.
   const showMore = () => {
     const pages = Math.ceil(rows / metrics.pageSize) + 1;
+    revealAppendedPage.current = true;
     setShelf((state) => ({ ...state, page: Math.max(state.page + 1, pages) }));
   };
 

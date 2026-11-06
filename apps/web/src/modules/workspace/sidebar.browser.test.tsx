@@ -17,6 +17,7 @@ import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { Sidebar } from "./sidebar.tsx";
+import { SHELF_MAX_PAGES } from "./sidebar-view.ts";
 
 const project = (id: string): Project => ({
   id,
@@ -409,6 +410,110 @@ test("the selected row is revealed when the selection moves and when the list ch
   await firstProject.click();
   await expect.element(firstProject).toHaveAttribute("aria-expanded", "true");
   await vi.waitFor(() => expect(visibleIn(selected.element(), activeList())).toBe(true));
+});
+
+test("Show more with a settled task current reveals the appended page and keeps the selection", async () => {
+  const tasks = Array.from({ length: 14 }, (_, index) => ({
+    ...task(`settled-${index}`, "settled"),
+    createdAt: index + 1,
+  }));
+  const { rendered, select } = await renderSelectableSidebar({ taskId: "settled-0" }, [], tasks);
+
+  // A restored selection with the collapsed shelf shows its row alone; the toggle opens the box.
+  const shelf = nav().getByRole("button", { name: "Settled (14)" });
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "false");
+  await shelf.click();
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
+  const currentRow = nav().getByRole("button", { name: /^task settled-0/ });
+  await expect.element(currentRow).toHaveAttribute("aria-current", "true");
+  await vi.waitFor(() => expect(visibleIn(currentRow.element(), shelfBox())).toBe(true));
+
+  await nav().getByRole("button", { name: "Show more", exact: true }).click();
+  await vi.waitFor(() => expect(taskRowsIn(shelfBox())).toHaveLength(8));
+  // The explicit action, not the selection, decides what the box shows; the row stays selected.
+  const appended = taskRowsIn(shelfBox()).slice(4);
+  await vi.waitFor(() => expect(appended.every((item) => visibleIn(item, shelfBox()))).toBe(true));
+  await expect.element(currentRow).toHaveAttribute("aria-current", "true");
+
+  // A later selection change still reveals the selected row, even if Show more scrolled it away.
+  await rendered.rerender(select({ taskId: "settled-2" }));
+  const next = nav().getByRole("button", { name: /^task settled-2/ });
+  await expect.element(next).toHaveAttribute("aria-current", "true");
+  await vi.waitFor(() => expect(visibleIn(next.element(), shelfBox())).toBe(true));
+});
+
+test("a composer's collapsed group stays with that composer while a project's collapse persists", async () => {
+  const tree = buildWorkspaceTree(
+    [project("p1"), project("p2")],
+    [task("a"), { ...task("b"), projectId: "p2" }],
+    defaultSessions,
+    [],
+  );
+  const spies = handlers();
+  const sidebar = (composing?: { project?: Project; opened: number }) => (
+    <div className="flex h-screen flex-col">
+      <Sidebar
+        tree={tree}
+        selection={resolveSelection(tree, { taskId: "a" })}
+        composing={composing}
+        config={config}
+        {...spies}
+      />
+      <div aria-hidden className="h-(--chrome-row) shrink-0" />
+    </div>
+  );
+  const composer = (opened: number) => ({ project: project("p2"), opened });
+
+  // The composer's group is keyed by its open; collapsing it stays with that composer.
+  const first = await render(sidebar(composer(1)));
+  const p2 = nav().getByRole("button", { name: "repo-p2" });
+  await expect.element(p2).toHaveAttribute("aria-expanded", "true");
+  await p2.click();
+  await expect.element(p2).toHaveAttribute("aria-expanded", "false");
+  expect(JSON.parse(window.localStorage.getItem("corral.sidebar-collapsed") ?? "null")).toEqual([]);
+  await first.unmount();
+
+  // A new composer is a new open: it opens its group instead of inheriting the old collapse.
+  const second = await render(sidebar(composer(2)));
+  await expect
+    .element(nav().getByRole("button", { name: "repo-p2" }))
+    .toHaveAttribute("aria-expanded", "true");
+  await second.unmount();
+
+  // A plain project group is a device preference and survives the remount.
+  const third = await render(sidebar(undefined));
+  const p1 = nav().getByRole("button", { name: "repo-p1" });
+  await p1.click();
+  await expect.element(p1).toHaveAttribute("aria-expanded", "false");
+  expect(JSON.parse(window.localStorage.getItem("corral.sidebar-collapsed") ?? "null")).toEqual([
+    "p1",
+  ]);
+  await third.unmount();
+  await render(sidebar(undefined));
+  await expect
+    .element(nav().getByRole("button", { name: "repo-p1" }))
+    .toHaveAttribute("aria-expanded", "false");
+});
+
+test("an oversized stored page is clamped instead of mounting every settled row", async () => {
+  window.localStorage.setItem(
+    "corral.sidebar-shelf",
+    JSON.stringify({ expanded: true, page: 999_999 }),
+  );
+  const tasks = Array.from({ length: 100 }, (_, index) => ({
+    ...task(`deep-${index}`, "settled"),
+    createdAt: index,
+  }));
+  await renderSidebar({}, [], tasks).rendered;
+
+  await expect
+    .element(nav().getByRole("button", { name: "Settled (100)" }))
+    .toHaveAttribute("aria-expanded", "true");
+  // A stored page cannot claim the whole history; four rows per page at this window.
+  await vi.waitFor(() => expect(taskRowsIn(shelfBox())).toHaveLength(SHELF_MAX_PAGES * 4));
+  // The user can still append pages from the clamped preference.
+  await nav().getByRole("button", { name: "Show more", exact: true }).click();
+  await vi.waitFor(() => expect(taskRowsIn(shelfBox())).toHaveLength(SHELF_MAX_PAGES * 4 + 4));
 });
 
 test("collapsed groups and the shelf page survive hiding the sidebar and a reload", async () => {

@@ -51,10 +51,12 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   current task's row alone. Expanded, its list is one measured page tall — the rows its box fits,
   `max(1, floor(box / row))` — and the active list keeps at least four rows, the shelf shrinking
   first. `Show more` is the shelf's last row and appends one measured page with the appended page
-  in view; it disappears at the end. A selected older task opens the shelf, mounts at most one
-  page beyond the page holding it, scrolls the row into view and never resumes it. A shelf the
-  selection opened collapses when the selection leaves; a user-expanded one stays open. Collapsed
-  project groups, the shelf's expanded state and its page are remembered on this device.
+  in view; it disappears at the end. When the selection changes, a selected older task opens the
+  shelf, mounts at most one page beyond the page holding it, scrolls the row into view and never
+  resumes it; a selection restored on mount honors the stored state, so a collapsed shelf shows
+  that row alone. A shelf the selection opened collapses when the selection leaves; a
+  user-expanded one stays open. Collapsed project groups, the shelf's expanded state and its page
+  are remembered on this device.
   General task search still includes settled history.
 - Loose terminals remain in Scratch when present.
 - Footer: Settings and Add project, exceptional connection/config notices (the connection
