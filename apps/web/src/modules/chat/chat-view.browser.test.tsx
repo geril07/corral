@@ -42,7 +42,15 @@ interface Sent {
   mode: ChatSendMode;
 }
 
-async function renderChat(messages: readonly ChatStreamMessage[] = RECORDED_CHAT) {
+interface ChatActionHooks {
+  onSend?: (text: string, mode: ChatSendMode) => Promise<void>;
+  onAbort?: () => Promise<void>;
+}
+
+async function renderChat(
+  messages: readonly ChatStreamMessage[] = RECORDED_CHAT,
+  hooks: ChatActionHooks = {},
+) {
   const script = scriptedChat(messages);
   chats.push(script);
   const sent: Sent[] = [];
@@ -59,9 +67,11 @@ async function renderChat(messages: readonly ChatStreamMessage[] = RECORDED_CHAT
         abortHint={ABORT_HINT}
         onSend={async (text, mode) => {
           sent.push({ text, mode });
+          await hooks.onSend?.(text, mode);
         }}
         onAbort={async () => {
           aborts.push(Date.now());
+          await hooks.onAbort?.();
         }}
         onRespond={async (requestId, value) => {
           responded.push({ requestId, value });
@@ -230,6 +240,184 @@ test("a select with no options is still answerable: Dismiss takes focus and Ente
   await userEvent.keyboard("{Enter}");
   await vi.waitFor(() => expect(chat.responded).toEqual([{ requestId: "q-empty", value: null }]));
   await expect.element(page.getByRole("textbox", { name: "Message" })).toHaveFocus();
+});
+
+test("a deferred pointer send keeps the keyboard in the composer", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: IDLE_CHAT }), {
+    onSend: () => pending.promise,
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const send = page.getByRole("button", { name: "Send" });
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard("Fix the test");
+
+  await userEvent.click(send);
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
+  // The press does not focus the button, so disabling it cannot drop focus to <body>.
+  await expect.element(send).toBeDisabled();
+  await expect.element(composer).toHaveFocus();
+  await expect.element(send).not.toHaveFocus();
+  await userEvent.keyboard(" now");
+  await expect.element(composer).toHaveValue("Fix the test now");
+
+  pending.resolve();
+  await expect.element(send).toBeEnabled();
+  await expect.element(composer).toHaveFocus();
+});
+
+test("a deferred keyboard send returns the keyboard to the composer", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: IDLE_CHAT }), {
+    onSend: () => pending.promise,
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const send = page.getByRole("button", { name: "Send" });
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard("Fix the test");
+
+  await userEvent.keyboard("{Tab}");
+  await expect.element(send).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
+  // The focused button hands the keyboard back before the action disables it.
+  await expect.element(send).toBeDisabled();
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard(" now");
+  await expect.element(composer).toHaveValue("Fix the test now");
+
+  pending.resolve();
+  await expect.element(send).toBeEnabled();
+  await expect.element(composer).toHaveFocus();
+});
+
+test("a deferred send does not pull focus back from where the user moved it", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: IDLE_CHAT }), {
+    onSend: () => pending.promise,
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const send = page.getByRole("button", { name: "Send" });
+  const log = page.getByRole("log", { name: "Chat transcript" });
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard("Fix the test");
+
+  await userEvent.keyboard("{Tab}");
+  await expect.element(send).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
+  await expect.element(composer).toHaveFocus();
+
+  // The send is still pending; a deliberate move must survive it settling.
+  log.element().focus();
+  await expect.element(log).toHaveFocus();
+  pending.resolve();
+  await expect.element(composer).toHaveValue("");
+  await expect.element(log).toHaveFocus();
+});
+
+test("a deferred pointer queue keeps the keyboard in the composer", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: workingChat() }), {
+    onSend: () => pending.promise,
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const queue = page.getByRole("button", { name: "Queue" });
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard("Queue this");
+
+  await userEvent.click(queue);
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Queue this", mode: "follow-up" }]));
+  await expect.element(queue).toBeDisabled();
+  await expect.element(composer).toHaveFocus();
+  await expect.element(queue).not.toHaveFocus();
+  await userEvent.keyboard(" now");
+  await expect.element(composer).toHaveValue("Queue this now");
+
+  pending.resolve();
+  await expect.element(queue).toBeEnabled();
+  await expect.element(composer).toHaveFocus();
+});
+
+test("a deferred keyboard queue returns the keyboard to the composer", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: workingChat() }), {
+    onSend: () => pending.promise,
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const queue = page.getByRole("button", { name: "Queue" });
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard("Queue this");
+
+  // The disabled model and reasoning buttons leave Queue first in the toolbar.
+  await userEvent.keyboard("{Tab}");
+  await expect.element(queue).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Queue this", mode: "follow-up" }]));
+  await expect.element(queue).toBeDisabled();
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard(" now");
+  await expect.element(composer).toHaveValue("Queue this now");
+
+  pending.resolve();
+  await expect.element(queue).toBeEnabled();
+  await expect.element(composer).toHaveFocus();
+});
+
+test("a deferred pointer abort keeps the keyboard in the composer", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: workingChat() }), {
+    onAbort: () => pending.promise,
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const abort = page.getByRole("button", { name: "Abort" });
+  await expect.element(composer).toHaveFocus();
+
+  await userEvent.click(abort);
+  await vi.waitFor(() => expect(chat.aborts).toHaveLength(1));
+  await expect.element(abort).toBeDisabled();
+  await expect.element(composer).toHaveFocus();
+  await expect.element(abort).not.toHaveFocus();
+  await userEvent.keyboard("still typing");
+  await expect.element(composer).toHaveValue("still typing");
+
+  pending.resolve();
+  await expect.element(abort).toBeEnabled();
+  await expect.element(composer).toHaveFocus();
+});
+
+test("a deferred keyboard abort returns the keyboard to the composer", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: workingChat() }), {
+    onAbort: () => pending.promise,
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const abort = page.getByRole("button", { name: "Abort" });
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard("Keep this");
+
+  // A draft keeps Queue enabled, so the toolbar tab order is Queue, then Abort.
+  await userEvent.keyboard("{Tab}");
+  await expect.element(page.getByRole("button", { name: "Queue" })).toHaveFocus();
+  await userEvent.keyboard("{Tab}");
+  await expect.element(abort).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(chat.aborts).toHaveLength(1));
+  await expect.element(abort).toBeDisabled();
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard(" text");
+  await expect.element(composer).toHaveValue("Keep this text");
+
+  pending.resolve();
+  await expect.element(abort).toBeEnabled();
+  await expect.element(composer).toHaveFocus();
 });
 
 test("send, steer and queue a follow-up from the keyboard; Shift+Enter is a newline", async () => {

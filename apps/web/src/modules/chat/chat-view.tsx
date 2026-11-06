@@ -10,6 +10,7 @@ import {
   useState,
   useSyncExternalStore,
   type Dispatch,
+  type MouseEvent,
   type SetStateAction,
   type Ref,
 } from "react";
@@ -113,6 +114,13 @@ export function ChatView({
   }, []);
 
   const focusComposer = useCallback(() => composerRef.current?.focus(), []);
+
+  // A keyboard activation has the button focused; move the keyboard back before the action
+  // disables it, because Chromium drops a disabled button's focus to <body>. A pointer press
+  // never focuses the button (`onMouseDown` below), so focus stays where the user left it.
+  const keepKeyboardInComposer = (event: MouseEvent<HTMLButtonElement>) => {
+    if (document.activeElement === event.currentTarget) focusComposer();
+  };
 
   // A request takes the keyboard when it arrives; answering it hands the keyboard back.
   useEffect(() => {
@@ -276,7 +284,11 @@ export function ChatView({
                         variant="outline"
                         size="sm"
                         disabled={draft.trim() === "" || sending}
-                        onClick={() => void send("follow-up")}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={(event) => {
+                          keepKeyboardInComposer(event);
+                          void send("follow-up");
+                        }}
                       >
                         Queue
                       </Button>
@@ -284,13 +296,23 @@ export function ChatView({
                         variant="destructive"
                         size="sm"
                         disabled={aborting}
-                        onClick={() => void abort()}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={(event) => {
+                          keepKeyboardInComposer(event);
+                          void abort();
+                        }}
                       >
                         Abort
                       </Button>
                     </>
                   )}
-                  <Button type="submit" size="sm" disabled={draft.trim() === "" || sending}>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={draft.trim() === "" || sending}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={keepKeyboardInComposer}
+                  >
                     {working ? "Steer" : "Send"}
                   </Button>
                 </ComposerToolbar>
