@@ -17,8 +17,11 @@ and what did not, and why.
 
 ## Screenshots
 
-<!-- UI changes: attach before/after images here at 1024×640 and 1920×1080; the files are in
-`.review/<piece>/`. Never commit them to the repository. Delete this section otherwise. -->
+<!-- UI changes: publish before/after images at 1024×640 and 1920×1080 with
+`gh pr create/edit --attach <file>#<label>` (or a PR comment), then put the hosted
+`user-attachments` URLs here. Originals live in `.review/<piece>/`; never commit them or use
+release assets. Label source SHA, viewport and scale/state, read the body back, and preserve
+existing hosted URLs on later edits. Delete this section otherwise. -->
 
 ## Docs
 
