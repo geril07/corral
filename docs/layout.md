@@ -47,9 +47,10 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 - Right-click / menu key / Shift+F10 opens secondary row actions: a task's, a loose
   terminal's and a project's. A project's menu offers New task in `<project>`, the keyboard path
   to its `+`, and Remove project…, which names the project and its task count and keeps the
-  worktrees and branches on disk. No action gutter takes permanent width. Full names stay
-  accessible and get a tooltip when clipped; the row has no native title, and the tooltip
-  wrapper stays mounted when clipping starts or stops.
+  worktrees and branches on disk. The `+` overlays the row's right end and forwards a
+  right-click to the row menu, so that edge opens the menu too. No action gutter takes permanent
+  width. Full names stay accessible and get a tooltip when clipped; the row has no native title,
+  and the tooltip wrapper stays mounted when clipping starts or stops.
 - A focused row keeps focus and its ring across a sidebar resize, including when clipping starts
   or stops.
 - `prefix w` hands the list the keyboard: arrows and Home/End walk its rows, Enter opens one and

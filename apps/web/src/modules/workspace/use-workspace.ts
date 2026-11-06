@@ -71,7 +71,7 @@ function failureText(error: unknown): string {
 export type DialogState =
   | { kind: "add-project" }
   | { kind: "remove-task"; task: Task }
-  | { kind: "remove-project"; project: Project; taskCount: number }
+  | { kind: "remove-project"; project: Project }
   | { kind: "task-source"; task: Task }
   | { kind: "pick-agent"; taskId: string }
   | { kind: "remove-session"; session: Session }
@@ -775,16 +775,8 @@ export function useWorkspace({
   const openRemoveTask = (task: Task | undefined) => {
     if (task) openDialog({ kind: "remove-task", task });
   };
-  /** The count is what removal forgets besides the project; a row action names no tasks. */
   const openRemoveProject = (project: Project, opener?: HTMLElement) =>
-    openDialog(
-      {
-        kind: "remove-project",
-        project,
-        taskCount: tasks.filter((task) => task.projectId === project.id).length,
-      },
-      opener,
-    );
+    openDialog({ kind: "remove-project", project }, opener);
   const openRemoveSession = (session: Session) => openDialog({ kind: "remove-session", session });
   const openTaskSource = (task: Task, opener?: HTMLElement) =>
     openDialog({ kind: "task-source", task }, opener);
@@ -842,11 +834,29 @@ export function useWorkspace({
     if (task.id === selection.taskId) showTask(next);
   };
 
+  /** The selection the resolver settles on once the removed project's rows are gone. */
+  const selectionWithoutProject = (project: Project) =>
+    resolveSelection(
+      buildWorkspaceTree(
+        projects.filter((each) => each.id !== project.id),
+        tasks.filter((task) => task.projectId !== project.id),
+        sessions,
+        terminals,
+      ),
+      chosenRef.current,
+    );
+
   const removeProject = async (project: Project) => {
+    // A project the workspace currently names is what falls back; removing any other leaves the
+    // selection, the URL and the Changes tab alone.
+    const affected = selection.projectId === project.id || composing?.project?.id === project.id;
+    const fallback = affected ? selectionWithoutProject(project) : undefined;
     await api.projects.remove({ id: project.id });
     setDialog(undefined);
-    // The composer is a view of its project; a project that no longer exists has none to show.
-    if (composing?.project?.id === project.id) setComposing(undefined);
+    // `choose` is the one place that clears the composer, the failure and the Changes tab and
+    // rewrites the URL. Without it the removed project's ids would stay in the URL and the tab
+    // would keep showing a task that no longer exists.
+    if (fallback) choose(fallback);
   };
 
   const actions: ActionTable = {
