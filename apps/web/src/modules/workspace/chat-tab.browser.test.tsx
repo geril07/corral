@@ -549,6 +549,76 @@ test("the chat model and reasoning controls apply what the driver reports, from 
   }
 });
 
+test("with no reported thinking levels, Thinking opens the picker's sentence", async () => {
+  const { client, real, tasks, sessions, chatStore, chatSession } = seededClient(workingChat());
+  const { repo } = await appWithProject(client);
+  const project = await vi.waitFor(() => {
+    const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
+    if (found === undefined) throw new Error("the project is not in the list yet");
+    return found;
+  });
+  await vi.waitFor(() => expect(real.sessions.getSnapshot().loaded).toBe(true));
+
+  const task: Task = {
+    id: "task-chat-empty-thinking",
+    projectId: project.id,
+    title: "Empty thinking",
+    titleSource: "user",
+    prompt: null,
+    primarySessionId: chatSession,
+    branch: "main",
+    workspacePath: project.path,
+    ownsWorktree: false,
+    state: "active",
+    seenAt: null,
+    createdAt: 1,
+  };
+  const session: Session = {
+    id: chatSession,
+    taskId: task.id,
+    kind: "pi",
+    view: "chat",
+    agentSessionId: "pi-seeded",
+    terminalId: null,
+    state: "running",
+    status: null,
+    createdAt: 1,
+  };
+
+  try {
+    tasks.set({ loaded: true, tasks: [task] });
+    sessions.set({ loaded: true, sessions: [session] });
+
+    await openSeededTask("Empty thinking");
+    const thinking = page.getByRole("button", { name: "Thinking" });
+    await expect.element(thinking).toBeEnabled();
+    await expect.element(thinking).toHaveTextContent("Thinking");
+
+    // The pointer gets the same picker as the chord, and its sentence explains the empty list.
+    await userEvent.click(thinking);
+    const levelDialog = page.getByRole("dialog", { name: "Reasoning level" });
+    await expect.element(levelDialog).toBeVisible();
+    await expect
+      .element(levelDialog)
+      .toMatchTextContent("No thinking levels have been reported for this model.");
+    await userEvent.keyboard("{Escape}");
+    await expect.element(levelDialog).not.toBeInTheDocument();
+
+    // `prefix shift+m` opens the same picker with the same sentence.
+    await prefixShifted("m");
+    await expect.element(levelDialog).toBeVisible();
+    await expect
+      .element(levelDialog)
+      .toMatchTextContent("No thinking levels have been reported for this model.");
+    await userEvent.keyboard("{Escape}");
+    await expect.element(levelDialog).not.toBeInTheDocument();
+  } finally {
+    tasks.set({ loaded: true, tasks: [] });
+    sessions.set({ loaded: true, sessions: [] });
+    chatStore.close();
+  }
+});
+
 test("a refused model keeps the chooser open with a sentence, not the RPC code", async () => {
   const state = workingChat({
     model: { provider: "stub", id: "stub-1", name: "Stub One" },

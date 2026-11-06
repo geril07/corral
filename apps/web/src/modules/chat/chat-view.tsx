@@ -274,8 +274,11 @@ export function ChatView({
                     ref={reasoningPickerAnchor}
                     variant="ghost"
                     size="sm"
-                    aria-label={`Reasoning ${snapshot.state.reasoning ?? "none"}`}
-                    disabled={snapshot.state.reasoningLevels.length === 0}
+                    aria-label={
+                      snapshot.state.reasoning === null
+                        ? reasoning
+                        : `Reasoning ${snapshot.state.reasoning}`
+                    }
                     onClick={onChangeReasoning}
                   >
                     <span

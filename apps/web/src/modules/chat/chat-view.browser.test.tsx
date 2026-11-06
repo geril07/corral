@@ -307,7 +307,8 @@ test("a deferred keyboard send returns the keyboard to the composer", async () =
   await expect.element(composer).toHaveFocus();
   await userEvent.keyboard("Fix the test");
 
-  await userEvent.keyboard("{Tab}");
+  // The disabled model row is skipped; Thinking is enabled and comes before Send.
+  await userEvent.keyboard("{Tab}{Tab}");
   await expect.element(send).toHaveFocus();
   await userEvent.keyboard("{Enter}");
   await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
@@ -334,7 +335,8 @@ test("a deferred send does not pull focus back from where the user moved it", as
   await expect.element(composer).toHaveFocus();
   await userEvent.keyboard("Fix the test");
 
-  await userEvent.keyboard("{Tab}");
+  // The disabled model row is skipped; Thinking is enabled and comes before Send.
+  await userEvent.keyboard("{Tab}{Tab}");
   await expect.element(send).toHaveFocus();
   await userEvent.keyboard("{Enter}");
   await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
@@ -383,8 +385,8 @@ test("a deferred keyboard queue returns the keyboard to the composer", async () 
   await expect.element(composer).toHaveFocus();
   await userEvent.keyboard("Queue this");
 
-  // The disabled model and reasoning buttons leave Queue first in the toolbar.
-  await userEvent.keyboard("{Tab}");
+  // The disabled model row is skipped; Thinking comes before Queue in the toolbar.
+  await userEvent.keyboard("{Tab}{Tab}");
   await expect.element(queue).toHaveFocus();
   await userEvent.keyboard("{Enter}");
   await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Queue this", mode: "follow-up" }]));
@@ -433,8 +435,8 @@ test("a deferred keyboard abort returns the keyboard to the composer", async () 
   await expect.element(composer).toHaveFocus();
   await userEvent.keyboard("Keep this");
 
-  // A draft keeps Queue enabled, so the toolbar tab order is Queue, then Abort.
-  await userEvent.keyboard("{Tab}");
+  // A draft keeps Queue enabled, so the toolbar tab order is Thinking, Queue, then Abort.
+  await userEvent.keyboard("{Tab}{Tab}");
   await expect.element(page.getByRole("button", { name: "Queue" })).toHaveFocus();
   await userEvent.keyboard("{Tab}");
   await expect.element(abort).toHaveFocus();
@@ -1022,9 +1024,14 @@ test("the composer row shows the driver's model and reasoning and opens their ch
   expect(openReasoning).toHaveBeenCalledTimes(1);
 });
 
-test("without a driver list the row's model and reasoning controls are disabled", async () => {
-  await renderChat(recorded([], { state: IDLE_CHAT }));
+test("without a driver list the model control is disabled and Thinking still opens its picker", async () => {
+  const chat = await renderChat(recorded([], { state: IDLE_CHAT }));
 
   await expect.element(page.getByRole("button", { name: "Model none" })).toBeDisabled();
-  await expect.element(page.getByRole("button", { name: "Reasoning none" })).toBeDisabled();
+  const thinking = page.getByRole("button", { name: "Thinking" });
+  await expect.element(thinking).toBeEnabled();
+  await expect.element(thinking).toHaveTextContent("Thinking");
+  await userEvent.click(thinking);
+  expect(chat.openReasoning).toHaveBeenCalledTimes(1);
+  expect(chat.openModel).not.toHaveBeenCalled();
 });
