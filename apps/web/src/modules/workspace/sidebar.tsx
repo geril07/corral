@@ -7,15 +7,16 @@ import {
   taskStatus,
   type TaskStatus,
 } from "@corral/client/agent-status";
-import type {
-  FlatSection,
-  FlatSidebar,
-  FlatTaskNode,
-  ProjectNode,
-  Selection,
-  TaskNode,
-  TerminalEntry,
-  WorkspaceTree,
+import {
+  settledInOrder,
+  type FlatSection,
+  type FlatSidebar,
+  type FlatTaskNode,
+  type ProjectNode,
+  type Selection,
+  type TaskNode,
+  type TerminalEntry,
+  type WorkspaceTree,
 } from "@corral/client/workspace-tree";
 import type { ActionId, ClientConfig } from "@corral/protocol/config";
 import type {
@@ -210,7 +211,7 @@ export function Sidebar(props: SidebarProps) {
     />
   );
 
-  const settled = flat?.settled ?? tree.projects.flatMap((project) => project.settled);
+  const settled = flat?.settled ?? settledInOrder(tree);
   const scratch = (
     <Scratch
       entries={tree.loose}

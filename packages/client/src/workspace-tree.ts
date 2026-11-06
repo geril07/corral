@@ -82,12 +82,40 @@ export function buildWorkspaceTree(
   };
 }
 
+/** The status a task shows: the most urgent one of its sessions. */
+function statusOf(node: TaskNode): AgentStatus | undefined {
+  return taskStatus(node.sessions.map((entry) => entry.session))?.status;
+}
+
+/** The moment a task's age counts from: its status report, or the task's own creation. */
+function activityTime(node: TaskNode): number {
+  return statusOf(node)?.updatedAt ?? node.task.createdAt;
+}
+
+/**
+ * The Settled shelf's one order in both grouping modes: the most recent activity first — the
+ * moment the row's age counts from — then the newest task, then the id. A settled task without a
+ * status therefore sorts by creation; no separate settle time is recorded
+ * (`layout.md`, **Sidebar**).
+ */
+function compareSettled(a: TaskNode, b: TaskNode): number {
+  return (
+    activityTime(b) - activityTime(a) ||
+    b.task.createdAt - a.task.createdAt ||
+    a.task.id.localeCompare(b.task.id)
+  );
+}
+
+/** The Settled shelf's rows, across every project, in their one order (`layout.md`, **Sidebar**). */
+export function settledInOrder(tree: WorkspaceTree): TaskNode[] {
+  return tree.projects.flatMap(({ settled }) => settled).toSorted(compareSettled);
+}
+
 /** Project groups first, then the shared bottom Settled shelf: the sidebar navigation order. */
 export function tasksInOrder(tree: WorkspaceTree): Task[] {
-  return [
-    ...tree.projects.flatMap(({ active }) => active),
-    ...tree.projects.flatMap(({ settled }) => settled),
-  ].map(({ task }) => task);
+  return [...tree.projects.flatMap(({ active }) => active), ...settledInOrder(tree)].map(
+    ({ task }) => task,
+  );
 }
 
 /** What the user pointed at last; any part may be stale or missing. */
@@ -216,7 +244,7 @@ export function buildFlatSidebar(tree: WorkspaceTree): FlatSidebar {
     })).filter((section) => section.tasks.length > 0),
     settled: tree.projects
       .flatMap(({ project, settled }) => settled.map((node) => flatNode(project, node)))
-      .toSorted(compareFlat),
+      .toSorted(compareSettled),
   };
 }
 
@@ -252,21 +280,11 @@ export function flatRank(row: FlatTaskNode): number {
  * has none, which is what its row displays — then the newest task and its id as a tiebreak.
  */
 function compareFlat(a: FlatTaskNode, b: FlatTaskNode): number {
-  return (
-    flatRank(a) - flatRank(b) ||
-    updateTime(b) - updateTime(a) ||
-    b.task.createdAt - a.task.createdAt ||
-    a.task.id.localeCompare(b.task.id)
-  );
-}
-
-/** The moment a flat row's age label counts from. */
-function updateTime(row: FlatTaskNode): number {
-  return row.status?.updatedAt ?? row.task.createdAt;
+  return flatRank(a) - flatRank(b) || compareSettled(a, b);
 }
 
 function flatNode(project: Project, node: TaskNode): FlatTaskNode {
-  const status = taskStatus(node.sessions.map((entry) => entry.session))?.status;
+  const status = statusOf(node);
   return { ...node, project, status, unseen: isUnseenDone(node.task, status) };
 }
 

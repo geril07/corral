@@ -47,16 +47,20 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   in view; `j` from the last active row selects the shelf's first and opens it visibly, and `k`
   from the shelf's first returns to the last active row.
 - One Settled shelf is anchored below the active list, above the footer, across all projects.
-  It starts collapsed and its toggle is enabled in every state; collapsed, it still shows the
-  current task's row alone. Expanded, its list is one measured page tall — the rows its box fits,
-  `max(1, floor(box / row))` — and the active list keeps at least four rows, the shelf shrinking
-  first. `Show more` is the shelf's last row and appends one measured page with the appended page
-  in view; it disappears at the end. When the selection changes, a selected older task opens the
-  shelf, mounts at most one page beyond the page holding it, scrolls the row into view and never
-  resumes it; a selection restored on mount honors the stored state, so a collapsed shelf shows
-  that row alone. A shelf the selection opened collapses when the selection leaves; a
-  user-expanded one stays open. Collapsed project groups, the shelf's expanded state and its page
-  are remembered on this device.
+  Its rows share one order in both grouping modes: the most recent activity first — the moment
+  the row's age counts from, `status.updatedAt`, else the task's `createdAt` — then creation,
+  then id. `prefix l` therefore leaves every shelf row in place, and a task settled from its
+  menu lands by that time. A settled task with no status sorts by creation; nothing records a
+  separate settle time. It starts collapsed and its toggle is enabled in every state; collapsed,
+  it still shows the current task's row alone. Expanded, its list is one measured page tall — the
+  rows its box fits, `max(1, floor(box / row))` — and the active list keeps at least four rows,
+  the shelf shrinking first. `Show more` is the shelf's last row and appends one measured page
+  with the appended page in view; it disappears at the end. When the selection changes, a
+  selected older task opens the shelf, mounts at most one page beyond the page holding it,
+  scrolls the row into view and never resumes it; a selection restored on mount honors the
+  stored state, so a collapsed shelf shows that row alone. A shelf the selection opened collapses
+  when the selection leaves; a user-expanded one stays open. Collapsed project groups, the shelf's
+  expanded state and its page are remembered on this device.
   General task search still includes settled history.
 - Loose terminals remain in Scratch when present.
 - Footer: Settings and Add project, exceptional connection/config notices (the connection
