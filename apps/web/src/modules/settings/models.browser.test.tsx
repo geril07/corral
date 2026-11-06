@@ -476,3 +476,64 @@ test("a move made during an in-flight save is not pulled back by the ack", async
   await expect.element(findModels()).toHaveFocus();
   await expect.element(savedStatus()).not.toHaveFocus();
 });
+
+const settingsEntry = () => page.getByRole("button", { name: "Settings", exact: true });
+const settingsCategories = () =>
+  settings().getByRole("navigation", { name: "Settings categories" });
+const previewDialog = () =>
+  page.getByRole("dialog", { name: "Model visibility preview", exact: true });
+
+/** Opens routed Settings at one viewport, closes Preview twice and Settings once with Escape. */
+async function assertPreviewReturnsFocus(width: number, height: number) {
+  await page.viewport(width, height);
+  await settingsEntry().click();
+  await expect.element(settings()).toBeVisible();
+  await settingsCategories().getByRole("button", { name: "Models", exact: true }).click();
+  const previewButton = models().getByRole("button", { name: "Preview", exact: true });
+  await expect.element(checkbox("Show Stub One · stub")).toBeVisible();
+  await previewButton.click();
+  await expect.element(previewDialog()).toBeVisible();
+  await expect.element(previewDialog().getByRole("option", { name: /Stub One/ })).toBeDisabled();
+  await expect.element(previewDialog().getByRole("option", { name: /Stub Two/ })).toBeDisabled();
+  await expect
+    .element(previewDialog())
+    .toMatchTextContent("Preview only. Thinking levels come from the running agent.");
+  await expect
+    .element(previewDialog())
+    .toMatchTextContent("Preview of unsaved menu visibility. No session is changed.");
+
+  // The nested dialog closes alone and returns its own opener, never the body.
+  const closePreview = async () => {
+    await userEvent.keyboard("{Escape}");
+    await expect.element(previewDialog()).not.toBeInTheDocument();
+    await expect.element(settings()).toBeVisible();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(settings().element().contains(document.activeElement)).toBe(true);
+    await expect.element(previewButton).toHaveFocus();
+  };
+  await closePreview();
+
+  // A second open and close in the same Settings session keeps the same return target.
+  await previewButton.click();
+  await expect.element(previewDialog()).toBeVisible();
+  await closePreview();
+
+  // Settings still owns its opener: the next Escape leaves it and returns to that button.
+  await userEvent.keyboard("{Escape}");
+  await expect.element(settings()).not.toBeInTheDocument();
+  await expect.element(settingsEntry()).toHaveFocus();
+}
+
+test("closing the Models Preview returns the keyboard to its button while Settings keeps its own opener", async () => {
+  const client = newClient();
+  await writeConfig('[tasks]\nagent = "pi"\n');
+  await appWithProject(client);
+  const originalViewport = { width: window.innerWidth, height: window.innerHeight };
+  try {
+    await assertPreviewReturnsFocus(1024, 640);
+    await assertPreviewReturnsFocus(1920, 1080);
+    expect(document.activeElement).toBe(settingsEntry().element());
+  } finally {
+    await page.viewport(originalViewport.width, originalViewport.height);
+  }
+});

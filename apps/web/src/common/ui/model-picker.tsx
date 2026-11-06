@@ -86,6 +86,8 @@ export interface ModelPickerProps {
   onQuickChoice?: ((index: number) => void) | undefined;
   onInstanceEnter?: (() => void) | undefined;
   restoreFocus?: "dialog" | "anchor" | "composer" | undefined;
+  /** The return target when this picker renders as its own dialog, e.g. nested in another dialog. */
+  finalFocus?: React.ComponentProps<typeof TaskDialog>["finalFocus"];
   suspended?: boolean | undefined;
   onClose: () => void;
 }
@@ -95,7 +97,7 @@ export function ModelPicker({ title, anchor, onClose, ...props }: ModelPickerPro
   const search = useRef<HTMLInputElement>(null);
   const instance = useRef<HTMLButtonElement>(null);
   const thinking = useRef<HTMLButtonElement>(null);
-  const finalFocus = useTaskFinalFocus(props.restoreFocus === "composer");
+  const defaultFinalFocus = useTaskFinalFocus(props.restoreFocus === "composer");
   const [query, setQuery] = useState("");
   if (props.suspended) return null;
   const content = (
@@ -113,7 +115,7 @@ export function ModelPicker({ title, anchor, onClose, ...props }: ModelPickerPro
   );
   if (anchor === undefined)
     return (
-      <TaskDialog title={title} layout="picker" onClose={onClose}>
+      <TaskDialog title={title} layout="picker" onClose={onClose} finalFocus={props.finalFocus}>
         {content}
       </TaskDialog>
     );
@@ -139,7 +141,7 @@ export function ModelPicker({ title, anchor, onClose, ...props }: ModelPickerPro
             initialFocus={
               props.focus === "search" ? search : props.focus === "thinking" ? thinking : instance
             }
-            finalFocus={props.restoreFocus === "anchor" ? anchor : finalFocus}
+            finalFocus={props.restoreFocus === "anchor" ? anchor : defaultFinalFocus}
             className="flex max-h-(--available-height) w-[36rem] max-w-(--available-width) flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-floating outline-none"
           >
             <Popover.Close className="sr-only">Close picker</Popover.Close>
