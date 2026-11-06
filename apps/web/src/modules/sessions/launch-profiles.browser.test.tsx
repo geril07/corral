@@ -20,7 +20,7 @@ import { describeLaunchError } from "./launch-error.ts";
 const { newClient } = realServerClients();
 
 const picker = () => page.getByRole("dialog", { name: "New agent session" });
-const stoppedPane = () => page.getByRole("region", { name: "stopped session" });
+const stoppedPane = () => page.getByRole("region", { name: /^(?:stopped|failed) session$/ });
 
 const PROFILES = `
 [profiles.claude-gateway]

@@ -40,6 +40,20 @@ test("a failed start is named failed and offers the same restart", () => {
     note: "Starting it again resumes the agent's conversation.",
   });
 
+  // A status-only error is a failed start too, even when no launch error was recorded.
+  expect(
+    describeSessionState({
+      kind: "claude",
+      state: "stopped",
+      status: { state: "error", updatedAt: 2, message: "claude crashed" },
+      launchError: null,
+    }),
+  ).toEqual({
+    badge: "failed",
+    action: "Restart",
+    note: "Starting it again resumes the agent's conversation.",
+  });
+
   // A launch that failed before any status existed is still a failed start.
   expect(
     describeSessionState({

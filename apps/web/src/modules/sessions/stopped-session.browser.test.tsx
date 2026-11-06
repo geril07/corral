@@ -16,7 +16,8 @@ const session = (state: Session["state"], kind: Session["kind"] = "claude"): Ses
   createdAt: 0,
 });
 
-const pane = () => page.getByRole("region", { name: "stopped session" });
+const pane = (badge: "stopped" | "failed" | "unresumable" = "stopped") =>
+  page.getByRole("region", { name: `${badge} session` });
 
 test("a stopped agent says it resumes, and Enter starts it, as the button has the focus", async () => {
   const onRestart = vi.fn<() => void>();
@@ -46,12 +47,30 @@ test("a failed start's pane heading says failed and names the error", async () =
     />,
   );
 
-  await expect.element(pane()).toMatchTextContent("claude · failed");
-  await expect.element(pane()).toMatchTextContent("resumes");
-  await expect.element(pane().getByRole("button", { name: "Restart" })).toBeVisible();
+  await expect.element(pane("failed")).toMatchTextContent("claude · failed");
+  await expect.element(pane("failed")).toMatchTextContent("resumes");
+  await expect.element(pane("failed").getByRole("button", { name: "Restart" })).toBeVisible();
   await expect
-    .element(pane().getByRole("alert"))
+    .element(pane("failed").getByRole("alert"))
     .toMatchTextContent("claude did not answer within 15 s");
+});
+
+test("a status-only error still names its reason in the pane", async () => {
+  await render(
+    <StoppedSession
+      session={{
+        ...session("stopped"),
+        status: { state: "error", updatedAt: 1, message: "claude crashed" },
+      }}
+      restartHint="alt+a r"
+      onRestart={() => undefined}
+    />,
+  );
+
+  await expect.element(pane("failed")).toMatchTextContent("claude · failed");
+  await expect
+    .element(pane("failed").getByRole("alert"))
+    .toMatchTextContent("error: claude crashed");
 });
 
 test("an unresumable session says it will start a new conversation", async () => {
@@ -63,10 +82,10 @@ test("an unresumable session says it will start a new conversation", async () =>
     />,
   );
 
-  await expect.element(pane()).toMatchTextContent("codex · unresumable");
-  await expect.element(pane()).toMatchTextContent("will start a new conversation");
+  await expect.element(pane("unresumable")).toMatchTextContent("codex · unresumable");
+  await expect.element(pane("unresumable")).toMatchTextContent("will start a new conversation");
   await expect
-    .element(pane().getByRole("button", { name: "Start a new conversation" }))
+    .element(pane("unresumable").getByRole("button", { name: "Start a new conversation" }))
     .toHaveFocus();
 });
 
@@ -131,6 +150,6 @@ test("a safe launch error stays visible next to the restart button", async () =>
   );
 
   await expect
-    .element(pane().getByRole("alert"))
+    .element(pane("failed").getByRole("alert"))
     .toMatchTextContent("no environment variable CLAUDE_TOKEN");
 });

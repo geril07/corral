@@ -1,6 +1,7 @@
 import { describeSessionState } from "@corral/client/session-state";
 import type { Session } from "@corral/protocol/rpc";
 import { Button, Hint } from "../../common/ui/index.ts";
+import { statusMessage } from "../status/index.ts";
 import { launchLine } from "./launch-summary.ts";
 
 interface StoppedSessionProps {
@@ -15,7 +16,7 @@ export function StoppedSession({ session, restartHint, onRestart }: StoppedSessi
   const { badge, action, note } = describeSessionState(session);
   const launch = launchLine(session);
   return (
-    <section className="max-w-md px-4 py-6" aria-label="stopped session">
+    <section className="max-w-md px-4 py-6" aria-label={`${badge} session`}>
       <h2 className="mb-2 text-base font-semibold">
         {session.kind} · {badge}
       </h2>
@@ -27,11 +28,15 @@ export function StoppedSession({ session, restartHint, onRestart }: StoppedSessi
           </Hint>
         </p>
       )}
-      {session.launchError && (
+      {session.launchError ? (
         <p className="mb-3 break-words text-destructive" role="alert">
           Last start failed: {session.launchError}
         </p>
-      )}
+      ) : session.status?.state === "error" ? (
+        <p className="mb-3 break-words text-destructive" role="alert">
+          {statusMessage(session.status)}
+        </p>
+      ) : undefined}
       <Button variant="default" autoFocus onClick={onRestart}>
         {action}
       </Button>
