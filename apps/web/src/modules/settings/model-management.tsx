@@ -221,11 +221,16 @@ function ModelPolicyEditor({
   const [view, setView] = useState("all");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string>();
+  const [retrying, setRetrying] = useState(false);
+  const [retryFrom, setRetryFrom] = useState(latest.failure);
+  const [retryFromSnapshot, setRetryFromSnapshot] = useState(latest.snapshot);
   const [preview, setPreview] = useState(false);
   const previewButton = useRef<HTMLButtonElement>(null);
   const saveButton = useRef<HTMLButtonElement>(null);
+  const retryButton = useRef<HTMLButtonElement>(null);
   const statusLine = useRef<HTMLSpanElement>(null);
   const returnFocus = useRef<"status" | "save" | null>(null);
+  const retryFocus = useRef(false);
   const conflictReason = useId();
   const dirty = JSON.stringify(policy) !== JSON.stringify(base.policy);
   const stale = dirty && latest.revision !== base.revision;
@@ -234,6 +239,14 @@ function ModelPolicyEditor({
     setBase(next);
     applyPolicy(next.policy);
   }
+  // A retry settles on a delivered snapshot or a new refusal, never on `loaded` alone: a loaded
+  // snapshot outlives the refusal that Retry clears synchronously.
+  if (
+    retrying &&
+    ((latest.failure !== undefined && latest.failure !== retryFrom) ||
+      (latest.failure === undefined && latest.snapshot !== retryFromSnapshot))
+  )
+    setRetrying(false);
   const providers = [...new Set(catalog.map((m) => m.provider))];
   const selectedProvider = providers.some((p) => JSON.stringify(p) === provider)
     ? provider
@@ -295,6 +308,21 @@ function ModelPolicyEditor({
       : saveTarget
     )?.focus();
   }, [busy, dirty]);
+  const retryPreferences = () => {
+    if (retrying) return;
+    retryFocus.current = document.activeElement === retryButton.current;
+    setRetryFrom(latest.failure);
+    setRetryFromSnapshot(latest.snapshot);
+    setRetrying(true);
+    latest.retry();
+  };
+  // The answer removes or replaces the Retry control. Return the keyboard only while it still owns
+  // focus: a user who moved to Find models, Preview or the rail keeps that focus.
+  useEffect(() => {
+    if (retrying || !retryFocus.current) return;
+    retryFocus.current = false;
+    (latest.failure ? retryButton.current : statusLine.current)?.focus();
+  }, [retrying, latest.failure]);
   const discard = () => {
     const next = { scope, revision: latest.revision, policy: latest.policy };
     setBase(next);
@@ -304,6 +332,35 @@ function ModelPolicyEditor({
   };
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2" aria-label="Model visibility editor">
+      {(latest.failure || retrying) && (
+        <div
+          className="flex shrink-0 flex-wrap items-center gap-2"
+          role="note"
+          aria-busy={retrying}
+        >
+          <p className="m-0 text-xs text-muted-foreground">
+            {retrying
+              ? "Retrying model preferences…"
+              : latest.loaded
+                ? "Model preferences stopped updating. The server refused the watch."
+                : "Model preferences did not load. The server refused the watch."}
+          </p>
+          <Button
+            ref={retryButton}
+            size="sm"
+            variant="outline"
+            onFocus={() => {
+              retryFocus.current = true;
+            }}
+            onBlur={() => {
+              retryFocus.current = false;
+            }}
+            onClick={retryPreferences}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
       <div
         className="flex shrink-0 flex-wrap items-center justify-between gap-2"
         role="group"
@@ -543,7 +600,13 @@ function ModelPolicyEditor({
           tabIndex={-1}
           className="rounded-sm text-xs text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
         >
-          {modelFooterText({ busy, dirty, revision: base.revision })}
+          {modelFooterText({
+            busy,
+            dirty,
+            loaded: latest.loaded,
+            failed: latest.failure !== undefined,
+            revision: base.revision,
+          })}
         </span>
         <div className="flex flex-wrap gap-1">
           <Button
