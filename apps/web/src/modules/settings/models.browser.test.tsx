@@ -46,6 +46,7 @@ async function renderHashApp(client: ReturnType<typeof newClient>, entries: stri
 
 const saveButton = () => models().getByRole("button", { name: "Save", exact: true });
 const savedStatus = () => models().getByRole("status").filter({ hasText: "Saved · revision" });
+const unsavedStatus = () => models().getByRole("status").filter({ hasText: "Unsaved changes" });
 const findModels = () => models().getByRole("textbox", { name: "Find models" });
 
 async function openManager() {
@@ -173,22 +174,43 @@ test("picker-owned Settings announces a busy close, keeps the draft and does not
   expect(rendered.history.location.href).toBe(url);
 });
 
-test("another client's save cannot replace or overwrite an editor draft; dirty close is explicit", async () => {
+test("another client's save makes a dirty draft stale: Save is disabled with its reason, Discard loads the latest and clears it", async () => {
   const { client } = await openManager();
+  const peer = newClient();
+  await vi.waitFor(() => expect(client.modelPreferences.getSnapshot().loaded).toBe(true));
+  await vi.waitFor(() => expect(peer.connection.state.getSnapshot().status).toBe("connected"));
+  const saved = () =>
+    client.modelPreferences
+      .getSnapshot()
+      .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope));
+  const baseRevision = saved()?.revision ?? 0;
   await models().getByRole("button", { name: "Only selected", exact: true }).click();
   await checkbox("Show Stub Two · stub").click();
-  const saved = client.modelPreferences
-    .getSnapshot()
-    .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope));
-  await client.connection.api.models.save({
+  await expect
+    .element(unsavedStatus())
+    .toMatchTextContent(`Unsaved changes · revision ${baseRevision}`);
+
+  await peer.connection.api.models.save({
     scope,
-    revision: saved?.revision ?? 0,
+    revision: baseRevision,
     policy: { ...defaultModelPolicy(), deny: [{ type: "provider", provider: "stub" }] },
   });
-  await expect.element(models().getByRole("alert")).toMatchTextContent("Changed in another client");
-  await models().getByRole("button", { name: "Save", exact: true }).click();
-  await expect.element(models().getByText("Could not save.", { exact: false })).toBeVisible();
+  const reason = models().getByRole("alert");
+  await expect.element(reason).toMatchTextContent("Changed in another client");
+  await expect.element(reason).toMatchTextContent("Your draft is kept");
+  await expect
+    .element(reason)
+    .toMatchTextContent("Discard loads the latest version and drops the draft");
+  await vi.waitFor(() => expect(saved()?.revision).toBe(baseRevision + 1));
+  await expect.element(saveButton()).toBeDisabled();
+  const describedBy = saveButton().element().getAttribute("aria-describedby");
+  expect(describedBy).not.toBeNull();
+  expect(document.getElementById(describedBy ?? "")).toBe(reason.element());
+  await expect
+    .element(unsavedStatus())
+    .toMatchTextContent(`Unsaved changes · revision ${baseRevision}`);
   await expect.element(checkbox("Show Stub Two · stub")).toBeChecked();
+
   await settings().getByRole("button", { name: "Back to workspace" }).click();
   const confirm = page.getByRole("alertdialog", {
     name: "Discard unsaved model preferences?",
@@ -200,11 +222,35 @@ test("another client's save cannot replace or overwrite an editor draft; dirty c
   await confirm.getByRole("button", { name: "Keep editing", exact: true }).click();
   await expect.element(confirm).not.toBeInTheDocument();
   await expect.element(checkbox("Show Stub Two · stub")).toBeChecked();
+
   await models().getByRole("button", { name: "Discard", exact: true }).click();
+  await expect.element(reason).not.toBeInTheDocument();
   await expect.element(checkbox("Show Stub Two · stub")).not.toBeChecked();
   await expect.element(checkbox("Show Stub Two · stub")).toBeDisabled();
+  await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${baseRevision + 1}`);
+  await expect.element(saveButton()).toBeDisabled();
   await settings().getByRole("button", { name: "Back to workspace" }).click();
   await expect.element(picker().getByRole("combobox", { name: "Models" })).toHaveValue("stub");
+});
+
+test("an idle editor takes another client's save and stays clean", async () => {
+  const { client } = await openManager();
+  const peer = newClient();
+  await vi.waitFor(() => expect(client.modelPreferences.getSnapshot().loaded).toBe(true));
+  await vi.waitFor(() => expect(peer.connection.state.getSnapshot().status).toBe("connected"));
+  const saved = client.modelPreferences
+    .getSnapshot()
+    .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope));
+  const baseRevision = saved?.revision ?? 0;
+  await peer.connection.api.models.save({
+    scope,
+    revision: baseRevision,
+    policy: { ...defaultModelPolicy(), deny: [{ type: "provider", provider: "stub" }] },
+  });
+  await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${baseRevision + 1}`);
+  await expect.element(checkbox("Show Stub One · stub")).not.toBeChecked();
+  await expect.element(checkbox("Show Stub One · stub")).toBeDisabled();
+  await expect.element(saveButton()).toBeDisabled();
 });
 
 test("picker-owned Settings keeps its local confirm and does not register the routed history blocker", async () => {
@@ -315,6 +361,38 @@ test("hiding a live model keeps its session, thinking, draft and composer node; 
   }
 });
 
+test("a revision that changes while Save is in flight fails the save and keeps the draft", async () => {
+  const { client } = await openManager();
+  const peer = newClient();
+  await vi.waitFor(() => expect(client.modelPreferences.getSnapshot().loaded).toBe(true));
+  await vi.waitFor(() => expect(peer.connection.state.getSnapshot().status).toBe("connected"));
+  const saved = client.modelPreferences
+    .getSnapshot()
+    .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope));
+  const baseRevision = saved?.revision ?? 0;
+  await models().getByRole("button", { name: "Only selected", exact: true }).click();
+  await checkbox("Show Stub Two · stub").click();
+  const { release } = holdNextSave(client);
+  await saveButton().click();
+  await expect.element(saveButton()).toBeDisabled();
+
+  await peer.connection.api.models.save({
+    scope,
+    revision: baseRevision,
+    policy: { ...defaultModelPolicy(), deny: [{ type: "provider", provider: "stub" }] },
+  });
+  await expect.element(models().getByRole("alert")).toMatchTextContent("Changed in another client");
+  release();
+
+  await expect.element(models().getByText("Could not save.", { exact: false })).toBeVisible();
+  await expect.element(models().getByText("Your draft is intact", { exact: false })).toBeVisible();
+  await expect.element(checkbox("Show Stub Two · stub")).toBeChecked();
+  await expect
+    .element(unsavedStatus())
+    .toMatchTextContent(`Unsaved changes · revision ${baseRevision}`);
+  await expect.element(saveButton()).toBeDisabled();
+});
+
 test("saving from the keyboard announces the footer status and returns focus there; a refused save keeps the draft and focus in the dialog", async () => {
   const { client } = await openManager();
   await vi.waitFor(() => expect(client.modelPreferences.getSnapshot().loaded).toBe(true));
@@ -343,19 +421,23 @@ test("saving from the keyboard announces the footer status and returns focus the
   await userEvent.keyboard("{Tab}");
   expect(document.activeElement).not.toBe(saveButton().element());
   await vi.waitFor(() => expect(saved()?.revision).toBe(nextRevision));
+  const peer = newClient();
+  await vi.waitFor(() => expect(peer.connection.state.getSnapshot().status).toBe("connected"));
   await checkbox("Show Stub Two · stub").click();
-  await client.connection.api.models.save({
+  const { release } = holdNextSave(client);
+  saveButton().element().focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(saveButton()).toBeDisabled();
+  await peer.connection.api.models.save({
     scope,
     revision: nextRevision,
     policy: { ...defaultModelPolicy(), mode: "allow" },
   });
   await expect.element(models().getByRole("alert")).toMatchTextContent("Changed in another client");
-  await expect.element(saveButton()).toBeEnabled();
-  saveButton().element().focus();
-  await userEvent.keyboard("{Enter}");
+  release();
   await expect.element(models().getByText("Could not save.", { exact: false })).toBeVisible();
   await expect.element(checkbox("Show Stub Two · stub")).toBeChecked();
-  await expect.element(saveButton()).toHaveFocus();
+  await expect.element(unsavedStatus()).toHaveFocus();
   expect(settings().element().contains(document.activeElement)).toBe(true);
 });
 

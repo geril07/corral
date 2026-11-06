@@ -14,7 +14,7 @@ import {
   type ModelPreferences,
   type ModelScope,
 } from "@corral/protocol/models";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import {
   Button,
   Checkbox,
@@ -224,7 +224,9 @@ function ModelPolicyEditor({
   const saveButton = useRef<HTMLButtonElement>(null);
   const statusLine = useRef<HTMLSpanElement>(null);
   const returnFocus = useRef<"status" | "save" | null>(null);
+  const conflictReason = useId();
   const dirty = JSON.stringify(policy) !== JSON.stringify(base.policy);
+  const stale = dirty && latest.revision !== base.revision;
   if (!dirty && latest.revision > base.revision) {
     const next = { scope, revision: latest.revision, policy: latest.policy };
     setBase(next);
@@ -285,7 +287,11 @@ function ModelPolicyEditor({
     if (!target || (target === "status" && dirty) || (target === "save" && busy)) return;
     returnFocus.current = null;
     if (document.activeElement !== document.body) return;
-    (target === "status" ? statusLine.current : saveButton.current)?.focus();
+    const saveTarget = saveButton.current;
+    (target === "status" || !saveTarget || saveTarget.disabled
+      ? statusLine.current
+      : saveTarget
+    )?.focus();
   }, [busy, dirty]);
   const discard = () => {
     const next = { scope, revision: latest.revision, policy: latest.policy };
@@ -522,10 +528,10 @@ function ModelPolicyEditor({
         </details>
       )}
       {failure && <FormError>{failure}</FormError>}
-      {dirty && latest.revision !== base.revision && (
-        <FormError>
-          Changed in another client. Your draft has not been replaced. Discard it to load the latest
-          version.
+      {stale && (
+        <FormError id={conflictReason}>
+          Changed in another client. Your draft is kept, but Save is unavailable. Discard loads the
+          latest version and drops the draft.
         </FormError>
       )}
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
@@ -565,7 +571,8 @@ function ModelPolicyEditor({
           <Button
             ref={saveButton}
             size="sm"
-            disabled={!dirty || busy || !latest.loaded}
+            disabled={!dirty || busy || !latest.loaded || stale}
+            aria-describedby={stale ? conflictReason : undefined}
             onClick={() => void save()}
           >
             Save
