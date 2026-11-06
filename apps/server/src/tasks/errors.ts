@@ -16,7 +16,7 @@ export class BlankTaskTitleError extends Error {
 export class WorktreeDirtyError extends Error {
   readonly files: string[];
   constructor(files: string[]) {
-    super(`worktree has uncommitted changes: ${files.join(", ")}`);
+    super(`worktree has local changes, including ignored files: ${files.join(", ")}`);
     this.files = files;
   }
 }

@@ -1,5 +1,5 @@
-import { GitError, git } from "./git.ts";
-import { changedPaths } from "./status-porcelain.ts";
+import { GitError, git, gitRead } from "./git.ts";
+import { cappedPaths, changedPaths } from "./status-porcelain.ts";
 import { worktreeRecords } from "./worktree-porcelain.ts";
 
 export interface Branches {
@@ -124,7 +124,14 @@ export async function deleteBranch(repo: string, branch: string): Promise<void> 
   await git(repo, ["branch", "-D", "--", branch]);
 }
 
-/** Paths with uncommitted or untracked changes (untracked directories are listed as `dir/`). */
+/** The most local paths one removal warning lists; the rest become a final `+N more` entry. */
+export const MAX_LOCAL_PATHS = 20;
+
+/**
+ * Paths with local changes, ignored entries included; a directory is one `dir/` path. The list is
+ * capped so an ignored `node_modules/` with a million files still costs one `git status`.
+ */
 export async function uncommittedPaths(worktree: string): Promise<string[]> {
-  return changedPaths(await git(worktree, ["status", "--porcelain", "-z"]));
+  const paths = changedPaths(await gitRead(worktree, ["status", "--porcelain", "--ignored", "-z"]));
+  return cappedPaths(paths, MAX_LOCAL_PATHS);
 }

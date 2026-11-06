@@ -1,5 +1,5 @@
 import type { Task } from "@corral/protocol/rpc";
-import { chmodSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vite-plus/test";
@@ -8,6 +8,7 @@ import { cloneOfOrigin, commitFile, runGit, writeFiles } from "../../test/git-re
 import { addProject } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
 import { launchesOf, sessionsOf } from "../../test/session-helpers.ts";
+import { MAX_LOCAL_PATHS } from "../git/repository.ts";
 import { openDatabase } from "../storage/database.ts";
 import { TaskStore } from "./task-store.ts";
 
@@ -456,6 +457,73 @@ test("an untracked file alone makes a worktree dirty", async () => {
   await expect(api.tasks.remove({ id: task.id })).rejects.toMatchObject({
     code: "WORKTREE_DIRTY",
     data: { files: ["scratch/"] },
+  });
+});
+
+test("ignored local content makes a worktree dirty, lists an ignored directory once, and force removes it", async () => {
+  const { project, repo } = await addProject(server);
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Ignored",
+    workspace: { type: "new-branch" },
+  });
+  writeFiles(task.workspacePath, {
+    ".env": "SECRET=1\n",
+    "node_modules/pkg/index.js": "module.exports = 1;\n",
+  });
+  appendFileSync(join(repo, ".git", "info", "exclude"), ".env\nnode_modules/\n");
+
+  await expect(api.tasks.remove({ id: task.id })).rejects.toMatchObject({
+    code: "WORKTREE_DIRTY",
+    data: { files: [".env", "node_modules/"] },
+  });
+  expect(existsSync(task.workspacePath)).toBe(true);
+  expect((await api.tasks.watch().then((updates) => updates.next())).value).toEqual([task]);
+
+  await api.tasks.remove({ id: task.id, force: true });
+
+  expect(existsSync(task.workspacePath)).toBe(false);
+  expect(worktreePaths(repo)).toEqual([repo]);
+  expect(branches(repo)).toContain("ignored");
+  expect((await api.tasks.watch().then((updates) => updates.next())).value).toEqual([]);
+});
+
+test("an ignored directory alone makes a worktree dirty", async () => {
+  const { project, repo } = await addProject(server);
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Ignored dir",
+    workspace: { type: "new-branch" },
+  });
+  writeFiles(task.workspacePath, { "node_modules/pkg/index.js": "module.exports = 1;\n" });
+  appendFileSync(join(repo, ".git", "info", "exclude"), "node_modules/\n");
+
+  await expect(api.tasks.remove({ id: task.id })).rejects.toMatchObject({
+    code: "WORKTREE_DIRTY",
+    data: { files: ["node_modules/"] },
+  });
+});
+
+test("a long list of local changes is capped and says how many more entries there are", async () => {
+  const { project, repo } = await addProject(server);
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Many ignored",
+    workspace: { type: "new-branch" },
+  });
+  const names = Array.from(
+    { length: MAX_LOCAL_PATHS + 5 },
+    (_, index) => `ignored-${String(index).padStart(2, "0")}.txt`,
+  );
+  writeFiles(task.workspacePath, Object.fromEntries(names.map((name) => [name, "x\n"])));
+  appendFileSync(join(repo, ".git", "info", "exclude"), "ignored-*\n");
+
+  await expect(api.tasks.remove({ id: task.id })).rejects.toMatchObject({
+    code: "WORKTREE_DIRTY",
+    data: { files: [...names.slice(0, MAX_LOCAL_PATHS), "+5 more"] },
   });
 });
 

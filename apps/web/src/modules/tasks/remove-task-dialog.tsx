@@ -33,13 +33,10 @@ export function RemoveTaskDialog({ task, onRemove, onClose }: RemoveTaskDialogPr
       {dirtyFiles && (
         <div className="mb-3">
           <p className="mb-2.5 text-destructive" role="alert">
-            The worktree has uncommitted changes that removing it would lose:
+            The worktree has local changes, including ignored files, that removing it would lose:
           </p>
           <Item variant="outline">
-            <ul
-              className="max-h-40 w-full overflow-y-auto font-mono"
-              aria-label="uncommitted files"
-            >
+            <ul className="max-h-40 w-full overflow-y-auto font-mono" aria-label="local changes">
               {dirtyFiles.map((file) => (
                 <li key={file}>{file}</li>
               ))}

@@ -1,6 +1,6 @@
 import * as fc from "fast-check";
 import { expect, test } from "vite-plus/test";
-import { changedPaths } from "./status-porcelain.ts";
+import { cappedPaths, changedPaths } from "./status-porcelain.ts";
 
 test("lists modified, staged, untracked and deleted paths", () => {
   const output = " M src/a.ts\0A  src/b.ts\0?? notes.txt\0 D gone.ts\0";
@@ -16,8 +16,21 @@ test("a rename is one changed file; the original path that follows is not anothe
   expect(changedPaths(" C copy.ts\0orig.ts\0")).toEqual(["copy.ts"]);
 });
 
+test("ignored files and whole ignored directories are listed, the directory once", () => {
+  expect(changedPaths("!! .env\0!! node_modules/\0")).toEqual([".env", "node_modules/"]);
+});
+
 test("a clean worktree has no changed paths", () => {
   expect(changedPaths("")).toEqual([]);
+});
+
+test("a long list is capped and says how many paths are left out", () => {
+  expect(cappedPaths(["a.txt", "b.txt", "c.txt", "d.txt"], 2)).toEqual([
+    "a.txt",
+    "b.txt",
+    "+2 more",
+  ]);
+  expect(cappedPaths(["a.txt", "b.txt"], 2)).toEqual(["a.txt", "b.txt"]);
 });
 
 test("paths with spaces, quotes, newlines and non-ASCII come back verbatim", () => {

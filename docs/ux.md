@@ -124,8 +124,8 @@ What a user does. Everything below is built and verified end to end, chat views 
   link) and keeps its source snapshot as the task's title context.
 - Ordinary radio groups retain the kit default. The shared model picker owns its compact
   tool/profile icon rail; modules do not invent selectable cards or control skins.
-- Remove task retains the dirty-worktree second confirmation; keyed buttons prevent
-  a single Enter from confirming both stages. No branches are deleted implicitly.
+- Remove task keeps [the confirmation for local content](design.md#domain-model); keyed buttons
+  prevent a single Enter from confirming both stages. No branches are deleted implicitly.
 - Remove project is a project row's destructive action: its confirmation names the project and,
   when it has any, how many tasks it forgets (a zero-task project is named without a count), and
   says the worktrees and branches stay on disk. A project with a

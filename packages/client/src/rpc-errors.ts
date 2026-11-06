@@ -101,7 +101,7 @@ export function describeError(error: unknown): string {
       case "BAD_REQUEST":
         return String(field(data, "message"));
       case "WORKTREE_DIRTY":
-        return "The worktree has uncommitted changes.";
+        return "The worktree has local changes, including ignored files.";
       // Local links in chat: the path refusals say why, so a click that fails is not a mystery.
       case "FILE_OUTSIDE_WORKSPACE":
         return `${String(field(data, "path"))} is outside this task's workspace.`;
