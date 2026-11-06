@@ -1,5 +1,6 @@
+import { ConfigState } from "@corral/protocol/config";
 import { Task } from "@corral/protocol/rpc";
-import { appendFileSync, chmodSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vite-plus/test";
@@ -11,6 +12,7 @@ import { useServer, within } from "../../test/server-fixture.ts";
 import { launchesOf, processExists, sessionsOf } from "../../test/session-helpers.ts";
 import { MAX_LOCAL_PATHS } from "../git/repository.ts";
 import { openDatabase } from "../storage/database.ts";
+import { TerminalRegistry } from "../terminals/terminal-registry.ts";
 import { TaskStore } from "./task-store.ts";
 
 const server = useServer();
@@ -26,6 +28,27 @@ const branches = (repo: string) =>
   runGit(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads")
     .split("\n")
     .filter(Boolean);
+
+/** Writes `[agents.codex] command` and waits until the running server has read the file. */
+async function writeCodexCommand(command: string): Promise<void> {
+  mkdirSync(server.configDir, { recursive: true });
+  writeFileSync(join(server.configDir, "config.toml"), `[agents.codex]\ncommand = "${command}"\n`);
+  const api = await server.rpc();
+  const updates = await api.config.watch();
+  try {
+    await within(
+      (async () => {
+        for await (const raw of updates) {
+          if (ConfigState.parse(raw).config.agents.codex.command.value === command) return;
+        }
+        throw new Error("config.watch ended");
+      })(),
+      "the codex command",
+    );
+  } finally {
+    await updates.return?.();
+  }
+}
 
 test("a new-branch task gets a branch named from its title, in a worktree under the data dir, off the default base", async () => {
   const { project, repo } = await addProject(server);
@@ -452,6 +475,106 @@ test("removing a worktree task closes its session and the loose terminals in tha
   const listed = Task.array().parse((await within(updates.next(), "the tasks")).value);
   expect(listed.map((task) => task.id)).toEqual([sibling.id]);
   await updates.return?.();
+});
+
+test("a project removal requested during the primary launch waits for the record and is refused, leaving the new session terminal whole", async () => {
+  const { project, repo } = await addProject(server);
+  const api = await server.rpc();
+  // The version check is the launch's first await after the task row exists. It holds the launch
+  // open, so the removal below is requested between the row insert and the session insert.
+  const marker = join(server.scratchDir, "codex-version-started");
+  const wrapper = join(server.scratchDir, "slow-codex");
+  writeFileSync(
+    wrapper,
+    `#!/bin/sh\nif [ "$1" = "--version" ]; then\n  : > "${marker}"\n  sleep 3\nfi\nexec codex "$@"\n`,
+  );
+  chmodSync(wrapper, 0o755);
+  await writeCodexCommand(wrapper);
+
+  const creating = api.tasks.create({
+    projectId: project.id,
+    title: "During launch",
+    agent: { kind: "codex", view: "terminal" },
+    workspace: { type: "new-branch" },
+  });
+  await expect
+    .poll(() => existsSync(marker), { timeout: 10_000, message: "the codex version check" })
+    .toBe(true);
+  const removing = api.projects.remove({ id: project.id });
+
+  const task = await creating;
+  // The removal queued behind the create, so it saw the recorded session and refused by name.
+  await expect(removing).rejects.toMatchObject({ code: "HAS_LIVE_TERMINALS" });
+
+  // Nothing was cleaned up and no invisible terminal was left: the one terminal belongs to the
+  // session and the task, in the worktree the create made.
+  const terminals = await api.terminals.list();
+  expect(terminals).toHaveLength(1);
+  expect(terminals[0]).toMatchObject({
+    taskId: task.id,
+    sessionId: task.primarySessionId,
+    cwd: task.workspacePath,
+    exit: null,
+  });
+  const [session] = await sessionsOf(api);
+  expect(session).toMatchObject({ id: task.primarySessionId, state: "running" });
+  expect(existsSync(task.workspacePath)).toBe(true);
+  expect(worktreePaths(repo)).toContain(task.workspacePath);
+  expect(branches(repo)).toContain(task.branch);
+  expect((await api.projects.watch().then((updates) => updates.next())).value).toContainEqual(
+    project,
+  );
+
+  // Once the session is stopped the removal goes through: the task and its sessions are forgotten,
+  // while the project-removal policy keeps the worktree and the branch on disk.
+  await api.sessions.stop({ id: task.primarySessionId! });
+  await api.projects.remove({ id: project.id });
+  expect(await api.terminals.list()).toEqual([]);
+  expect(await sessionsOf(api)).toEqual([]);
+  const updates = await api.tasks.watch();
+  expect((await within(updates.next(), "the tasks")).value).toEqual([]);
+  await updates.return?.();
+  expect(existsSync(task.workspacePath)).toBe(true);
+  expect(branches(repo)).toContain(task.branch);
+});
+
+test("a terminal that will not close refuses the removal with its name on the declared wire error and leaves the task whole", async () => {
+  const { project, repo } = await addProject(server);
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Stuck",
+    workspace: { type: "new-branch" },
+  });
+  const info = await server.createTerminal(sh("read x"), { cwd: task.workspacePath });
+  await api.terminals.setLabel({ id: info.id, label: "stuck shell" });
+
+  // The registry's close never rejects in production (it catches signals and resolves at exit), so
+  // this fault injection is the only way to exercise the abort and the wire mapping.
+  const close = vi
+    .spyOn(TerminalRegistry.prototype, "close")
+    .mockRejectedValueOnce(new Error("the process did not exit"));
+  try {
+    await expect(api.tasks.remove({ id: task.id })).rejects.toMatchObject({
+      code: "GIT_FAILED",
+      data: {
+        message: expect.stringContaining(`Could not close the terminal "stuck shell (${info.id})"`),
+      },
+    });
+  } finally {
+    close.mockRestore();
+  }
+
+  // The abort ran no removal: the task, worktree, branch and terminal are unchanged.
+  expect(existsSync(task.workspacePath)).toBe(true);
+  expect(worktreePaths(repo)).toContain(task.workspacePath);
+  expect(branches(repo)).toContain(task.branch);
+  expect((await api.terminals.list()).map((terminal) => terminal.id)).toEqual([info.id]);
+
+  // With close working again the same removal goes through and sweeps the terminal.
+  await api.tasks.remove({ id: task.id });
+  expect(existsSync(task.workspacePath)).toBe(false);
+  expect(await api.terminals.list()).toEqual([]);
 });
 
 test("a task created under the old layout keeps its stored path and can still be removed", async () => {
