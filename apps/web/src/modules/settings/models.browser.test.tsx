@@ -310,3 +310,49 @@ test("hiding a live model keeps its session, thinking, draft and composer node; 
     chat.close();
   }
 });
+
+test("saving from the keyboard announces the footer status and returns focus there; a refused save keeps the draft and focus in the dialog", async () => {
+  const { client } = await openManager();
+  const save = () => models().getByRole("button", { name: "Save", exact: true });
+  const status = () => models().getByRole("status").filter({ hasText: "Saved · revision" });
+  await vi.waitFor(() => expect(client.modelPreferences.getSnapshot().loaded).toBe(true));
+  const saved = () =>
+    client.modelPreferences
+      .getSnapshot()
+      .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope));
+  const nextRevision = (saved()?.revision ?? 0) + 1;
+  await checkbox("Show Stub Two · stub").click();
+  save().element().focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(status()).toMatchTextContent(`Saved · revision ${nextRevision}`);
+  expect(status().element().getAttribute("role")).toBe("status");
+  expect(status().element().tabIndex).toBe(-1);
+  await expect.element(status()).toHaveFocus();
+  expect(document.activeElement).not.toBe(document.body);
+  expect(settings().element().contains(document.activeElement)).toBe(true);
+  await expect.element(save()).toBeDisabled();
+  save().element().focus();
+  expect(document.activeElement).toBe(status().element());
+  await userEvent.keyboard("{Tab}");
+  await expect
+    .element(models().getByRole("button", { name: "Hide all", exact: true }))
+    .toHaveFocus();
+  models().getByRole("button", { name: "Preview", exact: true }).element().focus();
+  await userEvent.keyboard("{Tab}");
+  expect(document.activeElement).not.toBe(save().element());
+  await vi.waitFor(() => expect(saved()?.revision).toBe(nextRevision));
+  await checkbox("Show Stub Two · stub").click();
+  await client.connection.api.models.save({
+    scope,
+    revision: nextRevision,
+    policy: { ...defaultModelPolicy(), mode: "allow" },
+  });
+  await expect.element(models().getByRole("alert")).toMatchTextContent("Changed in another client");
+  await expect.element(save()).toBeEnabled();
+  save().element().focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(models().getByText("Could not save.", { exact: false })).toBeVisible();
+  await expect.element(checkbox("Show Stub Two · stub")).toBeChecked();
+  await expect.element(save()).toHaveFocus();
+  expect(settings().element().contains(document.activeElement)).toBe(true);
+});
