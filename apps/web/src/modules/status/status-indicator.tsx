@@ -10,25 +10,27 @@ export function StatusIndicator({
   status,
   muted = false,
   size = "row",
+  tooltip = true,
 }: {
   status: AgentStatus | undefined;
   muted?: boolean;
   /** `chrome` is the 14 px glyph of tabs and the task header (`layout.md`, **Task header**, **Session tabs**). */
   size?: StatusGlyphSize;
+  /** A sidebar row owns one tooltip for all its facts; the glyph then carries only its text alternative. */
+  tooltip?: boolean;
 }) {
   if (!status) return <span className="w-5 shrink-0" aria-hidden />;
   const text = describeStatus(status);
   const message = status.message ? `${text}: ${status.message}` : text;
-  return (
-    <Hint content={message}>
-      <span
-        className="flex w-5 shrink-0 items-center justify-center"
-        role="img"
-        aria-label={text}
-        title={message}
-      >
-        <StatusGlyph state={status.state} muted={muted} size={size} />
-      </span>
-    </Hint>
+  const glyph = (
+    <span
+      className="flex w-5 shrink-0 items-center justify-center"
+      role="img"
+      aria-label={text}
+      title={tooltip ? message : undefined}
+    >
+      <StatusGlyph state={status.state} muted={muted} size={size} />
+    </span>
   );
+  return tooltip ? <Hint content={message}>{glyph}</Hint> : glyph;
 }

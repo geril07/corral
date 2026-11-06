@@ -48,7 +48,12 @@ test("a blocked agent shows on its session and task; the board and prefix g jump
   await expect
     .element(taskHeader().getByRole("img", { name: "blocked · permission" }))
     .toBeVisible();
-  await expect.element(taskButton("Alpha")).toHaveAttribute("title", "Run rm -rf build?");
+  // The row's name carries the attention word; the message is its description.
+  expect(taskButton("Alpha").element().getAttribute("aria-label")).toMatch(
+    /^Alpha — needs approval — /,
+  );
+  const describedBy = taskButton("Alpha").element().getAttribute("aria-describedby");
+  expect(document.getElementById(describedBy ?? "")?.textContent).toBe("Run rm -rf build?");
 
   // A second task, which becomes current and has nothing to report; Alpha's sessions stay with
   // Alpha, which the flat list no longer shows the sessions of.

@@ -12,12 +12,20 @@ import {
   defaultClientConfig,
   type ClientConfig,
 } from "@corral/protocol/config";
-import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
+import type {
+  Project,
+  PullRequest,
+  Session,
+  Task,
+  TaskChanges,
+  TerminalInfo,
+} from "@corral/protocol/rpc";
 import { useState } from "react";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { Sidebar } from "./sidebar.tsx";
+import { SidebarResizeHandle } from "./sidebar-resize-handle.tsx";
 import { SHELF_MAX_PAGES } from "./sidebar-view.ts";
 
 const project = (id: string): Project => ({
@@ -105,6 +113,9 @@ function renderSidebar(
   narrow = false,
   mode: SidebarMode = "project",
   composing?: { project?: Project; opened: number },
+  changes?: ReadonlyMap<string, TaskChanges>,
+  pullRequests?: ReadonlyMap<string, PullRequest>,
+  width?: number,
 ) {
   const tree = buildWorkspaceTree([project("p1"), project("p2")], tasks, sessions, [
     terminal("term-s1", "a", "s1"),
@@ -112,14 +123,24 @@ function renderSidebar(
     terminal("loose", null, null),
   ]);
   const spies = handlers();
+  const frame =
+    width === 384
+      ? "flex h-screen w-96 flex-col"
+      : width === 420
+        ? "flex h-screen w-105 flex-col"
+        : narrow
+          ? "flex h-screen w-52 flex-col"
+          : "flex h-screen flex-col";
   const rendered = render(
-    <div className={narrow ? "flex h-screen w-52 flex-col" : "flex h-screen flex-col"}>
+    <div className={frame}>
       <Sidebar
         tree={tree}
         selection={resolveSelection(tree, chosen)}
         composing={composing}
         flat={mode === "flat" ? buildFlatSidebar(tree) : undefined}
         config={config}
+        changes={changes}
+        pullRequests={pullRequests}
         {...spies}
       />
       {/* The shell footer the pane sits above, so the shelf measures the page a real window gives it. */}
@@ -189,6 +210,9 @@ function ShelfFixture({
 
 const nav = () => page.getByRole("navigation", { name: "workspace" });
 const row = (title: string) => nav().getByRole("button", { name: new RegExp(`^${title}`) });
+/** A project or Scratch row carries its count after its name. */
+const containerRow = (name: string) =>
+  nav().getByRole("button", { name: new RegExp(`^${name}\\b`) });
 const shelfBox = () => {
   const box = nav().element().querySelector<HTMLElement>("[data-shelf-list]");
   if (box === null) throw new Error("the shelf box is not mounted");
@@ -216,8 +240,11 @@ function visibleIn(element: Element, box: Element): boolean {
 test("tasks are the only rows; loose terminals sit under Scratch", async () => {
   await renderSidebar().rendered;
 
-  await expect.element(nav().getByRole("button", { name: "repo-p1" })).toBeVisible();
-  await expect.element(nav().getByRole("button", { name: "repo-p2" })).toBeVisible();
+  await expect.element(containerRow("repo-p1")).toBeVisible();
+  await expect.element(containerRow("repo-p2")).toBeVisible();
+  // Container names carry their counts; a task row does not repeat its project in project mode.
+  await expect.element(containerRow("repo-p1")).toHaveAttribute("aria-label", "repo-p1 — 2");
+  await expect.element(containerRow("repo-p2")).toHaveAttribute("aria-label", "repo-p2 — 0");
   await expect.element(row("task a")).toBeVisible();
   await expect.element(row("task b")).toBeVisible();
 
@@ -225,7 +252,7 @@ test("tasks are the only rows; loose terminals sit under Scratch", async () => {
   await expect
     .element(nav().getByRole("button", { name: /^shell|^claude|^codex/ }))
     .not.toBeInTheDocument();
-  await expect.element(nav().getByRole("button", { name: "Scratch" })).toBeVisible();
+  await expect.element(containerRow("Scratch")).toHaveAttribute("aria-label", "Scratch — 1");
   await expect.element(nav().getByRole("button", { name: /^sh · / })).toBeVisible();
 });
 
@@ -447,7 +474,7 @@ test("the selected row is revealed when the selection moves and when the list ch
   await vi.waitFor(() => expect(visibleIn(selected.element(), activeList())).toBe(true));
 
   // Expanding the group above the row pushes it down; the list reveals it again.
-  const firstProject = nav().getByRole("button", { name: "repo-p1" });
+  const firstProject = containerRow("repo-p1");
   await firstProject.click();
   await expect.element(firstProject).toHaveAttribute("aria-expanded", "false");
   await vi.waitFor(() => expect(visibleIn(selected.element(), activeList())).toBe(true));
@@ -510,7 +537,7 @@ test("a composer's collapsed group stays with that composer while a project's co
 
   // The composer's group is keyed by its open; collapsing it stays with that composer.
   const first = await render(sidebar(composer(1)));
-  const p2 = nav().getByRole("button", { name: "repo-p2" });
+  const p2 = containerRow("repo-p2");
   await expect.element(p2).toHaveAttribute("aria-expanded", "true");
   await p2.click();
   await expect.element(p2).toHaveAttribute("aria-expanded", "false");
@@ -519,14 +546,12 @@ test("a composer's collapsed group stays with that composer while a project's co
 
   // A new composer is a new open: it opens its group instead of inheriting the old collapse.
   const second = await render(sidebar(composer(2)));
-  await expect
-    .element(nav().getByRole("button", { name: "repo-p2" }))
-    .toHaveAttribute("aria-expanded", "true");
+  await expect.element(containerRow("repo-p2")).toHaveAttribute("aria-expanded", "true");
   await second.unmount();
 
   // A plain project group is a device preference and survives the remount.
   const third = await render(sidebar(undefined));
-  const p1 = nav().getByRole("button", { name: "repo-p1" });
+  const p1 = containerRow("repo-p1");
   await p1.click();
   await expect.element(p1).toHaveAttribute("aria-expanded", "false");
   expect(JSON.parse(window.localStorage.getItem("corral.sidebar-collapsed") ?? "null")).toEqual([
@@ -534,9 +559,7 @@ test("a composer's collapsed group stays with that composer while a project's co
   ]);
   await third.unmount();
   await render(sidebar(undefined));
-  await expect
-    .element(nav().getByRole("button", { name: "repo-p1" }))
-    .toHaveAttribute("aria-expanded", "false");
+  await expect.element(containerRow("repo-p1")).toHaveAttribute("aria-expanded", "false");
 });
 
 test("an oversized stored page is clamped instead of mounting every settled row", async () => {
@@ -571,7 +594,7 @@ test("collapsed groups and the shelf page survive hiding the sidebar and a reloa
   ];
   const first = renderSidebar({ taskId: "a" }, [], tasks);
   const firstView = await first.rendered;
-  const header = nav().getByRole("button", { name: "repo-p2" });
+  const header = containerRow("repo-p2");
   await header.click();
   await expect.element(header).toHaveAttribute("aria-expanded", "false");
   await nav().getByRole("button", { name: "Settled (12)" }).click();
@@ -588,9 +611,7 @@ test("collapsed groups and the shelf page survive hiding the sidebar and a reloa
   // Hiding the sidebar unmounts it; mounting again reads the device state back.
   await firstView.unmount();
   await renderSidebar({ taskId: "a" }, [], tasks).rendered;
-  await expect
-    .element(nav().getByRole("button", { name: "repo-p2" }))
-    .toHaveAttribute("aria-expanded", "false");
+  await expect.element(containerRow("repo-p2")).toHaveAttribute("aria-expanded", "false");
   await expect
     .element(nav().getByRole("button", { name: "Settled (12)" }))
     .toHaveAttribute("aria-expanded", "true");
@@ -602,9 +623,7 @@ test("a corrupt device record falls back to the defaults instead of breaking the
   window.localStorage.setItem("corral.sidebar-shelf", '{"expanded":"yes","page":0}');
   await renderSidebar().rendered;
 
-  await expect
-    .element(nav().getByRole("button", { name: "repo-p1" }))
-    .toHaveAttribute("aria-expanded", "true");
+  await expect.element(containerRow("repo-p1")).toHaveAttribute("aria-expanded", "true");
   const shelf = nav().getByRole("button", { name: "Settled (1)" });
   await expect.element(shelf).toHaveAttribute("aria-expanded", "false");
   await expect.element(shelf).toBeEnabled();
@@ -612,7 +631,7 @@ test("a corrupt device record falls back to the defaults instead of breaking the
 
 test("a collapsed group holding the current task shows that row alone", async () => {
   await renderSidebar({ taskId: "a", entryId: "s2" }).rendered;
-  const header = nav().getByRole("button", { name: "repo-p1" });
+  const header = containerRow("repo-p1");
 
   await header.click();
   await expect.element(header).toHaveAttribute("aria-expanded", "false");
@@ -631,9 +650,7 @@ test("the current row is the task or loose terminal, never a project or Scratch"
   expect(nav().element().querySelectorAll('[aria-current="true"]')).toHaveLength(1);
   await expect.element(row("task a")).toHaveAttribute("aria-current", "true");
   for (const container of ["repo-p1", "repo-p2", "Scratch"])
-    expect(
-      nav().getByRole("button", { name: container }).element().getAttribute("aria-current"),
-    ).toBeNull();
+    expect(containerRow(container).element().getAttribute("aria-current")).toBeNull();
   await taskScreen.unmount();
 
   const looseState = renderSidebar({ taskId: null, entryId: "loose" });
@@ -642,9 +659,7 @@ test("the current row is the task or loose terminal, never a project or Scratch"
   await expect
     .element(nav().getByRole("button", { name: /^sh · / }))
     .toHaveAttribute("aria-current", "true");
-  await expect
-    .element(nav().getByRole("button", { name: "Scratch" }))
-    .not.toHaveAttribute("aria-current");
+  await expect.element(containerRow("Scratch")).not.toHaveAttribute("aria-current");
   await looseScreen.unmount();
 
   // While a project's composer is open the sidebar and the composer read one value: no row is
@@ -659,9 +674,7 @@ test("the current row is the task or loose terminal, never a project or Scratch"
   );
   await composingState.rendered;
   expect(nav().element().querySelectorAll('[aria-current="true"]')).toHaveLength(0);
-  await expect
-    .element(nav().getByRole("button", { name: "repo-p2" }))
-    .toHaveAttribute("aria-expanded", "true");
+  await expect.element(containerRow("repo-p2")).toHaveAttribute("aria-expanded", "true");
 });
 
 test("the current task is marked", async () => {
@@ -698,7 +711,7 @@ test("a project group's header offers a new task in that project", async () => {
 test("the project action overlays the count at 208 px and is keyboard reachable", async () => {
   const { rendered } = renderSidebar({}, defaultSessions, undefined, true);
   await rendered;
-  const header = nav().getByRole("button", { name: "repo-p1" });
+  const header = containerRow("repo-p1");
   const rowBox = header.element().parentElement;
   if (!rowBox) throw new Error("the project header has no row");
   expect(rowBox.getBoundingClientRect().width).toBe(208);
@@ -752,7 +765,7 @@ test("opening a composer opens the composer's project group", async () => {
     />
   );
   const rendered = await render(sidebar());
-  const header = nav().getByRole("button", { name: "repo-p1" });
+  const header = containerRow("repo-p1");
 
   await header.click();
   await expect.element(header).toHaveAttribute("aria-expanded", "false");
@@ -769,7 +782,7 @@ test("clicking reports what was picked", async () => {
   expect(spies.onSelectTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
 
   // The project row is its group's disclosure, not a navigation: it reports no selection.
-  await nav().getByRole("button", { name: "repo-p2" }).click();
+  await containerRow("repo-p2").click();
   expect(spies.onSelectTask).toHaveBeenCalledOnce();
 
   await row("task a").click();
@@ -921,9 +934,18 @@ test("a task shows its most urgent session status with a text alternative and th
   // Task a takes blocked, the most urgent of its sessions; task b is working.
   await expect.element(nav().getByRole("img", { name: "blocked · permission" })).toHaveLength(1);
   await expect.element(nav().getByRole("img", { name: "working" })).toHaveLength(1);
+
+  // The row's name carries the attention word, and the message is its description and tooltip.
+  const blocked = row("task a");
   await expect
-    .element(nav().getByRole("img", { name: "blocked · permission" }))
-    .toHaveAttribute("title", "blocked · permission: Run rm -rf build?");
+    .element(blocked)
+    .toHaveAttribute("aria-label", "task a — needs approval — branch-a · claude · 3 sessions");
+  const describedBy = blocked.element().getAttribute("aria-describedby");
+  expect(describedBy).not.toBeNull();
+  expect(document.getElementById(describedBy ?? "")?.textContent).toBe("Run rm -rf build?");
+  blocked.element().focus();
+  await expect.element(page.getByRole("tooltip")).toMatchTextContent("Run rm -rf build?");
+  await expect.element(blocked).not.toHaveAttribute("title");
   await expect.element(row("task b")).not.toHaveAttribute("title");
 });
 
@@ -940,7 +962,7 @@ test("a stopped session keeps only the done or error status it had", async () =>
 test("a collapsed project shows its count and expands again from its header", async () => {
   const tasks = [task("a"), { ...task("b"), projectId: "p2" }, task("old", "settled")];
   await renderSidebar({}, defaultSessions, tasks).rendered;
-  const header = nav().getByRole("button", { name: "repo-p2" });
+  const header = containerRow("repo-p2");
   await expect.element(header).toHaveAttribute("aria-expanded", "true");
 
   await header.click();
@@ -1021,34 +1043,34 @@ const taskWithStatus = (id: string, projectId: string, seenAt: number | null = n
   seenAt,
 });
 
-const flatSessions = [
-  reporting(session("s1", "blocked", "claude"), {
-    state: "blocked",
-    kind: "permission",
-    message: "Run rm -rf build?",
-    updatedAt: 1,
-  }),
-  reporting(session("s2", "error", "codex"), { state: "error", updatedAt: 2 }),
-  reporting(session("s3", "working", "pi"), { state: "working", updatedAt: 3 }),
-  reporting(session("s4", "unseen", "claude"), { state: "done", updatedAt: 4 }),
-  reporting(session("s5", "seen", "claude"), { state: "done", updatedAt: 5 }),
-  reporting(session("s6", "idle", "pi"), { state: "idle", updatedAt: 6 }),
-];
-
-const flatTasks = [
-  taskWithStatus("blocked", "p1"),
-  taskWithStatus("error", "p1"),
-  taskWithStatus("working", "p2"),
-  taskWithStatus("unseen", "p2"),
-  taskWithStatus("seen", "p1", 5),
-  taskWithStatus("idle", "p2"),
-];
-
 test("flat mode lists every project's tasks by status, each row naming its project", async () => {
+  const flatNow = Date.now();
+  const minutesAgo = (minutes: number) => flatNow - minutes * 60_000;
+  const flatSessions = [
+    reporting(session("s1", "blocked", "claude"), {
+      state: "blocked",
+      kind: "permission",
+      message: "Run rm -rf build?",
+      updatedAt: minutesAgo(6),
+    }),
+    reporting(session("s2", "error", "codex"), { state: "error", updatedAt: minutesAgo(5) }),
+    reporting(session("s3", "working", "pi"), { state: "working", updatedAt: minutesAgo(4) }),
+    reporting(session("s4", "unseen", "claude"), { state: "done", updatedAt: minutesAgo(3) }),
+    reporting(session("s5", "seen", "claude"), { state: "done", updatedAt: minutesAgo(2) }),
+    reporting(session("s6", "idle", "pi"), { state: "idle", updatedAt: minutesAgo(1) }),
+  ];
+  const flatTasks = [
+    taskWithStatus("blocked", "p1"),
+    taskWithStatus("error", "p1"),
+    taskWithStatus("working", "p2"),
+    taskWithStatus("unseen", "p2"),
+    taskWithStatus("seen", "p1", minutesAgo(2)),
+    taskWithStatus("idle", "p2"),
+  ];
   await renderSidebar({}, flatSessions, flatTasks, false, "flat").rendered;
 
   // No project tree any more: sections carry the list.
-  await expect.element(nav().getByRole("button", { name: "repo-p1" })).not.toBeInTheDocument();
+  await expect.element(containerRow("repo-p1")).not.toBeInTheDocument();
   const headings = nav().getByRole("heading");
   await expect.element(headings).toHaveLength(3);
   await expect.element(headings.nth(0)).toMatchTextContent(/Needs you/);
@@ -1063,12 +1085,12 @@ test("flat mode lists every project's tasks by status, each row naming its proje
   // Needs approval or input, error, working, completed and unseen; then the Done section's
   // newest-first order puts the idle task before the done task the user has already seen.
   expect(names).toEqual([
-    "task blocked — repo-p1 · branch-blocked · claude",
-    "task error — repo-p1 · branch-error · codex",
-    "task working — repo-p2 · branch-working · pi",
-    "task unseen — repo-p2 · branch-unseen · claude",
-    "task idle — repo-p2 · branch-idle · pi",
-    "task seen — repo-p1 · branch-seen · claude",
+    "task blocked — needs approval — repo-p1 · branch-blocked · claude",
+    "task error — error — repo-p1 · branch-error · codex",
+    "task working — 4m — repo-p2 · branch-working · pi",
+    "task unseen — 3m — repo-p2 · branch-unseen · claude — unseen",
+    "task idle — 1m — repo-p2 · branch-idle · pi",
+    "task seen — 2m — repo-p1 · branch-seen · claude",
   ]);
 
   // The right slot still says what a task needs; its state is announced by the status glyph.
@@ -1106,4 +1128,292 @@ test("clicking a flat row reports the task it names", async () => {
 
   await row("task b").click();
   expect(spies.onSelectTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
+});
+
+const changesFor = (taskId: string, additions = 2, deletions = 1): TaskChanges => ({
+  taskId,
+  base: { commit: "abc123", label: "main", fallback: null },
+  files: [],
+  additions,
+  deletions,
+  truncated: false,
+  error: null,
+});
+
+const pullRequestFor = (taskId: string, number = 7): PullRequest => ({
+  taskId,
+  provider: "github",
+  host: "github.com",
+  repository: "acme/app",
+  number,
+  url: `https://github.com/acme/app/pull/${number}`,
+  title: "Retry uploads",
+  branch: "feature/retry",
+  base: "main",
+  state: "open",
+  stateReason: null,
+  checks: null,
+  fetchedAt: null,
+});
+
+test("at 208 px the counts and pull request stay visible while the branch clips", async () => {
+  const longBranch = "feature/a-very-long-shared-prefix-that-eats-the-row/login";
+  await renderSidebar(
+    { taskId: "a" },
+    [session("s1", "a", "claude")],
+    [{ ...task("a"), branch: longBranch }],
+    true,
+    "project",
+    undefined,
+    new Map([["a", changesFor("a")]]),
+    new Map([["a", pullRequestFor("a")]]),
+  ).rendered;
+
+  const button = row("task a");
+  const detail = button.element().querySelector<HTMLElement>("[data-row-detail]");
+  const tail = button.element().querySelector<HTMLElement>("[data-row-tail]");
+  if (detail === null || tail === null) throw new Error("the row's second line is not mounted");
+
+  // The flexible segment clips; the tail keeps its whole width inside the row.
+  expect(detail.scrollWidth).toBeGreaterThan(detail.clientWidth);
+  expect(tail.textContent).toContain("+2 −1");
+  expect(tail.textContent).toContain("PR #7 open");
+  expect(tail.scrollWidth).toBeLessThanOrEqual(tail.clientWidth + 1);
+  expect(tail.getBoundingClientRect().right).toBeLessThanOrEqual(
+    button.element().getBoundingClientRect().right + 1,
+  );
+
+  button.element().focus();
+  const tooltip = page.getByRole("tooltip");
+  await expect.element(tooltip).toMatchTextContent(longBranch);
+  await expect.element(tooltip).toMatchTextContent("+2 −1");
+  await expect.element(tooltip).toMatchTextContent("PR #7 open");
+});
+
+test("at 384 and 420 px a row's whole second line fits", async () => {
+  for (const width of [384, 420]) {
+    const rendered = renderSidebar(
+      { taskId: "a" },
+      [session("s1", "a", "claude")],
+      [task("a")],
+      false,
+      "project",
+      undefined,
+      new Map([["a", changesFor("a")]]),
+      new Map([["a", pullRequestFor("a")]]),
+      width,
+    );
+    // oxlint-disable-next-line eslint/no-await-in-loop -- one fixture at a time, each measured
+    const screen = await rendered.rendered;
+    expect(nav().element().parentElement?.getBoundingClientRect().width).toBe(width);
+
+    const button = row("task a");
+    const detail = button.element().querySelector<HTMLElement>("[data-row-detail]");
+    const tail = button.element().querySelector<HTMLElement>("[data-row-tail]");
+    if (detail === null || tail === null) throw new Error("the row's second line is not mounted");
+    expect(detail.scrollWidth).toBeLessThanOrEqual(detail.clientWidth + 1);
+    expect(tail.textContent).toContain("+2 −1");
+    expect(tail.textContent).toContain("PR #7 open");
+    // oxlint-disable-next-line eslint/no-await-in-loop -- the next width needs this fixture gone
+    await screen.unmount();
+  }
+});
+
+test("an idle row's name carries its age", async () => {
+  const updatedAt = Date.now() - 5 * 60_000;
+  await renderSidebar({}, [reporting(session("s1", "a", "claude"), { state: "idle", updatedAt })])
+    .rendered;
+
+  await expect
+    .element(row("task a"))
+    .toHaveAttribute("aria-label", "task a — 5m — branch-a · claude");
+});
+
+test("an exited loose terminal carries its exit in the name, description and tooltip", async () => {
+  const tree = buildWorkspaceTree(
+    [project("p1")],
+    [],
+    [],
+    [{ ...terminal("loose", null, null, "build logs"), exit: { exitCode: 3 } }],
+  );
+  await render(
+    <Sidebar
+      tree={tree}
+      selection={resolveSelection(tree, { taskId: null, entryId: "loose" })}
+      config={config}
+      {...handlers()}
+    />,
+  );
+
+  const button = nav().getByRole("button", { name: "build logs — exited (3)" });
+  const describedBy = button.element().getAttribute("aria-describedby");
+  expect(describedBy).not.toBeNull();
+  expect(document.getElementById(describedBy ?? "")?.textContent).toBe("exited (3)");
+  button.element().focus();
+  await expect.element(page.getByRole("tooltip")).toMatchTextContent("exited (3)");
+});
+
+test("a clipped project row carries its absolute path and count", async () => {
+  const longProject: Project = {
+    ...project("p1"),
+    name: "repo-a-very-long-project-name-for-a-narrow-sidebar",
+    path: "/repos/a-very-long-project-path",
+  };
+  const tree = buildWorkspaceTree([longProject], [task("a")], defaultSessions, []);
+  await render(
+    <div className="flex h-screen w-52 flex-col">
+      <Sidebar
+        tree={tree}
+        selection={resolveSelection(tree, { taskId: "a" })}
+        config={config}
+        {...handlers()}
+      />
+    </div>,
+  );
+
+  const header = nav().getByRole("button", { name: new RegExp(`^${longProject.name}`) });
+  await expect
+    .element(header)
+    .toHaveAttribute("aria-label", `${longProject.name} — 1 — ${longProject.path}`);
+  header.element().focus();
+  const tooltip = page.getByRole("tooltip");
+  await expect.element(tooltip).toMatchTextContent(longProject.path);
+  await expect.element(tooltip).toMatchTextContent(`${longProject.name} — 1`);
+});
+
+test("Shift+F10 opens a row's menu and Escape returns focus to it", async () => {
+  await renderSidebar().rendered;
+  const button = row("task a");
+  button.element().focus();
+  await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+  await expect.element(page.getByRole("menu")).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(button).toHaveFocus();
+});
+
+/** A sidebar with a real resize handle, so a test can change its width like the shell does. */
+function ResizableSidebar({
+  tree,
+  selection,
+  initialWidth = 384,
+}: {
+  tree: ReturnType<typeof buildWorkspaceTree>;
+  selection: ReturnType<typeof resolveSelection>;
+  initialWidth?: number;
+}) {
+  const [width, setWidth] = useState(initialWidth);
+  return (
+    <div
+      ref={(node) => {
+        if (node !== null) node.style.width = `${width}px`;
+      }}
+      className="relative flex h-screen flex-col"
+      data-sidebar-width={width}
+    >
+      <Sidebar tree={tree} selection={selection} config={config} {...handlers()} />
+      <SidebarResizeHandle
+        width={width}
+        maxWidth={420}
+        onResize={(next) => setWidth(Math.max(208, Math.min(420, next)))}
+        onReset={() => setWidth(initialWidth)}
+      />
+      <div aria-hidden className="h-(--chrome-row) shrink-0" />
+    </div>
+  );
+}
+
+test("a focused row keeps focus and its ring while a resize starts and stops clipping", async () => {
+  const title = "Investigate the login regression";
+  const longProject: Project = { ...project("p1"), name: "repo-a-very-long-project-name" };
+  const tree = buildWorkspaceTree(
+    [longProject],
+    [{ ...task("a"), title }],
+    [session("s1", "a", "claude")],
+    [],
+  );
+  await render(
+    <ResizableSidebar tree={tree} selection={resolveSelection(tree, { taskId: "a" })} />,
+  );
+
+  const projectButton = nav().getByRole("button", { name: /^repo-a-very-long-project-name/ });
+  const taskButton = nav().getByRole("button", { name: new RegExp(`^${title}`) });
+  const titleSpan = () => {
+    const element = taskButton.element().querySelector<HTMLElement>(".truncate");
+    if (element === null) throw new Error("the task title is not mounted");
+    return element;
+  };
+  const projectName = () => {
+    const element = projectButton.element().querySelector<HTMLElement>(".truncate");
+    if (element === null) throw new Error("the project name is not mounted");
+    return element;
+  };
+  expect(projectName().scrollWidth).toBeLessThanOrEqual(projectName().clientWidth + 1);
+  expect(titleSpan().scrollWidth).toBeLessThanOrEqual(titleSpan().clientWidth + 1);
+
+  const projectBefore = projectButton.element();
+  projectBefore.focus();
+  expect(projectBefore.matches(":focus-visible")).toBe(true);
+
+  const handle = page.getByRole("separator", { name: "Resize sidebar" });
+  const handleElement = handle.element();
+  Object.defineProperties(handleElement, {
+    setPointerCapture: { configurable: true, value: () => undefined },
+    releasePointerCapture: { configurable: true, value: () => undefined },
+    hasPointerCapture: { configurable: true, value: () => true },
+  });
+  const startX = handleElement.getBoundingClientRect().left;
+  handleElement.dispatchEvent(
+    new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      clientX: startX,
+    }),
+  );
+  handleElement.dispatchEvent(
+    new PointerEvent("pointermove", {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      clientX: startX - 176,
+    }),
+  );
+  handleElement.dispatchEvent(
+    new PointerEvent("pointerup", {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      clientX: startX - 176,
+    }),
+  );
+  await expect.element(handle).toHaveAttribute("aria-valuenow", "208");
+
+  // The project row's name started clipping, but its button is the same focused element.
+  await vi.waitFor(() =>
+    expect(projectName().scrollWidth).toBeGreaterThan(projectName().clientWidth),
+  );
+  expect(projectButton.element()).toBe(projectBefore);
+  expect(projectBefore.isConnected).toBe(true);
+  expect(document.activeElement).toBe(projectBefore);
+  expect(projectBefore.matches(":focus-visible")).toBe(true);
+
+  // The task row now clips too; widening with the handle's arrow keys stops it.
+  const taskBefore = taskButton.element();
+  taskBefore.focus();
+  expect(taskBefore.matches(":focus-visible")).toBe(true);
+  expect(titleSpan().scrollWidth).toBeGreaterThan(titleSpan().clientWidth);
+  for (let step = 1; step <= 11; step += 1) {
+    handleElement.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowRight" }),
+    );
+    // oxlint-disable-next-line eslint/no-await-in-loop -- each step waits for the previous width
+    await expect.element(handle).toHaveAttribute("aria-valuenow", String(208 + step * 16));
+  }
+  await vi.waitFor(() =>
+    expect(titleSpan().scrollWidth).toBeLessThanOrEqual(titleSpan().clientWidth + 1),
+  );
+  expect(taskButton.element()).toBe(taskBefore);
+  expect(taskBefore.isConnected).toBe(true);
+  expect(document.activeElement).toBe(taskBefore);
+  expect(taskBefore.matches(":focus-visible")).toBe(true);
 });

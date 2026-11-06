@@ -27,7 +27,7 @@ import type {
   TaskChanges,
   TerminalInfo,
 } from "@corral/protocol/rpc";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
 import { cn } from "../../common/lib/cn.ts";
 import {
@@ -60,6 +60,23 @@ export function terminalLabel(terminal: TerminalInfo): string {
   const program = terminal.command.split("/").pop() || terminal.command;
   const folder = terminal.cwd.replace(/\/+$/, "").split("/").pop() || "/";
   return `${program} · ${folder}`;
+}
+
+/** One accessible name from the parts a row shows, in the order the eye reads them. */
+function rowName({
+  title,
+  right,
+  detail,
+  unseen = false,
+}: {
+  title: string;
+  right?: string | undefined;
+  detail?: string | undefined;
+  unseen?: boolean | undefined;
+}): string {
+  return [title, right, detail, unseen ? "unseen" : undefined]
+    .filter((part): part is string => part !== undefined && part !== "")
+    .join(" — ");
 }
 
 /** Time labels in rows are read at a glance and must not go stale while the window sits open. */
@@ -366,7 +383,12 @@ function Scratch({
   return (
     <li>
       <TreeRow>
-        <Button variant="ghost" layout="tree" aria-label="Scratch" onClick={onSelectLoose}>
+        <Button
+          variant="ghost"
+          layout="tree"
+          aria-label={rowName({ title: "Scratch", right: String(entries.length) })}
+          onClick={onSelectLoose}
+        >
           <Icon name="terminal" />
           <span className="min-w-0 flex-1 truncate text-left">Scratch</span>
           <span className="text-xs text-muted-foreground">{entries.length}</span>
@@ -405,6 +427,9 @@ function TerminalRow({
 }) {
   const { terminal } = entry;
   const label = terminalLabel(terminal);
+  const descriptionId = useId();
+  const exit = terminal.exit ? `exited (${terminal.exit.exitCode})` : undefined;
+  const name = rowName({ title: label, right: exit });
   const {
     observe: observeTerminal,
     clipped: terminalClipped,
@@ -415,10 +440,16 @@ function TerminalRow({
       variant={current ? "secondary" : "ghost"}
       layout="tree"
       data-sidebar-row
-      aria-label={label}
+      aria-label={name}
+      aria-describedby={exit === undefined ? undefined : descriptionId}
       aria-current={current ? "true" : undefined}
       onClick={onSelect}
     >
+      {exit !== undefined && (
+        <span id={descriptionId} className="sr-only">
+          {exit}
+        </span>
+      )}
       <span
         ref={observeTerminal}
         className={cn("min-w-0 flex-1 truncate", terminal.exit && "text-muted-foreground")}
@@ -433,7 +464,7 @@ function TerminalRow({
       <TreeRow current={current}>
         <RowMenu
           label={`Terminal actions for ${label}`}
-          hint={terminalClipped ? label : undefined}
+          hint={terminalClipped || exit !== undefined ? name : undefined}
           trigger={select}
         >
           {onRename && <DropdownMenuItem onClick={onRename}>Rename…</DropdownMenuItem>}
@@ -487,30 +518,47 @@ function TaskRow({
   const unseen = row?.unseen ?? isUnseenDone(task, status);
   const current = task.id === selection?.taskId;
   const agent = sessions.find(({ session }) => session.kind !== "shell")?.session.kind;
-  const detail =
+  const context =
     [
       row?.projectName ?? projectName,
       task.ownsWorktree ? task.branch : undefined,
       agent,
       sessions.length > 1 ? `${sessions.length} sessions` : undefined,
-      // The compact counts appear only when the task changed something (`layout.md`, **Sidebar**),
-      // and the request's state only when one is linked.
-      changeCounts(changes),
-      pullRequest === undefined ? undefined : pullRequestShortText(pullRequest),
     ]
-      .filter(Boolean)
+      .filter((part): part is string => part !== undefined && part !== "")
       .join(" · ") || undefined;
+  // The compact counts appear only when the task changed something (`layout.md`, **Sidebar**),
+  // and the request's state only when one is linked. Both are one non-shrinking tail.
+  const tail = [
+    changeCounts(changes),
+    pullRequest === undefined ? undefined : pullRequestShortText(pullRequest),
+  ].filter((part): part is string => part !== undefined);
+  const detail =
+    [context, ...tail].filter((part): part is string => part !== undefined).join(" · ") ||
+    undefined;
   const {
     observe: observeTitle,
     clipped: titleClipped,
     display: titleDisplay,
   } = useTruncatedText(task.title);
   const {
-    observe: observeDetail,
-    clipped: detailClipped,
-    display: detailDisplay,
-  } = useTruncatedText(detail ?? "");
+    observe: observeContext,
+    clipped: contextClipped,
+    display: contextDisplay,
+  } = useTruncatedText(context ?? "");
   const right = attentionWord(status) ?? formatAge(now, status?.updatedAt ?? task.createdAt);
+  const name = rowName({ title: task.title, right, detail, unseen });
+  const description = status?.message || undefined;
+  const descriptionId = useId();
+  const hint =
+    titleClipped || contextClipped || description !== undefined ? (
+      <span className="block">
+        <span className="block">{name}</span>
+        {description !== undefined && (
+          <span className="block text-muted-foreground">{description}</span>
+        )}
+      </span>
+    ) : undefined;
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const select = (
     <Button
@@ -520,12 +568,17 @@ function TaskRow({
       data-sidebar-row
       data-task-row
       // The second line lives in an overridden subtree, so the accessible name carries it.
-      aria-label={detail === undefined ? task.title : `${task.title} — ${detail}`}
+      aria-label={name}
+      aria-describedby={description === undefined ? undefined : descriptionId}
       aria-current={current ? "true" : undefined}
       ref={menuTrigger}
-      title={titleClipped || detailClipped ? undefined : status?.message}
       onClick={onSelect}
     >
+      {description !== undefined && (
+        <span id={descriptionId} className="sr-only">
+          {description}
+        </span>
+      )}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="flex min-w-0 items-center gap-1.5">
           <span
@@ -547,8 +600,16 @@ function TaskRow({
           )}
           <span className="shrink-0 text-xs text-muted-foreground">{right}</span>
         </span>
-        <span ref={observeDetail} className="min-w-0 truncate text-xs text-muted-foreground">
-          {detailDisplay}
+        <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <span ref={observeContext} data-row-detail className="min-w-0 flex-1 truncate">
+            {contextDisplay}
+          </span>
+          {tail.length > 0 && (
+            <span data-row-tail className="shrink-0 whitespace-nowrap">
+              {context !== undefined && "· "}
+              {tail.join(" · ")}
+            </span>
+          )}
         </span>
       </span>
     </Button>
@@ -556,21 +617,8 @@ function TaskRow({
   return (
     <li>
       <TreeRow current={current}>
-        <StatusIndicator status={status} muted={isSeenDone(status, unseen)} />
-        <RowMenu
-          label={`Task actions for ${task.title}`}
-          hint={
-            titleClipped || detailClipped ? (
-              <span className="block">
-                <span className="block">{task.title}</span>
-                {detail !== undefined && (
-                  <span className="block text-muted-foreground">{detail}</span>
-                )}
-              </span>
-            ) : undefined
-          }
-          trigger={select}
-        >
+        <StatusIndicator status={status} muted={isSeenDone(status, unseen)} tooltip={false} />
+        <RowMenu label={`Task actions for ${task.title}`} hint={hint} trigger={select}>
           {onViewSource && (
             <DropdownMenuItem
               onClick={(event) => onViewSource(menuTrigger.current ?? event.currentTarget)}
@@ -623,13 +671,26 @@ function ProjectGroup({
     clipped: projectClipped,
     display: projectDisplay,
   } = useTruncatedText(project.name);
+  const name = rowName({
+    title: project.name,
+    right: String(count),
+    detail: projectClipped ? project.path : undefined,
+  });
+  const hint = projectClipped ? (
+    <span className="block">
+      <span className="block">
+        {project.name} — {count}
+      </span>
+      <span className="block text-muted-foreground">{project.path}</span>
+    </span>
+  ) : undefined;
   // One control per project: the row itself discloses the group. The count stays in the row and
   // the action covers it on hover and keyboard focus, so neither reserves an action gutter.
   const select = (
     <Button
       variant="ghost"
       layout="tree"
-      aria-label={project.name}
+      aria-label={name}
       aria-expanded={open}
       onClick={() => onToggle(groupKey)}
     >
@@ -646,7 +707,7 @@ function ProjectGroup({
   return (
     <li>
       <TreeRow project className="group relative">
-        {projectClipped ? <Hint content={project.name}>{select}</Hint> : select}
+        <Hint content={hint}>{select}</Hint>
         <span className="absolute inset-y-0 right-0 flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
           <IconButton
             label={`New task in ${project.name}`}
