@@ -153,7 +153,7 @@ test("Enter on the stopped session's pane starts it again", async () => {
   await createTaskWithShell("Agents");
   await startAgent("pi", "3");
   await prefixThen("x");
-  await expect.element(stoppedPane().getByRole("button", { name: "Start again" })).toHaveFocus();
+  await expect.element(stoppedPane().getByRole("button", { name: "Restart" })).toHaveFocus();
 
   await userEvent.keyboard("{Enter}");
 

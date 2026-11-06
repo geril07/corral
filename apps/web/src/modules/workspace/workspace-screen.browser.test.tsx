@@ -2040,7 +2040,7 @@ test("prefix w from a stopped session comes back to its button on Escape", async
   await appWithProject(newClient());
   await createTaskWithShell("Stopped");
   await prefixThen("x");
-  const restart = page.getByRole("button", { name: "Start again" });
+  const restart = page.getByRole("button", { name: "Restart" });
   await expect.element(restart).toHaveFocus();
 
   await prefixThen("w");
