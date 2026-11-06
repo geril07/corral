@@ -36,6 +36,7 @@ import { createChangesActions, usePullRequests, type ChangesActions } from "../c
 import { useCorralClient, useConnection } from "../connection/index.ts";
 import { useChatSession, useChatTurn, type ChatFiles } from "../chat/index.ts";
 import {
+  actionAvailability,
   formatBinding,
   useConfig,
   usePrefixMode,
@@ -254,6 +255,24 @@ export function useWorkspace({
   // action without subscribing the workspace to every streamed delta.
   const chat = useChatSession(client, currentSession);
   const chatTurn = useChatTurn(chat?.store);
+  // The picker and both chords use one fact: a running chat session that can own the content.
+  const chatPicker =
+    chat !== undefined && currentSession !== undefined && currentSession.kind !== "shell"
+      ? {
+          chat,
+          session: { ...currentSession, kind: currentSession.kind },
+        }
+      : undefined;
+  const canShowChatPicker = chatPicker !== undefined;
+  // A picker whose chat stops has nothing left to show; close it so its dialog cannot outlive it.
+  useEffect(() => {
+    if (canShowChatPicker) return;
+    setDialog((currentDialog) =>
+      currentDialog?.kind === "chat-model" || currentDialog?.kind === "chat-reasoning"
+        ? undefined
+        : currentDialog,
+    );
+  }, [canShowChatPicker]);
   // `chat.capabilities`: which agents this server build can show as chat (goal D7) and what each
   // driver declared (protocol 10). One store answers the handoff offer, the composer's view control
   // and the palette, and `loaded` lets an offer wait instead of claiming no driver before the
@@ -406,10 +425,7 @@ export function useWorkspace({
    * terminal in the main area and the chat store stay exactly as they were.
    */
   const openChanges = () => {
-    if (selection.taskId === null) {
-      setFailure({ message: "Select a task to see its changes.", tone: "notice" });
-      return;
-    }
+    if (selection.taskId === null) return;
     setFailure(undefined);
     setComposing(undefined);
     setChangesView(true);
@@ -480,14 +496,7 @@ export function useWorkspace({
       : startSession(taskId, "shell");
 
   const openAgentPicker = (opener?: HTMLElement) => {
-    if (selection.taskId === null) {
-      setFailure({ message: "Select a task to start an agent in.", tone: "notice" });
-      return;
-    }
-    if (!AgentKind.options.some((kind) => config.agents[kind].enabled.value)) {
-      setFailure({ message: "Every agent is disabled in the config file.", tone: "notice" });
-      return;
-    }
+    if (selection.taskId === null || !agentsEnabled) return;
     setFailure(undefined);
     openDialog({ kind: "pick-agent", taskId: selection.taskId }, opener);
   };
@@ -713,10 +722,18 @@ export function useWorkspace({
   /** The n-th session of the current task in sidebar order; disabled when the task has fewer. */
   const goToSession = (number: number): ActionEntry => {
     const entry = sessionEntries[number - 1];
+    const count = sessionEntries.length;
     return {
       label: `Go to session ${number}`,
       group: "Sessions",
-      enabled: entry !== undefined,
+      ...actionAvailability(
+        entry !== undefined,
+        selection.taskId === null
+          ? "Select a task with sessions."
+          : count === 0
+            ? "This task has no sessions."
+            : `This task has only ${count} session${count === 1 ? "" : "s"}.`,
+      ),
       run: () => {
         if (entry) selectEntry(entry);
       },
@@ -746,7 +763,7 @@ export function useWorkspace({
     if (row) {
       setFailure(undefined);
       jumpTo(row);
-    } else setFailure({ message: "No blocked sessions.", tone: "notice" });
+    }
   };
 
   const toggleSettle = (task: Task) =>
@@ -766,18 +783,11 @@ export function useWorkspace({
     const target = project ?? currentTaskProject ?? currentProject ?? projects[0];
     if (!target) {
       // Before the project list arrives there is no project to point at yet; remember the open
-      // so the composer appears as soon as it does. Only a loaded, empty list is a first run.
+      // so the composer appears as soon as it does. The guard reports a loaded, empty list.
       if (!projectsSnapshot.loaded) {
         composerOpens.current += 1;
         setComposing({ opened: composerOpens.current });
-        return;
       }
-      const addProject = formatBinding(config, "add-project");
-      setFailure({
-        message:
-          addProject === "unbound" ? "Add a project first." : `Add a project first: ${addProject}.`,
-        tone: "notice",
-      });
       return;
     }
     setFailure(undefined);
@@ -889,6 +899,27 @@ export function useWorkspace({
     else if (composingRemoved) setComposing(undefined);
   };
 
+  const addProjectHint = formatBinding(config, "add-project");
+  const addProjectReason =
+    addProjectHint === "unbound"
+      ? "Add a project first."
+      : `Add a project first: ${addProjectHint}.`;
+  const agentsEnabled = AgentKind.options.some((kind) => config.agents[kind].enabled.value);
+  const stopSessionReason =
+    currentSession !== undefined && currentSession.state !== "running"
+      ? "This session is not running."
+      : "Select a running session to stop.";
+  const restartSessionReason =
+    currentSession === undefined
+      ? "Select a session to restart."
+      : "This session is running; stop it first.";
+  const abortTurnReason =
+    chat === undefined
+      ? "Only a running chat session has a turn to abort."
+      : chat.aborting
+        ? "This turn is stopping."
+        : "No turn is working in this chat session.";
+
   const actions: ActionTable = {
     "new-terminal": {
       label: "New terminal",
@@ -899,16 +930,21 @@ export function useWorkspace({
     "new-agent": {
       label: "New agent session",
       group: "Sessions",
-      // Every agent disabled in `[agents]` leaves nothing to start.
-      enabled:
-        selection.taskId !== null &&
-        AgentKind.options.some((kind) => config.agents[kind].enabled.value),
+      ...actionAvailability(
+        selection.taskId !== null && agentsEnabled,
+        selection.taskId === null
+          ? "Select a task to start an agent in."
+          : "Every agent is disabled in the config file.",
+      ),
       run: openAgentPicker,
     },
     "stop-session": {
       label: "Stop session",
       group: "Sessions",
-      enabled: current?.type === "terminal" || currentSession?.state === "running",
+      ...actionAvailability(
+        current?.type === "terminal" || currentSession?.state === "running",
+        stopSessionReason,
+      ),
       run: () => {
         if (current?.type === "terminal") void closeTerminal(current.id);
         else if (currentSession?.state === "running") void stopSession(currentSession);
@@ -917,7 +953,10 @@ export function useWorkspace({
     "restart-session": {
       label: "Restart session",
       group: "Sessions",
-      enabled: currentSession !== undefined && currentSession.state !== "running",
+      ...actionAvailability(
+        currentSession !== undefined && currentSession.state !== "running",
+        restartSessionReason,
+      ),
       run: () => {
         if (currentSession && currentSession.state !== "running")
           void restartSession(currentSession);
@@ -926,7 +965,7 @@ export function useWorkspace({
     "rename-session": {
       label: "Rename session",
       group: "Sessions",
-      enabled: current !== undefined,
+      ...actionAvailability(current !== undefined, "Select a session or terminal to rename."),
       run: () => {
         if (current) openRenameEntry(current);
       },
@@ -934,7 +973,7 @@ export function useWorkspace({
     "remove-session": {
       label: "Remove session",
       group: "Sessions",
-      enabled: currentSession !== undefined,
+      ...actionAvailability(currentSession !== undefined, "Select a session to remove."),
       run: () => {
         if (currentSession) openDialog({ kind: "remove-session", session: currentSession });
       },
@@ -942,31 +981,37 @@ export function useWorkspace({
     "next-session": {
       label: "Next session",
       group: "Sessions",
-      enabled: entryIds.length > 1,
+      ...actionAvailability(entryIds.length > 1, "This task has fewer than two sessions."),
       run: () => stepEntry(1),
     },
     "previous-session": {
       label: "Previous session",
       group: "Sessions",
-      enabled: entryIds.length > 1,
+      ...actionAvailability(entryIds.length > 1, "This task has fewer than two sessions."),
       run: () => stepEntry(-1),
     },
     "abort-turn": {
       label: "Abort the working turn",
       group: "Sessions",
-      enabled: chat !== undefined && chatTurn === "working" && !chat.aborting,
+      ...actionAvailability(
+        chat !== undefined && chatTurn === "working" && !chat.aborting,
+        abortTurnReason,
+      ),
       run: () => void attempt(() => chat?.abort() ?? Promise.resolve()),
     },
     "change-model": {
       label: "Change the chat model",
       group: "Sessions",
-      enabled: chat !== undefined,
+      ...actionAvailability(canShowChatPicker, "Only a running chat session has a model control."),
       run: () => openDialog({ kind: "chat-model" }),
     },
     "change-reasoning": {
       label: "Change the reasoning level",
       group: "Sessions",
-      enabled: chat !== undefined,
+      ...actionAvailability(
+        canShowChatPicker,
+        "Only a running chat session has a reasoning control.",
+      ),
       run: () => openDialog({ kind: "chat-reasoning" }),
     },
     "switch-view": (() => {
@@ -979,8 +1024,10 @@ export function useWorkspace({
               : `Switch to ${offered.target}`
             : "Switch view",
         group: "Sessions",
-        enabled: "target" in offered,
-        ...("reason" in offered ? { reason: offered.reason } : {}),
+        ...actionAvailability(
+          "target" in offered,
+          "reason" in offered ? offered.reason : "Select an agent session.",
+        ),
         run: () => {
           if (currentSession) requestSwitchView(currentSession);
         },
@@ -989,7 +1036,7 @@ export function useWorkspace({
     changes: {
       label: "Changes",
       group: "Sessions",
-      enabled: selection.taskId !== null,
+      ...actionAvailability(selection.taskId !== null, "Select a task to see its changes."),
       run: openChanges,
     },
     "session-1": goToSession(1),
@@ -1004,25 +1051,26 @@ export function useWorkspace({
     "new-task": {
       label: "New task",
       group: "Tasks",
-      enabled: projects.length > 0,
+      // The projects list may still be on its way; the composer opens when it arrives.
+      ...actionAvailability(!projectsSnapshot.loaded || projects.length > 0, addProjectReason),
       run: () => openNewTask(),
     },
     "remove-task": {
       label: "Remove task",
       group: "Tasks",
-      enabled: currentTask !== undefined,
+      ...actionAvailability(currentTask !== undefined, "Select a task to remove."),
       run: () => openRemoveTask(currentTask),
     },
     "rename-task": {
       label: "Rename task",
       group: "Tasks",
-      enabled: currentTask !== undefined,
+      ...actionAvailability(currentTask !== undefined, "Select a task to rename."),
       run: () => openRenameTask(currentTask),
     },
     "settle-task": {
       label: "Settle or unsettle task",
       group: "Tasks",
-      enabled: currentTask !== undefined,
+      ...actionAvailability(currentTask !== undefined, "Select a task to settle."),
       run: () => {
         if (currentTask) void toggleSettle(currentTask);
       },
@@ -1036,13 +1084,19 @@ export function useWorkspace({
     "next-task": {
       label: "Next task",
       group: "Tasks",
-      enabled: nextTaskId !== undefined && nextTaskId !== selection.taskId,
+      ...actionAvailability(
+        nextTaskId !== undefined && nextTaskId !== selection.taskId,
+        "There is no next task.",
+      ),
       run: () => stepTask(1),
     },
     "previous-task": {
       label: "Previous task",
       group: "Tasks",
-      enabled: previousTaskId !== undefined && previousTaskId !== selection.taskId,
+      ...actionAvailability(
+        previousTaskId !== undefined && previousTaskId !== selection.taskId,
+        "There is no previous task.",
+      ),
       run: () => stepTask(-1),
     },
     "add-project": {
@@ -1078,7 +1132,7 @@ export function useWorkspace({
     "jump-blocked": {
       label: "Jump to blocked session",
       group: "Navigation",
-      enabled: mostUrgentBlocked(board) !== undefined,
+      ...actionAvailability(mostUrgentBlocked(board) !== undefined, "No blocked sessions."),
       run: jumpToBlocked,
     },
     "command-palette": {
@@ -1095,12 +1149,18 @@ export function useWorkspace({
     },
   };
 
+  /** The one dispatch: a disabled entry says why instead of running. */
+  const invoke = (action: ActionId) => {
+    const entry = actions[action];
+    if (!entry.enabled) {
+      setFailure({ message: entry.reason, tone: "notice" });
+      return;
+    }
+    entry.run();
+  };
+
   const keymap = useMemo(() => createConfigKeymap(config), [config]);
-  const armed = usePrefixMode(
-    keymap,
-    (action: ActionId) => actions[action].run(),
-    active && dialog === undefined,
-  );
+  const armed = usePrefixMode(keymap, invoke, active && dialog === undefined);
 
   const rememberFitSize = useCallback((size: TerminalSize) => {
     fitSize.current = size;
@@ -1131,6 +1191,8 @@ export function useWorkspace({
     current,
     currentSession,
     chat,
+    chatPicker,
+    canShowChatPicker,
     chatDriver,
     chatDrivers,
     capabilitiesReady: chatCapabilities.loaded,
@@ -1162,6 +1224,7 @@ export function useWorkspace({
     },
     armed,
     actions,
+    invoke,
     rememberFitSize,
     choose,
     showTask,

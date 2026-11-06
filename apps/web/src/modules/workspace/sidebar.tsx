@@ -128,6 +128,8 @@ interface SidebarProps {
   onViewSource?: (task: Task, opener?: HTMLElement) => void;
   /** `project` is set by a project group's "new task here"; absent from the header button. */
   onNewTask: (project?: Project, opener?: HTMLElement) => void;
+  /** The same enabled fact the new-task action carries; absent in a bare sidebar fixture. */
+  newTaskEnabled?: boolean | undefined;
   onFindTask: (opener?: HTMLElement) => void;
   onToggleSidebar?: (() => void) | undefined;
   onToggleGrouping?: (() => void) | undefined;
@@ -144,6 +146,7 @@ interface SidebarProps {
  */
 export function Sidebar(props: SidebarProps) {
   const { tree, selection, config, flat, changes, pullRequests, composing } = props;
+  const newTaskEnabled = props.newTaskEnabled ?? selection.projectId !== undefined;
   const { closedProjects, toggleProject, openProject, shelf, setShelf } = useSidebarDevice();
   const listRef = useRef<HTMLDivElement>(null);
   const now = useNow(AGE_REFRESH_MS);
@@ -319,7 +322,7 @@ export function Sidebar(props: SidebarProps) {
           label="New task"
           tooltip={hint("New task", "new-task")}
           icon="task"
-          disabled={selection.projectId === undefined}
+          disabled={!newTaskEnabled}
           onClick={(event) => props.onNewTask(undefined, event.currentTarget)}
         />
       </div>

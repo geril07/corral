@@ -2,6 +2,7 @@ export {
   ACTION_GROUP_OF,
   ACTION_GROUPS,
   ACTION_LABELS,
+  actionAvailability,
   bindingOf,
   formatBinding,
   type ActionEntry,

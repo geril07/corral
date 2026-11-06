@@ -1,15 +1,22 @@
 import type { CorralClient } from "@corral/client/corral-client";
+import type { SessionsSnapshot } from "@corral/client/sessions-store";
+import { Store } from "@corral/client/store";
+import type { TasksSnapshot } from "@corral/client/tasks-store";
+import type { Session, Task } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { writeConfig } from "../../../test/config-command.ts";
-import { prefixThen, realServerClients } from "../../../test/real-client.ts";
+import { prefixShifted, prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
 import {
   appWithProject,
   createTaskWithShell,
   focusedIsTerminal,
+  newTaskView,
+  promptField,
   sessionTab,
+  shellTabs,
   taskButton,
   workspace,
 } from "../../../test/task-flows.tsx";
@@ -20,6 +27,79 @@ const shell = (name: string) => sessionTab(name);
 const picker = () => page.getByRole("dialog", { name: "New agent session" });
 const palette = () => page.getByRole("dialog", { name: "Command palette" });
 const paletteItem = (name: RegExp) => palette().getByRole("option", { name });
+const reasonText = (text: string) => page.getByText(text, { exact: true });
+const modelDialog = () => page.getByRole("dialog", { name: "Chat model" });
+const reasoningDialog = () => page.getByRole("dialog", { name: "Reasoning level" });
+
+/** A refused chord: no dialog, and the one reason in the shell's guidance row. */
+async function assertRefused(press: () => Promise<void>, reason: string) {
+  await press();
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+  await expect.element(reasonText(reason)).toBeVisible();
+}
+
+/** Runs `read` with the interface scale applied, after the browser has adopted it. */
+async function withInterfaceScale(scale: string, read: () => void) {
+  const previous = document.documentElement.style.fontSize;
+  document.documentElement.style.fontSize = scale;
+  try {
+    await vi.waitFor(() =>
+      expect(
+        Number.parseFloat(getComputedStyle(document.documentElement).fontSize),
+      ).toBeGreaterThan(16),
+    );
+    read();
+  } finally {
+    document.documentElement.style.fontSize = previous;
+  }
+}
+
+/**
+ * A selected terminal agent with no chat driver in the server's answer. The palette's Switch view
+ * row then carries the 50-character reason from the issue, on a short label.
+ */
+function seededDriverlessWorkspace() {
+  const real = newClient();
+  const tasks = new Store<TasksSnapshot>({ loaded: true, tasks: [] });
+  const sessions = new Store<SessionsSnapshot>({ loaded: true, sessions: [] });
+  const capabilities = {
+    loaded: true,
+    drivers: [
+      {
+        kind: "pi",
+        steer: true,
+        followUp: true,
+        approvals: true,
+        modelSwitch: true,
+        reasoningLevels: true,
+        terminalView: "handoff-only",
+      },
+    ],
+  } as const;
+  const client: CorralClient = {
+    ...real,
+    tasks: {
+      subscribe: tasks.subscribe,
+      getSnapshot: tasks.getSnapshot,
+      failure: { subscribe: () => () => {}, getSnapshot: () => undefined },
+      retry: () => {},
+      close: () => {},
+    },
+    sessions: {
+      subscribe: sessions.subscribe,
+      getSnapshot: sessions.getSnapshot,
+      failure: { subscribe: () => () => {}, getSnapshot: () => undefined },
+      retry: () => {},
+      close: () => {},
+    },
+    chatCapabilities: {
+      subscribe: () => () => {},
+      getSnapshot: () => capabilities,
+      close: () => {},
+    },
+  };
+  return { client, real, tasks, sessions };
+}
 
 /** Writes the file and waits until the client has the config the server derived from it. */
 async function applyConfig(client: CorralClient, text: string, applied: () => void) {
@@ -240,6 +320,199 @@ test("the palette opens the board and Escape returns to the terminal", async () 
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
   await userEvent.keyboard("echo board-palette-$((4+4)){Enter}");
   await expect.poll(() => window.corralScreenText?.() ?? "").toContain("board-palette-8");
+});
+
+test("the chat picker chords refuse without a session and leave every prefix chord alive", async () => {
+  await render(<App client={newClient()} />);
+  await expect.element(page.getByText("Add a repository to start")).toBeVisible();
+
+  // A disabled task action is refused with its reason, not run.
+  await prefixThen("e");
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+  await expect.element(reasonText("Select a task to rename.")).toBeVisible();
+
+  await assertRefused(() => prefixThen("m"), "Only a running chat session has a model control.");
+  await assertRefused(
+    () => prefixShifted("m"),
+    "Only a running chat session has a reasoning control.",
+  );
+
+  // No dialog was set, so the next chord works without opening and closing anything.
+  await prefixThen(" ");
+  await expect.element(palette()).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(palette()).not.toBeInTheDocument();
+});
+
+test("the chat picker chords refuse on a shell, and the next chords still work", async () => {
+  await appWithProject(newClient());
+  await createTaskWithShell("Shell chords");
+  await expect.element(shell("shell")).toHaveAttribute("aria-selected", "true");
+
+  await assertRefused(() => prefixThen("m"), "Only a running chat session has a model control.");
+  await assertRefused(
+    () => prefixShifted("m"),
+    "Only a running chat session has a reasoning control.",
+  );
+
+  // The task is still live: another shell opens, then the palette opens, with no recovery step.
+  await prefixThen("c");
+  await expect.element(shellTabs()).toHaveLength(2);
+  await prefixThen(" ");
+  await expect.element(palette()).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(palette()).not.toBeInTheDocument();
+});
+
+test("both chat picker chords apply on a running chat, and the picker closes when its chat stops", async () => {
+  const { client } = await appWithProject(newClient());
+  await prefixThen("t");
+  await expect.element(promptField()).toHaveFocus();
+  // The fake pi reports models and reasoning levels; claude would start without that catalog.
+  await userEvent.click(newTaskView().getByRole("button", { name: /^Agent / }));
+  await page
+    .getByRole("dialog", { name: "Agent and model" })
+    .getByRole("radio", { name: "pi", exact: true })
+    .click();
+  await userEvent.keyboard("{Escape}");
+  await promptField().click();
+  await userEvent.keyboard("Picker work{Enter}");
+  await expect
+    .element(page.getByRole("log", { name: "Chat transcript" }))
+    .toMatchTextContent("Picker work");
+  const session = await vi.waitFor(() => {
+    const found = client.sessions
+      .getSnapshot()
+      .sessions.find(
+        (each) => each.kind === "pi" && each.view === "chat" && each.state === "running",
+      );
+    if (found === undefined) throw new Error("the running chat is not in the store yet");
+    return found;
+  });
+
+  // The model chord opens the picker on a running chat, and a model applies.
+  await prefixThen("m");
+  await expect.element(modelDialog()).toBeVisible();
+  await expect.element(modelDialog().getByRole("option", { name: /Stub Two/ })).toBeVisible();
+  await modelDialog()
+    .getByRole("option", { name: /Stub Two/ })
+    .click();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(modelDialog()).not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: "Model Stub Two" })).toBeVisible();
+
+  // The reasoning chord opens it too, and a level applies and closes.
+  await prefixShifted("m");
+  await expect.element(reasoningDialog()).toBeVisible();
+  await reasoningDialog().getByRole("button", { name: "high" }).click();
+  await expect.element(reasoningDialog()).not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: "Reasoning high" })).toBeVisible();
+
+  // Open the model picker again, then let the chat stop under it: the dialog closes and no stale
+  // dialog keeps the prefix disarmed.
+  await prefixThen("m");
+  await expect.element(modelDialog()).toBeVisible();
+  await client.connection.api.sessions.stop({ id: session.id });
+  await expect.element(modelDialog()).not.toBeInTheDocument();
+  await prefixThen("m");
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+  await expect
+    .element(reasonText("Only a running chat session has a model control."))
+    .toBeVisible();
+  await prefixThen(" ");
+  await expect.element(palette()).toBeVisible();
+});
+
+test("every disabled palette row carries a reason on a second line and keeps its binding", async () => {
+  await render(<App client={newClient()} />);
+  await prefixThen(" ");
+  await expect.element(palette()).toBeVisible();
+
+  const options = palette().getByRole("option").elements();
+  const disabled = options.filter((option) => option.getAttribute("aria-disabled") === "true");
+  expect(disabled.length).toBeGreaterThan(20);
+  for (const option of disabled) {
+    const reason = option.querySelector("[data-palette-reason]");
+    expect(reason?.textContent?.trim()).not.toBe("");
+    expect(option.querySelector("kbd")?.textContent?.trim()).not.toBe("");
+  }
+  for (const option of options.filter((each) => each.getAttribute("aria-disabled") !== "true")) {
+    expect(option.querySelector("[data-palette-reason]")).toBeNull();
+  }
+
+  // The reason keeps its own line at 140% text, under the label rather than in its row.
+  const reasoning = paletteItem(/Change the reasoning level/);
+  const assertReasonBelow = () => {
+    const option = reasoning.element();
+    const label = option.querySelector("[data-palette-label]");
+    const reason = option.querySelector("[data-palette-reason]");
+    if (!(label instanceof HTMLElement) || !(reason instanceof HTMLElement)) {
+      throw new Error("the disabled row has no label or reason line");
+    }
+    expect(reason.textContent).toBe("Only a running chat session has a reasoning control.");
+    expect(reason.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      label.getBoundingClientRect().bottom - 1,
+    );
+  };
+  assertReasonBelow();
+  await withInterfaceScale("140%", assertReasonBelow);
+});
+
+test("a long driverless reason leaves its short action label whole at 1024 and 140%", async () => {
+  const { client, real, tasks, sessions } = seededDriverlessWorkspace();
+  const { repo } = await appWithProject(client);
+  const project = await vi.waitFor(() => {
+    const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
+    if (found === undefined) throw new Error("the project is not in the list yet");
+    return found;
+  });
+  const task: Task = {
+    id: "task-long-reason",
+    projectId: project.id,
+    title: "Long reason",
+    titleSource: "user",
+    prompt: null,
+    primarySessionId: "agent-claude-long",
+    branch: "main",
+    workspacePath: project.path,
+    ownsWorktree: false,
+    state: "active",
+    seenAt: null,
+    createdAt: 1,
+  };
+  const session: Session = {
+    id: "agent-claude-long",
+    taskId: task.id,
+    kind: "claude",
+    view: "terminal",
+    agentSessionId: "claude-seeded",
+    terminalId: null,
+    state: "running",
+    status: null,
+    createdAt: 1,
+  };
+  tasks.set({ loaded: true, tasks: [task] });
+  sessions.set({ loaded: true, sessions: [session] });
+  await taskButton("Long reason").click();
+  await prefixThen(" ");
+
+  const row = paletteItem(/Switch view/);
+  await expect.element(row).toBeVisible();
+  const assertLabelWhole = () => {
+    const option = row.element();
+    const label = option.querySelector("[data-palette-label]");
+    const reason = option.querySelector("[data-palette-reason]");
+    if (!(label instanceof HTMLElement) || !(reason instanceof HTMLElement)) {
+      throw new Error("the disabled row has no label or reason line");
+    }
+    expect(reason.textContent).toBe("The claude agent has no chat driver in this build.");
+    expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth + 1);
+    expect(reason.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      label.getBoundingClientRect().bottom - 1,
+    );
+  };
+  assertLabelWhole();
+  await withInterfaceScale("140%", assertLabelWhole);
 });
 
 test("a focus tooltip does not block the sidebar row underneath it", async () => {
