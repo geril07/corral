@@ -2061,13 +2061,19 @@ test("j, k and find leave the selected row in view, and j steps from the active 
       workspace: { type: "main-worktree" },
     });
   }
-  // One settled task ends the walk: `j` from the last active row selects it.
+  // Two settled tasks end the walk: `j` from the last active row selects the shelf's first.
   const archived = await client.connection.api.tasks.create({
     projectId: project.id,
     title: "Shelf task",
     workspace: { type: "main-worktree" },
   });
   await client.connection.api.tasks.setState({ id: archived.id, state: "settled" });
+  const later = await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "Shelf later",
+    workspace: { type: "main-worktree" },
+  });
+  await client.connection.api.tasks.setState({ id: later.id, state: "settled" });
   await expect.element(taskButton("Step 00")).toBeVisible();
   await taskButton("Step 00").click();
   await expect.element(taskButton("Step 00")).toHaveAttribute("aria-current", "true");
@@ -2088,14 +2094,19 @@ test("j, k and find leave the selected row in view, and j steps from the active 
 
   // From the last active row, `j` selects the shelf's first row and opens it visibly.
   await prefixThen("j");
-  const shelf = workspace().getByRole("button", { name: "Settled (1)" });
+  const shelf = workspace().getByRole("button", { name: "Settled (2)" });
   await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
   await expect.element(shelf).toBeEnabled();
-  const archivedRow = workspace().getByRole("button", { name: /^Shelf task/ });
-  await expect.element(archivedRow).toHaveAttribute("aria-current", "true");
-  await vi.waitFor(() => expect(visibleInBox(archivedRow.element(), settledBox())).toBe(true));
-  // Inspecting it must never resume it.
+  const firstShelfRow = settledBox().querySelector<HTMLElement>("[data-task-row]");
+  if (firstShelfRow === null) throw new Error("the shelf has no first row");
+  await vi.waitFor(() => expect(firstShelfRow.getAttribute("aria-current")).toBe("true"));
+  await vi.waitFor(() => expect(visibleInBox(firstShelfRow, settledBox())).toBe(true));
+  const firstShelfLabel = firstShelfRow.getAttribute("aria-label");
+  if (firstShelfLabel === null) throw new Error("the shelf's first row has no name");
+  const firstShelf = workspace().getByRole("button", { name: firstShelfLabel, exact: true });
+  // Inspecting either must never resume it.
   expect(taskState(client, archived.id)).toBe("settled");
+  expect(taskState(client, later.id)).toBe("settled");
 
   // `k` from the shelf's first row returns to the last active row and reveals it again.
   await prefixThen("k");
@@ -2104,7 +2115,7 @@ test("j, k and find leave the selected row in view, and j steps from the active 
   await vi.waitFor(() => expect(visibleInBox(lastActive.element(), activeListBox())).toBe(true));
   // The shelf the selection opened collapses when the selection leaves it.
   await expect.element(shelf).toHaveAttribute("aria-expanded", "false");
-  await expect.element(archivedRow).not.toBeInTheDocument();
+  await expect.element(firstShelf).not.toBeInTheDocument();
 
   // `prefix f` reveals the first row, even from the bottom of a long list.
   await prefixThen("f");
@@ -2139,7 +2150,7 @@ test("prefix \\ twice and a reload keep collapsed groups and the shelf page", as
   // Opening the shelf is the user's choice, so it stays open after the selection leaves.
   await workspace().getByRole("button", { name: "Settled (14)" }).click();
   await workspace()
-    .getByRole("button", { name: /^Archived 00/ })
+    .getByRole("button", { name: /^Archived 13/ })
     .click();
   await workspace().getByRole("button", { name: "Show more", exact: true }).click();
   await vi.waitFor(() => expect(settledRows()).toBe(8));
@@ -2169,9 +2180,10 @@ test("prefix \\ twice and a reload keep collapsed groups and the shelf page", as
     .toHaveAttribute("aria-expanded", "true");
   expect(settledRows()).toBe(8);
 
-  // A reload keeps the same two facts.
+  // A reload keeps the same two facts and the selection the URL names.
+  const { pathname, search, hash } = rendered.history.location;
   await rendered.unmount();
-  await render(<App client={client} />);
+  await render(<App client={client} initialEntries={[`${pathname}${search}${hash}`]} />);
   await expect
     .element(workspace().getByRole("button", { name: project.name }))
     .toHaveAttribute("aria-expanded", "false");

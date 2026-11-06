@@ -319,6 +319,36 @@ test("a flat row without a status is ordered by its own age, the time its row sh
   expect(flat.sections[0]?.tasks.map((row) => row.task.id)).toEqual(["fresh", "old-idle"]);
 });
 
+test("both grouping modes share one settled-shelf order by recent activity", () => {
+  const shelfTasks = [
+    { ...task("settled-a", "p1", "settled"), createdAt: 300 },
+    { ...task("settled-b", "p2", "settled"), createdAt: 100 },
+    { ...task("settled-c", "p1", "settled"), createdAt: 200 },
+    { ...task("settled-d", "p2", "settled"), createdAt: 50 },
+    { ...task("settled-e", "p1", "settled"), createdAt: 50 },
+  ];
+  const shelfSessions = [
+    reported("sa", "settled-a", "done", 100),
+    reported("sb", "settled-b", "done", 700),
+    reported("sc", "settled-c", "done", 700),
+    // d and e report nothing: creation decides, then the id.
+  ];
+  const shelfTree = buildWorkspaceTree(
+    [project("p1"), project("p2")],
+    [task("active", "p1"), ...shelfTasks],
+    shelfSessions,
+    [],
+  );
+  const expected = ["settled-c", "settled-b", "settled-a", "settled-d", "settled-e"];
+
+  // Grouped mode's navigation order and flat mode's shelf order are the same, regardless of the
+  // project or creation order the tasks arrived in.
+  expect(tasksInOrder(shelfTree).map((each) => each.id)).toEqual(["active", ...expected]);
+  const flat = buildFlatSidebar(shelfTree);
+  expect(flat.settled.map((row) => row.task.id)).toEqual(expected);
+  expect(flatTaskOrder(flat).map((each) => each.id)).toEqual(["active", ...expected]);
+});
+
 test("empty flat sections are left out", () => {
   const quiet = buildWorkspaceTree(
     [project("p1")],

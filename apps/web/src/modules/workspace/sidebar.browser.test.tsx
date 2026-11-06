@@ -13,6 +13,7 @@ import {
   type ClientConfig,
 } from "@corral/protocol/config";
 import type { Project, Session, Task, TerminalInfo } from "@corral/protocol/rpc";
+import { useState } from "react";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
@@ -149,6 +150,43 @@ async function renderSelectableSidebar(
   return { rendered: await render(element(chosen)), select: (next: Chosen) => element(next) };
 }
 
+/** A sidebar whose tasks the test can settle through the row menu and whose mode it can swap. */
+function ShelfFixture({
+  initialTasks,
+  sessions,
+  mode,
+  chosen,
+}: {
+  initialTasks: Task[];
+  sessions: Session[];
+  mode: SidebarMode;
+  chosen: Chosen;
+}) {
+  const [tasks, setTasks] = useState(initialTasks);
+  const tree = buildWorkspaceTree([project("p1"), project("p2")], tasks, sessions, [
+    terminal("loose", null, null),
+  ]);
+  const spies = handlers();
+  return (
+    <div className="flex h-screen flex-col">
+      <Sidebar
+        tree={tree}
+        selection={resolveSelection(tree, chosen)}
+        flat={mode === "flat" ? buildFlatSidebar(tree) : undefined}
+        config={config}
+        {...spies}
+        onToggleSettle={(settledTask) => {
+          const state: Task["state"] = settledTask.state === "active" ? "settled" : "active";
+          setTasks((current) =>
+            current.map((each) => (each.id === settledTask.id ? { ...each, state } : each)),
+          );
+        }}
+      />
+      <div aria-hidden className="h-(--chrome-row) shrink-0" />
+    </div>
+  );
+}
+
 const nav = () => page.getByRole("navigation", { name: "workspace" });
 const row = (title: string) => nav().getByRole("button", { name: new RegExp(`^${title}`) });
 const shelfBox = () => {
@@ -162,6 +200,12 @@ const activeList = () => {
   return list;
 };
 const taskRowsIn = (root: ParentNode) => [...root.querySelectorAll<HTMLElement>("[data-task-row]")];
+const shelfTitles = () =>
+  taskRowsIn(shelfBox()).map((item) => {
+    const title = item.getAttribute("aria-label")?.match(/^task (\S+)/)?.[1];
+    if (title === undefined) throw new Error("the shelf row has no task title");
+    return title;
+  });
 /** Whether a row sits wholly inside a box's visible area. */
 function visibleIn(element: Element, box: Element): boolean {
   const area = box.getBoundingClientRect();
@@ -305,7 +349,7 @@ test("a collapsed shelf shows the current task's row alone, and expanding it nev
     ...task(`archived-${index}`, "settled"),
     createdAt: index + 1,
   }));
-  // No active tasks: the shelf is the whole list, and the current row sits on its fourth page.
+  // No active tasks: the shelf is the whole list, and the current row sits past the first page.
   await renderSidebar({ taskId: "archived-10" }, [], tasks).rendered;
   const shelf = nav().getByRole("button", { name: "Settled (20)" });
   await expect.element(shelf).toHaveAttribute("aria-expanded", "false");
@@ -417,14 +461,14 @@ test("Show more with a settled task current reveals the appended page and keeps 
     ...task(`settled-${index}`, "settled"),
     createdAt: index + 1,
   }));
-  const { rendered, select } = await renderSelectableSidebar({ taskId: "settled-0" }, [], tasks);
+  const { rendered, select } = await renderSelectableSidebar({ taskId: "settled-13" }, [], tasks);
 
-  // A restored selection with the collapsed shelf shows its row alone; the toggle opens the box.
+  // The newest task restores first; the collapsed shelf shows its row alone, the toggle opens it.
   const shelf = nav().getByRole("button", { name: "Settled (14)" });
   await expect.element(shelf).toHaveAttribute("aria-expanded", "false");
   await shelf.click();
   await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
-  const currentRow = nav().getByRole("button", { name: /^task settled-0/ });
+  const currentRow = nav().getByRole("button", { name: /^task settled-13/ });
   await expect.element(currentRow).toHaveAttribute("aria-current", "true");
   await vi.waitFor(() => expect(visibleIn(currentRow.element(), shelfBox())).toBe(true));
 
@@ -504,7 +548,7 @@ test("an oversized stored page is clamped instead of mounting every settled row"
     ...task(`deep-${index}`, "settled"),
     createdAt: index,
   }));
-  await renderSidebar({}, [], tasks).rendered;
+  await renderSidebar({ taskId: "deep-99" }, [], tasks).rendered;
 
   await expect
     .element(nav().getByRole("button", { name: "Settled (100)" }))
@@ -783,6 +827,80 @@ test("a row's menu is gone before the next row opens its own", async () => {
 const reporting = (base: Session, status: NonNullable<Session["status"]>): Session => ({
   ...base,
   status,
+});
+
+test("the settled shelf keeps one order across grouping modes, so toggling leaves a row in place", async () => {
+  const sessions = [
+    reporting(session("s0", "active", "claude"), { state: "working", updatedAt: 1 }),
+    reporting(session("s1", "settled-newest", "claude"), { state: "done", updatedAt: 90 }),
+    reporting(session("s2", "settled-middle", "codex"), { state: "done", updatedAt: 60 }),
+    reporting(session("s3", "settled-oldest", "pi"), { state: "done", updatedAt: 20 }),
+  ];
+  const tasks = [
+    task("active"),
+    { ...task("settled-oldest", "settled"), projectId: "p1", createdAt: 400 },
+    { ...task("settled-newest", "settled"), projectId: "p1", createdAt: 100 },
+    { ...task("settled-middle", "settled"), projectId: "p2", createdAt: 300 },
+  ];
+  const fixture = (mode: SidebarMode) => (
+    <ShelfFixture
+      initialTasks={tasks}
+      sessions={sessions}
+      mode={mode}
+      chosen={{ taskId: "active" }}
+    />
+  );
+  const rendered = await render(fixture("project"));
+  const shelf = nav().getByRole("button", { name: "Settled (3)" });
+  await shelf.click();
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
+  const expected = ["settled-newest", "settled-middle", "settled-oldest"];
+  await vi.waitFor(() => expect(shelfTitles()).toEqual(expected));
+
+  // `prefix l` is this swap. Both modes show the same rows in the same places, twice over.
+  await rendered.rerender(fixture("flat"));
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
+  await vi.waitFor(() => expect(shelfTitles()).toEqual(expected));
+  await rendered.rerender(fixture("project"));
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
+  await vi.waitFor(() => expect(shelfTitles()).toEqual(expected));
+});
+
+test("settling from a row menu counts the row and places it by recent activity", async () => {
+  const sessions = [
+    reporting(session("s1", "other", "shell"), { state: "working", updatedAt: 5 }),
+    reporting(session("s2", "fresh", "claude"), { state: "done", updatedAt: 100 }),
+    reporting(session("s3", "settled-middle", "pi"), { state: "done", updatedAt: 70 }),
+    reporting(session("s4", "settled-old", "codex"), { state: "done", updatedAt: 50 }),
+  ];
+  const tasks = [
+    task("other"),
+    task("fresh"),
+    { ...task("settled-old", "settled"), projectId: "p1", createdAt: 500 },
+    { ...task("settled-middle", "settled"), projectId: "p2", createdAt: 600 },
+  ];
+  await render(
+    <ShelfFixture
+      initialTasks={tasks}
+      sessions={sessions}
+      mode="project"
+      chosen={{ taskId: "other" }}
+    />,
+  );
+  const shelf = nav().getByRole("button", { name: "Settled (2)" });
+  await shelf.click();
+  await expect.element(shelf).toHaveAttribute("aria-expanded", "true");
+  expect(shelfTitles()).toEqual(["settled-middle", "settled-old"]);
+
+  await row("task fresh").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Settle task" }).click();
+
+  const settled = nav().getByRole("button", { name: "Settled (3)" });
+  await expect.element(settled).toBeVisible();
+  await expect.element(settled).toHaveAttribute("aria-expanded", "true");
+  await vi.waitFor(() => expect(shelfTitles()).toEqual(["fresh", "settled-middle", "settled-old"]));
+  // The newest row is on the first measured page, not behind Show more.
+  expect(visibleIn(taskRowsIn(shelfBox())[0]!, shelfBox())).toBe(true);
 });
 
 test("a task shows its most urgent session status with a text alternative and the message on hover", async () => {
