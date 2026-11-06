@@ -72,6 +72,11 @@ export interface TaskSessions {
   hasRunningIn(taskIds: ReadonlySet<string>): boolean;
   /** Stops and forgets every session of the tasks; resolves once the processes are gone. */
   removeAllIn(taskIds: ReadonlySet<string>): Promise<void>;
+  /**
+   * Closes every terminal whose cwd is `workspacePath` or inside it — a loose terminal is not a
+   * session — and resolves once each process is gone. A close that rejects stops the sweep.
+   */
+  closeTerminalsIn(workspacePath: string): Promise<void>;
   /** Stops the task's running sessions and remembers them for `resumeAllIn`. */
   suspendAllIn(taskId: string): Promise<void>;
   /** Starts the sessions `suspendAllIn` remembered. */
@@ -286,8 +291,9 @@ export class TaskService implements ProjectTasks {
     const path = this.#freeWorktreePath(project, plan.slug);
     await mkdir(join(path, ".."), { recursive: true });
     // The branch is created first, in one atomic git call: if another process already made it,
-    // `createdBranch` stays false and undo leaves that branch alone. Only a branch this attempt
-    // created is deleted when the worktree cannot be added.
+    // `createdBranch` stays false and undo leaves that branch alone. The row is the owner of the
+    // worktree and the branch: while it does not exist, the attempt's branch and worktree are
+    // unowned and go together; once it exists, a launch that fails keeps everything.
     let createdBranch = false;
     try {
       if (plan.kind !== "existing-branch") {
@@ -295,15 +301,17 @@ export class TaskService implements ProjectTasks {
         createdBranch = true;
       }
       await this.#worktree.addWorktree(project.path, path, plan);
+      task.branch = plan.branch;
+      task.workspacePath = path;
+      task.ownsWorktree = true;
+      return await this.#record(task, input.agent);
     } catch (error) {
-      await undoWorktree(project.path, path, plan, createdBranch);
+      // The row can also disappear after the insert: project removal cascades it, and the attempt
+      // is unowned again. A branch that existed before the attempt is still never deleted.
+      if (this.#store.get(task.id) === undefined)
+        await undoWorktree(project.path, path, plan, createdBranch);
       throw error;
     }
-    task.branch = plan.branch;
-    task.workspacePath = path;
-    task.ownsWorktree = true;
-    // Outside the undo scope: the worktree is good, and a session that cannot start must not remove it.
-    return this.#record(task, input.agent);
   }
 
   /**
@@ -403,18 +411,28 @@ export class TaskService implements ProjectTasks {
    * was created with.
    */
   async #record(task: Task, agent: TaskAgent | undefined): Promise<Task> {
+    // A create names the project before a network call and the worktree, and `projects.remove` is
+    // not on this queue: re-read it immediately before the insert, with no await between, so the
+    // project-removal race is the contract's PROJECT_NOT_FOUND rather than a foreign-key error.
+    const project = this.#project(task.projectId);
     this.#store.insert(task);
-    if (agent !== undefined) {
-      const project = this.#project(task.projectId);
-      const session = await this.#sessions.startPrimary(
-        task.id,
-        { ...agent, view: this.#viewFor(project, agent) },
-        task.prompt,
-      );
-      this.#store.setPrimarySession(task.id, session.id);
+    try {
+      if (agent !== undefined) {
+        const session = await this.#sessions.startPrimary(
+          task.id,
+          { ...agent, view: this.#viewFor(project, agent) },
+          task.prompt,
+        );
+        this.#store.setPrimarySession(task.id, session.id);
+      }
+      this.#changes.notify();
+      return this.get(task.id);
+    } catch (error) {
+      // The row is the user's once it exists, so a failure here keeps it; still announce it, or a
+      // client would hold a task the feed never named.
+      if (this.#store.get(task.id) !== undefined) this.#changes.notify();
+      throw error;
     }
-    this.#changes.notify();
-    return this.get(task.id);
   }
 
   /**
@@ -465,6 +483,10 @@ export class TaskService implements ProjectTasks {
       if (files.length > 0) throw new WorktreeDirtyError(files);
     }
     await this.#sessions.removeAllIn(new Set([id]));
+    // The session terminals are gone; a loose terminal in the workspace is not a session and would
+    // otherwise keep a deleted cwd. Sweep even when the directory is already gone: its process may
+    // still hold it. A main-worktree task owns nothing, so the project's own terminals stay.
+    if (task.ownsWorktree) await this.#sessions.closeTerminalsIn(task.workspacePath);
     if (worktreeOnDisk) {
       await removeWorktree(project.path, task.workspacePath, force);
     } else if (task.ownsWorktree) {

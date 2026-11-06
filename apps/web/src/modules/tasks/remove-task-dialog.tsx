@@ -25,7 +25,7 @@ export function RemoveTaskDialog({ task, onRemove, onClose }: RemoveTaskDialogPr
       title={`Remove task "${task.title}"?`}
       description={
         task.ownsWorktree
-          ? `Stops its sessions and removes the worktree at ${task.workspacePath}. The branch ${task.branch} stays.`
+          ? `Stops its sessions, closes the terminals in the workspace, including loose ones, and removes the worktree at ${task.workspacePath}. The branch ${task.branch} stays.`
           : "Stops its sessions. The project's working tree and the branch stay."
       }
       onClose={onClose}

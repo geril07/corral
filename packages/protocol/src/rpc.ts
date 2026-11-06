@@ -827,9 +827,10 @@ export const contract = {
       .input(z.object({ id: TaskId, title: z.string().trim().min(1) }))
       .output(Task),
     /**
-     * Removes the task's sessions (stopping them), removes a worktree the task owns and forgets the task. The
-     * branch always stays. A worktree with local changes, ignored files included, is kept and the
-     * call fails with `WORKTREE_DIRTY`, unless `force` is set.
+     * Removes the task's sessions (stopping them), closes every terminal whose cwd is a worktree
+     * the task owns or inside it, removes that worktree and forgets the task. The branch always
+     * stays. A worktree with local changes, ignored files included, is kept and the call
+     * fails with `WORKTREE_DIRTY`, unless `force` is set.
      */
     remove: oc
       .errors({

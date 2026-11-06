@@ -1,9 +1,11 @@
 import { ConfigState } from "@corral/protocol/config";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vite-plus/test";
 import { useFakeAgents } from "../../test/fake-agents.ts";
-import { addTask } from "../../test/project-fixture.ts";
+import { runGit } from "../../test/git-repo.ts";
+import { addProject, addTask } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
 import { launchesOf, sessionsOf } from "../../test/session-helpers.ts";
 
@@ -27,7 +29,9 @@ vi.mock("node-pty", async (importOriginal) => {
   };
 });
 
-const server = useServer();
+// No chat driver: a create that names a chat view must keep its task and record the refusal,
+// instead of throwing before the keep-failed-launch path and leaving an unowned worktree.
+const server = useServer({ chat: { drivers: {} } });
 const agents = useFakeAgents();
 const SIZE = { cols: 80, rows: 24 };
 const SENTINEL = "sk-native-error-secret-4a91";
@@ -139,3 +143,38 @@ function failureMessage(error: unknown): string {
   if (typeof data.message !== "string") throw new Error("the RPC error message is not a string");
   return data.message;
 }
+
+test("a primary view this build cannot show keeps the task, its worktree and its branch with a stopped session", async () => {
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "No chat",
+    agent: { kind: "claude", view: "chat" },
+    workspace: { type: "new-branch" },
+  });
+
+  expect(task.primarySessionId).not.toBeNull();
+  const [session] = await sessionsOf(api);
+  expect(session).toMatchObject({
+    id: task.primarySessionId,
+    taskId: task.id,
+    kind: "claude",
+    view: "chat",
+    state: "stopped",
+    terminalId: null,
+  });
+  expect(session!.launchError).toContain("no chat driver");
+  expect(existsSync(task.workspacePath)).toBe(true);
+  expect(
+    runGit(
+      project.path,
+      "for-each-ref",
+      "--format=%(refname:short)",
+      `refs/heads/${task.branch}`,
+    ).trim(),
+  ).toBe(task.branch);
+  const updates = await api.tasks.watch();
+  expect((await within(updates.next(), "the tasks")).value).toEqual([task]);
+  await updates.return?.();
+});

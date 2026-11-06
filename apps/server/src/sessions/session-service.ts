@@ -29,6 +29,7 @@ import { isExecutable } from "../agents/executable-lookup.ts";
 import { resolveEnvRefs } from "../agents/launch-env.ts";
 import { ChangeFeed } from "../changes/change-feed.ts";
 import type { ConfigWatcher } from "../config/config-watcher.ts";
+import { isInsideResolved } from "../files/file-access.ts";
 import { newId } from "../storage/ids.ts";
 import { TaskNotFoundError } from "../tasks/errors.ts";
 import { SerialQueue } from "../tasks/serial-queue.ts";
@@ -48,6 +49,7 @@ import {
   LaunchViewUnsupportedError,
   SessionNotFoundError,
   ShellPromptError,
+  TerminalCloseFailedError,
 } from "./errors.ts";
 import { launchDiagnostic, launchFailureReason, redactLaunchError } from "./launch-diagnostics.ts";
 import { launchSnapshotFor } from "./launch-snapshot.ts";
@@ -220,12 +222,14 @@ export class SessionService {
     keepFailedLaunch: boolean,
   ): Promise<Session> {
     const task = this.#task(taskId);
-    const view = this.#viewFor(kind, choice.view);
+    // The requested view, until `#viewFor` resolves it. A task created with a view this build
+    // cannot show keeps a stopped session with that view and the launch error (below), rather
+    // than throwing past `keepFailedLaunch` and leaving its worktree with no row.
     const stored: StoredSession = {
       id: newId(),
       taskId,
       kind,
-      view,
+      view: choice.view ?? "terminal",
       agentSessionId: kind === "shell" ? null : AGENTS[kind].newSessionId(),
       state: "running",
       label: null,
@@ -233,6 +237,7 @@ export class SessionService {
       launch: null,
     };
     try {
+      stored.view = this.#viewFor(kind, choice.view);
       // A disabled agent is not offered anywhere; a new launch of it is refused rather than run
       // behind the pickers' back. An existing session can still be stopped and resumed. Inside
       // the try, so a task created with one keeps its stopped session like any failed launch.
@@ -495,6 +500,28 @@ export class SessionService {
         this.#chat.forget(stored.id);
       }
       if (doomed.length > 0) this.#changes.notify();
+    });
+  }
+
+  /**
+   * Closes every terminal whose cwd is `workspacePath` or inside it, loose ones included, and
+   * resolves once each process is gone. Queued with starts, so a session terminal that was still
+   * being opened is already listed; the task's own session terminals are gone by the time the
+   * removal asks for this. A close that rejects names its terminal and stops the sweep: removal
+   * must not go on while a process holds the directory it is about to delete.
+   */
+  closeTerminalsIn(workspacePath: string): Promise<void> {
+    return this.#queue.run(async () => {
+      for (const terminal of this.#terminals.list()) {
+        // oxlint-disable-next-line no-await-in-loop -- the compare and the close are per terminal
+        if (!(await isInsideResolved(workspacePath, terminal.cwd))) continue;
+        try {
+          // oxlint-disable-next-line no-await-in-loop -- processes are closed one after the other
+          await this.#terminals.close(terminal.id);
+        } catch (error) {
+          throw new TerminalCloseFailedError(terminal, error);
+        }
+      }
     });
   }
 

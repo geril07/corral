@@ -39,6 +39,9 @@ test("it says what removing does and starts on Cancel, so a stray Enter removes 
   await expect.element(dialog()).toMatchTextContent("/data/worktrees/repo/fix-login");
   await expect.element(dialog()).toMatchTextContent("fix-login stays");
   await expect.element(dialog()).toMatchTextContent("Stops its sessions");
+  // A loose terminal is not a session; the copy names what the sweep closes.
+  await expect.element(dialog()).toMatchTextContent("closes the terminals in the workspace");
+  await expect.element(dialog()).toMatchTextContent("including loose ones");
   await expect.element(button("Cancel")).toHaveFocus();
 
   await userEvent.keyboard("{Enter}");
@@ -67,6 +70,8 @@ test("a task in the main working tree says the working tree stays", async () => 
 
   await expect.element(dialog()).toMatchTextContent("working tree");
   await expect.element(dialog()).not.toMatchTextContent("removes the worktree");
+  // The project's main tree is not the task's: its loose terminals are not swept.
+  await expect.element(dialog()).not.toMatchTextContent("including loose ones");
 });
 
 test("ignored entries are listed as local changes and removing needs a second, explicit step with the focus back on Cancel", async () => {

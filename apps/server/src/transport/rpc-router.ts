@@ -66,6 +66,7 @@ import {
   LaunchSpawnError,
   LaunchViewUnsupportedError,
   SessionNotFoundError,
+  TerminalCloseFailedError,
 } from "../sessions/errors.ts";
 import { MissingEnvRefError, ReservedEnvRefError } from "../agents/launch-env.ts";
 import type { SessionKind } from "@corral/protocol/rpc";
@@ -438,6 +439,11 @@ export function createRpcRouter({
               return errors.TASK_NOT_FOUND({ data: { id: error.id } });
             if (error instanceof WorktreeDirtyError)
               return errors.WORKTREE_DIRTY({ data: { files: error.files } });
+            // The removal is a workspace teardown and has no terminal code of its own: GIT_FAILED
+            // carries the sentence verbatim, so the dialog names the terminal that did not close
+            // without a new protocol error.
+            if (error instanceof TerminalCloseFailedError)
+              return errors.GIT_FAILED({ data: { message: error.message } });
             if (error instanceof GitError)
               return errors.GIT_FAILED({ data: { message: error.message } });
             return undefined;
