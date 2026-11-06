@@ -1,4 +1,6 @@
-import { defaultModelPolicy, modelScopeKey } from "@corral/protocol/models";
+import { defaultModelPolicy, modelScopeKey, type ModelPreferences } from "@corral/protocol/models";
+import { Store } from "@corral/client/store";
+import type { WatchFailure, WatchStore } from "@corral/client/watch-store";
 import { createHashHistory } from "@tanstack/react-router";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -24,6 +26,52 @@ const checkbox = (name: string) => models().getByRole("checkbox", { name, exact:
 const closeRefusal = () =>
   page.getByRole("status").filter({ hasText: "The save must finish before Settings can close." });
 
+interface PreferencesSnapshot {
+  loaded: boolean;
+  items: readonly ModelPreferences[];
+}
+
+interface FakePreferences {
+  store: WatchStore<PreferencesSnapshot>;
+  set(value: PreferencesSnapshot): void;
+  fail(failure: WatchFailure | undefined): void;
+  retries(): number;
+}
+
+/**
+ * A preferences watch whose snapshot and refusal the test decides. Retry clears the refusal and
+ * waits for `set` or `fail`, so the test can hold and inspect the retrying interval. It counts
+ * every call, so a repeated UI activation is caught rather than hidden by a fake guard.
+ */
+function fakePreferences(initial: PreferencesSnapshot): FakePreferences {
+  const snapshot = new Store(initial);
+  const failure = new Store<WatchFailure | undefined>(undefined);
+  let retries = 0;
+  return {
+    store: {
+      subscribe: snapshot.subscribe,
+      getSnapshot: snapshot.getSnapshot,
+      failure: { subscribe: failure.subscribe, getSnapshot: failure.getSnapshot },
+      retry: () => {
+        retries += 1;
+        failure.set(undefined);
+      },
+      close: () => {},
+    },
+    set: (value) => snapshot.set(value),
+    fail: (value) => failure.set(value),
+    retries: () => retries,
+  };
+}
+
+/** Installs the fake before Settings mounts; picker-owned Settings may already be open. */
+function installPreferences(client: ReturnType<typeof newClient>, preferences: FakePreferences) {
+  Object.defineProperty(client, "modelPreferences", {
+    configurable: true,
+    value: preferences.store,
+  });
+}
+
 /** The real hash history, so a picker-owned Settings close is tested against browser Back. */
 async function renderHashApp(client: ReturnType<typeof newClient>, entries: string[]) {
   const original = window.location.href;
@@ -48,9 +96,15 @@ const saveButton = () => models().getByRole("button", { name: "Save", exact: tru
 const savedStatus = () => models().getByRole("status").filter({ hasText: "Saved · revision" });
 const unsavedStatus = () => models().getByRole("status").filter({ hasText: "Unsaved changes" });
 const savingStatus = () => models().getByRole("status").filter({ hasText: "Saving…" });
+const unavailableStatus = () =>
+  models().getByRole("status").filter({ hasText: "Preferences unavailable" });
+const loadingStatus = () =>
+  models().getByRole("status").filter({ hasText: "Loading preferences…" });
 const findModels = () => models().getByRole("textbox", { name: "Find models" });
 
-async function openManager() {
+async function openManager(
+  options: { beforeManage?: (client: ReturnType<typeof newClient>) => void } = {},
+) {
   const client = newClient();
   await writeConfig('[tasks]\nagent = "pi"\n');
   const { rendered } = await appWithProject(client);
@@ -62,6 +116,7 @@ async function openManager() {
     .click();
   await expect.element(picker().getByRole("option", { name: /Stub Two/ })).toBeVisible();
   await picker().getByRole("combobox", { name: "Models" }).fill("stub");
+  options.beforeManage?.(client);
   await picker().getByRole("button", { name: "Manage models…" }).click();
   await expect.element(settings()).toBeVisible();
   await expect.element(checkbox("Show Stub One · stub")).toBeVisible();
@@ -175,6 +230,224 @@ test("the shared manager saves an exact whitelist and returns to picker search, 
   await expect.element(promptField()).toHaveValue("Keep this prompt and selection");
   await expect.element(promptField()).toHaveFocus();
   await vi.waitFor(() => expect(client.tasks.getSnapshot().tasks).toHaveLength(0));
+});
+
+test("a refused preferences watch stays retryable, then returns focus to the footer when it loads", async () => {
+  const recovered: PreferencesSnapshot = {
+    loaded: true,
+    items: [
+      {
+        scope,
+        revision: 4,
+        policy: {
+          ...defaultModelPolicy(),
+          deny: [{ type: "model", provider: "stub", id: "stub-2" }],
+        },
+      },
+    ],
+  };
+  const preferences = fakePreferences({ loaded: false, items: [] });
+  await openManager({
+    beforeManage: (client) => {
+      installPreferences(client, preferences);
+      preferences.fail({
+        name: "models.watch",
+        label: "model preferences",
+        error: new Error("no such procedure"),
+      });
+    },
+  });
+  const note = models().getByRole("note");
+  await expect.element(note).toMatchTextContent("Model preferences did not load");
+  const retry = models().getByRole("button", { name: "Retry", exact: true });
+  await expect.element(retry).toBeVisible();
+  await expect.element(unavailableStatus()).toHaveTextContent("Preferences unavailable");
+  await expect.element(savedStatus()).not.toBeInTheDocument();
+  await expect.element(checkbox("Show Stub One · stub")).toBeDisabled();
+
+  retry.element().focus();
+  await expect.element(retry).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
+  expect(preferences.retries()).toBe(1);
+  // The notice and its control stay mounted while the watch answers. The fake counts every call,
+  // so a second activation reaching it would make this assertion fail.
+  await expect.element(note).toMatchTextContent("Retrying model preferences");
+  await expect.element(note).toHaveAttribute("aria-busy", "true");
+  await expect.element(loadingStatus()).toHaveTextContent("Loading preferences…");
+  await expect.element(unavailableStatus()).not.toBeInTheDocument();
+  await retry.click();
+  expect(preferences.retries()).toBe(1);
+  await expect.element(retry).toHaveFocus();
+
+  preferences.set(recovered);
+  await expect.element(note).not.toBeInTheDocument();
+  await expect.element(savedStatus()).toHaveTextContent("Saved · revision 4");
+  await expect.element(savedStatus()).toHaveFocus();
+  await expect.element(checkbox("Show Stub One · stub")).toBeEnabled();
+  await expect.element(checkbox("Show Stub Two · stub")).not.toBeChecked();
+});
+
+test("a retry that fails again keeps Retry focused, and a reopened panel still names the refusal", async () => {
+  const preferences = fakePreferences({ loaded: false, items: [] });
+  await openManager({
+    beforeManage: (client) => {
+      installPreferences(client, preferences);
+      preferences.fail({
+        name: "models.watch",
+        label: "model preferences",
+        error: new Error("no such procedure"),
+      });
+    },
+  });
+  const note = models().getByRole("note");
+  const retry = models().getByRole("button", { name: "Retry", exact: true });
+  await expect.element(note).toMatchTextContent("Model preferences did not load");
+  retry.element().focus();
+  await userEvent.keyboard("{Enter}");
+  expect(preferences.retries()).toBe(1);
+  await expect.element(note).toMatchTextContent("Retrying model preferences");
+
+  preferences.fail({
+    name: "models.watch",
+    label: "model preferences",
+    error: new Error("still refused"),
+  });
+  await expect.element(note).toMatchTextContent("Model preferences did not load");
+  await expect.element(unavailableStatus()).toHaveTextContent("Preferences unavailable");
+  await expect.element(retry).toHaveFocus();
+
+  await settings().getByRole("button", { name: "Back to workspace" }).click();
+  await expect.element(settings()).not.toBeInTheDocument();
+  await expect.element(picker()).toBeVisible();
+  await picker().getByRole("button", { name: "Manage models…" }).click();
+  await expect.element(settings()).toBeVisible();
+  await expect.element(note).toMatchTextContent("Model preferences did not load");
+  await expect.element(retry).toBeVisible();
+  await expect.element(unavailableStatus()).toHaveTextContent("Preferences unavailable");
+});
+
+test("a loaded refusal stays mounted through Retry and a failed retry restores Retry focus", async () => {
+  const preferences = fakePreferences({
+    loaded: true,
+    items: [{ scope, revision: 2, policy: defaultModelPolicy() }],
+  });
+  await openManager({
+    beforeManage: (client) => installPreferences(client, preferences),
+  });
+  await expect.element(savedStatus()).toHaveTextContent("Saved · revision 2");
+  preferences.fail({
+    name: "models.watch",
+    label: "model preferences",
+    error: new Error("watch ended"),
+  });
+  const note = models().getByRole("note");
+  const retry = models().getByRole("button", { name: "Retry", exact: true });
+  await expect.element(note).toMatchTextContent("Model preferences stopped updating");
+
+  retry.element().focus();
+  await userEvent.keyboard("{Enter}");
+  expect(preferences.retries()).toBe(1);
+  await expect.element(note).toMatchTextContent("Retrying model preferences");
+  await expect.element(note).toHaveAttribute("aria-busy", "true");
+  await expect.element(savedStatus()).toHaveTextContent("Saved · revision 2");
+  await expect.element(retry).toHaveFocus();
+
+  preferences.fail({
+    name: "models.watch",
+    label: "model preferences",
+    error: new Error("still refused"),
+  });
+  await expect.element(note).toMatchTextContent("Model preferences stopped updating");
+  await expect.element(note).not.toHaveAttribute("aria-busy", "true");
+  await expect.element(retry).toHaveFocus();
+  await expect.element(savedStatus()).toHaveTextContent("Saved · revision 2");
+});
+
+test("a slow retry leaves focus where the user moved it", async () => {
+  const preferences = fakePreferences({
+    loaded: true,
+    items: [{ scope, revision: 2, policy: defaultModelPolicy() }],
+  });
+  await openManager({
+    beforeManage: (client) => installPreferences(client, preferences),
+  });
+  await expect.element(savedStatus()).toHaveTextContent("Saved · revision 2");
+  preferences.fail({
+    name: "models.watch",
+    label: "model preferences",
+    error: new Error("watch ended"),
+  });
+  const note = models().getByRole("note");
+  const retry = models().getByRole("button", { name: "Retry", exact: true });
+  await expect.element(note).toMatchTextContent("Model preferences stopped updating");
+
+  retry.element().focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(note).toMatchTextContent("Retrying model preferences");
+  findModels().element().focus();
+  await expect.element(findModels()).toHaveFocus();
+  preferences.fail({
+    name: "models.watch",
+    label: "model preferences",
+    error: new Error("still refused"),
+  });
+  await expect.element(note).toMatchTextContent("Model preferences stopped updating");
+  await expect.element(findModels()).toHaveFocus();
+
+  await retry.click();
+  await expect.element(note).toMatchTextContent("Retrying model preferences");
+  findModels().element().focus();
+  await expect.element(findModels()).toHaveFocus();
+  preferences.set({
+    loaded: true,
+    items: [{ scope, revision: 3, policy: defaultModelPolicy() }],
+  });
+  await expect.element(note).not.toBeInTheDocument();
+  await expect.element(findModels()).toHaveFocus();
+  await expect.element(savedStatus()).toHaveTextContent("Saved · revision 3");
+});
+
+test("a retry that returns a newer revision keeps the dirty draft and shows the stale conflict", async () => {
+  const loaded: PreferencesSnapshot = {
+    loaded: true,
+    items: [{ scope, revision: 2, policy: defaultModelPolicy() }],
+  };
+  const preferences = fakePreferences(loaded);
+  await openManager({
+    beforeManage: (client) => installPreferences(client, preferences),
+  });
+  await expect.element(savedStatus()).toHaveTextContent("Saved · revision 2");
+  await models().getByRole("button", { name: "Only selected", exact: true }).click();
+  await checkbox("Show Stub Two · stub").click();
+  await expect.element(unsavedStatus()).toHaveTextContent("Unsaved changes · revision 2");
+
+  preferences.fail({
+    name: "models.watch",
+    label: "model preferences",
+    error: new Error("watch ended"),
+  });
+  const note = models().getByRole("note");
+  const retry = models().getByRole("button", { name: "Retry", exact: true });
+  await expect.element(note).toMatchTextContent("Model preferences stopped updating");
+  await expect.element(unavailableStatus()).not.toBeInTheDocument();
+  await expect.element(unsavedStatus()).toHaveTextContent("Unsaved changes · revision 2");
+
+  retry.element().focus();
+  await userEvent.keyboard("{Enter}");
+  expect(preferences.retries()).toBe(1);
+  await expect.element(note).toMatchTextContent("Retrying model preferences");
+  await expect.element(note).toHaveAttribute("aria-busy", "true");
+  await expect.element(unsavedStatus()).toHaveTextContent("Unsaved changes · revision 2");
+  preferences.set({
+    loaded: true,
+    items: [{ scope, revision: 3, policy: defaultModelPolicy() }],
+  });
+  await expect.element(note).not.toBeInTheDocument();
+  const reason = models().getByRole("alert");
+  await expect.element(reason).toMatchTextContent("Changed in another client");
+  await expect.element(checkbox("Show Stub Two · stub")).toBeChecked();
+  await expect.element(unsavedStatus()).toHaveTextContent("Unsaved changes · revision 2");
+  await expect.element(saveButton()).toBeDisabled();
 });
 
 test("long profile names stay inside Settings with an actual-overflow full-name title", async () => {

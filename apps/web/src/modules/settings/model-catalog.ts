@@ -22,9 +22,16 @@ export function useModelPreferences(scope: ModelScope) {
     client.modelPreferences.subscribe,
     client.modelPreferences.getSnapshot,
   );
+  const failure = useSyncExternalStore(
+    client.modelPreferences.failure.subscribe,
+    client.modelPreferences.failure.getSnapshot,
+  );
   const saved = state.items.find((item) => modelScopeKey(item.scope) === modelScopeKey(scope));
   return {
     loaded: state.loaded,
+    failure,
+    retry: () => client.modelPreferences.retry(),
+    snapshot: state,
     scope,
     revision: saved?.revision ?? 0,
     policy: saved?.policy ?? DEFAULT_POLICY,
