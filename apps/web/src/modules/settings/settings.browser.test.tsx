@@ -7,6 +7,7 @@ import { writeConfig } from "../../../test/config-command.ts";
 import { prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
 import { App as RootApp } from "../../../src/app/app.tsx";
+import { createAppHistory } from "../../../src/app/history.ts";
 import {
   appWithProject,
   createTaskWithShell,
@@ -103,6 +104,22 @@ async function renderHashApp(client: CorralClient, entries: string[]) {
     history.push(entry);
     history.flush();
   }
+  const rendered = await render(<RootApp client={client} history={history} />);
+  return {
+    ...rendered,
+    history,
+    restore: () => {
+      history.destroy();
+      window.history.replaceState({}, "", original);
+    },
+  };
+}
+
+/** The app history, so a browser-created entry (no TanStack state) is exercised too. */
+async function renderBrowserEntryApp(client: CorralClient) {
+  const original = window.location.href;
+  window.history.replaceState({}, "", "/#/");
+  const history = createAppHistory();
   const rendered = await render(<RootApp client={client} history={history} />);
   return {
     ...rendered,
@@ -564,6 +581,87 @@ test("a dirty Models draft refuses browser Forward and stays at /settings", asyn
     await vi.waitFor(() => expect(window.location.hash).toMatch(/^#\/settings/));
   } finally {
     restore();
+  }
+});
+
+async function assertBrowserCreatedForward(width: number, height: number) {
+  await page.viewport(width, height);
+  const client = newClient();
+  await writeConfig('[tasks]\nagent = "pi"\n');
+  const { history, restore, unmount } = await renderBrowserEntryApp(client);
+  let finalHash = "";
+  try {
+    await settingsButton().click();
+    await expect.element(settingsHeading()).toBeVisible();
+    expect(history.location.pathname).toBe("/settings");
+
+    // The address-bar equivalent: a native fragment entry has no TanStack state.
+    window.location.hash = "#/";
+    await expect.element(settingsHeading()).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(window.location.hash).toBe("#/"));
+
+    history.back();
+    await expect.element(settingsHeading()).toBeVisible();
+    await makeModelsDirty();
+    const checkbox = modelCheckbox("Show Stub Two · stub");
+    const save = modelEditor().getByRole("button", { name: "Save", exact: true });
+    await expect.element(checkbox).toHaveFocus();
+
+    history.forward();
+    await expect.element(discardConfirm()).toBeVisible();
+    await discardConfirm().getByRole("button", { name: "Keep editing", exact: true }).click();
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+    await expect.element(settingsHeading()).toBeVisible();
+    await vi.waitFor(() => expect(window.location.hash).toMatch(/^#\/settings/));
+    expect(history.location.pathname).toBe("/settings");
+    await expect.element(checkbox).toBeChecked();
+    await expect.element(checkbox).toHaveFocus();
+    await expect
+      .element(modelEditor().getByRole("status").filter({ hasText: "Unsaved changes" }))
+      .toBeVisible();
+    await expect.element(save).toBeEnabled();
+
+    // Repeated Forward after Keep editing is the same blocked traversal, not a buried entry.
+    history.forward();
+    await expect.element(discardConfirm()).toBeVisible();
+    await discardConfirm().getByRole("button", { name: "Keep editing", exact: true }).click();
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+    await expect.element(settingsHeading()).toBeVisible();
+    await vi.waitFor(() => expect(window.location.hash).toMatch(/^#\/settings/));
+    expect(history.location.pathname).toBe("/settings");
+    await expect.element(save).toBeEnabled();
+
+    // Discard proceeds once to the forward entry and closes without a second prompt.
+    history.forward();
+    await expect.element(discardConfirm()).toBeVisible();
+    await discardConfirm().getByRole("button", { name: "Discard and close", exact: true }).click();
+    await expect.element(settingsHeading()).not.toBeInTheDocument();
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(window.location.hash).toBe("#/"));
+
+    // A clean Forward closes normally, with no discard confirm.
+    history.back();
+    await expect.element(settingsHeading()).toBeVisible();
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+    history.forward();
+    await expect.element(settingsHeading()).not.toBeInTheDocument();
+    await expect.element(discardConfirm()).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(window.location.hash).toBe("#/"));
+    finalHash = window.location.hash;
+  } finally {
+    await unmount();
+    restore();
+  }
+  return finalHash;
+}
+
+test("a browser-created Forward entry keeps /settings on Keep editing at 1024 and 1920", async () => {
+  const originalViewport = { width: window.innerWidth, height: window.innerHeight };
+  try {
+    expect(await assertBrowserCreatedForward(1024, 640)).toBe("#/");
+    expect(await assertBrowserCreatedForward(1920, 1080)).toBe("#/");
+  } finally {
+    await page.viewport(originalViewport.width, originalViewport.height);
   }
 });
 
