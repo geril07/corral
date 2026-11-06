@@ -22,7 +22,12 @@ import {
   StoppedSession,
   SwitchViewDialog,
 } from "../sessions/index.ts";
-import { NewTaskView, RemoveTaskDialog, TaskSourceDialog } from "../tasks/index.ts";
+import {
+  NewTaskView,
+  RemoveProjectDialog,
+  RemoveTaskDialog,
+  TaskSourceDialog,
+} from "../tasks/index.ts";
 import { TerminalView } from "../terminal/index.ts";
 import {
   ConnectionRecoveryDialog,
@@ -143,6 +148,7 @@ export function WorkspaceScreen({
     closeNewTask,
     loadBranches,
     openRemoveTask,
+    openRemoveProject,
     openRemoveSession,
     openTaskSource,
     openFindTask,
@@ -152,6 +158,7 @@ export function WorkspaceScreen({
     createTask,
     resolveIssue,
     removeTask,
+    removeProject,
     setDialog,
   } = useWorkspace({
     active: active && !settingsActivity?.open,
@@ -336,6 +343,7 @@ export function WorkspaceScreen({
             onRenameTask={openRenameTask}
             onToggleSettle={(task) => void toggleSettle(task)}
             onRemoveTask={openRemoveTask}
+            onRemoveProject={openRemoveProject}
             onViewSource={openTaskSource}
             onNewTask={openNewTask}
             onFindTask={openFindTask}
@@ -555,6 +563,14 @@ export function WorkspaceScreen({
         <RemoveTaskDialog
           task={dialog.task}
           onRemove={(force) => removeTask(dialog.task, force)}
+          onClose={() => setDialog(undefined)}
+        />
+      )}
+      {dialog?.kind === "remove-project" && (
+        <RemoveProjectDialog
+          project={dialog.project}
+          taskCount={dialog.taskCount}
+          onRemove={() => removeProject(dialog.project)}
           onClose={() => setDialog(undefined)}
         />
       )}

@@ -71,6 +71,7 @@ function failureText(error: unknown): string {
 export type DialogState =
   | { kind: "add-project" }
   | { kind: "remove-task"; task: Task }
+  | { kind: "remove-project"; project: Project; taskCount: number }
   | { kind: "task-source"; task: Task }
   | { kind: "pick-agent"; taskId: string }
   | { kind: "remove-session"; session: Session }
@@ -774,6 +775,16 @@ export function useWorkspace({
   const openRemoveTask = (task: Task | undefined) => {
     if (task) openDialog({ kind: "remove-task", task });
   };
+  /** The count is what removal forgets besides the project; a row action names no tasks. */
+  const openRemoveProject = (project: Project, opener?: HTMLElement) =>
+    openDialog(
+      {
+        kind: "remove-project",
+        project,
+        taskCount: tasks.filter((task) => task.projectId === project.id).length,
+      },
+      opener,
+    );
   const openRemoveSession = (session: Session) => openDialog({ kind: "remove-session", session });
   const openTaskSource = (task: Task, opener?: HTMLElement) =>
     openDialog({ kind: "task-source", task }, opener);
@@ -829,6 +840,13 @@ export function useWorkspace({
     await api.tasks.remove({ id: task.id, force });
     setDialog(undefined);
     if (task.id === selection.taskId) showTask(next);
+  };
+
+  const removeProject = async (project: Project) => {
+    await api.projects.remove({ id: project.id });
+    setDialog(undefined);
+    // The composer is a view of its project; a project that no longer exists has none to show.
+    if (composing?.project?.id === project.id) setComposing(undefined);
   };
 
   const actions: ActionTable = {
@@ -1129,6 +1147,7 @@ export function useWorkspace({
     closeNewTask,
     loadBranches,
     openRemoveTask,
+    openRemoveProject,
     openRemoveSession,
     openTaskSource,
     openAddProject,
@@ -1140,6 +1159,7 @@ export function useWorkspace({
     createTask,
     resolveIssue,
     removeTask,
+    removeProject,
     setDialog,
   };
 }
