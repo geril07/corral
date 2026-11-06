@@ -43,7 +43,15 @@ test("settling a task stops its agent and unsettling resumes the conversation", 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyD");
 
-  await expect(sidebar.getByRole("button", { name: "Settled (1)" })).toBeVisible();
+  // The shelf starts collapsed; it still shows the current task's row alone, and the toggle is
+  // never disabled while the row it would hide is selected.
+  const shelf = sidebar.getByRole("button", { name: "Settled (1)" });
+  await expect(shelf).toBeVisible();
+  await expect(shelf).toHaveAttribute("aria-expanded", "false");
+  await expect(shelf).toBeEnabled();
+  const settledRow = sidebar.getByRole("button", { name: /^Finished/ });
+  await expect(settledRow).toHaveAttribute("aria-current", "true");
+  await expect(settledRow).toBeVisible();
   await expect(sessionTab(window, "claude stopped")).toBeVisible();
   await expect(sessionTab(window, "shell stopped")).toBeVisible();
   await expect.poll(() => isAlive(started!.pid)).toBe(false);

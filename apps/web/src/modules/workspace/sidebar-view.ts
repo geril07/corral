@@ -12,6 +12,12 @@ const SHELF_KEY = "corral.sidebar-shelf";
 /** The active list keeps this many rows when the shelf is open; the shelf shrinks first. */
 export const SHELF_MIN_ACTIVE_ROWS = 4;
 
+/**
+ * A stored page is a preference, not a claim on the whole history. Storage an older build wrote
+ * is clamped so one reload cannot mount every settled row; the user can still append pages.
+ */
+export const SHELF_MAX_PAGES = 20;
+
 export interface ShelfState {
   /** The user opened the shelf; a shelf the selection opened lives beside this, not in storage. */
   expanded: boolean;
@@ -51,13 +57,24 @@ export function shelfMountedRows(
   return Math.min(total, Math.max(revealed, forCurrent));
 }
 
+/**
+ * A group key is a project id, or a composer's open while that composer shows the group (`P:2`).
+ * Only the plain project id is a device preference: the composer's open is a per-mount counter, so
+ * persisting `P:2` would collapse a later composer's group and dead keys would accumulate.
+ */
+function isProjectKey(key: string): boolean {
+  return !key.includes(":");
+}
+
 function readCollapsedProjects(): ReadonlySet<string> {
   try {
     const saved: unknown = JSON.parse(
       window.localStorage.getItem(COLLAPSED_PROJECTS_KEY) ?? "null",
     );
     if (!Array.isArray(saved)) return new Set();
-    return new Set(saved.filter((value): value is string => typeof value === "string"));
+    return new Set(
+      saved.filter((value): value is string => typeof value === "string" && isProjectKey(value)),
+    );
   } catch {
     // Same as the mode: a preference that cannot be read must not break the sidebar.
     return new Set();
@@ -73,7 +90,7 @@ function readShelfState(): ShelfState {
       expanded: typeof expanded === "boolean" ? expanded : DEFAULT_SHELF_STATE.expanded,
       page:
         typeof page === "number" && Number.isInteger(page) && page >= 1
-          ? page
+          ? Math.min(page, SHELF_MAX_PAGES)
           : DEFAULT_SHELF_STATE.page,
     };
   } catch {
@@ -99,14 +116,19 @@ export interface SidebarDevice {
 
 /**
  * The sidebar's device state in one hook: a group is keyed by the project, or by the composer's
- * open while a composer shows that group; the shelf keeps its expanded state and page. Both are
- * written on change, so hiding the sidebar with `prefix \` and reloading the page keep them.
+ * open while a composer shows that group; the shelf keeps its expanded state and page. Only the
+ * project's key is written, so a composer's collapse stays with that composer and a reload keeps
+ * the groups the user actually closed; the shelf is written on change too, so hiding the sidebar
+ * with `prefix \` and reloading the page keep both.
  */
 export function useSidebarDevice(): SidebarDevice {
   const [closedProjects, setClosedProjects] = useState(readCollapsedProjects);
   const [shelf, setShelfState] = useState(readShelfState);
 
-  useEffect(() => store(COLLAPSED_PROJECTS_KEY, [...closedProjects]), [closedProjects]);
+  useEffect(
+    () => store(COLLAPSED_PROJECTS_KEY, [...closedProjects].filter(isProjectKey)),
+    [closedProjects],
+  );
   useEffect(() => store(SHELF_KEY, shelf), [shelf]);
 
   const toggleProject = useCallback(
