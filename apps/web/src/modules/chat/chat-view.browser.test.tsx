@@ -267,6 +267,33 @@ test("a deferred pointer send keeps the keyboard in the composer", async () => {
   await expect.element(composer).toHaveFocus();
 });
 
+test("a deferred pointer send leaves focus outside the composer alone", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: IDLE_CHAT }), {
+    onSend: () => pending.promise,
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const send = page.getByRole("button", { name: "Send" });
+  const log = page.getByRole("log", { name: "Chat transcript" });
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard("Fix the test");
+
+  // The user left the composer deliberately before pressing Send with the pointer.
+  log.element().focus();
+  await expect.element(log).toHaveFocus();
+  await userEvent.click(send);
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
+  await expect.element(send).toBeDisabled();
+  await expect.element(log).toHaveFocus();
+  await expect.element(composer).not.toHaveFocus();
+
+  pending.resolve();
+  await expect.element(composer).toHaveValue("");
+  await expect.element(log).toHaveFocus();
+  await expect.element(composer).not.toHaveFocus();
+});
+
 test("a deferred keyboard send returns the keyboard to the composer", async () => {
   const pending = Promise.withResolvers<void>();
   const chat = await renderChat(recorded([], { state: IDLE_CHAT }), {
