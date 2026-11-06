@@ -72,7 +72,12 @@ function service(repo: string, closeTerminalsIn: (workspacePath: string) => Prom
 
 test("removing a worktree task closes the terminals in its workspace before the worktree goes", async () => {
   const repo = initRepo(join(root, "repo"));
-  const { tasks, closed } = service(repo, () => Promise.resolve());
+  let presentAtClose: boolean | undefined;
+  const { tasks, closed } = service(repo, (workspacePath) => {
+    // The order the removal promises: the sweep runs while the directory and its git entry exist.
+    presentAtClose = existsSync(workspacePath) && worktreePaths(repo).includes(workspacePath);
+    return Promise.resolve();
+  });
   const task = await tasks.create({
     projectId: "p",
     title: "Sweep",
@@ -81,10 +86,33 @@ test("removing a worktree task closes the terminals in its workspace before the 
 
   await tasks.remove(task.id, false);
 
+  expect(presentAtClose).toBe(true);
   expect(closed).toEqual([task.workspacePath]);
   expect(existsSync(task.workspacePath)).toBe(false);
   expect(worktreePaths(repo)).toEqual([repo]);
   expect(localBranches(repo)).toContain("sweep");
+  expect(tasks.list()).toEqual([]);
+});
+
+test("a worktree already gone outside Corral is still swept before git forgets it", async () => {
+  const repo = initRepo(join(root, "repo"));
+  const { tasks, closed } = service(repo, (workspacePath) => {
+    // The directory is already gone, but a process may still hold it; the sweep must not skip.
+    expect(existsSync(workspacePath)).toBe(false);
+    return Promise.resolve();
+  });
+  const task = await tasks.create({
+    projectId: "p",
+    title: "Gone",
+    workspace: { type: "new-branch" },
+  });
+  await rm(task.workspacePath, { recursive: true, force: true });
+
+  await tasks.remove(task.id, false);
+
+  expect(closed).toEqual([task.workspacePath]);
+  expect(worktreePaths(repo)).toEqual([repo]);
+  expect(localBranches(repo)).toContain("gone");
   expect(tasks.list()).toEqual([]);
 });
 

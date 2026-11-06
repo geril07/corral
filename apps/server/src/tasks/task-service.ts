@@ -169,14 +169,21 @@ export class TaskService implements ProjectTasks {
     return this.#mutations.run(() => this.#remove(id, force));
   }
 
-  async closeTerminalsOf(projectId: string): Promise<void> {
-    const ids = new Set(this.#store.idsOfProject(projectId));
-    if (this.#sessions.hasRunningIn(ids)) throw new HasLiveTerminalsError();
-    await this.#sessions.removeAllIn(ids);
-  }
-
-  tasksDropped(): void {
-    this.#changes.notify();
+  /**
+   * Whether a project can be removed is answered on the task mutation queue, together with the
+   * terminal close and the row deletion: a create holds that queue from its worktree until its
+   * task and primary session are recorded, so a project removed during a launch now waits and is
+   * then refused, instead of cascading the task and leaving the just-started terminal behind.
+   */
+  async removeProject(projectId: string): Promise<void> {
+    return this.#mutations.run(async () => {
+      this.#project(projectId);
+      const ids = new Set(this.#store.idsOfProject(projectId));
+      if (this.#sessions.hasRunningIn(ids)) throw new HasLiveTerminalsError();
+      await this.#sessions.removeAllIn(ids);
+      this.#projects.delete(projectId);
+      this.#changes.notify();
+    });
   }
 
   /** A task lost its primary session outside this service; clients get the list without the id. */

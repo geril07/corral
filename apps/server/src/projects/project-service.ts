@@ -59,10 +59,13 @@ async function resolveProjectPath(input: string, home: string): Promise<string> 
 
 /** What removing a project needs from the tasks that belong to it. */
 export interface ProjectTasks {
-  /** Closes the project's terminals; rejects with `HasLiveTerminalsError` while one still runs. */
-  closeTerminalsOf(projectId: string): Promise<void>;
-  /** The database dropped the project's tasks together with the project. */
-  tasksDropped(): void;
+  /**
+   * Removes the project and the tasks that cascade with it as one task-mutation step, so a
+   * create cannot record its task between the terminal check and the project's deletion. Rejects
+   * with `HasLiveTerminalsError` while one of its sessions still runs and `ProjectNotFoundError`
+   * when it is already gone.
+   */
+  removeProject(projectId: string): Promise<void>;
 }
 
 export class ProjectService {
@@ -128,10 +131,10 @@ export class ProjectService {
   }
 
   async remove(id: string): Promise<void> {
-    this.get(id);
-    await this.#tasks.closeTerminalsOf(id);
-    this.#store.delete(id);
-    this.#tasks.tasksDropped();
+    // The task queue owns the check, the terminal close and the row deletion together: a create
+    // holds that queue until its task and primary session are recorded, so removing the project
+    // under a launch cannot cascade the task and strand the terminal it just started.
+    await this.#tasks.removeProject(id);
     this.#changes.notify();
   }
 
