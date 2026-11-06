@@ -108,6 +108,25 @@ test("a task session is renamed without restarting it, and custom names keep the
   await expect.element(dialog()).not.toBeInTheDocument();
 });
 
+test("renaming the current tab from its row menu returns focus to that tab", async () => {
+  await appWithProject(newClient());
+  await createTaskWithShell("Tab rename");
+  const current = sessionTab("shell");
+  await expect.element(current).toHaveAttribute("aria-selected", "true");
+
+  await current.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Rename…" }).click();
+  await expect.element(nameField()).toHaveFocus();
+  await userEvent.fill(nameField(), "build");
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(dialog()).not.toBeInTheDocument();
+  const renamed = sessionTab("build");
+  await expect.element(renamed).toHaveAttribute("aria-selected", "true");
+  await expect.element(renamed).toHaveFocus();
+  expect(focusedIsTerminal()).toBe(false);
+});
+
 test("the rename action is disabled while no session or terminal is selected", async () => {
   await render(<App client={newClient()} />);
 

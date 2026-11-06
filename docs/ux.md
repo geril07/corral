@@ -269,7 +269,7 @@ What a user does. Everything below is built and verified end to end, chat views 
 
 - The palette lists every effective binding in fixed Sessions, Tasks, Projects,
   Navigation and General groups, using official CommandDialog/Command components. An action that
-  cannot run now is shown disabled next to the reason it cannot (e.g. "The claude agent has no chat
+  cannot run now is shown disabled with the reason it cannot (e.g. "The claude agent has no chat
   driver in this build.").
 - A new default binding can take a chord an existing `config.toml` gave to another action:
   the file's entry is dropped, that action falls back to its own default, and Settings reports
