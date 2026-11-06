@@ -961,6 +961,17 @@ test("New task in a project opens its composer, and Escape returns to the select
   await userEvent.keyboard("{Escape}");
   await expect.element(newTaskView()).not.toBeInTheDocument();
   await expect.element(selected).toHaveAttribute("aria-current", "true");
+
+  // The project row's menu offers the same action as its `+`, for the same project.
+  await workspace()
+    .getByRole("button", { name: new RegExp(`^${other.name}\\b`) })
+    .click({ button: "right" });
+  await page.getByRole("menuitem", { name: `New task in ${other.name}` }).click();
+  await expect.element(newTaskView()).toBeVisible();
+  await expect.element(promptField()).toHaveFocus();
+  await expect
+    .element(newTaskView().getByRole("combobox", { name: `Project ${other.name}` }))
+    .toBeVisible();
 });
 
 test("prefix b opens the board, which pauses the prefix and closes on Escape", async () => {
@@ -1254,6 +1265,95 @@ test("a task without sessions shows the empty state with its two ways to start o
   await expect.element(page.getByText("No sessions")).toBeVisible();
   await page.getByRole("button", { name: "Open shell" }).click();
   await expect.element(shellTabs()).toHaveLength(1);
+});
+
+test("a project row's menu forgets it after naming its tasks, and Cancel keeps the keyboard on the row", async () => {
+  const { client } = await appWithProject(newClient());
+  const api = client.connection.api;
+  const project = client.projects.getSnapshot().projects[0]!;
+  await Promise.all(
+    ["First", "Second", "Third"].map((title) =>
+      api.tasks.create({ projectId: project.id, title, workspace: { type: "main-worktree" } }),
+    ),
+  );
+  const fallbackProject = await api.projects.add({ path: await createGitRepo("fallback") });
+  await api.tasks.create({
+    projectId: fallbackProject.id,
+    title: "Fallback task",
+    workspace: { type: "main-worktree" },
+  });
+  await taskButton("First").click();
+  await expect.element(taskButton("First")).toHaveAttribute("aria-current", "true");
+
+  const projectRow = workspace().getByRole("button", { name: new RegExp(`^${project.name}\\b`) });
+  await projectRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove project…" }).click();
+
+  const dialog = page.getByRole("alertdialog");
+  await expect.element(dialog).toBeVisible();
+  await expect.element(dialog).toMatchTextContent(`Remove project "${project.name}"?`);
+  await expect
+    .element(dialog)
+    .toMatchTextContent(
+      "Forgets this project and its 3 tasks; worktrees and branches stay on disk.",
+    );
+  await expect.element(dialog.getByRole("button", { name: "Cancel" })).toHaveFocus();
+
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect.element(dialog).not.toBeInTheDocument();
+  await expect.element(projectRow).toHaveFocus();
+
+  await projectRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove project…" }).click();
+  await dialog.getByRole("button", { name: "Remove project" }).click();
+  await expect.element(dialog).not.toBeInTheDocument();
+
+  // Project and rows are gone; the resolver's fallback is the other project's first task.
+  await expect.element(projectRow).not.toBeInTheDocument();
+  await expect.element(taskButton("First")).not.toBeInTheDocument();
+  await expect.element(taskButton("Fallback task")).toHaveAttribute("aria-current", "true");
+  expect(client.projects.getSnapshot().projects.map((each) => each.id)).toEqual([
+    fallbackProject.id,
+  ]);
+});
+
+test("removing a project with a running terminal is refused and changes nothing", async () => {
+  const { client } = await appWithProject(newClient());
+  const api = client.connection.api;
+  const project = client.projects.getSnapshot().projects[0]!;
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Busy",
+    workspace: { type: "main-worktree" },
+  });
+  await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
+  await taskButton("Busy").click();
+  await expect.element(taskButton("Busy")).toHaveAttribute("aria-current", "true");
+
+  const projectRow = workspace().getByRole("button", { name: new RegExp(`^${project.name}\\b`) });
+  await projectRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove project…" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect
+    .element(dialog)
+    .toMatchTextContent(
+      "Forgets this project and its 1 task; worktrees and branches stay on disk.",
+    );
+  await dialog.getByRole("button", { name: "Remove project" }).click();
+
+  await expect
+    .element(dialog.getByRole("alert"))
+    .toMatchTextContent("The project has tasks with running terminals. Close them first.");
+  // The refusal leaves the project, its task and its running session exactly as they were.
+  expect(client.projects.getSnapshot().projects.map((each) => each.id)).toContain(project.id);
+  expect(client.tasks.getSnapshot().tasks).toHaveLength(1);
+  expect(client.sessions.getSnapshot().sessions[0]?.state).toBe("running");
+
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect.element(dialog).not.toBeInTheDocument();
+  await expect.element(projectRow).toBeVisible();
+  await expect.element(taskButton("Busy")).toHaveAttribute("aria-current", "true");
+  await expect.element(projectRow).toHaveFocus();
 });
 
 test("the task header names the task, project and branch without a hidden copy control", async () => {

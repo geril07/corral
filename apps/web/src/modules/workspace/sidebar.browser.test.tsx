@@ -102,6 +102,7 @@ const handlers = () => ({
   onRenameTask: vi.fn<(task: Task, opener?: HTMLElement) => void>(),
   onToggleSettle: vi.fn<(task: Task) => void>(),
   onRemoveTask: vi.fn<(task: Task) => void>(),
+  onRemoveProject: vi.fn<(project: Project, opener?: HTMLElement) => void>(),
   onNewTask: vi.fn<(project?: Project, opener?: HTMLElement) => void>(),
   onFindTask: vi.fn<(opener?: HTMLElement) => void>(),
 });
@@ -835,6 +836,50 @@ test("a row's menu is gone before the next row opens its own", async () => {
   expect(page.getByRole("menu").elements()).toHaveLength(1);
   await page.getByRole("menuitem", { name: "Remove task…" }).click();
   expect(spies.onRemoveTask).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }));
+});
+
+test("a project row's menu opens by right-click, menu key and Shift+F10", async () => {
+  await renderSidebar().rendered;
+  const projectRow = containerRow("repo-p1");
+  const menu = page.getByRole("menu");
+
+  await projectRow.click({ button: "right" });
+  await expect.element(menu).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "New task in repo-p1" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Remove project…" })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(menu).not.toBeInTheDocument();
+
+  projectRow.element().focus();
+  await userEvent.keyboard("{ContextMenu}");
+  await expect.element(menu).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(projectRow).toHaveFocus();
+
+  await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+  await expect.element(menu).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(projectRow).toHaveFocus();
+});
+
+test("a project's row menu starts a task in it and asks to remove it, with the row as the opener", async () => {
+  const { rendered, handlers: spies } = renderSidebar();
+  await rendered;
+  const projectRow = containerRow("repo-p1");
+
+  await projectRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "New task in repo-p1" }).click();
+  expect(spies.onNewTask).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ id: "p1" }),
+    projectRow.element(),
+  );
+
+  await projectRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove project…" }).click();
+  expect(spies.onRemoveProject).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ id: "p1" }),
+    projectRow.element(),
+  );
 });
 
 const reporting = (base: Session, status: NonNullable<Session["status"]>): Session => ({

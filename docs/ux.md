@@ -124,6 +124,11 @@ What a user does. Everything below is built and verified end to end, chat views 
   tool/profile icon rail; modules do not invent selectable cards or control skins.
 - Remove task retains the dirty-worktree second confirmation; keyed buttons prevent
   a single Enter from confirming both stages. No branches are deleted implicitly.
+- Remove project is a project row's destructive action: its confirmation names the project and
+  how many tasks it forgets, and says the worktrees and branches stay on disk. A project with a
+  task whose terminal runs is refused and nothing changes; Cancel and Escape return the keyboard
+  to the row. Because the removed project named the selection, the main area lands on the
+  resolver's fallback, never on a blank one.
 - Rename is a focused dialog, the same one for a task's title, a session label and a loose terminal label. Session labels persist; loose terminal labels survive
   only for their terminal's lifetime. The historical first-character risk remains
   unexplained; changing kits is not evidence of a fix.

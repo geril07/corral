@@ -38,7 +38,6 @@ import {
   DropdownMenuItem,
   MeasuredBox,
   RowMenu,
-  Hint,
   TreeIndent,
   TreeRow,
   useTruncatedText,
@@ -121,6 +120,8 @@ interface SidebarProps {
   onRenameTask: (task: Task, opener?: HTMLElement) => void;
   onToggleSettle: (task: Task) => void;
   onRemoveTask: (task: Task) => void;
+  /** Removes the whole project: its tasks and sessions, never the worktrees or branches. */
+  onRemoveProject: (project: Project, opener?: HTMLElement) => void;
   /** Opens the controlled source dialog; only tasks with a source offer it. */
   onViewSource?: (task: Task, opener?: HTMLElement) => void;
   /** `project` is set by a project group's "new task here"; absent from the header button. */
@@ -341,6 +342,7 @@ export function Sidebar(props: SidebarProps) {
                 onToggle={toggleProject}
                 groupKey={groupKey(node.project.id)}
                 onNewTask={(opener) => props.onNewTask(node.project, opener)}
+                onRemoveProject={(opener) => props.onRemoveProject(node.project, opener)}
                 renderTask={renderTask}
               />
             ))}
@@ -653,6 +655,7 @@ function ProjectGroup({
   onToggle,
   groupKey,
   onNewTask,
+  onRemoveProject,
   renderTask,
 }: {
   node: ProjectNode;
@@ -662,6 +665,7 @@ function ProjectGroup({
   groupKey: string;
   onToggle: (groupKey: string) => void;
   onNewTask: (opener?: HTMLElement) => void;
+  onRemoveProject: (opener?: HTMLElement) => void;
   renderTask: (node: TaskNode) => React.ReactNode;
 }) {
   const { project, active } = node;
@@ -697,6 +701,7 @@ function ProjectGroup({
     ) : undefined;
   // One control per project: the row itself discloses the group. The count stays in the row and
   // the action covers it on hover and keyboard focus, so neither reserves an action gutter.
+  const menuTrigger = useRef<HTMLButtonElement>(null);
   const select = (
     <Button
       variant="ghost"
@@ -704,6 +709,7 @@ function ProjectGroup({
       aria-label={name}
       aria-describedby={description === undefined ? undefined : descriptionId}
       aria-expanded={open}
+      ref={menuTrigger}
       onClick={() => onToggle(groupKey)}
     >
       {description !== undefined && (
@@ -724,7 +730,19 @@ function ProjectGroup({
   return (
     <li>
       <TreeRow project className="group relative">
-        <Hint content={hint}>{select}</Hint>
+        <RowMenu label={`Project actions for ${project.name}`} hint={hint} trigger={select}>
+          <DropdownMenuItem
+            onClick={(event) => onNewTask(menuTrigger.current ?? event.currentTarget)}
+          >
+            New task in {project.name}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={(event) => onRemoveProject(menuTrigger.current ?? event.currentTarget)}
+          >
+            Remove project…
+          </DropdownMenuItem>
+        </RowMenu>
         <span className="absolute inset-y-0 right-0 flex items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
           <IconButton
             label={`New task in ${project.name}`}
