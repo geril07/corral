@@ -420,7 +420,7 @@ test("the footer follows the save lifecycle: unsaved before the request, Saving�
   await expect.element(unsavedStatus()).not.toBeInTheDocument();
 
   release();
-  await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${baseRevision + 1}`);
+  await expect.element(savedStatus()).toHaveTextContent(`Saved · revision ${baseRevision + 1}`);
   await expect.element(savingStatus()).not.toBeInTheDocument();
 });
 
