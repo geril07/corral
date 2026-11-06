@@ -168,6 +168,7 @@ function controlOverrides(program, diagnostics, line) {
     "AppShell",
     "ContentLane",
     "MainPanel",
+    "MeasuredBox",
     "SidebarPanel",
     "TreeIndent",
     "TreeRow",

@@ -42,9 +42,19 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   permanent width. Full names stay accessible and get a tooltip when clipped.
 - `prefix w` hands the list the keyboard: arrows and Home/End walk its rows, Enter opens one and
   Escape leaves. Rows stay in the tab order; the arrows are a shortcut, not a replacement.
+  The selected row is revealed whenever the selection changes or the list's visible area does
+  (a group opening or closing, the shelf taking its page), so `prefix j`, `k` and `f` leave it
+  in view; `j` from the last active row selects the shelf's first and opens it visibly, and `k`
+  from the shelf's first returns to the last active row.
 - One Settled shelf is anchored below the active list, above the footer, across all projects.
-  It starts collapsed, expands in pages and has a separately scrolling list. A selected older
-  task reveals itself, even beyond the first page, without resuming it.
+  It starts collapsed and its toggle is enabled in every state; collapsed, it still shows the
+  current task's row alone. Expanded, its list is one measured page tall — the rows its box fits,
+  `max(1, floor(box / row))` — and the active list keeps at least four rows, the shelf shrinking
+  first. `Show more` is the shelf's last row and appends one measured page with the appended page
+  in view; it disappears at the end. A selected older task opens the shelf, mounts at most one
+  page beyond the page holding it, scrolls the row into view and never resumes it. A shelf the
+  selection opened collapses when the selection leaves; a user-expanded one stays open. Collapsed
+  project groups, the shelf's expanded state and its page are remembered on this device.
   General task search still includes settled history.
 - Loose terminals remain in Scratch when present.
 - Footer: Settings and Add project, exceptional connection/config notices (the connection

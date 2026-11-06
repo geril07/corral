@@ -239,7 +239,7 @@ describe("kit control appearance", () => {
 
   it("allows stock variants, behavior props, structural layout and ordinary content typography", () => {
     const source =
-      'import { Button, AppShell } from "../common/ui/index.ts"; const view = <AppShell className="h-screen"><div className="flex gap-4"><Button variant="secondary" layout="tree" size="sm" onClick={run} disabled={busy} aria-label="Run"><span className="truncate text-muted-foreground">Run</span></Button></div></AppShell>;';
+      'import { Button, AppShell, MeasuredBox } from "../common/ui/index.ts"; const view = <AppShell className="h-screen"><MeasuredBox className="overflow-y-auto" maxHeight={100}><div className="flex gap-4"><Button variant="secondary" layout="tree" size="sm" onClick={run} disabled={busy} aria-label="Run"><span className="truncate text-muted-foreground">Run</span></Button></div></MeasuredBox></AppShell>;';
     expect(messages(source)).toEqual([]);
   });
 });
