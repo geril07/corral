@@ -69,18 +69,21 @@ test("a task in the main working tree says the working tree stays", async () => 
   await expect.element(dialog()).not.toMatchTextContent("removes the worktree");
 });
 
-test("uncommitted changes are listed and removing needs a second, explicit step with the focus back on Cancel", async () => {
+test("ignored entries are listed as local changes and removing needs a second, explicit step with the focus back on Cancel", async () => {
   const onRemove = vi
     .fn<(force: boolean) => Promise<void>>()
-    .mockRejectedValueOnce(dirty(["notes.txt", "src/new.ts"]))
+    .mockRejectedValueOnce(dirty([".env", "node_modules/"]))
     .mockResolvedValue(undefined);
   await render(<RemoveTaskDialog task={task} onRemove={onRemove} onClose={() => undefined} />);
 
   await opened();
   await userEvent.keyboard("{Tab}{Enter}");
-  const files = dialog().getByRole("list", { name: "uncommitted files" });
-  await expect.element(files).toMatchTextContent("notes.txt");
-  await expect.element(files).toMatchTextContent("src/new.ts");
+  const files = dialog().getByRole("list", { name: "local changes" });
+  await expect.element(files).toMatchTextContent(".env");
+  await expect.element(files).toMatchTextContent("node_modules/");
+  await expect
+    .element(dialog().getByRole("alert"))
+    .toMatchTextContent("local changes, including ignored files");
   await expect.element(button("Remove anyway")).toBeVisible();
   await expect.element(button("Cancel")).toHaveFocus();
 
@@ -92,7 +95,7 @@ test("uncommitted changes are listed and removing needs a second, explicit step 
 test("Remove anyway forces", async () => {
   const onRemove = vi
     .fn<(force: boolean) => Promise<void>>()
-    .mockRejectedValueOnce(dirty(["notes.txt"]))
+    .mockRejectedValueOnce(dirty([".env", "node_modules/"]))
     .mockResolvedValue(undefined);
   await render(<RemoveTaskDialog task={task} onRemove={onRemove} onClose={() => undefined} />);
 

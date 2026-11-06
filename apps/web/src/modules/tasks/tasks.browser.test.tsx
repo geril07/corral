@@ -226,7 +226,7 @@ test("shift+t removes a clean task after a confirmation, and Escape keeps it", a
   expect(client.tasks.getSnapshot().tasks).toHaveLength(0);
 });
 
-test("a worktree with uncommitted files lists them and is only removed by Remove anyway", async () => {
+test("a worktree with local changes lists them and is only removed by Remove anyway", async () => {
   const { client } = await appWithProject();
   await createTaskWithShell("Messy", 1, { workspace: "new-worktree" });
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
@@ -237,7 +237,7 @@ test("a worktree with uncommitted files lists them and is only removed by Remove
   await expect.element(removeTaskDialog().getByRole("button", { name: "Cancel" })).toHaveFocus();
   await userEvent.keyboard("{Tab}{Enter}");
   await expect
-    .element(removeTaskDialog().getByRole("list", { name: "uncommitted files" }))
+    .element(removeTaskDialog().getByRole("list", { name: "local changes" }))
     .toMatchTextContent("notes.txt");
   await expect.element(removeTaskDialog().getByRole("button", { name: "Cancel" })).toHaveFocus();
   expect(client.tasks.getSnapshot().tasks).toHaveLength(1);

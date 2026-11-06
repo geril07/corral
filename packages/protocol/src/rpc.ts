@@ -828,7 +828,7 @@ export const contract = {
       .output(Task),
     /**
      * Removes the task's sessions (stopping them), removes a worktree the task owns and forgets the task. The
-     * branch always stays. A worktree with uncommitted or untracked changes is kept and the
+     * branch always stays. A worktree with local changes, ignored files included, is kept and the
      * call fails with `WORKTREE_DIRTY`, unless `force` is set.
      */
     remove: oc
