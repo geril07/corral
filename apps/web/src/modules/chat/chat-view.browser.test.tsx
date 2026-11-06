@@ -410,14 +410,15 @@ test("a deferred pointer abort keeps the keyboard in the composer", async () => 
 
   await userEvent.click(abort);
   await vi.waitFor(() => expect(chat.aborts).toHaveLength(1));
-  await expect.element(abort).toBeDisabled();
+  const stopping = page.getByRole("button", { name: "Stopping…" });
+  await expect.element(stopping).toBeDisabled();
   await expect.element(composer).toHaveFocus();
-  await expect.element(abort).not.toHaveFocus();
+  await expect.element(stopping).not.toHaveFocus();
   await userEvent.keyboard("still typing");
   await expect.element(composer).toHaveValue("still typing");
 
   pending.resolve();
-  await expect.element(abort).toBeEnabled();
+  await expect.element(page.getByRole("button", { name: "Abort" })).toBeEnabled();
   await expect.element(composer).toHaveFocus();
 });
 
@@ -439,14 +440,50 @@ test("a deferred keyboard abort returns the keyboard to the composer", async () 
   await expect.element(abort).toHaveFocus();
   await userEvent.keyboard("{Enter}");
   await vi.waitFor(() => expect(chat.aborts).toHaveLength(1));
-  await expect.element(abort).toBeDisabled();
+  const stopping = page.getByRole("button", { name: "Stopping…" });
+  await expect.element(stopping).toBeDisabled();
   await expect.element(composer).toHaveFocus();
   await userEvent.keyboard(" text");
   await expect.element(composer).toHaveValue("Keep this text");
 
   pending.resolve();
-  await expect.element(abort).toBeEnabled();
+  await expect.element(page.getByRole("button", { name: "Abort" })).toBeEnabled();
   await expect.element(composer).toHaveFocus();
+});
+
+test("a pending abort says it is stopping and marks the composer row busy", async () => {
+  const pending = Promise.withResolvers<void>();
+  const chat = await renderChat(recorded([], { state: workingChat() }), {
+    onAbort: () => pending.promise,
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const queue = page.getByRole("button", { name: "Queue" });
+  const steer = page.getByRole("button", { name: "Steer" });
+  const abort = page.getByRole("button", { name: "Abort" });
+  const row = abort.element().parentElement!;
+  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard("Keep this");
+
+  await userEvent.click(abort);
+  await vi.waitFor(() => expect(chat.aborts).toHaveLength(1));
+
+  // The visible label and the accessible name both say what is happening; the row is busy.
+  const stopping = page.getByRole("button", { name: "Stopping…" });
+  await expect.element(stopping).toBeDisabled();
+  await expect.element(stopping).toHaveTextContent("Stopping…");
+  await expect.poll(() => row.getAttribute("aria-busy")).toBe("true");
+
+  // The turn still reads working and the other actions keep their own rules.
+  await expect.element(page.getByText(/Enter steer · ⌘\/Ctrl\+Enter follow-up/)).toBeVisible();
+  await expect.element(queue).toBeEnabled();
+  await expect.element(steer).toBeEnabled();
+
+  pending.resolve();
+  await expect.element(page.getByRole("button", { name: "Abort" })).toBeEnabled();
+  await expect.poll(() => row.getAttribute("aria-busy")).toBe("false");
+  await expect.element(queue).toBeEnabled();
+  await expect.element(steer).toBeEnabled();
 });
 
 test("a driver without follow-up hides Queue and turns Ctrl/Cmd+Enter into steer", async () => {

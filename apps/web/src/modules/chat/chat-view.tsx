@@ -262,7 +262,7 @@ export function ChatView({
                     else void send("steer");
                   }}
                 />
-                <ComposerToolbar>
+                <ComposerToolbar busy={aborting}>
                   <ModelPickerButton
                     ref={modelPickerAnchor}
                     kind={agent}
@@ -316,7 +316,7 @@ export function ChatView({
                           void abort();
                         }}
                       >
-                        Abort
+                        {aborting ? "Stopping…" : "Abort"}
                       </Button>
                     </>
                   )}

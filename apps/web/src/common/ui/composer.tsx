@@ -12,6 +12,16 @@ export function ComposerSurface({ children }: { children: ReactNode }) {
   );
 }
 
-export function ComposerToolbar({ children }: { children: ReactNode }) {
-  return <div className="flex flex-wrap items-center gap-1 px-2 pb-2">{children}</div>;
+export function ComposerToolbar({
+  children,
+  busy,
+}: {
+  children: ReactNode;
+  busy?: boolean | undefined;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1 px-2 pb-2" aria-busy={busy}>
+      {children}
+    </div>
+  );
 }
