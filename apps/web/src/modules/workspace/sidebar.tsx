@@ -45,7 +45,7 @@ import {
 } from "../../common/ui/index.ts";
 import { changeCounts, pullRequestShortText } from "../changes/index.ts";
 import { formatBinding } from "../keymap/index.ts";
-import { StatusIndicator } from "../status/index.ts";
+import { StatusIndicator, statusMessage } from "../status/index.ts";
 import { SIDEBAR_ROW_SELECTOR, sidebarRowOf } from "./sidebar-focus.ts";
 import {
   SHELF_MIN_ACTIVE_ROWS,
@@ -605,7 +605,10 @@ function TaskRow({
             {contextDisplay}
           </span>
           {tail.length > 0 && (
-            <span data-row-tail className="shrink-0 whitespace-nowrap">
+            <span
+              data-row-tail
+              className="max-w-full shrink-0 overflow-hidden text-ellipsis whitespace-nowrap"
+            >
               {context !== undefined && "· "}
               {tail.join(" · ")}
             </span>
@@ -671,19 +674,27 @@ function ProjectGroup({
     clipped: projectClipped,
     display: projectDisplay,
   } = useTruncatedText(project.name);
+  // The collapsed row shows the group's most urgent glyph; its name and description carry the
+  // same fact, so the status is not pointer-only.
+  const attention = !open ? attentionWord(status) : undefined;
+  const description = !open && status ? statusMessage(status) : undefined;
+  const descriptionId = useId();
   const name = rowName({
     title: project.name,
-    right: String(count),
+    right: [attention, String(count)]
+      .filter((part): part is string => part !== undefined)
+      .join(" · "),
     detail: projectClipped ? project.path : undefined,
   });
-  const hint = projectClipped ? (
-    <span className="block">
+  const hint =
+    projectClipped || description !== undefined ? (
       <span className="block">
-        {project.name} — {count}
+        <span className="block">{name}</span>
+        {description !== undefined && (
+          <span className="block text-muted-foreground">{description}</span>
+        )}
       </span>
-      <span className="block text-muted-foreground">{project.path}</span>
-    </span>
-  ) : undefined;
+    ) : undefined;
   // One control per project: the row itself discloses the group. The count stays in the row and
   // the action covers it on hover and keyboard focus, so neither reserves an action gutter.
   const select = (
@@ -691,11 +702,17 @@ function ProjectGroup({
       variant="ghost"
       layout="tree"
       aria-label={name}
+      aria-describedby={description === undefined ? undefined : descriptionId}
       aria-expanded={open}
       onClick={() => onToggle(groupKey)}
     >
+      {description !== undefined && (
+        <span id={descriptionId} className="sr-only">
+          {description}
+        </span>
+      )}
       <Icon name={open ? "collapse" : "expand"} />
-      {!open && status && <StatusIndicator status={status} />}
+      {!open && status && <StatusIndicator status={status} tooltip={false} />}
       <span ref={observeProject} className="min-w-0 flex-1 truncate">
         {projectDisplay}
       </span>

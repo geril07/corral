@@ -42,10 +42,17 @@ test("a blocked agent shows in the sidebar and on the board, and Enter jumps to 
 
   const blocked = sidebar.getByRole("img", { name: "blocked · permission" });
   await expect(blocked).toHaveCount(1);
-  await expect(sidebar.getByRole("button", { name: /^Alpha/ })).toHaveAttribute(
-    "title",
-    "Run rm -rf build?",
-  );
+  const alphaTaskRow = sidebar.getByRole("button", { name: /^Alpha/ });
+  await expect(alphaTaskRow).toHaveAttribute("aria-label", /needs approval/);
+  expect(
+    await alphaTaskRow.evaluate((element) => {
+      const id = element.getAttribute("aria-describedby");
+      return id === null ? null : (element.ownerDocument.getElementById(id)?.textContent ?? null);
+    }),
+  ).toBe("Run rm -rf build?");
+  await alphaTaskRow.hover();
+  await expect(window.getByRole("tooltip")).toContainText("Run rm -rf build?");
+  await window.mouse.move(0, 0);
 
   await createTask(window, "Beta");
   // The flat list shows the selected task's sessions; Alpha's are with Alpha.

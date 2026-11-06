@@ -2,6 +2,12 @@ import { describeStatus } from "@corral/client/agent-status";
 import type { AgentStatus } from "@corral/protocol/rpc";
 import { StatusGlyph, Hint, type StatusGlyphSize } from "../../common/ui/index.ts";
 
+/** The status's words with its reason when one was reported; the glyph and row tooltip share them. */
+export function statusMessage(status: AgentStatus): string {
+  const text = describeStatus(status);
+  return status.message ? `${text}: ${status.message}` : text;
+}
+
 /**
  * The agent's state in a sidebar row: a fixed-size glyph, with the words as its text alternative
  * and tooltip. `muted` fades a `done` update the user has already seen.
@@ -21,7 +27,7 @@ export function StatusIndicator({
 }) {
   if (!status) return <span className="w-5 shrink-0" aria-hidden />;
   const text = describeStatus(status);
-  const message = status.message ? `${text}: ${status.message}` : text;
+  const message = statusMessage(status);
   const glyph = (
     <span
       className="flex w-5 shrink-0 items-center justify-center"
