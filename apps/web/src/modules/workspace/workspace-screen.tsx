@@ -469,9 +469,7 @@ export function WorkspaceScreen({
             onRemove={(each) =>
               each.id === currentSession?.id ? invoke("remove-session") : openRemoveSession(each)
             }
-            onRename={(entry, opener) =>
-              entry.id === current?.id ? invoke("rename-session") : openRenameEntry(entry, opener)
-            }
+            onRename={openRenameEntry}
             onNewShell={() => invoke("new-terminal")}
             onNewAgent={() => invoke("new-agent")}
           />
