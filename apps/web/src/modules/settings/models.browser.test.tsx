@@ -47,6 +47,7 @@ async function renderHashApp(client: ReturnType<typeof newClient>, entries: stri
 const saveButton = () => models().getByRole("button", { name: "Save", exact: true });
 const savedStatus = () => models().getByRole("status").filter({ hasText: "Saved · revision" });
 const unsavedStatus = () => models().getByRole("status").filter({ hasText: "Unsaved changes" });
+const savingStatus = () => models().getByRole("status").filter({ hasText: "Saving…" });
 const findModels = () => models().getByRole("textbox", { name: "Find models" });
 
 async function openManager() {
@@ -375,6 +376,8 @@ test("a revision that changes while Save is in flight fails the save and keeps t
   const { release } = holdNextSave(client);
   await saveButton().click();
   await expect.element(saveButton()).toBeDisabled();
+  await expect.element(savingStatus()).toHaveTextContent("Saving…");
+  await expect.element(unsavedStatus()).not.toBeInTheDocument();
 
   await peer.connection.api.models.save({
     scope,
@@ -382,6 +385,8 @@ test("a revision that changes while Save is in flight fails the save and keeps t
     policy: { ...defaultModelPolicy(), deny: [{ type: "provider", provider: "stub" }] },
   });
   await expect.element(models().getByRole("alert")).toMatchTextContent("Changed in another client");
+  await expect.element(savingStatus()).toHaveTextContent("Saving…");
+  await expect.element(unsavedStatus()).not.toBeInTheDocument();
   release();
 
   await expect.element(models().getByText("Could not save.", { exact: false })).toBeVisible();
@@ -390,7 +395,33 @@ test("a revision that changes while Save is in flight fails the save and keeps t
   await expect
     .element(unsavedStatus())
     .toMatchTextContent(`Unsaved changes · revision ${baseRevision}`);
+  await expect.element(savingStatus()).not.toBeInTheDocument();
   await expect.element(saveButton()).toBeDisabled();
+});
+
+test("the footer follows the save lifecycle: unsaved before the request, Saving… while it is held, Saved after the ack", async () => {
+  const { client } = await openManager();
+  await vi.waitFor(() => expect(client.modelPreferences.getSnapshot().loaded).toBe(true));
+  const saved = () =>
+    client.modelPreferences
+      .getSnapshot()
+      .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope));
+  const baseRevision = saved()?.revision ?? 0;
+  await models().getByRole("button", { name: "Only selected", exact: true }).click();
+  await checkbox("Show Stub Two · stub").click();
+  await expect
+    .element(unsavedStatus())
+    .toMatchTextContent(`Unsaved changes · revision ${baseRevision}`);
+
+  const { release } = holdNextSave(client);
+  await saveButton().click();
+  await expect.element(saveButton()).toBeDisabled();
+  await expect.element(savingStatus()).toHaveTextContent("Saving…");
+  await expect.element(unsavedStatus()).not.toBeInTheDocument();
+
+  release();
+  await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${baseRevision + 1}`);
+  await expect.element(savingStatus()).not.toBeInTheDocument();
 });
 
 test("saving from the keyboard announces the footer status and returns focus there; a refused save keeps the draft and focus in the dialog", async () => {

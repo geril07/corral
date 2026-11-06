@@ -32,6 +32,7 @@ import { useCorralClient } from "../connection/index.ts";
 import { useConfig } from "../keymap/index.ts";
 import { AgentKind } from "@corral/protocol/config";
 import { useModelCatalog, useModelPreferences, type KnownModelCatalog } from "./model-catalog.ts";
+import { modelFooterText } from "./model-footer.ts";
 
 export interface ModelManagementTarget {
   scope: ModelScope;
@@ -542,7 +543,7 @@ function ModelPolicyEditor({
           tabIndex={-1}
           className="rounded-sm text-xs text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
         >
-          {dirty ? "Unsaved changes" : "Saved"} · revision {base.revision}
+          {modelFooterText({ busy, dirty, revision: base.revision })}
         </span>
         <div className="flex flex-wrap gap-1">
           <Button
