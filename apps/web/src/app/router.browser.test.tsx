@@ -1,6 +1,7 @@
 import { createHashHistory, createMemoryHistory } from "@tanstack/react-router";
+import { createAppHistory } from "./history.ts";
 import { createAppRouter } from "./router.tsx";
-import { expect, test } from "vite-plus/test";
+import { expect, test, vi } from "vite-plus/test";
 
 // The desktop app loads the page as file://...?server=<ws url>; the route lives after the hash.
 const DESKTOP_URL = "/?server=ws%3A%2F%2F127.0.0.1%3A4317#/";
@@ -110,4 +111,139 @@ test("legacy quoted string ids load through a fresh router", async () => {
     entry: "abc?x=1",
   });
   router.history.destroy();
+});
+
+test("a browser-created hash entry is FORWARD, not BACK, once it has an index", async () => {
+  const original = window.location.href;
+  let history: ReturnType<typeof createAppHistory> | undefined;
+  try {
+    window.history.replaceState({}, "", "/#/");
+    history = createAppHistory();
+    const actions: string[] = [];
+    history.subscribe(({ action }) => actions.push(action.type));
+    history.push("/settings");
+    history.flush();
+    expect(history.location.state["__TSR_index"]).toBe(1);
+
+    // The address-bar equivalent: a native fragment entry with no TanStack state.
+    window.location.hash = "#/";
+    await vi.waitFor(() => expect(history?.location.pathname).toBe("/"));
+    expect(actions).toEqual(["PUSH", "FORWARD"]);
+    expect(history.location.state["__TSR_index"]).toBe(2);
+
+    history.back();
+    await vi.waitFor(() => expect(history?.location.pathname).toBe("/settings"));
+    expect(actions).toEqual(["PUSH", "FORWARD", "BACK"]);
+  } finally {
+    history?.destroy();
+    window.history.replaceState({}, "", original);
+  }
+});
+
+/** A real window whose Navigation API result the test controls, or hides entirely. */
+function windowWithNavigation(index: () => number | undefined): Window {
+  return new Proxy(window, {
+    get(target, property) {
+      if (property === "navigation") {
+        if (index() === undefined) return undefined;
+        return {
+          get currentEntry() {
+            const current = index();
+            return current === undefined ? null : { index: current };
+          },
+        };
+      }
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+test("the app router indexes a browser-created entry through its own history", async () => {
+  const original = window.location.href;
+  let router: ReturnType<typeof createAppRouter> | undefined;
+  try {
+    window.history.replaceState({}, "", "/#/");
+    router = createAppRouter();
+    await router.load();
+    const actions: string[] = [];
+    router.history.subscribe(({ action }) => actions.push(action.type));
+    router.history.push("/settings");
+    router.history.flush();
+
+    window.location.hash = "#/";
+    await vi.waitFor(() => expect(router?.state.location.pathname).toBe("/"));
+    expect(historyIndex(router.history.location.state)).toBe(2);
+    expect(actions).toEqual(["PUSH", "FORWARD"]);
+  } finally {
+    router?.history.destroy();
+    window.history.replaceState({}, "", original);
+  }
+});
+
+function historyIndex(state: unknown) {
+  if (typeof state !== "object" || state === null || !("__TSR_index" in state)) return undefined;
+  return state["__TSR_index"];
+}
+
+test("the Navigation API branch positions a native entry by its session index", async () => {
+  const original = window.location.href;
+  let navigationIndex = 10;
+  const win = windowWithNavigation(() => navigationIndex);
+  let history: ReturnType<typeof createAppHistory> | undefined;
+  try {
+    window.history.replaceState({}, "", "/#/");
+    history = createAppHistory(win);
+    history.push("/settings");
+    history.flush();
+
+    // A value the lastIndex + 1 fallback would never produce.
+    navigationIndex = 15;
+    window.location.hash = "#/";
+    await vi.waitFor(() => expect(history?.location.pathname).toBe("/"));
+    expect(historyIndex(history.location.state)).toBe(5);
+  } finally {
+    history?.destroy();
+    window.history.replaceState({}, "", original);
+  }
+});
+
+test("without the Navigation API a native entry takes the next index", async () => {
+  const original = window.location.href;
+  const win = windowWithNavigation(() => undefined);
+  let history: ReturnType<typeof createAppHistory> | undefined;
+  try {
+    window.history.replaceState({}, "", "/#/");
+    history = createAppHistory(win);
+    const actions: string[] = [];
+    history.subscribe(({ action }) => actions.push(action.type));
+    history.push("/settings");
+    history.flush();
+
+    window.location.hash = "#/";
+    await vi.waitFor(() => expect(history?.location.pathname).toBe("/"));
+    expect(historyIndex(history.location.state)).toBe(2);
+    expect(actions).toEqual(["PUSH", "FORWARD"]);
+  } finally {
+    history?.destroy();
+    window.history.replaceState({}, "", original);
+  }
+});
+
+test("destroying app history stops the popstate normalizer", async () => {
+  const original = window.location.href;
+  let history: ReturnType<typeof createAppHistory> | undefined;
+  try {
+    window.history.replaceState({}, "", "/#/");
+    history = createAppHistory();
+    history.destroy();
+    history = undefined;
+
+    window.location.hash = "#/after-destroy";
+    await vi.waitFor(() => expect(window.location.hash).toBe("#/after-destroy"));
+    expect(window.history.state).toBeNull();
+  } finally {
+    history?.destroy();
+    window.history.replaceState({}, "", original);
+  }
 });
