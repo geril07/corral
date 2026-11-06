@@ -281,7 +281,7 @@ test("a terminal whose process ended stays listed as exited until it is closed",
   });
   await render(<App client={client} />);
 
-  await expect.element(page.getByText("exited (3)")).toBeVisible();
+  await expect.element(workspace().getByText("exited (3)").last()).toBeVisible();
   await expect.element(page.getByRole("status", { name: "terminal exited" })).toBeVisible();
   await expect.poll(screenText).toContain("bye");
 
@@ -929,7 +929,7 @@ test("Add project lands in the new project's composer, not a loose terminal", as
     return found;
   });
   await expect
-    .element(workspace().getByRole("button", { name: project.name }))
+    .element(workspace().getByRole("button", { name: new RegExp(`^${project.name}\\b`) }))
     .toHaveAttribute("aria-expanded", "true");
   await expect.element(workspace().getByRole("button", { name: "New task" })).toBeEnabled();
 });
@@ -956,7 +956,7 @@ test("New task in a project opens its composer, and Escape returns to the select
   // is the group shown open. Escape leaves the composer for the selection the URL still names.
   expect(workspace().element().querySelectorAll('[aria-current="true"]')).toHaveLength(0);
   await expect
-    .element(workspace().getByRole("button", { name: other.name }))
+    .element(workspace().getByRole("button", { name: new RegExp(`^${other.name}\\b`) }))
     .toHaveAttribute("aria-expanded", "true");
   await userEvent.keyboard("{Escape}");
   await expect.element(newTaskView()).not.toBeInTheDocument();
@@ -1158,7 +1158,9 @@ test("the board keeps a collapsed project and the sidebar's scroll", async () =>
   expect(list.scrollTop).toBe(160);
 
   // A project that does not hold the current task can collapse; a board visit must not reopen it.
-  const otherHeader = workspace().getByRole("button", { name: otherProject.name });
+  const otherHeader = workspace().getByRole("button", {
+    name: new RegExp(`^${otherProject.name}\\b`),
+  });
   await otherHeader.click();
   await expect.element(otherHeader).toHaveAttribute("aria-expanded", "false");
   await prefixThen("b");
@@ -1233,7 +1235,7 @@ test("removing a project's last task falls back to its composer, not an empty ma
   await expect.element(newTaskView()).toBeVisible();
   expect(workspace().element().querySelectorAll('[aria-current="true"]')).toHaveLength(0);
   await expect
-    .element(workspace().getByRole("button", { name: project.name }))
+    .element(workspace().getByRole("button", { name: new RegExp(`^${project.name}\\b`) }))
     .toHaveAttribute("aria-expanded", "true");
 });
 
@@ -2121,9 +2123,9 @@ test("j, k and find leave the selected row in view, and j steps from the active 
   await prefixThen("f");
   const dialog = page.getByRole("dialog", { name: "Find task" });
   await expect.element(dialog).toBeVisible();
-  await userEvent.keyboard(labels[0]!);
+  await userEvent.keyboard(titles[0]!);
   await expect
-    .element(dialog.getByRole("option", { name: new RegExp(`^${labels[0]}`) }))
+    .element(dialog.getByRole("option", { name: new RegExp(`^${titles[0]}`) }))
     .toBeVisible();
   await userEvent.keyboard("{Enter}");
   await expect.element(dialog).not.toBeInTheDocument();
@@ -2156,7 +2158,7 @@ test("prefix \\ twice and a reload keep collapsed groups and the shelf page", as
   await vi.waitFor(() => expect(settledRows()).toBe(8));
 
   // The composer is closed by the row click, so the project's own group key is the one stored.
-  const header = workspace().getByRole("button", { name: project.name });
+  const header = workspace().getByRole("button", { name: new RegExp(`^${project.name}\\b`) });
   await header.click();
   await expect.element(header).toHaveAttribute("aria-expanded", "false");
   expect(JSON.parse(window.localStorage.getItem("corral.sidebar-collapsed") ?? "null")).toEqual([
@@ -2173,7 +2175,7 @@ test("prefix \\ twice and a reload keep collapsed groups and the shelf page", as
   await prefixThen("\\");
   await expect.element(workspace()).toBeVisible();
   await expect
-    .element(workspace().getByRole("button", { name: project.name }))
+    .element(workspace().getByRole("button", { name: new RegExp(`^${project.name}\\b`) }))
     .toHaveAttribute("aria-expanded", "false");
   await expect
     .element(workspace().getByRole("button", { name: "Settled (14)" }))
@@ -2185,7 +2187,7 @@ test("prefix \\ twice and a reload keep collapsed groups and the shelf page", as
   await rendered.unmount();
   await render(<App client={client} initialEntries={[`${pathname}${search}${hash}`]} />);
   await expect
-    .element(workspace().getByRole("button", { name: project.name }))
+    .element(workspace().getByRole("button", { name: new RegExp(`^${project.name}\\b`) }))
     .toHaveAttribute("aria-expanded", "false");
   await expect
     .element(workspace().getByRole("button", { name: "Settled (14)" }))

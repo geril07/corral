@@ -71,8 +71,12 @@ What a user does. Everything below is built and verified end to end, chat views 
   selection uses secondary appearance plus `aria-current` on exactly one task or loose terminal;
   a project or Scratch container row never carries it, and no row is current while a project's
   composer is open — not a bespoke colored left bar. Titles and paths truncate without losing
-  accessible names. Loose terminals sit in the Scratch section, one line each, and only while
-  some exist.
+  accessible names: a row names its title, attention word or age, second line and unseen mark,
+  and its status message is the description and a tooltip line. Change counts and a linked
+  request sit in a non-clipping tail at the narrow width; container names carry their counts, a
+  clipped project row names its absolute path, and an exited loose terminal names its code. A
+  focused row keeps focus and its ring across a sidebar resize. Loose terminals sit in the
+  Scratch section, one line each, and only while some exist.
 - The main area has two separate rows: repository/task header, then session tabs with a
   Chat/Terminal switch and add-session menu. A draft also keeps both rows. Tabs may sit above
   or below content (device preference). A tab shows its number, real tool logo or working/blocked

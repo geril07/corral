@@ -252,9 +252,11 @@ test("terminals outside any task are listed under No task, apart from the tasks"
   await createTaskWithShell("Work");
   await client.connection.api.terminals.create({ size: { cols: 80, rows: 24 } });
 
-  await expect.element(workspace().getByRole("button", { name: "Scratch" })).toBeVisible();
-  await workspace().getByRole("button", { name: "Scratch" }).click();
-  await expect.element(workspace().getByRole("button", { name: "Scratch" })).toBeVisible();
+  await expect.element(workspace().getByRole("button", { name: /^Scratch\b/ })).toBeVisible();
+  await workspace()
+    .getByRole("button", { name: /^Scratch\b/ })
+    .click();
+  await expect.element(workspace().getByRole("button", { name: /^Scratch\b/ })).toBeVisible();
 
   await prefixThen("c");
   await expect.element(looseButtons()).toHaveLength(2);

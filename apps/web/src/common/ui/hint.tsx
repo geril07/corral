@@ -11,14 +11,17 @@ export function Hint({
   children: ReactElement;
   side?: "top" | "right" | "bottom" | "left";
 }) {
-  if (content === undefined || content === null || content === "") return children;
+  // The trigger stays inside the same provider in every state: a row that starts or stops
+  // clipping must not be remounted, or the focused row would lose focus and its ring.
   return (
     <TooltipProvider delay={300}>
       <Tooltip disableHoverablePopup>
         <TooltipTrigger render={children} />
-        <TooltipContent side={side} role="tooltip">
-          {content}
-        </TooltipContent>
+        {content !== undefined && content !== null && content !== "" && (
+          <TooltipContent side={side} role="tooltip">
+            {content}
+          </TooltipContent>
+        )}
       </Tooltip>
     </TooltipProvider>
   );

@@ -129,7 +129,7 @@ test("from a loose terminal the palette navigates to the one task in both direct
   const { client } = await appWithProject(newClient());
   await createTaskWithShell("Only");
   await client.connection.api.terminals.create({ size: { cols: 80, rows: 24 } });
-  const noTask = workspace().getByRole("button", { name: "Scratch" });
+  const noTask = workspace().getByRole("button", { name: /^Scratch\b/ });
   await expect.element(noTask).toBeVisible();
 
   await noTask.click();
@@ -256,7 +256,7 @@ test("a focus tooltip does not block the sidebar row underneath it", async () =>
   await expect.element(page.getByRole("tooltip")).toBeVisible();
 
   // Project grouping is the default; the tooltip must not intercept the project row's click.
-  const header = workspace().getByRole("button", { name: project.name, exact: true });
+  const header = workspace().getByRole("button", { name: new RegExp(`^${project.name}\\b`) });
   await expect.element(header).toHaveAttribute("aria-expanded", "true");
   await header.click();
   await expect.element(header).toHaveAttribute("aria-expanded", "false");

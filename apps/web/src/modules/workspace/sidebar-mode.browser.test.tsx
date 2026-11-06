@@ -45,9 +45,8 @@ test("project grouping is the default, prefix l toggles status grouping and reme
   await prefixThen("l");
   await expect.element(sectionHeading("Done")).toBeVisible();
   await expect.element(projectHeader()).not.toBeInTheDocument();
-  const project = client.projects.getSnapshot().projects[0]!;
   await expect
-    .element(workspace().getByRole("button", { name: `Alpha — ${project.name} · alpha` }))
+    .element(workspace().getByRole("button", { name: /^Alpha — .* — .* · alpha$/ }))
     .toBeVisible();
 
   await prefixThen(" ");
