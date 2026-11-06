@@ -127,9 +127,11 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 - Still a main-area composer, not a dialog. `prefix t` opens it; Escape returns to the
   selected task. The task header and draft session row remain visible.
 - A project's composer is the main area while it is open, and the sidebar reads the same value:
-  no task, project or loose-terminal row is current, and the composer's project is the group the
-  sidebar shows open. Escape returns to the selection the URL still names. The composer has no URL
-  of its own and no draft row in the sidebar.
+  no task, project or loose-terminal row is current. A composer opened over a selection opens its
+  project's group, and Escape returns to the selection the URL still names. A URL that names a
+  zero-task project is itself the composer state: its group follows the collapse state, and Escape
+  has no earlier selection to return to. The composer has no URL of its own and no draft row in the
+  sidebar.
 - Prompt and agent/model, Chat/Terminal and Create controls share the composer. Project and
   workspace setup sit below it, never in ongoing chat. Prompt starts the primary agent;
   a title-only task starts no session. Optional title stays.
