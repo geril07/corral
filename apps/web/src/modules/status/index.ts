@@ -1,1 +1,1 @@
-export { StatusIndicator } from "./status-indicator.tsx";
+export { StatusIndicator, statusMessage } from "./status-indicator.tsx";

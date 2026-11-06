@@ -36,12 +36,14 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   project's New task action overlays the count on hover and keyboard focus and reserves no width,
   and the count hides while the action shows. No project or container row is the current selection.
 - Two-line task rows: status glyph, clipped title, relative time/attention word;
-  secondary metadata is a flexible, truncating segment (project, worktree branch, agent,
-  session count) plus a `shrink-0` tail of change counts and linked request state that never
-  clips. The accessible name carries the title, attention word or age, the whole second line and
-  `unseen` when marked; the status message is its description and a line of the row's tooltip.
-  Container names carry their counts; a clipped project row names its absolute path, and an
-  exited loose terminal names its exit code. Unseen completion stays marked.
+  secondary metadata is a flexible, truncating segment (project outside project groups,
+  worktree branch, agent, session count) plus a `shrink-0` tail of change counts and linked
+  request state. The tail keeps normal counts and request state whole; only a tail wider than
+  the whole row ellipsizes. The accessible name carries the title, attention word or age, the
+  whole second line and `unseen` when marked; the status message is its description and a line
+  of the row's tooltip. Container names carry their counts; a clipped project row names its
+  absolute path, and an exited loose terminal names its exit code. Unseen completion stays
+  marked.
 - Right-click / menu key / Shift+F10 opens secondary task actions. No action gutter takes
   permanent width. Full names stay accessible and get a tooltip when clipped; the row has no
   native title, and the tooltip wrapper stays mounted when clipping starts or stops.

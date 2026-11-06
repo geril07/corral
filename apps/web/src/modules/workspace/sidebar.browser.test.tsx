@@ -975,6 +975,36 @@ test("a collapsed project shows its count and expands again from its header", as
   await expect.element(header).toHaveAttribute("aria-expanded", "true");
 });
 
+test("a collapsed project names the attention its status glyph carries", async () => {
+  await renderSidebar(
+    {},
+    [
+      reporting(session("s1", "a", "claude"), {
+        state: "blocked",
+        kind: "permission",
+        message: "Run rm -rf build?",
+        updatedAt: 1,
+      }),
+    ],
+    [task("a")],
+  ).rendered;
+  const header = containerRow("repo-p1");
+  await header.click();
+  await expect.element(header).toHaveAttribute("aria-expanded", "false");
+  await expect.element(header).toHaveAttribute("aria-label", "repo-p1 — needs approval · 1");
+
+  const describedBy = header.element().getAttribute("aria-describedby");
+  expect(describedBy).not.toBeNull();
+  expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
+    "blocked · permission: Run rm -rf build?",
+  );
+
+  header.element().focus();
+  const tooltip = page.getByRole("tooltip");
+  await expect.element(tooltip).toMatchTextContent("needs approval");
+  await expect.element(tooltip).toMatchTextContent("Run rm -rf build?");
+});
+
 test("every icon action is named and its tooltip carries the effective binding", async () => {
   await renderSidebar().rendered;
   const newTask = nav().getByRole("button", { name: "New task" });
@@ -1190,6 +1220,31 @@ test("at 208 px the counts and pull request stay visible while the branch clips"
   await expect.element(tooltip).toMatchTextContent("PR #7 open");
 });
 
+test("a counts and request tail wider than the row ellipsizes at 208 px", async () => {
+  await renderSidebar(
+    { taskId: "a" },
+    [session("s1", "a", "claude")],
+    [task("a")],
+    true,
+    "project",
+    undefined,
+    new Map([["a", changesFor("a", 123456, 98765)]]),
+    new Map([["a", pullRequestFor("a", 123456)]]),
+  ).rendered;
+
+  const button = row("task a");
+  const tail = button.element().querySelector<HTMLElement>("[data-row-tail]");
+  if (tail === null) throw new Error("the row's tail is not mounted");
+  expect(tail.textContent).toContain("+123456 −98765");
+  expect(tail.textContent).toContain("PR #123456 open");
+  expect(tail.getBoundingClientRect().right).toBeLessThanOrEqual(
+    button.element().getBoundingClientRect().right + 1,
+  );
+  // The extreme tail is bounded by the row and ellipsizes instead of pushing facts outside it.
+  expect(tail.scrollWidth).toBeGreaterThan(tail.clientWidth);
+  expect(getComputedStyle(tail).textOverflow).toBe("ellipsis");
+});
+
 test("at 384 and 420 px a row's whole second line fits", async () => {
   for (const width of [384, 420]) {
     const rendered = renderSidebar(
@@ -1214,6 +1269,9 @@ test("at 384 and 420 px a row's whole second line fits", async () => {
     expect(detail.scrollWidth).toBeLessThanOrEqual(detail.clientWidth + 1);
     expect(tail.textContent).toContain("+2 −1");
     expect(tail.textContent).toContain("PR #7 open");
+    expect(tail.getBoundingClientRect().right).toBeLessThanOrEqual(
+      button.element().getBoundingClientRect().right + 1,
+    );
     // oxlint-disable-next-line eslint/no-await-in-loop -- the next width needs this fixture gone
     await screen.unmount();
   }
