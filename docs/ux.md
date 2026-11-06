@@ -175,8 +175,10 @@ What a user does. Everything below is built and verified end to end, chat views 
   until the next navigation or selection, guidance that asked for a project or task uses the same
   row, and either can be dismissed.
 - Chat keeps the composer semantics of the new-task view: Enter sends, Shift+Enter is a newline,
-  and while a turn runs Enter steers and Ctrl/Cmd+Enter queues a follow-up (the composer says
-  which). `prefix .` aborts the working turn and the palette lists the same action.
+  and while a turn runs Enter steers and Ctrl/Cmd+Enter queues a follow-up where the driver
+  declares one (the composer says which). Without that declaration both keys steer, Queue is
+  absent, and the hint names only steer and abort. `prefix .` aborts the working turn and the
+  palette lists the same action.
 - The chat control row shows the driver-reported model and thinking level. Either opens the
   same tool/profile → model → thinking picker; `prefix m` / `prefix shift+m` and palette actions
   open it too. Type filters real models; Ctrl/Meta+1–9 selects visible offered rows. A model

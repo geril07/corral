@@ -255,8 +255,8 @@ export function useWorkspace({
   // `chat.capabilities`: which agents this server build can show as chat (goal D7) and what each
   // driver declared (protocol 10). One store answers the handoff offer, the composer's view control
   // and the palette, and `loaded` lets an offer wait instead of claiming no driver before the
-  // server has spoken. The view controls read the kinds; the declared flags are in
-  // `chatCapabilities.drivers` for the action a `both-live` driver needs (C1).
+  // server has spoken. The view controls read the kinds; the composer reads the matched driver's
+  // `followUp`, and the action a `both-live` driver needs (C1) reads `terminalView`.
   const chatCapabilities = useSyncExternalStore(
     client.chatCapabilities.subscribe,
     client.chatCapabilities.getSnapshot,
@@ -264,6 +264,15 @@ export function useWorkspace({
   const chatDrivers = useMemo(
     () => chatCapabilities.drivers.map((driver) => driver.kind),
     [chatCapabilities.drivers],
+  );
+  // The selected session's driver record, once the server has answered. An absent record is not a
+  // refusal: it keeps the composer's previous offer until the store reports one.
+  const chatDriver = useMemo(
+    () =>
+      currentSession === undefined || currentSession.kind === "shell"
+        ? undefined
+        : chatDriverFor(chatCapabilities.drivers, currentSession.kind),
+    [chatCapabilities.drivers, currentSession],
   );
   const currentTaskNode =
     selection.taskId === null ? undefined : taskNodeOf(tree, selection.taskId);
@@ -1064,6 +1073,7 @@ export function useWorkspace({
     current,
     currentSession,
     chat,
+    chatDriver,
     chatDrivers,
     capabilitiesReady: chatCapabilities.loaded,
     handoff,

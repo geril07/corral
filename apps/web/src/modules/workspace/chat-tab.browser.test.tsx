@@ -1,11 +1,15 @@
-import type { ChatSessionState } from "@corral/protocol/chat";
+import type { ChatDriverCapabilities, ChatSessionState } from "@corral/protocol/chat";
+import type {
+  ChatCapabilitiesSnapshot,
+  ChatCapabilitiesStore,
+} from "@corral/client/chat-capabilities-store";
 import type { ChatStoreSnapshot } from "@corral/client/chat-state";
 import type { ChatStore } from "@corral/client/chat-store";
 import type { CorralClient } from "@corral/client/corral-client";
 import type { SessionsSnapshot } from "@corral/client/sessions-store";
 import { Store } from "@corral/client/store";
 import type { TasksSnapshot } from "@corral/client/tasks-store";
-import type { Session, Task } from "@corral/protocol/rpc";
+import type { ChatSendMode, Session, Task } from "@corral/protocol/rpc";
 import { ORPCError } from "@orpc/client";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -32,8 +36,12 @@ function seededClient(
     sessionId: string;
     model: { provider: string | null; id: string };
   }) => Promise<void> = async () => undefined,
+  capabilities?: ChatCapabilitiesStore,
 ) {
   const real = newClient();
+  const send = vi
+    .fn<(input: { sessionId: string; text: string; mode: ChatSendMode }) => Promise<string>>()
+    .mockResolvedValue("sent-item");
   const abort = vi
     .fn<(input: { sessionId: string }) => Promise<void>>()
     .mockResolvedValue(undefined);
@@ -54,6 +62,7 @@ function seededClient(
       const chat = Reflect.get(target, property, receiver) as object;
       return new Proxy(chat, {
         get(chatTarget, chatProperty, chatReceiver) {
+          if (chatProperty === "send") return send;
           if (chatProperty === "abort") return abort;
           if (chatProperty === "setModel") return setModel;
           if (chatProperty === "setReasoning") return setReasoning;
@@ -94,6 +103,7 @@ function seededClient(
       close: () => {},
     },
     connection,
+    chatCapabilities: capabilities ?? real.chatCapabilities,
     openChat: () => chatStore,
   };
   return {
@@ -101,6 +111,7 @@ function seededClient(
     real,
     tasks,
     sessions,
+    send,
     abort,
     setModel,
     setReasoning,
@@ -224,6 +235,183 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
     // The seeded chat never reached B1's driver: no fake pi child was launched for it.
     const launches = await agentLaunches();
     expect(launches.some((launch) => launch.argv.includes("pi-seeded"))).toBe(false);
+  }
+});
+
+test("the matched driver decides the follow-up offer: Codex has no Queue, pi keeps it", async () => {
+  const { client, real, tasks, sessions, send, chatStore, chatSession } = seededClient();
+  const { repo } = await appWithProject(client);
+  const project = await vi.waitFor(() => {
+    const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
+    if (found === undefined) throw new Error("the project is not in the list yet");
+    return found;
+  });
+  await vi.waitFor(() => expect(real.sessions.getSnapshot().loaded).toBe(true));
+  // The real server's answer, not a client guess by agent kind.
+  await vi.waitFor(() => {
+    const kinds = client.chatCapabilities.getSnapshot().drivers.map((driver) => driver.kind);
+    expect(kinds).toEqual(expect.arrayContaining(["codex", "pi"]));
+  });
+
+  const task: Task = {
+    id: "task-chat-follow-up",
+    projectId: project.id,
+    title: "Follow-up mode",
+    titleSource: "user",
+    prompt: null,
+    primarySessionId: chatSession,
+    branch: "main",
+    workspacePath: project.path,
+    ownsWorktree: false,
+    state: "active",
+    seenAt: null,
+    createdAt: 1,
+  };
+  const codexSession: Session = {
+    id: chatSession,
+    taskId: task.id,
+    kind: "codex",
+    view: "chat",
+    agentSessionId: "codex-seeded",
+    terminalId: null,
+    state: "running",
+    status: null,
+    createdAt: 1,
+  };
+  const piSession: Session = {
+    ...codexSession,
+    id: "chat-seeded-pi",
+    kind: "pi",
+    agentSessionId: "pi-seeded",
+    createdAt: 2,
+  };
+
+  try {
+    tasks.set({ loaded: true, tasks: [task] });
+    sessions.set({ loaded: true, sessions: [codexSession, piSession] });
+
+    await openSeededTask("Follow-up mode");
+    await expect
+      .element(page.getByRole("tab", { name: /^codex/ }))
+      .toHaveAttribute("aria-selected", "true");
+    const composer = page.getByRole("textbox", { name: "Message" });
+
+    // Codex declares `followUp:false`: the Queue button and the chord's clause are absent.
+    await expect.element(page.getByRole("button", { name: "Queue" })).not.toBeInTheDocument();
+    await expect.element(page.getByText(/follow-up/)).not.toBeInTheDocument();
+    await expect.element(page.getByText(/Enter steer ·/)).toBeVisible();
+
+    // Ctrl+Enter steers the same turn plain Enter does, and the composer keeps its semantics.
+    await composer.fill("Steer the Codex turn");
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+    await vi.waitFor(() =>
+      expect(send).toHaveBeenCalledWith({
+        sessionId: chatSession,
+        text: "Steer the Codex turn",
+        mode: "steer",
+      }),
+    );
+    await expect.element(composer).toHaveValue("");
+
+    // pi declares `followUp:true`: the offer returns when the selected session changes.
+    await page.getByRole("tab", { name: /^pi/ }).click();
+    await expect.element(page.getByRole("button", { name: "Queue" })).toBeVisible();
+    await expect.element(page.getByText(/Enter steer · ⌘\/Ctrl\+Enter follow-up/)).toBeVisible();
+    await composer.fill("Queue for pi");
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+    await vi.waitFor(() =>
+      expect(send).toHaveBeenLastCalledWith({
+        sessionId: "chat-seeded-pi",
+        text: "Queue for pi",
+        mode: "follow-up",
+      }),
+    );
+  } finally {
+    tasks.set({ loaded: true, tasks: [] });
+    sessions.set({ loaded: true, sessions: [] });
+    chatStore.close();
+    // Seeded sessions never reached a driver: no fake agent child was launched for either id.
+    const launches = await agentLaunches();
+    expect(launches.some((launch) => launch.argv.includes("codex-seeded"))).toBe(false);
+    expect(launches.some((launch) => launch.argv.includes("pi-seeded"))).toBe(false);
+  }
+});
+
+test("an unknown capability keeps Queue and a loaded Codex answer removes it without reselect", async () => {
+  const capabilities = new Store<ChatCapabilitiesSnapshot>({ loaded: false, drivers: [] });
+  const capabilityStore: ChatCapabilitiesStore = {
+    subscribe: capabilities.subscribe,
+    getSnapshot: capabilities.getSnapshot,
+    close: () => {},
+  };
+  const { client, real, tasks, sessions, chatStore, chatSession } = seededClient(
+    workingChat(),
+    async () => undefined,
+    capabilityStore,
+  );
+  const { repo } = await appWithProject(client);
+  const project = await vi.waitFor(() => {
+    const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
+    if (found === undefined) throw new Error("the project is not in the list yet");
+    return found;
+  });
+  await vi.waitFor(() => expect(real.sessions.getSnapshot().loaded).toBe(true));
+
+  const task: Task = {
+    id: "task-chat-unknown-capability",
+    projectId: project.id,
+    title: "Unknown capability",
+    titleSource: "user",
+    prompt: null,
+    primarySessionId: chatSession,
+    branch: "main",
+    workspacePath: project.path,
+    ownsWorktree: false,
+    state: "active",
+    seenAt: null,
+    createdAt: 1,
+  };
+  const session: Session = {
+    id: chatSession,
+    taskId: task.id,
+    kind: "codex",
+    view: "chat",
+    agentSessionId: "codex-seeded",
+    terminalId: null,
+    state: "running",
+    status: null,
+    createdAt: 1,
+  };
+  const codex: ChatDriverCapabilities = {
+    kind: "codex",
+    steer: true,
+    followUp: false,
+    approvals: true,
+    modelSwitch: false,
+    reasoningLevels: false,
+    terminalView: "both-live",
+  };
+
+  try {
+    tasks.set({ loaded: true, tasks: [task] });
+    sessions.set({ loaded: true, sessions: [session] });
+
+    await openSeededTask("Unknown capability");
+    const composer = page.getByRole("textbox", { name: "Message" });
+    // No answer yet: the composer keeps today's offer instead of stripping a mode it cannot see.
+    await expect.element(page.getByRole("button", { name: "Queue" })).toBeVisible();
+    await expect.element(page.getByText(/Enter steer · ⌘\/Ctrl\+Enter follow-up/)).toBeVisible();
+
+    // The loaded record hides it in place; the chat stays selected and keeps its draft.
+    await composer.fill("Keep this while the answer loads");
+    capabilities.set({ loaded: true, drivers: [codex] });
+    await expect.element(page.getByRole("button", { name: "Queue" })).not.toBeInTheDocument();
+    await expect.element(page.getByText(/follow-up/)).not.toBeInTheDocument();
+    await expect.element(composer).toHaveValue("Keep this while the answer loads");
+  } finally {
+    tasks.set({ loaded: true, tasks: [] });
+    sessions.set({ loaded: true, sessions: [] });
+    chatStore.close();
   }
 });
 
