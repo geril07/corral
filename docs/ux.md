@@ -182,7 +182,7 @@ What a user does. Everything below is built and verified end to end, chat views 
   and while a turn runs Enter steers and Ctrl/Cmd+Enter queues a follow-up where the driver
   declares one (the composer says which). Without that declaration both keys steer, Queue is
   absent, and the hint names only steer and abort. `prefix .` aborts the working turn and the
-  palette lists the same action.
+  palette lists the same action. While an abort is pending the control says it is stopping.
 - The chat control row shows the driver-reported model and thinking level. Either opens the
   same tool/profile → model → thinking picker; `prefix m` / `prefix shift+m` and palette actions
   open it too. Type filters real models; Ctrl/Meta+1–9 selects visible offered rows. A model
