@@ -219,6 +219,64 @@ test("a running session stops and a stopped session restarts through their conte
   expect(props.onRestart).toHaveBeenCalledWith(expect.objectContaining({ id: "s3" }));
 });
 
+test("a stopped shell and a failed start differ in glyph and name, and both offer Restart", async () => {
+  const { rendered, props } = renderTabs(
+    [
+      session("s1", "shell", null, "stopped"),
+      {
+        ...session(
+          "s2",
+          "claude",
+          { state: "error", updatedAt: 2, message: "claude did not answer" },
+          "stopped",
+        ),
+        launchError: "claude did not answer within 15 s",
+      },
+    ],
+    "s1",
+  );
+  await rendered;
+
+  const stopped = strip().getByRole("tab", { name: "shell stopped" });
+  const failed = strip().getByRole("tab", { name: "claude failed" });
+  await expect.element(stopped).toBeVisible();
+  await expect.element(failed).toBeVisible();
+  // The stopped shell keeps its logo; the failed start takes the error glyph in the same slot.
+  expect(stopped.element().querySelector("[data-status]")).toBeNull();
+  expect(failed.element().querySelector('[data-status="error"]')).not.toBeNull();
+  expect(stopped.element().getAttribute("title")).toContain("stopped");
+  expect(stopped.element().getAttribute("title")).toContain("Restart");
+  expect(failed.element().getAttribute("title")).toContain("failed");
+  expect(failed.element().getAttribute("title")).toContain("Restart");
+
+  await stopped.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Restart shell" }).click();
+  expect(props.onRestart).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
+
+  await failed.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Restart claude" }).click();
+  expect(props.onRestart).toHaveBeenLastCalledWith(expect.objectContaining({ id: "s2" }));
+});
+
+test("an unresumable session's menu offers a new conversation, not a restart", async () => {
+  const { rendered, props } = renderTabs([session("s1", "codex", null, "unresumable")], "s1");
+  await rendered;
+
+  const unresumable = strip().getByRole("tab", { name: "codex unresumable" });
+  await expect.element(unresumable).toBeVisible();
+  expect(unresumable.element().querySelector("[data-status]")).toBeNull();
+  expect(unresumable.element().getAttribute("title")).toContain("unresumable");
+  expect(unresumable.element().getAttribute("title")).toContain("Start a new conversation");
+
+  await unresumable.click({ button: "right" });
+  await expect
+    .element(page.getByRole("menuitem", { name: "Start a new conversation" }))
+    .toBeVisible();
+  expect(page.getByRole("menuitem", { name: /Restart/ }).elements()).toHaveLength(0);
+  await page.getByRole("menuitem", { name: "Start a new conversation" }).click();
+  expect(props.onRestart).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }));
+});
+
 test("the keyboard context menu renames with the tab as opener and asks before removal", async () => {
   const { rendered, props } = renderTabs(undefined, "s3");
   await rendered;

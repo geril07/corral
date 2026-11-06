@@ -27,10 +27,31 @@ test("a stopped agent says it resumes, and Enter starts it, as the button has th
   await expect.element(pane()).toMatchTextContent("claude · stopped");
   await expect.element(pane()).toMatchTextContent("resumes");
   await expect.element(pane()).toMatchTextContent("Enter, or alt+a r.");
-  await expect.element(pane().getByRole("button", { name: "Start again" })).toHaveFocus();
+  await expect.element(pane().getByRole("button", { name: "Restart" })).toHaveFocus();
 
   await userEvent.keyboard("{Enter}");
   expect(onRestart).toHaveBeenCalledOnce();
+});
+
+test("a failed start's pane heading says failed and names the error", async () => {
+  await render(
+    <StoppedSession
+      session={{
+        ...session("stopped"),
+        status: { state: "error", updatedAt: 1, message: "claude did not answer" },
+        launchError: "claude did not answer within 15 s",
+      }}
+      restartHint="alt+a r"
+      onRestart={() => undefined}
+    />,
+  );
+
+  await expect.element(pane()).toMatchTextContent("claude · failed");
+  await expect.element(pane()).toMatchTextContent("resumes");
+  await expect.element(pane().getByRole("button", { name: "Restart" })).toBeVisible();
+  await expect
+    .element(pane().getByRole("alert"))
+    .toMatchTextContent("claude did not answer within 15 s");
 });
 
 test("an unresumable session says it will start a new conversation", async () => {

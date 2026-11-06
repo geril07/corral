@@ -37,7 +37,7 @@ What a user does. Everything below is built and verified end to end, chat views 
    of showing a half-switched pane. Only an agent with a chat driver has two views: the palette
    shows the action disabled with the reason for a shell or a driverless agent, and pressing the key
    there does nothing. A handoff whose second start fails leaves the session stopped in the target
-   view with the launch error and its Start again button, and `prefix v` on a stopped session only
+   view with the launch error and its Restart button, and `prefix v` on a stopped session only
    chooses the view its next start opens in. An agent whose driver keeps both views live (OpenCode)
    does not hand over at all: `prefix v` opens the other frontend beside the running one, nothing is
    aborted, and the palette says "Open the … view" instead of "Switch to …", so no confirmation is
@@ -79,9 +79,10 @@ What a user does. Everything below is built and verified end to end, chat views 
   resize. Loose terminals sit in the Scratch section, one line each, and only while some exist.
 - The main area has two separate rows: repository/task header, then session tabs with a
   Chat/Terminal switch and add-session menu. A draft also keeps both rows. Tabs may sit above
-  or below content (device preference). A tab shows its number, real tool logo or working/blocked
-  glyph, and its name; right-click or Shift+F10 opens stop/restart, rename and remove. No space
-  is reserved for invisible actions. `prefix 1`–`9` and `prefix n`/`p` still select.
+  or below content (device preference). A tab shows its number, real tool logo or a working,
+  blocked or failed status glyph, and its name; right-click or Shift+F10 opens stop/restart,
+  rename and remove. No space is reserved for invisible actions. `prefix 1`–`9` and `prefix n`/`p`
+  still select.
   After the sessions, a `Changes` tab holds the task's changed files and finishes the task
   (`layout.md`, **Changes**): stage, commit, push to the named remote and open a pull request
   through the user's own `gh`/`glab`, every remote write confirmed by name and URL. While it is

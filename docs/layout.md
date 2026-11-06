@@ -114,7 +114,10 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   Number hints 1–9 retain their existing prefix bindings. A draft gets a draft indicator,
   not a fake server session or a premature add-session action.
 - Real tool/shell logo in one stable slot; working/blocked status replaces it without shifting
-  the tab. Full label remains accessible and clipped labels get a focus/hover tooltip.
+  the tab, and a failed start shows the error glyph there. A tab's name carries its state
+  (`stopped`, `failed`, `unresumable`); the context menu and the pane button read one action from
+  the same state, `Restart` or `Start a new conversation` for an unresumable agent. Full label
+  remains accessible and clipped labels get a focus/hover tooltip.
 - Stop/restart, rename and remove live in the context menu and palette, not three invisible
   hover-action slots. A trailing + opens the same compact menu scale as task actions.
 - Chat/Terminal is in this row. It uses the existing driver capability and safe handoff action:

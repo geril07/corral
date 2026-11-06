@@ -12,7 +12,7 @@ interface StoppedSessionProps {
 
 /** Shown in place of a terminal while the selected session is not running. */
 export function StoppedSession({ session, restartHint, onRestart }: StoppedSessionProps) {
-  const { badge, note } = describeSessionState(session);
+  const { badge, action, note } = describeSessionState(session);
   const launch = launchLine(session);
   return (
     <section className="max-w-md px-4 py-6" aria-label="stopped session">
@@ -33,7 +33,7 @@ export function StoppedSession({ session, restartHint, onRestart }: StoppedSessi
         </p>
       )}
       <Button variant="default" autoFocus onClick={onRestart}>
-        {session.state === "unresumable" ? "Start a new conversation" : "Start again"}
+        {action}
       </Button>
       {restartHint && <p className="mt-3 text-muted-foreground">Enter, or {restartHint}.</p>}
     </section>

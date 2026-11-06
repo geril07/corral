@@ -206,7 +206,7 @@ function SessionTab({
   const { session } = entry;
   const trigger = useRef<HTMLButtonElement>(null);
   const running = session.state === "running";
-  const { badge, note } = describeSessionState(session);
+  const { badge, action, note } = describeSessionState(session);
   const status = sessionStatus(session);
   const launch = compactLaunchLabel(session);
   const { observe, clipped } = useTruncatedText(name);
@@ -215,12 +215,22 @@ function SessionTab({
       clipped ? name : undefined,
       session.launch ? launchLine(session)?.details : undefined,
       status?.message,
+      badge,
+      action,
       note,
     ]
       .filter(Boolean)
       .join("\n") || undefined;
-  const glyphState =
-    status?.state === "working" || status?.state === "blocked" ? status : undefined;
+  const failed = badge === "failed";
+  const glyphState = failed
+    ? {
+        state: "error" as const,
+        updatedAt: status?.updatedAt ?? session.createdAt,
+        ...(status?.state === "error" && status.message ? { message: status.message } : {}),
+      }
+    : status?.state === "working" || status?.state === "blocked"
+      ? status
+      : undefined;
   return (
     <RowMenu
       label={`Session actions for ${name}`}
@@ -268,15 +278,17 @@ function SessionTab({
         </Button>
       }
     >
-      <DropdownMenuItem
-        title={hint(
-          running ? "Stop session" : "Restart session",
-          running ? "stop-session" : "restart-session",
-        )}
-        onClick={running ? onStop : onRestart}
-      >
-        {running ? `Stop ${name}` : `Restart ${name}`}
-      </DropdownMenuItem>
+      {running ? (
+        <DropdownMenuItem title={hint("Stop session", "stop-session")} onClick={onStop}>
+          Stop {name}
+        </DropdownMenuItem>
+      ) : (
+        action !== undefined && (
+          <DropdownMenuItem title={hint(action, "restart-session")} onClick={onRestart}>
+            {session.state === "unresumable" ? action : `${action} ${name}`}
+          </DropdownMenuItem>
+        )
+      )}
       <DropdownMenuItem onClick={(event) => onRename(trigger.current ?? event.currentTarget)}>
         Rename…
       </DropdownMenuItem>
