@@ -44,6 +44,10 @@ async function renderHashApp(client: ReturnType<typeof newClient>, entries: stri
   };
 }
 
+const saveButton = () => models().getByRole("button", { name: "Save", exact: true });
+const savedStatus = () => models().getByRole("status").filter({ hasText: "Saved · revision" });
+const findModels = () => models().getByRole("textbox", { name: "Find models" });
+
 async function openManager() {
   const client = newClient();
   await writeConfig('[tasks]\nagent = "pi"\n');
@@ -313,8 +317,6 @@ test("hiding a live model keeps its session, thinking, draft and composer node; 
 
 test("saving from the keyboard announces the footer status and returns focus there; a refused save keeps the draft and focus in the dialog", async () => {
   const { client } = await openManager();
-  const save = () => models().getByRole("button", { name: "Save", exact: true });
-  const status = () => models().getByRole("status").filter({ hasText: "Saved · revision" });
   await vi.waitFor(() => expect(client.modelPreferences.getSnapshot().loaded).toBe(true));
   const saved = () =>
     client.modelPreferences
@@ -322,24 +324,24 @@ test("saving from the keyboard announces the footer status and returns focus the
       .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope));
   const nextRevision = (saved()?.revision ?? 0) + 1;
   await checkbox("Show Stub Two · stub").click();
-  save().element().focus();
+  saveButton().element().focus();
   await userEvent.keyboard("{Enter}");
-  await expect.element(status()).toMatchTextContent(`Saved · revision ${nextRevision}`);
-  expect(status().element().getAttribute("role")).toBe("status");
-  expect(status().element().tabIndex).toBe(-1);
-  await expect.element(status()).toHaveFocus();
+  await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${nextRevision}`);
+  expect(savedStatus().element().getAttribute("role")).toBe("status");
+  expect(savedStatus().element().tabIndex).toBe(-1);
+  await expect.element(savedStatus()).toHaveFocus();
   expect(document.activeElement).not.toBe(document.body);
   expect(settings().element().contains(document.activeElement)).toBe(true);
-  await expect.element(save()).toBeDisabled();
-  save().element().focus();
-  expect(document.activeElement).toBe(status().element());
+  await expect.element(saveButton()).toBeDisabled();
+  saveButton().element().focus();
+  expect(document.activeElement).toBe(savedStatus().element());
   await userEvent.keyboard("{Tab}");
   await expect
     .element(models().getByRole("button", { name: "Hide all", exact: true }))
     .toHaveFocus();
   models().getByRole("button", { name: "Preview", exact: true }).element().focus();
   await userEvent.keyboard("{Tab}");
-  expect(document.activeElement).not.toBe(save().element());
+  expect(document.activeElement).not.toBe(saveButton().element());
   await vi.waitFor(() => expect(saved()?.revision).toBe(nextRevision));
   await checkbox("Show Stub Two · stub").click();
   await client.connection.api.models.save({
@@ -348,11 +350,47 @@ test("saving from the keyboard announces the footer status and returns focus the
     policy: { ...defaultModelPolicy(), mode: "allow" },
   });
   await expect.element(models().getByRole("alert")).toMatchTextContent("Changed in another client");
-  await expect.element(save()).toBeEnabled();
-  save().element().focus();
+  await expect.element(saveButton()).toBeEnabled();
+  saveButton().element().focus();
   await userEvent.keyboard("{Enter}");
   await expect.element(models().getByText("Could not save.", { exact: false })).toBeVisible();
   await expect.element(checkbox("Show Stub Two · stub")).toBeChecked();
-  await expect.element(save()).toHaveFocus();
+  await expect.element(saveButton()).toHaveFocus();
   expect(settings().element().contains(document.activeElement)).toBe(true);
+});
+
+test("a pointer save also lands the keyboard on the footer status", async () => {
+  const { client } = await openManager();
+  await vi.waitFor(() => expect(client.modelPreferences.getSnapshot().loaded).toBe(true));
+  const saved = () =>
+    client.modelPreferences
+      .getSnapshot()
+      .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope));
+  const nextRevision = (saved()?.revision ?? 0) + 1;
+  await checkbox("Show Stub Two · stub").click();
+  await saveButton().click();
+  await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${nextRevision}`);
+  await expect.element(savedStatus()).toHaveFocus();
+  expect(settings().element().contains(document.activeElement)).toBe(true);
+});
+
+test("a move made during an in-flight save is not pulled back by the ack", async () => {
+  const { client } = await openManager();
+  await vi.waitFor(() => expect(client.modelPreferences.getSnapshot().loaded).toBe(true));
+  const saved = () =>
+    client.modelPreferences
+      .getSnapshot()
+      .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope));
+  const nextRevision = (saved()?.revision ?? 0) + 1;
+  await checkbox("Show Stub Two · stub").click();
+  const { release } = holdNextSave(client);
+  saveButton().element().focus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(saveButton()).toBeDisabled();
+  findModels().element().focus();
+  await expect.element(findModels()).toHaveFocus();
+  release();
+  await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${nextRevision}`);
+  await expect.element(findModels()).toHaveFocus();
+  await expect.element(savedStatus()).not.toHaveFocus();
 });
