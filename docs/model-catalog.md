@@ -29,7 +29,8 @@ the namespaces. This is not credential/account isolation.
 The manager edits a draft with Preview, Save and Discard. A profile switch with unsaved edits is
 blocked; changing workspace does not discard rules. Closing asks whether to discard; an in-flight
 save must finish first. Each save uses an expected preference revision. Another client's save
-updates an idle editor, but conflicts never overwrite its draft. Discard loads the latest revision.
+updates an idle editor, but conflicts never overwrite its draft. When a conflict makes the draft
+stale, Save is not offered; Discard loads the latest revision and drops the draft.
 
 Creation, add-agent and live chat use the same visibility predicate. Managing preferences from
 a picker temporarily suspends that popup, not its owning selection/search state. Returning opens
