@@ -245,6 +245,63 @@ test("the settings surface shows effective keys, profiles with reference names, 
   await expect.element(page.getByRole("button", { name: /create/i })).not.toBeInTheDocument();
 });
 
+test("a conflicting binding shows its fallback chord and the server's reason on the action row", async () => {
+  const client = newClient();
+  await writeConfig('[keys.bindings]\nnew-task = "shift+s"\nsettings = "shift+s"\n');
+  const originalViewport = { width: window.innerWidth, height: window.innerHeight };
+  try {
+    await page.viewport(1024, 640);
+    await renderSettings(client);
+    await vi.waitFor(() => expect(client.config.getSnapshot().problems).toHaveLength(2));
+
+    const keys = await section("Effective keys");
+    const row = (text: RegExp) => keys.getByRole("listitem").filter({ hasText: text }).first();
+    const newTask = row(/New task\s*alt\+a t/);
+    const settings = row(/Settings\s*alt\+a o/);
+    const newTaskReason = 'the chord "shift+s" is also used by settings';
+    const settingsReason = 'the chord "shift+s" is also used by new-task';
+
+    // The fallback chord and the server's own reason are in the same category.
+    await expect
+      .element(newTask)
+      .toMatchTextContent(sequence("New task", "alt+a t", newTaskReason));
+    await expect.element(keys.getByText(newTaskReason, { exact: true })).toBeVisible();
+    await expect
+      .element(settings)
+      .toMatchTextContent(sequence("Settings", "alt+a o", settingsReason));
+
+    // The row exposes the reason as its accessible description, not only as visible text.
+    for (const [entry, reason] of [
+      [newTask, newTaskReason],
+      [settings, settingsReason],
+    ] as const) {
+      const describedBy = entry.element().getAttribute("aria-describedby");
+      expect(describedBy).not.toBeNull();
+      expect(document.getElementById(describedBy ?? "")?.textContent).toBe(reason);
+    }
+
+    // An action without a problem keeps its one-line chord row.
+    const newTerminal = row(/New terminal\s*alt\+a c/);
+    await expect.element(newTerminal).toMatchTextContent(sequence("New terminal", "alt+a c"));
+    await expect.element(newTerminal).not.toMatchTextContent("also used by");
+    expect(newTerminal.element().getAttribute("aria-describedby")).toBeNull();
+
+    const assertNoOverflow = () => {
+      expect(keys.element().scrollWidth).toBeLessThanOrEqual(keys.element().clientWidth + 1);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth + 1);
+    };
+    assertNoOverflow();
+
+    await page.viewport(1920, 1080);
+    await expect.element(keys).toBeVisible();
+    await expect.element(newTask).toBeVisible();
+    await expect.element(settings).toBeVisible();
+    assertNoOverflow();
+  } finally {
+    await page.viewport(originalViewport.width, originalViewport.height);
+  }
+});
+
 test("effective task defaults, naming and project overrides appear with the layer each came from", async () => {
   const client = newClient();
   await writeConfig(TASK_SETTINGS);

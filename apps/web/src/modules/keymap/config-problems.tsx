@@ -34,6 +34,14 @@ export function ConfigProblemsDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** The problem the server reported at one dotted path, if any. */
+export function problemAtPath(
+  problems: readonly ConfigProblem[],
+  path: string,
+): ConfigProblem | undefined {
+  return problems.find((problem) => problem.path === path);
+}
+
 /** Each rejected entry; the settings background and the dialog show the same rows. */
 export function ConfigProblemsList({ problems }: { problems: readonly ConfigProblem[] }) {
   return (
