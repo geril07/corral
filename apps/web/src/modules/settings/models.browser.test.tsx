@@ -401,8 +401,10 @@ test("same-named catalog workspaces read by path, filter by name and path, and d
   });
   await expect.element(firstOption).toBeVisible();
   await expect.element(secondOption).toBeVisible();
-  expect(firstOption.element().textContent).toContain(first.path);
-  expect(secondOption.element().textContent).toContain(second.path);
+  // The path column keeps the distinguishing tail, not only the common prefix.
+  expect(firstOption.element().textContent).not.toBe(secondOption.element().textContent);
+  expect(firstOption.element().getAttribute("aria-label")).toBe(`${first.name} ${first.path}`);
+  expect(secondOption.element().getAttribute("aria-label")).toBe(`${second.name} ${second.path}`);
 
   // The shared name matches both; each full path matches only its own project.
   await search.fill("dup");
@@ -410,6 +412,11 @@ test("same-named catalog workspaces read by path, filter by name and path, and d
   await expect.element(secondOption).toBeVisible();
   await search.fill(first.path);
   await expect.element(firstOption).toBeVisible();
+  await expect.element(secondOption).not.toBeInTheDocument();
+  await search.fill("no-such-workspace");
+  await expect.element(firstOption).not.toBeInTheDocument();
+  await expect.element(secondOption).not.toBeInTheDocument();
+  await search.fill("");
 
   await firstOption.click();
   await expect.element(workspaceSelect()).toHaveTextContent(first.name);
