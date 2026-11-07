@@ -12,10 +12,22 @@ export function branchName(branch: string | null | undefined): string | undefine
   return name === "" || name === "HEAD" ? undefined : name;
 }
 
+/**
+ * The recorded label split into the name and its qualifier, so a narrow row can truncate the name
+ * while keeping the qualifier whole.
+ */
+export function recordedBranchParts(
+  branch: string,
+  detached = "no branch",
+): { readonly name: string | undefined; readonly qualifier: string } {
+  const name = branchName(branch);
+  return { name, qualifier: name === undefined ? detached : "(recorded)" };
+}
+
 /** The compact recorded label; the header passes `"detached"` where the long form would not fit. */
 export function recordedBranchLabel(branch: string, detached = "no branch"): string {
-  const name = branchName(branch);
-  return name === undefined ? detached : `${name} (recorded)`;
+  const { name, qualifier } = recordedBranchParts(branch, detached);
+  return name === undefined ? qualifier : `${name} ${qualifier}`;
 }
 
 /** The accessible name spells out the qualifier that the visual label abbreviates. */

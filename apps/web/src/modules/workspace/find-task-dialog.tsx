@@ -15,7 +15,7 @@ import {
   DialogActions,
   FormError,
 } from "../../common/ui/index.ts";
-import { recordedBranchAccessible, recordedBranchLabel } from "../tasks/index.ts";
+import { recordedBranchAccessible, recordedBranchParts } from "../tasks/index.ts";
 
 export interface FindTaskDialogProps {
   projects: readonly Project[];
@@ -105,28 +105,38 @@ export function FindTaskDialog({
         />
         <CommandList>
           <CommandGroup heading="Tasks">
-            {results.map(({ task, project }) => (
-              <CommandItem
-                key={task.id}
-                value={task.id}
-                aria-label={[
-                  task.title,
-                  recordedBranchAccessible(task.branch),
-                  project.name,
-                  task.state === "settled" ? "settled" : undefined,
-                ]
-                  .filter((part): part is string => part !== undefined)
-                  .join(" — ")}
-                onSelect={() => open(task)}
-              >
-                <span className="flex-1 truncate">{task.title}</span>
-                <span className="max-w-1/3 truncate text-muted-foreground">
-                  {recordedBranchLabel(task.branch)}
-                </span>
-                <Badge variant="secondary">{project.name}</Badge>
-                {task.state === "settled" && <Badge variant="secondary">settled</Badge>}
-              </CommandItem>
-            ))}
+            {results.map(({ task, project }) => {
+              const branch = recordedBranchParts(task.branch);
+              return (
+                <CommandItem
+                  key={task.id}
+                  value={task.id}
+                  aria-label={[
+                    task.title,
+                    recordedBranchAccessible(task.branch),
+                    project.name,
+                    task.state === "settled" ? "settled" : undefined,
+                  ]
+                    .filter((part): part is string => part !== undefined)
+                    .join(" — ")}
+                  onSelect={() => open(task)}
+                >
+                  <span className="flex-1 truncate">{task.title}</span>
+                  <span className="flex min-w-0 max-w-1/3 flex-col text-muted-foreground">
+                    {branch.name !== undefined && (
+                      <span className="min-w-0 truncate" data-recorded-name="">
+                        {branch.name}
+                      </span>
+                    )}
+                    <span className="shrink-0 text-xs" data-recorded-qualifier="">
+                      {branch.qualifier}
+                    </span>
+                  </span>
+                  <Badge variant="secondary">{project.name}</Badge>
+                  {task.state === "settled" && <Badge variant="secondary">settled</Badge>}
+                </CommandItem>
+              );
+            })}
           </CommandGroup>
           <CommandEmpty>
             {query.trim() === "" ? "No tasks to find." : "No task matches."}
