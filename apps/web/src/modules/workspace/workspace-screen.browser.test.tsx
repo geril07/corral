@@ -2208,12 +2208,8 @@ test("a settled task with no sessions says why both empty-state starts are refus
   await expect
     .element(page.getByRole("note").filter({ hasText: SETTLED_TASK_MESSAGE }))
     .toBeVisible();
-  await page.getByRole("button", { name: "Open shell" }).click();
-  await expect.element(shellTabs()).toHaveLength(0);
-  await page.getByRole("button", { name: "Start agent" }).click();
-  await expect
-    .element(page.getByRole("dialog", { name: "New agent session" }))
-    .not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: "Open shell" })).toBeDisabled();
+  await expect.element(page.getByRole("button", { name: "Start agent" })).toBeDisabled();
   expect(client.sessions.getSnapshot().sessions).toEqual([]);
   expect(taskState(client, task.id)).toBe("settled");
 });

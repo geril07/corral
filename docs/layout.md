@@ -215,4 +215,4 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   inline path field and Add.
 - A project with no tasks opens its composer — from Add project, from its New task action, or on
   its URL — never a loose terminal.
-- Task without sessions: No sessions with Start agent / Open shell; its tab row still offers +.
+- Task without sessions: No sessions with Start agent / Open shell; its tab row still offers +. A settled task keeps both starts disabled, hides their key hints and shows `This task is settled. Continue it first.`
