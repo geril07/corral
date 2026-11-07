@@ -485,8 +485,10 @@ export class TaskService implements ProjectTasks {
       this.#store.setState(id, state);
       await this.#sessions.suspendAllIn(id);
     } else {
-      await this.#sessions.resumeAllIn(id);
+      // The task reads active before any remembered session starts, so Continue never runs a
+      // session under a task that still says settled.
       this.#store.setState(id, state);
+      await this.#sessions.resumeAllIn(id);
     }
     this.#changes.notify();
     return this.get(id);
