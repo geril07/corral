@@ -706,10 +706,14 @@ function EmptyWorkspace({
     <div className="flex h-full flex-col items-center justify-center gap-3 px-4">
       <p className="m-0 text-muted-foreground">No sessions</p>
       <div className="flex flex-wrap justify-center gap-2">
-        <Button variant="default" onClick={(event) => onNewAgent(event.currentTarget)}>
+        <Button
+          variant="default"
+          disabled={task.state === "settled"}
+          onClick={(event) => onNewAgent(event.currentTarget)}
+        >
           Start agent
         </Button>
-        <Button variant="outline" onClick={onNewTerminal}>
+        <Button variant="outline" disabled={task.state === "settled"} onClick={onNewTerminal}>
           Open shell
         </Button>
       </div>
@@ -718,9 +722,11 @@ function EmptyWorkspace({
           {SETTLED_TASK_MESSAGE}
         </p>
       )}
-      <p className="m-0 text-xs text-muted-foreground">
-        {[agentHint, terminalHint].filter(Boolean).join(" ")}
-      </p>
+      {task.state !== "settled" && (
+        <p className="m-0 text-xs text-muted-foreground">
+          {[agentHint, terminalHint].filter(Boolean).join(" ")}
+        </p>
+      )}
     </div>
   );
 }
