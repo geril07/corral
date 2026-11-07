@@ -1,4 +1,4 @@
-import { Session } from "@corral/protocol/rpc";
+import { Session, Task } from "@corral/protocol/rpc";
 import { workspaceMissingMessage } from "@corral/protocol/workspace";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -35,6 +35,20 @@ function frontendsOf(agent: Launch["agent"], count: number) {
 async function launchOf(agent: Launch["agent"]): Promise<Launch> {
   const [launch] = await launchesOf(agent, 1);
   return launch!;
+}
+
+/** The task's state in the watched feed, which is what the sidebar, board and header read. */
+async function taskStateOf(
+  api: Awaited<ReturnType<typeof server.rpc>>,
+  taskId: string,
+): Promise<Task["state"] | undefined> {
+  const updates = await api.tasks.watch();
+  const first = await updates.next();
+  await updates.return?.();
+  return z
+    .array(Task)
+    .parse(first.value)
+    .find((task) => task.id === taskId)?.state;
 }
 
 async function ready(session: Session, text: string) {
@@ -217,6 +231,35 @@ test("an unknown task is TASK_NOT_FOUND", async () => {
     code: "TASK_NOT_FOUND",
     data: { id: "nope" },
   });
+});
+
+test("starting a shell or an agent in a settled task is TASK_SETTLED and creates nothing", async () => {
+  vi.stubEnv("SHELL", "/bin/sh");
+  const { api, task } = await addTask(server, "Settled start");
+  const existing = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
+  await api.tasks.setState({ id: task.id, state: "settled" });
+  const before = await sessionsOf(api);
+
+  await expect(
+    api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE }),
+  ).rejects.toMatchObject({ code: "TASK_SETTLED" });
+  await expect(
+    api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE }),
+  ).rejects.toMatchObject({ code: "TASK_SETTLED" });
+
+  expect(await sessionsOf(api)).toEqual(before);
+  expect(before).toEqual([
+    expect.objectContaining({ id: existing.id, state: "stopped", terminalId: null }),
+  ]);
+  expect(await api.terminals.list()).toEqual([]);
+  expect(await launchesOfAgent(agents, "claude", 0)).toHaveLength(0);
+  expect(await taskStateOf(api, task.id)).toBe("settled");
+
+  // Continuing is the way out: the same calls work once the task is active again.
+  await api.tasks.setState({ id: task.id, state: "active" });
+  const started = await api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE });
+  expect(started).toMatchObject({ kind: "claude", state: "running" });
+  expect(await launchesOfAgent(agents, "claude", 1)).toHaveLength(1);
 });
 
 test("a shell started after its workspace was deleted outside keeps a stopped pane that names the path", async () => {

@@ -2,7 +2,7 @@ import { hasUnseen, sessionStatus, taskStatus } from "@corral/client/agent-statu
 import { buildBoard, mostUrgentBlocked, type BoardRow } from "@corral/client/board";
 import { chatDriverFor } from "@corral/client/chat-capabilities-store";
 import { createConfigKeymap } from "@corral/client/prefix-keymap";
-import { describeError } from "@corral/client/rpc-errors";
+import { describeError, SETTLED_TASK_MESSAGE } from "@corral/client/rpc-errors";
 import { sessionLabels } from "@corral/client/session-labels";
 import { activeAfterClose, stepActive } from "@corral/client/terminal-selection";
 import type { WatchFailure, WatchStore } from "@corral/client/watch-store";
@@ -508,6 +508,10 @@ export function useWorkspace({
 
   const openAgentPicker = (opener?: HTMLElement) => {
     if (selection.taskId === null || !agentsEnabled) return;
+    if (currentTask?.state === "settled") {
+      setFailure({ message: SETTLED_TASK_MESSAGE, tone: "notice" });
+      return;
+    }
     setFailure(undefined);
     openDialog({ kind: "pick-agent", taskId: selection.taskId }, opener);
   };
@@ -972,6 +976,7 @@ export function useWorkspace({
       ? "Add a project first."
       : `Add a project first: ${addProjectHint}.`;
   const agentsEnabled = AgentKind.options.some((kind) => config.agents[kind].enabled.value);
+  const settledStart = currentTask?.state === "settled";
   const stopSessionReason =
     currentSession !== undefined && currentSession.state !== "running"
       ? "This session is not running."
@@ -991,17 +996,19 @@ export function useWorkspace({
     "new-terminal": {
       label: "New terminal",
       group: "Sessions",
-      enabled: true,
+      ...actionAvailability(!settledStart, SETTLED_TASK_MESSAGE),
       run: () => void createTerminal(selection.taskId),
     },
     "new-agent": {
       label: "New agent session",
       group: "Sessions",
       ...actionAvailability(
-        selection.taskId !== null && agentsEnabled,
-        selection.taskId === null
-          ? "Select a task to start an agent in."
-          : "Every agent is disabled in the config file.",
+        selection.taskId !== null && agentsEnabled && !settledStart,
+        settledStart
+          ? SETTLED_TASK_MESSAGE
+          : selection.taskId === null
+            ? "Select a task to start an agent in."
+            : "Every agent is disabled in the config file.",
       ),
       run: openAgentPicker,
     },
@@ -1083,6 +1090,8 @@ export function useWorkspace({
     },
     "switch-view": (() => {
       const offered = viewHandoff(currentSession);
+      const settledRunning =
+        settledStart && currentSession !== undefined && currentSession.state === "running";
       return {
         label:
           "target" in offered
@@ -1092,8 +1101,12 @@ export function useWorkspace({
             : "Switch view",
         group: "Sessions",
         ...actionAvailability(
-          "target" in offered,
-          "reason" in offered ? offered.reason : "Select an agent session.",
+          "target" in offered && !settledRunning,
+          settledRunning
+            ? SETTLED_TASK_MESSAGE
+            : "reason" in offered
+              ? offered.reason
+              : "Select an agent session.",
         ),
         run: () => {
           if (currentSession) requestSwitchView(currentSession);

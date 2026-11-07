@@ -1,5 +1,8 @@
 import type { ChatUnavailableReason } from "@corral/protocol/rpc";
 
+/** The refusal a settled task's start or view launch gets, in the workspace's own words. */
+export const SETTLED_TASK_MESSAGE = "This task is settled. Continue it first.";
+
 /**
  * The typed errors of the contract (`rpc.ts`) that the UI explains in its own words. Matched by
  * shape rather than `instanceof`: a browser can hold more than one copy of the client package,
@@ -69,6 +72,8 @@ export function describeError(error: unknown): string {
         return "This project no longer exists.";
       case "TASK_NOT_FOUND":
         return "This task no longer exists.";
+      case "TASK_SETTLED":
+        return SETTLED_TASK_MESSAGE;
       case "NOT_FOUND":
         return "This terminal no longer exists.";
       case "SESSION_NOT_FOUND":
