@@ -2111,6 +2111,39 @@ test("the settle action in the header settles the task, and its menu offers rena
   expect(task.title).toBe("Settle me");
 });
 
+test("a settled task's restart resumes it, clears the header word and moves the row out of the shelf", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTaskWithShell("Restart settled");
+  const task = client.tasks.getSnapshot().tasks[0]!;
+
+  await taskHeader().getByRole("button", { name: "Task menu for Restart settled" }).click();
+  await page.getByRole("menuitem", { name: "Settle task" }).click();
+  await expect.poll(() => taskState(client, task.id)).toBe("settled");
+
+  await expect.element(taskHeader().getByText("Settled")).toBeVisible();
+  const shelf = workspace().getByRole("button", { name: "Settled (1)" });
+  await expect.element(shelf).toBeVisible();
+  await shelf.click();
+  await vi.waitFor(() => expect(settledBox().textContent).toContain("Restart settled"));
+  const pane = page.getByRole("region", { name: "stopped session" });
+  await expect.element(pane).toMatchTextContent("This task is settled.");
+  expect(activeListBox().textContent).not.toContain("Restart settled");
+
+  const restart = pane.getByRole("button", { name: "Restart" });
+  restart.element().focus();
+  await userEvent.keyboard("{Enter}");
+
+  await vi.waitFor(() => expect(taskState(client, task.id)).toBe("active"));
+  await expect.element(taskHeader().getByText("Settled")).not.toBeInTheDocument();
+  await expect
+    .element(workspace().getByRole("button", { name: "Settled (1)" }))
+    .not.toBeInTheDocument();
+  await expect.element(pane).not.toBeInTheDocument();
+  await expect.element(shellTabs()).toHaveLength(1);
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  expect(activeRowLabels().some((label) => label.includes("Restart settled"))).toBe(true);
+});
+
 test("the header's copy items write the path and branch and announce each outcome", async () => {
   const { client } = await appWithProject(newClient());
   await createTask("Copy facts", { workspace: "new-worktree" });

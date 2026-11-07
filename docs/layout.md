@@ -97,7 +97,9 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   for working, a muted glyph and no word for idle, the glyph with its attention word (`needs
   approval`, `needs input`, `needs auth`, `error`, `blocked`) when the task needs the user, and a
   `done` glyph that is muted once seen. Nothing renders when no session reports a status. A settled
-  task shows it as the sidebar does.
+  task shows it as the sidebar does. It also carries the sidebar's word `Settled` in the trailing
+  group: muted text outside the status slot, before the change counts, with no glyph or colour of
+  its own. The word is derived from the task's state and gone when the task is active.
 - The context and title are text: a mouse drag selects them, while the row's controls keep
   `mousedown` cancelled so clicking one does not take the keyboard from the terminal.
 - The repository label never secretly copies a path.

@@ -60,12 +60,18 @@ import type { SessionStore, StoredSession } from "./session-store.ts";
 const UNATTACHED_SIZE: TerminalSize = { cols: 80, rows: 24 };
 
 /**
- * What a removed session tells the task it leaves behind. The database clears
- * `tasks.primary_session_id` through its foreign key, so the tasks feed has to republish the row;
- * nothing else about the task changes.
+ * What a session tells its task: a removal clears the primary reference through the database's
+ * foreign key, and a restart of a settled task makes it active before anything starts.
  */
 export interface SessionTasks {
   primarySessionRemoved(): void;
+  /**
+   * Makes a settled task active in the same queued transition as a restart. This must be the plain
+   * task-row write plus a feed notification, never `TaskService.setState`: that method waits for the
+   * session queue this call runs on, which would deadlock. A settle racing this write is
+   * last-write-wins; it stops and remembers, so the end state is active with stopped sessions.
+   */
+  taskActivated(taskId: string): void;
 }
 
 /** What `start` and `startPrimary` let the caller choose; the launch snapshot is made from it. */
@@ -292,6 +298,11 @@ export class SessionService {
     return this.#queue.run(async () => {
       const stored = this.#stored(id);
       if (stored.state === "running") throw new AlreadyRunningError(id);
+      // Restarting a settled task is also continuing it: the task becomes active before the
+      // siblings or the target start, so no session runs while the task still says settled.
+      if (this.#tasks.get(stored.taskId)?.state === "settled") {
+        await this.#activate(stored.taskId, stored.id);
+      }
       const prompt = this.#promptFor(stored.kind, choice.prompt ?? this.#taskPrompt(stored));
       // The exited terminal of a session that stopped by itself stays listed until now; a chat
       // session is stopped before anything new spawns, so one session never has two writers.
@@ -322,6 +333,30 @@ export class SessionService {
       this.#changes.notify();
       return this.#withTerminal({ ...stored, state: "running" });
     });
+  }
+
+  /**
+   * Makes a settled task active in the same queued transition as the restart that asked for it,
+   * and resumes the sessions settle remembered. The target is skipped here: the restart body starts
+   * it itself, so resuming all and then restarting the same session would throw AlreadyRunning.
+   * Every remembered flag is cleared before its launch, so a failed target launch leaves no stale
+   * `resume_on_unsettle` behind. A sibling that cannot start is left stopped by `#relaunch` and
+   * does not undo the user's restart.
+   */
+  async #activate(taskId: string, targetId: string): Promise<void> {
+    // The task row is written straight through the seam, never via `TaskService.setState`: that
+    // method awaits `resumeAllIn` on this session queue and would deadlock a restart.
+    this.#taskEvents.taskActivated(taskId);
+    const remembered = this.#store.listResumableOnUnsettle(taskId);
+    for (const stored of remembered) {
+      this.#store.setResumeOnUnsettle(stored.id, false);
+      if (stored.id === targetId) continue;
+      if (stored.state !== "running") {
+        // oxlint-disable-next-line no-await-in-loop -- sessions are relaunched one after the other
+        await this.#relaunch(stored);
+      }
+    }
+    if (remembered.length > 0) this.#changes.notify();
   }
 
   /**

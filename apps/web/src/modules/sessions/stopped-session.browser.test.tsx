@@ -35,6 +35,48 @@ test("a stopped agent says it resumes, and Enter starts it, as the button has th
   expect(onRestart).toHaveBeenCalledOnce();
 });
 
+test("a settled task's pane says the action makes the task active, without promising a transcript", async () => {
+  await render(
+    <StoppedSession
+      session={session("stopped")}
+      taskState="settled"
+      restartHint="alt+a r"
+      onRestart={() => undefined}
+    />,
+  );
+
+  await expect
+    .element(pane())
+    .toMatchTextContent(
+      "This task is settled. Restarting makes the task active and resumes the sessions that were running.",
+    );
+  await expect.element(pane()).not.toMatchTextContent("transcript");
+  await expect.element(pane()).not.toMatchTextContent("history");
+  await expect.element(pane()).not.toMatchTextContent("read");
+  await expect.element(pane().getByRole("button", { name: "Restart" })).toHaveFocus();
+});
+
+test("an active or unknown task's pane says nothing about being settled", async () => {
+  const screen = await render(
+    <StoppedSession
+      session={session("stopped")}
+      taskState="active"
+      restartHint="alt+a r"
+      onRestart={() => undefined}
+    />,
+  );
+  await expect.element(pane()).not.toMatchTextContent("This task is settled.");
+
+  await screen.rerender(
+    <StoppedSession
+      session={session("stopped")}
+      restartHint="alt+a r"
+      onRestart={() => undefined}
+    />,
+  );
+  await expect.element(pane()).not.toMatchTextContent("This task is settled.");
+});
+
 test("a failed start's pane heading says failed and names the error", async () => {
   await render(
     <StoppedSession

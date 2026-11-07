@@ -151,6 +151,11 @@ export function TaskHeader({
           data-task-header-actions=""
           onMouseDown={(event) => event.preventDefault()}
         >
+          {task.state === "settled" && (
+            <span data-task-state="settled" className="shrink-0 text-xs text-muted-foreground">
+              Settled
+            </span>
+          )}
           {changeCounts(changes) !== undefined && (
             <span
               className="font-mono text-xs tabular-nums text-muted-foreground"

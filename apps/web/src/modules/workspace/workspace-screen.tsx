@@ -318,6 +318,7 @@ export function WorkspaceScreen({
       <StoppedSession
         key={currentSession.id}
         session={currentSession}
+        taskState={currentTask?.state}
         restartHint={restartKey}
         onRestart={() => void restartSession(currentSession)}
       />

@@ -192,6 +192,17 @@ export class TaskService implements ProjectTasks {
     this.#changes.notify();
   }
 
+  /**
+   * A restart of a settled task makes it active before any session starts. This is deliberately
+   * not `setState`: that runs on `#mutations` and waits for `resumeAllIn` on the session queue,
+   * while this is called from inside a session-queue job and would deadlock. A settle racing this
+   * write is last-write-wins; settle stops and remembers, so the end state is consistent.
+   */
+  taskActivated(taskId: string): void {
+    this.#store.setState(taskId, "active");
+    this.#changes.notify();
+  }
+
   async #create(input: CreateTaskInput): Promise<Task> {
     const project = this.#project(input.projectId);
     const { workspace } = input;
