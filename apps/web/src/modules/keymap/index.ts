@@ -13,6 +13,7 @@ export {
   ConfigProblemsDialog,
   ConfigProblemsList,
   ConfigProblemsNotice,
+  problemAtPath,
 } from "./config-problems.tsx";
 export { KeymapProvider, useConfig, usePrefix } from "./config-context.tsx";
 export { CommandPaletteDialog } from "./command-palette.tsx";
