@@ -57,7 +57,7 @@ const settledTask = (id: string, title: string, createdAt: number): Task => ({
 });
 
 test("a result labels the create-time branch recorded, and a detached create says no branch", async () => {
-  const archived = settledTask("t1", "Archived work", 1);
+  const archived: Task = { ...settledTask("t1", "Archived work", 1), branch: "branch-audit" };
   const detached: Task = { ...settledTask("t2", "Detached work", 2), branch: "HEAD" };
   await render(
     <FindTaskDialog
@@ -70,8 +70,27 @@ test("a result labels the create-time branch recorded, and a detached create say
   );
 
   const recorded = findOption(/Archived work/);
-  await expect.element(recorded).toMatchTextContent("branch-t1 (recorded)");
-  expect(recorded.element().getAttribute("aria-label")).toContain("branch-t1 (recorded at create)");
+  await expect.element(recorded).toMatchTextContent(/branch-audit\s*\(recorded\)/);
+  expect(recorded.element().getAttribute("aria-label")).toContain(
+    "branch-audit (recorded at create)",
+  );
+
+  // A 1/3-width branch column at the 384 px dialog truncated the old combined label to
+  // "branch-audit (re…"; the reflowed name and qualifier have to stay whole at 1024.
+  const branchName = recorded.element().querySelector("[data-recorded-name]");
+  if (!(branchName instanceof HTMLElement)) throw new Error("the branch has no name");
+  expect(branchName.textContent).toBe("branch-audit");
+  expect(branchName.scrollWidth).toBeLessThanOrEqual(branchName.clientWidth + 1);
+  const qualifier = recorded.element().querySelector("[data-recorded-qualifier]");
+  if (!(qualifier instanceof HTMLElement)) throw new Error("the branch has no recorded qualifier");
+  expect(qualifier.textContent).toBe("(recorded)");
+  expect(qualifier.scrollWidth).toBeLessThanOrEqual(qualifier.clientWidth + 1);
+  const option = recorded.element().getBoundingClientRect();
+  for (const label of [branchName, qualifier]) {
+    const rect = label.getBoundingClientRect();
+    expect(rect.width).toBeGreaterThan(0);
+    expect(rect.right).toBeLessThanOrEqual(option.right + 1);
+  }
 
   const detachedOption = findOption(/Detached work/);
   await expect.element(detachedOption).toMatchTextContent("no branch");

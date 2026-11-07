@@ -2386,8 +2386,23 @@ test("Show sidebar clears a copy confirmation on keyboard activation", async () 
 
 test("the header's branch and title can be selected with the mouse", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Selectable title", { workspace: "main-worktree" });
-  const task = client.tasks.getSnapshot().tasks[0]!;
+  const project = client.projects.getSnapshot().projects[0]!;
+  // A short branch keeps the worktree context whole in the header's capped width.
+  await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "Selectable title",
+    workspace: { type: "new-branch", branch: "audit" },
+  });
+  await expect.element(taskButton("Selectable title")).toBeVisible();
+  await taskButton("Selectable title").click();
+  const task = await vi.waitFor(() => {
+    const found = client.tasks
+      .getSnapshot()
+      .tasks.find((candidate) => candidate.title === "Selectable title");
+    if (found === undefined) throw new Error("the task is not in the list yet");
+    return found;
+  });
+  expect(task.ownsWorktree).toBe(true);
 
   const title = taskHeader()
     .getByRole("heading", { name: "Selectable title" })
