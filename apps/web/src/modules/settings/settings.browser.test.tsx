@@ -453,6 +453,9 @@ test("an absent config file says it has not been created, then a clean file says
         "The config file has not been created yet. Corral applies the built-in defaults.",
       );
     await expect.element(config).not.toMatchTextContent("No problems");
+    await expect
+      .element(config.getByRole("heading", { name: "Problems", exact: true }))
+      .not.toBeInTheDocument();
     await expect.element(config.getByRole("button", { name: "Copy config path" })).toBeVisible();
     await config.getByRole("button", { name: "Copy config path" }).click();
     await expect.element(config).toMatchTextContent("Path copied.");
@@ -462,6 +465,9 @@ test("an absent config file says it has not been created, then a clean file says
     await vi.waitFor(() => expect(client.config.getSnapshot().exists).toBe(true));
     await expect.element(config).toMatchTextContent("No problems.");
     await expect.element(config).not.toMatchTextContent("has not been created");
+    await expect
+      .element(config.getByRole("heading", { name: "Problems", exact: true }))
+      .not.toBeInTheDocument();
     await config.getByRole("button", { name: "Copy config path" }).click();
     expect(clipboard.writeText).toHaveBeenLastCalledWith(path);
   } finally {
@@ -484,6 +490,9 @@ test("a daemon without the exists field says existence is unknown", async () => 
       .toBeVisible();
     await expect.element(page.getByText("No problems.")).not.toBeInTheDocument();
     await expect.element(page.getByText(/has not been created/)).not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("heading", { name: "Problems", exact: true }))
+      .not.toBeInTheDocument();
     await expect.element(page.getByText(snapshot.path, { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Copy config path" }).click();
     await expect.element(page.getByText("Path copied.")).toBeVisible();
