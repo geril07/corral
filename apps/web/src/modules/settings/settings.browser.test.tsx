@@ -918,3 +918,57 @@ test("the settings action is a configurable key and a palette entry, never a har
   await expect.element(settingsHeading()).toBeVisible();
   await expect.element(settingsRailButton("Appearance")).toHaveFocus();
 });
+
+test("copy feedback clears, re-announces on a second copy, and does not survive a category change", async () => {
+  const client = newClient();
+  await writeConfig(null);
+  const clipboard = stubClipboard(async () => undefined);
+  try {
+    await renderSettings(client);
+    await vi.waitFor(() => expect(client.config.getSnapshot().exists).toBe(false));
+    const config = await section("Config file");
+    const copy = config.getByRole("button", { name: "Copy config path" });
+    await copy.click();
+    await expect.element(config.getByText("Path copied.", { exact: true })).toBeVisible();
+    await vi.waitFor(
+      () => expect(config.getByText("Path copied.", { exact: true }).elements()).toHaveLength(0),
+      { timeout: 2500 },
+    );
+
+    await copy.click();
+    await expect.element(config.getByText("Path copied.", { exact: true })).toBeVisible();
+    await copy.click();
+    await expect.element(config.getByText("Path copied.", { exact: true })).toHaveLength(1);
+    await settingsRailButton("Appearance").click();
+    await settingsRailButton("Config file").click();
+    await expect.element(config.getByText("Path copied.", { exact: true })).not.toBeInTheDocument();
+  } finally {
+    clipboard.restore();
+  }
+});
+
+test("a refused config copy keeps the message and leaves the path keyboard-selectable", async () => {
+  const client = newClient();
+  await writeConfig(null);
+  const clipboard = stubClipboard(async () => Promise.reject(new Error("denied")));
+  try {
+    await renderSettings(client);
+    await vi.waitFor(() => expect(client.config.getSnapshot().exists).toBe(false));
+    const config = await section("Config file");
+    await config.getByRole("button", { name: "Copy config path" }).click();
+    await expect
+      .element(config.getByRole("alert"))
+      .toMatchTextContent("Copy is unavailable; select the path above.");
+    const path = config.getByText(client.config.getSnapshot().path, { exact: true });
+    await expect.element(path).toBeVisible();
+    expect(path.element().tabIndex).toBe(0);
+    expect(path.element().getAttribute("aria-label")).toBe("Config file path");
+    path.element().focus();
+    await expect.element(path).toHaveFocus();
+    await new Promise((resolve) => setTimeout(resolve, 1700));
+    await expect.element(config.getByRole("alert")).toBeVisible();
+    expect(path.element().tabIndex).toBe(0);
+  } finally {
+    clipboard.restore();
+  }
+});

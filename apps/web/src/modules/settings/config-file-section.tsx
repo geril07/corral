@@ -1,18 +1,28 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "../../common/ui/index.ts";
 import { ConfigProblemsList, useConfig } from "../keymap/index.ts";
 
 /** The server-owned file, its problems, and the fact that this background never writes it. */
 export function ConfigFileSection() {
   const { loaded, path, exists, problems } = useConfig();
-  const [copy, setCopy] = useState<"copied" | "failed" | undefined>(undefined);
+  const [copy, setCopy] = useState<{ kind: "copied" | "failed"; nonce: number } | undefined>(
+    undefined,
+  );
 
+  const nonce = useRef(0);
+  // Only the confirmation expires; a refusal is a fact the user must be able to act on.
+  useEffect(() => {
+    if (copy?.kind !== "copied") return undefined;
+    const timer = window.setTimeout(() => setCopy(undefined), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copy]);
   const copyPath = async () => {
+    nonce.current += 1;
     try {
       await navigator.clipboard.writeText(path);
-      setCopy("copied");
+      setCopy({ kind: "copied", nonce: nonce.current });
     } catch {
-      setCopy("failed");
+      setCopy({ kind: "failed", nonce: nonce.current });
     }
   };
 
@@ -23,7 +33,11 @@ export function ConfigFileSection() {
         you save.
       </p>
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <code className="min-w-0 break-all font-mono text-xs">
+        <code
+          className="min-w-0 break-all font-mono text-xs"
+          tabIndex={loaded && path !== "" && copy?.kind === "failed" ? 0 : undefined}
+          aria-label={loaded && path !== "" ? "Config file path" : undefined}
+        >
           {loaded ? path : "waiting for the server's config…"}
         </code>
         {loaded && path !== "" && (
@@ -32,13 +46,13 @@ export function ConfigFileSection() {
           </Button>
         )}
       </div>
-      {copy === "copied" && (
-        <p className="m-0 mb-2 text-muted-foreground" role="status">
+      {copy?.kind === "copied" && (
+        <p key={copy.nonce} className="m-0 mb-2 text-muted-foreground" role="status">
           Path copied.
         </p>
       )}
-      {copy === "failed" && (
-        <p className="m-0 mb-2 text-destructive" role="alert">
+      {copy?.kind === "failed" && (
+        <p key={copy.nonce} className="m-0 mb-2 text-destructive" role="alert">
           Copy is unavailable; select the path above.
         </p>
       )}
