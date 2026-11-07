@@ -148,6 +148,7 @@ function readConfigFile(filePath: string, dataDir: string): ConfigState {
       const config = defaultClientConfig(dataDir);
       return {
         path: filePath,
+        exists: false,
         config,
         profiles: [],
         agents: agentAvailability(config),
@@ -157,6 +158,7 @@ function readConfigFile(filePath: string, dataDir: string): ConfigState {
     const config = defaultClientConfig(dataDir);
     return {
       path: filePath,
+      exists: true,
       config,
       profiles: [],
       agents: agentAvailability(config),
@@ -172,6 +174,7 @@ function readConfigFile(filePath: string, dataDir: string): ConfigState {
   const parsed = parseConfigFile(text, dataDir);
   return {
     path: filePath,
+    exists: true,
     ...parsed,
     agents: agentAvailability(parsed.config),
   };
