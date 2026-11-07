@@ -1597,7 +1597,8 @@ test("removing a task whose worktree was deleted outside says it was already gon
   await expect.element(dialog).toMatchTextContent("already gone");
   await expect.element(dialog).toMatchTextContent(task.workspacePath);
   await expect.element(dialog).toMatchTextContent("prunes the stale git worktree entry");
-  await expect.element(dialog).toMatchTextContent(`keeps the branch ${task.branch}`);
+  await expect.element(dialog).toMatchTextContent("keeps the branch");
+  await expect.element(dialog).not.toMatchTextContent(`keeps the branch ${task.branch}`);
 
   await dialog.getByRole("button", { name: "Remove task" }).click();
   await expect.element(dialog).not.toBeInTheDocument();
@@ -1622,7 +1623,22 @@ test("removing a task whose worktree was deleted outside says it was already gon
   expect(range.getClientRects().length).toBeGreaterThan(1);
   expect(lastTextLine(element).bottom).toBeLessThanOrEqual(surface.bottom + 1);
   expect(element.scrollWidth).toBeLessThanOrEqual(element.clientWidth + 1);
-  expect(element.textContent).toContain(`the branch ${task.branch} remains`);
+  expect(element.textContent).toContain("the branch remains.");
+});
+
+test("removing after an outside branch rename names the live branch that stays", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Renamed worktree", { workspace: "new-worktree" });
+  const task = client.tasks.getSnapshot().tasks[0]!;
+  await runGitIn(task.workspacePath, ["branch", "-m", "renamed-outside"]);
+
+  await taskButton("Renamed worktree").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove task…" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect.element(dialog).toMatchTextContent("The branch renamed-outside stays.");
+  await expect.element(dialog).not.toMatchTextContent(`The branch ${task.branch} stays.`);
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect.element(dialog).not.toBeInTheDocument();
 });
 
 test("confirming Remove before the workspace read returns still says the directory was already gone", async () => {
@@ -2370,7 +2386,7 @@ test("Show sidebar clears a copy confirmation on keyboard activation", async () 
 
 test("the header's branch and title can be selected with the mouse", async () => {
   const { client } = await appWithProject(newClient());
-  await createTask("Selectable title", { workspace: "new-worktree" });
+  await createTask("Selectable title", { workspace: "main-worktree" });
   const task = client.tasks.getSnapshot().tasks[0]!;
 
   const title = taskHeader()

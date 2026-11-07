@@ -37,7 +37,10 @@ test("it says what removing does and starts on Cancel, so a stray Enter removes 
   await render(<RemoveTaskDialog task={task} onRemove={onRemove} onClose={onClose} />);
 
   await expect.element(dialog()).toMatchTextContent("/data/worktrees/repo/fix-login");
-  await expect.element(dialog()).toMatchTextContent("fix-login stays");
+  await expect
+    .element(dialog())
+    .toMatchTextContent("The branch checked out in the worktree stays.");
+  await expect.element(dialog()).not.toMatchTextContent("The branch fix-login stays.");
   await expect.element(dialog()).toMatchTextContent("Stops its sessions");
   // A loose terminal is not a session; the copy names what the sweep closes.
   await expect.element(dialog()).toMatchTextContent("closes the terminals in the workspace");
@@ -68,25 +71,98 @@ test("a workspace directory that is already gone is named, and the copy says wha
   await expect.element(dialog()).toMatchTextContent("already gone");
   await expect.element(dialog()).toMatchTextContent(task.workspacePath);
   await expect.element(dialog()).toMatchTextContent("prunes the stale git worktree entry");
-  await expect.element(dialog()).toMatchTextContent(`keeps the branch ${task.branch}`);
+  await expect.element(dialog()).toMatchTextContent("keeps the branch");
+  await expect.element(dialog()).not.toMatchTextContent(`keeps the branch ${task.branch}`);
   // The ordinary promise to remove the worktree would be false here.
   await expect.element(dialog()).not.toMatchTextContent("removes the worktree at");
   await expect.element(button("Cancel")).toHaveFocus();
 });
 
-test("a task in the main working tree says the working tree stays", async () => {
+test("the live branch is named and the recorded one is never promised", async () => {
   await render(
     <RemoveTaskDialog
-      task={{ ...task, ownsWorktree: false }}
+      task={{ ...task, branch: "recorded-branch" }}
+      loadLiveBranch={() => Promise.resolve("renamed-branch")}
       onRemove={() => Promise.resolve()}
       onClose={() => undefined}
     />,
   );
 
-  await expect.element(dialog()).toMatchTextContent("working tree");
+  await expect.element(dialog()).toMatchTextContent("The branch renamed-branch stays.");
+  await expect.element(dialog()).not.toMatchTextContent("The branch recorded-branch stays.");
+});
+
+test("while the live read is pending the copy stays generic, then names the answer", async () => {
+  let release!: (branch: string | null) => void;
+  const load = vi.fn<() => Promise<string | null>>(
+    () =>
+      new Promise<string | null>((resolve) => {
+        release = resolve;
+      }),
+  );
+  await render(
+    <RemoveTaskDialog
+      task={{ ...task, branch: "recorded-branch" }}
+      loadLiveBranch={load}
+      onRemove={() => Promise.resolve()}
+      onClose={() => undefined}
+    />,
+  );
+
+  await expect
+    .element(dialog())
+    .toMatchTextContent("The branch checked out in the worktree stays.");
+  await expect.element(dialog()).not.toMatchTextContent("The branch recorded-branch stays.");
+
+  release("live-branch");
+  await expect.element(dialog()).toMatchTextContent("The branch live-branch stays.");
+  expect(load).toHaveBeenCalledOnce();
+});
+
+test("a rejected live read keeps the generic promise, and a detached live read says no branch", async () => {
+  const screen = await render(
+    <RemoveTaskDialog
+      task={{ ...task, branch: "recorded-branch" }}
+      loadLiveBranch={() => Promise.reject(new Error("workspace unreadable"))}
+      onRemove={() => Promise.resolve()}
+      onClose={() => undefined}
+    />,
+  );
+
+  await expect
+    .element(dialog())
+    .toMatchTextContent("The branch checked out in the worktree stays.");
+  await expect.element(dialog()).not.toMatchTextContent("The branch recorded-branch stays.");
+
+  await screen.rerender(
+    <RemoveTaskDialog
+      task={{ ...task, id: "t2", branch: "recorded-branch" }}
+      loadLiveBranch={() => Promise.resolve(null)}
+      onRemove={() => Promise.resolve()}
+      onClose={() => undefined}
+    />,
+  );
+  await expect
+    .element(dialog())
+    .toMatchTextContent("No branch is checked out in the worktree; branches are not deleted.");
+});
+
+test("a task in the main working tree never reads a live branch", async () => {
+  const load = vi.fn<() => Promise<string | null>>(() => Promise.resolve("live-branch"));
+  await render(
+    <RemoveTaskDialog
+      task={{ ...task, ownsWorktree: false }}
+      loadLiveBranch={load}
+      onRemove={() => Promise.resolve()}
+      onClose={() => undefined}
+    />,
+  );
+
+  await expect.element(dialog()).toMatchTextContent("working tree stays; branches are not deleted");
   await expect.element(dialog()).not.toMatchTextContent("removes the worktree");
   // The project's main tree is not the task's: its loose terminals are not swept.
   await expect.element(dialog()).not.toMatchTextContent("including loose ones");
+  expect(load).not.toHaveBeenCalled();
 });
 
 test("ignored entries are listed as local changes and removing needs a second, explicit step with the focus back on Cancel", async () => {

@@ -173,14 +173,14 @@ test("the branch line follows a task switch even when the pane has no width yet"
     <Harness node={nodeOf("t1", "alpha-branch", "First task")} narrow={false} />,
   );
   await expect.element(page.getByText(/alpha-branch/)).toBeVisible();
-  expect(branchLine()?.textContent).toBe("alpha / alpha-branch");
+  expect(branchLine()?.textContent).toBe("alpha / alpha-branch (recorded)");
 
   // The switch lands while the pane is zero wide: the accessible label is fresh, so the visible
   // line must be too — the previous task's branch stayed on screen for as long as the width did.
   await screen.rerender(<Harness node={nodeOf("t2", "beta-branch", "Second task")} narrow />);
-  expect(branchLine()?.getAttribute("aria-label")).toBe("alpha / beta-branch");
-  expect(branchLine()?.textContent).toBe("alpha / beta-branch");
-  await vi.waitFor(() => expect(branchLine()?.textContent).toBe("alpha / beta-branch"));
+  expect(branchLine()?.getAttribute("aria-label")).toBe("alpha / beta-branch (recorded at create)");
+  expect(branchLine()?.textContent).toBe("alpha / beta-branch (recorded)");
+  await vi.waitFor(() => expect(branchLine()?.textContent).toBe("alpha / beta-branch (recorded)"));
 });
 
 test("a switch with a laid-out pane shows the new branch and keeps measuring", async () => {
@@ -191,29 +191,30 @@ test("a switch with a laid-out pane shows the new branch and keeps measuring", a
     <Harness node={nodeOf("t2", "beta-branch", "Second task")} narrow={false} />,
   );
 
-  await vi.waitFor(() => expect(branchLine()?.textContent).toBe("alpha / beta-branch"));
+  await vi.waitFor(() => expect(branchLine()?.textContent).toBe("alpha / beta-branch (recorded)"));
 });
 
 test("the where segment uses the branch whether or not the task owns its worktree", async () => {
   const screen = await render(
     <Harness node={nodeOf("t1", "main", "Main task", false)} narrow={false} />,
   );
-  expect(branchLine()?.textContent).toBe("alpha / main");
+  expect(branchLine()?.textContent).toBe("alpha / main (recorded)");
   await expect.element(page.getByRole("heading", { name: "Main task" })).toBeVisible();
   expect(document.querySelector("header")?.textContent).not.toContain("›");
 
   await screen.rerender(
     <Harness node={nodeOf("t2", "", "Branchless task", false)} narrow={false} />,
   );
-  expect(branchLine()?.textContent).toBe("alpha");
-  expect(branchLine()?.getAttribute("aria-label")).toBe("alpha");
+  expect(branchLine()?.textContent).toBe("alpha / detached");
+  expect(branchLine()?.getAttribute("aria-label")).toBe("alpha / no branch checked out at create");
   await expect.element(page.getByRole("heading", { name: "Branchless task" })).toBeVisible();
 });
 
 test("a long project and branch truncate in the middle and keep the full context", async () => {
   const longProject = { ...project, name: "orbit-observability-platform" };
   const longBranch = "feature/header-context-with-a-long-name";
-  const where = `${longProject.name} / ${longBranch}`;
+  const where = `${longProject.name} / ${longBranch} (recorded)`;
+  const accessible = `${longProject.name} / ${longBranch} (recorded at create)`;
   await render(
     <Harness
       node={nodeOf("t1", longBranch, "Long context")}
@@ -222,9 +223,10 @@ test("a long project and branch truncate in the middle and keep the full context
     />,
   );
 
-  await vi.waitFor(() => expect(branchLine()?.getAttribute("title")).toBe(where));
+  await vi.waitFor(() => expect(branchLine()?.getAttribute("title")).toBe(accessible));
   expect(branchLine()?.textContent).toContain("…");
-  expect(branchLine()?.getAttribute("aria-label")).toBe(where);
+  expect(branchLine()?.getAttribute("aria-label")).toBe(accessible);
+  expect(branchLine()?.getAttribute("title")).not.toBe(where);
 });
 
 test("a blocked task shows its attention word and the status AT reads from the header", async () => {
@@ -446,6 +448,16 @@ test("the branch copy item exists only when the task has a branch", async () => 
 
   await page.getByRole("button", { name: "Task menu for Branchless" }).click();
   await expect.element(page.getByRole("menuitem", { name: "Copy workspace path" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Copy branch" })).not.toBeInTheDocument();
+});
+
+test("a detached create says detached and never shows or copies HEAD", async () => {
+  await render(<Harness node={nodeOf("t1", "HEAD", "Detached")} narrow={false} />);
+
+  expect(branchLine()?.textContent).toBe("alpha / detached");
+  expect(branchLine()?.textContent).not.toContain("HEAD");
+  expect(branchLine()?.getAttribute("aria-label")).toBe("alpha / no branch checked out at create");
+  await page.getByRole("button", { name: "Task menu for Detached" }).click();
   await expect.element(page.getByRole("menuitem", { name: "Copy branch" })).not.toBeInTheDocument();
 });
 

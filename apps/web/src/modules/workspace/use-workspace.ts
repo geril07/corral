@@ -936,7 +936,8 @@ export function useWorkspace({
     // branch is untouched.
     if (workspaceMissing) {
       setFailure({
-        message: `The directory was already gone. The stale git entry was pruned; the branch ${task.branch} remains.`,
+        message:
+          "The directory was already gone. The stale git entry was pruned; the branch remains.",
         tone: "notice",
       });
     }

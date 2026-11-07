@@ -82,6 +82,10 @@ test("the Changes tab opens by key and by click, with the summary, a file row an
 
   await expect.element(changesTab()).toHaveAttribute("aria-selected", "true");
   await expect.element(page.getByText(/^2 files, \+\d+ −\d+$/)).toBeVisible();
+  await expect.element(finish().getByRole("button", { name: "Stage all" })).toBeVisible();
+  await expect.element(finish()).not.toMatchTextContent("Checked out now:");
+  // The same controls show the no-remote reason inline, not only in a title.
+  await expect.element(finish().getByText("This repository has no remote.")).toBeVisible();
   await expect.element(fileRow("README\\.md")).toBeVisible();
   await expect.element(fileRow("src/new\\.ts")).toBeVisible();
 
@@ -434,4 +438,61 @@ test("reloading on the Changes tab restores the tab and the session behind it", 
   await expect.element(changesTab()).toHaveAttribute("aria-selected", "true");
   await expect.element(sessionTab("shell 2")).toHaveAttribute("aria-current", "true");
   await expect.element(fileRow("README\\.md")).toBeVisible();
+});
+
+test("a branch renamed outside Corral stays recorded in the header and Changes names the live one", async () => {
+  const data = await seed({ files: false });
+  await runGitIn(data.task.workspacePath, ["branch", "-m", "renamed-outside"]);
+
+  await renderApp(newClient(), [data.href]);
+  await expect.element(taskHeader()).toMatchTextContent("(recorded)");
+  const context = taskHeader().element().querySelector("[data-task-repository]");
+  if (!(context instanceof HTMLElement)) throw new Error("the header has no branch line");
+  expect(context.getAttribute("aria-label")).toContain(`${data.task.branch} (recorded at create)`);
+  expect(context.textContent).toContain("(recorded)");
+  expect(context.textContent).not.toContain("renamed-outside");
+
+  await prefixShifted("c");
+  await expect
+    .element(
+      finish().getByText(
+        `Checked out now: renamed-outside · the task was created on ${data.task.branch}.`,
+      ),
+    )
+    .toBeVisible();
+  // The header still names the recorded fact, not the live checkout.
+  expect(context.textContent).toContain("(recorded)");
+  expect(context.textContent).not.toContain("renamed-outside");
+});
+
+test("a detached main-tree task says detached and shows why push and pull request are unavailable", async () => {
+  const repo = await createGitRepo("detached");
+  await runGitIn(repo, ["checkout", "--detach"]);
+  const setup = newClient();
+  await expect.poll(() => setup.connection.state.getSnapshot().status).toBe("connected");
+  const { api } = setup.connection;
+  const project = await api.projects.add({ path: repo });
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Detached work",
+    workspace: { type: "main-worktree" },
+  });
+  // The wire keeps the create-time fact; only the display turns it into no branch.
+  expect(task.branch).toBe("HEAD");
+
+  await renderApp(newClient(), [`/?project=${project.id}&task=${task.id}`]);
+  await workspace()
+    .getByRole("button", { name: /Detached work/ })
+    .click();
+  await expect.element(taskHeader()).toMatchTextContent("detached");
+  await expect.element(taskHeader()).not.toMatchTextContent("HEAD");
+
+  await prefixShifted("c");
+  const reason = finish().getByText("This task has no branch checked out.");
+  await expect.element(reason).toBeVisible();
+  await expect.element(finish().getByRole("button", { name: "Push…" })).toBeDisabled();
+  await expect
+    .element(finish().getByRole("button", { name: "Create pull request…" }))
+    .toBeDisabled();
+  await expect.element(finish()).not.toMatchTextContent("Checked out now:");
 });

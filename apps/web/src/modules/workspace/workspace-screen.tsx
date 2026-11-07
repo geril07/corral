@@ -249,6 +249,8 @@ export function WorkspaceScreen({
 
   const currentFinishActions =
     currentTask === undefined ? undefined : finishActions.get(currentTask.id);
+  const removeTaskFinishActions =
+    dialog?.kind === "remove-task" ? finishActions.get(dialog.task.id) : undefined;
   const changesPane =
     changesCurrent && currentTask !== undefined && currentFinishActions !== undefined ? (
       <ChangesView
@@ -572,6 +574,11 @@ export function WorkspaceScreen({
         <RemoveTaskDialog
           task={dialog.task}
           workspaceMissing={dialog.workspaceMissing === true}
+          loadLiveBranch={
+            removeTaskFinishActions === undefined
+              ? undefined
+              : () => removeTaskFinishActions.finish().then((finish) => finish.branch)
+          }
           onRemove={(force) => removeTask(dialog.task, force)}
           onClose={closeRemoveTask}
         />

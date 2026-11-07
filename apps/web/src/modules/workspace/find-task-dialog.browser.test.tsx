@@ -56,6 +56,28 @@ const settledTask = (id: string, title: string, createdAt: number): Task => ({
   createdAt,
 });
 
+test("a result labels the create-time branch recorded, and a detached create says no branch", async () => {
+  const archived = settledTask("t1", "Archived work", 1);
+  const detached: Task = { ...settledTask("t2", "Detached work", 2), branch: "HEAD" };
+  await render(
+    <FindTaskDialog
+      projects={[repoProject]}
+      tasks={[archived, detached]}
+      onOpen={vi.fn<(task: Task) => void>()}
+      onContinue={vi.fn<(task: Task) => Promise<void>>()}
+      onClose={vi.fn<() => void>()}
+    />,
+  );
+
+  const recorded = findOption(/Archived work/);
+  await expect.element(recorded).toMatchTextContent("branch-t1 (recorded)");
+  expect(recorded.element().getAttribute("aria-label")).toContain("branch-t1 (recorded at create)");
+
+  const detachedOption = findOption(/Detached work/);
+  await expect.element(detachedOption).toMatchTextContent("no branch");
+  await expect.element(detachedOption).not.toMatchTextContent("HEAD");
+});
+
 test("a failed continue keeps the dialog and its error, and a retry can still continue", async () => {
   const onContinue = vi
     .fn<(task: Task) => Promise<void>>()

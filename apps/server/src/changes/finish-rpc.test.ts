@@ -2,7 +2,7 @@ import type { ChangesRemote, Project, Task } from "@corral/protocol/rpc";
 import { existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
-import { cloneOfOrigin, runGit, writeFiles } from "../../test/git-repo.ts";
+import { cloneOfOrigin, initRepo, runGit, writeFiles } from "../../test/git-repo.ts";
 import { useFakeIssueClis } from "../../test/issue-clis.ts";
 import { addProject } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
@@ -51,6 +51,42 @@ function originCommit(origin: string, branch: string): string | undefined {
     return undefined;
   }
 }
+
+test("the task keeps its create-time branch while changes.finish reads the live checkout", async () => {
+  const api = await server.rpc();
+  const repo = initRepo(join(server.scratchDir, "recorded-branch"), "main");
+  const project = await api.projects.add({ path: repo });
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Recorded branch",
+    workspace: { type: "main-worktree" },
+  });
+  expect(task.branch).toBe("main");
+
+  runGit(repo, "branch", "-m", "renamed-outside");
+  expect((await api.changes.finish({ id: task.id })).branch).toBe("renamed-outside");
+  // Nothing wrote the recorded field: it still says where the task was created.
+  expect((await api.tasks.setState({ id: task.id, state: "active" })).branch).toBe("main");
+});
+
+test("a detached main-tree task records HEAD at create and reports no branch live", async () => {
+  const api = await server.rpc();
+  const repo = initRepo(join(server.scratchDir, "detached-branch"), "main");
+  runGit(repo, "checkout", "--detach");
+  const project = await api.projects.add({ path: repo });
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Detached branch",
+    workspace: { type: "main-worktree" },
+  });
+  // The wire keeps the create-time fact; `null` is the live answer a detached HEAD gives.
+  expect(task.branch).toBe("HEAD");
+  expect((await api.changes.finish({ id: task.id })).branch).toBeNull();
+
+  runGit(repo, "checkout", "main");
+  expect((await api.changes.finish({ id: task.id })).branch).toBe("main");
+  expect((await api.tasks.setState({ id: task.id, state: "active" })).branch).toBe("HEAD");
+});
 
 test("staging, committing and pushing reach the local bare remote, and no forge CLI runs", async () => {
   const api = await server.rpc();

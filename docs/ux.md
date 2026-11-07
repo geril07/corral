@@ -130,9 +130,13 @@ What a user does. Everything below is built and verified end to end, chat views 
 - Remove task keeps [the confirmation for local content](design.md#domain-model); keyed buttons
   prevent a single Enter from confirming both stages. It closes the terminals in the worktree it
   owns, loose ones included, before removing it, and no branch is deleted implicitly except
-  [the one a failed create made](design.md#domain-model). When its directory is already gone, the
-  confirmation says so, and that removing prunes the stale git worktree entry and keeps the
-  branch; the post-removal notice says what happened instead of a silent prune.
+  [the one a failed create made](design.md#domain-model). The worktree confirmation names the
+  branch checked out now, read when it opens; while that read is pending or unavailable it says
+  "the branch checked out in the worktree stays" without a name, never the recorded-at-create
+  name, and a detached checkout says no branch is checked out and branches are not deleted. When
+  its directory is already gone, the confirmation says so, and that removing prunes the stale git
+  worktree entry and keeps the branch; the post-removal notice says what happened instead of a
+  silent prune.
 - A session started after its workspace was deleted outside Corral does not show the OS `chdir`
   line: the failed pane names the sentence with the path, the Changes tab shows the same sentence,
   and Remove is the recovery.

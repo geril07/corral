@@ -262,10 +262,23 @@ test("a two-line task row names its branch, agent and session count on the secon
   await renderSidebar().rendered;
 
   const first = nav().getByRole("button", { name: /^task a/ });
-  await expect.element(first).toMatchTextContent(/branch-a · claude · 3 sessions/);
+  await expect.element(first).toMatchTextContent(/branch-a \(recorded\) · claude · 3 sessions/);
   expect(first.element().getBoundingClientRect().height).toBeGreaterThanOrEqual(52);
   // Project mode already groups by project, so the row does not repeat its name.
   expect(first.element().textContent).not.toContain("repo-p1");
+});
+
+test("a worktree row labels its branch recorded, while a main-tree row omits the branch", async () => {
+  const mainTree: Task = { ...task("main"), branch: "trunk", ownsWorktree: false };
+  await renderSelectableSidebar({ taskId: "a" }, defaultSessions, [task("a"), mainTree]);
+
+  const worktree = row("task a");
+  await expect.element(worktree).toMatchTextContent(/branch-a \(recorded\)/);
+  expect(worktree.element().getAttribute("aria-label")).toContain("branch-a (recorded at create)");
+
+  const main = row("task main");
+  expect(main.element().textContent).not.toContain("trunk");
+  expect(main.element().getAttribute("aria-label")).not.toContain("trunk");
 });
 
 test("settled tasks stay collapsed until the group is opened", async () => {
@@ -1003,7 +1016,10 @@ test("a task shows its most urgent session status with a text alternative and th
   const blocked = row("task a");
   await expect
     .element(blocked)
-    .toHaveAttribute("aria-label", "task a — needs approval — branch-a · claude · 3 sessions");
+    .toHaveAttribute(
+      "aria-label",
+      "task a — needs approval — branch-a (recorded at create) · claude · 3 sessions",
+    );
   const describedBy = blocked.element().getAttribute("aria-describedby");
   expect(describedBy).not.toBeNull();
   expect(document.getElementById(describedBy ?? "")?.textContent).toBe("Run rm -rf build?");
@@ -1179,12 +1195,12 @@ test("flat mode lists every project's tasks by status, each row naming its proje
   // Needs approval or input, error, working, completed and unseen; then the Done section's
   // newest-first order puts the idle task before the done task the user has already seen.
   expect(names).toEqual([
-    "task blocked — needs approval — repo-p1 · branch-blocked · claude",
-    "task error — error — repo-p1 · branch-error · codex",
-    "task working — 4m — repo-p2 · branch-working · pi",
-    "task unseen — 3m — repo-p2 · branch-unseen · claude — unseen",
-    "task idle — 1m — repo-p2 · branch-idle · pi",
-    "task seen — 2m — repo-p1 · branch-seen · claude",
+    "task blocked — needs approval — repo-p1 · branch-blocked (recorded at create) · claude",
+    "task error — error — repo-p1 · branch-error (recorded at create) · codex",
+    "task working — 4m — repo-p2 · branch-working (recorded at create) · pi",
+    "task unseen — 3m — repo-p2 · branch-unseen (recorded at create) · claude — unseen",
+    "task idle — 1m — repo-p2 · branch-idle (recorded at create) · pi",
+    "task seen — 2m — repo-p1 · branch-seen (recorded at create) · claude",
   ]);
 
   // The right slot still says what a task needs; its state is announced by the status glyph.
@@ -1348,7 +1364,7 @@ test("an idle row's name carries its age", async () => {
 
   await expect
     .element(row("task a"))
-    .toHaveAttribute("aria-label", "task a — 5m — branch-a · claude");
+    .toHaveAttribute("aria-label", "task a — 5m — branch-a (recorded at create) · claude");
 });
 
 test("an exited loose terminal carries its exit in the name, description and tooltip", async () => {

@@ -1,5 +1,6 @@
 import { describeError, dirtyWorktreeFiles } from "@corral/client/rpc-errors";
 import type { Task } from "@corral/protocol/rpc";
+import { useEffect, useRef, useState } from "react";
 import { useAttempt } from "../../common/hooks/use-attempt.ts";
 import {
   Button,
@@ -8,11 +9,14 @@ import {
   DialogActions,
   FormError,
 } from "../../common/ui/index.ts";
+import { removalBranchCopy } from "./branch-facts.ts";
 
 interface RemoveTaskDialogProps {
   task: Task;
   /** The preflight found the workspace directory already gone; the copy then says so. */
   workspaceMissing?: boolean;
+  /** Reads the branch checked out in the worktree now; absent when the task has no worktree. */
+  loadLiveBranch?: (() => Promise<string | null>) | undefined;
   /** Resolves once the task is removed; a rejection is shown in the dialog. */
   onRemove: (force: boolean) => Promise<void>;
   onClose: () => void;
@@ -21,16 +25,39 @@ interface RemoveTaskDialogProps {
 export function RemoveTaskDialog({
   task,
   workspaceMissing = false,
+  loadLiveBranch,
   onRemove,
   onClose,
 }: RemoveTaskDialogProps) {
   const attempt = useAttempt();
   const dirtyFiles = attempt.failed ? dirtyWorktreeFiles(attempt.error) : undefined;
+  const [live, setLive] = useState<{ taskId: string; branch: string | null }>();
+  const liveBranch = live?.taskId === task.id ? live.branch : undefined;
+  // The loader is read through a ref: its identity may change with the parent's render, but the
+  // dialog asks once for this task, and a late answer after Cancel must not land.
+  const loadBranch = useRef(loadLiveBranch);
+  useEffect(() => {
+    loadBranch.current = loadLiveBranch;
+  }, [loadLiveBranch]);
+  useEffect(() => {
+    const load = loadBranch.current;
+    if (workspaceMissing || !task.ownsWorktree || load === undefined) return undefined;
+    let active = true;
+    void load().then(
+      (branch) => {
+        if (active) setLive({ taskId: task.id, branch });
+      },
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [task.id, task.ownsWorktree, workspaceMissing]);
   const description = !task.ownsWorktree
-    ? "Stops its sessions. The project's working tree and the branch stay."
+    ? "Stops its sessions. The working tree stays; branches are not deleted."
     : workspaceMissing
-      ? `The directory for this task's workspace is already gone at ${task.workspacePath}. Removing stops its sessions, closes the terminals in the workspace, including loose ones, prunes the stale git worktree entry, and keeps the branch ${task.branch}.`
-      : `Stops its sessions, closes the terminals in the workspace, including loose ones, and removes the worktree at ${task.workspacePath}. The branch ${task.branch} stays.`;
+      ? `The directory for this task's workspace is already gone at ${task.workspacePath}. Removing stops its sessions, closes the terminals in the workspace, including loose ones, prunes the stale git worktree entry, and keeps the branch.`
+      : `Stops its sessions, closes the terminals in the workspace, including loose ones, and removes the worktree at ${task.workspacePath}. ${removalBranchCopy(liveBranch)}`;
 
   return (
     <DestructiveTaskDialog

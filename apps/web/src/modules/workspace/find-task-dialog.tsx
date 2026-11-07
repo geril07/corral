@@ -15,6 +15,7 @@ import {
   DialogActions,
   FormError,
 } from "../../common/ui/index.ts";
+import { recordedBranchAccessible, recordedBranchLabel } from "../tasks/index.ts";
 
 export interface FindTaskDialogProps {
   projects: readonly Project[];
@@ -105,9 +106,23 @@ export function FindTaskDialog({
         <CommandList>
           <CommandGroup heading="Tasks">
             {results.map(({ task, project }) => (
-              <CommandItem key={task.id} value={task.id} onSelect={() => open(task)}>
+              <CommandItem
+                key={task.id}
+                value={task.id}
+                aria-label={[
+                  task.title,
+                  recordedBranchAccessible(task.branch),
+                  project.name,
+                  task.state === "settled" ? "settled" : undefined,
+                ]
+                  .filter((part): part is string => part !== undefined)
+                  .join(" — ")}
+                onSelect={() => open(task)}
+              >
                 <span className="flex-1 truncate">{task.title}</span>
-                <span className="max-w-1/3 truncate text-muted-foreground">{task.branch}</span>
+                <span className="max-w-1/3 truncate text-muted-foreground">
+                  {recordedBranchLabel(task.branch)}
+                </span>
                 <Badge variant="secondary">{project.name}</Badge>
                 {task.state === "settled" && <Badge variant="secondary">settled</Badge>}
               </CommandItem>

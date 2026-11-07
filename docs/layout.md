@@ -38,7 +38,8 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   and the count hides while the action shows. No project or container row is the current selection.
 - Two-line task rows: status glyph, clipped title, relative time/attention word;
   secondary metadata is a flexible, truncating segment (project outside project groups,
-  worktree branch, agent, session count) plus a `shrink-0` tail of change counts and linked
+  worktree branch labeled `(recorded)` with "recorded at create" in the accessible name, agent,
+  session count) plus a `shrink-0` tail of change counts and linked
   request state. The tail keeps normal counts and request state whole; only a tail wider than
   the whole row ellipsizes. The accessible name carries the title, attention word or age, the
   whole second line and `unseen` when marked; the status message is its description and a line
@@ -92,6 +93,9 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 
 - Read-only repository/worktree-branch context, separator, task title; both truncate with their
   complete accessible name and a tooltip. The draft names its actual repository and New task.
+  The branch is the task's recorded create-time fact, shown as `<branch> (recorded)` and recorded
+  at create in the accessible name; a detached create shows `detached`, never `HEAD`. The header
+  does not claim it is the current checkout: Changes names the live branch when it differs.
 - The task's status sits after the change counts and linked-request badge, before the overflow
   menu. It is the most urgent of its sessions' (`ux.md`), in the sidebar's vocabulary: a glyph alone
   for working, a muted glyph and no word for idle, the glyph with its attention word (`needs
@@ -105,8 +109,8 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 - The repository label never secretly copies a path.
 - Keep existing nonzero change counts and linked pull-request badge; Changes is not redesigned.
 - A discoverable task overflow menu holds settle/unsettle, rename, explicit Copy workspace path,
-  Copy branch when the task has a branch, imported issue source when present, and remove. No
-  duplicate model or unexplained sync badge.
+  Copy branch when the task has a recorded branch, imported issue source when present, and remove.
+  No duplicate model or unexplained sync badge.
 - Each copy names its outcome in one `role="status"` line inside the header: "Workspace path
   copied", "Branch copied", or the clipboard's own refusal sentence. The line is a polite live
   region, is reachable by the menu's keyboard path, and the next header action clears it.
@@ -163,6 +167,7 @@ the same PR, and a description that no longer holds is deleted rather than adjus
 - The task header shows `+N −M` right-aligned next to the status when non-zero, and a linked pull request's badge (`PR #7 open`) before the status; the sidebar row shows the same compact numbers, and the request's name and state, only when they exist.
 - Refreshed with a debounce when the workspace changes: loading shows skeleton rows, a clean tree shows "No changes yet".
 - Below the summary row, the finish controls, one line each and all keyboard-reachable: `Stage all` / `Unstage all` / stage-or-unstage the selected file with the staged count, then a one-line commit-message field and `Commit`, then `Push…` and `Create pull request…` (each behind a dialog naming the remote's push URL and the branch; creating also names the base branch and the provider) and the linked request's badge with its check line, or a `Settle task` button once it merged. A refusal shows its sentence under the row and keeps the message and the selection.
+- When the live checkout differs from the task's recorded branch, the controls name both: `Checked out now: <live> · the task was created on <recorded>.` No line appears when they agree. The reason `Push…` and `Create pull request…` are unavailable is visible under the controls (`This task has no branch checked out.` for a detached HEAD, no remote, or no remote that would take the branch), never only in a `title`.
 
 ## New task view
 
