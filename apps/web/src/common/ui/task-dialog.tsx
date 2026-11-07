@@ -183,7 +183,7 @@ export function DestructiveTaskDialog({
   return (
     <AlertDialog open onOpenChange={(open) => !open && onClose()}>
       <AlertDialogContent
-        className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto [overflow-wrap:anywhere]"
         finalFocus={finalFocus}
       >
         <AlertDialogHeader>
