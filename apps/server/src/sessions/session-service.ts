@@ -50,6 +50,7 @@ import {
   LaunchViewUnsupportedError,
   SessionNotFoundError,
   ShellPromptError,
+  TaskSettledError,
   TerminalCloseFailedError,
 } from "./errors.ts";
 import { launchDiagnostic, launchFailureReason, redactLaunchError } from "./launch-diagnostics.ts";
@@ -229,6 +230,7 @@ export class SessionService {
     keepFailedLaunch: boolean,
   ): Promise<Session> {
     const task = this.#task(taskId);
+    if (task.state === "settled") throw new TaskSettledError(taskId);
     // The requested view, until `#viewFor` resolves it. A task created with a view this build
     // cannot show keeps a stopped session with that view and the launch error (below), rather
     // than throwing past `keepFailedLaunch` and leaving its worktree with no row.
@@ -371,7 +373,8 @@ export class SessionService {
    * requests do not, which is what the confirmation in the client says. A handoff whose second
    * start fails leaves the session `stopped` (and settled, so a dead session does not keep its task
    * in "working") in the target view with the launch error, so `restart` (or `setView` back) is the
-   * retry; a stopped session only records the view its next start opens in.
+   * retry; a stopped session only records the view its next start opens in. A running session of a
+   * settled task is refused before either frontend starts: only a continue may launch one.
    *
    * Asking for the view the session already has touches nothing: two windows on one session, or a
    * second `prefix v` before the first one's answer arrives, would otherwise kill and respawn a
@@ -382,6 +385,15 @@ export class SessionService {
       const stored = this.#stored(id);
       const target = this.#viewFor(stored.kind, view);
       if (stored.view === target) return this.#withTerminal(stored);
+      if (stored.state === "running") {
+        const live = this.#live.get(id);
+        const attached =
+          this.#bothLive(stored.kind) &&
+          (target === "chat" ? (live?.chat ?? false) : this.#terminalAlive(id));
+        if (!attached && this.#task(stored.taskId).state === "settled") {
+          throw new TaskSettledError(stored.taskId);
+        }
+      }
       if (stored.state === "running" && this.#bothLive(stored.kind)) {
         // This agent's two frontends are clients of one server (`design.md`, **Terminal and
         // chat**), so opening the other view starts a client beside the live one instead of

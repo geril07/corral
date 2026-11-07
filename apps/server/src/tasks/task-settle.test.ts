@@ -173,6 +173,50 @@ test("a failed restart of a settled task leaves it active, the session stopped, 
   expect(await launchesOf(agents, "pi", 1)).toHaveLength(1);
 });
 
+test("setView on a stopped session of a settled task records the view and starts nothing", async () => {
+  const { api, task } = await addTask(server, "View only");
+  const claude = await api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE });
+  await launchesOf(agents, "claude", 1);
+  await api.tasks.setState({ id: task.id, state: "settled" });
+
+  const changed = await api.sessions.setView({ id: claude.id, view: "chat", size: SIZE });
+
+  expect(changed).toMatchObject({
+    id: claude.id,
+    view: "chat",
+    state: "stopped",
+    terminalId: null,
+  });
+  expect(await taskStateOf(api, task.id)).toBe("settled");
+  expect(await api.terminals.list()).toEqual([]);
+  expect(await launchesOf(agents, "claude", 1)).toHaveLength(1);
+});
+
+test("setView refuses a running session whose task was settled before it could stop", async () => {
+  const { api, task } = await addTask(server, "Running settled");
+  const claude = await api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE });
+  const [launch] = await launchesOf(agents, "claude", 1);
+  // The crash shape `#229` restores: the task row says settled while the process still runs.
+  const db = openDatabase(server.dataDir);
+  new TaskStore(db).setState(task.id, "settled");
+  db.close();
+
+  await expect(
+    api.sessions.setView({ id: claude.id, view: "chat", size: SIZE }),
+  ).rejects.toMatchObject({ code: "TASK_SETTLED" });
+
+  expect((await sessionsOf(api))[0]).toMatchObject({
+    id: claude.id,
+    view: "terminal",
+    state: "running",
+    terminalId: claude.terminalId,
+  });
+  expect(await launchesOf(agents, "claude", 1)).toHaveLength(1);
+  expect(processExists(launch!.pid)).toBe(true);
+  expect(await taskStateOf(api, task.id)).toBe("settled");
+  await api.sessions.stop({ id: claude.id });
+});
+
 test("setting the state a task already has does nothing", async () => {
   const { api, task } = await addTask(server, "Same");
   const pi = await api.sessions.start({ taskId: task.id, kind: "pi", size: SIZE });

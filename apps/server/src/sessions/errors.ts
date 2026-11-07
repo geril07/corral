@@ -15,6 +15,15 @@ export class AlreadyRunningError extends Error {
   }
 }
 
+/** A settled task runs nothing: starting or launching a view waits until it is continued. */
+export class TaskSettledError extends Error {
+  readonly taskId: string;
+  constructor(taskId: string) {
+    super(`task is settled: ${taskId}`);
+    this.taskId = taskId;
+  }
+}
+
 export class AgentNotFoundError extends Error {
   readonly command: string;
   constructor(command: string) {

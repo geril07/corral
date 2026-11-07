@@ -1,5 +1,6 @@
 import { ORPCError } from "@orpc/client";
 import type { CorralClient } from "@corral/client/corral-client";
+import { SETTLED_TASK_MESSAGE } from "@corral/client/rpc-errors";
 import type { ProjectsSnapshot } from "@corral/client/projects-store";
 import type { SessionsSnapshot } from "@corral/client/sessions-store";
 import { Store } from "@corral/client/store";
@@ -34,6 +35,7 @@ import {
   createTaskWithShell,
   promptField,
   sessionTab,
+  sessionTabs,
   shellTabs,
   startShell,
   taskButton,
@@ -2142,6 +2144,124 @@ test("a settled task's restart resumes it, clears the header word and moves the 
   await expect.element(shellTabs()).toHaveLength(1);
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
   expect(activeRowLabels().some((label) => label.includes("Restart settled"))).toBe(true);
+});
+
+test("a settled task refuses new shells and agents from the chord, palette and tab menu", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTaskWithShell("Settled start");
+  const task = client.tasks.getSnapshot().tasks[0]!;
+  await prefixThen("d");
+  await vi.waitFor(() => expect(taskState(client, task.id)).toBe("settled"));
+  const before = client.sessions.getSnapshot().sessions;
+  const reason = page.getByText(SETTLED_TASK_MESSAGE);
+
+  await prefixThen("c");
+  await expect.element(reason).toBeVisible();
+  await expect.element(shellTabs()).toHaveLength(1);
+
+  await prefixThen("s");
+  await expect.element(reason).toBeVisible();
+  await expect
+    .element(page.getByRole("dialog", { name: "New agent session" }))
+    .not.toBeInTheDocument();
+
+  await prefixThen(" ");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  const newTerminal = palette.getByRole("option", { name: /^New terminal/ });
+  const newAgent = palette.getByRole("option", { name: /^New agent session/ });
+  await expect.element(newTerminal).toHaveAttribute("aria-disabled", "true");
+  await expect.element(newTerminal).toMatchTextContent(SETTLED_TASK_MESSAGE);
+  await expect.element(newAgent).toHaveAttribute("aria-disabled", "true");
+  await expect.element(newAgent).toMatchTextContent(SETTLED_TASK_MESSAGE);
+  await userEvent.keyboard("{Escape}");
+
+  const add = sessionTabs().getByRole("button", { name: "Add session" });
+  await add.click();
+  await page.getByRole("menuitem", { name: "Shell" }).click();
+  await expect.element(reason).toBeVisible();
+  await expect.element(shellTabs()).toHaveLength(1);
+  await add.click();
+  await page.getByRole("menuitem", { name: "Agent…" }).click();
+  await expect.element(reason).toBeVisible();
+  await expect
+    .element(page.getByRole("dialog", { name: "New agent session" }))
+    .not.toBeInTheDocument();
+
+  expect(client.sessions.getSnapshot().sessions).toEqual(before);
+  expect(taskState(client, task.id)).toBe("settled");
+});
+
+test("a settled task with no sessions says why both empty-state starts are refused", async () => {
+  const { client } = await appWithProject(newClient());
+  const project = client.projects.getSnapshot().projects[0]!;
+  await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "Empty settled",
+    workspace: { type: "new-branch" },
+  });
+  await taskButton("Empty settled").click();
+  await prefixThen("d");
+  const task = client.tasks.getSnapshot().tasks[0]!;
+  await vi.waitFor(() => expect(taskState(client, task.id)).toBe("settled"));
+
+  await expect.element(page.getByText("No sessions")).toBeVisible();
+  await expect
+    .element(page.getByRole("note").filter({ hasText: SETTLED_TASK_MESSAGE }))
+    .toBeVisible();
+  await page.getByRole("button", { name: "Open shell" }).click();
+  await expect.element(shellTabs()).toHaveLength(0);
+  await page.getByRole("button", { name: "Start agent" }).click();
+  await expect
+    .element(page.getByRole("dialog", { name: "New agent session" }))
+    .not.toBeInTheDocument();
+  expect(client.sessions.getSnapshot().sessions).toEqual([]);
+  expect(taskState(client, task.id)).toBe("settled");
+});
+
+test("an agent picker opened before the settle keeps its draft and shows the refusal", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("Stale picker");
+  const task = client.tasks.getSnapshot().tasks[0]!;
+  await openAgentSessionPicker("terminal");
+  const picker = page.getByRole("dialog", { name: "New agent session" });
+  const model = picker.getByRole("textbox", { name: "Model override" });
+  await model.fill("claude-opus-4-1");
+
+  await client.connection.api.tasks.setState({ id: task.id, state: "settled" });
+  await vi.waitFor(() => expect(taskState(client, task.id)).toBe("settled"));
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(picker.getByRole("alert")).toMatchTextContent(SETTLED_TASK_MESSAGE);
+  await expect.element(model).toHaveValue("claude-opus-4-1");
+  await expect.element(picker.getByRole("radio", { name: "claude" })).toBeChecked();
+  expect(client.sessions.getSnapshot().sessions).toEqual([]);
+  expect(taskState(client, task.id)).toBe("settled");
+});
+
+test("prefix v on a stopped session of a settled task changes only its next view", async () => {
+  const { client } = await appWithProject(newClient());
+  await createTask("View later");
+  const task = client.tasks.getSnapshot().tasks[0]!;
+  await openAgentSessionPicker("terminal");
+  await userEvent.keyboard("1");
+  await expect.element(sessionTab("claude")).toHaveAttribute("aria-selected", "true");
+  const [session] = client.sessions.getSnapshot().sessions;
+
+  await prefixThen("d");
+  await vi.waitFor(() => expect(taskState(client, task.id)).toBe("settled"));
+  await prefixThen("v");
+
+  await vi.waitFor(() =>
+    expect(client.sessions.getSnapshot().sessions).toEqual([
+      expect.objectContaining({
+        id: session!.id,
+        view: "chat",
+        state: "stopped",
+        terminalId: null,
+      }),
+    ]),
+  );
+  expect(taskState(client, task.id)).toBe("settled");
 });
 
 test("the header's copy items write the path and branch and announce each outcome", async () => {
