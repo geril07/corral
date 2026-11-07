@@ -9,7 +9,11 @@ export function projectOptionLabel(project: Pick<Project, "name" | "path">): str
 /** A project's combobox row: its name, then a bounded path line that reveals the full value. */
 export function ProjectOption({ project }: { project: Pick<Project, "name" | "path"> }) {
   const { observe: observeName, clipped: nameClipped } = useTruncatedText(project.name);
-  const { observe: observePath, clipped: pathClipped } = useTruncatedText(project.path);
+  const {
+    observe: observePath,
+    clipped: pathClipped,
+    display: pathDisplay,
+  } = useTruncatedText(project.path, "middle");
   return (
     <>
       <span
@@ -24,7 +28,7 @@ export function ProjectOption({ project }: { project: Pick<Project, "name" | "pa
         className="max-w-1/2 min-w-0 truncate text-xs text-muted-foreground"
         title={pathClipped ? project.path : undefined}
       >
-        {project.path}
+        {pathDisplay}
       </span>
     </>
   );
