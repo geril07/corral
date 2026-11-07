@@ -141,3 +141,20 @@ test("another failure is shown as it is, with the plain Remove still on offer", 
   await expect.element(button("Remove task")).toBeVisible();
   await expect.element(button("Remove anyway")).not.toBeInTheDocument();
 });
+
+test("a long worktree path wraps inside the dialog instead of overflowing it", async () => {
+  const longPath = `/${"x".repeat(180)}`;
+  await render(
+    <RemoveTaskDialog
+      task={{ ...task, workspacePath: longPath, branch: "fix/login-with-a-long-branch-name" }}
+      onRemove={() => Promise.resolve()}
+      onClose={() => undefined}
+    />,
+  );
+  const surface = dialog().element();
+  await vi.waitFor(() => expect(surface.scrollWidth).toBeLessThanOrEqual(surface.clientWidth + 1));
+  const remove = button("Remove task").element();
+  expect(remove.getBoundingClientRect().right).toBeLessThanOrEqual(
+    surface.getBoundingClientRect().right + 1,
+  );
+});
