@@ -291,6 +291,7 @@ test("a settled task shows the sidebar's settled word beside its status, and an 
   const screen = await render(
     <Harness
       node={nodeWithStatus({ state: "idle", updatedAt: 1 }, { state: "settled" })}
+      changes={changes}
       narrow={false}
     />,
   );
@@ -304,6 +305,7 @@ test("a settled task shows the sidebar's settled word beside its status, and an 
   expect(header().element().querySelector("[data-task-header-actions]")?.firstElementChild).toBe(
     element,
   );
+  expect(element.nextElementSibling?.textContent).toContain("8");
   expect(getComputedStyle(element).color).toBe(tokenColor("--muted-foreground"));
   expect(element.querySelector('[role="img"]')).toBeNull();
   await expect.element(header().getByRole("img", { name: "idle" })).toBeVisible();
