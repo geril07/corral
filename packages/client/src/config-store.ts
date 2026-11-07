@@ -18,6 +18,11 @@ export interface ConfigSnapshot {
   loaded: boolean;
   /** Absolute path of the file the server reads. */
   path: string;
+  /**
+   * Whether the file exists; undefined before the first state and for a daemon from before the
+   * field, which does not report it.
+   */
+  exists: boolean | undefined;
   config: ClientConfig;
   /** Valid profiles only; an invalid profile is dropped whole and reported in `problems`. */
   profiles: readonly LaunchProfile[];
@@ -54,6 +59,7 @@ export function createConfigStore(connection: RpcConnection): ConfigStore {
   const initial: ConfigSnapshot = {
     loaded: false,
     path: "",
+    exists: undefined,
     // The data dir is only known to the server; nothing renders these values before `loaded`.
     config: defaultClientConfig(""),
     profiles: [],
@@ -76,6 +82,7 @@ export function createConfigStore(connection: RpcConnection): ConfigStore {
         ? {
             loaded: true,
             path: state.path,
+            exists: state.exists,
             config: normalizeConfig(state.config),
             profiles: state.profiles ?? [],
             agents: state.agents ?? [],
