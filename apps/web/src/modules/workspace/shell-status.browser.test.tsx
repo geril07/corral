@@ -147,6 +147,33 @@ test("the footer keeps one row: the badge replaces the disarmed chord", async ()
   expect(surface.getBoundingClientRect().height).toBe(height);
 });
 
+test("the footer's disarmed hint yields while the connection is down and returns when it recovers", async () => {
+  const snapshot = await configSnapshot();
+  const screen = await render(
+    <Status snapshot={snapshot} placement="footer" connection={disconnected} />,
+  );
+  const surface = document.querySelector<HTMLElement>('[data-slot="shell-status"]')!;
+  const height = surface.getBoundingClientRect().height;
+  await expect.element(page.getByRole("button", { name: /^connection:/ })).toBeVisible();
+  // While the socket is down the state word owns the width the chord would have used.
+  await expect.element(page.getByText("alt+a")).not.toBeInTheDocument();
+  expect(surface.querySelector("kbd")).toBeNull();
+
+  // The armed badge still replaces the hint, and the row still exists for it.
+  await screen.rerender(
+    <Status snapshot={snapshot} placement="footer" connection={disconnected} armed />,
+  );
+  await expect.element(page.getByRole("status", { name: "prefix mode" })).toBeVisible();
+  expect(surface.querySelector("kbd")).toBeNull();
+  expect(surface.getBoundingClientRect().height).toBe(height);
+
+  // Recovered: the opener is gone and the disarmed hint returns in the same row.
+  await screen.rerender(<Status snapshot={snapshot} placement="footer" />);
+  await expect.element(page.getByRole("button", { name: /^connection:/ })).not.toBeInTheDocument();
+  await expect.element(page.getByText("alt+a")).toBeVisible();
+  expect(surface.getBoundingClientRect().height).toBe(height);
+});
+
 test("the footer status opens recovery from the button A2 introduced", async () => {
   const snapshot = await configSnapshot();
   const opened: HTMLElement[] = [];

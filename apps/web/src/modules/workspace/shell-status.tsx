@@ -70,9 +70,11 @@ export function ShellStatus({
         <div className="flex h-9 min-w-0 items-center gap-0.5 px-2">
           {actions}
           {status}
-          <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-            {armed ? <ArmedBadge prefix={prefix} /> : <Kbd>{prefix}</Kbd>}
-          </span>
+          {(armed || connection.status === "connected") && (
+            <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+              {armed ? <ArmedBadge prefix={prefix} /> : <Kbd>{prefix}</Kbd>}
+            </span>
+          )}
         </div>
       </footer>
     );

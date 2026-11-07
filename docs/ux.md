@@ -56,7 +56,9 @@ What a user does. Everything below is built and verified end to end, chat views 
 - The sidebar lists tasks only. A wordmark header has the sidebar toggle opposite it; the next
   row has Search, grouping and New task. Its footer carries Settings, Add project, the prefix
   hint while disarmed, and the shell status: connection state, config problems, the armed-prefix
-  badge and the current failure. When the sidebar is hidden the same status sits in a strip above
+  badge and the current failure. The disarmed hint yields while the connection is not connected,
+  so the state word keeps the row's width; it returns when connected, and the armed badge still
+  replaces it. When the sidebar is hidden the same status sits in a strip above
   the main content, so hiding the pane cannot remove it; only the visible placement is mounted,
   so no live region or connection opener is duplicated, and that strip keeps its row, so arming
   the prefix does not resize the terminal under it. The sidebar has a default and a narrow-window
@@ -187,14 +189,15 @@ What a user does. Everything below is built and verified end to end, chat views 
   capability cannot repair it. An unreachable server offers Retry. A protocol mismatch offers
   Reload in a browser and tells desktop to stop that server and start the app again (the server
   outlives a quit). A refused capability offers the field and, on desktop, the same restart hint.
-  While the workspace is running, the connection status names `attempt N` and the elapsed time
-  and opens the same capability field as a dialog; submitting writes it into the hash the client
-  re-reads before every attempt, and one recovery entry point retries the RPC connection and every
-  attached terminal, so the task, tab, draft and terminal survive and a refused terminal reattaches
-  with the new capability. Nothing behind a boot notice was mounted, so the notice never sits over
-  an empty workspace. A workspace failure is one status row: a failed action keeps its sentence
-  until the next navigation or selection, guidance that asked for a project or task uses the same
-  row, and either can be dismissed.
+  While the workspace is running, the connection status shows the state word and keeps `attempt N`
+  and the elapsed time in its hint and accessible name, and opens the same capability field as a
+  dialog; submitting writes it into the hash the client re-reads before every attempt, and one
+  recovery entry point retries the RPC connection and every attached terminal, so the task, tab,
+  draft and terminal survive and a refused terminal reattaches with the new capability. Nothing
+  behind a boot notice was mounted, so the notice never sits over an empty workspace. A workspace
+  failure is one status row: a failed action keeps its sentence until the next navigation or
+  selection, guidance that asked for a project or task uses the same row, and either can be
+  dismissed.
 - Chat keeps the composer semantics of the new-task view: Enter sends, Shift+Enter is a newline,
   and while a turn runs Enter steers and Ctrl/Cmd+Enter queues a follow-up where the driver
   declares one (the composer says which). Without that declaration both keys steer, Queue is

@@ -594,7 +594,10 @@ test("the footer status opens the recovery dialog, keeps its guidance, and retur
 
   const opener = connectionOpener();
   await expect.element(opener).toBeVisible();
-  await expect.element(opener).toMatchTextContent(/Cannot reach the server/);
+  await expect.element(opener).toHaveTextContent("Offline");
+  expect(opener.element().getAttribute("aria-label")).toMatch(
+    /^connection: Cannot reach the server · attempt \d+ · \d+ s$/,
+  );
   statusSurface("footer");
 
   await opener.click();
@@ -785,78 +788,150 @@ test("dismissing a failure returns the keyboard to the terminal", async () => {
   await expect.poll(screenText).toContain("dismissed-14");
 });
 
-test("the status row stays one line at 1024 at both sidebar widths with a config problem, at 140% too", async () => {
+test("the status row keeps its whole state word at 1024 with a failure row, at 140% too", async () => {
   // The client must load the config problem before its socket drops: the footer keeps it after.
   await writeConfig('[keys.bindings]\nnew-agent = "hyper+q"\n');
-  await droppedWorkspace();
+  const client = await droppedWorkspace();
   await expect.element(page.getByRole("button", { name: "config: 1 problem" })).toBeVisible();
+  // A failed action adds the row above; the connection state word and the row stay independent.
+  await prefixThen("c");
+  await expect.element(page.getByRole("alert")).toBeVisible();
   const handle = page.getByRole("separator", { name: "Resize sidebar" });
   const surface = statusSurface("footer");
   const row = surface.lastElementChild;
   if (!(row instanceof HTMLElement)) throw new Error("the footer has no row");
-  /** One line, no document overflow, and the row's hint or badge plus the opener inside the pane. */
-  const assertRowFits = (contents: "hint" | "badge") => {
+  const stateWord = () => {
+    const word = connectionOpener()
+      .element()
+      .querySelector<HTMLElement>('[data-slot="connection-state"]');
+    if (word === null) throw new Error("the connection opener has no state word");
+    return word;
+  };
+  const fullSentence = () =>
+    (connectionOpener().element().getAttribute("aria-label") ?? "").replace(/^connection: /, "");
+  /** The state word is whole, never an ellipsis or a single letter. */
+  const assertStateWordFits = () => {
+    const word = stateWord();
+    expect(word.textContent?.trim()).not.toBe("");
+    expect(word.textContent).not.toBe("…");
+    expect(word.textContent?.length ?? 0).toBeGreaterThan(1);
+    expect(word.scrollWidth).toBeLessThanOrEqual(word.clientWidth + 1);
+    expect(fullSentence()).toMatch(/^Cannot reach the server · attempt \d+ · \d+ s$/);
+  };
+  /** One line, no document overflow, and the opener inside the pane. */
+  const assertRowFits = () => {
     expect(row.clientHeight).toBeGreaterThan(0);
     expect(row.scrollHeight).toBeLessThanOrEqual(row.clientHeight + 1);
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth + 1);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
     expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(window.innerHeight);
     const asideRect = handle.element().parentElement!.getBoundingClientRect();
-    const contentsRect =
-      contents === "hint"
-        ? page.getByText("alt+a").element().getBoundingClientRect()
-        : page.getByRole("status", { name: "prefix mode" }).element().getBoundingClientRect();
-    expect(contentsRect.left).toBeGreaterThanOrEqual(asideRect.left - 1);
-    expect(contentsRect.right).toBeLessThanOrEqual(asideRect.right + 1);
-    // The contents stay inside the one row rather than being clipped by its fixed height.
-    const rowRect = row.getBoundingClientRect();
-    expect(contentsRect.top).toBeGreaterThanOrEqual(rowRect.top - 1);
-    expect(contentsRect.bottom).toBeLessThanOrEqual(rowRect.bottom + 1);
     expect(connectionOpener().element().getBoundingClientRect().right).toBeLessThanOrEqual(
       asideRect.right + 1,
     );
   };
-  const withInterfaceScale = async (read: () => void) => {
+  /** The disarmed hint yields to the connection fact while the socket is down. */
+  const assertNoHint = () => {
+    expect(row.querySelector("kbd")).toBeNull();
+    expect(page.getByText("alt+a").elements()).toHaveLength(0);
+  };
+  /** The armed chip replaces the hint and stays inside the row and the pane. */
+  const assertBadge = () => {
+    const badge = page.getByRole("status", { name: "prefix mode" }).element();
+    const asideRect = handle.element().parentElement!.getBoundingClientRect();
+    const rowRect = row.getBoundingClientRect();
+    const contentsRect = badge.getBoundingClientRect();
+    expect(row.querySelector("kbd")).toBeNull();
+    expect(contentsRect.left).toBeGreaterThanOrEqual(asideRect.left - 1);
+    expect(contentsRect.right).toBeLessThanOrEqual(asideRect.right + 1);
+    // The contents stay inside the one row rather than being clipped by its fixed height.
+    expect(contentsRect.top).toBeGreaterThanOrEqual(rowRect.top - 1);
+    expect(contentsRect.bottom).toBeLessThanOrEqual(rowRect.bottom + 1);
+  };
+  const withInterfaceScale = async (read: () => Promise<void>) => {
     const previous = document.documentElement.style.fontSize;
     document.documentElement.style.fontSize = "140%";
     try {
       // The chrome row reads the interface scale, so the guard is the row's own height, not 36 px.
       await vi.waitFor(() => expect(row.clientHeight).toBeGreaterThan(36));
-      read();
+      await read();
     } finally {
       document.documentElement.style.fontSize = previous;
     }
   };
+  const withStateWordScale = (read: () => Promise<void>) =>
+    withInterfaceScale(async () => {
+      // A shortened word re-measures after the scale changes; the row is what the user sees.
+      await vi.waitFor(() => {
+        const word = stateWord();
+        expect(word.scrollWidth).toBeLessThanOrEqual(word.clientWidth + 1);
+      });
+      await read();
+    });
+  const checkWidth = async (width: number) => {
+    await expect.element(handle).toHaveAttribute("aria-valuenow", String(width));
+    assertRowFits();
+    assertNoHint();
+    assertStateWordFits();
+    await withStateWordScale(async () => {
+      assertRowFits();
+      assertNoHint();
+      assertStateWordFits();
+    });
+
+    // Arming replaces the absent hint with the chord badge inside the same row.
+    const height = row.clientHeight;
+    await userEvent.keyboard("{Alt>}a{/Alt}");
+    await expect.element(page.getByRole("status", { name: "prefix mode" })).toBeVisible();
+    expect(row.clientHeight).toBe(height);
+    assertRowFits();
+    assertBadge();
+    await withInterfaceScale(async () => {
+      assertRowFits();
+      assertBadge();
+    });
+    expect(row.clientHeight).toBe(height);
+
+    await userEvent.keyboard("q");
+    await expect.element(page.getByRole("status", { name: "prefix mode" })).not.toBeInTheDocument();
+    assertRowFits();
+    assertNoHint();
+    assertStateWordFits();
+  };
 
   // The device default at 1024: the narrowest footer the app shows.
-  await expect.element(handle).toHaveAttribute("aria-valuenow", "232");
-  assertRowFits("hint");
-  await withInterfaceScale(() => assertRowFits("hint"));
+  await checkWidth(232);
 
-  // Arming replaces the hint with the chord badge inside the same row; the row keeps its height.
-  const height = row.clientHeight;
-  await userEvent.keyboard("{Alt>}a{/Alt}");
-  await expect.element(page.getByRole("status", { name: "prefix mode" })).toBeVisible();
-  expect(row.querySelector("kbd")).toBeNull();
-  expect(row.clientHeight).toBe(height);
-  assertRowFits("badge");
-  await withInterfaceScale(() => assertRowFits("badge"));
-  expect(row.clientHeight).toBe(height);
+  // At the floor the full word has shortened; its Hint still keeps the whole sentence.
+  await withStateWordScale(async () => {
+    await userEvent.hover(stateWord());
+    await expect
+      .element(page.getByRole("tooltip"))
+      .toMatchTextContent(/Cannot reach the server · attempt \d+ · \d+ s/);
+    await userEvent.unhover(stateWord());
+    await expect.element(page.getByRole("tooltip")).not.toBeInTheDocument();
+  });
 
-  await userEvent.keyboard("q");
-  await expect.element(page.getByRole("status", { name: "prefix mode" })).not.toBeInTheDocument();
+  // The recovery dialog still carries the whole sentence.
+  await connectionOpener().click();
+  const dialog = page.getByRole("dialog", { name: "Cannot reach the server" });
+  await expect.element(dialog).toBeVisible();
+  await expect.element(dialog.getByText(/Attempt \d+ · \d+ s/)).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(dialog).not.toBeInTheDocument();
+
   handle.element().focus();
-  await userEvent.keyboard("{ArrowRight}".repeat(20));
-  await expect.element(handle).toHaveAttribute("aria-valuenow", "384");
-  assertRowFits("hint");
-  await withInterfaceScale(() => assertRowFits("hint"));
+  await userEvent.keyboard("{ArrowRight}".repeat(2));
+  await checkWidth(264);
+  await userEvent.keyboard("{ArrowRight}".repeat(8));
+  await checkWidth(384);
 
-  await userEvent.keyboard("{Alt>}a{/Alt}");
-  await expect.element(page.getByRole("status", { name: "prefix mode" })).toBeVisible();
-  expect(row.querySelector("kbd")).toBeNull();
-  expect(row.clientHeight).toBe(height);
-  assertRowFits("badge");
-  await withInterfaceScale(() => assertRowFits("badge"));
-  expect(row.clientHeight).toBe(height);
+  // The disarmed hint returns once the socket is back; the failure row is not what owns it.
+  client.recover();
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
+  await expect.element(connectionOpener()).not.toBeInTheDocument();
+  await expect.element(page.getByText("alt+a")).toBeVisible();
+  expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth + 1);
 });
 
 test("only the placement that is visible is mounted", async () => {
