@@ -4,7 +4,7 @@ import { ConfigProblemsList, useConfig } from "../keymap/index.ts";
 
 /** The server-owned file, its problems, and the fact that this background never writes it. */
 export function ConfigFileSection() {
-  const { loaded, path, problems } = useConfig();
+  const { loaded, path, exists, problems } = useConfig();
   const [copy, setCopy] = useState<"copied" | "failed" | undefined>(undefined);
 
   const copyPath = async () => {
@@ -42,13 +42,25 @@ export function ConfigFileSection() {
           Copy is unavailable; select the path above.
         </p>
       )}
-      <h3 className="mb-1 text-sm">
-        {problems.length === 0 ? "Problems" : `Problems (${problems.length})`}
-      </h3>
-      {problems.length === 0 ? (
-        <p className="m-0 text-muted-foreground">No problems.</p>
-      ) : (
-        <ConfigProblemsList problems={problems} />
+      {loaded && (
+        <>
+          <h3 className="mb-1 text-sm">
+            {problems.length === 0 ? "Problems" : `Problems (${problems.length})`}
+          </h3>
+          {problems.length > 0 ? (
+            <ConfigProblemsList problems={problems} />
+          ) : exists === false ? (
+            <p className="m-0 text-muted-foreground">
+              The config file has not been created yet. Corral applies the built-in defaults.
+            </p>
+          ) : exists === undefined ? (
+            <p className="m-0 text-muted-foreground">
+              This server does not report whether the config file exists.
+            </p>
+          ) : (
+            <p className="m-0 text-muted-foreground">No problems.</p>
+          )}
+        </>
       )}
     </>
   );

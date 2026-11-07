@@ -1,13 +1,18 @@
+import type { ConfigSnapshot } from "@corral/client/config-store";
 import type { CorralClient } from "@corral/client/corral-client";
+import { defaultClientConfig } from "@corral/protocol/config";
 import { createHashHistory } from "@tanstack/react-router";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
+import { stubClipboard } from "../../../test/clipboard.ts";
 import { writeConfig } from "../../../test/config-command.ts";
 import { prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
 import { App as RootApp } from "../../../src/app/app.tsx";
 import { createAppHistory } from "../../../src/app/history.ts";
+import { KeymapProvider } from "../keymap/index.ts";
+import { ConfigFileSection } from "./config-file-section.tsx";
 import {
   appWithProject,
   createTaskWithShell,
@@ -93,6 +98,19 @@ const closeRefusal = () =>
 async function renderSettings(client: CorralClient, initialEntries = ["/settings"]) {
   await render(<App client={client} initialEntries={initialEntries} />);
   await expect.element(settingsHeading()).toBeVisible();
+}
+
+function configFileSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
+  return {
+    loaded: true,
+    path: "/home/me/.config/corral/config.toml",
+    exists: undefined,
+    config: defaultClientConfig("/data"),
+    profiles: [],
+    agents: [],
+    problems: [],
+    ...overrides,
+  };
 }
 
 /** The real hash history, so browser Back and Forward go through popstate where blockers run. */
@@ -404,6 +422,75 @@ test("the task sections wait for the server's config instead of showing built-in
   await expect.element(defaults).not.toMatchTextContent("Worktree root");
   await expect.element(await section("Task naming")).toMatchTextContent(waiting);
   await expect.element(await section("Project overrides")).toMatchTextContent(waiting);
+
+  const config = await section("Config file");
+  await expect.element(config).toMatchTextContent(waiting);
+  await expect.element(config).not.toMatchTextContent("No problems");
+  await expect.element(config).not.toMatchTextContent("has not been created");
+  await expect
+    .element(config.getByRole("heading", { name: "Problems", exact: true }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(config.getByRole("button", { name: "Copy config path" }))
+    .not.toBeInTheDocument();
+});
+
+test("an absent config file says it has not been created, then a clean file says No problems", async () => {
+  const client = newClient();
+  await writeConfig(null);
+  const clipboard = stubClipboard(async () => undefined);
+  try {
+    await renderSettings(client);
+    await vi.waitFor(() => expect(client.config.getSnapshot().exists).toBe(false));
+
+    const config = await section("Config file");
+    const path = client.config.getSnapshot().path;
+    await expect.element(config).toMatchTextContent(path);
+    await expect.element(config).toMatchTextContent("never writes it");
+    await expect
+      .element(config)
+      .toMatchTextContent(
+        "The config file has not been created yet. Corral applies the built-in defaults.",
+      );
+    await expect.element(config).not.toMatchTextContent("No problems");
+    await expect.element(config.getByRole("button", { name: "Copy config path" })).toBeVisible();
+    await config.getByRole("button", { name: "Copy config path" }).click();
+    await expect.element(config).toMatchTextContent("Path copied.");
+    expect(clipboard.writeText).toHaveBeenLastCalledWith(path);
+
+    await writeConfig('[tasks]\nagent = "pi"\n');
+    await vi.waitFor(() => expect(client.config.getSnapshot().exists).toBe(true));
+    await expect.element(config).toMatchTextContent("No problems.");
+    await expect.element(config).not.toMatchTextContent("has not been created");
+    await config.getByRole("button", { name: "Copy config path" }).click();
+    expect(clipboard.writeText).toHaveBeenLastCalledWith(path);
+  } finally {
+    clipboard.restore();
+  }
+});
+
+test("a daemon without the exists field says existence is unknown", async () => {
+  const clipboard = stubClipboard(async () => undefined);
+  try {
+    const snapshot = configFileSnapshot();
+    await render(
+      <KeymapProvider config={snapshot}>
+        <ConfigFileSection />
+      </KeymapProvider>,
+    );
+
+    await expect
+      .element(page.getByText("This server does not report whether the config file exists."))
+      .toBeVisible();
+    await expect.element(page.getByText("No problems.")).not.toBeInTheDocument();
+    await expect.element(page.getByText(/has not been created/)).not.toBeInTheDocument();
+    await expect.element(page.getByText(snapshot.path, { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Copy config path" }).click();
+    await expect.element(page.getByText("Path copied.")).toBeVisible();
+    expect(clipboard.writeText).toHaveBeenLastCalledWith(snapshot.path);
+  } finally {
+    clipboard.restore();
+  }
 });
 
 test("a problem at the profiles table itself is shown, not only per-profile paths", async () => {

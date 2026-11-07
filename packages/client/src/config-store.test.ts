@@ -28,6 +28,7 @@ test("starts with the defaults, before the server has sent the config and withou
   expect(client.config.getSnapshot()).toEqual({
     loaded: false,
     path: "",
+    exists: undefined,
     config: defaultClientConfig(""),
     profiles: [],
     agents: [],
@@ -38,6 +39,7 @@ test("starts with the defaults, before the server has sent the config and withou
   expect(client.config.getSnapshot()).toEqual({
     loaded: true,
     path: configFile(),
+    exists: false,
     config: defaultClientConfig(server.dataDir),
     profiles: [],
     agents: expect.any(Array),
@@ -64,6 +66,7 @@ test("a written config file changes the store", async () => {
     expect(state.config.keys.prefix).toBe("ctrl+b");
     expect(state.config.keys.bindings["new-agent"]).toBe("a");
     expect(state.config.keys.bindings["board"]).toBeNull();
+    expect(state.exists).toBe(true);
     expect(state.problems).toEqual([]);
   });
 });
@@ -98,6 +101,7 @@ test("deleting the file goes back to the defaults", async () => {
   await eventually(() => {
     const state = client.config.getSnapshot();
     expect(state.config).toEqual(defaultClientConfig(server.dataDir));
+    expect(state.exists).toBe(false);
     expect(state.problems).toEqual([]);
   });
 });
@@ -122,6 +126,8 @@ test("a pre-C5 config state gets the editor default, not undefined", async () =>
   try {
     await vi.waitFor(() => expect(store.getSnapshot().loaded).toBe(true));
     expect(store.getSnapshot().config.editor).toEqual(defaultEditorSetting());
+    // The daemon predates the field, so the store must not invent an existence fact.
+    expect(store.getSnapshot().exists).toBeUndefined();
   } finally {
     store.close();
   }
