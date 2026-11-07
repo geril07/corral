@@ -264,7 +264,7 @@ export function SettingsScreen({
             <AgentsSection />
           </SettingsSection>
           <SettingsSection id="config" current={current}>
-            <ConfigFileSection />
+            <ConfigFileSection key={current === "config" ? "config-active" : "config-inactive"} />
           </SettingsSection>
         </div>
       </div>
