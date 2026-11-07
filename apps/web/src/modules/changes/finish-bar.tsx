@@ -16,6 +16,7 @@ import {
 } from "../../common/ui/index.ts";
 import type { ChangesActions } from "./finish-actions.ts";
 import { PullRequestBadge, pullRequestChecks, pullRequestTitle } from "./pull-request-badge.tsx";
+import { branchDrift } from "../tasks/branch-facts.ts";
 
 export interface FinishBarProps {
   task: Task;
@@ -74,6 +75,11 @@ export function FinishBar({
 
   useEffect(() => {
     void reload();
+    // Opening the tab reads once; a branch switched or renamed outside Corral while it stays open
+    // is picked up when the window regains focus, the same moment the changes read refreshes.
+    const refresh = () => void reload();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
   }, [reload]);
 
   const run = async (what: "stage" | "commit" | "push" | "create", work: () => Promise<void>) => {
@@ -111,6 +117,7 @@ export function FinishBar({
   const base = finish?.base ?? null;
   const remote = finish?.remote ?? null;
   const canPush = branch !== null && remote !== null && finish !== undefined;
+  const drift = branchDrift(task.branch, branch);
   /** Why push and create are unavailable, in the user's words; the tooltip names the remotes. */
   const blocked =
     branch === null
@@ -253,6 +260,16 @@ export function FinishBar({
           </Button>
         )}
       </div>
+      {drift !== undefined && (
+        <p data-branch-drift className="m-0 text-xs text-muted-foreground">
+          {drift}
+        </p>
+      )}
+      {blocked !== undefined && (
+        <p data-finish-blocked className="m-0 text-xs text-muted-foreground">
+          {blocked}
+        </p>
+      )}
       {pullRequest !== undefined && pullRequest.checks !== null && (
         <p className="m-0 text-xs text-muted-foreground" title={pullRequestTitle(pullRequest)}>
           {pullRequestChecks(pullRequest)}

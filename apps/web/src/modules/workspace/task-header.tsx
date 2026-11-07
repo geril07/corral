@@ -12,6 +12,7 @@ import {
 import { changeCounts, PullRequestBadge } from "../changes/index.ts";
 import { formatBinding } from "../keymap/index.ts";
 import { StatusIndicator } from "../status/index.ts";
+import { branchName, recordedBranchAccessible, recordedBranchLabel } from "../tasks/index.ts";
 
 interface CopyNotice {
   readonly outcome: "copied" | "refused";
@@ -59,7 +60,11 @@ export function TaskHeader({
   const unseen = task !== undefined && isUnseenDone(task, status);
   const attention = attentionWord(status);
   const taskTitle = task?.title ?? "New task";
-  const where = [project?.name, task?.branch].filter(Boolean).join(" / ");
+  const branchText = task === undefined ? undefined : recordedBranchLabel(task.branch, "detached");
+  const branchAccessible = task === undefined ? undefined : recordedBranchAccessible(task.branch);
+  const where = [project?.name, branchText].filter(Boolean).join(" / ");
+  const whereName = [project?.name, branchAccessible].filter(Boolean).join(" / ");
+  const copyableBranch = task === undefined ? undefined : branchName(task.branch);
   const {
     observe: observeTitle,
     clipped: titleClipped,
@@ -114,9 +119,9 @@ export function TaskHeader({
         ref={observeRepository}
         data-task-repository=""
         data-header-text=""
-        aria-label={where}
+        aria-label={whereName}
         className="max-w-48 min-w-0 shrink truncate text-xs text-muted-foreground"
-        title={repositoryClipped ? where : undefined}
+        title={repositoryClipped ? whereName : undefined}
       >
         {repositoryDisplay}
       </span>
@@ -216,8 +221,8 @@ export function TaskHeader({
             >
               Copy workspace path
             </DropdownMenuItem>
-            {task.branch !== "" && (
-              <DropdownMenuItem onClick={() => void copy(task.branch, "Branch copied")}>
+            {copyableBranch !== undefined && (
+              <DropdownMenuItem onClick={() => void copy(copyableBranch, "Branch copied")}>
                 Copy branch
               </DropdownMenuItem>
             )}

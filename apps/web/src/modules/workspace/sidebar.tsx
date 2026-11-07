@@ -45,6 +45,7 @@ import {
 import { changeCounts, pullRequestShortText } from "../changes/index.ts";
 import { formatBinding } from "../keymap/index.ts";
 import { StatusIndicator, statusMessage } from "../status/index.ts";
+import { recordedBranchAccessible, recordedBranchLabel } from "../tasks/index.ts";
 import { SIDEBAR_ROW_SELECTOR, sidebarRowOf } from "./sidebar-focus.ts";
 import {
   SHELF_MIN_ACTIVE_ROWS,
@@ -532,10 +533,22 @@ function TaskRow({
   const unseen = row?.unseen ?? isUnseenDone(task, status);
   const current = task.id === selection?.taskId;
   const agent = sessions.find(({ session }) => session.kind !== "shell")?.session.kind;
+  const branchContext = task.ownsWorktree ? recordedBranchLabel(task.branch) : undefined;
+  const accessibleBranch = task.ownsWorktree ? recordedBranchAccessible(task.branch) : undefined;
   const context =
     [
       row?.projectName ?? projectName,
-      task.ownsWorktree ? task.branch : undefined,
+      branchContext,
+      agent,
+      sessions.length > 1 ? `${sessions.length} sessions` : undefined,
+    ]
+      .filter((part): part is string => part !== undefined && part !== "")
+      .join(" · ") || undefined;
+  // The accessible name spells out what the compact label abbreviates.
+  const accessibleContext =
+    [
+      row?.projectName ?? projectName,
+      accessibleBranch,
       agent,
       sessions.length > 1 ? `${sessions.length} sessions` : undefined,
     ]
@@ -547,8 +560,8 @@ function TaskRow({
     changeCounts(changes),
     pullRequest === undefined ? undefined : pullRequestShortText(pullRequest),
   ].filter((part): part is string => part !== undefined);
-  const detail =
-    [context, ...tail].filter((part): part is string => part !== undefined).join(" · ") ||
+  const accessibleDetail =
+    [accessibleContext, ...tail].filter((part): part is string => part !== undefined).join(" · ") ||
     undefined;
   const {
     observe: observeTitle,
@@ -561,7 +574,7 @@ function TaskRow({
     display: contextDisplay,
   } = useTruncatedText(context ?? "");
   const right = attentionWord(status) ?? formatAge(now, status?.updatedAt ?? task.createdAt);
-  const name = rowName({ title: task.title, right, detail, unseen });
+  const name = rowName({ title: task.title, right, detail: accessibleDetail, unseen });
   const description = status?.message || undefined;
   const descriptionId = useId();
   const hint =
