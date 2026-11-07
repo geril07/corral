@@ -1,5 +1,5 @@
 import { describeSessionState } from "@corral/client/session-state";
-import { describeError } from "@corral/client/rpc-errors";
+import { describeError, SETTLED_TASK_MESSAGE } from "@corral/client/rpc-errors";
 import type { WatchFailure } from "@corral/client/watch-store";
 import { ActionId, taskSettingsFor, type ClientConfig } from "@corral/protocol/config";
 import type { SessionView } from "@corral/protocol/rpc";
@@ -693,7 +693,7 @@ function EmptyWorkspace({
   onNewAgent,
 }: {
   hasProjects: boolean;
-  task: { id: string; title: string } | undefined;
+  task: { id: string; title: string; state: "active" | "settled" } | undefined;
   terminalHint: string | undefined;
   agentHint: string | undefined;
   onAddProject: (path: string) => Promise<void>;
@@ -713,6 +713,11 @@ function EmptyWorkspace({
           Open shell
         </Button>
       </div>
+      {task.state === "settled" && (
+        <p className="m-0 text-sm text-muted-foreground" role="note">
+          {SETTLED_TASK_MESSAGE}
+        </p>
+      )}
       <p className="m-0 text-xs text-muted-foreground">
         {[agentHint, terminalHint].filter(Boolean).join(" ")}
       </p>

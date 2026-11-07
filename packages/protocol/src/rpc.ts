@@ -637,6 +637,8 @@ const terminalNotFound = { NOT_FOUND: { data: z.object({ id: TerminalId }) } };
 const projectNotFound = { PROJECT_NOT_FOUND: { data: z.object({ id: ProjectId }) } };
 const taskNotFound = { TASK_NOT_FOUND: { data: z.object({ id: TaskId }) } };
 const sessionNotFound = { SESSION_NOT_FOUND: { data: z.object({ id: SessionId }) } };
+/** A settled task runs nothing, so starting or launching a view waits until it is continued. */
+const taskSettled = { TASK_SETTLED: {} };
 /** Input the wire schema accepts but a handler still refuses; `message` is shown to the user. */
 const badRequest = { BAD_REQUEST: { data: z.object({ message: z.string() }) } };
 /** A launch was refused before anything was spawned; `name` is a profile id or an env variable name, never a value. */
@@ -856,7 +858,8 @@ export const contract = {
      * Starts a shell or an agent in the task's workspace, in a new terminal or, for `view: "chat"`,
      * as a chat session with a driver. The agent CLI is looked up on the server's `PATH`, unless
      * `[agents.<kind>].command` names an executable; a disabled agent is refused with
-     * `AGENT_DISABLED` and a missing one fails with `AGENT_NOT_FOUND`.
+     * `AGENT_DISABLED` and a missing one fails with `AGENT_NOT_FOUND`. A settled task refuses the
+     * start with `TASK_SETTLED` until it is continued, before anything is spawned.
      *
      * `profileId` selects a profile from the server's config file. `expectedProfileRevision`
      * pins the definition the caller showed; a profile that changed since then is refused with
@@ -867,6 +870,7 @@ export const contract = {
     start: oc
       .errors({
         ...taskNotFound,
+        ...taskSettled,
         AGENT_NOT_FOUND: { data: z.object({ command: z.string() }) },
         ...launchRefused,
       })
@@ -919,11 +923,14 @@ export const contract = {
      * survives, while the in-flight turn and pending requests do not — a working turn is aborted
      * first. A chat view needs an agent with a chat driver (otherwise `LAUNCH_VIEW_UNSUPPORTED`),
      * and never a shell. On a stopped session only the stored view changes, so its next start opens
-     * there; a handoff whose second start fails leaves it stopped with `launchError` set.
+     * there; a handoff whose second start fails leaves it stopped with `launchError` set. A running
+     * session of a settled task is refused with `TASK_SETTLED` before either frontend starts, so a
+     * crash-left session cannot hand off or open the other live view until the task is continued.
      */
     setView: oc
       .errors({
         ...sessionNotFound,
+        ...taskSettled,
         AGENT_NOT_FOUND: { data: z.object({ command: z.string() }) },
         ...launchRefused,
       })
