@@ -80,8 +80,9 @@ context-menu dispatcher.
   file list). `layout="navigation"` fills a settings category's width without vertically
   stretching it. `layout="tab"` fills the tabstrip's height and uses content width up to a
   maximum. `layout="model"` bounds a model trigger so long native IDs really truncate.
-- Button `layout="status"` keeps the footer's connection opener in its row and truncates the
-  label; it opens the connection-recovery dialog.
+- Button `layout="status"` keeps the footer's connection opener in its row; the visible label is
+  the connection state word, shortened when the row cannot hold it, and the sentence with attempt
+  and elapsed is its `Hint` and the recovery dialog. It opens that dialog.
 - Alert `size="compact"`: one line of a chrome row; the message keeps its own width and truncates,
   so the row's dismiss control sits beside the message rather than at the surface's far edge.
 - Badge `size="compact"`: the armed-prefix chord in the footer and the hidden strip; the chord,

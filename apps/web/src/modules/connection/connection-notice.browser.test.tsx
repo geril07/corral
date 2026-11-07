@@ -1,5 +1,6 @@
 import { resolveServerTarget, type ServerTargetStorage } from "@corral/client/bootstrap";
 import { capabilityProtocols } from "@corral/protocol/handshake";
+import type { ConnectionState } from "@corral/client/connection-state";
 import type { CreateSocket } from "@corral/client/reconnecting-socket";
 import type { ServerTarget } from "@corral/protocol/server-target";
 import { expect, test, vi } from "vite-plus/test";
@@ -209,7 +210,59 @@ test("the footer connection status keeps the button but announces the drop", asy
   await expect
     .element(page.getByRole("status"))
     .toHaveTextContent("Cannot reach the server. Attempt 3.");
-  await expect.element(page.getByRole("button", { name: /^connection:/ })).toBeVisible();
+  const opener = page.getByRole("button", { name: /^connection:/ });
+  await expect.element(opener).toBeVisible();
+  await expect.element(opener).toHaveTextContent("Offline");
+  expect(opener.element().getAttribute("aria-label")).toMatch(
+    /^connection: Cannot reach the server · attempt 3 · \d+ s$/,
+  );
+  const word = opener.element().querySelector<HTMLElement>('[data-slot="connection-state"]');
+  if (word === null) throw new Error("the connection opener has no state word");
+  await userEvent.hover(word);
+  await expect
+    .element(page.getByRole("tooltip"))
+    .toMatchTextContent(/Cannot reach the server · attempt 3 · \d+ s/);
+});
+
+test("every connection state shows its word and keeps the whole sentence in its name", async () => {
+  const startedAt = Date.now();
+  const cases: { state: ConnectionState; word: string; name: RegExp }[] = [
+    {
+      state: { status: "connecting", attempt: 2, startedAt },
+      word: "Connecting",
+      name: /^connection: Connecting to the server · attempt 2 · \d+ s$/,
+    },
+    {
+      state: { status: "disconnected", attempt: 2, startedAt },
+      word: "Offline",
+      name: /^connection: Cannot reach the server · attempt 2 · \d+ s$/,
+    },
+    {
+      state: { status: "capability-refused", attempt: 2, startedAt },
+      word: "Refused",
+      name: /^connection: The server refused this capability · attempt 2 · \d+ s$/,
+    },
+    {
+      state: { status: "invalid-capability", detail: "bad token" },
+      word: "Invalid",
+      name: /^connection: That capability cannot be used$/,
+    },
+    {
+      state: { status: "protocol-mismatch", serverProtocolVersion: 12 },
+      word: "Mismatch",
+      name: /^connection: Protocol mismatch$/,
+    },
+  ];
+  for (const { state, word, name } of cases) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- each state replaces the previous render
+    const screen = await render(<ConnectionNotice state={state} onOpen={() => {}} />);
+    const opener = page.getByRole("button", { name: /^connection:/ });
+    // oxlint-disable-next-line eslint/no-await-in-loop -- each state replaces the previous render
+    await expect.element(opener).toHaveTextContent(word);
+    expect(opener.element().getAttribute("aria-label")).toMatch(name);
+    // oxlint-disable-next-line eslint/no-await-in-loop -- each state replaces the previous render
+    await screen.unmount();
+  }
 });
 
 test("a refused capability names attempt and time, and recovery reattaches both socket kinds", async () => {
@@ -268,9 +321,10 @@ test("a refused capability names attempt and time, and recovery reattaches both 
     await expect
       .poll(() => client.connection.state.getSnapshot().status)
       .toBe("capability-refused");
-    await expect
-      .element(connectionStatus())
-      .toMatchTextContent(/The server refused this capability · attempt 1 · \d+ s/);
+    await expect.element(connectionStatus()).toHaveTextContent("Refused");
+    expect(connectionStatus().element().getAttribute("aria-label")).toMatch(
+      /^connection: The server refused this capability · attempt 1 · \d+ s$/,
+    );
     await expect
       .element(page.getByRole("status", { name: "terminal connection" }))
       .toMatchTextContent(/refused this terminal's capability/);
