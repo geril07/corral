@@ -30,7 +30,11 @@ import {
 } from "../../common/ui/index.ts";
 import { useCorralClient } from "../connection/index.ts";
 import { useConfig } from "../keymap/index.ts";
-import { AgentKind } from "@corral/protocol/config";
+import { AgentKind, taskSettingsFor } from "@corral/protocol/config";
+import type { Project, Task } from "@corral/protocol/rpc";
+// launch-choice is a leaf that imports no settings, so this avoids a settings/index cycle.
+// oxlint-disable-next-line import/no-restricted-imports
+import { CONFIGURED_DEFAULT, configuredDefaultRow } from "../sessions/launch-choice.ts";
 import { useModelCatalog, useModelPreferences, type KnownModelCatalog } from "./model-catalog.ts";
 import { modelFooterText } from "./model-footer.ts";
 
@@ -40,6 +44,21 @@ export interface ModelManagementTarget {
   known?: KnownModelCatalog;
 }
 const HOME = "server-home";
+
+/** The configured default is resolved through the selected catalog context, not a cache. */
+function contextProjectPath(
+  context: ModelContext,
+  projects: readonly Project[],
+  tasks: readonly Task[],
+): string | undefined {
+  if (context.taskId !== undefined) {
+    const task = tasks.find((candidate) => candidate.id === context.taskId);
+    return task ? projects.find((project) => project.id === task.projectId)?.path : undefined;
+  }
+  if (context.projectId !== undefined)
+    return projects.find((project) => project.id === context.projectId)?.path;
+  return "";
+}
 
 export function ModelManagement({
   active,
@@ -58,6 +77,7 @@ export function ModelManagement({
     client.projects.subscribe,
     client.projects.getSnapshot,
   ).projects;
+  const tasks = useSyncExternalStore(client.tasks.subscribe, client.tasks.getSnapshot).tasks;
   const options = [
     ...AgentKind.options.map((kind) => ({ scope: { kind, profileId: null }, name: kind })),
     ...config.profiles.map((profile) => ({
@@ -78,6 +98,17 @@ export function ModelManagement({
     active,
     target?.known,
   );
+  const projectPath = contextProjectPath(context, projects, tasks);
+  const configuredDefault =
+    inventory.catalog && projectPath !== undefined
+      ? configuredDefaultRow(
+          scope,
+          taskSettingsFor(config.config, projectPath),
+          config.profiles,
+          config.config.agents,
+          inventory.catalog.models,
+        )
+      : undefined;
   const changeScope = (key: string | null) => {
     if (dirty) {
       setSwitchError(true);
@@ -164,6 +195,7 @@ export function ModelManagement({
         catalog={inventory.catalog?.models ?? []}
         status={inventory.catalog?.message ?? (inventory.loading ? "Loading native models…" : "")}
         loaded={inventory.catalog !== undefined}
+        configuredDefault={configuredDefault}
         refreshing={inventory.refreshing || inventory.loading}
         refresh={inventory.refresh}
         onBusy={onBusy}
@@ -190,6 +222,7 @@ function ModelPolicyEditor({
   catalog,
   loaded,
   status,
+  configuredDefault,
   refreshing,
   refresh,
   onDirty,
@@ -199,6 +232,7 @@ function ModelPolicyEditor({
   catalog: readonly ChatModel[];
   loaded: boolean;
   status: string;
+  configuredDefault?: ChatModel | undefined;
   refreshing: boolean;
   refresh: () => void;
   onDirty: (dirty: boolean) => void;
@@ -234,6 +268,11 @@ function ModelPolicyEditor({
   const conflictReason = useId();
   const dirty = JSON.stringify(policy) !== JSON.stringify(base.policy);
   const stale = dirty && latest.revision !== base.revision;
+  const hidesConfiguredDefault =
+    configuredDefault !== undefined &&
+    dirty &&
+    modelVisible(base.policy, configuredDefault) &&
+    !modelVisible(policy, configuredDefault);
   if (!dirty && latest.revision > base.revision) {
     const next = { scope, revision: latest.revision, policy: latest.policy };
     setBase(next);
@@ -507,9 +546,13 @@ function ModelPolicyEditor({
               const checked = modelVisible(policy, model);
               const excluded = providerDenied(policy, model.provider);
               const favorite = policy.favorites.some((f) => modelKey(f) === modelKey(model));
+              const configured =
+                configuredDefault !== undefined && modelKey(configuredDefault) === modelKey(model);
               return (
                 <div
                   key={modelKey(model)}
+                  role="group"
+                  aria-label={`${model.name} · ${model.provider ?? model.id}`}
                   className="flex min-w-0 items-center gap-2 border-b border-border px-3 py-2"
                 >
                   <Checkbox
@@ -525,6 +568,9 @@ function ModelPolicyEditor({
                         name={`${model.provider ? model.provider + "/" : ""}${model.id}`}
                       />
                     </p>
+                    {configured && (
+                      <p className="m-0 text-xs text-muted-foreground">{CONFIGURED_DEFAULT}</p>
+                    )}
                     {excluded && (
                       <p className="m-0 text-xs text-muted-foreground">
                         Excluded by provider; show the provider first.
@@ -593,55 +639,67 @@ function ModelPolicyEditor({
           latest version and drops the draft.
         </FormError>
       )}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
-        <span
-          ref={statusLine}
-          role="status"
-          tabIndex={-1}
-          className="rounded-sm text-xs text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
-        >
-          {modelFooterText({
-            busy,
-            dirty,
-            loaded: latest.loaded,
-            failed: latest.failure !== undefined,
-            revision: base.revision,
-          })}
-        </span>
-        <div className="flex flex-wrap gap-1">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={busy || !latest.loaded}
-            onClick={() =>
-              setPolicy({ ...defaultModelPolicy(), mode: "allow", favorites: policy.favorites })
-            }
+      <div className="sticky bottom-0 z-10 flex shrink-0 flex-col gap-2 bg-popover">
+        {hidesConfiguredDefault && (
+          <p className="m-0 text-xs text-muted-foreground">
+            The configured default is hidden by this draft's model filter; it is not changed.
+          </p>
+        )}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border pt-2">
+          <span
+            ref={statusLine}
+            role="status"
+            tabIndex={-1}
+            className="rounded-sm text-xs text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
           >
-            Hide all
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={busy || !latest.loaded}
-            onClick={() => setPolicy({ ...defaultModelPolicy(), favorites: policy.favorites })}
-          >
-            Show all
-          </Button>
-          <Button ref={previewButton} size="sm" variant="outline" onClick={() => setPreview(true)}>
-            Preview
-          </Button>
-          <Button size="sm" variant="ghost" disabled={!dirty || busy} onClick={discard}>
-            Discard
-          </Button>
-          <Button
-            ref={saveButton}
-            size="sm"
-            disabled={!dirty || busy || !latest.loaded || stale}
-            aria-describedby={stale ? conflictReason : undefined}
-            onClick={() => void save()}
-          >
-            Save
-          </Button>
+            {modelFooterText({
+              busy,
+              dirty,
+              loaded: latest.loaded,
+              failed: latest.failure !== undefined,
+              revision: base.revision,
+            })}
+          </span>
+          <div className="flex flex-wrap gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy || !latest.loaded}
+              onClick={() =>
+                setPolicy({ ...defaultModelPolicy(), mode: "allow", favorites: policy.favorites })
+              }
+            >
+              Hide all
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={busy || !latest.loaded}
+              onClick={() => setPolicy({ ...defaultModelPolicy(), favorites: policy.favorites })}
+            >
+              Show all
+            </Button>
+            <Button
+              ref={previewButton}
+              size="sm"
+              variant="outline"
+              onClick={() => setPreview(true)}
+            >
+              Preview
+            </Button>
+            <Button size="sm" variant="ghost" disabled={!dirty || busy} onClick={discard}>
+              Discard
+            </Button>
+            <Button
+              ref={saveButton}
+              size="sm"
+              disabled={!dirty || busy || !latest.loaded || stale}
+              aria-describedby={stale ? conflictReason : undefined}
+              onClick={() => void save()}
+            >
+              Save
+            </Button>
+          </div>
         </div>
       </div>
       {preview && (

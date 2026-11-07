@@ -101,13 +101,41 @@ const unavailableStatus = () =>
 const loadingStatus = () =>
   models().getByRole("status").filter({ hasText: "Loading preferences…" });
 const findModels = () => models().getByRole("textbox", { name: "Find models" });
+const configuredDefault = () => models().getByText("Configured default", { exact: true });
+const hiddenConfiguredDefault = () =>
+  models().getByText(
+    "The configured default is hidden by this draft's model filter; it is not changed.",
+    { exact: true },
+  );
+const workspaceSelect = () =>
+  models().getByRole("combobox", { name: "Catalog workspace", exact: true });
+const modelRow = (name: string) => models().getByRole("group", { name, exact: true });
+const configuredDefaultIn = (name: string) =>
+  modelRow(name).getByText("Configured default", { exact: true });
+
+async function chooseWorkspace(name: string) {
+  await workspaceSelect().click();
+  await page.getByRole("option", { name, exact: true }).click();
+}
+
+async function expectMarked(name: string) {
+  await expect.element(configuredDefaultIn(name)).toBeVisible();
+  await expect.element(configuredDefault()).toHaveLength(1);
+}
+
+async function expectNotMarked(name: string) {
+  await expect.element(configuredDefaultIn(name)).not.toBeInTheDocument();
+}
 
 async function openManager(
-  options: { beforeManage?: (client: ReturnType<typeof newClient>) => void } = {},
+  options: {
+    config?: string;
+    beforeManage?: (client: ReturnType<typeof newClient>) => void;
+  } = {},
 ) {
   const client = newClient();
-  await writeConfig('[tasks]\nagent = "pi"\n');
-  const { rendered } = await appWithProject(client);
+  await writeConfig(options.config ?? '[tasks]\nagent = "pi"\n');
+  const { rendered, repo } = await appWithProject(client);
   await prefixThen("t");
   await promptField().fill("Keep this prompt and selection");
   const composer = promptField().element();
@@ -120,7 +148,37 @@ async function openManager(
   await picker().getByRole("button", { name: "Manage models…" }).click();
   await expect.element(settings()).toBeVisible();
   await expect.element(checkbox("Show Stub One · stub")).toBeVisible();
-  return { client, composer, rendered };
+  return { client, composer, rendered, repo };
+}
+
+/** Holds the next models.catalog until the test releases it, then runs the real probe. */
+function holdNextCatalog(client: ReturnType<typeof newClient>) {
+  const api = client.connection.api;
+  const catalog = api.models.catalog;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const gatedModels = new Proxy(api.models, {
+    get(target, property, receiver) {
+      if (property === "catalog")
+        return async (input: Parameters<typeof catalog>[0]) => {
+          await gate;
+          return catalog(input);
+        };
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  Object.defineProperty(client.connection, "api", {
+    configurable: true,
+    value: new Proxy(api, {
+      get(target, property, receiver) {
+        if (property === "models") return gatedModels;
+        return Reflect.get(target, property, receiver);
+      },
+    }),
+  });
+  return { release };
 }
 
 /** Holds the next models.save until the test releases it, then saves. */
@@ -230,6 +288,145 @@ test("the shared manager saves an exact whitelist and returns to picker search, 
   await expect.element(promptField()).toHaveValue("Keep this prompt and selection");
   await expect.element(promptField()).toHaveFocus();
   await vi.waitFor(() => expect(client.tasks.getSnapshot().tasks).toHaveLength(0));
+});
+
+test("the configured default is marked at Server home; hiding it warns once and still saves", async () => {
+  const { client } = await openManager({
+    config: '[tasks]\nagent = "pi"\nmodel = "stub-1"\n',
+  });
+  await chooseWorkspace("Server home");
+  await expect.element(checkbox("Show Stub One · stub")).toBeVisible();
+  await expect.element(checkbox("Show Stub One · stub")).toBeChecked();
+  await expectMarked("Stub One · stub");
+  await expect.element(hiddenConfiguredDefault()).not.toBeInTheDocument();
+
+  await checkbox("Show Stub One · stub").click();
+  await expect.element(checkbox("Show Stub One · stub")).not.toBeChecked();
+  await expect.element(hiddenConfiguredDefault()).toHaveLength(1);
+  await expect.element(saveButton()).toBeEnabled();
+  await saveButton().click();
+  await expect.element(savedStatus()).toMatchTextContent(/Saved · revision/);
+  await expect.element(hiddenConfiguredDefault()).not.toBeInTheDocument();
+  await expectMarked("Stub One · stub");
+  await vi.waitFor(() =>
+    expect(
+      client.modelPreferences
+        .getSnapshot()
+        .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope))?.policy.deny,
+    ).toEqual([{ type: "model", provider: "stub", id: "stub-1" }]),
+  );
+
+  await settings().getByRole("button", { name: "Back to workspace" }).click();
+  await expect.element(picker()).toBeVisible();
+  await picker().getByRole("combobox", { name: "Models" }).fill("");
+  await expect.element(picker().getByText("Configured default", { exact: true })).toBeVisible();
+  await expect
+    .element(
+      picker().getByText("Current selection is hidden by the model filter; it is not changed.", {
+        exact: true,
+      }),
+    )
+    .toBeVisible();
+});
+
+test("a project override moves the configured default with the selected catalog workspace", async () => {
+  const { client, repo } = await openManager({
+    config: '[tasks]\nagent = "pi"\nmodel = "stub-1"\n',
+  });
+  await expectMarked("Stub One · stub");
+
+  await writeConfig(
+    `[tasks]\nagent = "pi"\nmodel = "stub-1"\n\n[projects."${repo}"]\nmodel = "stub-2"\n`,
+  );
+  await vi.waitFor(() =>
+    expect(client.config.getSnapshot().config.projects[repo]?.model.value).toBe("stub-2"),
+  );
+  await expectMarked("Stub Two · stub");
+  await expectNotMarked("Stub One · stub");
+
+  await chooseWorkspace("Server home");
+  await expect.element(checkbox("Show Stub One · stub")).toBeVisible();
+  await expectMarked("Stub One · stub");
+  await expectNotMarked("Stub Two · stub");
+
+  const project = client.projects.getSnapshot().projects.find((each) => each.path === repo)!;
+  await chooseWorkspace(project.name);
+  await expect.element(checkbox("Show Stub Two · stub")).toBeVisible();
+  await expectMarked("Stub Two · stub");
+  await expectNotMarked("Stub One · stub");
+});
+
+test("a different catalog-backed agent scope marks nothing rather than matching by id", async () => {
+  await openManager({ config: '[tasks]\nagent = "pi"\nmodel = "stub-1"\n' });
+  await expectMarked("Stub One · stub");
+
+  await firstModelControl().click();
+  await page.getByRole("option", { name: "opencode · opencode", exact: true }).click();
+  await expect.element(checkbox("Show Stub Model · stub")).toBeVisible();
+  await expect.element(configuredDefault()).not.toBeInTheDocument();
+  await expectNotMarked("Stub Model · stub");
+
+  await firstModelControl().click();
+  await page.getByRole("option", { name: "pi · pi", exact: true }).click();
+  await expect.element(checkbox("Show Stub One · stub")).toBeVisible();
+  await expectMarked("Stub One · stub");
+});
+
+test("the configured default mark appears when a held catalog finishes loading", async () => {
+  const client = newClient();
+  await writeConfig('[tasks]\nagent = "pi"\nmodel = "stub-1"\n');
+  await appWithProject(client);
+  const { release } = holdNextCatalog(client);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect.element(settings()).toBeVisible();
+  await settings()
+    .getByRole("navigation", { name: "Settings categories" })
+    .getByRole("button", { name: "Models", exact: true })
+    .click();
+  await expect
+    .element(models().getByRole("status").filter({ hasText: "Loading native models…" }))
+    .toBeVisible();
+  await expect.element(configuredDefault()).not.toBeInTheDocument();
+  await expect.element(checkbox("Show Stub One · stub")).not.toBeInTheDocument();
+
+  release();
+  await expect.element(checkbox("Show Stub One · stub")).toBeVisible();
+  await expectMarked("Stub One · stub");
+});
+
+test("a task-context manager follows its project override through {taskId}", async () => {
+  const client = newClient();
+  await writeConfig('[tasks]\nagent = "pi"\nmodel = "stub-1"\n');
+  await appWithProject(client);
+  const project = client.projects.getSnapshot().projects[0]!;
+  await writeConfig(
+    `[tasks]\nagent = "pi"\nmodel = "stub-1"\n\n[projects."${project.path}"]\nmodel = "stub-2"\n`,
+  );
+  await vi.waitFor(() =>
+    expect(client.config.getSnapshot().config.projects[project.path]?.model.value).toBe("stub-2"),
+  );
+  const task = await client.connection.api.tasks.create({
+    title: "Configured default task",
+    projectId: project.id,
+    workspace: { type: "main-worktree" },
+  });
+  await client.connection.api.sessions.start({
+    taskId: task.id,
+    kind: "pi",
+    view: "chat",
+    size: { cols: 80, rows: 24 },
+  });
+  await taskButton("Configured default task").click();
+  await sessionTabs().getByRole("tab", { name: /^pi/ }).click();
+  const modelButton = page.getByRole("button", { name: "Model Stub One", exact: true });
+  await expect.element(modelButton).toBeVisible();
+  await modelButton.click();
+  const live = page.getByRole("dialog", { name: "Chat model", exact: true });
+  await live.getByRole("button", { name: "Manage models…" }).click();
+  await expect.element(settings()).toBeVisible();
+  await expect.element(checkbox("Show Stub Two · stub")).toBeVisible();
+  await expectMarked("Stub Two · stub");
+  await expectNotMarked("Stub One · stub");
 });
 
 test("a refused preferences watch stays retryable, then returns focus to the footer when it loads", async () => {

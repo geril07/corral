@@ -9,12 +9,14 @@ import {
   launchKey,
   launchScope,
   catalogLaunchModel,
+  launchCatalogRow,
   launchModel,
   launchName,
   launchOptions,
   modelOverride,
   modelProblem,
   supportsModel,
+  CONFIGURED_DEFAULT,
   type LaunchSelection,
 } from "./launch-choice.ts";
 
@@ -82,7 +84,7 @@ export function launchPickerModels(selection: LaunchSelection, blocked = false):
       provider: selection.profile?.provider ?? undefined,
       current: overridden === undefined,
       disabled: blocked,
-      detail: supportsModel(selection.kind) ? "Configured default" : "env only",
+      detail: supportsModel(selection.kind) ? CONFIGURED_DEFAULT : "env only",
     },
   ];
   if (overridden)
@@ -150,13 +152,7 @@ export function AgentLaunchPicker({
       favorite: menu.favorite(model),
     })),
   ];
-  const selectedId = modelOverride(selection.model) ?? selection.profile?.model;
-  const candidates = menu.all.filter(
-    (m) =>
-      catalogLaunchModel(selection, m) !== undefined &&
-      (catalogLaunchModel(selection, m) === selectedId || m.id === selectedId),
-  );
-  const selected = candidates.length === 1 ? candidates[0] : undefined;
+  const selected = launchCatalogRow(selection, menu.all);
   const hidden = selected && !modelVisible(menu.preferences.policy, selected);
   const select = (option: LaunchSelection) =>
     onChange({ ...option, model: selection.model }, "instance");

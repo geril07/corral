@@ -3,10 +3,14 @@ import {
   defaultClientConfig,
   type LaunchProfile,
 } from "@corral/protocol/config";
+import type { ChatModel } from "@corral/protocol/chat";
 import { AgentKind } from "@corral/protocol/rpc";
 import { expect, test } from "vite-plus/test";
 import {
+  CONFIGURED_DEFAULT,
+  configuredDefaultRow,
   defaultLaunch,
+  launchCatalogRow,
   launchChoice,
   launchKey,
   launchOptions,
@@ -26,6 +30,15 @@ const gateway: LaunchProfile = {
   model: "claude-sonnet-4-5",
   provider: null,
   env: [],
+};
+const stubOne: ChatModel = { provider: "stub", id: "stub-1", name: "Stub One" };
+const stubTwo: ChatModel = { provider: "stub", id: "stub-2", name: "Stub Two" };
+const piStub: LaunchProfile = {
+  ...gateway,
+  id: "pi-stub",
+  name: "Pi Stub",
+  agent: "pi",
+  model: "stub-1",
 };
 
 test("the picker hides a model field exactly where the shared capability table does", () => {
@@ -114,6 +127,74 @@ test("native agents precede profiles, and disabled tools cannot be selected thro
     claude: { ...config.agents.claude, enabled: { value: false, source: "global" as const } },
   };
   expect(launchOptions([gateway], agents).some((option) => option.kind === "claude")).toBe(false);
+});
+
+test("the picker's selection maps to exactly one catalog row, including pi's provider-qualified id", () => {
+  const native = { kind: "pi" as const, profile: null, model: "stub-1" };
+  expect(launchCatalogRow(native, [stubOne, stubTwo])).toBe(stubOne);
+  expect(launchCatalogRow({ ...native, model: "stub/stub-1" }, [stubOne, stubTwo])).toBe(stubOne);
+  expect(
+    launchCatalogRow({ kind: "pi", profile: { ...piStub, model: "stub/stub-1" }, model: "" }, [
+      stubOne,
+      stubTwo,
+    ]),
+  ).toBe(stubOne);
+  expect(launchCatalogRow({ ...native, model: "" }, [stubOne, stubTwo])).toBeUndefined();
+  expect(launchCatalogRow({ ...native, model: "missing" }, [stubOne, stubTwo])).toBeUndefined();
+  expect(
+    launchCatalogRow({ ...native, model: "stub-1" }, [stubOne, { ...stubOne, provider: "other" }]),
+  ).toBeUndefined();
+  // A provider pin must still choose the stub row when another provider reports the same id; without
+  // the provider filter both rows match and the ambiguous two-candidate path would return undefined.
+  expect(
+    launchCatalogRow(
+      { kind: "pi", profile: { ...piStub, provider: "stub", model: "stub-1" }, model: "" },
+      [stubOne, { ...stubOne, provider: "other", name: "Other Stub One" }],
+    ),
+  ).toBe(stubOne);
+});
+
+test("the configured default is one row in the edited scope and is skipped when it cannot launch", () => {
+  const settings = {
+    ...config.tasks,
+    agent: { value: "pi" as const, source: "global" as const },
+    model: { value: "stub-1", source: "global" as const },
+  };
+  expect(
+    configuredDefaultRow({ kind: "pi", profileId: null }, settings, [], config.agents, [
+      stubOne,
+      stubTwo,
+    ]),
+  ).toBe(stubOne);
+  expect(
+    configuredDefaultRow({ kind: "claude", profileId: null }, settings, [], config.agents, [
+      stubOne,
+      stubTwo,
+    ]),
+  ).toBeUndefined();
+  expect(
+    configuredDefaultRow(
+      { kind: "pi", profileId: piStub.id },
+      {
+        ...settings,
+        profile: { value: piStub.id, source: "global" as const },
+        model: { value: null, source: "global" as const },
+      },
+      [piStub],
+      config.agents,
+      [stubOne, stubTwo],
+    ),
+  ).toBe(stubOne);
+  expect(
+    configuredDefaultRow(
+      { kind: "pi", profileId: null },
+      { ...settings, model: { value: "bad model", source: "global" as const } },
+      [],
+      config.agents,
+      [stubOne, stubTwo],
+    ),
+  ).toBeUndefined();
+  expect(CONFIGURED_DEFAULT).toBe("Configured default");
 });
 
 test("chat is the default, an explicit terminal setting wins and a missing driver falls back", () => {
