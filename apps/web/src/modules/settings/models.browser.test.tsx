@@ -7,8 +7,11 @@ import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { App as RootApp } from "../../../src/app/app.tsx";
 import { createGitRepo } from "../../../test/git-repo.ts";
+import { writeFilesIn } from "../../../test/files-client.ts";
+import { runGitIn } from "../../../test/git-client.ts";
 import { realServerClients, prefixThen } from "../../../test/real-client.ts";
 import { writeConfig } from "../../../test/config-command.ts";
+import { projectOptionLabel } from "../projects/index.ts";
 import {
   appWithProject,
   promptField,
@@ -116,6 +119,23 @@ const configuredDefaultIn = (name: string) =>
 async function chooseWorkspace(name: string) {
   await workspaceSelect().click();
   await page.getByRole("option", { name, exact: true }).click();
+}
+
+/** A real git repository whose directory name is `name`, so two projects can share a display name. */
+async function addNamedProject(client: ReturnType<typeof newClient>, name: string) {
+  const holder = await createGitRepo(`holder-${name}`);
+  const path = `${holder}/${name}`;
+  await writeFilesIn(holder, { [`${name}/README.md`]: "hello\n" });
+  await runGitIn(path, ["init", "-b", "main"]);
+  await runGitIn(path, ["add", "."]);
+  await runGitIn(path, ["commit", "-m", "initial commit"]);
+  const project = await client.connection.api.projects.add({ path });
+  await vi.waitFor(() =>
+    expect(client.projects.getSnapshot().projects.some((each) => each.id === project.id)).toBe(
+      true,
+    ),
+  );
+  return project;
 }
 
 async function expectMarked(name: string) {
@@ -350,10 +370,103 @@ test("a project override moves the configured default with the selected catalog 
   await expectNotMarked("Stub Two · stub");
 
   const project = client.projects.getSnapshot().projects.find((each) => each.path === repo)!;
-  await chooseWorkspace(project.name);
+  await chooseWorkspace(projectOptionLabel(project));
   await expect.element(checkbox("Show Stub Two · stub")).toBeVisible();
   await expectMarked("Stub Two · stub");
   await expectNotMarked("Stub One · stub");
+});
+
+test("same-named catalog workspaces read by path, filter by name and path, and drive discovery", async () => {
+  const { client } = await openManager({
+    config: '[tasks]\nagent = "pi"\nmodel = "stub-1"\n',
+  });
+  const first = await addNamedProject(client, "dup");
+  const second = await addNamedProject(client, "dup");
+  await writeConfig(
+    `[tasks]\nagent = "pi"\nmodel = "stub-1"\n\n[projects."${first.path}"]\nmodel = "stub-2"\n`,
+  );
+  await vi.waitFor(() =>
+    expect(client.config.getSnapshot().config.projects[first.path]?.model.value).toBe("stub-2"),
+  );
+
+  await workspaceSelect().click();
+  const search = page.getByRole("combobox", { name: "Search workspaces", exact: true });
+  const firstOption = page.getByRole("option", {
+    name: projectOptionLabel(first),
+    exact: true,
+  });
+  const secondOption = page.getByRole("option", {
+    name: projectOptionLabel(second),
+    exact: true,
+  });
+  await expect.element(firstOption).toBeVisible();
+  await expect.element(secondOption).toBeVisible();
+  expect(firstOption.element().textContent).toContain(first.path);
+  expect(secondOption.element().textContent).toContain(second.path);
+
+  // The shared name matches both; each full path matches only its own project.
+  await search.fill("dup");
+  await expect.element(firstOption).toBeVisible();
+  await expect.element(secondOption).toBeVisible();
+  await search.fill(first.path);
+  await expect.element(firstOption).toBeVisible();
+
+  await firstOption.click();
+  await expect.element(workspaceSelect()).toHaveTextContent(first.name);
+  await expectMarked("Stub Two · stub");
+  await expectNotMarked("Stub One · stub");
+
+  await workspaceSelect().click();
+  await page.getByRole("combobox", { name: "Search workspaces", exact: true }).fill(second.path);
+  await secondOption.click();
+  await expect.element(workspaceSelect()).toHaveTextContent(second.name);
+  await expectMarked("Stub One · stub");
+  await expectNotMarked("Stub Two · stub");
+});
+
+test("a long catalog workspace keeps the trigger bounded and the list inside Settings at 1024x640/140%", async () => {
+  const originalViewport = { width: window.innerWidth, height: window.innerHeight };
+  const previousScale = document.documentElement.style.fontSize;
+  try {
+    await page.viewport(1024, 640);
+    const { client } = await openManager();
+    const long = await addNamedProject(client, `workspace-${"L".repeat(60)}`);
+    document.documentElement.style.fontSize = "140%";
+
+    await workspaceSelect().click();
+    const search = page.getByRole("combobox", { name: "Search workspaces", exact: true });
+    await search.fill(long.path);
+    const option = page.getByRole("option", {
+      name: projectOptionLabel(long),
+      exact: true,
+    });
+    await expect.element(option).toBeVisible();
+    await vi.waitFor(() => {
+      const titles = [...option.element().querySelectorAll("[title]")].map((each) =>
+        each.getAttribute("title"),
+      );
+      expect(titles).toContain(long.path);
+    });
+    await option.click();
+
+    const trigger = workspaceSelect().element();
+    await vi.waitFor(() =>
+      expect(trigger.querySelector("[title]")?.getAttribute("title")).toBe(long.name),
+    );
+    const triggerLimit =
+      Number.parseFloat(getComputedStyle(document.documentElement).fontSize) * 16;
+    expect(trigger.getBoundingClientRect().width).toBeLessThanOrEqual(triggerLimit + 0.5);
+
+    await workspaceSelect().click();
+    expect(models().element().scrollWidth).toBeLessThanOrEqual(models().element().clientWidth);
+    expect(settings().element().scrollWidth).toBeLessThanOrEqual(settings().element().clientWidth);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(
+      document.documentElement.clientWidth,
+    );
+  } finally {
+    document.documentElement.style.fontSize = previousScale;
+    await page.viewport(originalViewport.width, originalViewport.height);
+  }
 });
 
 test("a different catalog-backed agent scope marks nothing rather than matching by id", async () => {

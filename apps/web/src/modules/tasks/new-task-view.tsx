@@ -30,6 +30,7 @@ import {
   Input,
   Textarea,
 } from "../../common/ui/index.ts";
+import { ProjectOption, projectOptionLabel } from "../projects/index.ts";
 import {
   AgentLaunchPicker,
   LaunchViewControls,
@@ -435,8 +436,19 @@ function ProjectPicker({
 }) {
   const ids = projects.map((project) => project.id);
   const selected = projects.find((project) => project.id === value);
+  const label = (id: string) => {
+    const project = projects.find((each) => each.id === id);
+    return project ? projectOptionLabel(project) : id;
+  };
   return (
-    <Combobox items={ids} value={value} onValueChange={onChange} autoHighlight>
+    <Combobox
+      items={ids}
+      value={value}
+      onValueChange={onChange}
+      autoHighlight
+      itemToStringLabel={label}
+      filter={(id, query) => label(id).toLocaleLowerCase().includes(query.toLocaleLowerCase())}
+    >
       <ComboboxButton aria-label={`Project ${selected?.name ?? value}`}>
         <span className="min-w-0 truncate">{selected?.name ?? value}</span>
       </ComboboxButton>
@@ -450,11 +462,8 @@ function ProjectPicker({
             const project = projects.find((each) => each.id === id);
             if (!project) return null;
             return (
-              <ComboboxItem key={id} value={id}>
-                <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                <span className="max-w-1/2 truncate text-xs text-muted-foreground">
-                  {project.path}
-                </span>
+              <ComboboxItem key={id} value={id} aria-label={projectOptionLabel(project)}>
+                <ProjectOption project={project} />
               </ComboboxItem>
             );
           }}
