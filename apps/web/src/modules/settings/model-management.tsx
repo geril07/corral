@@ -21,8 +21,10 @@ import {
   Combobox,
   ComboboxButton,
   ComboboxContent,
+  ComboboxEmpty,
   ComboboxItem,
   ComboboxList,
+  ComboboxSearch,
   FormError,
   Input,
   ModelPicker,
@@ -32,6 +34,7 @@ import { useCorralClient } from "../connection/index.ts";
 import { useConfig } from "../keymap/index.ts";
 import { AgentKind, taskSettingsFor } from "@corral/protocol/config";
 import type { Project, Task } from "@corral/protocol/rpc";
+import { ProjectOption, projectOptionLabel } from "../projects/index.ts";
 // launch-choice is a leaf that imports no settings, so this avoids a settings/index cycle.
 // oxlint-disable-next-line import/no-restricted-imports
 import { CONFIGURED_DEFAULT, configuredDefaultRow } from "../sessions/launch-choice.ts";
@@ -120,6 +123,17 @@ export function ModelManagement({
       setSwitchError(false);
     }
   };
+  const workspaceItems = [
+    HOME,
+    ...(target?.context.taskId ? ["current-task"] : []),
+    ...projects.map((p) => p.id),
+  ];
+  const workspaceLabel = (id: string) => {
+    if (id === HOME) return "Server home";
+    if (id === "current-task") return "Current task workspace";
+    const project = projects.find((p) => p.id === id);
+    return project ? projectOptionLabel(project) : id;
+  };
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -145,11 +159,7 @@ export function ModelManagement({
           </ComboboxContent>
         </Combobox>
         <Combobox
-          items={[
-            HOME,
-            ...(target?.context.taskId ? ["current-task"] : []),
-            ...projects.map((p) => p.id),
-          ]}
+          items={workspaceItems}
           value={context.taskId ? "current-task" : (context.projectId ?? HOME)}
           onValueChange={(id) => {
             if (id)
@@ -161,6 +171,11 @@ export function ModelManagement({
                     : { projectId: id },
               );
           }}
+          autoHighlight
+          itemToStringLabel={workspaceLabel}
+          filter={(id, query) =>
+            workspaceLabel(id).toLocaleLowerCase().includes(query.toLocaleLowerCase())
+          }
         >
           <ComboboxButton layout="bounded" aria-label="Catalog workspace">
             {context.taskId
@@ -168,16 +183,28 @@ export function ModelManagement({
               : (projects.find((p) => p.id === context.projectId)?.name ?? "Server home")}
           </ComboboxButton>
           <ComboboxContent>
+            <div className="p-1">
+              <ComboboxSearch aria-label="Search workspaces" placeholder="Search workspaces…" />
+            </div>
+            <ComboboxEmpty>No matching workspace.</ComboboxEmpty>
             <ComboboxList>
-              <ComboboxItem value={HOME}>Server home</ComboboxItem>
-              {target?.context.taskId && (
-                <ComboboxItem value="current-task">Current task workspace</ComboboxItem>
-              )}
-              {projects.map((p) => (
-                <ComboboxItem key={p.id} value={p.id}>
-                  {p.name}
-                </ComboboxItem>
-              ))}
+              {(id: string) => {
+                if (id === HOME)
+                  return (
+                    <ComboboxItem key={id} value={HOME}>
+                      Server home
+                    </ComboboxItem>
+                  );
+                if (id === "current-task")
+                  return <ComboboxItem value="current-task">Current task workspace</ComboboxItem>;
+                const project = projects.find((p) => p.id === id);
+                if (!project) return null;
+                return (
+                  <ComboboxItem key={id} value={id} aria-label={projectOptionLabel(project)}>
+                    <ProjectOption project={project} />
+                  </ComboboxItem>
+                );
+              }}
             </ComboboxList>
           </ComboboxContent>
         </Combobox>
