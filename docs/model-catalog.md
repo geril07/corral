@@ -23,8 +23,10 @@ the namespaces. This is not credential/account isolation.
 - Missing models/providers keep their rules and favorites. Incomplete discovery never deletes them.
 - Current selections and configured/native defaults are not rewritten. Hiding a working model does
   not change the model, thinking, prompt, turn or session. A hidden current chat choice is retained
-  as a disabled, explicitly labeled row. Native-ID entry remains an expert launch override, not an
-  access-policy bypass: there is no access policy here.
+  as a disabled, explicitly labeled row. The manager marks the row used by the configured default
+  launch for the selected scope and workspace as **Configured default**, and says when the draft
+  would hide it; hiding is not refused and the default is not edited. Native-ID entry remains an
+  expert launch override, not an access-policy bypass: there is no access policy here.
 
 The manager edits a draft with Preview, Save and Discard. A profile switch with unsaved edits is
 blocked; changing workspace does not discard rules. Closing asks whether to discard; an in-flight

@@ -6,8 +6,8 @@ import {
   type ResolvedTaskSettings,
   type TaskView,
 } from "@corral/protocol/config";
-import type { ChatModelRef } from "@corral/protocol/chat";
-import type { ModelScope } from "@corral/protocol/models";
+import type { ChatModel, ChatModelRef } from "@corral/protocol/chat";
+import { modelScopeKey, type ModelScope } from "@corral/protocol/models";
 import { AGENTS } from "@corral/client/session-state";
 import type { AgentKind } from "@corral/protocol/rpc";
 
@@ -67,6 +67,40 @@ export function catalogLaunchModel(
       ? `${model.provider}/${model.id}`
       : model.id;
   return modelProblem(selection.kind, id) ? undefined : id;
+}
+
+export const CONFIGURED_DEFAULT = "Configured default";
+
+/** The catalog row a launch selection names; one mapping for the picker and the manager. */
+export function launchCatalogRow<T extends ChatModelRef>(
+  selection: LaunchSelection,
+  models: readonly T[],
+): T | undefined {
+  const selectedId = modelOverride(selection.model) ?? selection.profile?.model;
+  const candidates = models.filter(
+    (model) =>
+      catalogLaunchModel(selection, model) !== undefined &&
+      (catalogLaunchModel(selection, model) === selectedId || model.id === selectedId),
+  );
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+/** The row the configured default launch uses in `scope`; no row when it cannot launch there. */
+export function configuredDefaultRow(
+  scope: ModelScope,
+  settings: ResolvedTaskSettings,
+  profiles: readonly LaunchProfile[],
+  agents: AgentSettings,
+  models: readonly ChatModel[],
+): ChatModel | undefined {
+  const selection = defaultLaunch(settings, profiles, agents);
+  if (
+    !selection ||
+    modelScopeKey(launchScope(selection)) !== modelScopeKey(scope) ||
+    launchProblem(selection, profiles, agents) !== undefined
+  )
+    return undefined;
+  return launchCatalogRow(selection, models);
 }
 
 export function launchName(selection: LaunchSelection): string {
