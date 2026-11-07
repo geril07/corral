@@ -409,6 +409,12 @@ export type ConfigProblem = z.infer<typeof ConfigProblem>;
 export const ConfigState = z.object({
   /** Absolute path of the file the server reads; it may not exist. */
   path: z.string(),
+  /**
+   * Whether the file exists: false when it is missing (ENOENT/ENOTDIR), true otherwise —
+   * including a file that exists but cannot be read, which also reports a problem. Absent from a
+   * daemon from before this field: a client treats that as unknown.
+   */
+  exists: z.boolean().optional(),
   config: ClientConfig,
   /** The profiles whose every field is valid; an invalid profile is dropped whole. */
   profiles: z.array(LaunchProfile),

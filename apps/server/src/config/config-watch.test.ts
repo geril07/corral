@@ -44,6 +44,7 @@ test("yields the defaults when there is no file and no config directory", async 
 
   expect(watcher.initial).toEqual({
     path: configFile(),
+    exists: false,
     config: defaults(),
     profiles: [],
     agents: availability(),
@@ -58,8 +59,39 @@ test("picks up a config file created later, together with its directory", async 
   await writeFile(configFile(), '[keys.bindings]\nnew-agent = "q"\n');
 
   const state = await watcher.next("the config of the new file");
-  expect(state).toMatchObject({ path: configFile(), problems: [] });
+  expect(state).toMatchObject({ path: configFile(), exists: true, problems: [] });
   expect(state.config.keys.bindings).toEqual({ ...DEFAULT_BINDINGS, "new-agent": "q" });
+});
+
+test("reports an absent file in an existing config directory, then the file", async () => {
+  await mkdir(server.configDir, { recursive: true });
+  const watcher = await openWatcher();
+  expect(watcher.initial.exists).toBe(false);
+
+  await writeFile(configFile(), "");
+
+  const state = await watcher.next("the empty config file");
+  expect(state.exists).toBe(true);
+  expect(state.config).toEqual(defaults());
+  expect(state.problems).toEqual([]);
+});
+
+test("an empty file flips only existence, and removing it pushes that back", async () => {
+  const watcher = await openWatcher();
+  await mkdir(server.configDir, { recursive: true });
+  await writeFile(configFile(), "");
+
+  const created = await watcher.next("the created empty file");
+  expect(created.exists).toBe(true);
+  expect(created.config).toEqual(defaults());
+  expect(created.problems).toEqual([]);
+
+  await rm(configFile());
+
+  const removed = await watcher.next("the defaults after removing the empty file");
+  expect(removed.exists).toBe(false);
+  expect(removed.config).toEqual(defaults());
+  expect(removed.problems).toEqual([]);
 });
 
 test("pushes an edit", async () => {
@@ -115,6 +147,7 @@ test("an unreadable config file is reported instead of crashing the server", asy
   await mkdir(join(server.configDir, "config.toml"), { recursive: true });
 
   const state = await watcher.next("the unreadable config");
+  expect(state.exists).toBe(true);
   expect(state.config).toEqual(defaults());
   expect(state.problems).toEqual([
     { severity: "error", path: "", message: expect.stringContaining("cannot read the file") },
@@ -136,6 +169,7 @@ test("deleting the file goes back to the defaults", async () => {
 
   expect(await watcher.next("the defaults after the delete")).toEqual({
     path: configFile(),
+    exists: false,
     config: defaults(),
     profiles: [],
     agents: availability(),
