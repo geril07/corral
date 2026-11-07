@@ -4,8 +4,8 @@ import { createHashHistory, type RouterHistory } from "@tanstack/react-router";
 // @tanstack/history 1.162.5. A browser-created entry has no state, and the library reads it as
 // index 0 each time, so a physical Forward can look like Back. Give the entry its real index
 // before TanStack's own popstate handler reads it, and blocker.reset() can then compute the
-// correct reverse traversal instead of a no-op. The package is pinned to this version; the guard
-// below fails loudly rather than silently returning to the no-op if the private key changes.
+// correct reverse traversal instead of a no-op. The package is pinned to the versions above; the
+// browser action tests fail if the private key or its direction semantics change.
 const INDEX_KEY = "__TSR_index";
 
 type IndexedState = Record<string, unknown> & { __TSR_index: number };
@@ -76,16 +76,6 @@ export function createAppHistory(win: Window = window): RouterHistory {
   win.addEventListener("popstate", normalizePopState, { capture: true });
 
   const history = createHashHistory({ window: win });
-  const initialIndex = history.location.state[INDEX_KEY];
-  if (typeof initialIndex !== "number") {
-    win.removeEventListener("popstate", normalizePopState, { capture: true });
-    history.destroy();
-    throw new Error(
-      "TanStack history no longer exposes __TSR_index; update createAppHistory for this version",
-    );
-  }
-  baseIndex = initialIndex;
-  lastIndex = initialIndex;
   const unsubscribe = history.subscribe(({ location }) => {
     const index = location.state[INDEX_KEY];
     if (typeof index === "number") lastIndex = index;
