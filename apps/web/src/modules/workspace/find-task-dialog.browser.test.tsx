@@ -14,6 +14,7 @@ import {
   createTaskWithShell,
   focusedIsTerminal,
   taskButton,
+  taskHeader,
   workspace,
 } from "../../../test/task-flows.tsx";
 
@@ -142,6 +143,7 @@ test("a settled result shows its project and state; Enter inspects it, Continue 
       client.sessions.getSnapshot().sessions.find((each) => each.id === session!.id),
     ).toMatchObject({ state: "stopped", terminalId: null }),
   );
+  await expect.element(taskHeader().getByText("Settled")).toBeVisible();
 
   await prefixThen("f");
   await userEvent.keyboard("old work");
@@ -176,6 +178,7 @@ test("a settled result shows its project and state; Enter inspects it, Continue 
       }),
     ]),
   );
+  await expect.element(taskHeader().getByText("Settled")).not.toBeInTheDocument();
   await expect.element(taskButton("Old work")).toHaveAttribute("aria-current", "true");
   await expect
     .element(workspace().getByRole("button", { name: "Settled (1)" }))

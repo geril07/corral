@@ -157,7 +157,10 @@ export function startServer(options: {
     codexServers,
     config,
     // Defined below, once there is a TaskService to notify; called only after startup.
-    taskEvents: { primarySessionRemoved: () => tasks.primarySessionRemoved() },
+    taskEvents: {
+      primarySessionRemoved: () => tasks.primarySessionRemoved(),
+      taskActivated: (taskId) => tasks.taskActivated(taskId),
+    },
   });
   const tasks = new TaskService({
     store: taskStore,

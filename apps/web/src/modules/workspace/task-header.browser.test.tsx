@@ -287,6 +287,33 @@ test("a settled idle task keeps the sidebar's muted idle glyph and no word", asy
   expect(header().element().textContent).not.toContain("idle");
 });
 
+test("a settled task shows the sidebar's settled word beside its status, and an active task shows none", async () => {
+  const screen = await render(
+    <Harness
+      node={nodeWithStatus({ state: "idle", updatedAt: 1 }, { state: "settled" })}
+      narrow={false}
+    />,
+  );
+
+  const word = header().getByText("Settled");
+  await expect.element(word).toBeVisible();
+  const element = word.element();
+  expect(element.hasAttribute("data-task-state")).toBe(true);
+  expect(element.getAttribute("data-task-state")).toBe("settled");
+  expect(element.closest("[data-task-status]")).toBeNull();
+  expect(header().element().querySelector("[data-task-header-actions]")?.firstElementChild).toBe(
+    element,
+  );
+  expect(getComputedStyle(element).color).toBe(tokenColor("--muted-foreground"));
+  expect(element.querySelector('[role="img"]')).toBeNull();
+  await expect.element(header().getByRole("img", { name: "idle" })).toBeVisible();
+
+  await screen.rerender(
+    <Harness node={nodeWithStatus({ state: "idle", updatedAt: 1 })} narrow={false} />,
+  );
+  expect(header().element().querySelector("[data-task-state]")).toBeNull();
+});
+
 test("the draft header keeps no status, counts, badge or menu", async () => {
   await render(<Harness node={undefined} changes={changes} pullRequest={request} narrow={false} />);
 

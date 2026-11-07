@@ -54,8 +54,9 @@ function openServer(): void {
         problems: [],
       }),
     },
-    // Removing a session is not what this test is about; the tasks feed is elsewhere.
-    taskEvents: { primarySessionRemoved: () => undefined },
+    // Removing a session and activating a task are not what this test is about; the tasks feed is
+    // elsewhere.
+    taskEvents: { primarySessionRemoved: () => undefined, taskActivated: () => undefined },
   });
 }
 
