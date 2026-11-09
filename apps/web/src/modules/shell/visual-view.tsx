@@ -1,7 +1,7 @@
 import { createPrefixKeymap } from "@corral/client/prefix-keymap";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
-  TaskListTooltipProvider,
+  TooltipProvider,
   VisualIconButton,
   VisualResizeHandle,
   VisualSearchAction,
@@ -286,7 +286,7 @@ export function VisualShellView({
             disabledReason="Creating tasks is not part of this visual slice."
           />
         </div>
-        <TaskListTooltipProvider>
+        <TooltipProvider>
           <SidebarList
             rows={rows}
             selectedId={selected?.id}
@@ -295,7 +295,7 @@ export function VisualShellView({
             failure={failure}
             onSelectTask={onSelectTask}
           />
-        </TaskListTooltipProvider>
+        </TooltipProvider>
         <div className="visual-sidebar-footer">
           <VisualIconButton
             label="Settings"

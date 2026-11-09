@@ -1,4 +1,3 @@
-import { Tooltip } from "@base-ui/react/tooltip";
 import {
   useEffect,
   useState,
@@ -8,41 +7,25 @@ import {
   type Ref,
 } from "react";
 import { Icon, type IconName } from "./icon.tsx";
-
-/** One cold hover delay for every shell control, enabled or aria-disabled. */
-const TOOLTIP_DELAY = 300;
-/** One close linger, so crossing a trigger does not flicker. */
-const TOOLTIP_CLOSE_DELAY = 100;
-/** How long a nearby task tooltip may open at once after the previous one closed. */
-const TOOLTIP_WARM_WINDOW = 300;
+import {
+  Tooltip,
+  TooltipCompact,
+  TooltipContent,
+  TooltipExplanation,
+  TooltipMetadata,
+  TooltipTrigger,
+  type TooltipMetadataFact,
+  type TooltipShortcut,
+} from "./tooltip.tsx";
 
 /** The compact tooltip's shortcut, split into the prefix chord and the action chord. */
-export interface VisualShortcut {
-  prefix: string;
-  binding: string | null;
-}
+export type VisualShortcut = TooltipShortcut;
 
 /** A task's genuinely known runtime identity; unknown parts stay absent rather than invented. */
 export interface VisualTaskAgent {
   kind: string;
   model?: string | undefined;
   provider?: string | undefined;
-}
-
-/**
- * Groups only the task list, so a quick task-to-task hop opens the next tooltip at once. The
- * header, footer and main chrome stay outside, each keeping the same cold delay independently.
- */
-export function TaskListTooltipProvider({ children }: { children: ReactNode }) {
-  return (
-    <Tooltip.Provider
-      delay={TOOLTIP_DELAY}
-      closeDelay={TOOLTIP_CLOSE_DELAY}
-      timeout={TOOLTIP_WARM_WINDOW}
-    >
-      {children}
-    </Tooltip.Provider>
-  );
 }
 
 /** The status slot of a task card, already resolved from the primary session. */
@@ -74,16 +57,7 @@ export interface VisualTaskRow {
   metadata: VisualTaskMetadata;
 }
 
-function Keycaps({ shortcut }: { shortcut: VisualShortcut }) {
-  return (
-    <span className="visual-keycaps" aria-hidden="true">
-      <kbd className="visual-keycap">{shortcut.prefix}</kbd>
-      {shortcut.binding !== null && <kbd className="visual-keycap">{shortcut.binding}</kbd>}
-    </span>
-  );
-}
-
-/** One compact tooltip: a label-only hint, or an explanation stacked under its action title. */
+/** One canonical tooltip: a label-only hint, or an explanation stacked under its action title. */
 function CompactTooltip({
   label,
   reason,
@@ -96,32 +70,22 @@ function CompactTooltip({
   children: ReactElement;
 }) {
   return (
-    <Tooltip.Root disableHoverablePopup>
-      <Tooltip.Trigger render={children} delay={TOOLTIP_DELAY} closeDelay={TOOLTIP_CLOSE_DELAY} />
-      <Tooltip.Portal>
-        <Tooltip.Positioner side="bottom" align="start" sideOffset={4} collisionPadding={8}>
-          <Tooltip.Popup
-            className={`visual-tooltip${reason === undefined ? "" : " visual-tooltip-explanation"}`}
-            role="tooltip"
-          >
-            {reason === undefined ? (
-              <>
-                <span className="visual-tooltip-label">{label}</span>
-                {shortcut !== undefined && <Keycaps shortcut={shortcut} />}
-              </>
-            ) : (
-              <>
-                <span className="visual-tooltip-heading">
-                  <span className="visual-tooltip-label">{label}</span>
-                  {shortcut !== undefined && <Keycaps shortcut={shortcut} />}
-                </span>
-                <span className="visual-tooltip-reason">{reason}</span>
-              </>
-            )}
-          </Tooltip.Popup>
-        </Tooltip.Positioner>
-      </Tooltip.Portal>
-    </Tooltip.Root>
+    <Tooltip disableHoverablePopup>
+      <TooltipTrigger render={children} />
+      <TooltipContent
+        variant={reason === undefined ? "compact" : "explanation"}
+        side="bottom"
+        align="start"
+        sideOffset={4}
+        collisionPadding={8}
+      >
+        {reason === undefined ? (
+          <TooltipCompact label={label} shortcut={shortcut} />
+        ) : (
+          <TooltipExplanation label={label} reason={reason} shortcut={shortcut} />
+        )}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -309,40 +273,26 @@ function metadataAgentText(agent: VisualTaskAgent): string {
   return identity === undefined ? agent.kind : `${agent.kind} · ${identity}`;
 }
 
-/**
- * What the metadata tooltip shows: title, then icon+value rows. Project appears exactly once, the
- * workspace path and an ordinary status row stay out, and an error is the only extra indication.
- */
-function MetadataFacts({ row }: { row: VisualTaskRow }) {
+function metadataFacts(row: VisualTaskRow): TooltipMetadataFact[] {
   const { metadata, status } = row;
   const agent = metadata.agent?.kind === "shell" ? undefined : metadata.agent;
   const error = status?.tone === "error" ? (status.message ?? "Error") : undefined;
-  return (
-    <div className="visual-metadata-facts">
-      <div className="visual-metadata-fact">
-        <Icon name="project" size="row" />
-        <span className="visual-metadata-value visual-metadata-project">{metadata.project}</span>
-      </div>
-      <div className="visual-metadata-fact">
-        <Icon name="branch" size="row" />
-        <span className="visual-metadata-value visual-metadata-branch">{metadata.branch}</span>
-      </div>
-      {agent !== undefined && (
-        <div className="visual-metadata-fact">
-          <Icon name="agent" size="row" />
-          <span className="visual-metadata-value visual-metadata-agent">
-            {metadataAgentText(agent)}
-          </span>
-        </div>
-      )}
-      {error !== undefined && (
-        <div className="visual-metadata-fact" data-tone="error">
-          <Icon name="status-error" size="row" />
-          <span className="visual-metadata-value">{error}</span>
-        </div>
-      )}
-    </div>
-  );
+  return [
+    { icon: "project", value: metadata.project, truncate: true },
+    { icon: "branch", value: metadata.branch },
+    ...(agent === undefined
+      ? []
+      : [
+          {
+            icon: "agent" as const,
+            value: metadataAgentText(agent),
+            truncate: true,
+          },
+        ]),
+    ...(error === undefined
+      ? []
+      : [{ icon: "status-error" as const, value: error, tone: "error" as const }]),
+  ];
 }
 
 function TaskMetadataTooltip({ row, children }: { row: VisualTaskRow; children: ReactElement }) {
@@ -357,17 +307,12 @@ function TaskMetadataTooltip({ row, children }: { row: VisualTaskRow; children: 
   }, [open]);
 
   return (
-    <Tooltip.Root open={open} onOpenChange={setOpen}>
-      <Tooltip.Trigger render={children} delay={TOOLTIP_DELAY} closeDelay={TOOLTIP_CLOSE_DELAY} />
-      <Tooltip.Portal>
-        <Tooltip.Positioner side="right" align="start" sideOffset={8} collisionPadding={8}>
-          <Tooltip.Popup className="visual-metadata-tooltip" role="tooltip">
-            <span className="visual-metadata-title">{row.title}</span>
-            <MetadataFacts row={row} />
-          </Tooltip.Popup>
-        </Tooltip.Positioner>
-      </Tooltip.Portal>
-    </Tooltip.Root>
+    <Tooltip open={open} onOpenChange={setOpen}>
+      <TooltipTrigger render={children} />
+      <TooltipContent variant="metadata" side="right" align="start" sideOffset={8}>
+        <TooltipMetadata title={row.title} facts={metadataFacts(row)} />
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

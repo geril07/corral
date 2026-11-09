@@ -109,12 +109,17 @@ context-menu dispatcher.
   parent, not a dialog: no scrim, and its close returns the keyboard through the same fallback.
   Other dialogs keep their existing dimensions.
 - Enter only; the reason is in Direction (**Motion**). RowMenu has no delayed teardown.
-- Hint retains Base UI semantics and 300 ms delay, and mounts its provider and trigger in every
-  state so a clipping flip never remounts the trigger or drops focus. `useTruncatedText` owns
-  clipping measurement and middle ellipsis; full labels remain accessible, with a full-name
-  tooltip when clipped. A task row's Hint carries the whole row name and its status message; a
-  collapsed project row's Hint carries its aggregate attention word and message. The same
-  message is the row's `aria-describedby` description.
+- Hint retains Base UI semantics and the shared 300 ms cold delay, and mounts its provider and
+  trigger in every state so a clipping flip never remounts the trigger or drops focus.
+  `useTruncatedText` owns clipping measurement and middle ellipsis; full labels remain accessible,
+  with a full-name tooltip when clipped. A task row's Hint carries the whole row name and its
+  status message; a collapsed project row's Hint carries its aggregate attention word and message.
+  The same message is the row's `aria-describedby` description.
+- All tooltips render through the canonical `Tooltip` family in `common/ui/tooltip.tsx`: it owns
+  the Base UI lifecycle, portal, positioning, shared 120 ms entry / 80 ms exit motion, instant warm
+  handoff and reduced motion. Compact action, action+explanation and metadata are named
+  presentation/content variants; feature code supplies content and placement, not another popup.
+  Only the task list is a warm group; chrome tooltips keep the same cold delay independently.
 - AgentIcon owns the four real tool logos and the shell glyph. Source and MIT notice:
   `agent-logos.ts` / `agent-logos.LICENSE`. StatusGlyph still distinguishes states by shape
   and color; its sizes match the tab's tool icon slot.

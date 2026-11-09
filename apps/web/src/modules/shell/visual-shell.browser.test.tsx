@@ -141,6 +141,59 @@ test("only task-list hops warm; standalone and disabled controls stay cold", asy
   await unmount();
 });
 
+test("the card status strip is not a pointer dead zone, and Settle replaces rather than conflicts", async () => {
+  const { container, unmount } = await render(<Harness />);
+  const hits = [...container.querySelectorAll<HTMLElement>(".visual-task-card-hit")];
+  if (hits.length === 0) throw new Error("cards are missing");
+
+  for (const hit of hits) {
+    const box = hit.getBoundingClientRect();
+    const target = document.elementFromPoint(box.right - 45, box.top + 12);
+    expect(target?.closest(".visual-task-slot")).toBeNull();
+    expect(target?.closest(".visual-task-card-hit")).toBe(hit);
+  }
+
+  const hit = hits[0]!;
+  await userEvent.hover(hit);
+  await expect.poll(tooltipText).toContain(FIRST.title);
+
+  const settle = hit
+    .closest(".visual-task-card")
+    ?.querySelector<HTMLElement>(".visual-task-action");
+  if (settle === null || settle === undefined) throw new Error("Settle action is missing");
+  await userEvent.hover(settle);
+  await expect.poll(tooltipText).toContain("Settle task");
+  expect(document.querySelector(".visual-metadata-tooltip")).toBeNull();
+  expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
+
+  await userEvent.hover(hit);
+  await expect.poll(tooltipText).toContain(FIRST.title);
+  expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
+  await unmount();
+});
+
+test("a warm task hop replaces metadata instantly without replaying fades", async () => {
+  const { container, unmount } = await render(<Harness />);
+  const first = container.querySelector<HTMLElement>('[data-task-id="fixture-blocked"]');
+  const second = container.querySelector<HTMLElement>('[data-task-id="fixture-error"]');
+  if (first == null || second == null) throw new Error("cards are missing");
+
+  await userEvent.hover(first);
+  await expect.poll(tooltipText).toContain(FIRST.title);
+  const cold = document.querySelector<HTMLElement>(".visual-metadata-tooltip");
+  expect(cold?.hasAttribute("data-instant")).toBe(false);
+
+  await userEvent.unhover(first);
+  await userEvent.hover(second);
+  await nextFrame();
+  const warm = document.querySelector<HTMLElement>(".visual-metadata-tooltip");
+  expect(warm?.textContent).toContain(VISUAL_REVIEW_ROWS[1]!.title);
+  expect(warm?.hasAttribute("data-instant")).toBe(true);
+  expect(warm?.getAnimations()).toHaveLength(0);
+  expect(document.querySelectorAll(".visual-metadata-tooltip")).toHaveLength(1);
+  await unmount();
+});
+
 test("keyboard focus opens metadata, Escape closes it, and right-click is left to the future menu", async () => {
   const { container, unmount } = await render(<Harness />);
   await userEvent.click(cardButton(2));
