@@ -3,7 +3,7 @@ import { describeError, SETTLED_TASK_MESSAGE } from "@corral/client/rpc-errors";
 import type { WatchFailure } from "@corral/client/watch-store";
 import { ActionId, taskSettingsFor, type ClientConfig } from "@corral/protocol/config";
 import type { SessionView } from "@corral/protocol/rpc";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   AppShell,
   Button,
@@ -169,6 +169,11 @@ export function WorkspaceScreen({
     onOpenBoard,
     onOpenSettings,
   });
+  const browse = useCallback(
+    (path: string, signal: AbortSignal) =>
+      client.connection.api.projects.directories({ path }, { signal }),
+    [client],
+  );
   // A first attempt that has not failed yet is a normal load; after that, every retry keeps
   // the boot notice up instead of flashing an empty workspace between attempts.
   const startupProblem: NoticeProblem | undefined =
@@ -508,7 +513,11 @@ export function WorkspaceScreen({
         </TaskContent>
       </MainPanel>
       {dialog?.kind === "add-project" && (
-        <AddProjectDialog onAdd={addProject} onClose={() => setDialog(undefined)} />
+        <AddProjectDialog
+          onAdd={addProject}
+          onBrowse={browse}
+          onClose={() => setDialog(undefined)}
+        />
       )}
       {dialog?.kind === "pick-agent" && (
         <AgentPicker

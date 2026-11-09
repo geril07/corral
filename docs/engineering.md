@@ -100,6 +100,10 @@ picker apply the pure protocol visibility projection. Lifecycle, budgets and lim
 
 ## Web UI kit
 
+Protocol 13 requires `projects.directories`, a bounded authenticated read of the server filesystem
+before registration. It scans at most 4096 entries and returns at most 200 folders, marking an
+incomplete listing. It never runs Git. Canonical registration remains `projects.add`.
+
 shadcn/ui Base UI / Nova components live in `apps/web/src/common/ui`.
 The OpenCode-based visual shell supersedes the earlier T3-like appearance for the workspace; its
 semantic roles and Corral chrome metrics live in `common/ui/visual-shell.css` with the MIT/OFL

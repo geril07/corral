@@ -7,6 +7,91 @@ import { useServer, within } from "../../test/server-fixture.ts";
 
 const server = useServer();
 
+test("directory completion reads server home and navigable folders, not files or hidden siblings", async () => {
+  for (const name of ["alpha", "alpine", "space Юникод", ".hidden"])
+    mkdirSync(join(server.homeDir, name));
+  writeFileSync(join(server.homeDir, "afile"), "file");
+  symlinkSync(join(server.homeDir, "alpha"), join(server.homeDir, "alias"), "dir");
+  const api = await server.rpc();
+  const home = await api.projects.directories({ path: "~/" });
+  expect(home.directories.map((entry) => entry.name)).toEqual([
+    "alias",
+    "alpha",
+    "alpine",
+    "space Юникод",
+  ]);
+  expect(home.truncated).toBe(false);
+  expect(
+    (await api.projects.directories({ path: "~/al" })).directories.map((entry) => entry.name),
+  ).toEqual(["alias", "alpha", "alpine"]);
+  expect(
+    (await api.projects.directories({ path: "~/." })).directories.map((entry) => entry.name),
+  ).toEqual([".hidden"]);
+  expect(await api.projects.directories({ path: "~/alias/" })).toEqual({
+    directories: [],
+    truncated: false,
+  });
+  await expect(api.projects.directories({ path: "~/missing/" })).rejects.toMatchObject({
+    code: "DIRECTORY_UNREADABLE",
+  });
+  await expect(api.projects.directories({ path: "relative/" })).rejects.toMatchObject({
+    code: "DIRECTORY_UNREADABLE",
+  });
+  expect((await api.projects.watch().then((updates) => updates.next())).value).toEqual([]);
+});
+
+test("directory listing honestly marks its response limit and can narrow the prefix", async () => {
+  for (let index = 0; index < 205; index++)
+    mkdirSync(join(server.homeDir, `folder-${String(index).padStart(3, "0")}`));
+  const api = await server.rpc();
+  const result = await api.projects.directories({ path: "~/" });
+  expect(result.directories).toHaveLength(200);
+  expect(result.truncated).toBe(true);
+  const narrowed = await api.projects.directories({ path: "~/folder-204" });
+  expect(narrowed.directories.map((entry) => entry.name)).toEqual(["folder-204"]);
+  expect(narrowed.truncated).toBe(false);
+});
+
+test.skipIf(process.getuid?.() === 0)(
+  "directory errors are not empty successes and permissions can be retried (requires non-root)",
+  async () => {
+    const denied = join(server.homeDir, "denied");
+    mkdirSync(denied);
+    chmodSync(denied, 0);
+    const api = await server.rpc();
+    try {
+      await expect(api.projects.directories({ path: `${denied}/` })).rejects.toMatchObject({
+        code: "DIRECTORY_UNREADABLE",
+        data: { message: "Permission denied reading this server directory." },
+      });
+    } finally {
+      chmodSync(denied, 0o700);
+    }
+    expect(await api.projects.directories({ path: `${denied}/` })).toEqual({
+      directories: [],
+      truncated: false,
+    });
+  },
+);
+
+test("completion preserves long names and server case semantics", async () => {
+  const long = `Long ${"x".repeat(220)} Ю`;
+  mkdirSync(join(server.homeDir, long));
+  const api = await server.rpc();
+  expect((await api.projects.directories({ path: "~/Long" })).directories).toEqual([
+    { name: long, path: `${join(server.homeDir, long)}/` },
+  ]);
+});
+
+test.skipIf(process.platform !== "linux")(
+  "Linux directory prefixes are case sensitive",
+  async () => {
+    mkdirSync(join(server.homeDir, "Upper"));
+    const api = await server.rpc();
+    expect((await api.projects.directories({ path: "~/upper" })).directories).toEqual([]);
+  },
+);
+
 test("add registers the repository, named after its directory", async () => {
   const repo = initRepo(join(server.scratchDir, "my-app"));
   const api = await server.rpc();

@@ -67,6 +67,7 @@ export function describeError(error: unknown): string {
       case "PROJECT_EXISTS":
         return "This repository is already added.";
       case "GIT_FAILED":
+      case "DIRECTORY_UNREADABLE":
         return String(field(data, "message"));
       case "PROJECT_NOT_FOUND":
         return "This project no longer exists.";

@@ -129,7 +129,7 @@ export function TaskDialog({
   children,
 }: DialogProps & {
   showCloseButton?: boolean;
-  layout?: "default" | "settings" | "picker";
+  layout?: "default" | "settings" | "picker" | "path-picker";
   /** Overrides where the keyboard starts, for a dialog that opens on a named control. */
   initialFocus?: DialogInitialFocus;
   /** Overrides the remembered opener, for a dialog opened from another dialog. */
@@ -143,9 +143,11 @@ export function TaskDialog({
         className={
           layout === "settings"
             ? "flex h-[min(44rem,calc(100dvh-2rem))] w-[min(64rem,calc(100vw-2rem))] max-w-none flex-col gap-0 overflow-hidden sm:max-w-none"
-            : layout === "picker"
-              ? "flex w-[36rem] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden sm:max-w-none"
-              : "max-h-[calc(100dvh-2rem)] overflow-y-auto"
+            : layout === "path-picker"
+              ? "visual-path-dialog flex w-[32rem] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden sm:max-w-none"
+              : layout === "picker"
+                ? "flex w-[36rem] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden sm:max-w-none"
+                : "max-h-[calc(100dvh-2rem)] overflow-y-auto"
         }
         padding={layout === "default" ? "default" : "none"}
         closeLabel={layout === "settings" ? "Back to workspace" : "Close"}
@@ -157,7 +159,7 @@ export function TaskDialog({
           className={
             layout === "settings"
               ? "shrink-0 border-b border-border px-5 py-4 pr-12"
-              : layout === "picker"
+              : layout === "picker" || layout === "path-picker"
                 ? "sr-only"
                 : undefined
           }

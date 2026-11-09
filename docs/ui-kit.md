@@ -81,6 +81,11 @@ context-menu dispatcher.
 
 ## Compositions (current state)
 
+- PathPicker composes Base UI's inline Autocomplete inside the picker TaskDialog: free input,
+  no automatic highlight, library-owned virtual focus and folder rows. Ctrl+N/P route to its arrow
+  navigation. Its narrow Toast adapter uses Base UI's lifecycle and announcement, without a new
+  global notification system. Modules supply server paths and actions, never control skins.
+
 - Button `layout="tree"`: allocation/truncation inside a horizontal task/project row;
   `size="row"`: the two-line task; `size="row-sm"`: a dense single-line list row (the Changes
   file list). `layout="navigation"` fills a settings category's width without vertically

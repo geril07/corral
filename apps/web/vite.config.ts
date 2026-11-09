@@ -19,6 +19,8 @@ export default defineConfig({
   // New primitive entry points must be prebundled to avoid a test reload splitting React.
   optimizeDeps: {
     include: [
+      "@base-ui/react/autocomplete",
+      "@base-ui/react/toast",
       "@base-ui/react/checkbox",
       "@base-ui/react/context-menu",
       "@base-ui/react/popover",
