@@ -9,8 +9,12 @@ import {
 } from "react";
 import { Icon, type IconName } from "./icon.tsx";
 
-/** One opening delay for every shell tooltip. The provider also skips it across adjacent triggers. */
-const TOOLTIP_DELAY = 150;
+/** One cold hover delay for every shell control, enabled or aria-disabled. */
+const TOOLTIP_DELAY = 300;
+/** One close linger, so crossing a trigger does not flicker. */
+const TOOLTIP_CLOSE_DELAY = 100;
+/** How long a nearby task tooltip may open at once after the previous one closed. */
+const TOOLTIP_WARM_WINDOW = 300;
 
 /** The compact tooltip's shortcut, split into the prefix chord and the action chord. */
 export interface VisualShortcut {
@@ -26,12 +30,16 @@ export interface VisualTaskAgent {
 }
 
 /**
- * Groups the shell's tooltips under one delay. Base UI also makes adjacent triggers open instantly
- * for a short time, so moving along the action row does not wait again.
+ * Groups only the task list, so a quick task-to-task hop opens the next tooltip at once. The
+ * header, footer and main chrome stay outside, each keeping the same cold delay independently.
  */
-export function VisualTooltipProvider({ children }: { children: ReactNode }) {
+export function TaskListTooltipProvider({ children }: { children: ReactNode }) {
   return (
-    <Tooltip.Provider delay={TOOLTIP_DELAY} closeDelay={100} timeout={300}>
+    <Tooltip.Provider
+      delay={TOOLTIP_DELAY}
+      closeDelay={TOOLTIP_CLOSE_DELAY}
+      timeout={TOOLTIP_WARM_WINDOW}
+    >
       {children}
     </Tooltip.Provider>
   );
@@ -89,7 +97,7 @@ function CompactTooltip({
 }) {
   return (
     <Tooltip.Root disableHoverablePopup>
-      <Tooltip.Trigger render={children} />
+      <Tooltip.Trigger render={children} delay={TOOLTIP_DELAY} closeDelay={TOOLTIP_CLOSE_DELAY} />
       <Tooltip.Portal>
         <Tooltip.Positioner side="bottom" align="start" sideOffset={4} collisionPadding={8}>
           <Tooltip.Popup
@@ -199,8 +207,10 @@ export function VisualResizeHandle({
   onResizeEnd?: (() => void) | undefined;
 }) {
   const keyStep = 16;
+  const [dragging, setDragging] = useState(false);
   const drag = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
+    setDragging(true);
     onResizeStart?.();
     const handle = event.currentTarget;
     const startX = event.clientX;
@@ -212,6 +222,7 @@ export function VisualResizeHandle({
       handle.removeEventListener("pointercancel", stop);
       handle.removeEventListener("lostpointercapture", stop);
       if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+      setDragging(false);
       onResizeEnd?.();
     };
     handle.setPointerCapture(event.pointerId);
@@ -230,6 +241,7 @@ export function VisualResizeHandle({
       aria-valuemax={max}
       tabIndex={0}
       className="visual-resize-handle"
+      data-dragging={dragging ? "true" : undefined}
       onPointerDown={drag}
       onKeyDown={(event) => {
         if (event.key === "ArrowLeft") {
@@ -269,9 +281,12 @@ export function VisualSidebar({
       aria-hidden={hidden ? "true" : undefined}
       style={{ width: hidden ? 0 : width }}
     >
-      {/* Contents keep the open width, so a flight moves the edge instead of reflowing the list. */}
-      <div className="visual-sidebar-surface" style={{ width }} inert={hidden ? true : undefined}>
-        {children}
+      {/* This layer clips the fixed-width contents; the frame itself stays open so the grip can
+          straddle the sidebar/main boundary instead of losing half its hit area. */}
+      <div className="visual-sidebar-clip">
+        <div className="visual-sidebar-surface" style={{ width }} inert={hidden ? true : undefined}>
+          {children}
+        </div>
       </div>
       {!hidden && resize}
     </aside>
@@ -343,7 +358,7 @@ function TaskMetadataTooltip({ row, children }: { row: VisualTaskRow; children: 
 
   return (
     <Tooltip.Root open={open} onOpenChange={setOpen}>
-      <Tooltip.Trigger render={children} />
+      <Tooltip.Trigger render={children} delay={TOOLTIP_DELAY} closeDelay={TOOLTIP_CLOSE_DELAY} />
       <Tooltip.Portal>
         <Tooltip.Positioner side="right" align="start" sideOffset={8} collisionPadding={8}>
           <Tooltip.Popup className="visual-metadata-tooltip" role="tooltip">

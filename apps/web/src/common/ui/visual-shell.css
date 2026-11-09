@@ -89,9 +89,8 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
-  /* Clip, not scroll: focusing a card while the frame opens must not pan the fixed contents. */
-  overflow: clip;
+  /* The frame stays open so the resize grip can straddle its edge; the layer below clips. */
+  overflow: visible;
   transition: width 240ms cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -101,6 +100,17 @@
 
 .visual-shell-sidebar[data-hidden="true"] {
   pointer-events: none;
+}
+
+/* Clips, not scrolls: focusing a card while the frame opens must not pan the fixed contents. */
+.visual-sidebar-clip {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  overflow: clip;
 }
 
 /* The contents do not reflow while the frame's edge moves; the same width is clipped on every frame. */
@@ -662,20 +672,59 @@
   top: 0;
   right: 0;
   bottom: 0;
-  z-index: 2;
-  width: 6px;
+  z-index: 10;
+  width: 8px;
+  transform: translateX(50%);
   cursor: col-resize;
   outline: none;
 }
 
-.visual-resize-handle:hover,
-.visual-resize-handle:focus-visible {
-  background: var(--visual-border-muted);
+/* A pill centred on the boundary; the hit area itself stays invisible. */
+.visual-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 40px;
+  border-radius: 9999px;
+  background: var(--visual-icon-muted);
+  opacity: 0;
+  pointer-events: none;
+  translate: -50% -50%;
+  transition:
+    opacity 110ms cubic-bezier(0.4, 0, 1, 1),
+    background-color 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.visual-resize-handle:focus-visible {
-  outline: 2px solid var(--visual-border-focus);
-  outline-offset: -2px;
+.visual-resize-handle:hover::after {
+  opacity: 1;
+  transition:
+    opacity 150ms cubic-bezier(0.2, 0.8, 0.2, 1) 200ms,
+    background-color 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.visual-resize-handle[data-dragging="true"]::after {
+  opacity: 1;
+  background: var(--visual-icon-base);
+  transition:
+    opacity 150ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background-color 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.visual-resize-handle:focus-visible::after {
+  opacity: 1;
+  background: var(--visual-icon-base);
+  box-shadow: 0 0 0 2px var(--visual-border-focus);
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .visual-resize-handle::after,
+  .visual-resize-handle:hover::after,
+  .visual-resize-handle[data-dragging="true"]::after {
+    transition: none;
+  }
 }
 
 /* ── Compact tooltip and keycaps ─────────────────────────────────────────── */
