@@ -1,12 +1,12 @@
 import { createPrefixKeymap } from "@corral/client/prefix-keymap";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
+  TaskListTooltipProvider,
   VisualIconButton,
   VisualResizeHandle,
   VisualSearchAction,
   VisualSidebar,
   VisualTaskCard,
-  VisualTooltipProvider,
   type VisualShortcut,
   type VisualTaskRow,
 } from "../../common/ui/index.ts";
@@ -246,47 +246,47 @@ export function VisualShellView({
   );
 
   return (
-    <VisualTooltipProvider>
-      <div className="visual-shell-screen">
-        <VisualSidebar
-          width={pane.width}
-          hidden={pane.hidden}
-          resizing={pane.resizing}
-          resize={
-            !pane.hidden ? (
-              <VisualResizeHandle
-                width={pane.width}
-                min={VISUAL_SIDEBAR_MIN_WIDTH}
-                max={Math.min(VISUAL_SIDEBAR_MAX_WIDTH, pane.maxWidth)}
-                onResize={pane.setWidth}
-                onResizeStart={pane.beginResize}
-                onResizeEnd={pane.endResize}
-              />
-            ) : undefined
-          }
-        >
-          <div className="visual-sidebar-header">
-            <span className="visual-wordmark">Corral</span>
-            <VisualIconButton
-              label="Hide sidebar"
-              icon="hide-sidebar"
-              onClick={toggleSidebar}
-              shortcut={shortcut}
-              ariaExpanded
-              ariaControls="visual-sidebar"
+    <div className="visual-shell-screen">
+      <VisualSidebar
+        width={pane.width}
+        hidden={pane.hidden}
+        resizing={pane.resizing}
+        resize={
+          !pane.hidden ? (
+            <VisualResizeHandle
+              width={pane.width}
+              min={VISUAL_SIDEBAR_MIN_WIDTH}
+              max={Math.min(VISUAL_SIDEBAR_MAX_WIDTH, pane.maxWidth)}
+              onResize={pane.setWidth}
+              onResizeStart={pane.beginResize}
+              onResizeEnd={pane.endResize}
             />
-          </div>
-          <div className="visual-sidebar-actions">
-            <VisualSearchAction
-              label="Search tasks…"
-              disabledReason="Task search is not part of this visual slice."
-            />
-            <VisualIconButton
-              label="New task"
-              icon="add"
-              disabledReason="Creating tasks is not part of this visual slice."
-            />
-          </div>
+          ) : undefined
+        }
+      >
+        <div className="visual-sidebar-header">
+          <span className="visual-wordmark">Corral</span>
+          <VisualIconButton
+            label="Hide sidebar"
+            icon="hide-sidebar"
+            onClick={toggleSidebar}
+            shortcut={shortcut}
+            ariaExpanded
+            ariaControls="visual-sidebar"
+          />
+        </div>
+        <div className="visual-sidebar-actions">
+          <VisualSearchAction
+            label="Search tasks…"
+            disabledReason="Task search is not part of this visual slice."
+          />
+          <VisualIconButton
+            label="New task"
+            icon="add"
+            disabledReason="Creating tasks is not part of this visual slice."
+          />
+        </div>
+        <TaskListTooltipProvider>
           <SidebarList
             rows={rows}
             selectedId={selected?.id}
@@ -295,45 +295,45 @@ export function VisualShellView({
             failure={failure}
             onSelectTask={onSelectTask}
           />
-          <div className="visual-sidebar-footer">
+        </TaskListTooltipProvider>
+        <div className="visual-sidebar-footer">
+          <VisualIconButton
+            label="Settings"
+            icon="settings"
+            disabledReason="Settings is not part of this visual slice."
+          />
+          <VisualIconButton
+            label="Add project"
+            icon="add-project"
+            onClick={onAddProject}
+            disabledReason={
+              onAddProject === undefined ? "Adding projects is unavailable here." : undefined
+            }
+          />
+        </div>
+      </VisualSidebar>
+      <main className="visual-shell-main" aria-label="Workspace">
+        <div className="visual-main-chrome">
+          {pane.hidden && (
             <VisualIconButton
-              label="Settings"
-              icon="settings"
-              disabledReason="Settings is not part of this visual slice."
+              label="Show sidebar"
+              icon="show-sidebar"
+              onClick={toggleSidebar}
+              shortcut={shortcut}
+              buttonRef={showToggle}
+              ariaExpanded={false}
+              ariaControls="visual-sidebar"
             />
-            <VisualIconButton
-              label="Add project"
-              icon="add-project"
-              onClick={onAddProject}
-              disabledReason={
-                onAddProject === undefined ? "Adding projects is unavailable here." : undefined
-              }
-            />
-          </div>
-        </VisualSidebar>
-        <main className="visual-shell-main" aria-label="Workspace">
-          <div className="visual-main-chrome">
-            {pane.hidden && (
-              <VisualIconButton
-                label="Show sidebar"
-                icon="show-sidebar"
-                onClick={toggleSidebar}
-                shortcut={shortcut}
-                buttonRef={showToggle}
-                ariaExpanded={false}
-                ariaControls="visual-sidebar"
-              />
-            )}
-          </div>
-          <div className="visual-main-content">
-            {selected === undefined ? (
-              <EmptyMain rows={rows} failure={failure} />
-            ) : (
-              <TaskMain row={selected} />
-            )}
-          </div>
-        </main>
-      </div>
-    </VisualTooltipProvider>
+          )}
+        </div>
+        <div className="visual-main-content">
+          {selected === undefined ? (
+            <EmptyMain rows={rows} failure={failure} />
+          ) : (
+            <TaskMain row={selected} />
+          )}
+        </div>
+      </main>
+    </div>
   );
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { VisualIconButton, VisualTooltipProvider } from "../../common/ui/index.ts";
+import { VisualIconButton } from "../../common/ui/index.ts";
 import { bindingOf, useConfig } from "../keymap/index.ts";
 import { VISUAL_REVIEW_ROWS, VISUAL_REVIEW_SELECTED } from "./visual-fixtures.ts";
 import { VisualShellView } from "./visual-view.tsx";
@@ -37,17 +37,15 @@ export function VisualReview() {
         onSelectTask={setSelectedId}
       />
       <div className="visual-review-theme">
-        <VisualTooltipProvider>
-          <VisualIconButton
-            label={dark ? "Use light theme" : "Use dark theme"}
-            icon="palette"
-            onClick={() => {
-              const next = !dark;
-              setDark(next);
-              document.documentElement.classList.toggle("dark", next);
-            }}
-          />
-        </VisualTooltipProvider>
+        <VisualIconButton
+          label={dark ? "Use light theme" : "Use dark theme"}
+          icon="palette"
+          onClick={() => {
+            const next = !dark;
+            setDark(next);
+            document.documentElement.classList.toggle("dark", next);
+          }}
+        />
       </div>
     </>
   );

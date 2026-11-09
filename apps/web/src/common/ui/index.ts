@@ -75,10 +75,10 @@ export {
   VisualSearchAction,
   VisualSidebar,
   VisualTaskCard,
+  TaskListTooltipProvider,
   type VisualCardStatus,
   type VisualShortcut,
   type VisualTaskAgent,
   type VisualTaskMetadata,
   type VisualTaskRow,
-  VisualTooltipProvider,
 } from "./visual-shell.tsx";
