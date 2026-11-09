@@ -1,11 +1,6 @@
-import {
-  describeStatus,
-  hasUnseen,
-  sessionStatus,
-  type TaskStatus,
-} from "@corral/client/agent-status";
+import { hasUnseen, sessionStatus, type TaskStatus } from "@corral/client/agent-status";
 import type { AgentStatus, Project, Session, Task } from "@corral/protocol/rpc";
-import type { VisualCardStatus, VisualTaskRow } from "../../common/ui/index.ts";
+import type { VisualCardStatus, VisualTaskAgent, VisualTaskRow } from "../../common/ui/index.ts";
 
 /** A card's compressed age: no seconds, as agreed for the sidebar (`#258`, §6). */
 export function formatCompactAge(now: number, then: number): string {
@@ -95,12 +90,19 @@ function projectInitial(name: string): string {
   return first === undefined ? "?" : first.toUpperCase();
 }
 
-function statusText(status: AgentStatus | undefined): string | undefined {
-  if (status === undefined) return undefined;
-  const described = describeStatus(status);
-  return status.message === undefined || status.message === ""
-    ? described
-    : `${described} — ${status.message}`;
+/**
+ * The primary agent's known launch identity. A shell is not an agent, and an unknown model or
+ * provider stays absent instead of being inferred from another profile or a default.
+ */
+function visualAgent(session: Session | undefined): VisualTaskAgent | undefined {
+  if (session === undefined || session.kind === "shell") return undefined;
+  const model = session.launch?.model ?? undefined;
+  const provider = session.launch?.provider ?? undefined;
+  return {
+    kind: session.kind,
+    ...(model === undefined ? {} : { model }),
+    ...(provider === undefined ? {} : { provider }),
+  };
 }
 
 /**
@@ -128,6 +130,7 @@ export function buildTaskRows(
     if (project === undefined) continue;
     const primary = primarySession(task, sessions);
     const primaryStatus = primary === undefined ? undefined : sessionStatus(primary);
+    const agent = visualAgent(primary);
     rows.push({
       priority: cardPriority(task, primaryStatus),
       activity: primaryStatus?.updatedAt ?? task.createdAt,
@@ -142,11 +145,7 @@ export function buildTaskRows(
         metadata: {
           project: project.name,
           branch: task.branch,
-          workspace: task.workspacePath,
-          ...(primary === undefined ? {} : { agent: primary.kind }),
-          ...(statusText(primaryStatus) === undefined
-            ? {}
-            : { status: statusText(primaryStatus)! }),
+          ...(agent === undefined ? {} : { agent }),
           ...(task.prompt === null ? {} : { prompt: task.prompt }),
         },
       },

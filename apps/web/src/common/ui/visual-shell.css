@@ -20,13 +20,14 @@
   --visual-icon-muted: #808080;
   --visual-hover: rgb(0 0 0 / 4%);
   --visual-pressed: rgb(0 0 0 / 8%);
-  --visual-border-focus: #3b5cf6;
+  --visual-border-focus: #7698fd;
   --visual-border-muted: rgb(0 0 0 / 8%);
   --visual-status-working: #3250df;
   --visual-status-done: #198b43;
   --visual-status-error: #b82d35;
   --visual-status-blocked: #cb9f34;
-  --visual-shadow-floating: 0 16px 40px -18px rgb(0 0 0 / 45%);
+  --visual-shadow-floating:
+    0 8px 16px rgb(0 0 0 / 4%), 0 4px 8px rgb(0 0 0 / 8%), 0 0 0 0.5px rgb(0 0 0 / 12%);
 }
 
 .dark {
@@ -47,7 +48,9 @@
   --visual-status-done: #6bd586;
   --visual-status-error: #f17471;
   --visual-status-blocked: #f2cf76;
-  --visual-shadow-floating: 0 16px 40px -18px rgb(0 0 0 / 55%);
+  --visual-shadow-floating:
+    0 8px 16px rgb(0 0 0 / 30%), 0 4px 8px rgb(0 0 0 / 30%), 0 0 0 0.5px rgb(255 255 255 / 16%),
+    0 -0.5px 0 0 rgb(255 255 255 / 6%);
 }
 
 /* The workspace route fills the app host; board and settings sit above it as their own layer. */
@@ -84,13 +87,44 @@
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
-  padding: 8px 3px 10px 11px;
   overflow: hidden;
+  /* Clip, not scroll: focusing a card while the frame opens must not pan the fixed contents. */
+  overflow: clip;
+  transition: width 240ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.visual-shell-sidebar[data-resizing="true"] {
+  transition: none;
 }
 
 .visual-shell-sidebar[data-hidden="true"] {
-  display: none;
+  pointer-events: none;
+}
+
+/* The contents do not reflow while the frame's edge moves; the same width is clipped on every frame. */
+.visual-sidebar-surface {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px 5px 10px 11px;
+  opacity: 1;
+  transition: opacity 120ms ease-out;
+}
+
+.visual-shell-sidebar[data-hidden="true"] .visual-sidebar-surface {
+  opacity: 0;
+  transition: opacity 80ms ease-in 100ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .visual-shell-sidebar,
+  .visual-sidebar-surface,
+  .visual-shell-sidebar[data-hidden="true"] .visual-sidebar-surface {
+    transition: none;
+  }
 }
 
 .visual-sidebar-header {
@@ -146,7 +180,7 @@
   user-select: none;
 }
 
-.visual-search-row:hover:not([aria-disabled="true"]),
+.visual-search-row:hover,
 .visual-search-row:focus-visible {
   background: var(--visual-hover);
   color: var(--visual-text-base);
@@ -158,8 +192,12 @@
 }
 
 .visual-search-row[aria-disabled="true"] {
-  opacity: 0.5;
   cursor: not-allowed;
+}
+
+.visual-search-row[aria-disabled="true"] svg,
+.visual-search-row[aria-disabled="true"] .visual-search-label {
+  opacity: 0.5;
 }
 
 .visual-search-label {
@@ -268,8 +306,9 @@
 }
 
 .visual-task-card-hit:focus-visible {
+  /* A full-width row inside a scroll container gets the inset ring, so none of it is clipped. */
   outline: 2px solid var(--visual-border-focus);
-  outline-offset: 2.5px;
+  outline-offset: -2px;
 }
 
 .visual-task-project-row {
@@ -435,7 +474,7 @@
   user-select: none;
 }
 
-.visual-icon-button:hover:not([aria-disabled="true"]),
+.visual-icon-button:hover,
 .visual-icon-button:focus-visible {
   background: var(--visual-hover);
   color: var(--visual-icon-base);
@@ -447,8 +486,11 @@
 }
 
 .visual-icon-button[aria-disabled="true"] {
-  opacity: 0.5;
   cursor: not-allowed;
+}
+
+.visual-icon-button[aria-disabled="true"] svg {
+  opacity: 0.5;
 }
 
 .visual-task-action {
@@ -466,7 +508,7 @@
   cursor: default;
 }
 
-.visual-task-action:hover:not([aria-disabled="true"]),
+.visual-task-action:hover,
 .visual-task-action:focus-visible {
   background: var(--visual-pressed);
   color: var(--visual-icon-base);
@@ -478,15 +520,21 @@
 }
 
 .visual-task-action[aria-disabled="true"] {
-  opacity: 0.5;
   cursor: not-allowed;
 }
 
-.visual-main-toggle {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 1;
+.visual-task-action[aria-disabled="true"] svg {
+  opacity: 0.5;
+}
+
+/* A real chrome row is reserved in the main surface, so its Show toggle never sits over the title. */
+.visual-main-chrome {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  height: 40px;
+  padding: 0 8px;
+  overflow: hidden;
 }
 
 /* ── Main surface ────────────────────────────────────────────────────────── */
@@ -586,36 +634,6 @@
   color: var(--visual-status-blocked);
 }
 
-.visual-main-facts {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  color: var(--visual-text-muted);
-  font-size: 13px;
-  line-height: 16px;
-  font-weight: 440;
-}
-
-.visual-main-fact {
-  display: flex;
-  gap: 8px;
-  min-width: 0;
-}
-
-.visual-main-fact-label {
-  flex: 0 0 72px;
-  color: var(--visual-text-faint);
-  font-size: 11px;
-  line-height: 16px;
-}
-
-.visual-main-fact-value {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 .visual-main-prompt {
   margin: 0;
   padding: 10px 12px;
@@ -642,7 +660,7 @@
 .visual-resize-handle {
   position: absolute;
   top: 0;
-  right: -3px;
+  right: 0;
   bottom: 0;
   z-index: 2;
   width: 6px;
@@ -673,6 +691,7 @@
   background: var(--visual-bg-layer-01);
   box-shadow: var(--visual-shadow-floating);
   color: var(--visual-text-base);
+  font-family: var(--font-sans);
   font-size: 11px;
   line-height: 12px;
   font-weight: 530;
@@ -684,8 +703,22 @@
   animation: visual-tooltip-in 120ms ease-out;
 }
 
-.visual-tooltip[data-closed] {
-  animation: visual-tooltip-out 80ms ease-in forwards;
+/* A reason is readable prose, so it goes under the action title, never beside it in a label column. */
+.visual-tooltip-explanation {
+  flex-direction: column;
+  align-items: stretch;
+  width: max-content;
+  max-width: 280px;
+  padding: 7px 8px;
+  gap: 4px;
+}
+
+.visual-tooltip-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
 }
 
 .visual-tooltip-label {
@@ -695,6 +728,9 @@
 
 .visual-tooltip-reason {
   color: var(--visual-text-muted);
+  font-weight: 440;
+  line-height: 15px;
+  overflow-wrap: anywhere;
 }
 
 .visual-keycaps {
@@ -734,27 +770,15 @@
   }
 }
 
-@keyframes visual-tooltip-out {
-  from {
-    opacity: 1;
-    transform: scale(1);
-  }
-  to {
-    opacity: 0;
-    transform: scale(0.96);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .visual-tooltip,
-  .visual-tooltip[data-closed] {
+  .visual-tooltip {
     animation: none;
   }
 }
 
-/* ── Card metadata popover ───────────────────────────────────────────────── */
+/* ── Card metadata tooltip ────────────────────────────────────────────────── */
 
-.visual-metadata-popover {
+.visual-metadata-tooltip {
   z-index: 1000;
   display: flex;
   flex-direction: column;
@@ -766,53 +790,58 @@
   background: var(--visual-bg-base);
   box-shadow: var(--visual-shadow-floating);
   color: var(--visual-text-base);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 440;
+  letter-spacing: -0.04px;
+  font-variant-numeric: tabular-nums;
   outline: none;
   user-select: none;
+  pointer-events: none;
 }
 
 .visual-metadata-title {
   color: var(--visual-text-base);
-  font-size: 13px;
-  line-height: 1.5;
   font-weight: 530;
-  letter-spacing: -0.04px;
   overflow-wrap: anywhere;
 }
 
-.visual-metadata-project {
-  color: var(--visual-text-muted);
-  font-size: 13px;
-  line-height: 1.5;
-  font-weight: 440;
-  letter-spacing: -0.04px;
-}
-
-.visual-metadata-rows {
+.visual-metadata-facts {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  margin: 4px 0 0;
-}
-
-.visual-metadata-row {
-  display: flex;
-  gap: 8px;
   min-width: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  font-weight: 440;
-  letter-spacing: -0.04px;
 }
 
-.visual-metadata-label {
-  flex: 0 0 64px;
-  color: var(--visual-text-faint);
+.visual-metadata-fact {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  color: var(--visual-text-muted);
+}
+
+.visual-metadata-fact > svg {
+  flex: 0 0 auto;
+  margin-top: 3.5px;
 }
 
 .visual-metadata-value {
+  flex: 1 1 auto;
   min-width: 0;
-  color: var(--visual-text-muted);
   overflow-wrap: anywhere;
+}
+
+.visual-metadata-project,
+.visual-metadata-agent {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visual-metadata-fact[data-tone="error"] {
+  color: var(--visual-status-error);
 }
 
 /* ── Scrollbar (fine pointers only; touch keeps the platform bar) ────────── */

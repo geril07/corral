@@ -128,9 +128,10 @@ context-menu dispatcher.
   `bg-deep`, an 8 px inset `bg-base` main surface with radius 10, a 40 px Corral header, the
   Search/New-task row, a flat 52 px task card list and a footer. `VisualTaskCard` keeps its title
   metrics in every state, swaps the fixed 88 px status slot for the Settle action on hover/focus,
-  and opens its metadata popover on right-click or Shift+F10. `VisualIconButton`,
-  `VisualSearchAction`, `VisualResizeHandle`, the compact tooltip/keycaps and the metadata popover
-  are the only controls the shell composes.
+  and opens its metadata tooltip on hover and keyboard focus: title, then icon+value rows for
+  project, branch and the primary agent's known model/provider, with no workspace path or ordinary
+  status row. `VisualIconButton`, `VisualSearchAction`, `VisualResizeHandle`, the compact
+  tooltip/keycaps and the metadata tooltip are the only controls the shell composes.
 - Unavailable shell actions stay focusable with `aria-disabled` and explain the reason in the
   compact tooltip; they never use an empty click handler. Add project opens the existing real
   dialog; Search, New task, Settings and Settle are deferred in this slice.

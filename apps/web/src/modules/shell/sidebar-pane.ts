@@ -59,8 +59,11 @@ function store(key: string, value: string): void {
 export interface VisualSidebarPane {
   width: number;
   hidden: boolean;
+  resizing: boolean;
   maxWidth: number;
   setWidth: (width: number) => void;
+  beginResize: () => void;
+  endResize: () => void;
   toggle: () => void;
 }
 
@@ -68,6 +71,7 @@ export interface VisualSidebarPane {
 export function useVisualSidebarPane(): VisualSidebarPane {
   const [preference, setPreference] = useState(readWidth);
   const [hidden, setHidden] = useState(readHidden);
+  const [resizing, setResizing] = useState(false);
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
 
   useEffect(() => {
@@ -92,5 +96,7 @@ export function useVisualSidebarPane(): VisualSidebarPane {
       return !current;
     });
   }, []);
-  return { width, hidden, maxWidth, setWidth, toggle };
+  const beginResize = useCallback(() => setResizing(true), []);
+  const endResize = useCallback(() => setResizing(false), []);
+  return { width, hidden, resizing, maxWidth, setWidth, beginResize, endResize, toggle };
 }
