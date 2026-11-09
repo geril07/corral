@@ -81,6 +81,56 @@ describe("primary session status", () => {
     const auxiliary = session("auxiliary", { status: status("working") });
     expect(primaryTaskStatus(task("task-1"), [auxiliary])).toBeUndefined();
   });
+
+  test("the metadata agent is the primary session's real launch choice, never a shell", () => {
+    const primary = session("primary", {
+      launch: {
+        kind: "pi",
+        profile: null,
+        model: "claude-sonnet-4-5",
+        provider: "anthropic",
+        env: [],
+      },
+    });
+    const shell = session("shell", {
+      kind: "shell",
+      launch: {
+        kind: "pi",
+        profile: null,
+        model: "claude-sonnet-4-5",
+        provider: "anthropic",
+        env: [],
+      },
+    });
+
+    const [row] = buildTaskRows(
+      [PROJECT],
+      [task("task-1", { primarySessionId: primary.id })],
+      [primary, shell],
+      NOW,
+    );
+    expect(row?.metadata.agent).toEqual({
+      kind: "pi",
+      model: "claude-sonnet-4-5",
+      provider: "anthropic",
+    });
+
+    const [withoutModel] = buildTaskRows(
+      [PROJECT],
+      [task("task-1", { primarySessionId: "plain" })],
+      [session("plain")],
+      NOW,
+    );
+    expect(withoutModel?.metadata.agent).toEqual({ kind: "pi" });
+
+    const [withoutPrimary] = buildTaskRows(
+      [PROJECT],
+      [task("task-1", { primarySessionId: shell.id })],
+      [shell],
+      NOW,
+    );
+    expect(withoutPrimary?.metadata.agent).toBeUndefined();
+  });
 });
 
 describe("card status", () => {

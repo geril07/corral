@@ -85,7 +85,7 @@ try {
 
   const chat = await api.tasks.create({
     projectId: project.id,
-    title: "Chat: retry the upload job",
+    title: "Retry the upload job",
     prompt: "Add retries to the upload job and keep the existing backoff.",
     agent: { kind: "pi", view: "chat" },
     workspace,
@@ -95,14 +95,14 @@ try {
 
   const shell = await api.tasks.create({
     projectId: project.id,
-    title: "Shell: inspect the build",
+    title: "Inspect the build",
     workspace,
   });
   await api.sessions.start({ taskId: shell.id, kind: "shell", size });
 
   const done = await api.tasks.create({
     projectId: project.id,
-    title: "Settled: old upload modal",
+    title: "Update the old upload modal",
     workspace,
   });
   await api.tasks.setState({ id: done.id, state: "settled" });

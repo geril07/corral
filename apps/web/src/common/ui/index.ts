@@ -77,6 +77,8 @@ export {
   VisualTaskCard,
   type VisualCardStatus,
   type VisualShortcut,
+  type VisualTaskAgent,
   type VisualTaskMetadata,
   type VisualTaskRow,
+  VisualTooltipProvider,
 } from "./visual-shell.tsx";

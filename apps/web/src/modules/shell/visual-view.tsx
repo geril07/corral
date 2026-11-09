@@ -1,11 +1,12 @@
 import { createPrefixKeymap } from "@corral/client/prefix-keymap";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   VisualIconButton,
   VisualResizeHandle,
   VisualSearchAction,
   VisualSidebar,
   VisualTaskCard,
+  VisualTooltipProvider,
   type VisualShortcut,
   type VisualTaskRow,
 } from "../../common/ui/index.ts";
@@ -143,32 +144,6 @@ function TaskMain({ row }: { row: VisualTaskRow }) {
           {status}
         </span>
       )}
-      <dl className="visual-main-facts">
-        <div className="visual-main-fact">
-          <dt className="visual-main-fact-label">Project</dt>
-          <dd className="visual-main-fact-value">{row.metadata.project}</dd>
-        </div>
-        <div className="visual-main-fact">
-          <dt className="visual-main-fact-label">Branch</dt>
-          <dd className="visual-main-fact-value">{row.metadata.branch}</dd>
-        </div>
-        <div className="visual-main-fact">
-          <dt className="visual-main-fact-label">Workspace</dt>
-          <dd className="visual-main-fact-value">{row.metadata.workspace}</dd>
-        </div>
-        {row.metadata.agent !== undefined && (
-          <div className="visual-main-fact">
-            <dt className="visual-main-fact-label">Agent</dt>
-            <dd className="visual-main-fact-value">{row.metadata.agent}</dd>
-          </div>
-        )}
-        {row.metadata.status !== undefined && (
-          <div className="visual-main-fact">
-            <dt className="visual-main-fact-label">Status</dt>
-            <dd className="visual-main-fact-value">{row.metadata.status}</dd>
-          </div>
-        )}
-      </dl>
       {row.metadata.prompt !== undefined && (
         <p className="visual-main-prompt">{row.metadata.prompt}</p>
       )}
@@ -224,6 +199,9 @@ export function VisualShellView({
   const pane = useVisualSidebarPane();
   const selected =
     selectedId === null ? undefined : (rows.find((row) => row.id === selectedId) ?? rows[0]);
+  const selectedRowId = selected?.id;
+  const showToggle = useRef<HTMLButtonElement>(null);
+  const pendingFocus = useRef<number | null>(null);
   const keymap = useMemo(
     () =>
       createPrefixKeymap(
@@ -234,90 +212,128 @@ export function VisualShellView({
       ),
     [shortcut],
   );
-  const { toggle } = pane;
+  const { hidden, toggle } = pane;
+  const toggleSidebar = useCallback(() => {
+    const willHide = !hidden;
+    toggle();
+    if (pendingFocus.current !== null) cancelAnimationFrame(pendingFocus.current);
+    pendingFocus.current = requestAnimationFrame(() => {
+      pendingFocus.current = null;
+      if (willHide) {
+        showToggle.current?.focus();
+        return;
+      }
+      const id = selectedRowId;
+      if (id === undefined) return;
+      document
+        .querySelector<HTMLElement>(`.visual-task-card-hit[data-task-id="${CSS.escape(id)}"]`)
+        ?.focus();
+    });
+  }, [hidden, selectedRowId, toggle]);
   const runAction = useCallback(
     (action: string) => {
-      if (action === "toggle-sidebar") toggle();
+      if (action === "toggle-sidebar") toggleSidebar();
     },
-    [toggle],
+    [toggleSidebar],
   );
   usePrefixMode(keymap, runAction, prefixEnabled);
 
+  useEffect(
+    () => () => {
+      if (pendingFocus.current !== null) cancelAnimationFrame(pendingFocus.current);
+    },
+    [],
+  );
+
   return (
-    <div className="visual-shell-screen">
-      <VisualSidebar width={pane.width} hidden={pane.hidden}>
-        <div className="visual-sidebar-header">
-          <span className="visual-wordmark">Corral</span>
-          <VisualIconButton
-            label="Hide sidebar"
-            icon="hide-sidebar"
-            onClick={pane.toggle}
-            shortcut={shortcut}
-            ariaExpanded
-            ariaControls="visual-sidebar"
-          />
-        </div>
-        <div className="visual-sidebar-actions">
-          <VisualSearchAction
-            label="Search tasks…"
-            disabledReason="Task search is not part of this visual slice."
-          />
-          <VisualIconButton
-            label="New task"
-            icon="add"
-            disabledReason="Creating tasks is not part of this visual slice."
-          />
-        </div>
-        <SidebarList
-          rows={rows}
-          selectedId={selected?.id}
-          projectsLoaded={projectsLoaded}
-          tasksLoaded={tasksLoaded}
-          failure={failure}
-          onSelectTask={onSelectTask}
-        />
-        <div className="visual-sidebar-footer">
-          <VisualIconButton
-            label="Settings"
-            icon="settings"
-            disabledReason="Settings is not part of this visual slice."
-          />
-          <VisualIconButton
-            label="Add project"
-            icon="add-project"
-            onClick={onAddProject}
-            disabledReason={
-              onAddProject === undefined ? "Adding projects is unavailable here." : undefined
-            }
-          />
-        </div>
-        <VisualResizeHandle
+    <VisualTooltipProvider>
+      <div className="visual-shell-screen">
+        <VisualSidebar
           width={pane.width}
-          min={VISUAL_SIDEBAR_MIN_WIDTH}
-          max={Math.min(VISUAL_SIDEBAR_MAX_WIDTH, pane.maxWidth)}
-          onResize={pane.setWidth}
-        />
-      </VisualSidebar>
-      <main className="visual-shell-main" aria-label="Workspace">
-        {pane.hidden && (
-          <VisualIconButton
-            label="Show sidebar"
-            icon="show-sidebar"
-            onClick={pane.toggle}
-            shortcut={shortcut}
-            placement="floating"
-            ariaExpanded={false}
-            ariaControls="visual-sidebar"
+          hidden={pane.hidden}
+          resizing={pane.resizing}
+          resize={
+            !pane.hidden ? (
+              <VisualResizeHandle
+                width={pane.width}
+                min={VISUAL_SIDEBAR_MIN_WIDTH}
+                max={Math.min(VISUAL_SIDEBAR_MAX_WIDTH, pane.maxWidth)}
+                onResize={pane.setWidth}
+                onResizeStart={pane.beginResize}
+                onResizeEnd={pane.endResize}
+              />
+            ) : undefined
+          }
+        >
+          <div className="visual-sidebar-header">
+            <span className="visual-wordmark">Corral</span>
+            <VisualIconButton
+              label="Hide sidebar"
+              icon="hide-sidebar"
+              onClick={toggleSidebar}
+              shortcut={shortcut}
+              ariaExpanded
+              ariaControls="visual-sidebar"
+            />
+          </div>
+          <div className="visual-sidebar-actions">
+            <VisualSearchAction
+              label="Search tasks…"
+              disabledReason="Task search is not part of this visual slice."
+            />
+            <VisualIconButton
+              label="New task"
+              icon="add"
+              disabledReason="Creating tasks is not part of this visual slice."
+            />
+          </div>
+          <SidebarList
+            rows={rows}
+            selectedId={selected?.id}
+            projectsLoaded={projectsLoaded}
+            tasksLoaded={tasksLoaded}
+            failure={failure}
+            onSelectTask={onSelectTask}
           />
-        )}
-        <div className="visual-main-content">
-          {selected === undefined ? (
-            <EmptyMain rows={rows} failure={failure} />
-          ) : (
-            <TaskMain row={selected} />
-          )}
-        </div>
-      </main>
-    </div>
+          <div className="visual-sidebar-footer">
+            <VisualIconButton
+              label="Settings"
+              icon="settings"
+              disabledReason="Settings is not part of this visual slice."
+            />
+            <VisualIconButton
+              label="Add project"
+              icon="add-project"
+              onClick={onAddProject}
+              disabledReason={
+                onAddProject === undefined ? "Adding projects is unavailable here." : undefined
+              }
+            />
+          </div>
+        </VisualSidebar>
+        <main className="visual-shell-main" aria-label="Workspace">
+          <div className="visual-main-chrome">
+            {pane.hidden && (
+              <VisualIconButton
+                label="Show sidebar"
+                icon="show-sidebar"
+                onClick={toggleSidebar}
+                shortcut={shortcut}
+                buttonRef={showToggle}
+                ariaExpanded={false}
+                ariaControls="visual-sidebar"
+              />
+            )}
+          </div>
+          <div className="visual-main-content">
+            {selected === undefined ? (
+              <EmptyMain rows={rows} failure={failure} />
+            ) : (
+              <TaskMain row={selected} />
+            )}
+          </div>
+        </main>
+      </div>
+    </VisualTooltipProvider>
   );
 }
