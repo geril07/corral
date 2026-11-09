@@ -333,14 +333,115 @@ test("the resize grip straddles the boundary, shows a pill only on dwell or drag
   await unmount();
 });
 
-test("hiding the sidebar animates its edge, reserves the Show toggle's chrome row, and restores focus", async () => {
+test("the sidebar can be dragged to 100, keeps essential controls reachable, and still hands off one toggle", async () => {
+  const { container, unmount } = await render(<Harness />);
+  const aside = container.querySelector<HTMLElement>(".visual-shell-sidebar");
+  if (aside === null) throw new Error("sidebar frame is missing");
+  const handle = page.getByRole("separator", { name: "Resize sidebar" }).element();
+  Object.defineProperties(handle, {
+    setPointerCapture: { configurable: true, value: () => undefined },
+    releasePointerCapture: { configurable: true, value: () => undefined },
+    hasPointerCapture: { configurable: true, value: () => true },
+  });
+  const startX = handle.getBoundingClientRect().left + 4;
+  handle.dispatchEvent(
+    new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      clientX: startX,
+    }),
+  );
+  handle.dispatchEvent(
+    new PointerEvent("pointermove", {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      clientX: startX - 500,
+    }),
+  );
+  handle.dispatchEvent(
+    new PointerEvent("pointerup", {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      clientX: startX - 500,
+    }),
+  );
+
+  await expect.poll(() => Number(handle.getAttribute("aria-valuenow"))).toBe(100);
+  await expect.poll(() => Math.round(aside.getBoundingClientRect().width)).toBe(100);
+  expect(localStorage.getItem("corral.visual-sidebar-width")).toBe("100");
+
+  const toggles = () => [
+    ...container.querySelectorAll<HTMLButtonElement>('button[aria-controls="visual-sidebar"]'),
+  ];
+  expect(toggles()).toHaveLength(1);
+  const openSlot = container.querySelector<HTMLElement>(
+    ".visual-sidebar-header .visual-toggle-slot",
+  );
+  if (openSlot === null) throw new Error("open toggle slot is missing");
+  const toggle = toggles()[0]!;
+  const openBox = openSlot.getBoundingClientRect();
+  const toggleBox = toggle.getBoundingClientRect();
+  expect(Math.abs(toggleBox.left - openBox.left)).toBeLessThan(1);
+
+  const controls = [
+    toggle,
+    container.querySelector<HTMLElement>(".visual-search-row"),
+    container.querySelector<HTMLElement>('[aria-label="New task"]'),
+    container.querySelector<HTMLElement>('[aria-label="Settings"]'),
+    container.querySelector<HTMLElement>('[aria-label="Add project"]'),
+  ];
+  for (const control of controls) {
+    if (control === null) throw new Error("essential control is missing");
+    const box = control.getBoundingClientRect();
+    expect(box.width).toBeGreaterThan(0);
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(window.innerWidth);
+    const atCenter = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    expect(control.contains(atCenter)).toBe(true);
+  }
+
+  await userEvent.click(toggle);
+  await expect.poll(() => Math.round(aside.getBoundingClientRect().width)).toBe(0);
+  expect(toggles()).toHaveLength(1);
+  await userEvent.click(toggles()[0]!);
+  await expect.poll(() => Math.round(aside.getBoundingClientRect().width)).toBe(100);
+  expect(
+    Math.abs(toggles()[0]!.getBoundingClientRect().left - openSlot.getBoundingClientRect().left),
+  ).toBeLessThan(1);
+  expect(document.activeElement).toBe(toggles()[0]);
+
+  // Leave the following tests on their expected default.
+  localStorage.setItem("corral.visual-sidebar-width", "320");
+  await unmount();
+});
+
+test("one toggle travels with the sidebar edge and keeps focus across hide and show", async () => {
   const { container, unmount } = await render(<Harness />);
   const aside = container.querySelector<HTMLElement>(".visual-shell-sidebar");
   const surface = container.querySelector<HTMLElement>(".visual-sidebar-surface");
   const chrome = container.querySelector<HTMLElement>(".visual-main-chrome");
-  if (aside === null || surface === null || chrome === null) {
+  const openSlot = container.querySelector<HTMLElement>(
+    ".visual-sidebar-header .visual-toggle-slot",
+  );
+  const closedSlot = container.querySelector<HTMLElement>(
+    ".visual-main-chrome .visual-toggle-slot",
+  );
+  const toggles = () => [
+    ...container.querySelectorAll<HTMLButtonElement>('button[aria-controls="visual-sidebar"]'),
+  ];
+  if (
+    aside === null ||
+    surface === null ||
+    chrome === null ||
+    openSlot === null ||
+    closedSlot === null
+  ) {
     throw new Error("sidebar frame is missing");
   }
+  expect(toggles()).toHaveLength(1);
 
   await userEvent.click(page.getByRole("button", { name: "Hide sidebar" }));
   await expect.poll(() => document.activeElement?.getAttribute("aria-label")).toBe("Show sidebar");
@@ -348,35 +449,43 @@ test("hiding the sidebar animates its edge, reserves the Show toggle's chrome ro
   // The contents keep the open width; the frame clips them instead of reflowing every frame.
   expect(Math.round(surface.getBoundingClientRect().width)).toBe(320);
   expect(chrome.getBoundingClientRect().height).toBe(40);
+  expect(toggles()).toHaveLength(1);
+  expect(toggles()[0]?.getAttribute("aria-expanded")).toBe("false");
 
-  const show = page.getByRole("button", { name: "Show sidebar" });
+  const toggle = toggles()[0]!;
+  const closedBox = closedSlot.getBoundingClientRect();
+  const hideBox = toggle.getBoundingClientRect();
+  expect(Math.abs(hideBox.left - closedBox.left)).toBeLessThan(1);
+  expect(Math.abs(hideBox.top - closedBox.top)).toBeLessThan(1);
   const eyebrow = container.querySelector<HTMLElement>(".visual-main-eyebrow");
   if (eyebrow === null) throw new Error("main eyebrow is missing");
-  const showBox = show.element().getBoundingClientRect();
-  expect(showBox.bottom).toBeLessThanOrEqual(eyebrow.getBoundingClientRect().top);
+  expect(hideBox.bottom).toBeLessThanOrEqual(eyebrow.getBoundingClientRect().top);
 
-  await userEvent.click(show);
-  await expect
-    .poll(() => document.activeElement?.getAttribute("data-task-id"))
-    .toBe("fixture-blocked");
+  await userEvent.click(toggle);
+  await expect.poll(() => document.activeElement?.getAttribute("aria-label")).toBe("Hide sidebar");
   await expect.poll(() => Math.round(aside.getBoundingClientRect().width)).toBe(320);
   expect(Math.round(surface.getBoundingClientRect().width)).toBe(320);
+  expect(toggles()).toHaveLength(1);
+  expect(toggles()[0]?.getAttribute("aria-expanded")).toBe("true");
+  const openBox = openSlot.getBoundingClientRect();
+  const shownBox = toggles()[0]!.getBoundingClientRect();
+  expect(Math.abs(shownBox.left - openBox.left)).toBeLessThan(1);
+  expect(Math.abs(shownBox.top - openBox.top)).toBeLessThan(1);
   await unmount();
 });
 
-test("a rapid hide/show reversal settles open with the saved width and focus", async () => {
+test("a rapid hide/show reversal stays continuous and settles open with one toggle", async () => {
   const { container, unmount } = await render(<Harness />);
   const aside = container.querySelector<HTMLElement>(".visual-shell-sidebar");
   if (aside === null) throw new Error("sidebar frame is missing");
 
   await userEvent.click(page.getByRole("button", { name: "Hide sidebar" }));
-  const show = page.getByRole("button", { name: "Show sidebar" });
-  await expect.element(show).toBeVisible();
-  await userEvent.click(show);
+  const toggle = page.getByRole("button", { name: "Show sidebar" });
+  await expect.element(toggle).toBeVisible();
+  await userEvent.click(toggle);
   await expect.poll(() => Math.round(aside.getBoundingClientRect().width)).toBe(320);
-  await expect
-    .poll(() => document.activeElement?.getAttribute("data-task-id"))
-    .toBe("fixture-blocked");
+  await expect.poll(() => document.activeElement?.getAttribute("aria-label")).toBe("Hide sidebar");
+  expect(container.querySelectorAll('button[aria-controls="visual-sidebar"]')).toHaveLength(1);
   expect(window.localStorage.getItem("corral.visual-sidebar-width")).not.toBe("0");
   await unmount();
 });

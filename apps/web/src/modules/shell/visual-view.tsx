@@ -1,5 +1,5 @@
 import { createPrefixKeymap } from "@corral/client/prefix-keymap";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import {
   TooltipProvider,
   VisualIconButton,
@@ -199,8 +199,12 @@ export function VisualShellView({
   const pane = useVisualSidebarPane();
   const selected =
     selectedId === null ? undefined : (rows.find((row) => row.id === selectedId) ?? rows[0]);
-  const selectedRowId = selected?.id;
-  const showToggle = useRef<HTMLButtonElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const sidebarFrame = useRef<HTMLElement>(null);
+  const toggleLayer = useRef<HTMLDivElement>(null);
+  const toggleButton = useRef<HTMLButtonElement>(null);
+  const openToggleSlot = useRef<HTMLSpanElement>(null);
+  const closedToggleSlot = useRef<HTMLSpanElement>(null);
   const pendingFocus = useRef<number | null>(null);
   const keymap = useMemo(
     () =>
@@ -213,23 +217,62 @@ export function VisualShellView({
     [shortcut],
   );
   const { hidden, toggle } = pane;
+
+  // One toggle floats over both surfaces; its position is read from the sidebar's real width, so
+  // the CSS transition is the only motion and the button follows the same progress every frame.
+  const syncToggle = useCallback(() => {
+    const shell = shellRef.current;
+    const sidebar = sidebarFrame.current;
+    const layer = toggleLayer.current;
+    const openSlot = openToggleSlot.current;
+    const closedSlot = closedToggleSlot.current;
+    if (
+      shell === null ||
+      sidebar === null ||
+      layer === null ||
+      openSlot === null ||
+      closedSlot === null
+    ) {
+      return;
+    }
+    const shellBox = shell.getBoundingClientRect();
+    const sidebarWidth = sidebar.getBoundingClientRect().width;
+    const openBox = openSlot.getBoundingClientRect();
+    const closedBox = closedSlot.getBoundingClientRect();
+    const progress = pane.width <= 0 ? 1 : Math.min(1, Math.max(0, 1 - sidebarWidth / pane.width));
+    const openX = openBox.left - shellBox.left;
+    const openY = openBox.top - shellBox.top;
+    // The closed slot travels with main; remove the animated sidebar width to get its rest x.
+    const closedX = closedBox.left - shellBox.left - sidebarWidth;
+    const closedY = closedBox.top - shellBox.top;
+    const x = openX + (closedX - openX) * progress;
+    const y = openY + (closedY - openY) * progress;
+    layer.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+  }, [pane.width]);
+
+  useLayoutEffect(() => {
+    syncToggle();
+  });
+
+  useLayoutEffect(() => {
+    const sidebar = sidebarFrame.current;
+    if (sidebar === null) return undefined;
+    const observer = new ResizeObserver(syncToggle);
+    observer.observe(sidebar);
+    return () => observer.disconnect();
+  }, [syncToggle]);
+
   const toggleSidebar = useCallback(() => {
     const willHide = !hidden;
+    const focusWasInside = sidebarFrame.current?.contains(document.activeElement) === true;
     toggle();
+    if (!willHide || !focusWasInside) return;
     if (pendingFocus.current !== null) cancelAnimationFrame(pendingFocus.current);
     pendingFocus.current = requestAnimationFrame(() => {
       pendingFocus.current = null;
-      if (willHide) {
-        showToggle.current?.focus();
-        return;
-      }
-      const id = selectedRowId;
-      if (id === undefined) return;
-      document
-        .querySelector<HTMLElement>(`.visual-task-card-hit[data-task-id="${CSS.escape(id)}"]`)
-        ?.focus();
+      toggleButton.current?.focus();
     });
-  }, [hidden, selectedRowId, toggle]);
+  }, [hidden, toggle]);
   const runAction = useCallback(
     (action: string) => {
       if (action === "toggle-sidebar") toggleSidebar();
@@ -246,8 +289,20 @@ export function VisualShellView({
   );
 
   return (
-    <div className="visual-shell-screen">
+    <div className="visual-shell-screen" ref={shellRef}>
+      <div className="visual-toggle-handoff" ref={toggleLayer}>
+        <VisualIconButton
+          label={pane.hidden ? "Show sidebar" : "Hide sidebar"}
+          icon={pane.hidden ? "show-sidebar" : "hide-sidebar"}
+          onClick={toggleSidebar}
+          shortcut={shortcut}
+          buttonRef={toggleButton}
+          ariaExpanded={!pane.hidden}
+          ariaControls="visual-sidebar"
+        />
+      </div>
       <VisualSidebar
+        frameRef={sidebarFrame}
         width={pane.width}
         hidden={pane.hidden}
         resizing={pane.resizing}
@@ -266,14 +321,7 @@ export function VisualShellView({
       >
         <div className="visual-sidebar-header">
           <span className="visual-wordmark">Corral</span>
-          <VisualIconButton
-            label="Hide sidebar"
-            icon="hide-sidebar"
-            onClick={toggleSidebar}
-            shortcut={shortcut}
-            ariaExpanded
-            ariaControls="visual-sidebar"
-          />
+          <span className="visual-toggle-slot" ref={openToggleSlot} aria-hidden="true" />
         </div>
         <div className="visual-sidebar-actions">
           <VisualSearchAction
@@ -314,17 +362,7 @@ export function VisualShellView({
       </VisualSidebar>
       <main className="visual-shell-main" aria-label="Workspace">
         <div className="visual-main-chrome">
-          {pane.hidden && (
-            <VisualIconButton
-              label="Show sidebar"
-              icon="show-sidebar"
-              onClick={toggleSidebar}
-              shortcut={shortcut}
-              buttonRef={showToggle}
-              ariaExpanded={false}
-              ariaControls="visual-sidebar"
-            />
-          )}
+          <span className="visual-toggle-slot" ref={closedToggleSlot} aria-hidden="true" />
         </div>
         <div className="visual-main-content">
           {selected === undefined ? (

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 /** Corral's proposed sidebar geometry for the first visual slice (`#258`, §4.1). */
-export const VISUAL_SIDEBAR_MIN_WIDTH = 280;
+export const VISUAL_SIDEBAR_MIN_WIDTH = 100;
 export const VISUAL_SIDEBAR_MAX_WIDTH = 640;
 export const VISUAL_SIDEBAR_DEFAULT_WIDTH = 320;
 /** The main surface never gives up more than this, so a narrow window cannot invert the layout. */

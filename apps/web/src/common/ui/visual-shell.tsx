@@ -227,6 +227,7 @@ export function VisualSidebar({
   hidden,
   resizing,
   resize,
+  frameRef,
   children,
 }: {
   width: number;
@@ -234,10 +235,12 @@ export function VisualSidebar({
   resizing: boolean;
   /** The drag edge sits outside the clipped surface, at the frame's real edge. */
   resize?: ReactNode | undefined;
+  frameRef?: Ref<HTMLElement> | undefined;
   children: ReactNode;
 }) {
   return (
     <aside
+      ref={frameRef}
       id="visual-sidebar"
       className="visual-shell-sidebar"
       data-hidden={hidden ? "true" : undefined}

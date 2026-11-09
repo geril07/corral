@@ -129,7 +129,7 @@ context-menu dispatcher.
   TaskContent is a size container so a prompt capped at 50cqh fits half the content area,
   excluding the task/session chrome rather than growing to half the entire window. Sidebar sizing is
   device-local; text scale never applies a CSS transform that would confuse popup coordinates.
-- The workspace route now composes `VisualShellView`: a borderless 320 px (280–640) sidebar over
+- The workspace route now composes `VisualShellView`: a borderless 320 px (100–640) sidebar over
   `bg-deep`, an 8 px inset `bg-base` main surface with radius 10, a 40 px Corral header, the
   Search/New-task row, a flat 52 px task card list and a footer. `VisualTaskCard` keeps its title
   metrics in every state, swaps the fixed 88 px status slot for the Settle action on hover/focus,
@@ -137,6 +137,9 @@ context-menu dispatcher.
   project, branch and the primary agent's known model/provider, with no workspace path or ordinary
   status row. `VisualIconButton`, `VisualSearchAction`, `VisualResizeHandle`, the compact
   tooltip/keycaps and the metadata tooltip are the only controls the shell composes.
+- One root-layer toggle owns hide/show. It reads the sidebar's real width and the reserved header
+  and main-chrome slots, so the 240 ms width transition is the only motion; there is never a
+  second visible or tabbable toggle at either endpoint or in flight.
 - Unavailable shell actions stay focusable with `aria-disabled` and explain the reason in the
   compact tooltip; they never use an empty click handler. Add project opens the existing real
   dialog; Search, New task, Settings and Settle are deferred in this slice.

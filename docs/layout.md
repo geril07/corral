@@ -12,7 +12,7 @@ The workspace route mounts `VisualShellView` (`apps/web/src/modules/shell`). Its
 kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
 
 - Two columns with no divider: a borderless sidebar on `bg-deep` and one main surface on
-  `bg-base`. The sidebar starts at **320** px, resizes **280–640** px and persists per device; a
+  `bg-base`. The sidebar starts at **320** px, resizes **100–640** px and persists per device; a
   window shrink clamps the shown width and never inverts the main surface. The main surface has
   an **8** px outer inset and radius **10**.
 - Sidebar insets are start **11**, end **3**, top **8**, bottom **10**. The header is **40** high:
