@@ -6,88 +6,44 @@ Kind: **current state** — what sits where, and why. Measurements are the code'
 layout modules and their constants decide them. A piece that moves a surface edits this file in
 the same PR, and a description that no longer holds is deleted rather than adjusted.
 
-## Shell
+## Visual shell (routed workspace)
 
-- Two columns: resizable sidebar and one task workspace. No synthetic title bar or global
-  status bar. The shell status carries connection state, config problems, the armed prefix and
-  the current failure, rendered exactly once: in the sidebar footer while the pane is shown, and
-  in a strip above the main content while it is hidden. The footer keeps its row by swapping the
-  armed badge for the prefix hint. Without a failure the hidden strip keeps its fixed row whether
-  or not it has something to say, so arming the prefix never resizes the terminal under it; a
-  failure's sentence wraps and the strip grows for it, then returns to that fixed row when the
-  failure is dismissed. Independent shells are session tabs, never a separate chat dock.
-- Sidebar has a default width, a narrow-window default and a drag range that leaves the main
-  area its minimum at and above the supported floor (`sidebar-pane.ts` owns the numbers). The
-  width persists per device, a window shrink only clamps the shown width, and an edge
-  double-click resets it.
-- The sidebar toggle is opposite the corral wordmark. While hidden it is in the task header, or
-  above the content when no task or draft has a header; `prefix \\` still works.
-- Two distinct rows remain visible for a task or draft: repository/task header, then session
-  navigation. A device setting puts the session row above or below content.
-  No rows are invented before the first repository is added.
+The workspace route mounts `VisualShellView` (`apps/web/src/modules/shell`). Its measurements are
+kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
 
-## Sidebar
+- Two columns with no divider: a borderless sidebar on `bg-deep` and one main surface on
+  `bg-base`. The sidebar starts at **320** px, resizes **280–640** px and persists per device; a
+  window shrink clamps the shown width and never inverts the main surface. The main surface has
+  an **8** px outer inset and radius **10**.
+- Sidebar insets are start **11**, end **3**, top **8**, bottom **10**. The header is **40** high:
+  the wordmark is **15/20** weight **530**, and the toggle is an icon-only **28×28** ghost action.
+- The action row sits **4** below the header: Search is a **28**-high wide ghost row (inline padding
+  **8**, gap **8**, radius **6**, **13/16** text) and New task is a **28×28** icon action. The list
+  starts **16** after the row and scrolls independently; card gap is **3**.
+- A task card is **52** high: padding **8**, two **16**-high lines with **4** between, radius **6**,
+  no border or shadow. The first line carries a **16** px project avatar/icon and the project at
+  **11/16** weight **440**; the right slot carries status/time at **11/16** weight **530**. The
+  second line is the title at **13/16** weight **530** in every state. Unselected titles use
+  `text-muted`, selected titles `text-base`; hover and selection share the one hover overlay.
+- The right slot is a fixed **88** px. Hover and keyboard focus swap the status for the **20×20**
+  action without moving the title. The action is Settle's slot; Settle is deferred, so it is
+  `aria-disabled` with the reason in its compact tooltip rather than a no-op.
+- The footer is **28** high with **28×28** Settings and Add project actions, gap **4**, start
+  aligned. Both are icon-only with compact tooltips.
+- The status slot follows only the task's **primary** agent session. Working has no displayed
+  duration; other states use compact ages (`<1m`, `12m`, `2h`) from the report time. Sort order is
+  Blocked/Error, unseen Done, Working, then neutral, newest report first inside a group.
+- `prefix \` toggles the sidebar. When hidden, the same toggle floats at the main surface's
+  top-start corner. Clicking a card selects it and updates the route's `task` search; the review
+  host at `/visual-review` (development only) renders the same components with fixture rows for
+  rare states. Search, New task, Settings and Settle are deferred in this slice; Add project opens
+  the existing real dialog.
+- The main surface in this slice shows the selected task's title, project/branch/workspace, agent,
+  status and prompt. Tab groups, chat and terminal panes are not built here.
 
-- Wordmark/toggle header, then Search, grouping and New task.
-  Search's tooltip carries its effective chord without crowding the compact toolbar.
-- Group by project by default. Status grouping (Needs you, Working, Done) is still available
-  through its button and `prefix l`, remembered on this device.
-- A project row is its group's disclosure: the row carries `aria-expanded` and the chevron, and a
-  collapsed group holding the current task shows that row alone. The count sits in the row; the
-  project's New task action overlays the count on hover and keyboard focus and reserves no width,
-  and the count hides while the action shows. No project or container row is the current selection.
-- Two-line task rows: status glyph, clipped title, relative time/attention word;
-  secondary metadata is a flexible, truncating segment (project outside project groups,
-  worktree branch labeled `(recorded)` with "recorded at create" in the accessible name, agent,
-  session count) plus a `shrink-0` tail of change counts and linked
-  request state. The tail keeps normal counts and request state whole; only a tail wider than
-  the whole row ellipsizes. The accessible name carries the title, attention word or age, the
-  whole second line and `unseen` when marked; the status message is its description and a line
-  of the row's tooltip. Container names carry their counts; a clipped project row names its
-  absolute path, and an exited loose terminal names its exit code. Unseen completion stays
-  marked.
-- Right-click / menu key / Shift+F10 opens secondary row actions: a task's, a loose
-  terminal's and a project's. A loose terminal's menu offers Rename… and Close terminal… on
-  every row, current or not, and renaming one does not select it; once the process has exited
-  it also offers Restart, which replaces the dead row with the same command, arguments, folder
-  and name at the current fit size, selected, and closes the dead one. A restart the server
-  refuses leaves the dead row, its name and its exit, and reports the failure in the footer. A
-  project's menu offers New task in `<project>`, the keyboard path to its `+`, and Remove
-  project…, which names the project and its task count and keeps the worktrees and branches on
-  disk. The `+` overlays the row's right end and forwards a right-click to the row menu, so that
-  edge opens the menu too. No action gutter takes permanent width. Full names stay accessible and
-  get a tooltip when clipped; the row has no native title, and the tooltip wrapper stays mounted
-  when clipping starts or stops.
-- A focused row keeps focus and its ring across a sidebar resize, including when clipping starts
-  or stops.
-- `prefix w` hands the list the keyboard: arrows and Home/End walk its rows, Enter opens one and
-  Escape leaves. Rows stay in the tab order; the arrows are a shortcut, not a replacement.
-  The selected row is revealed whenever the selection changes or the list's visible area does
-  (a group opening or closing, the shelf taking its page), so `prefix j`, `k` and `f` leave it
-  in view; `j` from the last active row selects the shelf's first and opens it visibly, and `k`
-  from the shelf's first returns to the last active row.
-- One Settled shelf is anchored below the active list, above the footer, across all projects.
-  Its rows share one order in both grouping modes: the most recent activity first — the moment
-  the row's age counts from, `status.updatedAt`, else the task's `createdAt` — then creation,
-  then id. `prefix l` therefore leaves every shelf row in place, and a task settled from its
-  menu lands by that time. A settled task with no status sorts by creation; nothing records a
-  separate settle time. It starts collapsed and its toggle is enabled in every state; collapsed,
-  it still shows the current task's row alone. Expanded, its list is one measured page tall — the
-  rows its box fits, `max(1, floor(box / row))` — and the active list keeps at least four rows,
-  the shelf shrinking first. `Show more` is the shelf's last row and appends one measured page
-  with the appended page in view; it disappears at the end. When the selection changes, a
-  selected older task opens the shelf, mounts at most one page beyond the page holding it,
-  scrolls the row into view and never resumes it; a selection restored on mount honors the
-  stored state, so a collapsed shelf shows that row alone. A shelf the selection opened collapses
-  when the selection leaves; a user-expanded one stays open. Collapsed project groups, the shelf's
-  expanded state and its page are remembered on this device.
-  General task search still includes settled history.
-- Loose terminals remain in Scratch when present; an exited one stays listed, marked with its
-  exit code, until it is closed or restarted.
-- Footer: Settings and Add project, exceptional connection/config notices (the connection
-  status opens the recovery dialog), failures and guidance, and the prefix hint on the right
-  while disarmed (armed prefix remains visibly distinct). While the sidebar is hidden the strip
-  above the main content carries the same facts.
+The sections below describe the prior workspace composition. Those modules and their tests remain
+in the tree for the parts that are still useful (chat, changes, terminal, dialogs), but the
+workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
 
 ## Task header
 
@@ -97,7 +53,8 @@ the same PR, and a description that no longer holds is deleted rather than adjus
   at create in the accessible name; a detached create shows `detached`, never `HEAD`. The header
   does not claim it is the current checkout: Changes names the live branch when it differs.
 - The task's status sits after the change counts and linked-request badge, before the overflow
-  menu. It is the most urgent of its sessions' (`ux.md`), in the sidebar's vocabulary: a glyph alone
+  menu. This legacy header still uses the most urgent of all sessions; the routed shell's card uses
+  the primary session only. In the sidebar's vocabulary: a glyph alone
   for working, a muted glyph and no word for idle, the glyph with its attention word (`needs
   approval`, `needs input`, `needs auth`, `error`, `blocked`) when the task needs the user, and a
   `done` glyph that is muted once seen. Nothing renders when no session reports a status. A settled

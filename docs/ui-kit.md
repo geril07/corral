@@ -7,29 +7,35 @@ updates or deletes its line.
 
 ## Direction (supersedable)
 
-The current direction is UI study 03, which superseded the stock-only appearance requirement:
-quiet dark surfaces, restrained borders, blue actions and focus, readable compact rows and real
-tool logos, in the spirit of T3 Code. Keep shadcn/ui Base UI / Nova as the primitive foundation,
-not a second visual system. Orca may inform interactions, not colors or another control skin.
-This paragraph is the one place a visual reference is named; a new study replaces it.
+The current direction is the visual shell study, which superseded UI study 03: OpenCode's bundled
+`oc-2` theme is the dark and light baseline, Corral supplies its own compact sidebar geometry, and
+the whole workspace is being rebuilt rather than restyled. Keep shadcn/ui Base UI / Nova as the
+primitive foundation, not a second visual system; OpenCode's Solid runtime is not imported. Orca
+may inform interactions, not colors or another control skin. This paragraph is the one place a
+visual reference is named; a new study replaces it.
 
-The theme in `apps/web/src/app/global.css` follows T3 Code's dark neutral palette (MIT): black
-canvas, raised neutral surfaces, white low-opacity borders/hover and blue primary. Reuse the
-existing semantic tokens.
-The installed Geist font and the radius derivation remain. Interface text follows the device scale,
-and the interface text scale is device-local and rem-based, independent of the terminal's fixed
-font; primitive dimensions, type, elevation, motion and focus follow **Spine**.
+The theme lives in `apps/web/src/common/ui/visual-shell.css` as semantic roles: `bg-deep` for the
+shell, `bg-base` for the main surface, `bg-layer-01/03` for tooltips and keycaps, text/icon
+muted/faint roles, one hover overlay and semantic status colours. The dark values are `oc-2`
+(`#080808`, `#161616`, `#242424`/`#3A3A3A`); the light values are its light variant (`#FAFAFA`,
+`#FFFFFF`, `#FAFAFA`/`#EEEEEE`). Source and licence notice: `visual-shell.LICENSE`.
+
+The interface font is **Inter Variable** (`@fontsource-variable/inter`, SIL OFL 1.1); the terminal
+keeps its separate mono role. Interface text follows the device scale, and the interface text scale
+is device-local and rem-based, independent of the terminal's fixed font; primitive dimensions, type,
+elevation, motion and focus follow **Spine**.
 
 ### Spine
 
 - **Spacing** — Tailwind's spacing unit is the rhythm, steps `0`–`6`; a gutter above 24 px is a
   _derived_ inset (a step plus the control it clears) and lives only in the kit; a raw width
   appears only to compensate a border, to keep a ring or hairline from scaling, or to bound a
-  popup.
-- **Type** — three sizes: `text-xs` meta, `text-sm` body/controls/rows, `text-base` the one heading
-  step; weights 400/500/600; leading from the size, with `leading-snug` for two-line titles and
-  `leading-relaxed` for prose; tracking 0 except an uppercase label; mono is a role (paths, code,
-  terminal-adjacent), not a size.
+  popup. The visual shell's chrome metrics (320 px sidebar, 52 px card, 28 px controls) are
+  kit-owned CSS values, never module class literals.
+- **Type** — compact text `13/16`, meta `11/16`, chrome wordmark `15/20`, tooltip `11/12`; the
+  prior Tailwind `text-xs`/`text-sm`/`text-base` steps remain for screens not yet rebuilt. Weights
+  are **440** regular, **530** medium, **670** bold; tracking stays 0 except an uppercase keycap
+  label; mono is a role (paths, code, terminal-adjacent), not a size.
 - **Radii** — one ladder off `--radius`; `--control-radius` for every box control and free to move
   independently; an inner radius is its shell minus the shell's inset; a badge is a pill.
 - **Elevation** — canvas, raised surface, floating popup, dialog with its scrim, and one inverted
@@ -118,6 +124,21 @@ context-menu dispatcher.
   TaskContent is a size container so a prompt capped at 50cqh fits half the content area,
   excluding the task/session chrome rather than growing to half the entire window. Sidebar sizing is
   device-local; text scale never applies a CSS transform that would confuse popup coordinates.
+- The workspace route now composes `VisualShellView`: a borderless 320 px (280–640) sidebar over
+  `bg-deep`, an 8 px inset `bg-base` main surface with radius 10, a 40 px Corral header, the
+  Search/New-task row, a flat 52 px task card list and a footer. `VisualTaskCard` keeps its title
+  metrics in every state, swaps the fixed 88 px status slot for the Settle action on hover/focus,
+  and opens its metadata popover on right-click or Shift+F10. `VisualIconButton`,
+  `VisualSearchAction`, `VisualResizeHandle`, the compact tooltip/keycaps and the metadata popover
+  are the only controls the shell composes.
+- Unavailable shell actions stay focusable with `aria-disabled` and explain the reason in the
+  compact tooltip; they never use an empty click handler. Add project opens the existing real
+  dialog; Search, New task, Settings and Settle are deferred in this slice.
+- The workspace status slot follows the task's **primary** session only; auxiliary terminals do
+  not contribute agent status, unread state or sort priority. Working shows no duration because
+  `AgentStatus.updatedAt` is a report time, not a run start.
+- Settings, the board, chat, changes and the terminal panes still use the prior kit compositions
+  until their own rebuild; their controls do not become the source of new visual rules.
 - ComposerSurface and ComposerToolbar own the shared prompt frame and wrapping control row. The
   frame shows the shared focus ring while focus is inside it.
   Textarea `frame="composer"` removes its duplicate inner border without changing prompt/chat

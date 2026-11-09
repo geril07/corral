@@ -85,7 +85,8 @@ Codex 0.166.0's app-server follows the same rule with a filesystem boundary inst
 - **Space**: an optional saved grouping or filter over tasks, not a container.
 - **Board**: all tasks with their status, navigable from the keyboard.
 
-A task's status comes from its agent sessions (working / blocked / done / error / idle).
+A task card's status comes from its **primary** agent session (working / blocked / done / error /
+idle). Auxiliary terminals are not agent sessions for task status, unread state or sorting.
 
 ### Sessions
 
@@ -104,7 +105,8 @@ A task's status comes from its agent sessions (working / blocked / done / error 
 - The server's headless terminal parses OSC 7501 and answers its `?` probe (Claude Code and pi only report after the probe). A session's status is its root record; a blocked subagent makes the session blocked.
 - OpenCode 2.2.5's TUI answers the OSC 7501 `?` probe and reports `\x1b]7501;state=idle:app=opencode` (measured in a PTY against a server Corral started, `.e2e/stage-c/c1/probe/`). That is now the OpenCode terminal view's status channel: a server-backed TUI needs no plugin.
 - OpenCode still has a plugin (`opencode-plugin/index.js`, derived from Herdr's v2 plugin API, POSTing to `CORRAL_STATUS_URL`). It is loaded only when an OpenCode TUI could not attach to the run's server and fell back to `opencode --standalone` (server in the client process), where plugins see that session's environment. A server-backed session does not load it: one server serves many sessions, the plugin has no per-session token, and chat sessions take their status from the event stream instead. Once a launch has delivered an HTTP report, OSC no longer changes that session's status until the next launch (Orca's rule, without Orca's 2-minute takeover when the plugin goes quiet).
-- A task's status is the most urgent of its sessions': blocked, error, working, done, idle.
+- The task card, its unread mark and the sidebar order read the **primary** session's status (blocked, error, working, done, idle). A shell or a manually launched agent in an auxiliary terminal never changes them. `working` has no displayed duration: `AgentStatus.updatedAt` is a report time, not the start of the current run.
+- The board still uses the earlier most-urgent-session aggregate until its own rebuild; do not read that as the sidebar contract.
 - A task's `seenAt` is when the user last looked at its agent updates, stored by the server
   (not in client storage) so every client agrees: a `done` update newer than it is completed
   and unseen, and opening the task or watching it while its status changes clears the mark.

@@ -1,7 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "../common/ui/shadcn.css";
-@import "@fontsource-variable/geist";
+@import "../common/ui/visual-shell.css";
+@import "@fontsource-variable/inter";
 /* Streamdown renders its own DOM, so Tailwind must scan the utilities in its dist. The path goes
    through the pnpm symlink in `apps/web/node_modules`; the B3 build greps a Streamdown-only
    utility out of the built CSS to prove it (goal D1). */
@@ -11,7 +12,7 @@
 
 @theme inline {
   --font-heading: var(--font-sans);
-  --font-sans: "Geist Variable", sans-serif;
+  --font-sans: "Inter Variable", "Inter", sans-serif;
   /* Mono is a family, never a size (`ui-kit.md`, **Spine**). xterm reads this same token. */
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
