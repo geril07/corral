@@ -15,6 +15,9 @@ test("path first, no automatic selection; exact Enter submits input", async () =
   await render(<AddProjectDialog onAdd={add} onBrowse={browse} onClose={() => undefined} />);
   await expect.element(input()).toHaveFocus();
   await expect.element(input()).toHaveValue("~/");
+  await expect
+    .element(page.getByRole("button", { name: "Add project (Enter)", exact: true }))
+    .toBeVisible();
   await userEvent.fill(input(), "/parent");
   await expect.element(page.getByRole("option", { name: "alpha", exact: true })).toBeVisible();
   await expect.element(input()).not.toHaveAttribute("aria-activedescendant");
@@ -27,13 +30,39 @@ test("arrows and Ctrl N/P highlight, Enter navigates, Ctrl Enter adds input", as
   await render(<AddProjectDialog onAdd={add} onBrowse={browse} onClose={() => undefined} />);
   await userEvent.fill(input(), "/parent/");
   await expect.element(page.getByRole("option", { name: "alpha", exact: true })).toBeVisible();
-  await userEvent.keyboard("{ArrowDown}{Enter}");
+  await userEvent.keyboard("{ArrowDown}");
+  await expect
+    .element(page.getByRole("button", { name: "Add project (Ctrl+Enter)", exact: true }))
+    .toBeVisible();
+  await userEvent.keyboard("{Enter}");
   await expect.element(input()).toHaveValue("/parent/alpha/");
+  await expect
+    .element(page.getByRole("button", { name: "Add project (Enter)", exact: true }))
+    .toBeVisible();
   expect(add).not.toHaveBeenCalled();
   await userEvent.fill(input(), "/parent/");
   await expect.element(page.getByRole("option", { name: "alpha", exact: true })).toBeVisible();
   await userEvent.keyboard("{Control>}n{/Control}{Control>}{Enter}{/Control}");
   expect(add).toHaveBeenCalledExactlyOnceWith("/parent/");
+});
+
+test("trailing Add submits the input, not the highlighted folder, and keeps focus on failure", async () => {
+  const add = vi.fn<(path: string) => Promise<void>>(() =>
+    Promise.reject(new Error("Already added")),
+  );
+  await render(<AddProjectDialog onAdd={add} onBrowse={browse} onClose={() => undefined} />);
+  await userEvent.fill(input(), "/parent/");
+  await expect.element(page.getByRole("option", { name: "alpha", exact: true })).toBeVisible();
+  await userEvent.keyboard("{Control>}n{/Control}");
+  await page.getByRole("button", { name: "Add project (Ctrl+Enter)", exact: true }).click();
+  expect(add).toHaveBeenCalledExactlyOnceWith("/parent/");
+  await expect.element(page.getByText("Already added", { exact: true })).toBeVisible();
+  await expect.element(input()).toHaveValue("/parent/");
+  await expect.element(input()).toHaveFocus();
+  await userEvent.fill(input(), "/edited/");
+  await expect
+    .element(page.getByRole("button", { name: "Add project (Enter)", exact: true }))
+    .toBeVisible();
 });
 
 test("Tab common prefix and pointer navigation", async () => {
@@ -65,6 +94,7 @@ test("pending add is guarded; failure keeps path with a toast; Escape closes", a
   await userEvent.fill(input(), "/missing");
   await userEvent.keyboard("{Enter}{Enter}");
   expect(add).toHaveBeenCalledTimes(1);
+  await expect.element(page.getByRole("button", { name: /Add project/ })).toBeDisabled();
   reject(new Error("no such directory"));
   await expect.element(page.getByText("no such directory", { exact: true })).toBeVisible();
   await expect.element(input()).toHaveValue("/missing");

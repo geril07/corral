@@ -62,9 +62,41 @@
   line-height: 1rem;
 }
 
-.visual-path-input {
+.visual-path-input-row {
   border-color: var(--visual-border-muted);
+}
+
+.visual-path-input {
   font-size: inherit;
+}
+
+.visual-path-submit {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 5px 0 8px;
+  border: 1px solid var(--visual-border-muted);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.visual-path-submit:hover:not(:disabled) {
+  background: var(--visual-hover);
+}
+
+.visual-path-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.visual-path-submit .visual-keycap {
+  height: 20px;
+  text-transform: none;
 }
 
 .visual-path-list [role="option"] {

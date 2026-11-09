@@ -22,6 +22,8 @@ export function PathPicker({
   pending: boolean;
 }) {
   const [highlighted, setHighlighted] = useState<string>();
+  const highlightedPath = paths.find((entry) => entry.path === highlighted)?.path;
+  const shortcut = highlightedPath ? "Ctrl+Enter" : "Enter";
   return (
     <Autocomplete.Root
       inline
@@ -34,60 +36,74 @@ export function PathPicker({
       autoHighlight={false}
       highlightItemOnHover={false}
     >
-      <Autocomplete.Input
-        aria-label="Repository path"
-        placeholder="~/"
-        spellCheck={false}
-        autoComplete="off"
-        aria-busy={pending}
-        className="visual-path-input h-12 w-full border-0 border-b border-border bg-transparent px-4 text-sm outline-none"
-        onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return;
-          if (event.key === "Escape") {
-            event.preventDefault();
-            event.stopPropagation();
-            onClose();
-            return;
-          }
-          if (event.ctrlKey && (event.key === "n" || event.key === "p")) {
-            event.preventDefault();
-            event.currentTarget.dispatchEvent(
-              new KeyboardEvent("keydown", {
-                key: event.key === "n" ? "ArrowDown" : "ArrowUp",
-                bubbles: true,
-              }),
-            );
-            return;
-          }
-          if (event.key === "Enter") {
-            event.preventDefault();
-            if (!pending) {
-              if (
-                !event.ctrlKey &&
-                highlighted &&
-                paths.some((entry) => entry.path === highlighted)
-              )
-                onChange(highlighted);
-              else onSubmit();
-            }
-          }
-          if (event.key === "Tab" && !event.shiftKey) {
-            const candidates = highlighted ? [highlighted] : paths.map((entry) => entry.path);
-            let common = Array.from(candidates[0] ?? "");
-            for (const candidate of candidates) {
-              const characters = Array.from(candidate);
-              let length = 0;
-              while (length < common.length && common[length] === characters[length]) length++;
-              common = common.slice(0, length);
-            }
-            const completion = common.join("");
-            if (completion && completion !== value) {
+      <div className="visual-path-input-row flex items-center gap-2 border-b px-4">
+        <Autocomplete.Input
+          aria-label="Repository path"
+          placeholder="~/"
+          spellCheck={false}
+          autoComplete="off"
+          aria-busy={pending}
+          className="visual-path-input h-12 min-w-0 flex-1 border-0 bg-transparent text-sm outline-none"
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return;
+            if (event.key === "Escape") {
               event.preventDefault();
-              onChange(completion);
+              event.stopPropagation();
+              onClose();
+              return;
             }
-          }
-        }}
-      />
+            if (event.ctrlKey && (event.key === "n" || event.key === "p")) {
+              event.preventDefault();
+              event.currentTarget.dispatchEvent(
+                new KeyboardEvent("keydown", {
+                  key: event.key === "n" ? "ArrowDown" : "ArrowUp",
+                  bubbles: true,
+                }),
+              );
+              return;
+            }
+            if (event.key === "Enter") {
+              event.preventDefault();
+              if (!pending) {
+                if (!event.ctrlKey && highlightedPath) onChange(highlightedPath);
+                else onSubmit();
+              }
+            }
+            if (event.key === "Tab" && !event.shiftKey) {
+              const candidates = highlightedPath
+                ? [highlightedPath]
+                : paths.map((entry) => entry.path);
+              let common = Array.from(candidates[0] ?? "");
+              for (const candidate of candidates) {
+                const characters = Array.from(candidate);
+                let length = 0;
+                while (length < common.length && common[length] === characters[length]) length++;
+                common = common.slice(0, length);
+              }
+              const completion = common.join("");
+              if (completion && completion !== value) {
+                event.preventDefault();
+                onChange(completion);
+              }
+            }
+          }}
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          className="visual-path-submit"
+          aria-label={`Add project (${shortcut})`}
+          disabled={pending || !value.trim()}
+          onMouseDown={(event) => {
+            // Keep the input's virtual folder focus when using its trailing action.
+            event.preventDefault();
+          }}
+          onClick={onSubmit}
+        >
+          <span>{pending ? "Adding…" : "Add"}</span>
+          <kbd className="visual-keycap">{shortcut}</kbd>
+        </button>
+      </div>
       <div className="px-4 pt-3 pb-2 text-xs text-muted-foreground">Directories</div>
       <Autocomplete.List
         className="visual-path-list max-h-72 overflow-y-auto p-2"

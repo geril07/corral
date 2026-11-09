@@ -121,7 +121,9 @@ What a user does. Everything below is built and verified end to end, chat views 
   contains prefix-matched folders, including non-repositories for navigation; hidden folders appear
   for a dot prefix. No folder is highlighted automatically. Arrows and Ctrl+N/P highlight; Enter
   navigates a highlighted folder, otherwise registers the written path. Ctrl+Enter always registers
-  the written path. Tab completes a highlight, sole match or common prefix; without a completion it
+  the written path. A compact Add action at the input's right shows Enter, switching to Ctrl+Enter
+  when a folder is highlighted; clicking it always registers the written path. No hint footer.
+  Tab completes a highlight, sole match or common prefix; without a completion it
   traverses normally, as Shift+Tab does. Escape closes and restores focus. Directory read failures
   and bounded-list warnings stay in the list; registration failures use a compact toast and keep
   the input. Browsing never registers, creates folders or starts tasks. Browser chrome can reserve
