@@ -386,6 +386,8 @@
   justify-content: flex-end;
   width: 88px;
   height: 16px;
+  /* The slot is chrome over the card trigger; only the real action may take the pointer. */
+  pointer-events: none;
 }
 
 .visual-task-status {
@@ -462,6 +464,10 @@
 .visual-task-card:hover .visual-task-slot-action,
 .visual-task-card:focus-within .visual-task-slot-action {
   opacity: 1;
+}
+
+.visual-task-card:hover .visual-task-action,
+.visual-task-card:focus-within .visual-task-action {
   pointer-events: auto;
 }
 
@@ -513,6 +519,7 @@
   border: 0;
   border-radius: 4px;
   background: transparent;
+  pointer-events: none;
   color: var(--visual-icon-muted);
   outline: none;
   cursor: default;
@@ -727,6 +734,39 @@
   }
 }
 
+/* ── Tooltip motion and surfaces ─────────────────────────────────────────── */
+
+/* Shared by every kit tooltip: one restrained enter/exit, cancelled instantly on a warm hop. */
+.visual-tooltip-surface {
+  opacity: 1;
+  transform: scale(1);
+  transform-origin: var(--transform-origin);
+  transition:
+    opacity 120ms ease-out,
+    transform 120ms ease-out;
+}
+
+.visual-tooltip-surface[data-starting-style],
+.visual-tooltip-surface[data-ending-style] {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+.visual-tooltip-surface[data-ending-style] {
+  transition-duration: 80ms;
+  transition-timing-function: ease-in;
+}
+
+.visual-tooltip-surface[data-instant] {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .visual-tooltip-surface {
+    transition: none;
+  }
+}
+
 /* ── Compact tooltip and keycaps ─────────────────────────────────────────── */
 
 .visual-tooltip {
@@ -748,8 +788,6 @@
   font-variant-numeric: tabular-nums;
   user-select: none;
   pointer-events: none;
-  transform-origin: var(--transform-origin);
-  animation: visual-tooltip-in 120ms ease-out;
 }
 
 /* A reason is readable prose, so it goes under the action title, never beside it in a label column. */
@@ -806,23 +844,6 @@
   letter-spacing: 0.05px;
   text-transform: uppercase;
   font-variant-numeric: tabular-nums;
-}
-
-@keyframes visual-tooltip-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .visual-tooltip {
-    animation: none;
-  }
 }
 
 /* ── Card metadata tooltip ────────────────────────────────────────────────── */
@@ -882,8 +903,7 @@
   overflow-wrap: anywhere;
 }
 
-.visual-metadata-project,
-.visual-metadata-agent {
+.visual-metadata-truncate {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

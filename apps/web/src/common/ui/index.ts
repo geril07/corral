@@ -36,6 +36,7 @@ export {
 export { FieldSet, FieldLegend } from "./field.tsx";
 export { FormField, RadioChoice } from "./form-field.tsx";
 export { Hint } from "./hint.tsx";
+export { TooltipProvider } from "./tooltip.tsx";
 export { Icon, type IconName, type IconSize } from "./icon.tsx";
 export { IconButton } from "./icon-button.tsx";
 export { Input } from "./input.tsx";
@@ -75,7 +76,6 @@ export {
   VisualSearchAction,
   VisualSidebar,
   VisualTaskCard,
-  TaskListTooltipProvider,
   type VisualCardStatus,
   type VisualShortcut,
   type VisualTaskAgent,

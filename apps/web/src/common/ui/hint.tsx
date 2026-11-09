@@ -14,13 +14,11 @@ export function Hint({
   // The trigger stays inside the same provider in every state: a row that starts or stops
   // clipping must not be remounted, or the focused row would lose focus and its ring.
   return (
-    <TooltipProvider delay={300}>
+    <TooltipProvider>
       <Tooltip disableHoverablePopup>
         <TooltipTrigger render={children} />
         {content !== undefined && content !== null && content !== "" && (
-          <TooltipContent side={side} role="tooltip">
-            {content}
-          </TooltipContent>
+          <TooltipContent side={side}>{content}</TooltipContent>
         )}
       </Tooltip>
     </TooltipProvider>
