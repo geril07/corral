@@ -1,5 +1,5 @@
 import { describeError } from "@corral/client/rpc-errors";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
 import { useCorralClient } from "../connection/index.ts";
 import { bindingOf, useConfig } from "../keymap/index.ts";
@@ -34,6 +34,11 @@ export function VisualWorkspace({
     client.sessions.failure.getSnapshot,
   );
   const [addingProject, setAddingProject] = useState(false);
+  const browse = useCallback(
+    (path: string, signal: AbortSignal) =>
+      client.connection.api.projects.directories({ path }, { signal }),
+    [client],
+  );
 
   const rows = useMemo(
     () => buildTaskRows(projects.projects, tasks.tasks, sessions.sessions, now),
@@ -64,9 +69,9 @@ export function VisualWorkspace({
       />
       {addingProject && (
         <AddProjectDialog
+          onBrowse={browse}
           onAdd={async (path) => {
             await client.connection.api.projects.add({ path });
-            setAddingProject(false);
           }}
           onClose={() => setAddingProject(false)}
         />

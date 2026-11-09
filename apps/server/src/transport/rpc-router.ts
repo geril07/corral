@@ -324,6 +324,18 @@ export function createRpcRouter({
       watch: os.config.watch.handler(({ signal }) => config.watch(signal)),
     },
     projects: {
+      directories: os.projects.directories.handler(({ input, signal, errors }) =>
+        translating(
+          () => projects.directories(input.path, signal),
+          (error) =>
+            errors.DIRECTORY_UNREADABLE({
+              data: {
+                message:
+                  error instanceof Error ? error.message : "Cannot read this server directory.",
+              },
+            }),
+        ),
+      ),
       add: os.projects.add.handler(({ input, errors }) =>
         translating(
           () => projects.add(input.path),

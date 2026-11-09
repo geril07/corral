@@ -15,6 +15,7 @@ import type { IssueImportService } from "../issues/issue-import.ts";
 import { newId } from "../storage/ids.ts";
 import { NotAGitRepositoryError, ProjectExistsError, ProjectNotFoundError } from "./errors.ts";
 import type { ProjectStore } from "./project-store.ts";
+import { directoryCompletions } from "./directory-completions.ts";
 
 /** What a project path must be before git sees it: absolute, or relative to the server's home. */
 const PROJECT_PATH_RULE = "the project path must be an absolute path or start with ~/";
@@ -89,6 +90,10 @@ export class ProjectService {
 
   list(): Project[] {
     return this.#store.list();
+  }
+
+  directories(path: string, signal?: AbortSignal) {
+    return directoryCompletions(path, this.#home, signal);
   }
 
   watch(signal: AbortSignal | undefined): AsyncGenerator<Project[]> {

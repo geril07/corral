@@ -772,6 +772,16 @@ export const contract = {
   models: modelsContract,
   config: configContract,
   projects: {
+    /** Prefix completions from the authenticated server filesystem, before registration. */
+    directories: oc
+      .errors({ DIRECTORY_UNREADABLE: { data: z.object({ message: z.string() }) } })
+      .input(z.object({ path: z.string().min(1).max(4096) }))
+      .output(
+        z.object({
+          directories: z.array(z.object({ name: z.string(), path: z.string() })).max(200),
+          truncated: z.boolean(),
+        }),
+      ),
     /**
      * Registers the git repository containing `path` (any directory inside it works). The server
      * trims it, expands a leading `~` with the server's home, refuses a relative path and stores

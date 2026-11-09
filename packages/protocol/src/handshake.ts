@@ -37,8 +37,8 @@ import { z } from "zod";
  * unavailable there and the badge stays absent instead of showing a write that never ran. Version
  * 11 requires the shared `models.watch/save/catalog` contract on every client. Version 12 adds the
  * focus-sidebar action: a version 11 server strips that binding from its exhaustive keys. */
-// Version 12 adds the focus-sidebar action and its binding.
-export const PROTOCOL_VERSION = 12;
+// Version 13 requires server directory completions before project registration.
+export const PROTOCOL_VERSION = 13;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in

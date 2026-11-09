@@ -53,6 +53,30 @@
     0 -0.5px 0 0 rgb(255 255 255 / 6%);
 }
 
+.visual-path-dialog {
+  background: var(--visual-bg-base);
+  color: var(--visual-text-base);
+  border-color: var(--visual-border-muted);
+  box-shadow: var(--visual-shadow-floating);
+  font-size: 0.8125rem;
+  line-height: 1rem;
+}
+
+.visual-path-input {
+  border-color: var(--visual-border-muted);
+  font-size: inherit;
+}
+
+.visual-path-list [role="option"] {
+  font-size: inherit;
+  min-height: 2rem;
+}
+
+.visual-path-list [role="option"]:hover,
+.visual-path-list [role="option"][data-highlighted] {
+  background: var(--visual-hover);
+}
+
 /* The workspace route fills the app host; board and settings sit above it as their own layer. */
 .visual-route-fill {
   height: 100%;

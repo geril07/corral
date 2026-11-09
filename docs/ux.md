@@ -117,7 +117,16 @@ What a user does. Everything below is built and verified end to end, chat views 
 
 ## Tasks, sessions and sources
 
-- Add project is a path dialog with inline errors. New task is the composer view in the main
+- Add project is a compact path-first picker, initially `~/` on the server. Its Directories list
+  contains prefix-matched folders, including non-repositories for navigation; hidden folders appear
+  for a dot prefix. No folder is highlighted automatically. Arrows and Ctrl+N/P highlight; Enter
+  navigates a highlighted folder, otherwise registers the written path. Ctrl+Enter always registers
+  the written path. Tab completes a highlight, sole match or common prefix; without a completion it
+  traverses normally, as Shift+Tab does. Escape closes and restores focus. Directory read failures
+  and bounded-list warnings stay in the list; registration failures use a compact toast and keep
+  the input. Browsing never registers, creates folders or starts tasks. Browser chrome can reserve
+  Ctrl+N; desktop has no competing menu accelerator.
+  New task is the composer view in the main
   area (`layout.md`, **New task view**), not a form dialog: a prompt and shared agent/model,
   Chat/Terminal and Create row, then project/workspace setup prefilled from effective settings.
   Optional title stays; issue import expands only through the Task setup actions menu. Enter creates the task and starts its primary agent with the

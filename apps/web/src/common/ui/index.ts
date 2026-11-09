@@ -82,3 +82,4 @@ export {
   type VisualTaskMetadata,
   type VisualTaskRow,
 } from "./visual-shell.tsx";
+export { PathPicker, PickerToastProvider, usePickerToast } from "./path-picker.tsx";
