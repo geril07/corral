@@ -19,6 +19,7 @@ const WEB_MODULES = [
   "projects",
   "sessions",
   "settings",
+  "shell",
   "status",
   "tasks",
   "terminal",

@@ -101,12 +101,13 @@ picker apply the pure protocol visibility projection. Lifecycle, budgets and lim
 ## Web UI kit
 
 shadcn/ui Base UI / Nova components live in `apps/web/src/common/ui`.
-The approved T3-like theme supersedes the earlier stock-only appearance policy;
-modules must use kit variants instead of class/style overrides on controls. The AST
-gate covers imported aliases, namespaces, field/command wrappers and opaque prop spreads.
-Provenance, token mapping and intentional adaptations:
-[`ui-kit.md`](ui-kit.md). Modules compose the kit; they do not import Base UI,
-cmdk or icons directly. Keep the UI-boundary lint and class/token gates active.
+The OpenCode-based visual shell supersedes the earlier T3-like appearance for the workspace; its
+semantic roles and Corral chrome metrics live in `common/ui/visual-shell.css` with the MIT/OFL
+notice beside it. Modules must use kit variants instead of class/style overrides on controls. The
+AST gate covers imported aliases, namespaces, field/command wrappers and opaque prop spreads.
+Provenance, token mapping and intentional adaptations: [`ui-kit.md`](ui-kit.md). Modules compose
+the kit; they do not import Base UI, cmdk or icons directly. Keep the UI-boundary lint and
+class/token gates active.
 
 Chat Markdown is **Streamdown 2.7.1** (Apache-2.0); its code highlighter and the diff renderer are
 the one shared **`@pierre/diffs` 1.6.2** instance (Apache-2.0), not `@streamdown/code`'s second

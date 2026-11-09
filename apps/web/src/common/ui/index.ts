@@ -69,3 +69,14 @@ export { RadioGroup, RadioGroupItem } from "./radio-group.tsx";
 export { StatusGlyph, type StatusGlyphSize } from "./status-glyph.tsx";
 export { useTruncatedText } from "./truncated-text.tsx";
 export { TreeIndent, TreeRow } from "./tree-row.tsx";
+export {
+  VisualIconButton,
+  VisualResizeHandle,
+  VisualSearchAction,
+  VisualSidebar,
+  VisualTaskCard,
+  type VisualCardStatus,
+  type VisualShortcut,
+  type VisualTaskMetadata,
+  type VisualTaskRow,
+} from "./visual-shell.tsx";

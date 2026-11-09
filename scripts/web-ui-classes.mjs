@@ -173,6 +173,8 @@ function controlOverrides(program, diagnostics, line) {
     "TreeIndent",
     "TreeRow",
     "BoardList",
+    "VisualResizeHandle",
+    "VisualSidebar",
   ]);
   const controls = new Set();
   const namespaces = new Set();
