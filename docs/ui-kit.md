@@ -83,7 +83,9 @@ context-menu dispatcher.
 
 - PathPicker composes Base UI's inline Autocomplete inside the picker TaskDialog: free input,
   no automatic highlight, library-owned virtual focus and folder rows. Ctrl+N/P route to its arrow
-  navigation. Its narrow Toast adapter uses Base UI's lifecycle and announcement, without a new
+  navigation. The input's trailing Add action shows the current submit shortcut (Enter without a
+  highlighted folder, Ctrl+Enter with one) and preserves input focus on pointer submission.
+  Its narrow Toast adapter uses Base UI's lifecycle and announcement, without a new
   global notification system. Modules supply server paths and actions, never control skins.
 
 - Button `layout="tree"`: allocation/truncation inside a horizontal task/project row;
