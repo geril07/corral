@@ -1128,17 +1128,20 @@
 
 /* ── Scrollbar (fine pointers only; touch keeps the platform bar) ────────── */
 
+/* The one kit bar: an 8 px lane, a transparent track and a pill thumb inset by its 2 px transparent
+   border, revealed while the scroller is hovered. A scroller opts in with `visual-scrollbar`; the
+   settings content column is the dialog's scroller and uses the same bar as the shell's lists. */
 @media (hover: hover) and (pointer: fine) {
-  .visual-task-scroll::-webkit-scrollbar {
+  .visual-scrollbar::-webkit-scrollbar {
     width: 8px;
   }
 
-  .visual-task-scroll::-webkit-scrollbar-track,
-  .visual-task-scroll::-webkit-scrollbar-corner {
+  .visual-scrollbar::-webkit-scrollbar-track,
+  .visual-scrollbar::-webkit-scrollbar-corner {
     background: transparent;
   }
 
-  .visual-task-scroll::-webkit-scrollbar-thumb {
+  .visual-scrollbar::-webkit-scrollbar-thumb {
     min-height: 32px;
     border: 2px solid transparent;
     border-radius: 9999px;
@@ -1146,12 +1149,12 @@
     background-clip: padding-box;
   }
 
-  .visual-task-scroll:hover::-webkit-scrollbar-thumb {
+  .visual-scrollbar:hover::-webkit-scrollbar-thumb {
     background-color: var(--visual-border-muted);
   }
 
-  .visual-task-scroll::-webkit-scrollbar-thumb:hover,
-  .visual-task-scroll::-webkit-scrollbar-thumb:active {
+  .visual-scrollbar::-webkit-scrollbar-thumb:hover,
+  .visual-scrollbar::-webkit-scrollbar-thumb:active {
     background-color: var(--visual-text-faint);
   }
 }

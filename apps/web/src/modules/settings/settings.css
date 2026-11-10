@@ -220,8 +220,13 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  /* The dialog's one scroller. Its lane and scrollbar are the kit's `visual-scrollbar`; the end
+     margin keeps the bar off the dialog's rounded edge, and the stable both-edges gutter keeps the
+     centered page still when a section stops overflowing (the reference's settings rule). */
+  margin-inline-end: 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
   will-change: transform;
 }
 
@@ -229,14 +234,18 @@
   display: flex;
   width: 100%;
   max-width: 720px;
+  flex: 1 0 auto;
   flex-direction: column;
   gap: 16px;
   margin-inline: auto;
   padding: 32px 40px 64px;
 }
 
+/* The page fills a column taller than its rows, and the visible section passes that leftover height
+   down, so a section whose frame can grow (Models) fits instead of scrolling the whole page. */
 .settings-section {
   display: flex;
+  flex: 1 0 auto;
   flex-direction: column;
   gap: 16px;
 }
@@ -561,12 +570,15 @@
   white-space: nowrap;
 }
 
-/* A dense specialized manager keeps its own lifecycle; only its frame is settings-owned. */
+/* A dense specialized manager keeps its own lifecycle; only its frame is settings-owned. It fills
+   whatever the content column leaves after the page's own rows, so the page fits instead of
+   scrolling just because its height came from the window; below the usable editor height the
+   column scrolls, as it does for every section. */
 .settings-model-panel {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  height: clamp(480px, calc(100dvh - 20rem), 720px);
-  min-height: 0;
+  min-height: 480px;
 }
 
 .settings-model-panel > * {

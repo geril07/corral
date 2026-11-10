@@ -1208,6 +1208,61 @@ test("each section keeps its own scroll offset while the dialog stays open", asy
   await vi.waitFor(() => expect(content.scrollTop).toBe(saved));
 });
 
+test("the dialog never scrolls: the content column is its one inset scroller", async () => {
+  const original = { width: window.innerWidth, height: window.innerHeight };
+  const client = newClient();
+  try {
+    await page.viewport(1024, 640);
+    await renderSettings(client);
+    await section("Models");
+    const dialog = settingsDialog().element();
+    const content = document.querySelector<HTMLElement>(".settings-content");
+    if (content === null) throw new Error("no settings scroller");
+    // The open animation scales the popup; measure its settled box.
+    await vi.waitFor(() => expect(dialog.getAnimations({ subtree: true })).toHaveLength(0));
+
+    // At the 1024x640 minimum window the Models page is taller than the column.
+    await vi.waitFor(() => expect(content.scrollHeight).toBeGreaterThan(content.clientHeight));
+    expect(dialog.scrollHeight).toBeLessThanOrEqual(dialog.clientHeight);
+    expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(
+      document.documentElement.clientHeight,
+    );
+    // Nothing between the dialog and the column takes over the scroll.
+    for (
+      let wrapper = content.parentElement;
+      wrapper !== null && wrapper !== dialog;
+      wrapper = wrapper.parentElement
+    ) {
+      expect(wrapper.scrollHeight).toBeLessThanOrEqual(wrapper.clientHeight);
+    }
+
+    // The column carries the kit's bar: an 8 px lane with the 2 px inset pill thumb, held off the
+    // dialog's rounded edge instead of sitting on it.
+    expect(getComputedStyle(content, "::-webkit-scrollbar").width).toBe("8px");
+    expect(getComputedStyle(content, "::-webkit-scrollbar-thumb").borderWidth).toBe("2px");
+    expect(
+      dialog.getBoundingClientRect().right - content.getBoundingClientRect().right,
+    ).toBeGreaterThanOrEqual(8);
+
+    // A wheel over the page moves the column and nothing else.
+    const heading = page
+      .getByRole("region", { name: "Models", exact: true })
+      .getByRole("heading", { name: "Models" });
+    await userEvent.wheel(heading, { delta: { y: 120 } });
+    await vi.waitFor(() => expect(content.scrollTop).toBeGreaterThan(0));
+    expect(dialog.scrollTop).toBe(0);
+    expect(window.scrollY).toBe(0);
+
+    // On a tall window the Models page fits the column, so nothing scrolls at all there.
+    await page.viewport(1920, 1080);
+    await vi.waitFor(() => expect(dialog.getBoundingClientRect().height).toBeGreaterThan(900));
+    expect(content.scrollHeight).toBeLessThanOrEqual(content.clientHeight);
+    expect(dialog.scrollHeight).toBeLessThanOrEqual(dialog.clientHeight);
+  } finally {
+    await page.viewport(original.width, original.height);
+  }
+});
+
 test("a project target opens Projects with that project selected", async () => {
   const client = newClient();
   await connected(client);
