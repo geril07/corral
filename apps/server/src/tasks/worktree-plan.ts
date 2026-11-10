@@ -71,7 +71,7 @@ function chosenBranchProblem(name: string, existing: ReadonlySet<string>): strin
 
 /** What to do for a `new-branch` or `existing-branch` workspace; `main-worktree` has no plan. */
 export function planWorktree(
-  workspace: Exclude<CreateTaskInput["workspace"], { type: "main-worktree" }>,
+  workspace: Exclude<CreateTaskInput["workspace"], { type: "main-worktree" | "scratch" }>,
   context: { defaultBaseBranch: string; branches: BranchCatalog } & WorktreeNaming,
 ): WorktreePlan | PlanFailure {
   const local = new Set(context.branches.local);

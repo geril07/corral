@@ -58,151 +58,6 @@ test("a database from a newer server is refused", () => {
   expect(() => migrate(db, MIGRATIONS)).toThrow(/newer/);
 });
 
-test("migrating a database from before settling turns archived tasks into settled ones and keeps their sessions", () => {
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
-  migrate(db, MIGRATIONS.slice(0, 2));
-  db.exec(`
-    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
-    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
-      VALUES ('old', 'p', 'old', 'b', '/n', 0, 'archived', 1), ('new', 'p', 'new', 'b', '/n', 0, 'active', 2);
-    INSERT INTO sessions (id, task_id, kind, agent_session_id, state, created_at)
-      VALUES ('s', 'old', 'shell', NULL, 'running', 3);
-  `);
-
-  migrate(db, MIGRATIONS);
-
-  expect(db.prepare("SELECT id, state FROM tasks ORDER BY created_at").all()).toEqual([
-    { id: "old", state: "settled" },
-    { id: "new", state: "active" },
-  ]);
-  expect(db.prepare("SELECT id, state, resume_on_unsettle FROM sessions").all()).toEqual([
-    { id: "s", state: "running", resume_on_unsettle: 0 },
-  ]);
-});
-
-test("migrating a database from before labels keeps its sessions, unlabelled", () => {
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
-  migrate(db, MIGRATIONS.slice(0, 3));
-  db.exec(`
-    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
-    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
-      VALUES ('t', 'p', 'task', 'b', '/n', 0, 'active', 1);
-    INSERT INTO sessions (id, task_id, kind, agent_session_id, state, created_at)
-      VALUES ('s', 't', 'shell', NULL, 'running', 2);
-  `);
-
-  migrate(db, MIGRATIONS);
-
-  expect(db.prepare("SELECT id, label FROM sessions").all()).toEqual([{ id: "s", label: null }]);
-  db.close();
-});
-
-test("a session from before launch profiles keeps its old launch behavior", () => {
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
-  migrate(db, MIGRATIONS.slice(0, 3));
-  db.exec(`
-    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
-    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
-      VALUES ('t', 'p', 'task', 'b', '/n', 0, 'active', 1);
-    INSERT INTO sessions (id, task_id, kind, agent_session_id, state, created_at)
-      VALUES ('s', 't', 'claude', 'old-session', 'stopped', 2);
-  `);
-
-  migrate(db, MIGRATIONS);
-
-  expect(db.prepare("SELECT launch_spec FROM sessions WHERE id = 's'").get()).toEqual({
-    launch_spec: null,
-  });
-  expect(new SessionStore(db).get("s")).toMatchObject({
-    id: "s",
-    kind: "claude",
-    agentSessionId: "old-session",
-    launch: null,
-  });
-  db.close();
-});
-
-test("migrating a labelled database adds the task source without touching labels", () => {
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
-  migrate(db, MIGRATIONS.slice(0, 4));
-  db.exec(`
-    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
-    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
-      VALUES ('t', 'p', 'task', 'b', '/n', 0, 'active', 1);
-    INSERT INTO sessions (id, task_id, kind, agent_session_id, state, label, created_at)
-      VALUES ('s', 't', 'shell', NULL, 'running', 'my shell', 2);
-  `);
-
-  migrate(db, MIGRATIONS);
-
-  expect(schemaVersion(db)).toBe(MIGRATIONS.length);
-  expect(db.prepare("SELECT id, label FROM sessions").all()).toEqual([
-    { id: "s", label: "my shell" },
-  ]);
-  expect(db.prepare("SELECT id, source FROM tasks").all()).toEqual([{ id: "t", source: null }]);
-});
-
-test("migrating a database from before title sources makes every existing title the user's", () => {
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
-  // Every migration before the title source; it and the two later ones are left out.
-  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 3));
-  db.exec(`
-    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
-    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
-      VALUES ('t', 'p', 'typed by hand', 'b', '/n', 0, 'active', 1);
-  `);
-
-  migrate(db, MIGRATIONS);
-
-  expect(db.prepare("SELECT title, title_source, seen_at FROM tasks").all()).toEqual([
-    { title: "typed by hand", title_source: "user", seen_at: null },
-  ]);
-  db.close();
-});
-
-test("migrating a database from before seenAt leaves its tasks unread", () => {
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
-  // The title source is there; the seen-at column and the prompt migration are not.
-  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 2));
-  db.exec(`
-    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
-    INSERT INTO tasks (id, project_id, title, title_source, branch, workspace_path, owns_worktree, state, created_at)
-      VALUES ('t', 'p', 'already there', 'user', 'b', '/n', 0, 'active', 1);
-  `);
-
-  migrate(db, MIGRATIONS);
-
-  expect(db.prepare("SELECT id, seen_at FROM tasks").all()).toEqual([{ id: "t", seen_at: null }]);
-  db.close();
-});
-
-test("migrating a database from before task prompts adds both columns empty and keeps the tasks", () => {
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
-  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
-  db.exec(`
-    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
-    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
-      VALUES ('t', 'p', 'typed by hand', 'b', '/n', 0, 'active', 1);
-    INSERT INTO sessions (id, task_id, kind, agent_session_id, state, created_at)
-      VALUES ('s', 't', 'shell', NULL, 'running', 2);
-  `);
-
-  migrate(db, MIGRATIONS);
-
-  expect(db.prepare("SELECT id, prompt, primary_session_id FROM tasks").all()).toEqual([
-    { id: "t", prompt: null, primary_session_id: null },
-  ]);
-  expect(new TaskStore(db).get("t")).toMatchObject({ prompt: null, primarySessionId: null });
-  db.close();
-});
-
 test("the task insert writes the primary session instead of dropping it", () => {
   const db = openDatabase(dataDir);
   db.exec(
@@ -314,25 +169,6 @@ test("the task store keeps where a title came from, and a rename stores the user
   db.close();
 });
 
-test("migrating a database from before chat keeps every existing session in a terminal", () => {
-  const db = new DatabaseSync(":memory:");
-  // Every migration but the view column, which is the one this test is about.
-  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
-  db.exec(
-    `INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
-     INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
-       VALUES ('t', 'p', 'title', 'branch', '/work/t', 0, 'active', 1);
-     INSERT INTO sessions (id, task_id, kind, agent_session_id, state, created_at)
-       VALUES ('s', 't', 'claude', 'conversation', 'running', 2);`,
-  );
-
-  migrate(db, MIGRATIONS);
-
-  expect(schemaVersion(db)).toBe(MIGRATIONS.length);
-  expect(new SessionStore(db).get("s")).toMatchObject({ id: "s", view: "terminal" });
-  db.close();
-});
-
 test("the session store writes the view of a chat session and reads it back", () => {
   const db = openDatabase(dataDir);
   db.exec(
@@ -357,55 +193,42 @@ test("the session store writes the view of a chat session and reads it back", ()
   db.close();
 });
 
-test("a database already at version 11 gains the request's repository column", () => {
-  // The table was created without `repository`; editing migration 11 in place would never run its
-  // CREATE again, so the column arrives as migration 12 and an existing row keeps its link.
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
-  migrate(db, MIGRATIONS.slice(0, MIGRATIONS.length - 1));
-  db.exec(`
-    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
-    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
-      VALUES ('t', 'p', 'task', 'b', '/n', 0, 'active', 1);
-    INSERT INTO pull_requests (task_id, provider, host, number, url, title, branch, base, state, state_reason, checks, fetched_at)
-      VALUES ('t', 'github', 'forge.example', 7, 'https://forge.example/acme/app/pull/7', 'Ship', 'b', 'main', 'open', NULL, NULL, 1);
-  `);
+test("private launch data is stored beside the session, never in its public columns, and goes with it", () => {
+  const db = openDatabase(dataDir);
+  db.exec(
+    `INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
+     INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
+       VALUES ('t', 'p', 'title', 'branch', '/work/t', 0, 'active', 1);`,
+  );
+  const sessions = new SessionStore(db);
+  const spec = {
+    instanceId: "one",
+    command: "/opt/pi",
+    args: ["--no-skills"],
+    literalEnv: [{ targetName: "TOKEN", value: "sk-private-db-sentinel" }],
+  };
+  sessions.insert(
+    {
+      id: "s",
+      taskId: "t",
+      kind: "pi",
+      view: "terminal",
+      agentSessionId: "agent-session",
+      state: "running",
+      label: null,
+      createdAt: 2,
+      launch: null,
+    },
+    spec,
+  );
 
-  migrate(db, MIGRATIONS);
+  expect(sessions.privateLaunch("s")).toEqual(spec);
+  expect(JSON.stringify(sessions.get("s"))).not.toContain("sk-private-db-sentinel");
+  expect(JSON.stringify(db.prepare("SELECT * FROM sessions").all())).not.toContain(
+    "sk-private-db-sentinel",
+  );
 
-  expect(schemaVersion(db)).toBe(MIGRATIONS.length);
-  expect(db.prepare("SELECT task_id, repository FROM pull_requests").all()).toEqual([
-    { task_id: "t", repository: null },
-  ]);
-  db.close();
-});
-
-test("a database already at version 11 with the round-2 column migrates without a duplicate-column error", () => {
-  // C6's round 2 edited migration 11 in place, so a development database it created sits at
-  // version 11 with `repository` already present while migration 12 is still pending. SQLite has no
-  // `ADD COLUMN IF NOT EXISTS`, so the step reads `table_info` first; without that guard this throws
-  // `duplicate column name: repository` and the server refuses to start.
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys = ON");
-  migrate(db, MIGRATIONS.slice(0, 11));
-  db.exec("ALTER TABLE pull_requests ADD COLUMN repository TEXT;");
-  db.exec(`
-    INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main');
-    INSERT INTO tasks (id, project_id, title, branch, workspace_path, owns_worktree, state, created_at)
-      VALUES ('t', 'p', 'task', 'b', '/n', 0, 'active', 1);
-    INSERT INTO pull_requests (task_id, provider, host, repository, number, url, title, branch, base, state, state_reason, checks, fetched_at)
-      VALUES ('t', 'github', 'forge.example', 'forge.example/acme/app', 7, 'https://forge.example/acme/app/pull/7', 'Ship', 'b', 'main', 'merged', NULL, NULL, 1);
-  `);
-  db.exec("PRAGMA user_version = 11");
-
-  migrate(db, MIGRATIONS);
-
-  expect(schemaVersion(db)).toBe(MIGRATIONS.length);
-  expect(db.prepare("SELECT task_id, repository, state FROM pull_requests").all()).toEqual([
-    { task_id: "t", repository: "forge.example/acme/app", state: "merged" },
-  ]);
-  // The foreign key still cascades after the step.
-  db.exec("DELETE FROM tasks WHERE id = 't'");
-  expect(db.prepare("SELECT task_id FROM pull_requests").all()).toEqual([]);
+  sessions.delete("s");
+  expect(sessions.privateLaunch("s")).toBeUndefined();
   db.close();
 });

@@ -12,6 +12,7 @@ import type {
 } from "@corral/protocol/rpc";
 import { normalizeLabel } from "@corral/protocol/label";
 import type { StatusReport } from "@corral/protocol/status-report";
+import { homedir } from "node:os";
 import { AGENTS } from "../agents/agents.ts";
 import { codexRemoteArgs } from "../agents/codex.ts";
 import { codexChatSupport } from "../agents/codex-version.ts";
@@ -26,7 +27,7 @@ import {
   type CodexSessionWatch,
 } from "../agents/codex-sessions.ts";
 import { isExecutable } from "../agents/executable-lookup.ts";
-import { resolveEnvRefs } from "../agents/launch-env.ts";
+import { isReservedEnvName, resolveEnvRefs, ReservedEnvRefError } from "../agents/launch-env.ts";
 import { ChangeFeed } from "../changes/change-feed.ts";
 import type { ConfigWatcher } from "../config/config-watcher.ts";
 import { isInsideResolved, workspaceExists } from "../files/file-access.ts";
@@ -43,7 +44,10 @@ import {
   AgentDisabledError,
   AgentNotFoundError,
   AlreadyRunningError,
+  LaunchArgsUnsupportedError,
+  LaunchInstanceDisabledError,
   LaunchProfileChangedError,
+  LaunchProfileKindMismatchError,
   LaunchProfileRevisionWithoutProfileError,
   LaunchProfileUnknownError,
   LaunchSpawnError,
@@ -55,6 +59,7 @@ import {
 } from "./errors.ts";
 import { launchDiagnostic, launchFailureReason, redactLaunchError } from "./launch-diagnostics.ts";
 import { launchSnapshotFor } from "./launch-snapshot.ts";
+import { instanceLaunchArgsProblem, type PrivateLaunchSpec } from "./private-launch.ts";
 import type { SessionStore, StoredSession } from "./session-store.ts";
 
 /** Sessions started with no client to size them yet: a restored one, or a task's primary session. */
@@ -140,7 +145,8 @@ export class SessionService {
   readonly #openCodeServers: OpenCodeServers;
   /** One `codex app-server` per Codex session; both of that session's legs are its clients. */
   readonly #codexServers: CodexServers;
-  readonly #config: Pick<ConfigWatcher, "state">;
+  /** The current config, for the instance a new session names; never read to resume one. */
+  readonly #config: Pick<ConfigWatcher, "state" | "resolveInstance">;
   readonly #taskEvents: SessionTasks;
   // Kept after the process is gone: a `done` or `error` outlives it. Not persisted.
   readonly #statuses = new Map<string, AgentStatus>();
@@ -164,8 +170,8 @@ export class SessionService {
     openCodeServers: OpenCodeServers;
     /** The per-session Codex app-servers; started lazily, stopped with each session's last client. */
     codexServers: CodexServers;
-    /** The current config, for the profile a new session names. Never read on resume. */
-    config: Pick<ConfigWatcher, "state">;
+    /** The current config, for the instance a new session names. Never read to resume one. */
+    config: Pick<ConfigWatcher, "state" | "resolveInstance">;
     /** Told when a removal took a task's primary session away, so the task feed republishes it. */
     taskEvents: SessionTasks;
   }) {
@@ -245,22 +251,25 @@ export class SessionService {
       createdAt: Date.now(),
       launch: null,
     };
+    let privateLaunch: PrivateLaunchSpec | null = null;
     try {
       stored.view = this.#viewFor(kind, choice.view);
       // A disabled agent is not offered anywhere; a new launch of it is refused rather than run
       // behind the pickers' back. An existing session can still be stopped and resumed. Inside
       // the try, so a task created with one keeps its stopped session like any failed launch.
       if (kind !== "shell" && !this.#agentEnabled(kind)) throw new AgentDisabledError(kind);
-      stored.launch = this.#launchSnapshot(kind, choice);
+      const profile = choice.profileId === undefined ? undefined : this.#profile(choice.profileId);
+      stored.launch = this.#launchSnapshot(kind, profile, choice);
+      privateLaunch = kind === "shell" ? null : this.#newLaunchSpec(kind, profile);
       const prompt = this.#promptFor(kind, choice.prompt);
-      await this.#launch(stored, task, size, "start", prompt);
+      await this.#launch(stored, task, size, "start", prompt, privateLaunch);
     } catch (error) {
       // A start that finds the workspace gone keeps its session like a primary creation does:
       // the pane then names the sentence instead of the raw PTY line a missing cwd prints.
       if (!keepFailedLaunch && !(error instanceof WorkspaceMissingError)) throw error;
       const reason = launchFailureReason(error);
       const failed: StoredSession = { ...stored, state: "stopped" };
-      this.#store.insert(failed);
+      this.#store.insert(failed, privateLaunch);
       this.#launchErrors.set(failed.id, reason);
       this.#changes.notify();
       console.error(
@@ -269,20 +278,56 @@ export class SessionService {
       );
       return this.#withTerminal(failed);
     }
-    this.#store.insert(stored);
+    this.#store.insert(stored, privateLaunch);
     this.#changes.notify();
     return this.#withTerminal(stored);
   }
 
   /** The launch choices as they are stored on the session; resolves the profile the caller named. */
-  #launchSnapshot(kind: SessionKind, choice: SessionStartChoice) {
-    const profile = choice.profileId === undefined ? undefined : this.#profile(choice.profileId);
+  #launchSnapshot(
+    kind: SessionKind,
+    profile: LaunchProfile | undefined,
+    choice: SessionStartChoice,
+  ) {
     if (choice.expectedProfileRevision !== undefined) {
       if (profile === undefined) throw new LaunchProfileRevisionWithoutProfileError();
       if (profile.revision !== choice.expectedProfileRevision)
         throw new LaunchProfileChangedError(profile.id);
     }
     return launchSnapshotFor({ kind, profile, modelOverride: choice.model });
+  }
+
+  /**
+   * The private launch data of a NEW session: the instance's executable and argv and its literal
+   * environment values, captured now so an edit, disable or deletion cannot move a later restart.
+   * The public snapshot stays names-only; nothing here is ever sent to a client.
+   */
+  #newLaunchSpec(kind: AgentKind, profile: LaunchProfile | undefined): PrivateLaunchSpec {
+    let command: string;
+    let args: string[] = [];
+    let literalEnv: PrivateLaunchSpec["literalEnv"] = [];
+    if (profile !== undefined) {
+      // A disabled instance is not offered; a new launch names it only by a direct RPC call.
+      // Checked before resolution: a disabled instance with an unavailable reference is still a
+      // disabled instance, not a different error.
+      if (profile.enabled === false) throw new LaunchInstanceDisabledError(profile.id, kind);
+      const instance = this.#config.resolveInstance(profile.id);
+      if (instance === undefined) throw new LaunchProfileUnknownError(profile.id);
+      if (instance.agent !== profile.agent)
+        throw new LaunchProfileKindMismatchError(profile.id, kind);
+      if (!instance.enabled) throw new LaunchInstanceDisabledError(profile.id, kind);
+      command = instance.command;
+      args = [...instance.args];
+      literalEnv = (profile.literalEnvNames ?? []).flatMap((targetName) => {
+        const value = instance.env[targetName];
+        return value === undefined ? [] : [{ targetName, value }];
+      });
+    } else {
+      command = agentCommand(this.#config.state().config, kind);
+    }
+    const problem = instanceLaunchArgsProblem(kind, args);
+    if (problem !== undefined) throw new LaunchArgsUnsupportedError(kind, problem);
+    return { instanceId: profile?.id ?? null, command, args, literalEnv };
   }
 
   /**
@@ -692,12 +737,6 @@ export class SessionService {
     return this.#chat.hasDriver(kind);
   }
 
-  /** The executable a launch of `kind` runs: `[agents.<kind>].command`, else the agent's name. */
-  #agentCommand(kind: SessionKind): string {
-    if (kind === "shell") throw new Error("a shell has no agent command");
-    return agentCommand(this.#config.state().config, kind);
-  }
-
   #agentEnabled(kind: AgentKind): boolean {
     return this.#config.state().config.agents[kind].enabled.value;
   }
@@ -780,25 +819,61 @@ export class SessionService {
   }
 
   /**
-   * The effective environment of one launch: the server's own, the profile's resolved references,
-   * and the server-owned `CORRAL_*` variables, which win over references. A missing reference fails
-   * here, before anything is spawned.
+   * The effective environment of one launch: the server's own, the snapshot's resolved references
+   * and the captured literal values, then the server-owned `CORRAL_*` variables, which win over
+   * all of them. A missing reference fails here, before anything is spawned. Nothing is written to
+   * `process.env`; an instance's environment lives only in the copy handed to its child.
    */
-  #launchEnv(stored: StoredSession): { env: Record<string, string>; referencedValues: string[] } {
+  #launchEnv(
+    stored: StoredSession,
+    spec: PrivateLaunchSpec | null,
+  ): { env: Record<string, string>; sensitiveValues: string[] } {
     const env = stringEnv({ ...process.env });
-    let referencedValues: string[] = [];
-    if (stored.launch !== null) {
-      const resolved = resolveEnvRefs(
-        stored.launch.env,
-        process.env,
-        stored.launch.profile?.id ?? null,
-      );
-      referencedValues = Object.values(resolved);
-      Object.assign(env, resolved);
+    const referenced = resolveEnvRefs(
+      stored.launch?.env ?? [],
+      process.env,
+      stored.launch?.profile?.id ?? null,
+    );
+    const literal: Record<string, string> = {};
+    for (const entry of spec?.literalEnv ?? []) {
+      // A snapshot written by an older or hand-edited build is filtered again, not trusted.
+      if (isReservedEnvName(entry.targetName)) throw new ReservedEnvRefError(entry.targetName);
+      literal[entry.targetName] = expandNativeRoot(entry.targetName, entry.value);
     }
+    for (const [name, value] of Object.entries(referenced)) {
+      referenced[name] = expandNativeRoot(name, value);
+    }
+    Object.assign(env, referenced, literal);
     env["CORRAL_SESSION_ID"] = stored.id;
     env["CORRAL_TASK_ID"] = stored.taskId;
-    return { env, referencedValues };
+    return { env, sensitiveValues: [...Object.values(referenced), ...Object.values(literal)] };
+  }
+
+  /**
+   * The private launch data a launch runs with. A start hands over what it just captured; a
+   * restart reads it back, and must not consult the instance's current config — that is what lets
+   * a disabled or deleted instance keep its session restartable. A row from before this table
+   * falls back to the effective agent command, without re-enabling a disabled agent.
+   */
+  #launchSpec(
+    stored: StoredSession,
+    provided?: PrivateLaunchSpec | null,
+  ): PrivateLaunchSpec | null {
+    if (stored.kind === "shell") return null;
+    const spec =
+      provided ?? this.#store.privateLaunch(stored.id) ?? this.#fallbackLaunchSpec(stored.kind);
+    const problem = instanceLaunchArgsProblem(stored.kind, spec.args);
+    if (problem !== undefined) throw new LaunchArgsUnsupportedError(stored.kind, problem);
+    return spec;
+  }
+
+  #fallbackLaunchSpec(kind: AgentKind): PrivateLaunchSpec {
+    return {
+      instanceId: null,
+      command: agentCommand(this.#config.state().config, kind),
+      args: [],
+      literalEnv: [],
+    };
   }
 
   /**
@@ -818,6 +893,7 @@ export class SessionService {
     size: TerminalSize,
     how: "start" | "resume",
     prompt: string | null = null,
+    privateLaunch?: PrivateLaunchSpec | null,
   ): Promise<void> {
     const adapter = stored.kind === "shell" ? undefined : AGENTS[stored.kind];
     // node-pty does not throw for a missing cwd: the child prints `chdir(2) failed` and exits 1.
@@ -825,8 +901,9 @@ export class SessionService {
     if (!(await workspaceExists(task.workspacePath))) {
       throw new WorkspaceMissingError(task.workspacePath, stored.kind);
     }
+    const spec = this.#launchSpec(stored, privateLaunch);
     const statusToken = newStatusToken();
-    const { env, referencedValues } = this.#launchEnv(stored);
+    const { env, sensitiveValues } = this.#launchEnv(stored, spec);
     // One resume decision for both legs: how the frontend opens the conversation, decided by the
     // agent adapter (`AgentAdapter.hasConversation`). The chat leg cannot disagree with the
     // terminal leg, and a revert to the raw `how` is caught by the service test.
@@ -851,11 +928,12 @@ export class SessionService {
         stored,
         stored.kind,
         task,
+        spec!,
         env,
         statusToken,
         resumable,
         prompt,
-        referencedValues,
+        sensitiveValues,
       );
       return;
     }
@@ -878,10 +956,10 @@ export class SessionService {
           stored.kind,
           error instanceof ChatLaunchError
             ? error.message
-            : redactLaunchError(error, referencedValues),
+            : redactLaunchError(error, sensitiveValues),
         );
       }
-      const command = this.#agentCommand(stored.kind);
+      const command = spec!.command;
       env["CORRAL_STATUS_URL"] = this.#statusUrl(stored.id);
       env["CORRAL_STATUS_TOKEN"] = statusToken;
       if (!isExecutable(command, env["PATH"])) throw new AgentNotFoundError(command);
@@ -895,6 +973,9 @@ export class SessionService {
         this.#changes.notify();
       }
       let args = [
+        // The instance's own flags first, the same order native model discovery uses; every flag
+        // after them belongs to Corral's adapter and cannot be taken over by the instance.
+        ...spec!.args,
         ...adapter.launchArgs(stored.launch?.model ?? null, stored.launch?.provider ?? null),
         ...(resumable && recordedConversationId !== null
           ? adapter.resumeArgs(recordedConversationId)
@@ -948,7 +1029,7 @@ export class SessionService {
           } catch (error) {
             if (error instanceof ChatLaunchError)
               throw new LaunchSpawnError(stored.kind, error.message);
-            const reason = redactLaunchError(error, referencedValues);
+            const reason = redactLaunchError(error, sensitiveValues);
             if (chatLive)
               throw new LaunchSpawnError(
                 stored.kind,
@@ -984,7 +1065,7 @@ export class SessionService {
       // The pool client was acquired before the PTY existed; a spawn that failed leaves it behind.
       await this.#openCodeServers.release(openCodeOwner("terminal", stored.id));
       await this.#codexServers.release(codexOwner("terminal", stored.id), stored.id);
-      throw new LaunchSpawnError(stored.kind, redactLaunchError(error, referencedValues));
+      throw new LaunchSpawnError(stored.kind, redactLaunchError(error, sensitiveValues));
     }
     if (previous === undefined) this.#statuses.delete(stored.id);
     const discovery =
@@ -1043,13 +1124,14 @@ export class SessionService {
     stored: StoredSession,
     kind: AgentKind,
     task: Task,
+    spec: PrivateLaunchSpec,
     env: Record<string, string>,
     statusToken: string,
     resume: boolean,
     prompt: string | null,
-    referencedValues: readonly string[],
+    sensitiveValues: readonly string[],
   ): Promise<void> {
-    const command = this.#agentCommand(kind);
+    const command = spec.command;
     env["CORRAL_STATUS_URL"] = this.#statusUrl(stored.id);
     env["CORRAL_STATUS_TOKEN"] = statusToken;
     if (!isExecutable(command, env["PATH"])) throw new AgentNotFoundError(command);
@@ -1096,7 +1178,7 @@ export class SessionService {
         stored.kind,
         error instanceof ChatLaunchError
           ? error.message
-          : redactLaunchError(error, referencedValues),
+          : redactLaunchError(error, sensitiveValues),
       );
     }
     const live: Live = previous ?? {
@@ -1121,6 +1203,7 @@ export class SessionService {
         command,
         cwd: task.workspacePath,
         env,
+        ...(spec.args.length === 0 ? {} : { instanceArgs: spec.args }),
         model: stored.launch?.model ?? null,
         provider: stored.launch?.provider ?? null,
         agentSessionId: stored.agentSessionId,
@@ -1158,7 +1241,7 @@ export class SessionService {
         stored.kind,
         error instanceof ChatLaunchError
           ? error.message
-          : redactLaunchError(error, referencedValues),
+          : redactLaunchError(error, sensitiveValues),
       );
     }
     if (previous === undefined) this.#statuses.delete(stored.id);
@@ -1299,4 +1382,16 @@ function stringEnv(env: Record<string, string | undefined>): Record<string, stri
   return Object.fromEntries(
     Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined),
   );
+}
+
+/** The three native roots whose leading `~` names the server home, expanded exactly as resolution does. */
+const NATIVE_ROOTS: ReadonlySet<string> = new Set([
+  "CLAUDE_CONFIG_DIR",
+  "CODEX_HOME",
+  "PI_CODING_AGENT_DIR",
+]);
+
+function expandNativeRoot(name: string, value: string): string {
+  if (!NATIVE_ROOTS.has(name.toUpperCase())) return value;
+  return value === "~" || value.startsWith("~/") ? homedir() + value.slice(1) : value;
 }

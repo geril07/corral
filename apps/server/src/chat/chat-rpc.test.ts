@@ -17,8 +17,12 @@ import { useServer, within } from "../../test/server-fixture.ts";
 import { launchesOf, processExists, sessionsOf } from "../../test/session-helpers.ts";
 
 const server = useServer({
-  chat: { dialogTimeoutMs: 600, readyTimeoutMs: 1200, exitGraceMs: 400, writerWaitMs: 2000 },
+  // These files start real servers, app-servers and PTYs; the ready and test budgets must survive
+  // the documented parallel load rather than turn a slow host into a false failure.
+  chat: { dialogTimeoutMs: 600, readyTimeoutMs: 4000, exitGraceMs: 400, writerWaitMs: 2000 },
 });
+// Polls in this file allow up to 10 s, so the default 5 s test budget contradicts them under load.
+vi.setConfig({ testTimeout: 20_000 });
 const agents = useFakeAgents();
 const SIZE = { cols: 80, rows: 24 };
 

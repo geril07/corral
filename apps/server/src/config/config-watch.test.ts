@@ -19,6 +19,23 @@ const agents = useFakeAgents();
 const configFile = () => join(server.configDir, "config.toml");
 /** The defaults of this server's data directory, including its worktree root. */
 const defaults = () => defaultClientConfig(server.dataDir);
+
+test("config.watch does not expose literal environment values or malformed TOML text", async () => {
+  const watcher = await openWatcher();
+  await mkdir(server.configDir, { recursive: true });
+  const secret = "watch-private-secret";
+  await writeFile(
+    configFile(),
+    `[profiles.p]\nname = "P"\nagent = "pi"\nenv = [{ targetName = "TOKEN", value = "${secret}" }]\n`,
+  );
+  const valid = await watcher.next("the private profile");
+  expect(valid.profiles[0]?.literalEnvNames).toEqual(["TOKEN"]);
+  expect(JSON.stringify(valid)).not.toContain(secret);
+  await writeFile(configFile(), `[profiles.p]\nenv = [{ value = "${secret}" broken }]`);
+  const invalid = await watcher.next("the invalid private profile");
+  expect(invalid.problems).not.toEqual([]);
+  expect(JSON.stringify(invalid)).not.toContain(secret);
+});
 /** The host facts the fake agents on `PATH` give: all found, and every agent has a chat driver. */
 const availability = () =>
   AgentKind.options.map((kind) => ({

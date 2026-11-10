@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, watch, type FSWatcher, type WatchEventType } from "node:fs";
 import { basename, dirname, relative, sep } from "node:path";
+import { homedir } from "node:os";
 import {
   AgentKind,
   defaultClientConfig,
@@ -8,9 +9,10 @@ import {
   type ConfigState,
 } from "@corral/protocol/config";
 import { isExecutable } from "../agents/executable-lookup.ts";
+import { resolveInstanceEnv } from "../agents/launch-env.ts";
 import { hasChatDriver } from "../chat/chat-drivers.ts";
 import { ChangeFeed } from "../changes/change-feed.ts";
-import { parseConfigFile } from "./config-file.ts";
+import { parseConfigFile, type PrivateProfile } from "./config-file.ts";
 
 /** Editors write a file in several steps; one read after the last step is enough. */
 const DEBOUNCE_MS = 50;
@@ -20,9 +22,22 @@ const REARM_MS = 1000;
 export interface ConfigWatcher {
   /** The latest state read from disk, including the profiles a new session may choose. */
   state(): ConfigState;
+  /** Private, current launch settings; never part of state or the RPC feed. */
+  resolveInstance(
+    id: string,
+    source?: NodeJS.ProcessEnv,
+    home?: string,
+  ): ResolvedInstance | undefined;
   /** The state now and after every change on disk; unchanged reads push nothing. */
   watch(signal: AbortSignal | undefined): AsyncGenerator<ConfigState>;
   close(): void;
+}
+
+export interface ResolvedInstance extends Omit<PrivateProfile, "env" | "command"> {
+  command: string;
+  env: NodeJS.ProcessEnv;
+  /** Values explicitly supplied by this instance, for redacting native metadata. */
+  sensitiveValues: string[];
 }
 
 /**
@@ -34,7 +49,8 @@ export interface ConfigWatcher {
  */
 export function watchConfigFile(filePath: string, options: { dataDir: string }): ConfigWatcher {
   const changes = new ChangeFeed();
-  let state = readConfigFile(filePath, options.dataDir);
+  let current = readConfigFile(filePath, options.dataDir);
+  let state = current.state;
   let watcher: FSWatcher | undefined;
   let watchedDir: string | undefined;
   let refreshTimer: NodeJS.Timeout | undefined;
@@ -43,8 +59,9 @@ export function watchConfigFile(filePath: string, options: { dataDir: string }):
 
   function refresh() {
     const next = readConfigFile(filePath, options.dataDir);
-    if (sameState(next, state)) return;
-    state = next;
+    current = next;
+    if (sameState(next.state, state)) return;
+    state = next.state;
     changes.notify();
   }
 
@@ -119,6 +136,21 @@ export function watchConfigFile(filePath: string, options: { dataDir: string }):
 
   return {
     state: () => state,
+    resolveInstance(id, source = process.env, home = homedir()) {
+      const profile = current.privateProfiles.find((item) => item.id === id);
+      if (profile === undefined) return undefined;
+      const env = resolveInstanceEnv(profile.env, source, id, home);
+      return {
+        ...profile,
+        args: [...profile.args],
+        command: profile.command ?? state.config.agents[profile.agent].command.value,
+        env,
+        sensitiveValues: profile.env.flatMap((entry) => {
+          const value = env[entry.targetName];
+          return value === undefined || value === "" ? [] : [value];
+        }),
+      };
+    },
     watch: (signal) =>
       changes.watch(() => {
         // "found" is a fact about the machine, not the file: ask the filesystem on every new
@@ -138,7 +170,10 @@ export function watchConfigFile(filePath: string, options: { dataDir: string }):
   };
 }
 
-function readConfigFile(filePath: string, dataDir: string): ConfigState {
+function readConfigFile(
+  filePath: string,
+  dataDir: string,
+): { state: ConfigState; privateProfiles: PrivateProfile[] } {
   let text: string;
   try {
     text = readFileSync(filePath, "utf8");
@@ -147,36 +182,48 @@ function readConfigFile(filePath: string, dataDir: string): ConfigState {
     if (code === "ENOENT" || code === "ENOTDIR") {
       const config = defaultClientConfig(dataDir);
       return {
-        path: filePath,
-        exists: false,
-        config,
-        profiles: [],
-        agents: agentAvailability(config),
-        problems: [],
+        privateProfiles: [],
+        state: {
+          path: filePath,
+          exists: false,
+          config,
+          profiles: [],
+          agents: agentAvailability(config),
+          problems: [],
+        },
       };
     }
     const config = defaultClientConfig(dataDir);
     return {
-      path: filePath,
-      exists: true,
-      config,
-      profiles: [],
-      agents: agentAvailability(config),
-      problems: [
-        {
-          severity: "error",
-          path: "",
-          message: `cannot read the file: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      ],
+      privateProfiles: [],
+      state: {
+        path: filePath,
+        exists: true,
+        config,
+        profiles: [],
+        agents: agentAvailability(config),
+        problems: [
+          {
+            severity: "error",
+            path: "",
+            message: `cannot read the file: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      },
     };
   }
-  const parsed = parseConfigFile(text, dataDir);
+  const privateProfiles: PrivateProfile[] = [];
+  const parsed = parseConfigFile(text, dataDir, undefined, privateProfiles);
   return {
-    path: filePath,
-    exists: true,
-    ...parsed,
-    agents: agentAvailability(parsed.config),
+    privateProfiles,
+    state: {
+      path: filePath,
+      exists: true,
+      config: parsed.config,
+      profiles: parsed.profiles,
+      problems: parsed.problems,
+      agents: agentAvailability(parsed.config),
+    },
   };
 }
 

@@ -10,6 +10,7 @@ import type {
 } from "@corral/protocol/rpc";
 import { workspaceMissingMessage } from "@corral/protocol/workspace";
 import { workspaceExists } from "../files/file-access.ts";
+import { GitError } from "../git/git.ts";
 import { readChanges, readFileDiff } from "../git/diff.ts";
 import {
   checkedOutBranch,
@@ -45,6 +46,8 @@ import {
   readPullRequest,
 } from "./pull-request.ts";
 import type { PullRequestStore } from "./pull-request-store.ts";
+
+const SCRATCH_GIT_UNAVAILABLE = "Git operations are unavailable for a no-project scratch task";
 
 /**
  * The read model behind `changes.*` (`layout.md`, **Changes**) and its writes (C6): each task's
@@ -114,7 +117,7 @@ export class ChangesService {
    * a dirty task (an agent tool call) or a task never read is recomputed first.
    */
   async diff(taskId: string, path: string): Promise<ChangeDiff> {
-    const task = this.#task(taskId);
+    const task = this.#gitTask(taskId);
     const cached = this.#cache.get(task.id);
     const snapshot =
       cached === undefined || this.#dirty.has(task.id) ? await this.#snapshot(task) : cached;
@@ -133,7 +136,7 @@ export class ChangesService {
    * mount and after every write; nothing here writes.
    */
   async finish(taskId: string): Promise<ChangesFinish> {
-    const task = this.#task(taskId);
+    const task = this.#gitTask(taskId);
     const branch = await checkedOutBranch(task.workspacePath);
     const base = this.#projects.get(task.projectId)?.defaultBaseBranch ?? null;
     const remotes = await listRemotes(task.workspacePath);
@@ -154,7 +157,7 @@ export class ChangesService {
     taskId: string,
     input: { paths: readonly string[] | "all"; staged: boolean },
   ): Promise<ChangesFinish> {
-    const task = this.#task(taskId);
+    const task = this.#gitTask(taskId);
     await stagePaths(task.workspacePath, input.paths, input.staged);
     this.workspaceChanged(task.id, { byTask: true });
     return this.finish(taskId);
@@ -169,7 +172,7 @@ export class ChangesService {
     taskId: string,
     message: string,
   ): Promise<{ sha: string; shortSha: string; subject: string; finish: ChangesFinish }> {
-    const task = this.#task(taskId);
+    const task = this.#gitTask(taskId);
     if (message.trim() === "") throw new ChangesEmptyMessageError();
     if ((await stagedPaths(task.workspacePath)).length === 0) throw new ChangesNothingStagedError();
     const committed = await commitIndex(task.workspacePath, message);
@@ -186,7 +189,7 @@ export class ChangesService {
     taskId: string,
     input: { remote: ChangesRemote; branch: string },
   ): Promise<{ remote: ChangesRemote; branch: string; commit: string; finish: ChangesFinish }> {
-    const task = this.#task(taskId);
+    const task = this.#gitTask(taskId);
     await this.#confirmedRemote(task, input.remote, input.branch);
     const { commit } = await pushBranch(task.workspacePath, input.remote.name, input.branch);
     return {
@@ -214,7 +217,7 @@ export class ChangesService {
       draft?: boolean | undefined;
     },
   ): Promise<PullRequest> {
-    const task = this.#task(taskId);
+    const task = this.#gitTask(taskId);
     await this.#confirmedRemote(task, input.remote, input.branch);
     // The remote must have this branch **at its tip**: a branch pushed two commits ago would open a
     // request for code the user did not confirm, and `gh pr create` would happily do it.
@@ -257,7 +260,7 @@ export class ChangesService {
    * is never reported as `closed`, and the user's next focus tries again.
    */
   async pullRequest(taskId: string, refresh = false): Promise<PullRequest | null> {
-    const task = this.#task(taskId);
+    const task = this.#gitTask(taskId);
     const stored = this.#pullRequests.get(task.id);
     if (stored === undefined || !refresh) return stored ?? null;
     const running = this.#refreshing.get(task.id);
@@ -331,7 +334,9 @@ export class ChangesService {
   workspaceChanged(taskId: string, options: { byTask: true }): void;
   workspaceChanged(id: string, options?: { byTask: true }): void {
     const taskId = options?.byTask === true ? id : this.#sessions.get(id)?.taskId;
-    if (taskId === undefined || this.#tasks.get(taskId) === undefined) return;
+    if (taskId === undefined) return;
+    const task = this.#tasks.get(taskId);
+    if (task === undefined || task.projectId === null) return;
     this.#dirty.add(taskId);
     this.#changes.notify();
   }
@@ -374,8 +379,15 @@ export class ChangesService {
     return task;
   }
 
+  #gitTask(taskId: string): Task & { projectId: string } {
+    const task = this.#task(taskId);
+    if (task.projectId === null) throw new GitError(SCRATCH_GIT_UNAVAILABLE);
+    return { ...task, projectId: task.projectId };
+  }
+
   /** One task's read model; a workspace that cannot be read is a snapshot with the reason, not an error. */
   async #snapshot(task: Task): Promise<TaskChanges> {
+    if (task.projectId === null) return failed(task.id, SCRATCH_GIT_UNAVAILABLE);
     const project: Project | undefined = this.#projects.get(task.projectId);
     if (project === undefined) {
       return failed(task.id, "the task's project is gone");

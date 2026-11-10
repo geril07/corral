@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync, readdirSync } from "node:fs";
-import { resolveEnvRefs } from "../agents/launch-env.ts";
+import { instanceArgsProblem } from "../agents/instance-args.ts";
 import type { ConfigWatcher } from "../config/config-watcher.ts";
 import type { ProjectStore } from "../projects/project-store.ts";
 import type { TaskStore } from "../tasks/task-store.ts";
@@ -68,6 +68,8 @@ export class ModelCatalogService {
       return { ...EMPTY, message: "The profile changed. Review it and choose it again." };
     if (!state.config.agents[input.scope.kind].enabled.value)
       return { ...EMPTY, message: "This agent is disabled in the config file." };
+    if (profile?.enabled === false)
+      return { ...EMPTY, message: "This instance is disabled in the config file." };
     if (input.scope.kind !== "pi" && input.scope.kind !== "opencode")
       return {
         ...EMPTY,
@@ -83,12 +85,23 @@ export class ModelCatalogService {
       return { ...EMPTY, message: "The catalog's workspace no longer exists." };
     const cwd = task?.workspacePath ?? project?.path ?? homedir();
     let env: Record<string, string>;
+    let command: string;
+    let args: string[];
+    let sensitiveValues: string[];
     try {
+      const instance = profile === undefined ? undefined : this.#config.resolveInstance(profile.id);
+      if (
+        profile !== undefined &&
+        (instance === undefined || instance.agent !== profile.agent || !instance.enabled)
+      )
+        return { ...EMPTY, message: "This instance is no longer available. Choose it again." };
+      args = instance?.args ?? [];
+      const problem = instanceArgsProblem(input.scope.kind, args);
+      if (problem !== undefined) return { ...EMPTY, message: problem };
+      command = instance?.command ?? agentCommand(state.config, input.scope.kind);
+      sensitiveValues = instance?.sensitiveValues ?? [];
       env = Object.fromEntries(
-        Object.entries({
-          ...process.env,
-          ...resolveEnvRefs(profile?.env ?? [], process.env, profile?.id ?? null),
-        }).filter(
+        Object.entries(instance?.env ?? process.env).filter(
           (pair): pair is [string, string] =>
             pair[1] !== undefined && !pair[0].startsWith("CORRAL_"),
         ),
@@ -100,13 +113,13 @@ export class ModelCatalogService {
           "The profile's environment references could not be resolved. Check the server configuration.",
       };
     }
-    const command = agentCommand(state.config, input.scope.kind);
     const key = createHash("sha256")
       .update(
         JSON.stringify([
           modelScopeKey(input.scope),
           profile?.revision,
           command,
+          args,
           cwd,
           Object.entries(env).toSorted(([a], [b]) => a.localeCompare(b)),
         ]),
@@ -119,12 +132,14 @@ export class ModelCatalogService {
     const launch: CatalogLaunch = {
       kind: input.scope.kind,
       command,
+      args,
       cwd,
       env,
       model: profile?.model ?? null,
       provider: profile?.provider ?? null,
       recordDir: join(this.#dir, key),
       timeoutMs: this.#timeoutMs,
+      sensitiveValues,
     };
     const previous = cached?.catalog.fetchedAt != null ? cached.catalog : undefined;
     const request = this.#read(key, launch, previous);
@@ -152,7 +167,20 @@ export class ModelCatalogService {
       this.#running++;
       acquired = true;
       const result = await readNativeCatalog(launch, this.#active);
-      const models = [...new Map(result.models.map((m) => [modelKey(m), m])).values()];
+      const secrets = launch.sensitiveValues.toSorted((a, b) => b.length - a.length);
+      const safeModels = result.models
+        .filter(
+          (model) =>
+            !secrets.some(
+              (secret) => model.id.includes(secret) || model.provider?.includes(secret),
+            ),
+        )
+        .map((model) => ({
+          id: model.id,
+          provider: model.provider,
+          name: secrets.reduce((name, secret) => name.replaceAll(secret, "[redacted]"), model.name),
+        }));
+      const models = [...new Map(safeModels.map((m) => [modelKey(m), m])).values()];
       // A partial, smaller snapshot must not replace a previously useful inventory.
       const retained =
         result.partial && cached

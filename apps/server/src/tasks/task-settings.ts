@@ -25,7 +25,7 @@ export interface TaskSettings {
    * project's). A `chat` view is applied only when the agent has a chat driver; otherwise the
    * task opens in the terminal.
    */
-  view(project: Project): TaskView;
+  view(project: Project | null): TaskView;
 }
 
 /** The defaults for callers without config: `<data dir>/worktrees`, no branch prefix, title slugs. */

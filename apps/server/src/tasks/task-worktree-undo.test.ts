@@ -59,6 +59,7 @@ function service(
   const projects = new ProjectStore(db);
   projects.insert({ id: "p", name: "app", path: repo, defaultBaseBranch: "main" });
   const tasks = new TaskService({
+    dataDir,
     store: new TaskStore(db),
     projects,
     sessions: { ...sessions, ...sessionsOverride },

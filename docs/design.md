@@ -32,9 +32,11 @@ Client UI rules: `ux.md`.
 
 ## Model catalogs and visibility
 
-Model menus use the approved Settings manager, with server-shared per-tool/profile allow/deny
-preferences independent of read-only native configuration. Lazy metadata discovery never mutates
-working sessions; native startup is not a sandbox. Contract, lifecycle and selection limits:
+Model menus use the approved Settings manager, with server-shared per-tool/instance allow/deny
+preferences in `models.toml` beside the launch config, independent of read-only native
+configuration. Settings and external file edits change the same preference authority, not a
+parallel SQLite copy. Lazy metadata discovery never mutates working sessions; native startup is
+not a sandbox. Contract, lifecycle and selection limits:
 [Model catalogs](model-catalog.md).
 
 ## Architecture

@@ -25,7 +25,7 @@ See [Model catalogs](model-catalog.md) for the policy and adapter limits.
 
 What a user does. Everything below is built and verified end to end, chat views and the handoff included. Keys listed here are the effective defaults.
 
-1. `prefix t` opens the new-task view in the main area (`layout.md`, **New task view**): a prompt field, plus project (current), agent · model, workspace and view, all prefilled from settings and changeable from the keyboard. Enter submits.
+1. A draft opens in the main area (the task composer) from the New task button or a direct command. `Mod+N` chooses a project first, skipping the question when exactly one exists; `Mod+Shift+N` uses the selected task's project, and asks instead of guessing when no project is current; `Mod+Alt+N` starts a No project (scratch) draft. `Mod` is Cmd on macOS and Ctrl elsewhere, and `prefix t` still opens the same project choice. The composer is a prompt with attach, instance/model and reasoning on the bottom-left and Send on the right; project/workspace controls sit below, with the branch as a read-only fact. Opening a draft creates nothing and starts no agent; Enter or Send calls `tasks.create`. A scratch task has a server-owned directory and no Git controls.
 2. The task appears in the sidebar at once under the prompt-derived seed title, which the generated title replaces. Its primary agent opens in the chosen view, already working on the prompt. No shell opens on its own.
 3. Inside a task (header and tab strip: `layout.md`), sessions are equal tabs: agents (terminal or chat) and shells. `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel. `prefix shift+c` opens the task's `Changes` tab after the sessions: what the task changed, and — under the summary row — staging, a commit message and commit, then push and create-pull-request behind one confirmation each, with no number hint and no status glyph; opening it leaves the current session where it was — the arrow keys in the strip keep moving between sessions, and choosing a session tab returns to it.
 4. `prefix v` hands the current agent session over between chat and terminal: one frontend is
@@ -44,9 +44,9 @@ What a user does. Everything below is built and verified end to end, chat views 
    aborted, and the palette says "Open the … view" instead of "Switch to …", so no confirmation is
    asked for a busy agent (stage C). Whether Codex's terminal is view-only while chat writes is
    measured when its driver starts.
-5. The visual shell lists active tasks flat, with no project/status headers and no settled shelf. A task's status is its **primary** session's, ordered: blocked/error, completed and unseen, working, then neutral; the newest report comes first inside a group. "Completed and unseen" clears when the task is opened or its status changes while it is selected. Restarting a stopped session of a settled task, or continuing it, makes the task active in the same step: the sessions that were running resume once, nothing starts while the task still reads settled, and the board includes it. Starting a shell or agent in a settled task is refused with "This task is settled. Continue it first."; `prefix v` on its stopped session only chooses the next view; on a running session created by an older daemon it refuses before a handoff. Search, the task composer, project filters and the settled shelf are deferred from the first visual slice; Add project is the footer's only project action.
+5. The visual shell lists active tasks flat, with no project/status headers and no settled shelf. A task's status is its **primary** session's, ordered: blocked/error, completed and unseen, working, then neutral; the newest report comes first inside a group. "Completed and unseen" clears when the task is opened or its status changes while it is selected. Restarting a stopped session of a settled task, or continuing it, makes the task active in the same step: the sessions that were running resume once, nothing starts while the task still reads settled, and the board includes it. Starting a shell or agent in a settled task is refused with "This task is settled. Continue it first."; `prefix v` on its stopped session only chooses the next view; on a running session created by an older daemon it refuses before a handoff. Search, project filters, the settled shelf and the full two-group workspace remain deferred. The task composer, its direct creation commands and Settings are connected in the production shell.
 6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles.
-7. Settings carry the defaults the composer uses: view (global, overridable per project), workspace mode, worktree root, branch prefix, slug mode, naming agent/model; and the agents, whether each is found and which have a chat driver.
+7. Settings reuses the existing Settings screen as a route over the mounted shell; its close returns to the same selection. It carries the defaults the composer uses: view (global, overridable per project), workspace mode, worktree root, branch prefix, slug mode, naming agent/model; the agents, whether each is found and which have a chat driver; and the three direct command chords under `[keys.direct]`. A disabled instance is absent from new-choice rails, and a selected one that becomes disabled keeps its identity and is refused with the reason rather than swapped silently.
 
 ## Layout and navigation
 
@@ -93,18 +93,14 @@ What a user does. Everything below is built and verified end to end, chat views 
   open the current session keeps its place in the strip and a `+N −M` count sits in the task header
   and the sidebar row when the task changed something; a linked pull request's name and state sit
   beside the count, and a merged one offers settle in the `Changes` finish bar.
-- The main area never goes blank: with no task selected it is the new-task composer, prefilled
-  with the current project; a project with no tasks opens its composer, never a loose terminal.
-  A project composer and the sidebar read one value: no row is current. A composer opened over a
-  selection opens its project's group, and Escape leaves it for the selection the URL still names;
-  a URL that names a zero-task project is itself the composer state, so its group follows the
-  collapse state and Escape has no earlier selection to return to. The composer has no URL of its
-  own and no draft row in the sidebar. `prefix t` shows the composer over the selected task and
-  Escape returns to that task, with the keyboard back in its terminal.
-  Until the projects, tasks,
-  sessions and terminals lists have each delivered once, the main area says it is loading; a
-  list the server refuses is one muted line naming that list with a Retry, never the first-run
-  form.
+- The main area shows the open draft; otherwise the selected task's minimal view or an empty
+  state. A draft has no URL of its own and no sidebar row: while it is open no task row is
+  current, and Escape (with no failure on screen) returns to the selection the URL still names.
+  The prompt and its focus survive a project/No project switch, a cancelled project or model
+  picker, and a failed create; a failed create keeps Escape in the composer so its `role="alert"`
+  cannot be hidden. Until the projects, tasks, sessions and terminals lists have each delivered
+  once, the main area says it is loading; a list the server refuses is one muted line naming
+  that list with a Retry, never a draft over unknown data.
 - Clicking navigation, tabs or the task header must not take the keyboard from the terminal; a
   dialog returns focus to its opener and, failing that, to the terminal (see **Focus, keyboard
   and errors**).
@@ -128,14 +124,15 @@ What a user does. Everything below is built and verified end to end, chat views 
   and bounded-list warnings stay in the list; registration failures use a compact toast and keep
   the input. Browsing never registers, creates folders or starts tasks. Browser chrome can reserve
   Ctrl+N; desktop has no competing menu accelerator.
-  New task is the composer view in the main
-  area (`layout.md`, **New task view**), not a form dialog: a prompt and shared agent/model,
-  Chat/Terminal and Create row, then project/workspace setup prefilled from effective settings.
-  Optional title stays; issue import expands only through the Task setup actions menu. Enter creates the task and starts its primary agent with the
-  prompt as its launch argument; a task created from the optional title alone starts no session,
-  so it stays empty until a shell or an agent is added. Project changes clear project-specific
-  import and branch state safely; issue import feeds the composer's prompt (the issue's title and
-  link) and keeps its source snapshot as the task's title context.
+  New task is the composer in the main area, not a form dialog: the prompt, then attach,
+  instance/model and reasoning on the left and Send on the right; project, workspace mode and the
+  read-only branch fact sit below. The prompt is the task's source; a task with an agent starts
+  that primary session with the prompt, and the task appears in the sidebar with the server's
+  seed title. Switching project or No project keeps the typed prompt, the chosen agent and focus;
+  switching to No project removes the workspace and Git controls. File attachments are not supported by the
+  current server/native contract: `+` is present, `aria-disabled`, and explains that limit. The
+  separate reasoning control is likewise disabled before launch because no pre-launch reasoning
+  contract exists; a running chat reports its own levels. A draft never changes a checkout.
 - Ordinary radio groups retain the kit default. The shared model picker owns its compact
   tool/profile icon rail; modules do not invent selectable cards or control skins.
 - Remove task keeps [the confirmation for local content](design.md#domain-model); keyed buttons
@@ -183,6 +180,12 @@ What a user does. Everything below is built and verified end to end, chat views 
   no exit animation delays its unmount. Tests then assert one live popup or the
   terminal's first character instead of waiting for a transition. The prefix never
   handles keys while a task dialog is open.
+- The prefix and the three direct creation commands share one window capture-phase listener.
+  Direct commands are `[keys.direct]` (`new-task`, `new-task-in-project`, `new-task-no-project`;
+  defaults `mod+n`, `mod+shift+n`, `mod+alt+n`) and must include a modifier. They do not fire in a
+  focused native terminal, while a modal, Settings or a create in flight owns the keyboard, on a
+  held-key repeat or during IME; a chord the browser reserves is reported as a config warning
+  because the page may never see it.
 - The terminal behaves like a terminal: Tab, Shift+Tab, Escape, F6 and Ctrl+Tab belong to the PTY,
   so navigation does not take them. `prefix w` is the keyboard's way out of it and works whatever
   has the keyboard — the terminal, chat, a composer or a stopped session. It focuses the current
@@ -195,12 +198,12 @@ What a user does. Everything below is built and verified end to end, chat views 
   returns to the previously selected task, and a create that waits for naming (worktree mode)
   shows "Creating…" with the prompt still editable. While a failed create is on screen, Escape
   stays in the composer: leaving would hide what went wrong, so the user fixes it or picks another
-  task in the sidebar, and the draft is kept either way. The draft (prompt, title, picks and issue
-  snapshot) lives in the workspace: a project navigation keeps the typed prompt and title, drops
-  what only the old project owned (the issue snapshot, an imported prompt, an existing branch) and
-  lets the untouched fields follow the new project's settings. An Enter that confirms an IME
-  composition is never a submission, whichever order the platform reports the keydown and the
-  composition end; the user's next plain Enter submits normally.
+  task in the sidebar, and the draft is kept either way. The draft (prompt, agent and workspace)
+  lives in the workspace, so a project/No project switch, a cancelled picker or a failed create
+  keeps it. The agent is pinned when the draft opens: a later config edit shows the invalidation
+  instead of silently swapping the runtime. An Enter that confirms an IME composition is never a
+  submission, whichever order the platform reports the keydown and the composition end; the
+  user's next plain Enter submits normally.
   Connection and protocol-mismatch notices remain app-level, not transient success toasts. A page
   that cannot use the server — no capability, a stored pair for another server, a malformed
   capability, an invalid `?server=`, a server that cannot be reached at startup, a protocol
@@ -238,10 +241,10 @@ What a user does. Everything below is built and verified end to end, chat views 
   Manage models opens a server-shared per-tool/profile allow/deny draft in Settings. Hiding a
   current selection never changes it, and favorites cannot bypass the filter. A terminal session
   has no live model control.
-- The composer's view control offers `terminal` always and `chat` only for an agent
-  `chat.capabilities` reports a driver for. A `[tasks] view = "chat"` (or a project's) that names
-  an agent without a driver is reported as a config warning and opens in the terminal; when the
-  user picks such an agent in the composer the view control moves to `terminal` and says why. A user request
+- The composer has no per-draft view switch in this slice: the launch view follows `[tasks] view`
+  (or the project's) and opens in the terminal when the agent has no `chat.capabilities` driver;
+  the server's config warning is the durable explanation. While capabilities are still loading,
+  Send waits instead of guessing a view. A user request
   arrives as the last timeline item with the keyboard: arrows and Enter answer `select` and
   `confirm`, Enter answers `input`, Ctrl/Cmd+Enter answers `editor`, and Escape dismisses any of
   them. Prefix mode is the window capture-phase handler, so it works while the composer, the chat

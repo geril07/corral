@@ -43,6 +43,12 @@ export interface ChatLaunchRequest {
   cwd: string;
   /** The launch environment, exactly as a terminal launch of this session would get it. */
   env: Record<string, string>;
+  /**
+   * The instance's own argv, already accepted by its runtime's policy. It stands before every
+   * Corral- or driver-owned flag, the same order native model discovery uses; a driver with no
+   * seam for extra flags never reaches here because the session launch refuses the instance.
+   */
+  instanceArgs?: readonly string[];
   /** The native model and provider a profile or the user chose; `null` where neither is set. */
   model: string | null;
   provider: string | null;

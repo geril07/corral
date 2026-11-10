@@ -29,6 +29,193 @@ const branches = (repo: string) =>
     .split("\n")
     .filter(Boolean);
 
+test("scratch tasks own distinct persistent directories, start in them, and keep files when forgotten", async () => {
+  const { project, repo } = await addProject(server);
+  const before = {
+    branches: branches(repo),
+    worktrees: worktreePaths(repo),
+    branch: runGit(repo, "branch", "--show-current"),
+  };
+  let api = await server.rpc();
+  const create = () =>
+    api.tasks.create({ projectId: null, prompt: "Same prompt", workspace: { type: "scratch" } });
+  const first = await create();
+  const second = await api.tasks.create({
+    projectId: null,
+    prompt: "Same prompt",
+    agent: { kind: "claude", view: "terminal" },
+    workspace: { type: "scratch" },
+  });
+  expect(first).toMatchObject({
+    projectId: null,
+    branch: null,
+    ownsWorktree: false,
+    primarySessionId: null,
+  });
+  expect(second.primarySessionId).not.toBeNull();
+  expect(first.workspacePath).not.toBe(second.workspacePath);
+  for (const task of [first, second]) {
+    expect(task.workspacePath.startsWith(join(server.dataDir, "scratch") + "/")).toBe(true);
+    expect(existsSync(join(task.workspacePath, ".git"))).toBe(false);
+  }
+  expect((await launchesOf(agents, "claude", 1))[0]!.cwd).toBe(second.workspacePath);
+  writeFileSync(join(first.workspacePath, ".ignored"), "keep me");
+  writeFileSync(join(second.workspacePath, "other"), "also keep");
+  await server.restart();
+  api = await server.rpc();
+  const updates = await api.tasks.watch();
+  expect((await within(updates.next(), "scratch tasks after restart")).value).toEqual(
+    expect.arrayContaining([first, second]),
+  );
+  await updates.return?.();
+  await api.tasks.remove({ id: first.id });
+  expect(await readFile(join(first.workspacePath, ".ignored"), "utf8")).toBe("keep me");
+  expect(await readFile(join(second.workspacePath, "other"), "utf8")).toBe("also keep");
+  await api.tasks.remove({ id: second.id });
+  expect(await readFile(join(second.workspacePath, "other"), "utf8")).toBe("also keep");
+  expect((await sessionsOf(api)).some((session) => session.taskId === second.id)).toBe(false);
+  const projects = await api.projects.watch();
+  expect((await within(projects.next(), "projects")).value).toEqual([project]);
+  await projects.return?.();
+  expect({
+    branches: branches(repo),
+    worktrees: worktreePaths(repo),
+    branch: runGit(repo, "branch", "--show-current"),
+  }).toEqual(before);
+});
+
+test("scratch refuses client paths and project/workspace mismatches", async () => {
+  const { CreateTaskInput } = await import("@corral/protocol/rpc");
+  expect(
+    CreateTaskInput.safeParse({
+      projectId: null,
+      title: "x",
+      workspace: { type: "scratch", path: "/tmp/elsewhere" },
+    }).success,
+  ).toBe(false);
+  expect(
+    CreateTaskInput.safeParse({ projectId: "p", title: "x", workspace: { type: "scratch" } })
+      .success,
+  ).toBe(false);
+  expect(
+    CreateTaskInput.safeParse({ projectId: null, title: "x", workspace: { type: "main-worktree" } })
+      .success,
+  ).toBe(false);
+  const api = await server.rpc();
+  const attempted = {
+    projectId: null,
+    title: "x",
+    workspace: { type: "scratch" as const, path: server.scratchDir },
+  };
+  await expect(api.tasks.create(attempted)).rejects.toBeDefined();
+  expect(existsSync(join(server.dataDir, "scratch"))).toBe(false);
+});
+
+test("scratch removal stops its agent and loose terminal while retaining its files and sibling", async () => {
+  const api = await server.rpc();
+  const doomed = await api.tasks.create({
+    projectId: null,
+    prompt: "Doomed",
+    agent: { kind: "claude", view: "terminal" },
+    workspace: { type: "scratch" },
+  });
+  const sibling = await api.tasks.create({
+    projectId: null,
+    title: "Sibling",
+    workspace: { type: "scratch" },
+  });
+  const [launch] = await launchesOf(agents, "claude", 1);
+  const start = async (cwd: string, name: string) => {
+    const pidFile = join(server.scratchDir, name);
+    const info = await server.createTerminal(sh(`echo $$ > ${pidFile}; echo ready; read x`), {
+      cwd,
+    });
+    const client = await server.attach(info.id);
+    await client.waitForScreen("ready");
+    return { info, pid: Number(await readFile(pidFile, "utf8")) };
+  };
+  const inside = await start(doomed.workspacePath, "scratch-inside.pid");
+  const other = await start(sibling.workspacePath, "scratch-sibling.pid");
+  writeFileSync(join(doomed.workspacePath, ".ignored"), "keep");
+  await api.tasks.remove({ id: doomed.id });
+  expect(await readFile(join(doomed.workspacePath, ".ignored"), "utf8")).toBe("keep");
+  expect(existsSync(sibling.workspacePath)).toBe(true);
+  expect((await api.terminals.list()).map((terminal) => terminal.id)).toEqual([other.info.id]);
+  await expect.poll(() => processExists(launch!.pid)).toBe(false);
+  await expect.poll(() => processExists(inside.pid)).toBe(false);
+  expect(processExists(other.pid)).toBe(true);
+});
+
+test("a refused scratch primary launch leaves its committed task, files and stopped session", async () => {
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: null,
+    prompt: "Keep my scratch",
+    agent: { kind: "claude", profileId: "gone", view: "terminal" },
+    workspace: { type: "scratch" },
+  });
+  const failed = (await sessionsOf(api)).find((session) => session.id === task.primarySessionId);
+  expect(failed).toMatchObject({
+    state: "stopped",
+    taskId: task.id,
+    launchError: "no usable launch profile: gone",
+  });
+  writeFileSync(join(task.workspacePath, "keep"), "saved");
+  await server.restart();
+  const after = await server.rpc();
+  const updates = await after.tasks.watch();
+  expect((await within(updates.next(), "retained scratch")).value).toContainEqual(task);
+  await updates.return?.();
+  expect(await readFile(join(task.workspacePath, "keep"), "utf8")).toBe("saved");
+});
+
+test("scratch primary view uses global defaults, never a project's override", async () => {
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+  const updates = await api.config.watch();
+  await within(updates.next(), "initial config");
+  mkdirSync(server.configDir, { recursive: true });
+  writeFileSync(
+    join(server.configDir, "config.toml"),
+    `[tasks]\nview = "terminal"\n\n[projects."${project.path}"]\nview = "chat"\n`,
+  );
+  const configured = await within(
+    (async () => {
+      for await (const raw of updates) {
+        const state = ConfigState.parse(raw);
+        if (
+          state.config.tasks.view.value === "terminal" &&
+          state.config.projects[project.path]?.view.value === "chat"
+        )
+          return state;
+      }
+      throw new Error("config watch ended");
+    })(),
+    "project and global view settings",
+  );
+  expect(configured.problems).toEqual([]);
+  await updates.return?.();
+  const scratch = await api.tasks.create({
+    projectId: null,
+    title: "Scratch",
+    agent: { kind: "pi" },
+    workspace: { type: "scratch" },
+  });
+  const projectTask = await api.tasks.create({
+    projectId: project.id,
+    title: "Project",
+    agent: { kind: "pi" },
+    workspace: { type: "main-worktree" },
+  });
+  const sessions = await sessionsOf(api);
+  expect(sessions.find((session) => session.id === scratch.primarySessionId)?.view).toBe(
+    "terminal",
+  );
+  expect(sessions.find((session) => session.id === projectTask.primarySessionId)?.view).toBe(
+    "chat",
+  );
+});
+
 /** Writes `[agents.codex] command` and waits until the running server has read the file. */
 async function writeCodexCommand(command: string): Promise<void> {
   mkdirSync(server.configDir, { recursive: true });
@@ -144,7 +331,9 @@ test("two tasks created at once do not fight over a name", async () => {
 
   const tasks = await Promise.all([create(), create(), create()]);
 
-  expect(tasks.map((task) => task.branch).toSorted()).toEqual(["same", "same-2", "same-3"]);
+  expect(
+    tasks.map((task) => task.branch).toSorted((a, b) => (a ?? "").localeCompare(b ?? "")),
+  ).toEqual(["same", "same-2", "same-3"]);
 });
 
 test("a worktree directory that already exists is never reused", async () => {

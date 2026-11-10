@@ -5,8 +5,11 @@ model picker. The [research study](research/model-catalog.md) records the refere
 
 ## Visibility, not permissions
 
-Preferences are shared by clients of this Corral server, in SQLite, not in `config.toml` or an
-agent's native config. The key is the agent kind plus a stable profile ID (or native defaults).
+Preferences are shared by clients of this Corral server in `models.toml`, beside `config.toml`,
+not in SQLite or an agent's native config. The separate model-preference file lets Settings
+save atomically without rewriting comments or unrelated launch settings in the hand-edited
+`config.toml`. It is the only preference authority; there is no database import or fallback.
+The key is the agent kind plus a stable profile ID (or native defaults).
 Renaming/revising a profile preserves preferences; assigning its ID to another agent does not mix
 the namespaces. This is not credential/account isolation.
 
@@ -33,6 +36,18 @@ blocked; changing workspace does not discard rules. Closing asks whether to disc
 save must finish first. Each save uses an expected preference revision. Another client's save
 updates an idle editor, but conflicts never overwrite its draft. When a conflict makes the draft
 stale, Save is not offered; Discard loads the latest revision and drops the draft.
+
+`models.toml` has one `[[preferences]]` entry per scope, with a `scope` table (`kind` and optional
+`profileId`) and a `policy` table (`mode`, `allow`, `deny`, `favorites`, `providerOrder`, `modelOrder`). Omitted provider/profile
+identifiers mean native/default scope: TOML has no null. Missing policy lists are empty and the
+default mode is `all`. Favorites retain their own array order ahead of ordinary models, which
+group by `providerOrder` and then `modelOrder`. Unlisted providers retain first-seen order and
+unlisted models retain reported order within their group; missing entries remain in the config.
+External edits, including atomic
+file replacements, update clients. Revision tokens derive from content, so changing a policy
+without manually updating a counter still conflicts with an outstanding Settings draft. An
+unreadable, malformed or duplicate-scope config is an error, never permission to overwrite it.
+Settings normalizes this dedicated file's formatting and comments when saving.
 
 Creation, add-agent and live chat use the same visibility predicate. Managing preferences from
 a picker temporarily suspends that popup, not its owning selection/search state. Returning opens
@@ -83,9 +98,9 @@ switching to the current OpenCode/Codex adapters. Pi and Claude live changes kee
 driver contracts. Pi clears the old model's thinking state when a switch succeeds but its refresh
 fails, so the previous model's capabilities are never offered as the new one's.
 
-Protocol **11** requires `models.watch`, `models.save` and `models.catalog`; older daemons are
-refused at the handshake. Database migration 13 adds the preference table. Restart the long-lived
-server after upgrading.
+The typed `models.watch`, `models.save` and `models.catalog` contract is shared by every client.
+Model preference saves require the current content revision and distinguish a concurrent edit
+from an invalid config file. Restart the long-lived server after upgrading server code.
 
 Tests use isolated fake external CLIs with the real server, git, SQLite and transport. They are
 not certification of native installed versions, provider availability or paid model behavior.

@@ -3,6 +3,7 @@ import {
   ClientConfig,
   ConfigProblem,
   DEFAULT_BINDINGS,
+  DEFAULT_DIRECT_BINDINGS,
   DEFAULT_PREFIX,
 } from "@corral/protocol/config";
 import { formatChord, parseChord } from "@corral/protocol/keymap";
@@ -31,7 +32,10 @@ test("a prefix entry applies over the default", () => {
   const { config, problems } = parseText('[keys]\nprefix = "ctrl+a"\n');
 
   expect(problems).toEqual([]);
-  expect(config).toEqual({ ...defaults, keys: { prefix: "ctrl+a", bindings: DEFAULT_BINDINGS } });
+  expect(config).toEqual({
+    ...defaults,
+    keys: { prefix: "ctrl+a", bindings: DEFAULT_BINDINGS, direct: DEFAULT_DIRECT_BINDINGS },
+  });
 });
 
 test("a binding applies over the default", () => {
@@ -70,12 +74,109 @@ test("a syntax error drops the whole file but reports where it broke", () => {
   expect(problems[0]?.message).toMatch(/^invalid TOML at line 2, column \d+: /);
 });
 
+test("a direct command applies over its default and an empty string unbinds it", () => {
+  const { config, problems } = parseText(
+    '[keys.direct]\nnew-task = "ctrl+shift+j"\nnew-task-no-project = ""\n',
+  );
+
+  expect(problems).toEqual([]);
+  expect(config.keys.direct).toEqual({
+    ...DEFAULT_DIRECT_BINDINGS,
+    "new-task": "ctrl+shift+j",
+    "new-task-no-project": null,
+  });
+});
+
+test("a direct command without a modifier is refused, so typing is never captured", () => {
+  const { config, problems } = parseText('[keys.direct]\nnew-task = "n"\n');
+
+  expect(config.keys.direct["new-task"]).toBe(DEFAULT_DIRECT_BINDINGS["new-task"]);
+  expect(problems).toEqual([
+    {
+      severity: "error",
+      path: "keys.direct.new-task",
+      message: '"n" needs mod, ctrl, meta or alt so typing is not captured',
+    },
+  ]);
+});
+
+test("two direct commands on one chord both fall back to their defaults", () => {
+  const { config, problems } = parseText(
+    '[keys.direct]\nnew-task = "alt+n"\nnew-task-no-project = "alt+n"\n',
+  );
+
+  expect(config.keys.direct).toEqual(DEFAULT_DIRECT_BINDINGS);
+  expect(problems.map((problem) => problem.path).toSorted()).toEqual([
+    "keys.direct.new-task",
+    "keys.direct.new-task-no-project",
+  ]);
+  for (const problem of problems)
+    expect(problem.message).toContain('the chord "alt+n" is also used by');
+});
+
+test("a direct command on the prefix chord is dropped", () => {
+  const { config, problems } = parseText('[keys.direct]\nnew-task = "alt+a"\n');
+
+  expect(config.keys.direct["new-task"]).toBe(DEFAULT_DIRECT_BINDINGS["new-task"]);
+  expect(problems).toEqual([
+    {
+      severity: "error",
+      path: "keys.direct.new-task",
+      message: 'the chord "alt+a" is also used by the prefix',
+    },
+  ]);
+});
+
+test("a prefix on a direct command's mod chord falls back to the default prefix", () => {
+  // mod+n is Ctrl+n where Ctrl is the mod key, so the default direct command owns that press.
+  const { config, problems } = parseText('[keys]\nprefix = "ctrl+n"\n');
+
+  expect(config.keys.prefix).toBe(DEFAULT_PREFIX);
+  expect(problems).toEqual([
+    {
+      severity: "warning",
+      path: "keys.prefix",
+      message: 'the browser keeps "ctrl+n" for itself, so the page may never see it',
+    },
+    {
+      severity: "error",
+      path: "keys.prefix",
+      message: 'the chord "ctrl+n" is also used by a direct command',
+    },
+  ]);
+});
+
+test("an explicit direct command the browser keeps is a warning, not an error", () => {
+  const { config, problems } = parseText('[keys.direct]\nnew-task = "ctrl+n"\n');
+
+  expect(config.keys.direct["new-task"]).toBe("ctrl+n");
+  expect(problems).toEqual([
+    {
+      severity: "warning",
+      path: "keys.direct.new-task",
+      message: 'the browser keeps "ctrl+n" for itself, so the page may never see it',
+    },
+  ]);
+});
+
 const rejected: [file: string, path: string, message: string][] = [
   ["other = 1\n", "other", "unknown section"],
   ["[other]\nx = 1\n", "other", "unknown section"],
   ["[keys]\nother = 1\n", "keys.other", "unknown key"],
   ["keys = 5\n", "keys", "expected a table, got a number"],
   ["[keys]\nbindings = 5\n", "keys.bindings", "expected a table, got a number"],
+  ["[keys]\ndirect = 5\n", "keys.direct", "expected a table, got a number"],
+  [
+    '[keys.direct]\nlaunch-missiles = "ctrl+m"\n',
+    "keys.direct.launch-missiles",
+    "unknown direct command",
+  ],
+  ["[keys.direct]\nnew-task = true\n", "keys.direct.new-task", "expected a string"],
+  [
+    '[keys.direct]\nnew-task = "mod+ctrl+n"\n',
+    "keys.direct.new-task",
+    "already means ctrl or meta",
+  ],
   ["[keys]\nprefix = 5\n", "keys.prefix", "expected a string, got a number"],
   ['[keys]\nprefix = ["alt+a"]\n', "keys.prefix", "expected a string, got an array"],
   ["[keys.bindings]\nnew-agent = true\n", "keys.bindings.new-agent", "expected a string"],
