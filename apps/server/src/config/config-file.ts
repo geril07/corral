@@ -2,7 +2,9 @@ import {
   ActionId,
   AgentKind,
   DEFAULT_BINDINGS,
+  DEFAULT_DIRECT_BINDINGS,
   DEFAULT_PREFIX,
+  DirectActionId,
   TaskView,
   WorkspaceMode,
   SlugMode,
@@ -16,19 +18,28 @@ import {
   type ResolvedTaskSettings,
   type SettingSource,
 } from "@corral/protocol/config";
-import { formatChord, parseChord, type Chord } from "@corral/protocol/keymap";
-import { createHash } from "node:crypto";
+import {
+  formatChord,
+  formatModChord,
+  hasCommandModifier,
+  parseChord,
+  parseModChord,
+  type Chord,
+  type ModChord,
+} from "@corral/protocol/keymap";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { isAbsolute, normalize, sep } from "node:path";
 import { parse as parseToml, TomlError } from "smol-toml";
 import { launchChoiceProblems, modelIdProblem } from "../agents/launch-capabilities.ts";
-import { ENV_NAME, isReservedEnvName } from "../agents/launch-env.ts";
+import { ENV_NAME, isReservedEnvName, type InstanceEnvEntry } from "../agents/launch-env.ts";
 import { hasChatDriver } from "../chat/chat-drivers.ts";
 import { placeholderProblem, splitCommand } from "../files/editor-command.ts";
 import { worktreeRootProblem } from "./worktree-root.ts";
 
 const PREFIX_PATH = "keys.prefix";
 const BINDINGS_PATH = "keys.bindings";
+const DIRECT_PATH = "keys.direct";
 const PROFILES_PATH = "profiles";
 const TASKS_PATH = "tasks";
 const NAMING_PATH = "naming";
@@ -44,13 +55,24 @@ const SECTIONS = new Set([
   EDITOR_PATH,
   PROJECTS_PATH,
 ]);
-const PROFILE_KEYS = new Set(["name", "agent", "model", "provider", "env"]);
-const ENV_KEYS = new Set(["targetName", "fromEnv"]);
+const PROFILE_KEYS = new Set([
+  "name",
+  "agent",
+  "model",
+  "provider",
+  "env",
+  "command",
+  "args",
+  "enabled",
+]);
+const ENV_KEYS = new Set(["targetName", "fromEnv", "value"]);
 const AGENT_KEYS = new Set(["enabled", "command"]);
 const EDITOR_KEYS = new Set(["command"]);
 const PROFILE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MAX_PROFILE_NAME = 80;
 const MAX_ENV_REFS = 32;
+// A public unkeyed digest of a literal would allow offline guessing of low-entropy secrets.
+const revisionKey = randomBytes(32);
 
 /** The keys `[tasks]` and `[projects."<path>"]` share. */
 const TASK_KEYS: ReadonlySet<string> = new Set([
@@ -112,8 +134,27 @@ export interface ParsedConfigFile {
   problems: ConfigProblem[];
 }
 
+export interface PrivateProfile {
+  id: string;
+  agent: AgentKind;
+  command: string | null;
+  args: string[];
+  enabled: boolean;
+  env: InstanceEnvEntry[];
+}
+
 /** A binding the file set: a chord, or no chord (`""` unbinds the action). */
 type FileBinding = { text: string; chord: Chord } | { text: null };
+
+/** A direct command the file set, in the same shape as a prefix binding. */
+type FileDirectBinding = { text: string; chord: ModChord } | { text: null };
+
+interface DirectAssignment {
+  action: DirectActionId;
+  path: string;
+  explicit: boolean;
+  chord: ModChord;
+}
 
 /**
  * File text to the effective config: the defaults with every valid entry applied, and one
@@ -126,6 +167,8 @@ export function parseConfigFile(
   dataDir: string,
   /** Which agents this build can show as chat; a test passes a narrower set. */
   hasDriver: (kind: AgentKind) => boolean = hasChatDriver,
+  /** Explicit server-only destination for private definitions; never included in the result. */
+  privateProfiles: PrivateProfile[] = [],
 ): ParsedConfigFile {
   const problems: ConfigProblem[] = [];
   const config = defaultClientConfig(dataDir);
@@ -156,7 +199,7 @@ export function parseConfigFile(
   const editor = editorLayer(document[EDITOR_PATH], problems);
   if (editor.command !== undefined)
     config.editor.command = { value: editor.command, source: "global" };
-  const profiles = validProfiles(document["profiles"], problems, disabled);
+  const profiles = validProfiles(document["profiles"], problems, disabled, privateProfiles);
   const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
   const tasks = taskLayer(document[TASKS_PATH], TASKS_PATH, problems, profilesById, disabled);
   const naming = namingLayer(document[NAMING_PATH], problems, profilesById, disabled);
@@ -181,12 +224,13 @@ export function parseConfigFile(
     problems.push(errorAt("keys", `expected a table, got ${describe(keys)}`));
   } else if (keys !== undefined) {
     for (const key of Object.keys(keys)) {
-      if (key !== "prefix" && key !== "bindings")
+      if (key !== "prefix" && key !== "bindings" && key !== "direct")
         problems.push(errorAt(`keys.${key}`, `unknown key "${key}"`));
     }
   }
   const prefix: { text: string; chord: Chord } | undefined = validPrefix(keys, problems);
   const bindings = validBindings(keys, problems);
+  const direct = validDirectBindings(keys, problems);
 
   const droppedPrefix = { value: false };
   const droppedBindings = new Set<ActionId>();
@@ -254,6 +298,82 @@ export function parseConfigFile(
       binding !== undefined && !droppedBindings.has(action)
         ? binding.text
         : DEFAULT_BINDINGS[action];
+  }
+
+  // Direct commands are a second chord space: they fire outside the prefix, so only another
+  // direct command or the prefix chord itself can take the same press.
+  const droppedDirect = new Set<DirectActionId>();
+  const directAssignments = (): DirectAssignment[] =>
+    DirectActionId.options.flatMap((action) => {
+      const binding = direct.get(action);
+      const applied = binding !== undefined && !droppedDirect.has(action) ? binding : undefined;
+      if (applied?.text === null) return [];
+      return [
+        {
+          action,
+          path: `${DIRECT_PATH}.${action}`,
+          explicit: applied !== undefined,
+          chord: applied?.chord ?? parseModChord(DEFAULT_DIRECT_BINDINGS[action]),
+        },
+      ];
+    });
+  while (true) {
+    const entries = directAssignments();
+    const pair = firstDirectConflict(entries);
+    if (pair === undefined) break;
+    const explicit = pair.filter((entry) => entry.explicit);
+    if (explicit.length === 0) break;
+    for (const entry of explicit) {
+      const other = pair.find((candidate) => candidate !== entry)!;
+      droppedDirect.add(entry.action);
+      problems.push(
+        errorAt(
+          entry.path,
+          `the chord "${formatModChord(entry.chord)}" is also used by ${other.action}`,
+        ),
+      );
+    }
+  }
+  // A direct chord on the prefix's own chord can never fire: the prefix is checked first. The
+  // comparison resolves `mod` on both platforms, so `mod+n` and `ctrl+n` are one press on Linux.
+  const prefixChord = parseChord(config.keys.prefix);
+  const prefixKeys = new Set([formatChord(prefixChord)]);
+  for (const entry of directAssignments()) {
+    if (!directChordKeys(entry.chord).some((chord) => prefixKeys.has(chord))) continue;
+    if (entry.explicit) {
+      droppedDirect.add(entry.action);
+      problems.push(
+        errorAt(
+          entry.path,
+          `the chord "${formatModChord(entry.chord)}" is also used by the prefix`,
+        ),
+      );
+    } else if (prefix !== undefined && !droppedPrefix.value) {
+      problems.push(
+        errorAt(
+          PREFIX_PATH,
+          `the chord "${formatChord(prefixChord)}" is also used by a direct command`,
+        ),
+      );
+      droppedPrefix.value = true;
+      config.keys.prefix = DEFAULT_PREFIX;
+    }
+  }
+  for (const entry of directAssignments()) {
+    if (entry.explicit && isBrowserOwnedDirect(entry.chord)) {
+      problems.push({
+        severity: "warning",
+        path: entry.path,
+        message: `the browser keeps "${formatModChord(entry.chord)}" for itself, so the page may never see it`,
+      });
+    }
+  }
+  for (const action of DirectActionId.options) {
+    const binding = direct.get(action);
+    config.keys.direct[action] =
+      binding !== undefined && !droppedDirect.has(action)
+        ? binding.text
+        : DEFAULT_DIRECT_BINDINGS[action];
   }
   return { config, profiles, problems };
 }
@@ -412,6 +532,7 @@ function validProfiles(
   value: unknown,
   problems: ConfigProblem[],
   disabled: DisabledAgents,
+  privateProfiles: PrivateProfile[],
 ): LaunchProfile[] {
   if (value === undefined) return [];
   if (!isTable(value)) {
@@ -446,6 +567,25 @@ function validProfiles(
     const model = textField(entry["model"], "model", issues);
     const provider = textField(entry["provider"], "provider", issues);
     const env = profileEnv(entry["env"], issues);
+    const rawCommand = entry["command"];
+    const command = rawCommand === undefined || rawCommand === "" ? null : rawCommand;
+    if (
+      command !== null &&
+      (agentCommandProblem(command) !== undefined ||
+        (typeof command === "string" && command.length > 4096))
+    )
+      issues.push(
+        "command must be an absolute path of at most 4096 characters without control characters",
+      );
+    const rawArgs = entry["args"] ?? [];
+    let args: string[] = [];
+    if (!Array.isArray(rawArgs) || rawArgs.length > 64 || !rawArgs.every(validArg)) {
+      issues.push(
+        "args must be an array of at most 64 strings without control characters, each at most 4096 characters",
+      );
+    } else args = rawArgs;
+    const rawEnabled = entry["enabled"] ?? true;
+    if (typeof rawEnabled !== "boolean") issues.push("enabled must be true or false");
     if (agent !== null) {
       for (const problem of launchChoiceProblems({ kind: agent, model, provider })) {
         issues.push(problem.message);
@@ -455,10 +595,39 @@ function validProfiles(
       for (const message of issues) problems.push(errorAt(path, message));
       continue;
     }
-    const definition = { id, name, agent, model, provider, env };
-    profiles.push({ ...definition, revision: profileRevision(definition) });
+    const privateProfile: PrivateProfile = {
+      id,
+      agent,
+      command: typeof command === "string" ? command : null,
+      args,
+      enabled: rawEnabled === true,
+      env,
+    };
+    privateProfiles.push(privateProfile);
+    const definition = {
+      id,
+      name,
+      agent,
+      model,
+      provider,
+      env: env.filter((item): item is EnvRef => "fromEnv" in item),
+      literalEnvNames: env.filter((item) => "value" in item).map((item) => item.targetName),
+      command: privateProfile.command,
+      args,
+      enabled: privateProfile.enabled,
+    };
+    profiles.push({ ...definition, revision: profileRevision(definition, privateProfile) });
   }
   return profiles;
+}
+
+function validArg(arg: unknown): arg is string {
+  return typeof arg === "string" && arg.length <= 4096 && !hasControlCharacters(arg);
+}
+
+function hasControlCharacters(value: string): boolean {
+  // oxlint-disable-next-line no-control-regex -- these characters cannot enter process arguments or environment
+  return /[\u0000-\u001f\u007f]/.test(value);
 }
 
 function profileName(value: unknown, issues: string[]): string {
@@ -485,17 +654,17 @@ function textField(value: unknown, field: string, issues: string[]): string | nu
   return value;
 }
 
-function profileEnv(value: unknown, issues: string[]): EnvRef[] {
+function profileEnv(value: unknown, issues: string[]): InstanceEnvEntry[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
-    issues.push("env must be an array of { targetName, fromEnv } tables");
+    issues.push("env must be an array of { targetName, fromEnv or value } tables");
     return [];
   }
   if (value.length > MAX_ENV_REFS) {
-    issues.push(`env may hold at most ${MAX_ENV_REFS} references`);
+    issues.push(`env may hold at most ${MAX_ENV_REFS} entries`);
     return [];
   }
-  const refs: EnvRef[] = [];
+  const refs: InstanceEnvEntry[] = [];
   const targets = new Set<string>();
   for (const item of value) {
     if (!isTable(item)) {
@@ -504,9 +673,7 @@ function profileEnv(value: unknown, issues: string[]): EnvRef[] {
     }
     for (const key of Object.keys(item)) {
       if (!ENV_KEYS.has(key)) {
-        issues.push(
-          "an env entry holds only targetName and fromEnv; literal values are not supported",
-        );
+        issues.push("an env entry holds only targetName and one source");
       }
     }
     const targetName = item["targetName"];
@@ -515,8 +682,22 @@ function profileEnv(value: unknown, issues: string[]): EnvRef[] {
       issues.push("env targetName must be an environment variable name");
       continue;
     }
-    if (typeof fromEnv !== "string" || !ENV_NAME.test(fromEnv)) {
+    const literal = item["value"];
+    if ((fromEnv === undefined) === (literal === undefined)) {
+      issues.push("env needs exactly one of fromEnv or value");
+      continue;
+    }
+    if (fromEnv !== undefined && (typeof fromEnv !== "string" || !ENV_NAME.test(fromEnv))) {
       issues.push("env fromEnv must be an environment variable name");
+      continue;
+    }
+    if (
+      literal !== undefined &&
+      (typeof literal !== "string" || literal.length > 16384 || hasControlCharacters(literal))
+    ) {
+      issues.push(
+        "env value must be a string of at most 16384 characters without control characters",
+      );
       continue;
     }
     if (isReservedEnvName(targetName)) {
@@ -528,7 +709,8 @@ function profileEnv(value: unknown, issues: string[]): EnvRef[] {
       continue;
     }
     targets.add(targetName);
-    refs.push({ targetName, fromEnv });
+    if (typeof fromEnv === "string") refs.push({ targetName, fromEnv });
+    else if (typeof literal === "string") refs.push({ targetName, value: literal });
   }
   return refs;
 }
@@ -934,6 +1116,10 @@ function profileRef(
     problems.push(errorAt(path, `there is no valid profile with id "${value}"`));
     return undefined;
   }
+  if (profile.enabled === false) {
+    problems.push(errorAt(path, "the profile is disabled"));
+    return undefined;
+  }
   return profile;
 }
 
@@ -1028,7 +1214,10 @@ function projectPathProblem(path: string): string | undefined {
   return undefined;
 }
 
-function profileRevision(profile: Omit<LaunchProfile, "revision">): string {
+function profileRevision(
+  profile: Omit<LaunchProfile, "revision">,
+  privateProfile: PrivateProfile,
+): string {
   return createHash("sha256")
     .update(
       JSON.stringify([
@@ -1037,7 +1226,17 @@ function profileRevision(profile: Omit<LaunchProfile, "revision">): string {
         profile.agent,
         profile.model,
         profile.provider,
-        profile.env.map((ref) => [ref.targetName, ref.fromEnv]),
+        {
+          ...privateProfile,
+          env: privateProfile.env.map((entry) =>
+            "value" in entry
+              ? {
+                  targetName: entry.targetName,
+                  value: createHmac("sha256", revisionKey).update(entry.value).digest("hex"),
+                }
+              : entry,
+          ),
+        },
       ]),
     )
     .digest("hex")
@@ -1076,6 +1275,91 @@ function validBindings(keys: unknown, problems: ConfigProblem[]): Map<ActionId, 
   return bindings;
 }
 
+/** The actual chords a direct binding means, once `mod` becomes ctrl and meta. */
+function directChordKeys(chord: ModChord): string[] {
+  return [
+    ...new Set([
+      formatChord({
+        code: chord.code,
+        ctrl: chord.mod ? true : chord.ctrl,
+        alt: chord.alt,
+        shift: chord.shift,
+        meta: chord.mod ? false : chord.meta,
+      }),
+      formatChord({
+        code: chord.code,
+        ctrl: chord.mod ? false : chord.ctrl,
+        alt: chord.alt,
+        shift: chord.shift,
+        meta: chord.mod ? true : chord.meta,
+      }),
+    ]),
+  ];
+}
+
+function firstDirectConflict(
+  entries: readonly DirectAssignment[],
+): [DirectAssignment, DirectAssignment] | undefined {
+  const keys = entries.map((entry) => directChordKeys(entry.chord));
+  for (let left = 0; left < entries.length; left++) {
+    for (let right = left + 1; right < entries.length; right++) {
+      if (keys[left]!.some((chord) => keys[right]!.includes(chord)))
+        return [entries[left]!, entries[right]!];
+    }
+  }
+  return undefined;
+}
+
+function validDirectBindings(
+  keys: unknown,
+  problems: ConfigProblem[],
+): Map<DirectActionId, FileDirectBinding> {
+  const bindings = new Map<DirectActionId, FileDirectBinding>();
+  const table = isTable(keys) ? keys["direct"] : undefined;
+  if (table === undefined) return bindings;
+  if (!isTable(table)) {
+    problems.push(errorAt(DIRECT_PATH, `expected a table, got ${describe(table)}`));
+    return bindings;
+  }
+  for (const [key, value] of Object.entries(table)) {
+    const path = `${DIRECT_PATH}.${key}`;
+    const action = DirectActionId.safeParse(key);
+    if (!action.success) {
+      problems.push(errorAt(path, `unknown direct command "${key}"`));
+      continue;
+    }
+    if (typeof value !== "string") {
+      problems.push(errorAt(path, `expected a string, got ${describe(value)}`));
+      continue;
+    }
+    if (value === "") {
+      bindings.set(action.data, { text: null });
+      continue;
+    }
+    try {
+      const chord = parseModChord(value);
+      if (!hasCommandModifier(chord))
+        problems.push(
+          errorAt(path, `"${value}" needs mod, ctrl, meta or alt so typing is not captured`),
+        );
+      else bindings.set(action.data, { text: value, chord });
+    } catch (error) {
+      problems.push(errorAt(path, messageOf(error)));
+    }
+  }
+  return bindings;
+}
+
+/**
+ * A direct command fires before anything has focus, so a chord the browser reserves never reaches
+ * the page. `mod` means ctrl or meta, and both are browser-owned on W/T/N and Tab; Alt is not.
+ */
+function isBrowserOwnedDirect(chord: ModChord): boolean {
+  if (chord.alt) return false;
+  if (!(chord.mod || chord.ctrl || chord.meta)) return false;
+  return chord.code === "Tab" || ["KeyW", "KeyT", "KeyN"].includes(chord.code);
+}
+
 /**
  * Chords the browser handles before the page sees them (design.md "Keyboard"): Ctrl or Cmd
  * with W, T or N (Ctrl+Shift+T included) and Ctrl+Tab. Alt gets a chord past the browser, so
@@ -1090,10 +1374,12 @@ function isBrowserOwned(chord: Chord): boolean {
 
 function tomlProblem(error: unknown): ConfigProblem {
   if (error instanceof TomlError) {
-    const reason = error.message.split("\n", 1)[0]?.replace(/^Invalid TOML document: /, "");
-    return errorAt("", `invalid TOML at line ${error.line}, column ${error.column}: ${reason}`);
+    return errorAt(
+      "",
+      `invalid TOML at line ${error.line}, column ${error.column}: invalid syntax`,
+    );
   }
-  return errorAt("", `invalid TOML: ${messageOf(error)}`);
+  return errorAt("", "invalid TOML");
 }
 
 function errorAt(path: string, message: string): ConfigProblem {

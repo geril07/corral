@@ -1,6 +1,7 @@
 import { LaunchSnapshot, Session } from "@corral/protocol/rpc";
 import type { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
+import { PrivateLaunchSpec } from "./private-launch.ts";
 
 /**
  * What is persisted of a session; the terminal and its transient status are not (decision 12).
@@ -40,6 +41,19 @@ export class SessionStore {
     return row && fromRow(row);
   }
 
+  /**
+   * The private launch data captured at start: literal environment values and the resolved
+   * executable/argv. It never travels with `StoredSession`, so a session list or watch cannot
+   * leak it; only a launch reads it.
+   */
+  privateLaunch(id: string): PrivateLaunchSpec | undefined {
+    const row = this.#db
+      .prepare("SELECT spec FROM session_launch_specs WHERE session_id = ?")
+      .get(id);
+    if (row === undefined) return undefined;
+    return PrivateLaunchSpec.parse(JSON.parse(z.string().parse(row["spec"])));
+  }
+
   /** The sessions that were running when their task was settled and start again when it is not. */
   listResumableOnUnsettle(taskId: string): StoredSession[] {
     return this.#db
@@ -62,7 +76,13 @@ export class SessionStore {
     );
   }
 
-  insert(session: StoredSession): void {
+  /**
+   * Writes the session row and, when it is an agent session, its private launch data. Two
+   * statements rather than a nested transaction: a caller may already be inside one (the task
+   * insert's deferred foreign key). A missing private row is not fatal — a restart falls back to
+   * the effective agent command — while a missing session row would lose the user's session.
+   */
+  insert(session: StoredSession, privateLaunch?: PrivateLaunchSpec | null): void {
     this.#db
       .prepare(
         `INSERT INTO sessions
@@ -80,6 +100,16 @@ export class SessionStore {
         session.createdAt,
         session.launch === null ? null : JSON.stringify(session.launch),
       );
+    if (privateLaunch != null) this.setPrivateLaunch(session.id, privateLaunch);
+  }
+
+  setPrivateLaunch(id: string, spec: PrivateLaunchSpec): void {
+    this.#db
+      .prepare(
+        `INSERT INTO session_launch_specs (session_id, spec) VALUES (?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET spec = excluded.spec`,
+      )
+      .run(id, JSON.stringify(spec));
   }
 
   setState(id: string, state: StoredSession["state"]): void {

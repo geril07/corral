@@ -1,6 +1,7 @@
-import { defaultModelPolicy, modelVisible } from "@corral/protocol/models";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { defaultModelPolicy, modelVisible, ModelPreferences } from "@corral/protocol/models";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { parse, stringify } from "smol-toml";
 import { expect, test, vi } from "vite-plus/test";
 import { useServer, within } from "../../test/server-fixture.ts";
 import { useFakeAgents } from "../../test/fake-agents.ts";
@@ -12,6 +13,9 @@ const agents = useFakeAgents();
 const scope = { kind: "pi" as const, profileId: null };
 
 test("shared preferences watch/save conflict and survive restart without native launches", async () => {
+  await mkdir(server.configDir, { recursive: true });
+  const launchConfig = '# Keep this comment and formatting.\n[keys]\nprefix = "alt+b"\n';
+  await writeFile(join(server.configDir, "config.toml"), launchConfig);
   const a = await server.rpc(),
     b = await server.rpc();
   const stream = await b.models.watch();
@@ -23,7 +27,12 @@ test("shared preferences watch/save conflict and survive restart without native 
     allow: [{ type: "provider" as const, provider: "work" }],
   };
   const saved = await a.models.save({ scope, revision: 0, policy });
-  expect(saved.revision).toBe(1);
+  expect(saved.revision).toBeGreaterThan(0);
+  const preferenceFile = join(server.configDir, "models.toml");
+  expect(parse(await readFile(preferenceFile, "utf8"))).toMatchObject({
+    preferences: [{ scope: { kind: "pi" }, policy: { mode: "allow", allow: policy.allow } }],
+  });
+  expect(await readFile(join(server.configDir, "config.toml"), "utf8")).toBe(launchConfig);
   expect((await within(iterator.next(), "shared update")).value).toEqual([saved]);
   await expect(
     b.models.save({ scope, revision: 0, policy: defaultModelPolicy() }),
@@ -41,6 +50,71 @@ test("shared preferences watch/save conflict and survive restart without native 
   expect(records).toContainEqual(saved);
   expect(records).toHaveLength(2);
 });
+
+test("external model config replacement is watched and invalidates an outstanding editor", async () => {
+  const api = await server.rpc();
+  const first = await api.models.save({ scope, revision: 0, policy: defaultModelPolicy() });
+  const stream = await api.models.watch();
+  const iterator = stream[Symbol.asyncIterator]();
+  expect((await within(iterator.next(), "initial config preferences")).value).toEqual([first]);
+
+  const policy = {
+    ...defaultModelPolicy(),
+    favorites: [
+      { provider: null, id: "native model" },
+      { provider: "work", id: "second" },
+    ],
+    deny: [{ type: "provider" as const, provider: "hidden" }],
+    providerOrder: ["work", "personal"],
+    modelOrder: [{ provider: null, id: "native model" }],
+  };
+  const file = join(server.configDir, "models.toml");
+  const replacement = join(server.configDir, "edited-models.toml");
+  await writeFile(replacement, stringify({ preferences: [{ scope, policy }] }));
+  await rename(replacement, file);
+  const next = ModelPreferences.array().parse(
+    (await within(iterator.next(), "external config edit")).value,
+  );
+  expect(next).toEqual([{ scope, policy, revision: expect.any(Number) }]);
+  expect(next[0]!.revision).not.toBe(first.revision);
+  await expect(api.models.save(first)).rejects.toMatchObject({ code: "MODEL_PREFERENCES_CHANGED" });
+  expect(await readFile(file, "utf8")).toContain('id = "native model"');
+  const saved = await api.models.save({ ...next[0]!, policy: defaultModelPolicy() });
+  expect(saved.policy).toEqual(defaultModelPolicy());
+  await iterator.return?.();
+  expect(await agents.launches()).toEqual([]);
+});
+
+test("a malformed or duplicate model config is never overwritten by Settings", async () => {
+  const api = await server.rpc();
+  const first = await api.models.save({ scope, revision: 0, policy: defaultModelPolicy() });
+  const file = join(server.configDir, "models.toml");
+  const refuse = async (contents: string) => {
+    await writeFile(file, contents);
+    const failure = await api.models.save(first).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "MODEL_PREFERENCES_CONFIG_INVALID" });
+    expect(JSON.stringify(failure)).not.toContain("private-config-sentinel");
+    expect(await readFile(file, "utf8")).toBe(contents);
+  };
+  await refuse('preferences = ["private-config-sentinel"');
+  await refuse(
+    stringify({
+      preferences: [
+        { scope, policy: first.policy },
+        { scope, policy: first.policy },
+      ],
+    }),
+  );
+});
+
+test.skipIf(process.platform === "win32")(
+  "the model preference file is private to its user",
+  async () => {
+    const api = await server.rpc();
+    await api.models.save({ scope, revision: 0, policy: defaultModelPolicy() });
+    expect((await stat(join(server.configDir, "models.toml"))).mode & 0o777).toBe(0o600);
+  },
+);
 
 test("pi discovery is deduplicated, scoped to the workspace and leaves no task/session/native process", async () => {
   const { project } = await addProject(server, "catalog");

@@ -53,6 +53,7 @@ function openServer(): void {
         agents: [],
         problems: [],
       }),
+      resolveInstance: () => undefined,
     },
     // Removing a session and activating a task are not what this test is about; the tasks feed is
     // elsewhere.

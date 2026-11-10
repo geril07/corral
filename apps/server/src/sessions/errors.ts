@@ -47,6 +47,30 @@ export class AgentDisabledError extends Error {
   }
 }
 
+/** An instance whose `enabled` is false: refused for a new launch, usable by a restart. */
+export class LaunchInstanceDisabledError extends Error {
+  readonly id: string;
+  readonly kind: AgentKind;
+  constructor(id: string, kind: AgentKind) {
+    super(`the launch profile ${id} is disabled in the config file`);
+    this.id = id;
+    this.kind = kind;
+  }
+}
+
+/**
+ * The instance's argv cannot be handed to this agent's launch. Pi accepts the non-owning switches
+ * `instance-args.ts` allows; Claude, Codex and OpenCode own their argv, so a nonempty `args` is
+ * refused rather than ignored. The message is written by the policy and never quotes a value.
+ */
+export class LaunchArgsUnsupportedError extends Error {
+  readonly kind: AgentKind;
+  constructor(kind: AgentKind, message: string) {
+    super(message);
+    this.kind = kind;
+  }
+}
+
 export class LaunchProfileUnknownError extends Error {
   readonly id: string;
   constructor(id: string) {

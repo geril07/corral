@@ -134,7 +134,7 @@ export function startServer(options: {
   const config = watchConfigFile(configFilePath(resolveConfigDir(process.env, home)), {
     dataDir,
   });
-  const modelPreferences = new ModelPreferencesStore(database);
+  const modelPreferences = new ModelPreferencesStore(resolveConfigDir(process.env, home));
   const modelCatalog = new ModelCatalogService({
     config,
     projects: projectStore,
@@ -163,6 +163,7 @@ export function startServer(options: {
     },
   });
   const tasks = new TaskService({
+    dataDir,
     store: taskStore,
     projects: projectStore,
     sessions,
@@ -237,6 +238,7 @@ export function startServer(options: {
   let closing: Promise<void> | undefined;
   async function shutDown() {
     config.close();
+    modelPreferences.close();
     terminateAll(wss.clients);
     http.closeAllConnections();
     await modelCatalog.close();
@@ -248,6 +250,7 @@ export function startServer(options: {
 
   return new Promise((resolve, reject) => {
     http.once("error", (error) => {
+      modelPreferences.close();
       database.close();
       reject(error);
     });

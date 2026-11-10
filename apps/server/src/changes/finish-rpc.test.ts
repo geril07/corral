@@ -36,6 +36,7 @@ async function worktreeTask(
   });
   writeFiles(task.workspacePath, { "src/one.ts": "export const one = 1;\n", "notes.txt": "two\n" });
   const remote = await api.changes.finish({ id: task.id });
+  if (task.branch === null) throw new Error("a project worktree must have a branch");
   return {
     task,
     branch: task.branch,
@@ -750,6 +751,7 @@ test("a repository with no remote refuses the push with CHANGES_NO_REMOTE", asyn
     workspace: { type: "new-branch" },
   });
   const finish = await api.changes.finish({ id: task.id });
+  if (task.branch === null) throw new Error("a project worktree must have a branch");
   expect(finish.remote).toBeNull();
   expect(finish.remotes).toEqual([]);
   await expect(

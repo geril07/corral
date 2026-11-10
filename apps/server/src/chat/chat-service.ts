@@ -170,12 +170,15 @@ export class ChatService {
       sessionId,
       timeline,
       command: request.command,
-      args: registration.args({
-        model: request.model,
-        provider: request.provider,
-        agentSessionId: request.agentSessionId,
-        how: request.how,
-      }),
+      args: [
+        ...(request.instanceArgs ?? []),
+        ...registration.args({
+          model: request.model,
+          provider: request.provider,
+          agentSessionId: request.agentSessionId,
+          how: request.how,
+        }),
+      ],
       cwd: request.cwd,
       env: request.env,
       how: request.how,

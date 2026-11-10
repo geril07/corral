@@ -58,6 +58,8 @@ import {
   AgentDisabledError,
   AgentNotFoundError,
   AlreadyRunningError,
+  LaunchArgsUnsupportedError,
+  LaunchInstanceDisabledError,
   LaunchModelInvalidError,
   LaunchModelUnsupportedError,
   LaunchProfileChangedError,
@@ -81,6 +83,7 @@ import type { TerminalRegistry } from "../terminals/terminal-registry.ts";
 
 import {
   ModelPreferencesChangedError,
+  ModelPreferencesConfigError,
   type ModelPreferencesStore,
 } from "../models/model-preferences.ts";
 import type { ModelCatalogService } from "../models/model-catalog.ts";
@@ -209,6 +212,10 @@ function launchError(
     return errors.LAUNCH_VIEW_UNSUPPORTED({ data: { kind: error.kind, view: error.view } });
   if (error instanceof AgentDisabledError)
     return errors.AGENT_DISABLED({ data: { kind: error.kind } });
+  // Disabled instances and unsupported instance argv have no wire code of their own: both are
+  // refusals of a launch with a safe sentence, so they use the launch failure's message.
+  if (error instanceof LaunchInstanceDisabledError || error instanceof LaunchArgsUnsupportedError)
+    return errors.LAUNCH_FAILED({ data: { kind: error.kind, message: error.message } });
   // A workspace deleted outside Corral answers through the existing launch refusal, with the
   // named sentence as its message; no wire code of its own.
   if (error instanceof WorkspaceMissingError)
@@ -315,7 +322,9 @@ export function createRpcRouter({
           (error) =>
             error instanceof ModelPreferencesChangedError
               ? errors.MODEL_PREFERENCES_CHANGED()
-              : undefined,
+              : error instanceof ModelPreferencesConfigError
+                ? errors.MODEL_PREFERENCES_CONFIG_INVALID({ message: error.message })
+                : undefined,
         ),
       ),
       catalog: os.models.catalog.handler(({ input }) => modelCatalog.catalog(input)),
@@ -705,6 +714,8 @@ export function createRpcRouter({
           (error) => {
             if (error instanceof TaskNotFoundError)
               return errors.TASK_NOT_FOUND({ data: { id: error.id } });
+            if (error instanceof GitError)
+              return errors.GIT_FAILED({ data: { message: error.message } });
             return undefined;
           },
         ),

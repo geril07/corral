@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { ChangeFeed } from "../changes/change-feed.ts";
 import { workspaceExists } from "../files/file-access.ts";
 import { GitError } from "../git/git.ts";
-import { directoryName, uniqueName } from "../git/names.ts";
+import { directoryName, slugifyTitle, uniqueName } from "../git/names.ts";
 import {
   addWorktreeOnExistingBranch,
   checkedOutBranches,
@@ -99,11 +99,13 @@ export class TaskService implements ProjectTasks {
   readonly #settings: TaskSettings;
   readonly #naming: NamingSettingsSource;
   readonly #worktree: WorktreeOperations;
+  readonly #dataDir: string;
   readonly #changes = new ChangeFeed();
   // Branch and directory names are picked, then used, with git calls in between.
   readonly #mutations = new SerialQueue();
 
   constructor(options: {
+    dataDir: string;
     store: TaskStore;
     projects: ProjectStore;
     sessions: TaskSessions;
@@ -113,6 +115,7 @@ export class TaskService implements ProjectTasks {
     worktree?: Partial<WorktreeOperations>;
   }) {
     this.#store = options.store;
+    this.#dataDir = options.dataDir;
     this.#projects = options.projects;
     this.#sessions = options.sessions;
     this.#settings = options.settings;
@@ -204,7 +207,6 @@ export class TaskService implements ProjectTasks {
   }
 
   async #create(input: CreateTaskInput): Promise<Task> {
-    const project = this.#project(input.projectId);
     const { workspace } = input;
     // A blank prompt is the same as none; the wire schema trimmed it already.
     const prompt = input.prompt === undefined || input.prompt === "" ? null : input.prompt;
@@ -216,6 +218,41 @@ export class TaskService implements ProjectTasks {
     if (title === undefined)
       throw new Error("a title is required unless the task comes from an issue source or a prompt");
     const titleSource = named === undefined ? "seed" : "user";
+    if (workspace.type === "scratch") {
+      if (input.projectId !== null) throw new Error("scratch cannot have a project");
+      return this.#mutations.run(async () => {
+        const id = newId();
+        const date = new Date().toISOString().slice(0, 10);
+        const path = join(
+          this.#dataDir,
+          "scratch",
+          `${date}-${slugifyTitle(title)}-${id.replaceAll("-", "").slice(0, 12)}`,
+        );
+        await mkdir(join(this.#dataDir, "scratch"), { recursive: true });
+        // Exclusive creation refuses a collision instead of ever reusing another task's files.
+        await mkdir(path);
+        const task: Task = {
+          id,
+          projectId: null,
+          title,
+          titleSource,
+          prompt,
+          primarySessionId: null,
+          branch: null,
+          workspacePath: path,
+          ownsWorktree: false,
+          state: "active",
+          seenAt: null,
+          createdAt: Date.now(),
+          ...(input.source === undefined ? {} : { source: input.source }),
+        };
+        // Even an uncommitted failed create leaves the directory intact: files may have appeared
+        // there between creation and failure, and are never ours to destroy.
+        return this.#record(task, input.agent);
+      });
+    }
+    if (input.projectId === null) throw new Error("project workspace requires a project");
+    const project = this.#project(input.projectId);
     // Only a new branch the user did not name can take a generated slug; an existing branch keeps
     // its name, and the worktree directory follows it.
     const generatedSlug =
@@ -281,7 +318,7 @@ export class TaskService implements ProjectTasks {
 
   async #createInWorktree(
     input: CreateTaskInput,
-    workspace: Exclude<CreateTaskInput["workspace"], { type: "main-worktree" }>,
+    workspace: Exclude<CreateTaskInput["workspace"], { type: "main-worktree" | "scratch" }>,
     project: Project,
     fields: {
       title: string;
@@ -359,7 +396,7 @@ export class TaskService implements ProjectTasks {
   }
 
   async #planWorktree(
-    workspace: Exclude<CreateTaskInput["workspace"], { type: "main-worktree" }>,
+    workspace: Exclude<CreateTaskInput["workspace"], { type: "main-worktree" | "scratch" }>,
     project: Project,
     title: string,
     generatedSlug: string | undefined,
@@ -433,7 +470,7 @@ export class TaskService implements ProjectTasks {
     // A create names the project before a network call and the worktree, and `projects.remove` is
     // not on this queue: re-read it immediately before the insert, with no await between, so the
     // project-removal race is the contract's PROJECT_NOT_FOUND rather than a foreign-key error.
-    const project = this.#project(task.projectId);
+    const project = task.projectId === null ? null : this.#project(task.projectId);
     this.#store.insert(task);
     try {
       if (agent !== undefined) {
@@ -459,7 +496,7 @@ export class TaskService implements ProjectTasks {
    * configured view. A `chat` view needs a driver in this build, so for any other agent it opens
    * in the terminal — the config file already warned when it named that agent itself.
    */
-  #viewFor(project: Project, agent: TaskAgent): SessionView {
+  #viewFor(project: Project | null, agent: TaskAgent): SessionView {
     if (agent.view !== undefined) return agent.view;
     const configured = this.#settings.view(project);
     return configured === "chat" && !this.#sessions.hasChatDriver(agent.kind)
@@ -496,7 +533,7 @@ export class TaskService implements ProjectTasks {
 
   async #remove(id: string, force: boolean): Promise<void> {
     const task = this.get(id);
-    const project = this.#project(task.projectId);
+    const project = task.projectId === null ? null : this.#project(task.projectId);
     const worktreeOnDisk = task.ownsWorktree && (await workspaceExists(task.workspacePath));
 
     if (worktreeOnDisk && !force) {
@@ -506,15 +543,16 @@ export class TaskService implements ProjectTasks {
     // The directory is already gone, so pruning only touches git metadata and no live process is
     // in its way. It runs before the teardown: a prune that fails must refuse the removal without
     // having stopped the task's sessions or closed their terminals first.
-    if (!worktreeOnDisk && task.ownsWorktree) {
+    if (!worktreeOnDisk && task.ownsWorktree && project !== null) {
       await pruneWorktrees(project.path);
     }
     await this.#sessions.removeAllIn(new Set([id]));
     // The session terminals are gone; a loose terminal in the workspace is not a session and would
     // otherwise keep a deleted cwd. Sweep even when the directory is already gone: its process may
     // still hold it. A main-worktree task owns nothing, so the project's own terminals stay.
-    if (task.ownsWorktree) await this.#sessions.closeTerminalsIn(task.workspacePath);
-    if (worktreeOnDisk) {
+    if (task.ownsWorktree || task.projectId === null)
+      await this.#sessions.closeTerminalsIn(task.workspacePath);
+    if (worktreeOnDisk && project !== null) {
       await removeWorktree(project.path, task.workspacePath, force);
     }
     this.#store.delete(id);

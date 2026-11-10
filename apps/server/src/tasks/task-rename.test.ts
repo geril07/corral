@@ -41,7 +41,14 @@ function serviceWith(sessions: TaskSessions) {
   store.insert(storedTask("t"));
   const settings = defaultTaskSettings({ dataDir });
   return {
-    tasks: new TaskService({ store, projects, sessions, settings, naming: disabledNaming() }),
+    tasks: new TaskService({
+      dataDir,
+      store,
+      projects,
+      sessions,
+      settings,
+      naming: disabledNaming(),
+    }),
     store,
     db,
   };

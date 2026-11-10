@@ -8,94 +8,36 @@ import { join } from "node:path";
  */
 export type Migration = string | ((db: DatabaseSync) => void);
 
-/** Schema changes, oldest first. `PRAGMA user_version` counts the ones applied; never edit one that shipped. */
+/** The current fresh database schema. Older schemas are not upgraded by this rebuild. */
 export const MIGRATIONS: readonly Migration[] = [
   `CREATE TABLE projects (
-     id TEXT PRIMARY KEY,
-     name TEXT NOT NULL,
-     path TEXT NOT NULL UNIQUE,
+     id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL UNIQUE,
      default_base_branch TEXT NOT NULL
    ) STRICT;
    CREATE TABLE tasks (
-     id TEXT PRIMARY KEY,
-     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-     title TEXT NOT NULL,
-     branch TEXT NOT NULL,
-     workspace_path TEXT NOT NULL,
-     owns_worktree INTEGER NOT NULL,
-     state TEXT NOT NULL,
-     created_at INTEGER NOT NULL
+     id TEXT PRIMARY KEY, project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+     title TEXT NOT NULL, title_source TEXT NOT NULL DEFAULT 'user', source TEXT, prompt TEXT,
+     primary_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+     branch TEXT, workspace_path TEXT NOT NULL, owns_worktree INTEGER NOT NULL,
+     state TEXT NOT NULL, seen_at INTEGER, created_at INTEGER NOT NULL
    ) STRICT;
-   CREATE INDEX tasks_by_project ON tasks(project_id);`,
-  `CREATE TABLE sessions (
-     id TEXT PRIMARY KEY,
-     task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-     kind TEXT NOT NULL,
-     agent_session_id TEXT,
-     state TEXT NOT NULL,
-     created_at INTEGER NOT NULL
+   CREATE INDEX tasks_by_project ON tasks(project_id);
+   CREATE TABLE sessions (
+     id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+     kind TEXT NOT NULL, agent_session_id TEXT, state TEXT NOT NULL, created_at INTEGER NOT NULL,
+     resume_on_unsettle INTEGER NOT NULL DEFAULT 0, label TEXT, launch_spec TEXT,
+     view TEXT NOT NULL DEFAULT 'terminal'
    ) STRICT;
-   CREATE INDEX sessions_by_task ON sessions(task_id);`,
-  `UPDATE tasks SET state = 'settled' WHERE state = 'archived';
-   ALTER TABLE sessions ADD COLUMN resume_on_unsettle INTEGER NOT NULL DEFAULT 0;`,
-  `ALTER TABLE sessions ADD COLUMN label TEXT;`,
-  // Nonsecret launch choices (model/provider/profile revision/env reference names) as JSON.
-  // Stored once at start; a later config edit never rewrites it.
-  `ALTER TABLE sessions ADD COLUMN launch_spec TEXT;`,
-  `ALTER TABLE tasks ADD COLUMN source TEXT;`,
-  // Where the title came from; every task before this came from a title the user typed. The
-  // default is what backfills those rows (SQLite needs one for a NOT NULL column); inserts name
-  // the column anyway.
-  `ALTER TABLE tasks ADD COLUMN title_source TEXT NOT NULL DEFAULT 'user';`,
-  // When the user last saw the task's agent updates, in epoch milliseconds; NULL until first seen.
-  // Server-owned so every client derives the same "completed and unseen" state.
-  `ALTER TABLE tasks ADD COLUMN seen_at INTEGER;`,
-  // The prompt a task was created from and the agent session started from it (design.md, **Domain
-  // model → Task → Creation** and **Sessions**). Tasks from before have neither. The foreign key is
-  // what takes the reference away when that session is removed; SQLite allows one here because the
-  // column defaults to NULL.
-  `ALTER TABLE tasks ADD COLUMN prompt TEXT;
-   ALTER TABLE tasks ADD COLUMN primary_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL;`,
-  // How the session runs (design.md, decision 5). The default is what backfills the sessions from
-  // before chat: every one of them runs in a terminal. Inserts name the column anyway.
-  `ALTER TABLE sessions ADD COLUMN view TEXT NOT NULL DEFAULT 'terminal';`,
-  // The pull or merge request opened from a task's branch (C6). Its own table, not a task column:
-  // a link, a state refresh and a re-link rewrite one row and never touch the task's other fields,
-  // and the state a read could not confirm is stored as `unknown` with the reason. `checks` is the
-  // summary as JSON, `NULL` when the provider reports none.
-  `CREATE TABLE pull_requests (
+   CREATE INDEX sessions_by_task ON sessions(task_id);
+   CREATE TABLE session_launch_specs (
+     session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+     spec TEXT NOT NULL
+   ) STRICT;
+   CREATE TABLE pull_requests (
      task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
-     provider TEXT NOT NULL,
-     host TEXT NOT NULL,
-     number INTEGER NOT NULL,
-     url TEXT NOT NULL,
-     title TEXT NOT NULL,
-     branch TEXT,
-     base TEXT,
-     state TEXT NOT NULL,
-     state_reason TEXT,
-     checks TEXT,
-     fetched_at INTEGER
-   ) STRICT;`,
-  // The repository the request was opened on, with its host (`forge.example/acme/app`). C6 added
-  // it after `pull_requests` was created in this same slice, and a development database already
-  // at version 11 has the old table: a new migration adds the column instead of editing 11, whose
-  // `CREATE TABLE` never runs again on an existing database.
-  //
-  // It is a function because SQLite has no `ADD COLUMN IF NOT EXISTS`, and a database made by a
-  // branch revision that already carried the column (C6's own round 2) sits at version 11 with it:
-  // the plain `ALTER` threw `duplicate column name: repository` and the server refused to start.
-  // Reading `table_info` first makes the step idempotent, and any later in-branch edit of a shipped
-  // migration can be written the same way.
-  (db) => {
-    if (!tableHasColumn(db, "pull_requests", "repository")) {
-      db.exec("ALTER TABLE pull_requests ADD COLUMN repository TEXT;");
-    }
-  },
-  `CREATE TABLE model_preferences (
-     scope TEXT PRIMARY KEY,
-     revision INTEGER NOT NULL,
-     policy TEXT NOT NULL
+     provider TEXT NOT NULL, host TEXT NOT NULL, number INTEGER NOT NULL, url TEXT NOT NULL,
+     title TEXT NOT NULL, branch TEXT, base TEXT, state TEXT NOT NULL, state_reason TEXT,
+     checks TEXT, fetched_at INTEGER, repository TEXT
    ) STRICT;`,
 ];
 

@@ -402,40 +402,42 @@ test("editing or deleting a profile and restarting keeps the snapshot and re-res
   }
 });
 
-test("a profile cannot move an agent's config home, and Codex discovery stays where the launch sees it", async () => {
+test("a profile can move an agent's config home, and Codex discovery stays where the launch sees it", async () => {
+  const movedHome = join(server.scratchDir, "moved-codex");
+  await mkdir(movedHome, { recursive: true });
   vi.stubEnv("LAUNCH_OPENAI_KEY", "test-openai-key");
+  vi.stubEnv("LAUNCH_CODEX_HOME", movedHome);
   vi.stubEnv("FAKE_AGENT_LOG_ENV", "OPENAI_API_KEY");
   const state = await writeConfig(
     `
 [profiles.moved]
 name = "Moved Codex home"
 agent = "codex"
-env = [{ targetName = "CODEX_HOME", fromEnv = "SOME_OTHER_HOME" }]
-
-[profiles.codex]
-name = "Codex"
-agent = "codex"
-model = "gpt-5-codex"
-env = [{ targetName = "OPENAI_API_KEY", fromEnv = "LAUNCH_OPENAI_KEY" }]
+env = [
+  { targetName = "CODEX_HOME", fromEnv = "LAUNCH_CODEX_HOME" },
+  { targetName = "OPENAI_API_KEY", fromEnv = "LAUNCH_OPENAI_KEY" },
+]
 `,
-    (config) =>
-      config.profiles.some((profile) => profile.id === "codex") &&
-      config.problems.some((problem) => problem.path === "profiles.moved"),
+    (config) => config.profiles.some((profile) => profile.id === "moved"),
   );
-  expect(state.profiles.map((profile) => profile.id)).toEqual(["codex"]);
-  expect(state.problems).toEqual([
-    { severity: "error", path: "profiles.moved", message: "env may not set a reserved variable" },
+  expect(state.problems).toEqual([]);
+  expect(state.profiles[0]?.env).toEqual([
+    { targetName: "CODEX_HOME", fromEnv: "LAUNCH_CODEX_HOME" },
+    { targetName: "OPENAI_API_KEY", fromEnv: "LAUNCH_OPENAI_KEY" },
   ]);
+  expect(JSON.stringify(state)).not.toContain(movedHome);
 
   const { api, task } = await addTask(server, "Same env");
   const session = await api.sessions.start({
     taskId: task.id,
     kind: "codex",
     size: SIZE,
-    profileId: "codex",
+    profileId: "moved",
   });
   const [launch] = await launchesOf(agents, "codex", 1);
   expect(launch!.envSentinels).toEqual({ OPENAI_API_KEY: "test-openai-key" });
+  // The fake writes its rollout under the CODEX_HOME the launch inherited; discovery finds it only
+  // if it reads the same root, not the server's own.
   await expect
     .poll(
       async () => (await sessionsOf(api)).find((entry) => entry.id === session.id)?.agentSessionId,
@@ -448,8 +450,6 @@ env = [{ targetName = "OPENAI_API_KEY", fromEnv = "LAUNCH_OPENAI_KEY" }]
   await api.sessions.stop({ id: session.id });
   await api.sessions.restart({ id: session.id, size: SIZE });
   expect(frontendArgs((await launchesOf(agents, "codex", 2))[1]!.argv)).toEqual([
-    "-m",
-    "gpt-5-codex",
     "resume",
     launch!.rolloutId,
   ]);

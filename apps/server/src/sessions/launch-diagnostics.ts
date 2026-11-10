@@ -3,6 +3,8 @@ import { WorkspaceMissingError } from "../files/errors.ts";
 import {
   AgentDisabledError,
   AgentNotFoundError,
+  LaunchArgsUnsupportedError,
+  LaunchInstanceDisabledError,
   LaunchModelInvalidError,
   LaunchModelUnsupportedError,
   LaunchProfileChangedError,
@@ -54,6 +56,8 @@ export function launchFailureReason(error: unknown): string {
   if (
     error instanceof AgentDisabledError ||
     error instanceof AgentNotFoundError ||
+    error instanceof LaunchArgsUnsupportedError ||
+    error instanceof LaunchInstanceDisabledError ||
     error instanceof LaunchViewUnsupportedError ||
     error instanceof LaunchProfileUnknownError ||
     error instanceof LaunchProfileChangedError ||
@@ -76,6 +80,8 @@ export function launchDiagnostic(error: unknown): string {
     error instanceof ReservedEnvRefError ||
     error instanceof AgentDisabledError ||
     error instanceof AgentNotFoundError ||
+    error instanceof LaunchArgsUnsupportedError ||
+    error instanceof LaunchInstanceDisabledError ||
     error instanceof LaunchViewUnsupportedError ||
     error instanceof LaunchProfileChangedError ||
     error instanceof LaunchProfileRevisionWithoutProfileError ||

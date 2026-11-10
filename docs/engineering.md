@@ -91,8 +91,11 @@ Internal packages export TypeScript source (no build step). The server runs that
 
 ## Model catalog and preferences
 
-Protocol 11 requires `models.watch/save/catalog`; migration 13 adds the per-tool/profile preference
-rows. `apps/server/src/models` owns revision-checked SQLite writes and lazy scoped metadata caches.
+`models.watch/save/catalog` shares per-tool/instance preferences between clients.
+`apps/server/src/models` owns revision-checked atomic `models.toml` writes and lazy scoped metadata
+caches. The file sits beside the launch config so preference edits cannot rewrite its unrelated
+values or comments; SQLite is not a second preference authority. Revisions track policy content,
+including external file edits, rather than a counter the user must maintain by hand.
 Native pi/OpenCode lifecycles reuse the driver/server supervisors with metadata-specific process
 claims, never the working session. `packages/client` watches shared preferences; Settings and every
 picker apply the pure protocol visibility projection. Lifecycle, budgets and limitations:

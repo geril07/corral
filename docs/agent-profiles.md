@@ -1,12 +1,13 @@
-# Agent launch profiles
+# Named agent instances
 
-A launch profile names an agent and, where that agent supports it, a native model/provider and
-environment variables for one conversation. Profiles live in the server-owned
-`config.toml` (`$CORRAL_CONFIG_DIR/config.toml`, else `$XDG_CONFIG_HOME/corral/config.toml`,
-else `~/.config/corral/config.toml`). Editing the file is supported; the server watches it and
-pushes safe descriptors to every client.
+A named agent instance is a launch profile: it names an agent, its executable, optional launch
+arguments, environment variables and, where that agent supports it, a native model/provider for one
+conversation. Instances live in the server-owned `config.toml`
+(`$CORRAL_CONFIG_DIR/config.toml`, else `$XDG_CONFIG_HOME/corral/config.toml`, else
+`~/.config/corral/config.toml`). Editing the file is supported; the server watches it and pushes
+safe descriptors to every client.
 
-Profiles are explicit launch choices, **not a sandbox or an account boundary**. The agent still
+Instances are explicit launch choices, **not a sandbox or an account boundary**. The agent still
 inherits the server's environment and its own credential/config files (`~/.claude`, `~/.codex`,
 pi auth, OpenCode providers). See [Security](#security).
 
@@ -29,9 +30,16 @@ env = [
 - `name` is required, at most 80 characters.
 - `agent` is one of `claude`, `codex`, `pi`, `opencode`.
 - `model` and `provider` are optional native identifiers.
-- `env` is an optional array of `{ targetName, fromEnv }`; both are variable names.
-  `targetName` is set in the agent's environment, `fromEnv` is read from the server's
-  environment. Literal values are not supported.
+- `command` is an optional absolute executable path; empty or absent falls back to the agent's
+  configured executable. It is the executable sessions, restarts and discovery run. `args` is an
+  optional array of argv strings, not a shell command; see
+  [Instance launch arguments](#instance-launch-arguments).
+- `enabled` defaults to true; false removes the instance from every picker and refuses a **new**
+  launch with `LAUNCH_FAILED` naming the disabled instance. An existing session of it still stops
+  and resumes.
+- `env` entries have `targetName` and exactly one of `fromEnv` (a server environment name) or
+  `value` (a literal stored privately in the server config). Literal values are never sent in the
+  public descriptor. Protect the file accordingly.
 - The profile id (the table key) is letters, digits, `.`, `_` or `-`, starting with a letter or
   digit, at most 64 characters. Quote an id that contains a dot
   (`[profiles."team.claude"]`); an unquoted dot makes TOML nested tables.
@@ -44,7 +52,30 @@ from the file. A profile that is dropped is not selectable, so the UI cannot cla
 will not happen.
 
 Every valid profile has a content `revision` (12 hex characters) over its id, name, agent,
-model, provider and environment reference names. It lets a session say which definition it used.
+model, provider, command, args, enabled state and private environment definition. It does not
+include literal values in the public descriptor. Literal values are keyed with an in-memory
+per-server-run secret before revision hashing to prevent offline guessing; revisions for instances
+with literal values therefore change when the server restarts, even if the file did not change.
+
+### Instance launch arguments
+
+`args` is an argv array, never a shell line. Corral prepends it to the flags it owns, so an instance
+can configure its agent but cannot take over the session, mode, resume or prompt controls:
+
+| Agent    | Instance `args` at launch                                                               |
+| -------- | --------------------------------------------------------------------------------------- |
+| pi       | Accepted from a fixed policy: the non-owning switches and values in `instance-args.ts`. |
+| claude   | Refused when nonempty (`LAUNCH_FAILED`); the chat driver owns the argv.                 |
+| codex    | Refused when nonempty (`LAUNCH_FAILED`); the app-server and TUI argv are Corral's.      |
+| opencode | Refused when nonempty (`LAUNCH_FAILED`); the root TUI argv is Corral's.                 |
+
+The pi policy accepts `--no-extensions`, `--no-skills`, `--no-prompt-templates`, `--no-themes`,
+`--no-context-files`, `--no-tools`, `--no-mcp`, `--offline` and `--verbose`, plus
+`--extension`, `--skill`, `--prompt-template` and `--theme` with one non-flag value. Model and
+provider stay the typed `model`/`provider` fields; `--mode`, `--session-id`, `--resume`, prompts
+and any equals form are refused. A refused argv spawns nothing and names the policy violation
+without quoting values. Native model discovery applies the same policy and the same order, so a
+picker cannot discover models through a launch the session would refuse.
 
 ### Task defaults, naming and project overrides
 
@@ -234,7 +265,8 @@ env = [{ targetName = "OPENAI_API_KEY", fromEnv = "TEAM_OPENAI_KEY" }]
 | opencode | no      | no                               | none (profile is env-only)          |
 
 Unknown model/provider ids are not discovered or guessed. Codex's provider is checked only by
-Codex itself, at request time.
+Codex itself, at request time. The **Launch arguments** column is the argv Corral adds for that
+choice; an instance's own `args` is separate and subject to the per-runtime limits above.
 
 The same table is exported for clients, so a picker does not duplicate the rules:
 
@@ -250,23 +282,27 @@ it; clients may hide an unsupported input but still must handle the server's ref
 
 ### Environment references
 
-- Only names are stored, sent to clients, written to SQLite and logged. Values are resolved from
-  the server's environment once per launch, immediately before spawn.
+- References store names; literal values stay in the private server config. Public descriptors
+  contain reference names and literal target names, never literal values. The private resolver
+  overlays instance values on inherited server environment without modifying the server process.
+  A launch uses the same resolved executable, argv, environment and native config roots that
+  model discovery uses.
 - A missing source variable fails the launch with `LAUNCH_ENV_MISSING`
   (`{ profileId, name }`); nothing is spawned and no ambient credential is substituted.
 - An existing variable whose value is an empty string counts as present.
 - `CORRAL_*` and process/loader/config-location names are reserved as `targetName`:
   `TERM`, `PATH`, `SHELL`, `HOME`, `BASH_ENV`, `ENV`, `NODE_OPTIONS`, `NODE_PATH`, `XDG_*`,
   `LD_*`, `DYLD_*`, anything ending in `_HOME`, anything containing `CONFIG`,
-  `PI_CODING_AGENT_*` (pi config, session-store and package paths) and `PI_PACKAGE_DIR` (pi
-  loader path). This keeps executable lookup, transcript/rollout discovery and the agent's
-  history in the same place as the launch. A snapshot that somehow holds a reserved target fails
-  with `LAUNCH_ENV_RESERVED` instead of applying it.
+  `PI_CODING_AGENT_*` and `PI_PACKAGE_DIR` (pi loader path), except that `CLAUDE_CONFIG_DIR`,
+  `CODEX_HOME` and `PI_CODING_AGENT_DIR` are allowed. For those three, resolution expands leading
+  `~` against the server home, including referenced values; other values are not expanded. The
+  same expansion applies when a saved launch is resumed. A snapshot that somehow holds a reserved
+  target fails with `LAUNCH_ENV_RESERVED` instead of applying it.
 - Server-owned `CORRAL_SESSION_ID`, `CORRAL_TASK_ID`, `CORRAL_STATUS_URL` and
-  `CORRAL_STATUS_TOKEN` are applied after profile references and win.
-- The same resolved environment is used for the spawn, the executable check, Claude transcript
-  discovery, Codex rollout discovery and the OpenCode status plugin. No path reads
-  `process.env` behind the resolved launch.
+  `CORRAL_STATUS_TOKEN` are applied after instance values and win.
+- An instance's literal values are captured privately at start (see
+  [Snapshot and resume](#snapshot-and-resume)); changing or deleting the instance does not change
+  the environment of a session that already exists.
 
 At most 32 references per profile. A target may appear once.
 
@@ -305,11 +341,12 @@ Other start/restart errors: `LAUNCH_PROFILE_UNKNOWN { id }` (unknown or dropped 
 `LAUNCH_PROFILE_CHANGED { id }`, `LAUNCH_PROFILE_REVISION_UNSUPPORTED`,
 `LAUNCH_PROFILE_KIND_MISMATCH { id, kind }`, `AGENT_DISABLED { kind }`,
 `AGENT_NOT_FOUND { command }`, and `LAUNCH_FAILED { kind, message }` for an unexpected spawn
-failure (a missing workspace, resource limits). `LAUNCH_FAILED.message` is the first diagnostic line, prefixed with the OS
-error code when there is one (for example `E2BIG`). Every non-empty value referenced by the
-profile is replaced with `[redacted]` before the line is taken, so short and multiline values
-are covered too. The log gets the full diagnostic, redacted the same way; a raw error object is
-never logged.
+failure (a missing workspace, resource limits) or a refused instance: disabled for a new launch,
+or an argv the runtime does not support. `LAUNCH_FAILED.message` is the first diagnostic line,
+prefixed with the OS error code when there is one (for example `E2BIG`). Every non-empty value
+referenced by the profile or captured as a literal is replaced with `[redacted]` before the line is
+taken, so short and multiline values are covered too. The log gets the full diagnostic, redacted
+the same way; a raw error object is never logged.
 
 ## Snapshot and resume
 
@@ -326,10 +363,18 @@ Selecting a profile or model snapshots the nonsecret choices on the session:
 ```
 
 It is persisted in SQLite (`sessions.launch_spec`) and is immutable. Stop/restart, settle/resume
-and server-restart restore use the snapshot; editing or deleting the profile does not change an
+and server-restart restore use the snapshot; editing or deleting the instance does not change an
 existing conversation. Referenced values are re-resolved from the server environment on every
 launch. Sessions created before this feature have no snapshot and keep their old launch behavior;
 Corral never infers a profile or model for them.
+
+Beside that public snapshot the server keeps a private launch spec in
+`session_launch_specs`: the instance id, the resolved executable, its argv and any literal
+environment values. A restart runs that captured spec, not whatever the same-named instance has
+been edited into since. This is also why disabling or deleting an instance blocks only new
+launches: an existing session still stops and resumes. Referenced values are not copied into the
+private spec; they stay names and are resolved from the server environment again, so a removed
+server variable fails visibly instead of quietly using an old secret.
 
 If a restore cannot launch (missing reference, missing executable, reserved snapshot target,
 unexpected spawn failure), the session becomes `stopped` and carries `launchError`, a safe
@@ -417,13 +462,14 @@ links — all with "restart it after upgrading Corral".
 
 ## Security
 
-Corral promises exactly this: a profile adds the named environment references to the agent, the
-server rejects reserved/config-location targets, model choices are validated per agent, and a
-missing reference fails visibly. It does **not** promise account isolation: the child still
-inherits the server's other environment variables and can read the user's own agent credential
-files, so a personal and a team profile are not separate accounts. Isolation would require an
-isolated agent home/config, which Corral does not offer; config/home overrides are rejected
-precisely because they would move history away from Corral's discovery.
+The launch path adds the instance's executable, argv and environment to the agent; the config
+parser rejects reserved control targets, model choices are validated per agent, and a missing
+reference fails visibly. Literal values are persisted only in the private launch spec so a restart
+can reproduce them. It does **not** promise account isolation: the child still inherits the
+server's other environment variables and can read the user's own agent credential files, so a
+personal and a team instance are not separate accounts. `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and
+`PI_CODING_AGENT_DIR` move the roots a launch and the drivers' history reads use; they are not an
+account boundary on their own.
 
 The config file is a trusted user file. Protecting the RPC/terminal transport from a hostile web
 page is a separate, per-server transport capability (another change), not a property of profiles.
@@ -436,7 +482,6 @@ page is a separate, per-server transport capability (another change), not a prop
   model and reasoning level mid-session through its driver (`chat.setModel`/`chat.setReasoning`);
   a terminal session has no such control.
 - OpenCode launch-time model/provider (2.1.4 has no root flags; Corral does not switch to `run`).
-- Literal environment values, shell snippets, extra arguments, `--api-key` on argv, `-p/--profile`,
-  credential managers, or direct-API chat providers. A custom executable is only
-  `[agents.<kind>].command`; it takes no extra arguments.
+- Instance-provisioned flags for Claude, Codex or OpenCode, a shell command line instead of argv,
+  `--api-key` on argv, `-p/--profile`, credential managers, or direct-API chat providers.
 - A DeepSeek or any other product preset. Providers and models are the user's choice.

@@ -14,10 +14,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { expect, test } from "vite-plus/test";
+import { expect, test, vi } from "vite-plus/test";
 import { MAX_CHANGED_FILES, MAX_DIFF_CHARACTERS } from "../git/diff.ts";
 import { useFakeAgents } from "../../test/fake-agents.ts";
-import { commitFile, runGit, writeFiles } from "../../test/git-repo.ts";
+import { commitFile, initRepo, runGit, writeFiles } from "../../test/git-repo.ts";
 import { addProject } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
 
@@ -25,6 +25,67 @@ const server = useServer({
   chat: { dialogTimeoutMs: 600, readyTimeoutMs: 1200, exitGraceMs: 400, writerWaitMs: 2000 },
 });
 useFakeAgents();
+
+test("scratch under an unrelated repository never invokes git for changes reads, writes or watches", async () => {
+  const repo = initRepo(server.dataDir);
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: null,
+    title: "Scratch",
+    workspace: { type: "scratch" },
+  });
+  writeFiles(task.workspacePath, { "secret.txt": "scratch contents" });
+  writeFiles(repo, { "README.md": "uncommitted ancestor change\n" });
+  expect(runGit(task.workspacePath, "rev-parse", "--show-toplevel").trim()).toBe(repo);
+  const beforeIndex = indexHash(repo);
+  const beforeHead = runGit(repo, "rev-parse", "HEAD");
+  const trace = join(server.scratchDir, "git-trace");
+  vi.stubEnv("GIT_TRACE", trace);
+
+  const changes = await api.changes.watch();
+  const watched = z
+    .array(TaskChanges)
+    .parse((await within(changes.next(), "scratch changes")).value);
+  const snapshot = await api.changes.files({ id: task.id });
+  expect(snapshot).toMatchObject({
+    taskId: task.id,
+    files: [],
+    error: expect.stringContaining("scratch"),
+  });
+  expect(watched).toContainEqual(snapshot);
+  const refusal = { code: "GIT_FAILED", data: { message: expect.stringContaining("scratch") } };
+  await expect(api.changes.diff({ taskId: task.id, path: "README.md" })).rejects.toMatchObject(
+    refusal,
+  );
+  await expect(api.changes.finish({ id: task.id })).rejects.toMatchObject(refusal);
+  await expect(
+    api.changes.stage({ id: task.id, paths: "all", staged: true }),
+  ).rejects.toMatchObject(refusal);
+  await expect(api.changes.commit({ id: task.id, message: "bad" })).rejects.toMatchObject(refusal);
+  const remote = { name: "origin", url: "/no-remote" };
+  await expect(api.changes.push({ id: task.id, remote, branch: "main" })).rejects.toMatchObject(
+    refusal,
+  );
+  await expect(
+    api.changes.createPullRequest({
+      id: task.id,
+      remote,
+      branch: "main",
+      base: "main",
+      provider: "github",
+      title: "bad",
+      body: "",
+    }),
+  ).rejects.toMatchObject(refusal);
+  await expect(api.changes.pullRequest({ id: task.id, refresh: true })).rejects.toMatchObject(
+    refusal,
+  );
+  await changes.return?.();
+  expect(existsSync(trace)).toBe(false);
+  expect(indexHash(repo)).toBe(beforeIndex);
+  expect(runGit(repo, "rev-parse", "HEAD")).toBe(beforeHead);
+  expect(readFileSync(join(repo, "README.md"), "utf8")).toBe("uncommitted ancestor change\n");
+});
 
 type Api = Awaited<ReturnType<typeof server.rpc>>;
 

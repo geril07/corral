@@ -19,12 +19,14 @@ import { boundedJson } from "./catalog-json.ts";
 export interface CatalogLaunch {
   kind: AgentKind;
   command: string;
+  args: string[];
   cwd: string;
   env: Record<string, string>;
   model: string | null;
   provider: string | null;
   recordDir: string;
   timeoutMs: number;
+  sensitiveValues: string[];
 }
 export interface NativeCatalog {
   models: ChatModel[];
@@ -54,7 +56,13 @@ export async function readNativeCatalog(
       ...launch,
       sessionId: "metadata",
       timeline: new ChatTimeline(),
-      args: ["--mode", "rpc", "--no-session", ...pi.launchArgs(launch.model, launch.provider)],
+      args: [
+        ...launch.args,
+        "--mode",
+        "rpc",
+        "--no-session",
+        ...pi.launchArgs(launch.model, launch.provider),
+      ],
       how: "start",
       agentSessionId: null,
       prompt: null,
