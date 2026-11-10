@@ -7,7 +7,7 @@ status section when a slice lands; a slice that only lives in a chat does not ex
 Rules for how work is done and reviewed: `docs/delivery.md`. Product decisions: `docs/design.md`.
 
 **Where we are (2026-11-10).** All landed slices are on `feat/263-task-composer-instances`
-(`90eb547` and its parents); nothing is pushed, there is no PR yet, and the running app is the dev
+(`f68db6c` and its parents); nothing is pushed, there is no PR yet, and the running app is the dev
 stand built from that branch. Two slices are in flight in separate worktrees, branches
 `feat/263-tabs` and `feat/263-task-menu`. Research for the queued slices is in `.review/research/`
 (`tabs.md`, `sidebar-task-menu.md`, `chat-transcript.md`, `chat-start.md`, `drafts.md`); each claim
@@ -105,6 +105,16 @@ behaviour and the open questions; the slice brief is written from it.
 - **Legacy sweep flow** — `.review/orchestrator.md`, `.review/contract.md`, `.review/goal.md`, the
   `.e2e/` artifacts and the `e2e-verifier` role are not used by this pipeline; remove them once the
   new loop has proven itself.
+
+## Review status
+
+Per `docs/delivery.md`, each slice gets a UI/UX review and then a technical review.
+
+| Surface                                           | UI/UX                                                                               | Technical   |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------- | ----------- |
+| Merged #263 surface (composer, settings, pickers) | done; no P0/P1, six P2/P3 fixes in `feat/263-review-fixes`, copy left for the owner | in progress |
+| Tabs (`feat/263-tabs`)                            | after the worker commits                                                            | after UI/UX |
+| Task menu (`feat/263-task-menu`)                  | after the worker commits                                                            | after UI/UX |
 
 ## Open decisions
 
