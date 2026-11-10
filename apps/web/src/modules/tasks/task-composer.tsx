@@ -344,7 +344,7 @@ export function TaskComposer({
                   chevron={false}
                   aria-label={`Workspace ${workspace.label}`}
                 >
-                  <Icon name={workspace.key === WORKTREE ? "add" : "terminal"} size="row" />
+                  <Icon name={workspace.key === WORKTREE ? "add" : "project"} size="row" />
                   <span className="min-w-0 truncate">{workspace.label}</span>
                 </ComboboxButton>
                 <ComboboxContent align="start">
