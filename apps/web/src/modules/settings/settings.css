@@ -19,7 +19,7 @@
   flex-direction: column;
   width: 240px;
   min-height: 0;
-  padding: 16px 12px;
+  padding: 8px;
   border-inline-end: 1px solid var(--visual-border-muted);
 }
 
@@ -27,30 +27,37 @@
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
-  height: 36px;
-  margin-block-end: 16px;
+  gap: 8px;
+  height: 32px;
+  margin-block-end: 8px;
   padding-inline: 8px;
-  border: 1px solid var(--visual-border-muted);
+  border: 0;
   border-radius: 6px;
   background: transparent;
   color: var(--visual-text-faint);
 }
 
-.settings-search:focus-within {
-  color: var(--visual-text-muted);
+.settings-search:hover {
+  background: var(--visual-hover);
 }
 
 .settings-search [data-slot="input"] {
   flex: 1 1 auto;
   width: 100%;
-  height: 34px;
+  height: 30px;
   min-width: 0;
   padding: 0;
   border: 0;
   background: transparent;
-  font-size: 13px;
-  line-height: 16px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* The caret is the field's focus indicator; the wrapper and input carry no ring. */
+.settings-search [data-slot="input"]:focus,
+.settings-search [data-slot="input"]:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 .settings-search-keycap {
@@ -80,12 +87,12 @@
 .settings-nav-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .settings-nav-heading {
   margin: 0;
-  padding-inline: 6px;
+  padding-inline: 8px;
   color: var(--visual-text-faint);
   font-size: 12px;
   line-height: 16px;
@@ -100,19 +107,24 @@
 .settings-nav-item [data-slot="button"] {
   display: flex;
   width: 100%;
-  height: 28px;
+  height: 32px;
   align-items: center;
   justify-content: flex-start;
-  gap: 6px;
-  padding: 0 6px;
+  gap: 8px;
+  padding: 0 10px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 8px;
   background: transparent;
   color: var(--visual-text-muted);
-  font-size: 13px;
-  line-height: 16px;
-  font-weight: 440;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 530;
   text-align: left;
+  transition: none;
+}
+
+.settings-nav-item [data-slot="button"]:active {
+  translate: none;
 }
 
 .settings-nav-item [data-slot="button"]:hover,
@@ -214,6 +226,7 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  will-change: transform;
 }
 
 .settings-page {
@@ -253,7 +266,7 @@
   outline: none;
 }
 
-.settings-section-title:focus:not([data-highlight="true"]) {
+.settings-section-title:focus-visible:not([data-highlight="true"]) {
   outline: 2px solid var(--visual-border-focus);
   outline-offset: 2px;
 }
@@ -314,10 +327,17 @@
   border-radius: 8px;
 }
 
-.settings-row:focus:not([data-highlight="true"]),
+.settings-row:focus-visible:not([data-highlight="true"]),
 .settings-picker-item [data-slot="button"]:focus-visible {
   outline: 2px solid var(--visual-border-focus);
   outline-offset: -2px;
+}
+
+.settings-row-title-line {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 6px;
 }
 
 .settings-row-text {
@@ -348,6 +368,35 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.settings-select {
+  width: 160px;
+  max-width: 100%;
+}
+
+.settings-select [data-slot="combobox-button"] {
+  width: 100%;
+}
+
+/* A select row opens at the trigger's width, not the stock search popup's readable width. */
+.settings-select [data-slot="combobox-content"] {
+  width: var(--anchor-width);
+  min-width: var(--anchor-width);
+}
+
+.settings-value-box {
+  min-width: 48px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--visual-bg-layer-03);
+  color: var(--visual-text-base);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 530;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .settings-row-value {

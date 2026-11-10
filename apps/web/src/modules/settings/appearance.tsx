@@ -1,13 +1,14 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 export const UI_SCALES = [80, 90, 100, 110, 120, 130, 140] as const;
+export const DEFAULT_UI_SCALE = 100;
 type Scale = (typeof UI_SCALES)[number];
 type TabPosition = "top" | "bottom";
 interface Appearance {
   scale: Scale;
   tabPosition: TabPosition;
 }
-const DEFAULTS: Appearance = { scale: 100, tabPosition: "top" };
+const DEFAULTS: Appearance = { scale: DEFAULT_UI_SCALE, tabPosition: "top" };
 const STORAGE_KEY = "corral.appearance";
 
 function read(): Appearance {

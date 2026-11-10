@@ -39,17 +39,24 @@ function ComboboxButton({
   children,
   layout = "default",
   chevron = true,
+  size = "sm",
   ...props
 }: ComboboxPrimitive.Trigger.Props & {
   layout?: "default" | "bounded" | "text";
   chevron?: boolean;
+  /** The stock trigger is compact; a settings select row uses the default control height. */
+  size?: "sm" | "default";
 }) {
   const text = layout === "text";
   return (
     <ComboboxPrimitive.Trigger
       data-slot="combobox-button"
       render={
-        <Button variant={text ? "ghost" : "outline"} size="sm" layout={text ? "text" : "default"} />
+        <Button
+          variant={text ? "ghost" : "outline"}
+          size={text ? "sm" : size}
+          layout={text ? "text" : "default"}
+        />
       }
       className={cn(
         "min-w-0 font-normal",

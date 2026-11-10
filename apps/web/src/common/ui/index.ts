@@ -41,6 +41,7 @@ export { TooltipProvider } from "./tooltip.tsx";
 export { Icon, type IconName, type IconSize } from "./icon.tsx";
 export { IconButton } from "./icon-button.tsx";
 export { Input } from "./input.tsx";
+export { Slider } from "./slider.tsx";
 export { ActionLink, TextLink, LinkAnchor } from "./text-link.tsx";
 export { MediaPreview, type MediaSource } from "./media-preview.tsx";
 export { Textarea } from "./textarea.tsx";

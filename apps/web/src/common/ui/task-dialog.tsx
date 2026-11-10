@@ -185,11 +185,9 @@ export function TaskDialog({
       >
         <DialogHeader
           className={
-            layout === "settings"
-              ? "shrink-0 border-b border-border px-5 py-4 pr-12"
-              : layout === "picker" || layout === "path-picker"
-                ? "sr-only"
-                : undefined
+            layout === "settings" || layout === "picker" || layout === "path-picker"
+              ? "sr-only"
+              : undefined
           }
         >
           <DialogTitle render={layout === "settings" ? <h1 /> : <h2 />}>{title}</DialogTitle>
