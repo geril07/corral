@@ -132,18 +132,18 @@ test("virtual model and instance lists navigate beyond mounted rows", async () =
   await userEvent.keyboard("{ArrowDown}{Enter}");
   expect(onModel).toHaveBeenCalledWith("499");
   await search.fill("");
-  const rail = page.getByRole("listbox", { name: "agent" });
+  const rail = page.getByRole("radiogroup", { name: "Instances" });
   rail.element().focus();
   await userEvent.keyboard("{ArrowUp}");
-  await expect.element(page.getByRole("option", { name: "Instance 499" })).toBeVisible();
-  const instanceId = rail.element().getAttribute("aria-activedescendant");
-  expect(document.getElementById(instanceId ?? "")?.getAttribute("role")).toBe("option");
-  const scroller = rail.element().querySelector<HTMLElement>(".h-full");
+  const last = page.getByRole("radio", { name: "Instance 499" });
+  await expect.element(last).toBeVisible();
+  await expect.element(last).toHaveAttribute("aria-checked", "true");
+  const scroller = rail.element().querySelector<HTMLElement>(".model-picker-rail-list");
   if (!scroller) throw new Error("Instance scroller missing");
   scroller.scrollTop = 0;
   scroller.dispatchEvent(new Event("scroll"));
-  await expect.element(page.getByRole("option", { name: "Instance 0" })).toBeVisible();
-  expect(document.getElementById(instanceId ?? "")?.getAttribute("role")).toBe("option");
+  await expect.element(page.getByRole("radio", { name: "Instance 0" })).toBeVisible();
+  await expect.element(last).toHaveAttribute("aria-checked", "true");
 });
 
 function FocusFixture() {
@@ -188,7 +188,7 @@ async function assertPickerViewport(width: number) {
   });
   const dialog = page.getByRole("dialog", { name: "Models" }).element().getBoundingClientRect();
   for (const element of [
-    page.getByRole("listbox", { name: "agent" }),
+    page.getByRole("radiogroup", { name: "Instances" }),
     page.getByRole("combobox", { name: "Search models" }),
     page.getByRole("button", { name: "High" }),
   ]) {
@@ -316,4 +316,30 @@ test("settings suspension retains search and restores search focus", async () =>
   await page.getByRole("button", { name: "Back" }).click();
   await expect.element(page.getByRole("combobox", { name: "Search models" })).toHaveFocus();
   await expect.element(page.getByRole("combobox", { name: "Search models" })).toHaveValue("Alpha");
+});
+
+test("a favorite row keeps its star and instance identity in the scoped list", async () => {
+  await render(
+    <ModelPicker
+      title="Models"
+      instances={[
+        { key: "native:pi", kind: "pi", name: "pi" },
+        { key: "profile:gateway:3", kind: "claude", name: "Gateway", badge: "GA" },
+      ]}
+      instance="profile:gateway:3"
+      onInstance={() => {}}
+      models={[
+        { key: "one", name: "Stub One", provider: "stub", current: true, favorite: true },
+        { key: "two", name: "Stub Two", provider: "stub" },
+      ]}
+      onModel={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  await expect
+    .element(page.getByRole("option", { name: "Stub One · stub · Favorite" }))
+    .toMatchTextContent("★");
+  await expect.element(page.getByRole("radio", { name: "Gateway" })).toBeChecked();
+  await expect.element(page.getByRole("radio", { name: "pi" })).not.toBeChecked();
+  await expect.element(page.getByText("stub", { exact: true })).toHaveLength(1);
 });

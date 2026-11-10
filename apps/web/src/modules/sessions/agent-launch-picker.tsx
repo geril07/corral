@@ -14,9 +14,9 @@ import {
   launchName,
   launchOptions,
   modelOverride,
-  modelProblem,
   supportsModel,
-  CONFIGURED_DEFAULT,
+  launchCurrentModelRow,
+  CURRENT_ROW_KEY,
   type LaunchSelection,
 } from "./launch-choice.ts";
 
@@ -75,28 +75,6 @@ export function launchPickerInstances(options: readonly LaunchSelection[]) {
   }));
 }
 
-export function launchPickerModels(selection: LaunchSelection, blocked = false): PickerModel[] {
-  const overridden = supportsModel(selection.kind) ? modelOverride(selection.model) : undefined;
-  const models: PickerModel[] = [
-    {
-      key: "default",
-      name: selection.profile?.model ?? "Agent default",
-      provider: selection.profile?.provider ?? undefined,
-      current: overridden === undefined,
-      disabled: blocked,
-      detail: supportsModel(selection.kind) ? CONFIGURED_DEFAULT : "env only",
-    },
-  ];
-  if (overridden)
-    models.push({
-      key: "custom",
-      name: overridden,
-      current: true,
-      disabled: blocked || modelProblem(selection.kind, selection.model) !== undefined,
-    });
-  return models;
-}
-
 /** The same launch selection for a new task and an additional agent; neither invents a catalog. */
 export function AgentLaunchPicker({
   title,
@@ -106,6 +84,7 @@ export function AgentLaunchPicker({
   profiles,
   agents,
   selection,
+  defaultSelection,
   onChange,
   onCommit,
   onClose,
@@ -121,6 +100,8 @@ export function AgentLaunchPicker({
   profiles: readonly LaunchProfile[];
   agents: AgentSettings;
   selection: LaunchSelection;
+  /** The launch the effective task settings name; a different model here is an override. */
+  defaultSelection?: LaunchSelection | undefined;
   onChange: (selection: LaunchSelection, reason: "instance" | "model") => void;
   onCommit: (selection: LaunchSelection) => void;
   onClose: () => void;
@@ -137,9 +118,17 @@ export function AgentLaunchPicker({
     context: context ?? {},
     ...(selection.profile ? { expectedProfileRevision: selection.profile.revision } : {}),
   });
-  const baseModels = launchPickerModels(selection, blocked);
-  const models = [
-    ...baseModels,
+  const currentModel = launchModel(selection);
+  // The configured default names this instance; another instance has no default here to return to.
+  const configured =
+    defaultSelection !== undefined && launchKey(defaultSelection) === key
+      ? defaultSelection
+      : undefined;
+  const configuredModel = configured === undefined ? undefined : launchModel(configured);
+  const currentRow = launchCatalogRow(selection, menu.all);
+  const current = launchCurrentModelRow(selection, menu.all, menu.models.map(modelKey), blocked);
+  const models: PickerModel[] = [
+    ...(current ? [current] : []),
     ...menu.models.map((model) => ({
       key: modelKey(model),
       name: model.name,
@@ -150,13 +139,20 @@ export function AgentLaunchPicker({
           : model.id,
       disabled: blocked || catalogLaunchModel(selection, model) === undefined,
       favorite: menu.favorite(model),
+      current: currentRow === undefined ? false : modelKey(currentRow) === modelKey(model),
     })),
   ];
-  const selected = launchCatalogRow(selection, menu.all);
-  const hidden = selected && !modelVisible(menu.preferences.policy, selected);
+  const hidden = currentRow !== undefined && !modelVisible(menu.preferences.policy, currentRow);
+  const overridden =
+    configured !== undefined && currentModel !== undefined && currentModel !== configuredModel;
   // Another instance means another runtime and model space: the previous model text is not
   // carried over, because doing so would switch the model silently (`docs/ux.md`, **Task entry**).
-  const select = (option: LaunchSelection) => onChange({ ...option, model: "" }, "instance");
+  // Re-picking the instance already shown changes nothing, so its configured model stays.
+  const select = (option: LaunchSelection) =>
+    onChange(
+      launchKey(option) === key ? { ...option, model: selection.model } : { ...option, model: "" },
+      "instance",
+    );
   return (
     <>
       <ModelPicker
@@ -173,18 +169,26 @@ export function AgentLaunchPicker({
         }}
         models={models}
         onModel={(model) => {
+          if (model === CURRENT_ROW_KEY) {
+            onCommit(selection);
+            return;
+          }
           const reported = menu.models.find((m) => modelKey(m) === model);
           const value = reported ? catalogLaunchModel(selection, reported) : undefined;
-          const target =
-            model === "default"
-              ? { ...selection, model: "" }
-              : value
-                ? { ...selection, model: value }
-                : selection;
+          const target = value ? { ...selection, model: value } : selection;
           onChange(target, "model");
           onCommit(target);
         }}
-        modelName={launchModel(selection)}
+        onUseDefault={
+          overridden
+            ? () => {
+                const target = { ...selection, model: configuredModel ?? "" };
+                onChange(target, "model");
+                onCommit(target);
+              }
+            : undefined
+        }
+        modelName={currentModel}
         unavailable="Thinking levels are reported by a running chat. Pre-launch thinking is not available yet."
         error={error}
         busy={busy}
@@ -192,21 +196,20 @@ export function AgentLaunchPicker({
           <>
             {footer}
             {hidden && (
-              <p className="my-1 text-xs text-muted-foreground">
+              <p className="m-0">
                 Current selection is hidden by the model filter; it is not changed.
               </p>
             )}
-            {menu.catalog?.message && (
-              <p className="my-1 text-xs text-muted-foreground">{menu.catalog.message}</p>
-            )}
-            {menu.footer}
+            {menu.catalog?.message && <p className="m-0">{menu.catalog.message}</p>}
+            {menu.status}
           </>
         }
+        actions={menu.manage}
         nativeModel={
           supportsModel(selection.kind)
             ? {
                 value: selection.model,
-                placeholder: selection.profile?.model ?? "Agent default",
+                placeholder: selection.profile?.model ?? "Native model ID",
                 onChange: (model) => onChange({ ...selection, model }, "model"),
                 onSubmit: () => onCommit(selection),
               }

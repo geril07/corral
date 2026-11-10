@@ -127,7 +127,7 @@ test("each project's own defaults prefill the composer and name the agent the ta
 
   await prefixThen("t");
   await userEvent.keyboard("Prefilled work");
-  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent pi · Agent default");
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent pi");
   await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace new worktree");
   await expect.element(page.getByText("defaults from project settings")).toBeVisible();
 
@@ -135,13 +135,13 @@ test("each project's own defaults prefill the composer and name the agent the ta
   await userEvent.click(picker(/^Project /));
   await page.getByRole("option", { name: new RegExp(`^${other.name}`) }).click();
   await expect.element(picker(/^Project /)).toHaveAccessibleName(`Project ${other.name}`);
-  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · Agent default");
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex");
   await expect.element(page.getByText("defaults from project settings")).not.toBeInTheDocument();
 
   // Back to the overridden project; the prompt the user typed survived both switches.
   await userEvent.click(picker(/^Project /));
   await page.getByRole("option", { name: new RegExp(`^${first.name}`) }).click();
-  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent pi · Agent default");
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent pi");
   await expect.element(promptField()).toHaveValue("Prefilled work");
   await userEvent.click(promptField());
   await userEvent.keyboard("{Enter}");
@@ -211,7 +211,7 @@ test("a disabled agent disappears from the pickers and the task starts one still
 
   await prefixThen("t");
   // The default falls to the first agent still offered; claude is not in the list at all.
-  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · Agent default");
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex");
   await userEvent.click(picker(/^Agent /));
   await expect.element(page.getByRole("radio", { name: /^claude/ })).not.toBeInTheDocument();
   await userEvent.keyboard("{Escape}");

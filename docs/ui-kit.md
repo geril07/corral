@@ -188,10 +188,13 @@ context-menu dispatcher.
 - ComposerSurface and ComposerToolbar own the shared prompt frame and wrapping control row. The
   frame shows the shared focus ring while focus is inside it.
   Textarea `frame="composer"` removes its duplicate inner border without changing prompt/chat
-  growth limits. ModelPicker owns the Base UI popover, radio rail, cmdk model list and vertical
-  thinking toolbar; modules supply driver/config data and actions, not control skins.
+  growth limits. ModelPicker owns one viewport-bounded dialog with three regions — a 44 px
+  instance radio rail, a bare search band over the virtualized model list and a 192 px thinking
+  column — above a footer shared by all three. The list is flat rows (`provider` heading or model),
+  so a heading owns its own height; the thinking levels are a vertical Base UI `Toolbar`. Modules
+  supply driver/config data and actions, not control skins.
 - Checkbox composes Base UI checked/mixed state using the shared primary/input/focus tokens.
-  ModelPicker can suspend its popup for Settings while retaining its search and selection owner.
+  ModelPicker can suspend its dialog for Settings while retaining its search and selection owner.
 - ComboboxButton `layout="bounded"` caps profile/workspace triggers and exposes the
   full text only on measured overflow, so valid long names cannot stretch Settings sideways.
 - DialogContent `padding="none"` tells its footer not to cancel nonexistent outer padding.

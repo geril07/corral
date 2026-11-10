@@ -210,17 +210,17 @@ test("the pickers show the project's effective settings and a project switch re-
   const { rendered } = renderView({ projects: [repo, other], config });
   await rendered;
 
-  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · Agent default");
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex");
   await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace new worktree");
   await expect.element(page.getByText("defaults from project settings")).toBeVisible();
 
   // The agent is the user's own choice now; the workspace still follows the settings.
-  await pick(/^Agent /, /^opencode · Agent default$/);
-  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent opencode · Agent default");
+  await pick(/^Agent /, /^opencode/);
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent opencode");
 
   await pick(/^Project /, /^other/);
   await expect.element(picker(/^Project /)).toHaveAccessibleName("Project other");
-  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent opencode · Agent default");
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent opencode");
   await expect.element(picker(/^Workspace /)).toHaveAccessibleName("Workspace main tree");
   await expect.element(page.getByText("defaults from project settings")).not.toBeInTheDocument();
 });
@@ -360,6 +360,37 @@ test("re-picking the agent already shown keeps the configured model", async () =
       projectId: "p1",
       prompt: "Model kept",
       agent: { kind: "codex", model: "gpt-5-codex", view: "terminal" },
+      workspace: { type: "main-worktree" },
+    }),
+  );
+});
+
+test("an override shows the footer reset, which returns to the configured model", async () => {
+  const config = configWith({
+    agent: { value: "pi", source: "global" },
+    model: { value: "openai/model-x", source: "global" },
+  });
+  const { rendered, onCreate } = renderView({ config });
+  await rendered;
+
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent pi · openai/model-x");
+  await picker(/^Agent /).click();
+  const popup = page.getByRole("dialog", { name: "Agent and model" });
+  const reset = popup.getByRole("button", { name: "Use configured default" });
+  await expect.element(reset).not.toBeInTheDocument();
+  await popup.getByRole("textbox", { name: "Model override" }).fill("openai/model-y");
+  await expect.element(reset).toBeVisible();
+  await reset.click();
+
+  await expect.element(popup).not.toBeInTheDocument();
+  await expect.element(prompt()).toHaveFocus();
+  await prompt().fill("Reset to the configured model");
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() =>
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith({
+      projectId: "p1",
+      prompt: "Reset to the configured model",
+      agent: { kind: "pi", model: "openai/model-x", view: "chat" },
       workspace: { type: "main-worktree" },
     }),
   );
@@ -632,7 +663,7 @@ test("a disabled agent and its profiles disappear from the composer's pickers", 
   await rendered;
 
   // The default falls to the first agent still offered, and neither claude nor its profile is listed.
-  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex · Agent default");
+  await expect.element(picker(/^Agent /)).toHaveAccessibleName("Agent codex");
   await userEvent.click(picker(/^Agent /));
   await expect.element(page.getByRole("radio", { name: /^claude/ })).not.toBeInTheDocument();
   await expect.element(page.getByRole("radio", { name: /^Gateway/ })).not.toBeInTheDocument();

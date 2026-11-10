@@ -348,7 +348,10 @@ test("the configured default is marked at Server home; hiding it warns once and 
   await settings().getByRole("button", { name: "Close settings" }).click();
   await expect.element(picker()).toBeVisible();
   await picker().getByRole("combobox", { name: "Search models" }).fill("");
-  await expect.element(picker().getByText("Configured default", { exact: true })).toBeVisible();
+  await picker().getByRole("combobox", { name: "Search models" }).fill("");
+  // The hidden configured default is the current row, not a second "Configured default" choice.
+  const current = picker().getByRole("option", { name: "stub-1 · Current · hidden by filter" });
+  await expect.element(current).toHaveAttribute("aria-current", "true");
   await expect
     .element(
       picker().getByText("Current selection is hidden by the model filter; it is not changed.", {
@@ -356,6 +359,14 @@ test("the configured default is marked at Server home; hiding it warns once and 
       }),
     )
     .toBeVisible();
+
+  // A typed override puts the footer's reset beside it; the reset returns to the configured model.
+  const native = picker().getByRole("textbox", { name: "Model override" });
+  await native.fill("stub/stub-9");
+  const reset = picker().getByRole("button", { name: "Use configured default" });
+  await expect.element(reset).toBeVisible();
+  await reset.click();
+  await expect.element(picker()).not.toBeInTheDocument();
 });
 
 test("a project override moves the configured default with the selected catalog workspace", async () => {

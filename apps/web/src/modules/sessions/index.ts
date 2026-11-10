@@ -3,7 +3,6 @@ export {
   AgentLaunchPicker,
   LaunchViewControls,
   launchPickerInstances,
-  launchPickerModels,
 } from "./agent-launch-picker.tsx";
 export {
   modelOverride,
@@ -15,10 +14,14 @@ export {
   launchKey,
   launchScope,
   catalogLaunchModel,
+  launchCatalogRow,
   launchModel,
   launchName,
   launchProblem,
   launchView,
+  launchCurrentModelRow,
+  CONFIGURED_DEFAULT,
+  CURRENT_ROW_KEY,
   type LaunchSelection,
   type AgentLaunchChoice,
 } from "./launch-choice.ts";

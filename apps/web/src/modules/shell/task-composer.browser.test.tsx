@@ -275,8 +275,8 @@ test("a disabled instance is filtered from new choices and invalidates the curre
   await composer()
     .getByRole("button", { name: /^Agent pi/ })
     .click();
-  const rail = page.getByRole("listbox", { name: "agent" });
-  await expect.element(rail.getByRole("option", { name: "pi" })).toBeVisible();
+  const rail = page.getByRole("radiogroup", { name: "Instances" });
+  await expect.element(rail.getByRole("radio", { name: "pi" })).toBeChecked();
   await userEvent.keyboard("{Escape}");
 
   await writeConfig('[tasks]\nagent = "pi"\nview = "terminal"\n[agents.pi]\nenabled = false\n');
@@ -291,7 +291,7 @@ test("a disabled instance is filtered from new choices and invalidates the curre
     .getByRole("button", { name: /^Agent pi/ })
     .click();
   await expect
-    .element(page.getByRole("listbox", { name: "agent" }).getByRole("option", { name: "pi" }))
+    .element(page.getByRole("radiogroup", { name: "Instances" }).getByRole("radio", { name: "pi" }))
     .not.toBeInTheDocument();
   await userEvent.keyboard("{Escape}");
   await screen.unmount();

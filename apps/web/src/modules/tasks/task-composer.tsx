@@ -207,8 +207,8 @@ export function TaskComposer({
                 <ModelPickerButton
                   ref={agentAnchor}
                   kind={agent.kind}
-                  label={`${launchName(agent)} / ${launchModel(agent)}`}
-                  aria-label={`Agent ${launchName(agent)} · ${launchModel(agent)}`}
+                  label={[launchName(agent), launchModel(agent)].filter(Boolean).join(" · ")}
+                  aria-label={`Agent ${[launchName(agent), launchModel(agent)].filter(Boolean).join(" · ")}`}
                   onClick={() => setPickingAgent(true)}
                 />
               ) : (
@@ -309,6 +309,7 @@ export function TaskComposer({
           profiles={profiles}
           agents={config.agents}
           selection={agent}
+          defaultSelection={defaultLaunch(settings, profiles, config.agents)}
           onChange={(next) => onDraftChange({ ...draft, agent: next })}
           onCommit={(target) => {
             if (launchProblem(target, profiles, config.agents) === undefined)

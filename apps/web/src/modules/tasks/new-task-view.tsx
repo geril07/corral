@@ -291,8 +291,8 @@ export function NewTaskView({
                 <ModelPickerButton
                   ref={agentAnchor}
                   kind={agent.kind}
-                  label={launchModel(agent)}
-                  aria-label={`Agent ${launchName(agent)} · ${launchModel(agent)}`}
+                  label={[launchName(agent), launchModel(agent)].filter(Boolean).join(" · ")}
+                  aria-label={`Agent ${[launchName(agent), launchModel(agent)].filter(Boolean).join(" · ")}`}
                   onClick={() => setPickingAgent(true)}
                 />
               )}
@@ -336,6 +336,7 @@ export function NewTaskView({
               profiles={profiles}
               agents={config.agents}
               selection={agent}
+              defaultSelection={defaultLaunch(settings, profiles, config.agents)}
               onChange={(next) => onDraftChange({ ...current, agent: next })}
               onCommit={(target) => {
                 if (!launchProblem(target, profiles, config.agents)) setPickingAgent(false);

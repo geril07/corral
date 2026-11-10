@@ -6,13 +6,17 @@ import {
 import type { ChatModel } from "@corral/protocol/chat";
 import { AgentKind } from "@corral/protocol/rpc";
 import { expect, test } from "vite-plus/test";
+import { modelKey } from "@corral/protocol/models";
 import {
   CONFIGURED_DEFAULT,
+  CURRENT_ROW_KEY,
   configuredDefaultRow,
   defaultLaunch,
+  launchCurrentModelRow,
   launchCatalogRow,
   launchChoice,
   launchKey,
+  launchModel,
   launchOptions,
   launchProblem,
   launchView,
@@ -203,4 +207,27 @@ test("chat is the default, an explicit terminal setting wins and a missing drive
     launchView({ ...config.tasks, view: { value: "terminal", source: "project" } }, "pi", ["pi"]),
   ).toBe("terminal");
   expect(launchView(config.tasks, "claude", ["pi"])).toBe("terminal");
+});
+
+test("a launch names no model where nothing is configured or supported", () => {
+  expect(launchModel({ kind: "pi", profile: null, model: "" })).toBeUndefined();
+  expect(launchModel({ kind: "pi", profile: null, model: "  stub-1 " })).toBe("stub-1");
+  expect(launchModel({ kind: "pi", profile: piStub, model: "" })).toBe("stub-1");
+  expect(launchModel({ kind: "opencode", profile: null, model: "" })).toBeUndefined();
+});
+
+test("the current launch model is its own row only when the visible catalog does not name it", () => {
+  const selection = { kind: "pi" as const, profile: null, model: "stub-1" };
+  expect(launchCurrentModelRow(selection, [stubOne], [modelKey(stubOne)])).toBeUndefined();
+  expect(launchCurrentModelRow(selection, [stubOne], [])).toMatchObject({
+    key: CURRENT_ROW_KEY,
+    name: "stub-1",
+    detail: "Current · hidden by filter",
+    current: true,
+  });
+  expect(launchCurrentModelRow({ ...selection, model: "native-x" }, [stubOne], [])).toMatchObject({
+    name: "native-x",
+    detail: CONFIGURED_DEFAULT,
+  });
+  expect(launchCurrentModelRow({ ...selection, model: "" }, [], [])).toBeUndefined();
 });

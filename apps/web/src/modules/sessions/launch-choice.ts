@@ -7,7 +7,7 @@ import {
   type TaskView,
 } from "@corral/protocol/config";
 import type { ChatModel, ChatModelRef } from "@corral/protocol/chat";
-import { modelScopeKey, type ModelScope } from "@corral/protocol/models";
+import { modelKey, modelScopeKey, type ModelScope } from "@corral/protocol/models";
 import { AGENTS } from "@corral/client/session-state";
 import type { AgentKind } from "@corral/protocol/rpc";
 
@@ -71,6 +71,28 @@ export function catalogLaunchModel(
 
 export const CONFIGURED_DEFAULT = "Configured default";
 
+/** The synthetic current row a launch needs when no visible catalog row names its model. */
+export const CURRENT_ROW_KEY = "current";
+
+export function launchCurrentModelRow(
+  selection: LaunchSelection,
+  catalog: readonly ChatModelRef[],
+  visible: readonly string[],
+  blocked = false,
+) {
+  const model = launchModel(selection);
+  if (model === undefined) return undefined;
+  const row = launchCatalogRow(selection, catalog);
+  if (row !== undefined && visible.includes(modelKey(row))) return undefined;
+  return {
+    key: CURRENT_ROW_KEY,
+    name: model,
+    current: true,
+    disabled: blocked,
+    detail: row === undefined ? CONFIGURED_DEFAULT : "Current · hidden by filter",
+  };
+}
+
 /** The catalog row a launch selection names; one mapping for the picker and the manager. */
 export function launchCatalogRow<T extends ChatModelRef>(
   selection: LaunchSelection,
@@ -107,12 +129,11 @@ export function launchName(selection: LaunchSelection): string {
   return selection.profile?.name ?? selection.kind;
 }
 
-export function launchModel(selection: LaunchSelection): string {
-  return (
-    (supportsModel(selection.kind)
-      ? (modelOverride(selection.model) ?? selection.profile?.model)
-      : undefined) ?? "Agent default"
-  );
+/** The model this launch names: an override, else the pinned profile's, else none. */
+export function launchModel(selection: LaunchSelection): string | undefined {
+  if (!supportsModel(selection.kind)) return undefined;
+  const model = modelOverride(selection.model) ?? selection.profile?.model ?? undefined;
+  return model === "" ? undefined : model;
 }
 
 export function launchChoice(selection: LaunchSelection): AgentLaunchChoice {

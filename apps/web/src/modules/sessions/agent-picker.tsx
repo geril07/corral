@@ -97,6 +97,7 @@ export function AgentPicker({
       profiles={profiles}
       agents={agents}
       selection={selection}
+      defaultSelection={defaultLaunch(settings, profiles, agents)}
       onChange={(next, reason) => {
         setSelection(next);
         setFailure(undefined);
@@ -114,9 +115,9 @@ export function AgentPicker({
       busy={busy || waiting}
       footer={
         <>
-          <p className="mt-0 mb-2 text-xs text-muted-foreground" aria-label="launch choice">
+          <p className="m-0" aria-label="launch choice">
             {selection.profile
-              ? `${launchName(selection)}: ${selection.kind}, ${launchModel(selection)}${selection.profile.provider ? `, provider ${selection.profile.provider}` : ""}.`
+              ? `${launchName(selection)}: ${selection.kind}, ${launchModel(selection) ?? "the agent's native default"}${selection.profile.provider ? `, provider ${selection.profile.provider}` : ""}.`
               : selection.model.trim()
                 ? `${selection.kind} with model ${launchModel(selection)}.`
                 : `${selection.kind} with the agent\u0027s native defaults.`}
