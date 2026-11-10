@@ -54,6 +54,79 @@ export function formatChord(chord: Chord): string {
   return [...modifiers, codeToKey(chord.code)].join("+");
 }
 
+/** Which key `mod` means: Command on macOS, Control elsewhere (`ux.md`, **Keys**). */
+export type ModifierPlatform = "mac" | "other";
+
+/**
+ * A direct command chord: it fires without the prefix, so it carries the platform's `mod` key
+ * (`mod+n` is Cmd+N on macOS and Ctrl+N elsewhere) instead of naming ctrl or meta itself.
+ */
+export interface ModChord {
+  readonly code: string;
+  readonly mod: boolean;
+  readonly ctrl: boolean;
+  readonly alt: boolean;
+  readonly shift: boolean;
+  readonly meta: boolean;
+}
+
+/**
+ * Parses config syntax for a direct command, adding `mod` to the prefix chord's modifiers.
+ * `mod` and an explicit ctrl/meta cannot be combined: that would make the chord mean two
+ * different things on the two platforms.
+ */
+export function parseModChord(text: string): ModChord {
+  const parts = text.toLowerCase().split("+");
+  const key = parts.pop();
+  if (!key) throw new Error(`empty chord: "${text}"`);
+  const modifiers = new Set(parts);
+  for (const modifier of modifiers) {
+    if (modifier !== "mod" && !(MODIFIERS as readonly string[]).includes(modifier)) {
+      throw new Error(`unknown modifier "${modifier}" in "${text}"`);
+    }
+  }
+  const mod = modifiers.has("mod");
+  if (mod && (modifiers.has("ctrl") || modifiers.has("meta"))) {
+    throw new Error(`"mod" already means ctrl or meta in "${text}"`);
+  }
+  return {
+    code: keyToCode(key, text),
+    mod,
+    ctrl: modifiers.has("ctrl"),
+    alt: modifiers.has("alt"),
+    shift: modifiers.has("shift"),
+    meta: modifiers.has("meta"),
+  };
+}
+
+export function formatModChord(chord: ModChord): string {
+  const modifiers = (["mod", ...MODIFIERS] as const).filter((modifier) => chord[modifier]);
+  return [...modifiers, codeToKey(chord.code)].join("+");
+}
+
+/** A direct command must take a modifier, or typing in the composer would run it. */
+export function hasCommandModifier(chord: ModChord): boolean {
+  return chord.mod || chord.ctrl || chord.alt || chord.meta;
+}
+
+/** Whether one press is the direct chord on `platform`; modifiers must match exactly. */
+export function matchesModChord(
+  event: ChordEvent,
+  chord: ModChord,
+  platform: ModifierPlatform,
+): boolean {
+  const modIsMeta = platform === "mac";
+  const ctrl = chord.mod ? !modIsMeta : chord.ctrl;
+  const meta = chord.mod ? modIsMeta : chord.meta;
+  return (
+    event.code === chord.code &&
+    event.ctrlKey === ctrl &&
+    event.altKey === chord.alt &&
+    event.shiftKey === chord.shift &&
+    event.metaKey === meta
+  );
+}
+
 /** The part of a `KeyboardEvent` a binding reads; named so server code needs no DOM lib. */
 export interface ChordEvent {
   readonly code: string;

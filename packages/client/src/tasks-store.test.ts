@@ -41,7 +41,8 @@ test("the list starts unloaded, then follows create, settle and remove", async (
   await api.tasks.remove({ id: task.id });
   await eventually(() => expect(client.tasks.getSnapshot().tasks).toEqual([]));
   expect(existsSync(task.workspacePath)).toBe(false);
-  expect(runGit(project.path, "branch", "--list", task.branch)).toContain(task.branch);
+  expect(task.branch).not.toBeNull();
+  expect(runGit(project.path, "branch", "--list", task.branch!)).toContain(task.branch);
 });
 
 test("after the connection drops, the list catches up with what changed meanwhile", async () => {

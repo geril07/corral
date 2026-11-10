@@ -23,7 +23,7 @@ export function searchTasks(
   const projectById = new Map(projects.map((project) => [project.id, project]));
   const rows: TaskSearchResult[] = [];
   for (const task of tasks) {
-    const project = projectById.get(task.projectId);
+    const project = task.projectId === null ? undefined : projectById.get(task.projectId);
     if (project) rows.push({ task, project });
   }
 
@@ -63,7 +63,7 @@ function matchScore(word: string, { task, project }: TaskSearchResult): number {
   if (title.startsWith(word)) return 100;
   if (title.split(/\s+/).some((part) => part.startsWith(word))) return 80;
   if (title.includes(word)) return 60;
-  if (task.branch.toLowerCase().includes(word)) return 40;
+  if (task.branch?.toLowerCase().includes(word)) return 40;
   if (project.name.toLowerCase().includes(word)) return 20;
   if (task.state === word) return 10;
   return 0;

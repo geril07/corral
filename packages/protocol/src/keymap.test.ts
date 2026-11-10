@@ -1,6 +1,14 @@
 import * as fc from "fast-check";
 import { describe, expect, test } from "vite-plus/test";
-import { formatChord, matchesChord, parseChord } from "./keymap.ts";
+import {
+  formatChord,
+  formatModChord,
+  hasCommandModifier,
+  matchesChord,
+  matchesModChord,
+  parseChord,
+  parseModChord,
+} from "./keymap.ts";
 
 const keyEvent = (
   code: string,
@@ -57,5 +65,48 @@ describe("parseChord", () => {
         expect(parseChord(formatChord(parseChord(text)))).toEqual(parseChord(text));
       }),
     );
+  });
+});
+
+describe("direct command chords", () => {
+  test("mod is Command on macOS and Control elsewhere, by physical key", () => {
+    const chord = parseModChord("mod+shift+n");
+    expect(matchesModChord(keyEvent("KeyN", { ctrl: true, shift: true }), chord, "other")).toBe(
+      true,
+    );
+    expect(matchesModChord(keyEvent("KeyN", { meta: true, shift: true }), chord, "mac")).toBe(true);
+    expect(matchesModChord(keyEvent("KeyN", { meta: true, shift: true }), chord, "other")).toBe(
+      false,
+    );
+    expect(matchesModChord(keyEvent("KeyN", { ctrl: true, shift: true }), chord, "mac")).toBe(
+      false,
+    );
+  });
+
+  test("all modifiers must match exactly", () => {
+    const chord = parseModChord("mod+alt+n");
+    expect(matchesModChord(keyEvent("KeyN", { ctrl: true, alt: true }), chord, "other")).toBe(true);
+    expect(matchesModChord(keyEvent("KeyN", { ctrl: true }), chord, "other")).toBe(false);
+    expect(
+      matchesModChord(keyEvent("KeyN", { ctrl: true, alt: true, shift: true }), chord, "other"),
+    ).toBe(false);
+  });
+
+  test("a command chord must carry a modifier", () => {
+    expect(hasCommandModifier(parseModChord("mod+n"))).toBe(true);
+    expect(hasCommandModifier(parseModChord("alt+n"))).toBe(true);
+    expect(hasCommandModifier(parseModChord("shift+n"))).toBe(false);
+    expect(hasCommandModifier(parseModChord("n"))).toBe(false);
+  });
+
+  test("mod cannot be combined with an explicit ctrl or meta", () => {
+    expect(() => parseModChord("mod+ctrl+n")).toThrow('"mod" already means ctrl or meta');
+    expect(() => parseModChord("mod+meta+n")).toThrow('"mod" already means ctrl or meta');
+  });
+
+  test("the same text formats back", () => {
+    for (const text of ["mod+n", "mod+shift+n", "mod+alt+n", "ctrl+shift+f12", "alt+up"]) {
+      expect(formatModChord(parseModChord(text))).toBe(text);
+    }
   });
 });

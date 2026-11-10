@@ -1,5 +1,13 @@
-import { ActionId, type ClientConfig } from "@corral/protocol/config";
-import { matchesChord, parseChord, type Chord } from "@corral/protocol/keymap";
+import { ActionId, DirectActionId, type ClientConfig } from "@corral/protocol/config";
+import {
+  matchesChord,
+  matchesModChord,
+  parseChord,
+  parseModChord,
+  type Chord,
+  type ModChord,
+  type ModifierPlatform,
+} from "@corral/protocol/keymap";
 
 export interface KeyInput {
   code: string;
@@ -43,6 +51,38 @@ export function createConfigKeymap(config: ClientConfig): PrefixKeymap<ActionId>
   return createPrefixKeymap(config.keys.prefix, bindings);
 }
 
+/** Commands that fire without the prefix, matched with the platform's `mod` key. */
+export interface DirectKeymap<Action> {
+  platform: ModifierPlatform;
+  bindings: readonly { chord: ModChord; action: Action }[];
+}
+
+/** `bindings` maps config chord syntax (`mod+n`) to the direct command it runs; null is unbound. */
+export function createDirectKeymap<Action>(
+  bindings: Readonly<Record<string, Action | null>>,
+  platform: ModifierPlatform,
+): DirectKeymap<Action> {
+  return {
+    platform,
+    bindings: Object.entries(bindings).flatMap(([chord, action]) =>
+      action === null ? [] : [{ chord: parseModChord(chord), action }],
+    ),
+  };
+}
+
+/** The effective direct commands; an action the user unbound has no chord. */
+export function createConfigDirectKeymap(
+  config: ClientConfig,
+  platform: ModifierPlatform,
+): DirectKeymap<DirectActionId> {
+  const bindings: Record<string, DirectActionId> = {};
+  for (const action of DirectActionId.options) {
+    const chord: unknown = config.keys.direct[action];
+    if (typeof chord === "string") bindings[chord] = action;
+  }
+  return createDirectKeymap(bindings, platform);
+}
+
 export interface PrefixOutcome<Action> {
   armed: boolean;
   /** The key was part of prefix handling; the caller must not pass it on to the terminal. */
@@ -72,4 +112,23 @@ export function resolvePrefixKey<Action>(
   return binding
     ? { armed: false, handled: true, action: binding.action }
     : { armed: false, handled: true };
+}
+
+/**
+ * One press with both keymaps: a direct command fires only outside prefix mode, so an armed
+ * prefix keeps its next-key contract (and a direct chord cannot interrupt it). IME and bare
+ * modifier presses are never commands, and the caller decides whether native terminals keep
+ * their keys.
+ */
+export function resolveDirectKey<Action>(
+  keymap: DirectKeymap<Action> | undefined,
+  event: KeyInput,
+): PrefixOutcome<Action> | undefined {
+  if (keymap === undefined || event.isComposing || MODIFIER_KEYS.has(event.key)) return undefined;
+  const binding = keymap.bindings.find(({ chord }) =>
+    matchesModChord(event, chord, keymap.platform),
+  );
+  return binding === undefined
+    ? undefined
+    : { armed: false, handled: true, action: binding.action };
 }

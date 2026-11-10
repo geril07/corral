@@ -128,7 +128,7 @@ export type TaskTitleSource = z.infer<typeof TaskTitleSource>;
  */
 export const Task = z.object({
   id: TaskId,
-  projectId: ProjectId,
+  projectId: ProjectId.nullable(),
   title: z.string().min(1),
   /** What the title came from; a rename always makes it `user`. */
   titleSource: TaskTitleSource,
@@ -146,7 +146,7 @@ export const Task = z.object({
    */
   primarySessionId: SessionId.nullable(),
   /** Branch checked out in the workspace; for a task in the main working tree, whatever is checked out there at creation. */
-  branch: z.string(),
+  branch: z.string().nullable(),
   /** Absolute path the task's terminals start in. */
   workspacePath: z.string(),
   /** True when the workspace is a worktree this task created and owns. */
@@ -384,8 +384,8 @@ const TaskPrompt = z
   });
 
 export const CreateTaskInput = z
-  .object({
-    projectId: ProjectId,
+  .strictObject({
+    projectId: ProjectId.nullable(),
     /**
      * Defaults to `source.title`, then to the prompt's seed title (its first line, shortened).
      * An explicit title always wins and is the user's.
@@ -407,7 +407,12 @@ export const CreateTaskInput = z
       z.object({ type: z.literal("existing-branch"), branch: z.string().min(1) }),
       /** No worktree: the task works in the project's main working tree. */
       z.object({ type: z.literal("main-worktree") }),
+      z.strictObject({ type: z.literal("scratch") }),
     ]),
+  })
+  .refine((input) => (input.projectId === null) === (input.workspace.type === "scratch"), {
+    message: "scratch requires no project; project workspaces require a project",
+    path: ["workspace"],
   })
   .refine(
     (input) =>
@@ -455,7 +460,8 @@ export type AgentStatus = z.infer<typeof AgentStatus>;
  * The nonsecret launch choices a session was started with. Persisted and never re-read from the
  * config file, so editing or deleting a profile does not change an existing conversation.
  * Environment entries are names only; their values are resolved from the server environment
- * again on every launch.
+ * again on every launch. Literal instance values and the resolved executable/argv live in a
+ * private server-side launch spec and never appear here.
  */
 export const LaunchSnapshot = z.object({
   kind: AgentKind,
@@ -1135,7 +1141,7 @@ export const contract = {
      * the link and answers `state: "unknown"` with the reason, never `closed`.
      */
     pullRequest: oc
-      .errors({ ...taskNotFound })
+      .errors({ ...taskNotFound, ...gitFailed })
       .input(z.object({ id: TaskId, refresh: z.boolean().optional() }))
       .output(PullRequest.nullable()),
   },
