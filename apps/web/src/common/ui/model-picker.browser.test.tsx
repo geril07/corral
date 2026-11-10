@@ -241,6 +241,7 @@ test("composition Enter does not choose a model or submit a native override", as
     />,
   );
   const search = page.getByRole("combobox", { name: "Search models" });
+  await expect.element(search).toHaveFocus();
   search.element().dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
   search.element().dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
   await userEvent.keyboard("{Enter}");
