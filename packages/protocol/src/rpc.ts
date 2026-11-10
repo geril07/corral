@@ -822,6 +822,15 @@ export const contract = {
       .input(z.object({ id: ProjectId }))
       .output(z.array(z.string())),
     /**
+     * Every ref a new worktree may start from: local branches (checked-out ones included) and
+     * remote-tracking refs (`origin/x`). Unlike `branches`, this answers what is valid as a base,
+     * not what a worktree can still check out.
+     */
+    baseRefs: oc
+      .errors({ ...projectNotFound, ...gitFailed })
+      .input(z.object({ id: ProjectId }))
+      .output(z.array(z.string())),
+    /**
      * Reads one GitHub or GitLab issue through the server host's own `gh`/`glab` login. Read-only:
      * the CLI gets a validated issue URL and a read command, nothing else. The result is a
      * snapshot for `tasks.create`; a failure leaves the draft for hand editing or a plain task.

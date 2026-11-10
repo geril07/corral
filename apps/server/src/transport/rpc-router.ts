@@ -391,6 +391,18 @@ export function createRpcRouter({
           },
         ),
       ),
+      baseRefs: os.projects.baseRefs.handler(({ input, errors }) =>
+        translating(
+          () => projects.baseRefs(input.id),
+          (error) => {
+            if (error instanceof ProjectNotFoundError)
+              return errors.PROJECT_NOT_FOUND({ data: { id: error.id } });
+            if (error instanceof GitError)
+              return errors.GIT_FAILED({ data: { message: error.message } });
+            return undefined;
+          },
+        ),
+      ),
       resolveIssue: os.projects.resolveIssue.handler(({ input, errors, signal }) =>
         translating(
           () =>
