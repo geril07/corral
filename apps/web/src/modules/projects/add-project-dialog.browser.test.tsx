@@ -65,6 +65,27 @@ test("trailing Add submits the input, not the highlighted folder, and keeps focu
     .toBeVisible();
 });
 
+const highlightedLabel = () => document.querySelector("[data-highlighted]")?.textContent;
+
+test("arrow keys wrap between rows instead of stopping on the field", async () => {
+  await render(
+    <AddProjectDialog
+      onAdd={() => Promise.resolve()}
+      onBrowse={browse}
+      onClose={() => undefined}
+    />,
+  );
+  await userEvent.fill(input(), "/parent/");
+  await expect.element(page.getByRole("option", { name: "alpha", exact: true })).toBeVisible();
+  await userEvent.keyboard("{ArrowDown}");
+  expect(highlightedLabel()).toBe("alpha");
+  // Up from the first row lands on the last one; it does not park the highlight on the field.
+  await userEvent.keyboard("{ArrowUp}");
+  expect(highlightedLabel()).toBe("alpine");
+  await userEvent.keyboard("{ArrowDown}");
+  expect(highlightedLabel()).toBe("alpha");
+});
+
 test("entering a folder drops the highlight instead of keeping the same row", async () => {
   const rootEntries = Array.from({ length: 10 }, (_, index) => ({
     name: `dir-${index}`,

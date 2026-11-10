@@ -33,6 +33,7 @@ export function PathPicker({
   const shortcut = highlightedPath ? "Ctrl+Enter" : "Enter";
   const input = useRef<HTMLInputElement>(null);
   const caretToEnd = useRef(false);
+  const lastArrow = useRef<"up" | "down" | undefined>(undefined);
   // Base UI keeps its active row index across a value change, so entering a folder would leave the
   // sixth row highlighted again. A fresh root per pick resets the highlight and the scroll.
   const [epoch, setEpoch] = useState(0);
@@ -51,6 +52,17 @@ export function PathPicker({
     setEpoch((current) => current + 1);
     onChange(path, "picker");
   };
+  // Base UI follows the ARIA combobox pattern and parks the highlight on the field at either end.
+  // One more press from the field lands on the opposite row; dispatching it here, before paint,
+  // makes the list wrap directly instead of stopping on the field.
+  const wrap = (key: "ArrowUp" | "ArrowDown") => {
+    lastArrow.current = undefined;
+    // The first press is still inside Base UI's own handler, so the field is not yet the active
+    // row; the follow-up press must wait until that state settles.
+    queueMicrotask(() => {
+      input.current?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    });
+  };
   return (
     <Autocomplete.Root
       key={epoch}
@@ -60,7 +72,15 @@ export function PathPicker({
       filter={null}
       value={value}
       onValueChange={(next) => onChange(next, "input")}
-      onItemHighlighted={(path) => setHighlighted(path === undefined ? undefined : { value, path })}
+      onItemHighlighted={(path, details) => {
+        setHighlighted(path === undefined ? undefined : { value, path });
+        if (path !== undefined || details.reason !== "keyboard") return;
+        const first = paths[0]?.path;
+        const last = paths.at(-1)?.path;
+        if (first === undefined || last === undefined || first === last) return;
+        if (lastArrow.current === "up" && highlightedPath === first) wrap("ArrowUp");
+        else if (lastArrow.current === "down" && highlightedPath === last) wrap("ArrowDown");
+      }}
       autoHighlight={false}
       highlightItemOnHover={false}
     >
@@ -75,6 +95,10 @@ export function PathPicker({
           className="visual-path-input h-12 min-w-0 flex-1 border-0 bg-transparent text-sm outline-none"
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
+            if (!event.ctrlKey && !event.altKey && !event.metaKey) {
+              if (event.key === "ArrowUp") lastArrow.current = "up";
+              if (event.key === "ArrowDown") lastArrow.current = "down";
+            }
             if (event.key === "Escape") {
               event.preventDefault();
               event.stopPropagation();
