@@ -52,7 +52,7 @@ export function VisualWorkspace({
   active?: boolean;
 }) {
   const client = useCorralClient();
-  const { config, profiles, loaded: configLoaded } = useConfig();
+  const { config, profiles, loaded: configLoaded, problems: configProblems } = useConfig();
   const now = useNow(30_000);
   const projects = useSyncExternalStore(client.projects.subscribe, client.projects.getSnapshot);
   const tasks = useSyncExternalStore(client.tasks.subscribe, client.tasks.getSnapshot);
@@ -349,6 +349,7 @@ export function VisualWorkspace({
             <TaskComposer
               projects={projects.projects}
               config={config}
+              configProblems={configProblems}
               profiles={profiles}
               chatDrivers={chatCapabilities.drivers.map((driver) => driver.kind)}
               capabilitiesReady={chatCapabilities.loaded}

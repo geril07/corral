@@ -1,9 +1,7 @@
 import type { CorralClient } from "@corral/client/corral-client";
-import { defaultClientConfig, type LaunchProfile } from "@corral/protocol/config";
 import type { Project, Task } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
-import { render } from "vitest-browser-react";
 import { writeConfig } from "../../../test/config-command.ts";
 import { agentLaunches } from "../../../test/fake-agents.ts";
 import { removeDirectoryIn, writeFilesIn } from "../../../test/files-client.ts";
@@ -11,7 +9,6 @@ import { createGitRepo, createGitRepoWithRemote } from "../../../test/git-repo.t
 import { runGitIn } from "../../../test/git-client.ts";
 import { prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { renderApp } from "../../../test/render-app.tsx";
-import { emptyTaskComposerDraft, TaskComposer } from "../tasks/index.ts";
 
 const { newClient } = realServerClients();
 
@@ -420,52 +417,48 @@ test("Current checkout names the main tree's branch, not the stored default base
   await screen.unmount();
 });
 
-test("a configured disabled instance is named instead of silently starting another agent", async () => {
-  const config = defaultClientConfig("/data");
-  const profiles: LaunchProfile[] = [
-    {
-      id: "gateway",
-      name: "Gateway",
-      agent: "pi",
-      model: "stub-1",
-      provider: null,
-      env: [],
-      enabled: false,
-      revision: "1",
-    },
-  ];
-  config.tasks = {
-    ...config.tasks,
-    agent: { value: "pi", source: "global" },
-    profile: { value: "gateway", source: "global" },
-  };
-  const screen = await render(
-    <TaskComposer
-      projects={[]}
-      config={config}
-      profiles={profiles}
-      chatDrivers={[]}
-      capabilitiesReady
-      draft={emptyTaskComposerDraft(null)}
-      onDraftChange={() => undefined}
-      onCreate={() => undefined}
-      onCancel={() => undefined}
-      onSetPinned={() => Promise.resolve()}
-      loadBaseRefs={() => Promise.resolve({ local: [], remote: [], currentBranch: null })}
-      focusRequest={0}
-      onModalChange={() => undefined}
-      creating={false}
-      failure={undefined}
-    />,
+test("Current checkout shows HEAD when detached and no row when the read fails", async () => {
+  const client = newClient();
+  await connected(client);
+  const repo = await createGitRepo("composer-checkout-detached");
+  await client.connection.api.projects.add({ path: repo });
+  await runGitIn(repo, ["checkout", "--detach"]);
+
+  const screen = await renderApp(client);
+  await expect.poll(() => client.projects.getSnapshot().loaded).toBe(true);
+  await ctrl("n");
+  await vi.waitFor(() => expect(checkoutRowBranch()?.textContent).toBe("HEAD"));
+
+  // A repository gone behind the project is a failed read, not a detached checkout.
+  await removeDirectoryIn(repo);
+  await userEvent.keyboard("{Escape}");
+  await expect.element(composer()).not.toBeInTheDocument();
+  await ctrl("n");
+  await expect.element(composer().getByRole("alert")).toBeVisible();
+  expect(checkoutRowBranch()).toBeNull();
+  await screen.unmount();
+});
+
+test("a refused configured profile is named from the config problem, not silently replaced", async () => {
+  await writeConfig(
+    '[tasks]\nagent = "pi"\nprofile = "gateway"\n\n[profiles.gateway]\nname = "Gateway"\nagent = "pi"\nmodel = "stub-1"\nenabled = false\n',
   );
+  const { client, screen } = await appWithProject("composer-refused-profile");
+  await expect
+    .poll(() =>
+      client.config.getSnapshot().problems.some((problem) => problem.path === "tasks.profile"),
+    )
+    .toBe(true);
+
+  await ctrl("n");
   await expect
     .element(
       composer().getByText(
-        'The instance "Gateway" is disabled in the config file. Choose an agent or another instance.',
+        "The configured profile cannot be used: the profile is disabled. Choose another agent.",
       ),
     )
     .toBeVisible();
-  // The fallback is the native pi launch; the disabled instance is not silently renamed into it.
+  // The parser drops the refused profile from resolved settings; the fallback agent is named.
   await expect.element(composer().getByRole("button", { name: /^Agent pi/ })).toBeVisible();
   await expect
     .element(composer().getByRole("button", { name: /^Agent Gateway/ }))
