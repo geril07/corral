@@ -6,7 +6,7 @@ import {
   type LaunchProfile,
   type ResolvedTaskSettings,
 } from "@corral/protocol/config";
-import type { CreateTaskInput, Project } from "@corral/protocol/rpc";
+import type { CreateTaskInput, Project, ProjectBaseRefs } from "@corral/protocol/rpc";
 import { useEffect, useRef, useState } from "react";
 import { useEnterGuard } from "../../common/hooks/use-enter-guard.ts";
 import {
@@ -51,7 +51,9 @@ const WORKTREE = "new-worktree";
 interface BaseRefState {
   projectId: string;
   status: "loaded" | "failed";
-  names: readonly string[];
+  local: readonly string[];
+  remote: readonly string[];
+  currentBranch: string | null;
   error?: string | undefined;
 }
 
@@ -67,8 +69,8 @@ export interface TaskComposerProps {
   onCancel: () => void;
   /** Pins a project from the picker the project name opens. */
   onSetPinned: (id: string, pinned: boolean) => Promise<void>;
-  /** Refs a new worktree can start from, read again whenever the draft's project changes. */
-  loadBaseRefs: (projectId: string, signal: AbortSignal) => Promise<string[]>;
+  /** Base refs a new worktree can start from and the main tree's checkout, re-read per project. */
+  loadBaseRefs: (projectId: string, signal: AbortSignal) => Promise<ProjectBaseRefs>;
   /** Increments whenever the shell wants the prompt to take the keyboard. */
   focusRequest: number;
   onModalChange: (open: boolean) => void;
@@ -131,12 +133,19 @@ export function TaskComposer({
   const workspace =
     COMPOSER_WORKSPACES.find((choice) => choice.key === draft.workspaceKey) ??
     workspaceFromSettings(settings);
-  // `Current checkout` names the project's checkout; only `New worktree` reads the base a fresh
-  // worktree starts from, so choosing a base never changes what the read-only row claims.
-  const checkoutBranch = project?.defaultBaseBranch ?? "";
-  const worktreeBase = draft.baseBranch ?? project?.defaultBaseBranch ?? "";
+  // `Current checkout` is the main tree's checked-out branch, read with the base refs; the base a
+  // new worktree starts from is a separate value, so choosing one never changes the read-only row.
   const baseRefState = baseRefs?.projectId === projectId ? baseRefs : undefined;
-  const baseRefNames = baseRefState?.names ?? [];
+  const checkoutBranch = baseRefState?.currentBranch ?? "";
+  const worktreeBase = draft.baseBranch ?? project?.defaultBaseBranch ?? "";
+  const remoteBaseRefs = new Set(baseRefState?.remote ?? []);
+  const baseRefNames = [...(baseRefState?.local ?? []), ...(baseRefState?.remote ?? [])];
+  // The current base is the first row, so opening the picker and pressing Enter confirms it. A
+  // remote-only or since-unlisted base stays selectable and is what the create sends.
+  const baseRefChoices =
+    worktreeBase === ""
+      ? baseRefNames
+      : [worktreeBase, ...baseRefNames.filter((name) => name !== worktreeBase)];
 
   // OpenCode preloads branches before its picker opens; the project is the only key, so one read
   // serves the picker and a change of project cannot mix two lists.
@@ -144,12 +153,26 @@ export function TaskComposer({
     if (projectId === undefined) return undefined;
     const controller = new AbortController();
     loadBaseRefs(projectId, controller.signal).then(
-      (names) => {
-        if (!controller.signal.aborted) setBaseRefs({ projectId, status: "loaded", names });
+      ({ local, remote, currentBranch }) => {
+        if (!controller.signal.aborted)
+          setBaseRefs({
+            projectId,
+            status: "loaded",
+            local,
+            remote,
+            currentBranch,
+          });
       },
       (error: unknown) => {
         if (!controller.signal.aborted)
-          setBaseRefs({ projectId, status: "failed", names: [], error: describeError(error) });
+          setBaseRefs({
+            projectId,
+            status: "failed",
+            local: [],
+            remote: [],
+            currentBranch: null,
+            error: describeError(error),
+          });
       },
     );
     return () => controller.abort();
@@ -311,7 +334,10 @@ export function TaskComposer({
             aria-haspopup="dialog"
             onClick={() => setPickingProject(true)}
           >
-            <Icon name={project === undefined ? "no-project" : "project"} size="row" />
+            <Icon
+              name={project === undefined && !projectMissing ? "no-project" : "project"}
+              size="row"
+            />
             <span className="min-w-0 truncate">
               {project?.name ?? (projectMissing ? "Project unavailable" : "No project")}
             </span>
@@ -366,7 +392,8 @@ export function TaskComposer({
               </span>
               {workspace.key === WORKTREE ? (
                 <BranchControl
-                  names={baseRefNames}
+                  names={baseRefChoices}
+                  remote={remoteBaseRefs}
                   status={baseRefState?.status ?? "loading"}
                   error={baseRefState?.error}
                   value={worktreeBase}
@@ -455,12 +482,14 @@ export function TaskComposer({
 
 function BranchControl({
   names,
+  remote,
   status,
   error,
   value,
   onChange,
 }: {
   names: readonly string[];
+  remote: ReadonlySet<string>;
   status: "loading" | BaseRefState["status"];
   error: string | undefined;
   value: string;
@@ -498,6 +527,7 @@ function BranchControl({
           {(name: string) => (
             <ComboboxItem key={name} value={name}>
               <span className="min-w-0 flex-1 truncate">{name}</span>
+              {remote.has(name) && <span className="task-composer-ref-tag">remote</span>}
             </ComboboxItem>
           )}
         </ComboboxList>
@@ -516,7 +546,11 @@ function configuredDefaultProblem(
   if (profile !== null) {
     const found = profiles.find((candidate) => candidate.id === profile);
     if (found === undefined)
-      return `The configured profile "${profile}" is disabled or missing; choose another agent.`;
+      return `The configured profile "${profile}" is missing from the config file; choose another agent.`;
+    // The server's disabled message calls this an instance ("This instance is disabled …"); the
+    // named fallback keeps the substitution from being silent.
+    if (found.enabled === false)
+      return `The instance "${found.name}" is disabled in the config file. Choose an agent or another instance.`;
     if (!agents[found.agent].enabled.value)
       return `The configured profile "${found.name}" uses the disabled ${found.agent} agent; choose another.`;
     return undefined;

@@ -1,14 +1,17 @@
 import type { CorralClient } from "@corral/client/corral-client";
+import { defaultClientConfig, type LaunchProfile } from "@corral/protocol/config";
 import type { Project, Task } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
+import { render } from "vitest-browser-react";
 import { writeConfig } from "../../../test/config-command.ts";
 import { agentLaunches } from "../../../test/fake-agents.ts";
 import { removeDirectoryIn, writeFilesIn } from "../../../test/files-client.ts";
-import { createGitRepo } from "../../../test/git-repo.ts";
+import { createGitRepo, createGitRepoWithRemote } from "../../../test/git-repo.ts";
 import { runGitIn } from "../../../test/git-client.ts";
 import { prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { renderApp } from "../../../test/render-app.tsx";
+import { emptyTaskComposerDraft, TaskComposer } from "../tasks/index.ts";
 
 const { newClient } = realServerClients();
 
@@ -22,6 +25,7 @@ const workspaceButton = (name: string) =>
   composer().getByRole("combobox", { name: `Workspace ${name}` });
 const branchButton = (name: string) =>
   composer().getByRole("combobox", { name: `Base branch ${name}` });
+const checkoutRowBranch = () => composer().element().querySelector(".task-composer-branch");
 
 async function connected(client: CorralClient) {
   await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
@@ -231,6 +235,15 @@ test("Current checkout switches to a new worktree and sends the chosen base bran
     .toHaveAttribute("aria-selected", "true");
   await expect.element(page.getByRole("option", { name: "feature/x" })).toBeVisible();
 
+  // The current base is the first row, so Enter confirms it instead of taking the first ref.
+  await userEvent.keyboard("{Enter}");
+  await expect.element(search).not.toBeInTheDocument();
+  await expect.element(branchButton("main")).toBeVisible();
+  await expect.element(composer().getByText("from main", { exact: true })).toBeVisible();
+
+  await branchButton("main").click();
+  await expect.element(search).toBeVisible();
+  await expect.element(search).toHaveFocus();
   await userEvent.fill(search, "feat");
   await expect.element(page.getByRole("option", { name: "feature/x" })).toBeVisible();
   await expect.element(page.getByRole("option", { name: "main" })).not.toBeInTheDocument();
@@ -243,8 +256,7 @@ test("Current checkout switches to a new worktree and sends the chosen base bran
   // keeps the base for the next switch to a new worktree.
   await workspaceButton("New worktree").click();
   await page.getByRole("option", { name: "Current checkout" }).click();
-  const checkout = () => composer().element().querySelector(".task-composer-branch");
-  await vi.waitFor(() => expect(checkout()?.textContent).toBe("main"));
+  await vi.waitFor(() => expect(checkoutRowBranch()?.textContent).toBe("main"));
   expect(composer().element().textContent).not.toContain("from feature/x");
 
   await workspaceButton("Current checkout").click();
@@ -348,6 +360,119 @@ test("a pointer-created scratch task has no project, no Git controls and its own
   await screen.unmount();
 });
 
+test("a remote-only base is tagged remote and starts the task from it", async () => {
+  const { repo } = await createGitRepoWithRemote("composer-remote-base");
+  const client = newClient();
+  await connected(client);
+  await client.connection.api.projects.add({ path: repo });
+  await writeFilesIn(repo, { "remote.txt": "remote\n" });
+  await runGitIn(repo, ["add", "remote.txt"]);
+  await runGitIn(repo, ["commit", "-m", "remote base"]);
+  await runGitIn(repo, ["push", "origin", "HEAD:refs/heads/remote-base"]);
+  await runGitIn(repo, ["fetch", "origin"]);
+  await writeFilesIn(repo, { "local.txt": "local\n" });
+  await runGitIn(repo, ["add", "local.txt"]);
+  await runGitIn(repo, ["commit", "-m", "local head"]);
+  const remoteHead = (await runGitIn(repo, ["rev-parse", "origin/remote-base"])).trim();
+
+  const screen = await renderApp(client);
+  await expect.poll(() => client.projects.getSnapshot().loaded).toBe(true);
+  await ctrl("n");
+  await workspaceButton("Current checkout").click();
+  await page.getByRole("option", { name: "New worktree" }).click();
+  await branchButton("main").click();
+  const search = page.getByRole("combobox", { name: "Search branches" });
+  await userEvent.fill(search, "remote-base");
+  const option = page.getByRole("option", { name: /origin\/remote-base/ });
+  await expect.element(option).toBeVisible();
+  expect(option.element().textContent).toContain("remote");
+  await option.click();
+  await expect.element(branchButton("origin/remote-base")).toBeVisible();
+
+  const prompt = "Start from the remote-only base";
+  await promptField().fill(prompt);
+  await createButton().click();
+  const task = await vi.waitFor(() => {
+    const found = client.tasks.getSnapshot().tasks.find((candidate) => candidate.prompt === prompt);
+    if (found === undefined) throw new Error("the task is not in the store yet");
+    return found;
+  });
+  expect((await runGitIn(task.workspacePath, ["rev-parse", "HEAD"])).trim()).toBe(remoteHead);
+  expect((await runGitIn(task.workspacePath, ["log", "-1", "--format=%s"])).trim()).toBe(
+    "remote base",
+  );
+  await screen.unmount();
+});
+
+test("Current checkout names the main tree's branch, not the stored default base", async () => {
+  const client = newClient();
+  await connected(client);
+  const repo = await createGitRepo("composer-checkout-fact");
+  const project = await client.connection.api.projects.add({ path: repo });
+  await runGitIn(repo, ["switch", "-c", "side"]);
+
+  const screen = await renderApp(client);
+  await expect.poll(() => client.projects.getSnapshot().loaded).toBe(true);
+  await ctrl("n");
+  await vi.waitFor(() => expect(checkoutRowBranch()?.textContent).toBe("side"));
+  expect(project.defaultBaseBranch).toBe("main");
+  expect(checkoutRowBranch()?.textContent).not.toBe(project.defaultBaseBranch);
+  await screen.unmount();
+});
+
+test("a configured disabled instance is named instead of silently starting another agent", async () => {
+  const config = defaultClientConfig("/data");
+  const profiles: LaunchProfile[] = [
+    {
+      id: "gateway",
+      name: "Gateway",
+      agent: "pi",
+      model: "stub-1",
+      provider: null,
+      env: [],
+      enabled: false,
+      revision: "1",
+    },
+  ];
+  config.tasks = {
+    ...config.tasks,
+    agent: { value: "pi", source: "global" },
+    profile: { value: "gateway", source: "global" },
+  };
+  const screen = await render(
+    <TaskComposer
+      projects={[]}
+      config={config}
+      profiles={profiles}
+      chatDrivers={[]}
+      capabilitiesReady
+      draft={emptyTaskComposerDraft(null)}
+      onDraftChange={() => undefined}
+      onCreate={() => undefined}
+      onCancel={() => undefined}
+      onSetPinned={() => Promise.resolve()}
+      loadBaseRefs={() => Promise.resolve({ local: [], remote: [], currentBranch: null })}
+      focusRequest={0}
+      onModalChange={() => undefined}
+      creating={false}
+      failure={undefined}
+    />,
+  );
+  await expect
+    .element(
+      composer().getByText(
+        'The instance "Gateway" is disabled in the config file. Choose an agent or another instance.',
+      ),
+    )
+    .toBeVisible();
+  // The fallback is the native pi launch; the disabled instance is not silently renamed into it.
+  await expect.element(composer().getByRole("button", { name: /^Agent pi/ })).toBeVisible();
+  await expect
+    .element(composer().getByRole("button", { name: /^Agent Gateway/ }))
+    .not.toBeInTheDocument();
+  await screen.unmount();
+});
+
 test("a draft whose project is removed shows it unavailable and cannot submit it", async () => {
   const { client, project, screen } = await appWithProject("composer-removed-project");
   await newTaskButton().click();
@@ -357,6 +482,10 @@ test("a draft whose project is removed shows it unavailable and cannot submit it
 
   await client.connection.api.projects.remove({ id: project.id });
   await expect.element(projectButton()).toHaveTextContent("Project unavailable");
+  // The unavailable selection keeps the project glyph; only a true No project is the scratch one.
+  expect(projectButton().element().querySelector("svg")?.classList.contains("lucide-folder")).toBe(
+    true,
+  );
   await expect
     .element(composer().getByRole("alert"))
     .toHaveTextContent(
