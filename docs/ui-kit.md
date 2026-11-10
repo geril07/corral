@@ -196,6 +196,13 @@ context-menu dispatcher.
   column — above a footer shared by all three. The list is flat rows (`provider` heading or model),
   so a heading owns its own height; the thinking levels are a vertical Base UI `Toolbar`. Modules
   supply driver/config data and actions, not control skins.
+- **Input padding** is one inline value per control class, measured from both references. A composer
+  prompt is 16 px inline and 12 px block: T3's composer body pads `px-4 pt-3.5/4 pb-2`
+  (`ChatComposer.tsx:3308`) and OpenCode's editor `ps-4 pt-4 pb-2` (`editor.tsx:321`), so 12 is the
+  midpoint of their 16 top and 8 bottom. A one-line input or form textarea is 12 px inline (T3
+  11 px plus its border, OpenCode 12 px) and the textarea 6 px block (T3 5 px plus its border,
+  OpenCode 6 px). The 40 px search band keeps 12 px inline, like the field it renders; the
+  composer's control row keeps its separate 8 px.
 - The new-task composer's context row names the project, the workspace and the branch once,
   left-aligned, with no path or summary on the right. The project name opens the shared project
   picker. The workspace is a two-choice picker (`Current checkout`, `New worktree`); a new

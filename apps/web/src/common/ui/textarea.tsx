@@ -3,7 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../lib/cn.ts";
 
 const textareaVariants = cva(
-  "flex resize-none field-sizing-content min-h-16 w-full rounded-(--control-radius) border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
+  "flex resize-none field-sizing-content min-h-16 w-full rounded-(--control-radius) border border-input bg-transparent px-3 py-1.5 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
   {
     variants: {
       frame: {
@@ -11,11 +11,13 @@ const textareaVariants = cva(
       },
       layout: {
         // The new-task composer's prompt: a four-line rest and a half-view growth cap
-        // (`layout.md`, **New task view**). Font, padding, border and focus stay stock.
-        prompt: "min-h-24 max-h-[50cqh]",
+        // (`layout.md`, **New task view**). Font, border and focus stay stock; the padding is the
+        // composer inset (`ui-kit.md`, **Input padding**).
+        prompt: "min-h-24 max-h-[50cqh] px-4 py-3",
         // The chat composer rests at two lines and grows to 13 rem before it scrolls
-        // (`layout.md`, **Chat**). Font, padding, border and focus stay stock.
-        chat: "min-h-14 max-h-52 overflow-y-auto",
+        // (`layout.md`, **Chat**). Font, border and focus stay stock; the padding is the composer
+        // inset (`ui-kit.md`, **Input padding**).
+        chat: "min-h-14 max-h-52 overflow-y-auto px-4 py-3",
         // The Changes tab's commit message: one rest line in a toolbar row, growing as it is
         // typed (`layout.md`, **Changes**). Stock font, padding, border and focus.
         commit: "min-h-8",
