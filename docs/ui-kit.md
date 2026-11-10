@@ -128,19 +128,21 @@ context-menu dispatcher.
   dialog: no scrim, and its close returns the keyboard through the same fallback.
   Other dialogs keep their existing dimensions.
 - Settings composes the settings-only primitives in `modules/settings`: a 240 px grouped sidebar
-  (28 px rows, 4 px radius, 6 px inline padding, 16 px icon, 6 px icon-text gap, 16 px group gap,
-  8 px item gap, 12 px muted group headings), one 720 px content page inline-padded 40 px (24 px
-  narrow), a 15/20 semibold section title with one line of 13/20 muted description, and 8 px
-  cards on `bg-layer-01` with a muted border, 16 px inline padding, and rows separated by 0.5 px
-  dividers. The content repeats the active sidebar label; there are no breadcrumbs and no separate
-  back action (the dialog's X closes). Projects are file-owned and read-only: a picker list, then
-  one project's resolved task settings with `inherited` / `project` source labels, reached from a
-  project row's `Project settings…`.
+  (32 px rows, 8 px radius, 10 px inline padding, 16 px icon, 8 px icon-text gap, 16 px group gap,
+  4 px item gap, 12 px muted group headings), a borderless 32 px search row that takes the hover
+  overlay, one 720 px content page inline-padded 40 px (24 px narrow), a 15/20 semibold section
+  title with one line of 13/20 muted description, and 8 px cards on `bg-layer-01` with a muted
+  border, 16 px inline padding, and rows separated by 0.5 px dividers. There is no settings header
+  row: the content repeats the active sidebar label and the dialog's X closes, so there are no
+  breadcrumbs and no separate back action. Projects are file-owned and read-only: a picker list,
+  then one project's resolved task settings with `inherited` / `project` source labels, reached from
+  a project row's `Project settings…`. Two-option rows use the kit combobox as a select; a ranged
+  row uses `Slider` with the value box and a reset action beside the label.
 - Settings search indexes rows, not prose: each entry is `{id, title, section, aliases}` and only
   the title, section label and authored aliases are fields. Ranking is exact title, title prefix,
   title substring, all query tokens in the title, then a phrase in any field, with declaration order
   as the tiebreak; generated action/profile/agent/project rows are secondary and rank after real
-  settings. `/` focuses the 36 px search field unless focus is in a text field or nested popup;
+  settings. `/` focuses the borderless 32 px search field unless focus is in a text field or nested popup;
   Escape clears a non-empty query before it reaches the dialog. Selecting a result switches the
   section, clears the query, scrolls the row into view, focuses it, and plays one motion-safe
   highlight. Search navigation is local state: it never rewrites the URL or starts the discard

@@ -71,6 +71,7 @@ export function SettingsRow({
   description,
   value,
   source,
+  reset,
   control,
   children,
 }: {
@@ -80,6 +81,8 @@ export function SettingsRow({
   value?: string | undefined;
   /** `inherited` and `project` are the project page's two layers; other sections pass the raw one. */
   source?: string | undefined;
+  /** A reset control beside the label, shown only when the value differs from its default. */
+  reset?: ReactNode | undefined;
   control?: ReactNode | undefined;
   /** Extra content under the title, e.g. a problem sentence or an environment list. */
   children?: ReactNode | undefined;
@@ -93,7 +96,10 @@ export function SettingsRow({
       aria-describedby={description === undefined ? undefined : descriptionId}
     >
       <div className="settings-row-text">
-        <span className="settings-row-title">{title}</span>
+        <div className="settings-row-title-line">
+          <span className="settings-row-title">{title}</span>
+          {reset}
+        </div>
         {description !== undefined && (
           <p id={descriptionId} className="settings-row-description">
             {description}

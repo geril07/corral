@@ -273,7 +273,7 @@ export function SettingsScreen({
               ref={searchField}
               type="text"
               aria-label="Search settings"
-              placeholder="Search settings"
+              placeholder="Search"
               value={query}
               role="combobox"
               aria-expanded={query !== ""}

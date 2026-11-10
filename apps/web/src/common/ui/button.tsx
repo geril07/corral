@@ -44,6 +44,7 @@ const buttonVariants = cva(
         // Dense single-line list row (ChangeFileRow): the height and width of the row it fills.
         "row-sm": "min-h-7 w-full gap-2 rounded-sm px-2",
         icon: "size-8",
+        "icon-micro": "size-5 rounded-sm p-0 [&_svg:not([class*='size-'])]:size-3",
         "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-7",
         "icon-lg": "size-9",

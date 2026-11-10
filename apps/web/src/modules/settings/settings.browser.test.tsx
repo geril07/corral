@@ -957,8 +957,11 @@ test("settings preserve a draft and its caret, pause background keys and keep ap
   await expect.element(settingsHeading()).toBeVisible();
   await userEvent.keyboard("{Alt>}a{/Alt}");
   expect(document.querySelector('[aria-label="prefix mode"]')).toBeNull();
-  await page.getByRole("radio", { name: "Bottom", exact: true }).click();
-  await page.getByRole("button", { name: "120%", exact: true }).click();
+  await page.getByRole("combobox", { name: "Session tab position" }).click();
+  await page.getByRole("option", { name: "Bottom", exact: true }).click();
+  const scale = page.getByRole("slider", { name: "Interface text scale" });
+  scale.element().focus();
+  await userEvent.keyboard("{ArrowRight}{ArrowRight}");
   await userEvent.keyboard("{Escape}");
   await expect.element(settingsHeading()).not.toBeInTheDocument();
   expect(promptField().element()).toBe(prompt);
@@ -992,6 +995,92 @@ test("the settings action is a configurable key, never a hardcoded chord", async
 
   await userEvent.keyboard("{Escape}");
   await expect.element(settingsHeading()).not.toBeInTheDocument();
+});
+
+test("Settings has no visible header row and the section title carries the page", async () => {
+  const client = newClient();
+  await renderSettings(client);
+  const dialog = page.getByRole("dialog", { name: "Settings", exact: true });
+  const heading = dialog.getByRole("heading", { name: "Settings", level: 1 });
+  const header = heading.element().closest<HTMLElement>('[data-slot="dialog-header"]');
+  expect(header?.className).toContain("sr-only");
+  expect(header?.getBoundingClientRect().height).toBeLessThanOrEqual(1);
+  await expect.element(dialog.getByRole("heading", { name: "Appearance", level: 2 })).toBeVisible();
+  await expect.element(dialog.getByRole("button", { name: "Close settings" })).toBeVisible();
+});
+
+test("the search field is a borderless Search field with a caret-only focus", async () => {
+  const client = newClient();
+  await renderSettings(client);
+  const search = page.getByRole("combobox", { name: "Search settings" });
+  await expect.element(search).toHaveAttribute("placeholder", "Search");
+  const wrapper = search.element().closest(".settings-search");
+  if (!(wrapper instanceof HTMLElement)) throw new Error("search wrapper missing");
+  expect(getComputedStyle(wrapper).borderTopWidth).toBe("0px");
+  await userEvent.keyboard("/");
+  await expect.element(search).toHaveFocus();
+  expect(getComputedStyle(search.element()).boxShadow).toBe("none");
+  expect(getComputedStyle(search.element()).outlineStyle).toBe("none");
+});
+
+test("a pointer click leaves no focus ring, while Tab still shows one", async () => {
+  const client = newClient();
+  await renderSettings(client);
+  const rowTitle = page.getByText("Interface text scale", { exact: true });
+  await rowTitle.click();
+  const row = rowTitle.element().closest<HTMLElement>(".settings-row");
+  if (row === null) throw new Error("settings row missing");
+  expect(document.activeElement).toBe(row);
+  expect(row.matches(":focus-visible")).toBe(false);
+  expect(getComputedStyle(row).outlineStyle).toBe("none");
+
+  const position = page.getByRole("combobox", { name: "Session tab position" });
+  await position.click();
+  expect(getComputedStyle(position.element()).boxShadow).toBe("none");
+  await userEvent.keyboard("{Escape}");
+
+  const scale = page.getByRole("slider", { name: "Interface text scale" });
+  await scale.click();
+  expect(scale.element().matches(":focus-visible")).toBe(false);
+
+  const keyboard = settingsRailButton("Keyboard");
+  await keyboard.click();
+  expect(getComputedStyle(keyboard.element()).boxShadow).toBe("none");
+
+  await userEvent.keyboard("{Tab}");
+  const next = settingsRailButton("Defaults");
+  await expect.element(next).toHaveFocus();
+  expect(getComputedStyle(next.element()).boxShadow).not.toBe("none");
+});
+
+test("session tab position is a select row with Top and Bottom", async () => {
+  const client = newClient();
+  await renderSettings(client);
+  const trigger = page.getByRole("combobox", { name: "Session tab position" });
+  await expect.element(trigger).toHaveTextContent("Top");
+  await expect
+    .element(page.getByRole("radiogroup", { name: "Session tab position" }))
+    .not.toBeInTheDocument();
+  await trigger.click();
+  await page.getByRole("option", { name: "Bottom", exact: true }).click();
+  await expect.element(trigger).toHaveTextContent("Bottom");
+});
+
+test("the text scale is a slider with a value box and a conditional reset", async () => {
+  const client = newClient();
+  await renderSettings(client);
+  const reset = page.getByRole("button", { name: "Reset interface text scale to default" });
+  await expect.element(reset).not.toBeInTheDocument();
+  await expect.element(page.getByText("100%", { exact: true })).toBeVisible();
+  const scale = page.getByRole("slider", { name: "Interface text scale" });
+  scale.element().focus();
+  await userEvent.keyboard("{ArrowRight}{ArrowRight}");
+  await expect.element(page.getByText("120%", { exact: true })).toBeVisible();
+  await expect.element(reset).toBeVisible();
+  expect(document.documentElement.style.fontSize).toBe("120%");
+  await reset.click();
+  await expect.element(page.getByText("100%", { exact: true })).toBeVisible();
+  await expect.element(reset).not.toBeInTheDocument();
 });
 
 test("copy feedback clears, re-announces on a second copy, and does not survive a category change", async () => {
