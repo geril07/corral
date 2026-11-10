@@ -46,12 +46,19 @@
 
 .task-composer-context {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
   color: var(--visual-text-muted);
   font-size: 12px;
   line-height: 16px;
+}
+
+.task-composer-separator {
+  flex: 0 0 auto;
+  color: var(--visual-text-faint);
 }
 
 .task-composer-branch {
@@ -61,6 +68,14 @@
   min-width: 0;
   color: var(--visual-text-faint);
   overflow-wrap: anywhere;
+}
+
+.task-composer-branch-error {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--visual-status-error);
+  font-size: 12px;
+  line-height: 16px;
 }
 
 .task-composer-note {

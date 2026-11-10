@@ -1,6 +1,6 @@
 import { describeError } from "@corral/client/rpc-errors";
 import type { Project } from "@corral/protocol/rpc";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ComponentProps } from "react";
 import {
   Button,
   Hint,
@@ -20,17 +20,21 @@ export interface ProjectChoiceDialogProps {
   /** Pins or unpins a project; the `projects.watch` update carries the new state back. */
   onSetPinned: (id: string, pinned: boolean) => Promise<void>;
   onClose: () => void;
+  /** Lets a composer return the keyboard to its prompt instead of the trigger that opened this. */
+  finalFocus?: ComponentProps<typeof TaskDialog>["finalFocus"];
 }
 
 /**
  * The pointer/keyboard entry to a draft when the project is not decided yet. "No project" is
- * always offered: a scratch task needs no fake project, including on an empty install.
+ * always offered: a scratch task needs no fake project, including on an empty install. The
+ * composer's project name opens this same picker, pins included.
  */
 export function ProjectChoiceDialog({
   projects,
   onChoose,
   onSetPinned,
   onClose,
+  finalFocus,
 }: ProjectChoiceDialogProps) {
   return (
     <PickerToastProvider>
@@ -40,6 +44,7 @@ export function ProjectChoiceDialog({
         layout="path-picker"
         showCloseButton={false}
         onClose={onClose}
+        finalFocus={finalFocus}
       >
         <ProjectChoiceList
           projects={projects}

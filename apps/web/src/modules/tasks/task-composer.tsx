@@ -1,3 +1,4 @@
+import { describeError } from "@corral/client/rpc-errors";
 import {
   taskSettingsFor,
   type AgentKind,
@@ -23,7 +24,7 @@ import {
   ModelPickerButton,
   Textarea,
 } from "../../common/ui/index.ts";
-import { ProjectOption, projectOptionLabel } from "../projects/index.ts";
+import { ProjectChoiceDialog } from "../projects/index.ts";
 import {
   AgentLaunchPicker,
   defaultLaunch,
@@ -36,16 +37,23 @@ import {
 import { defaultWorkspace } from "./new-task-defaults.ts";
 import type { TaskComposerDraft } from "./task-composer-draft.ts";
 
-const NO_PROJECT = "\u0000none";
-
+/** The two ways a project draft can run: the checkout it starts on, or a fresh worktree. */
 const COMPOSER_WORKSPACES: readonly {
   key: string;
   label: string;
-  input: CreateTaskInput["workspace"];
 }[] = [
-  { key: "main-tree", label: "Main worktree", input: { type: "main-worktree" } },
-  { key: "new-worktree", label: "New worktree", input: { type: "new-branch" } },
+  { key: "main-tree", label: "Current checkout" },
+  { key: "new-worktree", label: "New worktree" },
 ];
+
+const WORKTREE = "new-worktree";
+
+interface BranchState {
+  projectId: string;
+  status: "loaded" | "failed";
+  names: readonly string[];
+  error?: string | undefined;
+}
 
 export interface TaskComposerProps {
   projects: readonly Project[];
@@ -57,6 +65,10 @@ export interface TaskComposerProps {
   onDraftChange: (draft: TaskComposerDraft) => void;
   onCreate: (input: CreateTaskInput) => void;
   onCancel: () => void;
+  /** Pins a project from the picker the project name opens. */
+  onSetPinned: (id: string, pinned: boolean) => Promise<void>;
+  /** Branches a new worktree can start from, read again whenever the draft's project changes. */
+  loadBranches: (projectId: string, signal: AbortSignal) => Promise<string[]>;
   /** Increments whenever the shell wants the prompt to take the keyboard. */
   focusRequest: number;
   onModalChange: (open: boolean) => void;
@@ -66,9 +78,10 @@ export interface TaskComposerProps {
 
 /**
  * The production task composer: prompt first, then one internal row with attach, instance/model
- * and reasoning on the left and send on the right; project and workspace sit below. It creates
- * nothing until Send, so a draft costs no agent turn. Attachments and pre-launch reasoning are
- * not in the server contract yet, and their controls say so instead of pretending.
+ * and reasoning on the left and send on the right. Below it one context row names the project,
+ * the workspace and its branch. It creates nothing until Send, so a draft costs no agent turn.
+ * Attachments and pre-launch reasoning are not in the server contract yet, and their controls say
+ * so instead of pretending.
  */
 export function TaskComposer({
   projects,
@@ -80,6 +93,8 @@ export function TaskComposer({
   onDraftChange,
   onCreate,
   onCancel,
+  onSetPinned,
+  loadBranches,
   focusRequest,
   onModalChange,
   creating,
@@ -88,6 +103,8 @@ export function TaskComposer({
   const prompt = useRef<HTMLTextAreaElement>(null);
   const agentAnchor = useRef<HTMLButtonElement>(null);
   const [pickingAgent, setPickingAgent] = useState(false);
+  const [pickingProject, setPickingProject] = useState(false);
+  const [branches, setBranches] = useState<BranchState>();
   const guard = useEnterGuard();
 
   useEffect(() => {
@@ -96,13 +113,14 @@ export function TaskComposer({
   }, [focusRequest]);
 
   useEffect(() => {
-    onModalChange(pickingAgent);
-  }, [onModalChange, pickingAgent]);
+    onModalChange(pickingAgent || pickingProject);
+  }, [onModalChange, pickingAgent, pickingProject]);
 
   const project =
     draft.projectId === null
       ? undefined
       : projects.find((candidate) => candidate.id === draft.projectId);
+  const projectId = project?.id;
   const settings: ResolvedTaskSettings =
     project === undefined ? config.tasks : taskSettingsFor(config, project.path);
   const agent = draft.agent ?? defaultLaunch(settings, profiles, config.agents);
@@ -112,9 +130,38 @@ export function TaskComposer({
   const workspace =
     COMPOSER_WORKSPACES.find((choice) => choice.key === draft.workspaceKey) ??
     workspaceFromSettings(settings);
+  const baseBranch = draft.baseBranch ?? project?.defaultBaseBranch ?? "";
+  const branchState = branches?.projectId === projectId ? branches : undefined;
+  // `projects.branches` answers only targets a worktree can check out, so the project's own
+  // default base (usually checked out in the main tree) is merged back as the first choice: it is
+  // a real base and the one the row starts on.
+  const branchNames = branchState?.names ?? [];
+  const branchChoices =
+    project !== undefined &&
+    project.defaultBaseBranch !== "" &&
+    !branchNames.includes(project.defaultBaseBranch)
+      ? [project.defaultBaseBranch, ...branchNames]
+      : branchNames;
 
-  // The combobox restores focus to its trigger after the popup closes; hand it back to the prompt
-  // afterwards, so a project/No project switch keeps typing where the user left it.
+  // OpenCode preloads branches before its picker opens; the project is the only key, so one read
+  // serves both the read-only fact and the picker and a change of project cannot mix two lists.
+  useEffect(() => {
+    if (projectId === undefined) return undefined;
+    const controller = new AbortController();
+    loadBranches(projectId, controller.signal).then(
+      (names) => {
+        if (!controller.signal.aborted) setBranches({ projectId, status: "loaded", names });
+      },
+      (error: unknown) => {
+        if (!controller.signal.aborted)
+          setBranches({ projectId, status: "failed", names: [], error: describeError(error) });
+      },
+    );
+    return () => controller.abort();
+  }, [loadBranches, projectId]);
+
+  // The pickers restore focus to their triggers after a popup closes; hand it back to the prompt
+  // afterwards, so a project/workspace/branch switch keeps typing where the user left it.
   const focusPromptSoon = () =>
     requestAnimationFrame(() => {
       prompt.current?.focus();
@@ -132,7 +179,14 @@ export function TaskComposer({
       projectId: draft.projectId,
       prompt: promptText,
       ...(agent === undefined ? {} : { agent: { ...launchChoice(agent), view } }),
-      workspace: draft.projectId === null ? { type: "scratch" } : workspace.input,
+      workspace:
+        draft.projectId === null
+          ? { type: "scratch" }
+          : workspace.key !== WORKTREE
+            ? { type: "main-worktree" }
+            : baseBranch === ""
+              ? { type: "new-branch" }
+              : { type: "new-branch", baseBranch },
     });
   };
 
@@ -150,7 +204,7 @@ export function TaskComposer({
         onCompositionEnd={guard.end}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
-            if (pickingAgent) return;
+            if (pickingAgent || pickingProject || event.defaultPrevented) return;
             event.preventDefault();
             event.stopPropagation();
             if (failure === undefined) onCancel();
@@ -250,32 +304,81 @@ export function TaskComposer({
         </ComposerSurface>
 
         <div className="task-composer-context">
-          <ProjectControl
-            projects={projects}
-            projectId={draft.projectId}
-            onChange={(projectId) => {
-              onDraftChange({ ...draft, projectId });
-              focusPromptSoon();
-            }}
-          />
-          {draft.projectId === null ? (
-            <span className="task-composer-note">Scratch workspace · no Git controls</span>
-          ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            layout="text"
+            aria-label={`Project ${project?.name ?? "No project"}`}
+            aria-haspopup="dialog"
+            onClick={() => setPickingProject(true)}
+          >
+            <Icon name="project" size="row" />
+            <span className="min-w-0 truncate">{project?.name ?? "No project"}</span>
+          </Button>
+          {project !== undefined && (
             <>
-              <WorkspaceControl
+              <span className="task-composer-separator" aria-hidden="true">
+                /
+              </span>
+              <Combobox
+                items={COMPOSER_WORKSPACES.map((choice) => choice.key)}
                 value={workspace.key}
-                onChange={(key) => {
-                  onDraftChange({ ...draft, workspaceKey: key });
+                onValueChange={(next) => {
+                  if (next === null || !COMPOSER_WORKSPACES.some((choice) => choice.key === next))
+                    return;
+                  onDraftChange({
+                    ...draft,
+                    workspaceKey: next,
+                    baseBranch:
+                      next === WORKTREE
+                        ? (draft.baseBranch ?? project.defaultBaseBranch)
+                        : baseBranch,
+                  });
                   focusPromptSoon();
                 }}
-              />
-              {project?.defaultBaseBranch !== undefined && (
-                <span
-                  className="task-composer-branch"
-                  title="Read-only: a draft never changes which branch is checked out."
+                autoHighlight
+              >
+                <ComboboxButton
+                  layout="text"
+                  chevron={false}
+                  aria-label={`Workspace ${workspace.label}`}
                 >
+                  <Icon name={workspace.key === WORKTREE ? "add" : "terminal"} size="row" />
+                  <span className="min-w-0 truncate">{workspace.label}</span>
+                </ComboboxButton>
+                <ComboboxContent align="start">
+                  <ComboboxList scrollbar="visible">
+                    {(key: string) => {
+                      const choice = COMPOSER_WORKSPACES.find((candidate) => candidate.key === key);
+                      if (choice === undefined) return null;
+                      return (
+                        <ComboboxItem key={key} value={key}>
+                          <span className="min-w-0 flex-1 truncate">{choice.label}</span>
+                        </ComboboxItem>
+                      );
+                    }}
+                  </ComboboxList>
+                </ComboboxContent>
+              </Combobox>
+              <span className="task-composer-separator" aria-hidden="true">
+                /
+              </span>
+              {workspace.key === WORKTREE ? (
+                <BranchControl
+                  names={branchChoices}
+                  status={branchState?.status ?? "loading"}
+                  error={branchState?.error}
+                  value={baseBranch}
+                  onChange={(branch) => {
+                    onDraftChange({ ...draft, baseBranch: branch });
+                    focusPromptSoon();
+                  }}
+                />
+              ) : (
+                <span className="task-composer-branch">
                   <Icon name="branch" size="row" />
-                  base {project.defaultBaseBranch}
+                  <span className="min-w-0 truncate">{baseBranch}</span>
                 </span>
               )}
             </>
@@ -299,6 +402,23 @@ export function TaskComposer({
           </p>
         )}
       </form>
+
+      {pickingProject && (
+        <ProjectChoiceDialog
+          projects={projects}
+          onChoose={(chosenId) => {
+            onDraftChange({
+              ...draft,
+              projectId: chosenId,
+              baseBranch: draft.projectId === chosenId ? draft.baseBranch : undefined,
+            });
+            setPickingProject(false);
+          }}
+          onSetPinned={onSetPinned}
+          onClose={() => setPickingProject(false)}
+          finalFocus={() => prompt.current}
+        />
+      )}
 
       {pickingAgent && agent !== undefined && (
         <AgentLaunchPicker
@@ -324,6 +444,59 @@ export function TaskComposer({
         />
       )}
     </div>
+  );
+}
+
+function BranchControl({
+  names,
+  status,
+  error,
+  value,
+  onChange,
+}: {
+  names: readonly string[];
+  status: "loading" | BranchState["status"];
+  error: string | undefined;
+  value: string;
+  onChange: (branch: string) => void;
+}) {
+  return (
+    <Combobox
+      items={names}
+      value={value}
+      onValueChange={(next) => {
+        if (next === null) return;
+        onChange(next);
+      }}
+      autoHighlight
+    >
+      <ComboboxButton layout="text" aria-label={`Base branch ${value}`}>
+        <Icon name="branch" size="row" />
+        <span className="min-w-0 truncate">from {value}</span>
+      </ComboboxButton>
+      <ComboboxContent align="start">
+        <ComboboxSearch
+          variant="band"
+          aria-label="Search branches"
+          placeholder="Search branches"
+          autoFocus
+        />
+        {status === "failed" ? (
+          <p className="task-composer-branch-error" role="alert">
+            {error}
+          </p>
+        ) : (
+          <ComboboxEmpty>No results found</ComboboxEmpty>
+        )}
+        <ComboboxList scrollbar="visible">
+          {(name: string) => (
+            <ComboboxItem key={name} value={name}>
+              <span className="min-w-0 flex-1 truncate">{name}</span>
+            </ComboboxItem>
+          )}
+        </ComboboxList>
+      </ComboboxContent>
+    </Combobox>
   );
 }
 
@@ -353,96 +526,5 @@ function workspaceFromSettings(settings: ResolvedTaskSettings) {
 }
 
 function draftWorkspaceKey(settings: ResolvedTaskSettings): string {
-  return defaultWorkspace(settings).key === "new-worktree" ? "new-worktree" : "main-tree";
-}
-
-function ProjectControl({
-  projects,
-  projectId,
-  onChange,
-}: {
-  projects: readonly Project[];
-  projectId: string | null;
-  onChange: (projectId: string | null) => void;
-}) {
-  const items = [NO_PROJECT, ...projects.map((project) => project.id)];
-  const selected = projects.find((project) => project.id === projectId);
-  const label = (id: string) => {
-    if (id === NO_PROJECT) return "No project";
-    const project = projects.find((candidate) => candidate.id === id);
-    return project === undefined ? "Project unavailable" : projectOptionLabel(project);
-  };
-  return (
-    <Combobox
-      items={items}
-      value={projectId ?? NO_PROJECT}
-      onValueChange={(next) => onChange(next === NO_PROJECT ? null : next)}
-      autoHighlight
-      itemToStringLabel={label}
-      filter={(id, query) => label(id).toLocaleLowerCase().includes(query.toLocaleLowerCase())}
-    >
-      <ComboboxButton aria-label={`Project ${selected?.name ?? "No project"}`}>
-        <Icon name="project" size="row" />
-        <span className="min-w-0 truncate">{selected?.name ?? "No project"}</span>
-      </ComboboxButton>
-      <ComboboxContent>
-        <div className="p-1">
-          <ComboboxSearch aria-label="Search projects" placeholder="Search projects…" />
-        </div>
-        <ComboboxEmpty>No matching project.</ComboboxEmpty>
-        <ComboboxList>
-          {(id: string) => {
-            if (id === NO_PROJECT) {
-              return (
-                <ComboboxItem key={id} value={id} aria-label="No project">
-                  <span className="min-w-0 flex-1 truncate">No project</span>
-                  <span className="text-xs text-muted-foreground">scratch workspace</span>
-                </ComboboxItem>
-              );
-            }
-            const project = projects.find((candidate) => candidate.id === id);
-            if (project === undefined) return null;
-            return (
-              <ComboboxItem key={id} value={id} aria-label={projectOptionLabel(project)}>
-                <ProjectOption project={project} />
-              </ComboboxItem>
-            );
-          }}
-        </ComboboxList>
-      </ComboboxContent>
-    </Combobox>
-  );
-}
-
-function WorkspaceControl({ value, onChange }: { value: string; onChange: (key: string) => void }) {
-  const selected = COMPOSER_WORKSPACES.find((choice) => choice.key === value)!;
-  return (
-    <Combobox
-      items={COMPOSER_WORKSPACES.map((choice) => choice.key)}
-      value={value}
-      onValueChange={(next) => {
-        if (next !== null && COMPOSER_WORKSPACES.some((choice) => choice.key === next))
-          onChange(next);
-      }}
-      autoHighlight
-    >
-      <ComboboxButton aria-label={`Workspace ${selected.label}`}>
-        <Icon name="project" size="row" />
-        <span className="min-w-0 truncate">{selected.label}</span>
-      </ComboboxButton>
-      <ComboboxContent>
-        <ComboboxList>
-          {(key: string) => {
-            const choice = COMPOSER_WORKSPACES.find((candidate) => candidate.key === key);
-            if (choice === undefined) return null;
-            return (
-              <ComboboxItem key={key} value={key}>
-                <span className="min-w-0 flex-1 truncate">{choice.label}</span>
-              </ComboboxItem>
-            );
-          }}
-        </ComboboxList>
-      </ComboboxContent>
-    </Combobox>
-  );
+  return defaultWorkspace(settings).key === WORKTREE ? WORKTREE : "main-tree";
 }

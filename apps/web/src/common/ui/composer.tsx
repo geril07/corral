@@ -5,7 +5,7 @@ export function ComposerSurface({ children }: { children: ReactNode }) {
   return (
     <div
       data-slot="composer-surface"
-      className="overflow-hidden rounded-xl border border-border bg-card/50 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring"
+      className="overflow-hidden rounded-xl border border-border bg-card/50"
     >
       {children}
     </div>

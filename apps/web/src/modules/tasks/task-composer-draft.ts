@@ -14,10 +14,21 @@ export interface TaskComposerDraft {
   agent: LaunchSelection | undefined;
   /** The workspace the user picked; `undefined` follows the project's settings. */
   workspaceKey: string | undefined;
+  /**
+   * The branch a new worktree starts from; `undefined` follows the project's default base. It
+   * belongs to the project, so switching projects drops it.
+   */
+  baseBranch: string | undefined;
 }
 
 export function emptyTaskComposerDraft(projectId: string | null): TaskComposerDraft {
-  return { projectId, prompt: "", agent: undefined, workspaceKey: undefined };
+  return {
+    projectId,
+    prompt: "",
+    agent: undefined,
+    workspaceKey: undefined,
+    baseBranch: undefined,
+  };
 }
 
 /** A draft moved to another project: the user's text and picks stay; only the project changes. */
@@ -25,5 +36,9 @@ export function switchComposerProject(
   draft: TaskComposerDraft,
   projectId: string | null,
 ): TaskComposerDraft {
-  return { ...draft, projectId };
+  return {
+    ...draft,
+    projectId,
+    baseBranch: draft.projectId === projectId ? draft.baseBranch : undefined,
+  };
 }

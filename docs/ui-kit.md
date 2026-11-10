@@ -186,13 +186,19 @@ context-menu dispatcher.
 - The board, chat, changes and the terminal panes still use the prior kit compositions until their
   own rebuild; their controls do not become the source of new visual rules.
 - ComposerSurface and ComposerToolbar own the shared prompt frame and wrapping control row. The
-  frame shows the shared focus ring while focus is inside it.
-  Textarea `frame="composer"` removes its duplicate inner border without changing prompt/chat
-  growth limits. ModelPicker owns one viewport-bounded dialog with three regions — a 44 px
+  caret is the prompt's focus indicator: the frame adds no ring, and the textarea cannot be resized
+  by dragging; it grows by its layout limits. Textarea `frame="composer"` removes its duplicate
+  inner border without changing prompt/chat growth limits. ModelPicker owns one viewport-bounded
+  dialog with three regions — a 44 px
   instance radio rail, a bare search band over the virtualized model list and a 192 px thinking
   column — above a footer shared by all three. The list is flat rows (`provider` heading or model),
   so a heading owns its own height; the thinking levels are a vertical Base UI `Toolbar`. Modules
   supply driver/config data and actions, not control skins.
+- The new-task composer's context row names the project, the workspace and the branch once,
+  left-aligned, with no path or summary on the right. The project name opens the shared project
+  picker. The workspace is a two-choice picker (`Current checkout`, `New worktree`); a new
+  worktree's `from <branch>` opens a popover with a search band over one bordered, scrollable
+  branch list. These triggers are borderless plain text with the shared hover.
 - Checkbox composes Base UI checked/mixed state using the shared primary/input/focus tokens.
   ModelPicker can suspend its dialog for Settings while retaining its search and selection owner.
 - ComboboxButton `layout="bounded"` caps profile/workspace triggers and exposes the

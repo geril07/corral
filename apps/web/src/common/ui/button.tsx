@@ -25,6 +25,8 @@ const buttonVariants = cva(
         navigation:
           "w-full min-w-0 justify-start overflow-hidden text-left focus-visible:ring-inset",
         model: "min-w-0 max-w-64 justify-start overflow-hidden text-left",
+        // A plain text control in a context row: content width up to a readable bound, then truncates.
+        text: "min-w-0 max-w-64 justify-start overflow-hidden text-left",
         // A session tab takes its content width up to 200 px and the strip's height, then truncates
         // (`layout.md`).
         tab: "h-full min-w-0 max-w-50 justify-start overflow-hidden text-left focus-visible:ring-inset",

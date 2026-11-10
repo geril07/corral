@@ -97,7 +97,8 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
   Reasoning and tool calls keep their folds and independently bounded output/diffs.
 - New-task and chat prompts share the bordered composer surface and wrapping control row.
   Send/steer, abort and IME protection retain their existing semantics; follow-up is offered only
-  where the driver declares it. Repository/checkout/branch controls never belong to an
+  where the driver declares it. The prompt's caret is its focus indicator, and its textarea has no
+  resize grip. Repository/checkout/branch controls never belong to an
   existing-task chat composer.
 - One bounded picker serves creation, add-agent and live chat: tool/profile icon rail, searchable
   model column and the selected model\'s thinking column. A live-chat popup anchors above its
@@ -136,9 +137,13 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
   zero-task project is itself the composer state: its group follows the collapse state, and Escape
   has no earlier selection to return to. The composer has no URL of its own and no draft row in the
   sidebar.
-- Prompt and agent/model, Chat/Terminal and Create controls share the composer. Project and
-  workspace setup sit below it, never in ongoing chat. Prompt starts the primary agent;
-  a title-only task starts no session. Optional title stays.
+- Prompt and agent/model, Chat/Terminal and Create controls share the composer. One left-aligned
+  context row below it names the project, the workspace mode and the branch; setup never sits in
+  ongoing chat. The project name reuses the shared project picker, and choosing a project returns
+  focus to the prompt. `Current checkout` shows the project's default base as a read-only fact;
+  `New worktree` shows `from <branch>` and opens the branch picker. No workspace path or summary
+  line sits at the right. Prompt starts the primary agent; a title-only task starts no session.
+  Optional title stays.
 - Chat is the built-in default; explicit global/project/view choices win and unsupported chat
   falls back to terminal. Capability loading blocks prompt launches, not title-only creation.
 - From issue is a secondary Task setup actions menu entry, not an everyday creation control.
