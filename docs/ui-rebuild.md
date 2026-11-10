@@ -113,4 +113,10 @@ behaviour and the open questions; the slice brief is written from it.
    device-only or shared?
 3. Attachments and pre-launch reasoning: separate issues, or extend the protocol inside #263?
 4. Title-only creation: add the control or document that a prompt is required.
-5. Which remaining Corral-only strings stay (settings descriptions, capability hints).
+5. Which remaining Corral-only strings stay. The UI/UX review of the merged surface flagged these as
+   authored copy with no reference match, and left them unchanged pending your word:
+   `settings-sections.ts:20,25,30,60` (the four settings section descriptions),
+   `model-management.tsx:583` (the model-ordering paragraph), `task-composer.tsx:229` (placeholder
+   `What should the agent do?`), and `task-composer.tsx:249,281` (the disabled attach/reasoning
+   hints). Reference wording exists for the placeholder (`Ask anything…`, OpenCode
+   `packages/app/src/runtime/i18n/en.ts:351`) but not for the hints.
