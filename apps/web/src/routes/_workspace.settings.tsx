@@ -1,10 +1,10 @@
 import { createFileRoute, useBlocker } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SettingsScreen } from "../modules/settings/index.ts";
-import { validateWorkspaceSearch } from "../modules/workspace/index.ts";
+import { validateSettingsSearch } from "../modules/workspace/index.ts";
 
 export const Route = createFileRoute("/_workspace/settings")({
-  validateSearch: validateWorkspaceSearch,
+  validateSearch: validateSettingsSearch,
   component: SettingsRoute,
 });
 
@@ -41,6 +41,7 @@ function SettingsRoute() {
   return (
     <SettingsScreen
       onClose={close}
+      projectTarget={search.settingsProject}
       onDirtyChange={setDirty}
       onBusyChange={(next) => {
         setBusy(next);

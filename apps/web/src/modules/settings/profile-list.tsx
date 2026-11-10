@@ -1,8 +1,14 @@
 import { AGENT_LAUNCH_CAPABILITY } from "@corral/protocol/config";
+import type { ConfigProblem, LaunchProfile } from "@corral/protocol/config";
 import type { AgentKind } from "@corral/protocol/rpc";
-import type { LaunchProfile } from "@corral/protocol/config";
 import { useState } from "react";
 import { Button } from "../../common/ui/index.ts";
+import {
+  SettingsCard,
+  SettingsNote,
+  SettingsProblems,
+  SettingsRow,
+} from "./settings-primitives.tsx";
 
 /** What a launch may ask this agent for; the same table the server validates with. */
 function capabilityText(kind: AgentKind): string {
@@ -14,39 +20,50 @@ function capabilityText(kind: AgentKind): string {
   return "provider only";
 }
 
-export function ProfileList({ profiles }: { profiles: readonly LaunchProfile[] }) {
-  if (profiles.length === 0) {
-    return (
-      <p className="m-0 text-muted-foreground">
-        No profiles. Add a <span className="font-mono text-xs">[profiles.&lt;id&gt;]</span> table to
-        the config file.
-      </p>
-    );
-  }
+export function ProfileList({
+  profiles,
+  problems,
+}: {
+  profiles: readonly LaunchProfile[];
+  problems: readonly ConfigProblem[];
+}) {
+  const profileProblems = problems.filter(
+    (problem) => problem.path === "profiles" || problem.path.startsWith("profiles."),
+  );
   return (
-    <ul className="m-0 list-none p-0">
-      {profiles.map((profile) => (
-        <ProfileRow key={`${profile.id}:${profile.revision}`} profile={profile} />
-      ))}
-    </ul>
+    <>
+      {profiles.length === 0 ? (
+        <SettingsNote>
+          No profiles. Add a <span className="font-mono text-xs">[profiles.&lt;id&gt;]</span> table
+          to the config file
+        </SettingsNote>
+      ) : (
+        <SettingsCard>
+          {profiles.map((profile) => (
+            <ProfileRow key={`${profile.id}:${profile.revision}`} profile={profile} />
+          ))}
+        </SettingsCard>
+      )}
+      <SettingsProblems problems={profileProblems} title="Profile problems" />
+    </>
   );
 }
 
 function ProfileRow({ profile }: { profile: LaunchProfile }) {
   const [envOpen, setEnvOpen] = useState(false);
   return (
-    <li className="py-1">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium">{profile.name}</span>
-        <span className="font-mono text-xs text-muted-foreground">{profile.id}</span>
-        <span className="text-muted-foreground">
-          {profile.agent} · {capabilityText(profile.agent)}
-        </span>
-        <span className="text-muted-foreground">model {profile.model ?? "agent default"}</span>
-        {profile.provider && (
-          <span className="text-muted-foreground">provider {profile.provider}</span>
-        )}
-        {profile.env.length > 0 && (
+    <SettingsRow
+      id={`settings-profile-${profile.id}`}
+      title={profile.name}
+      description={[
+        profile.id,
+        profile.agent,
+        capabilityText(profile.agent),
+        `model ${profile.model ?? "agent default"}`,
+        ...(profile.provider ? [`provider ${profile.provider}`] : []),
+      ].join(" · ")}
+      control={
+        profile.env.length > 0 ? (
           <Button
             variant="link"
             aria-expanded={envOpen}
@@ -55,10 +72,11 @@ function ProfileRow({ profile }: { profile: LaunchProfile }) {
           >
             env ({profile.env.length})
           </Button>
-        )}
-      </div>
+        ) : undefined
+      }
+    >
       {envOpen && (
-        <ul className="m-0 mt-0.5 list-none p-0 pl-3 text-muted-foreground">
+        <ul className="m-0 mt-1 list-none space-y-1 p-0 text-xs text-muted-foreground">
           {profile.env.map((ref) => (
             <li key={ref.targetName}>
               <span className="font-mono text-xs">{ref.targetName}</span> from server variable{" "}
@@ -67,6 +85,6 @@ function ProfileRow({ profile }: { profile: LaunchProfile }) {
           ))}
         </ul>
       )}
-    </li>
+    </SettingsRow>
   );
 }

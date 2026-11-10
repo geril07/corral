@@ -1,6 +1,12 @@
 import { AgentKind, type AgentSetting } from "@corral/protocol/config";
 import { Badge } from "../../common/ui/index.ts";
 import { useConfig } from "../keymap/index.ts";
+import {
+  SettingsCard,
+  SettingsNote,
+  SettingsProblems,
+  SettingsRow,
+} from "./settings-primitives.tsx";
 
 /**
  * `[agents.<kind>]` and what the host has (`layout.md`, **Board and settings**: an Agents section).
@@ -9,50 +15,49 @@ import { useConfig } from "../keymap/index.ts";
  * driver column is the same fact `chat.capabilities` reports.
  */
 export function AgentsSection() {
-  const { loaded, config, agents } = useConfig();
-  if (!loaded) return <p className="m-0 text-muted-foreground">waiting for the server's config…</p>;
+  const { loaded, config, agents, problems } = useConfig();
+  if (!loaded) return <SettingsNote>waiting for the server's config…</SettingsNote>;
   return (
     <>
-      <ul className="m-0 list-none p-0">
+      <SettingsCard>
         {AgentKind.options.map((kind) => {
           const setting = config.agents[kind];
           const availability = agents.find((candidate) => candidate.kind === kind);
           return (
-            <li key={kind} className="flex flex-wrap items-baseline gap-2 py-0.5">
-              <span className="w-20 font-mono text-xs">{kind}</span>
-              <span className="min-w-0 break-all font-mono text-xs">{setting.command.value}</span>
-              <Badge variant="outline">{setting.command.source}</Badge>
-              <FoundText found={availability?.found} />
-              <span className="ml-auto flex items-center gap-1">
-                <span className="text-muted-foreground">chat</span>
-                <span>
-                  {availability === undefined
-                    ? "unknown"
-                    : availability.chatDriver
-                      ? "driver"
-                      : "terminal only"}
-                </span>
-                <EnabledBadge setting={setting} />
-              </span>
-            </li>
+            <SettingsRow
+              key={kind}
+              id={`settings-agent-${kind}`}
+              title={kind}
+              description={[
+                setting.command.value,
+                `${setting.command.source} command`,
+                availability === undefined
+                  ? "host unknown"
+                  : availability.found
+                    ? "found"
+                    : "not found",
+                availability === undefined
+                  ? "chat unknown"
+                  : availability.chatDriver
+                    ? "chat driver"
+                    : "terminal only",
+              ].join(" · ")}
+              control={<EnabledBadge setting={setting} />}
+            />
           );
         })}
-      </ul>
-      <p className="mt-1 mb-0 text-muted-foreground">
+      </SettingsCard>
+      <SettingsProblems
+        problems={problems.filter((problem) => problem.path.startsWith("agents"))}
+        title="Agent problems"
+      />
+      <SettingsNote>
         A disabled agent is not offered in any picker and a new launch of it is refused; an existing
         session can still be resumed. <span className="font-mono text-xs">command</span> is an
         absolute path that replaces the <span className="font-mono text-xs">PATH</span> lookup for
-        sessions and naming runs. Model, provider and environment stay in launch profiles.
-      </p>
+        sessions and naming runs. Model, provider and environment stay in launch profiles
+      </SettingsNote>
     </>
-  );
-}
-
-/** Whether the server found the command; an older daemon sends no list, so it is unknown. */
-function FoundText({ found }: { found: boolean | undefined }) {
-  if (found === undefined) return <span className="text-muted-foreground">unknown</span>;
-  return (
-    <span className={found ? undefined : "text-destructive"}>{found ? "found" : "not found"}</span>
   );
 }
 

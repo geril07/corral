@@ -125,6 +125,8 @@ interface SidebarProps {
   onRemoveTask: (task: Task) => void;
   /** Removes the whole project: its tasks and sessions, never the worktrees or branches. */
   onRemoveProject: (project: Project, opener?: HTMLElement) => void;
+  /** Opens Settings on this project's rows; absent in a bare sidebar fixture. */
+  onProjectSettings?: ((project: Project, opener?: HTMLElement) => void) | undefined;
   /** Opens the controlled source dialog; only tasks with a source offer it. */
   onViewSource?: (task: Task, opener?: HTMLElement) => void;
   /** `project` is set by a project group's "new task here"; absent from the header button. */
@@ -350,6 +352,12 @@ export function Sidebar(props: SidebarProps) {
                 groupKey={groupKey(node.project.id)}
                 onNewTask={(opener) => props.onNewTask(node.project, opener)}
                 onRemoveProject={(opener) => props.onRemoveProject(node.project, opener)}
+                {...(props.onProjectSettings === undefined
+                  ? {}
+                  : {
+                      onProjectSettings: (opener) =>
+                        props.onProjectSettings?.(node.project, opener),
+                    })}
                 renderTask={renderTask}
               />
             ))}
@@ -683,6 +691,7 @@ function ProjectGroup({
   groupKey,
   onNewTask,
   onRemoveProject,
+  onProjectSettings,
   renderTask,
 }: {
   node: ProjectNode;
@@ -693,6 +702,7 @@ function ProjectGroup({
   onToggle: (groupKey: string) => void;
   onNewTask: (opener?: HTMLElement) => void;
   onRemoveProject: (opener?: HTMLElement) => void;
+  onProjectSettings?: ((opener?: HTMLElement) => void) | undefined;
   renderTask: (node: TaskNode) => React.ReactNode;
 }) {
   const { project, active } = node;
@@ -779,6 +789,13 @@ function ProjectGroup({
           >
             New task in {project.name}
           </DropdownMenuItem>
+          {onProjectSettings !== undefined && (
+            <DropdownMenuItem
+              onClick={(event) => onProjectSettings(menuTrigger.current ?? event.currentTarget)}
+            >
+              Project settings…
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             variant="destructive"
             onClick={(event) => onRemoveProject(menuTrigger.current ?? event.currentTarget)}
