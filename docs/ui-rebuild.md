@@ -7,7 +7,7 @@ status section when a slice lands; a slice that only lives in a chat does not ex
 Rules for how work is done and reviewed: `docs/delivery.md`. Product decisions: `docs/design.md`.
 
 **Where we are (2026-11-10).** All landed slices are on `feat/263-task-composer-instances`
-(`8de4f5f` and its parents); nothing is pushed, there is no PR yet, and the running app is the dev
+(`90eb547` and its parents); nothing is pushed, there is no PR yet, and the running app is the dev
 stand built from that branch. Two slices are in flight in separate worktrees, branches
 `feat/263-tabs` and `feat/263-task-menu`. Research for the queued slices is in `.review/research/`
 (`tabs.md`, `sidebar-task-menu.md`, `chat-transcript.md`, `chat-start.md`, `drafts.md`); each claim
@@ -50,7 +50,9 @@ it — without meeting a single invented screen.
   in the picker, one-row empty states.
 - **Settings rebuild** (#263) — T3 geometry (80×60 rem, 240 rail, 720 page), no header row,
   borderless `Search`, T3 row metrics, no click focus boxes, T3 slider with percent and reset,
-  select-row for tab position.
+  select-row for tab position. The dialog is one scroller: the content column owns the wheel, uses
+  the kit bar inset from the rounded edge, and the Models page fills the column instead of the
+  window.
 - **Kit cleanup** — standardized input and prompt padding (16 inline for the prompt, 12 for fields),
   press translate removed from every button, `No project` icon matches the picker.
 
