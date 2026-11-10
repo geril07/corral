@@ -3,6 +3,7 @@ import {
   taskSettingsFor,
   type AgentKind,
   type ClientConfig,
+  type ConfigProblem,
   type LaunchProfile,
   type ResolvedTaskSettings,
 } from "@corral/protocol/config";
@@ -60,6 +61,8 @@ interface BaseRefState {
 export interface TaskComposerProps {
   projects: readonly Project[];
   config: ClientConfig;
+  /** The config file's own problems; a refused profile cannot reach resolved settings. */
+  configProblems: readonly ConfigProblem[];
   profiles: readonly LaunchProfile[];
   chatDrivers: readonly AgentKind[];
   capabilitiesReady: boolean;
@@ -88,6 +91,7 @@ export interface TaskComposerProps {
 export function TaskComposer({
   projects,
   config,
+  configProblems,
   profiles,
   chatDrivers,
   capabilitiesReady,
@@ -128,7 +132,10 @@ export function TaskComposer({
     project === undefined ? config.tasks : taskSettingsFor(config, project.path);
   const agent = draft.agent ?? defaultLaunch(settings, profiles, config.agents);
   const agentProblem = agent ? launchProblem(agent, profiles, config.agents) : undefined;
-  const configuredDisabled = configuredDefaultProblem(settings, profiles, config.agents);
+  const settingsPath = project === undefined ? "tasks" : `projects."${project.path}"`;
+  const configuredDisabled =
+    configuredProfileProblem(configProblems, settingsPath, settings.profile.value) ??
+    configuredDefaultProblem(settings, config.agents);
   const view = launchView(settings, agent?.kind, chatDrivers);
   const workspace =
     COMPOSER_WORKSPACES.find((choice) => choice.key === draft.workspaceKey) ??
@@ -136,7 +143,8 @@ export function TaskComposer({
   // `Current checkout` is the main tree's checked-out branch, read with the base refs; the base a
   // new worktree starts from is a separate value, so choosing one never changes the read-only row.
   const baseRefState = baseRefs?.projectId === projectId ? baseRefs : undefined;
-  const checkoutBranch = baseRefState?.currentBranch ?? "";
+  const checkoutBranch =
+    baseRefState?.status === "loaded" ? (baseRefState.currentBranch ?? "HEAD") : undefined;
   const worktreeBase = draft.baseBranch ?? project?.defaultBaseBranch ?? "";
   const remoteBaseRefs = new Set(baseRefState?.remote ?? []);
   const baseRefNames = [...(baseRefState?.local ?? []), ...(baseRefState?.remote ?? [])];
@@ -387,9 +395,11 @@ export function TaskComposer({
                   </ComboboxList>
                 </ComboboxContent>
               </Combobox>
-              <span className="task-composer-separator" aria-hidden="true">
-                /
-              </span>
+              {(workspace.key === WORKTREE || checkoutBranch !== undefined) && (
+                <span className="task-composer-separator" aria-hidden="true">
+                  /
+                </span>
+              )}
               {workspace.key === WORKTREE ? (
                 <BranchControl
                   names={baseRefChoices}
@@ -402,12 +412,12 @@ export function TaskComposer({
                     focusPromptSoon();
                   }}
                 />
-              ) : (
+              ) : checkoutBranch !== undefined ? (
                 <span className="task-composer-branch">
                   <Icon name="branch" size="row" />
                   <span className="min-w-0 truncate">{checkoutBranch}</span>
                 </span>
-              )}
+              ) : null}
             </>
           )}
         </div>
@@ -417,6 +427,14 @@ export function TaskComposer({
             The selected project is no longer available. Choose another project or No project.
           </p>
         )}
+
+        {baseRefState?.status === "failed" &&
+          baseRefState.error !== undefined &&
+          failure === undefined && (
+            <p className="task-composer-error" role="alert">
+              {baseRefState.error}
+            </p>
+          )}
 
         {configuredDisabled !== undefined && !pickingAgent && (
           <p className="task-composer-note">{configuredDisabled}</p>
@@ -537,24 +555,30 @@ function BranchControl({
 }
 
 /** The configured instance is honoured; when it is disabled the fallback is named, not silent. */
+function configuredProfileProblem(
+  problems: readonly ConfigProblem[],
+  settingsPath: string,
+  effectiveProfile: string | null,
+): string | undefined {
+  const project =
+    settingsPath === "tasks"
+      ? undefined
+      : problems.find((problem) => problem.path === `${settingsPath}.profile`);
+  const problem =
+    project ??
+    (effectiveProfile === null
+      ? problems.find((candidate) => candidate.path === "tasks.profile")
+      : undefined);
+  if (problem === undefined) return undefined;
+  return `The configured profile cannot be used: ${problem.message}. Choose another agent.`;
+}
+
+/** A configured agent survives the parser only when enabled; a profile's agent is checked there. */
 function configuredDefaultProblem(
   settings: ResolvedTaskSettings,
-  profiles: readonly LaunchProfile[],
   agents: ClientConfig["agents"],
 ): string | undefined {
-  const profile = settings.profile.value;
-  if (profile !== null) {
-    const found = profiles.find((candidate) => candidate.id === profile);
-    if (found === undefined)
-      return `The configured profile "${profile}" is missing from the config file; choose another agent.`;
-    // The server's disabled message calls this an instance ("This instance is disabled …"); the
-    // named fallback keeps the substitution from being silent.
-    if (found.enabled === false)
-      return `The instance "${found.name}" is disabled in the config file. Choose an agent or another instance.`;
-    if (!agents[found.agent].enabled.value)
-      return `The configured profile "${found.name}" uses the disabled ${found.agent} agent; choose another.`;
-    return undefined;
-  }
+  if (settings.profile.value !== null) return undefined;
   const kind = settings.agent.value;
   if (kind !== null && !agents[kind].enabled.value)
     return `The configured ${kind} agent is disabled in the config file; choose another.`;
