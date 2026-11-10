@@ -208,6 +208,25 @@ test("old asynchronous results cannot replace a newer path", async () => {
   await expect.element(page.getByRole("option")).not.toBeInTheDocument();
 });
 
+test("a bounded listing keeps its rows and names the omitted directories", async () => {
+  await render(
+    <AddProjectDialog
+      onAdd={() => Promise.resolve()}
+      onBrowse={() => Promise.resolve({ directories: entries, truncated: true })}
+      onClose={() => undefined}
+    />,
+  );
+  await userEvent.fill(input(), "/parent/");
+  await expect.element(page.getByRole("option", { name: "alpha", exact: true })).toBeVisible();
+  await expect
+    .element(
+      page.getByText("Some directories are omitted. Type a longer path to narrow the list.", {
+        exact: true,
+      }),
+    )
+    .toBeVisible();
+});
+
 test("the settled list stays while the next path is still loading", async () => {
   let next!: (result: { directories: typeof entries; truncated: boolean }) => void;
   const onBrowse = (path: string) =>

@@ -123,7 +123,11 @@ function ProjectPicker({
         ? { text: failureMessage, error: true }
         : listing !== undefined && directories.length === 0
           ? { text: "No directories found" }
-          : undefined;
+          : listing !== undefined && listing.listing.truncated
+            ? {
+                text: "Some directories are omitted. Type a longer path to narrow the list.",
+              }
+            : undefined;
 
   async function submit() {
     if (!path.trim() || submitting.current) return;
