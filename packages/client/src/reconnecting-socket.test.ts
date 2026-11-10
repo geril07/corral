@@ -1,6 +1,7 @@
 import {
   CAPABILITY_REFUSED_CLOSE_CODE,
   PROTOCOL_MISMATCH_CLOSE_CODE,
+  PROTOCOL_VERSION,
 } from "@corral/protocol/handshake";
 import { expect, test, vi } from "vite-plus/test";
 import type { ConnectionState } from "./connection-state.ts";
@@ -94,14 +95,18 @@ test("a dropped socket keeps retrying, and the attempt count advances", () => {
   }
 });
 
-test("a protocol mismatch still stops without scheduling a retry", () => {
+test("a daemon speaking the previous protocol stops without scheduling a retry", () => {
   vi.useFakeTimers();
   try {
     const { socket, sockets, states } = harness();
-    sockets[0]?.fail(PROTOCOL_MISMATCH_CLOSE_CODE, JSON.stringify({ serverProtocolVersion: 12 }));
+    // An older daemon that does not know this build's required fields is refused, not retried.
+    sockets[0]?.fail(
+      PROTOCOL_MISMATCH_CLOSE_CODE,
+      JSON.stringify({ serverProtocolVersion: PROTOCOL_VERSION - 1 }),
+    );
     expect(states.at(-1)).toEqual({
       status: "protocol-mismatch",
-      serverProtocolVersion: 12,
+      serverProtocolVersion: PROTOCOL_VERSION - 1,
     });
     vi.advanceTimersByTime(10_000);
     expect(sockets).toHaveLength(1);
