@@ -1,4 +1,4 @@
-import type { IssueProvider, Project, TaskSource } from "@corral/protocol/rpc";
+import type { IssueProvider, Project, ProjectBaseRefs, TaskSource } from "@corral/protocol/rpc";
 import { stat } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
 import { ChangeFeed } from "../changes/change-feed.ts";
@@ -7,6 +7,7 @@ import { GitError } from "../git/git.ts";
 import { branchConflict, localNameOfRemote } from "../git/names.ts";
 import {
   checkedOutBranches,
+  currentBranch,
   defaultBaseBranch,
   findMainWorkingTree,
   listBranches,
@@ -175,14 +176,18 @@ export class ProjectService {
   }
 
   /**
-   * Every ref a new worktree may start from: local branches, checked-out ones included, then
-   * remote-tracking refs (`origin/x`). A branch another worktree holds is still a valid base, so
-   * this is the base question rather than `branches`' checkout one.
+   * What a new worktree may start from, and the main tree's checkout: local branches with the
+   * checked-out ones included, remote-tracking refs (`origin/x`) kept separate because they are a
+   * different starting point, and `currentBranch`. A branch another worktree holds is still a
+   * valid base, so this is the base question rather than `branches`' checkout one.
    */
-  async baseRefs(id: string): Promise<string[]> {
+  async baseRefs(id: string): Promise<ProjectBaseRefs> {
     const { path } = this.get(id);
-    const { local, remote } = await listBranches(path);
-    return [...local, ...remote];
+    const [{ local, remote }, current] = await Promise.all([
+      listBranches(path),
+      currentBranch(path),
+    ]);
+    return { local, remote, currentBranch: current ?? null };
   }
 
   /** Reads one issue through the server's CLI inside the project, with no remote changes. */

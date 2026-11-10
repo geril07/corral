@@ -380,14 +380,28 @@ test("baseRefs offers local branches a worktree holds and remote-tracking refs",
   const project = await api.projects.add({ path: clone });
 
   // The base question, not `branches`' checkout one: `trunk` and `feature/login` are held by a
-  // worktree yet both are valid bases, and every remote-tracking ref is one too.
-  expect(await api.projects.baseRefs({ id: project.id })).toEqual([
-    "feature/login",
-    "trunk",
-    "origin/release/1.0",
-    "origin/trunk",
-  ]);
+  // worktree yet both are valid bases, and every remote-tracking ref is one too. The groups stay
+  // separate: `trunk` and `origin/trunk` are different starting points.
+  expect(await api.projects.baseRefs({ id: project.id })).toEqual({
+    local: ["feature/login", "trunk"],
+    remote: ["origin/release/1.0", "origin/trunk"],
+    currentBranch: "trunk",
+  });
   expect(await api.projects.branches({ id: project.id })).toEqual(["origin/release/1.0"]);
+});
+
+test("baseRefs names the main tree's checkout, not the base stored when the project was added", async () => {
+  const { clone } = cloneOfOrigin(server.scratchDir);
+  const api = await server.rpc();
+  const project = await api.projects.add({ path: clone });
+  runGit(clone, "switch", "-c", "scratch");
+
+  expect(project.defaultBaseBranch).toBe("trunk");
+  expect(await api.projects.baseRefs({ id: project.id })).toMatchObject({
+    currentBranch: "scratch",
+  });
+  runGit(clone, "checkout", "--detach");
+  expect(await api.projects.baseRefs({ id: project.id })).toMatchObject({ currentBranch: null });
 });
 
 test("a task can start from a branch another worktree holds", async () => {
@@ -399,7 +413,7 @@ test("a task can start from a branch another worktree holds", async () => {
   runGit(repo, "worktree", "add", "--", linked, "feature/held");
   const api = await server.rpc();
 
-  expect(await api.projects.baseRefs({ id: project.id })).toContain("feature/held");
+  expect((await api.projects.baseRefs({ id: project.id })).local).toContain("feature/held");
   const task = await api.tasks.create({
     projectId: project.id,
     title: "From a held base",
