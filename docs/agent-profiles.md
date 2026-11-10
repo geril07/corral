@@ -425,7 +425,7 @@ and optionally `model`; the server validates them and returns the snapshot.
 
 ## Protocol and old daemons
 
-The combined client/server contract is protocol version 12. Version 3 added launch profiles
+The combined client/server contract is protocol version 14. Version 3 added launch profiles
 and their revision pin; version 4 added the settings action; version 5 protects task-source
 inputs; version 6 adds the task title source, `tasks.rename`, the rename-task/session-number
 actions and the required task, naming and project settings; version 7 adds the sidebar-mode
@@ -437,7 +437,10 @@ abort-turn/change-model/change-reasoning/switch-view bindings, `[tasks] view = "
 `chat.capabilities` from a driver list into the per-agent capability record (`kind`, `steer`,
 `followUp`, `approvals`, `modelSwitch`, `reasoningLevels`, `terminalView`); version 11 requires
 the shared model catalog (`models.watch/save/catalog`) on every client; version 12 adds the
-focus-sidebar action and its binding. A protocol 4 daemon would
+focus-sidebar action and its binding; version 13 requires `projects.directories` before project
+registration; version 14 adds the required project base/pin fields, nullable task project/branch/
+workspace ownership, the model policy's `providerOrder`/`modelOrder`, and `projects.baseRefs`. A
+protocol 4 daemon would
 strip task sources, a
 protocol 3 daemon sends an exhaustive bindings record without `settings`, and a protocol 2
 daemon would strip launch fields and start the agent natively; a protocol 5 daemon strips the

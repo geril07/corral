@@ -36,9 +36,14 @@ import { z } from "zod";
  * procedures a daemon from before C6 answers as unknown, so the Changes tab says the action is
  * unavailable there and the badge stays absent instead of showing a write that never ran. Version
  * 11 requires the shared `models.watch/save/catalog` contract on every client. Version 12 adds the
- * focus-sidebar action: a version 11 server strips that binding from its exhaustive keys. */
-// Version 13 requires server directory completions before project registration.
-export const PROTOCOL_VERSION = 13;
+ * focus-sidebar action: a version 11 server strips that binding from its exhaustive keys. Version
+ * 13 requires server directory completions before project registration. Version 14 adds the
+ * required `Project.defaultBaseBranch` and `Project.pinnedAt`, nullable task project/branch/
+ * workspace ownership, and the model policy's `providerOrder`/`modelOrder`, plus
+ * `projects.baseRefs`: a version 13 daemon's projects and tasks fail required-field parsing, and
+ * its model policy lacks the order arrays `orderModels` reads, so its replies are refused rather
+ * than crashing the client. */
+export const PROTOCOL_VERSION = 14;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in
