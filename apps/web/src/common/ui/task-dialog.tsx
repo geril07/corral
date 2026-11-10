@@ -204,8 +204,13 @@ export function DestructiveTaskDialog({
   description,
   onClose,
   finalFocus: explicitFinalFocus,
+  beforeClose,
   children,
-}: DialogProps & { finalFocus?: AlertFinalFocus }) {
+}: DialogProps & {
+  finalFocus?: AlertFinalFocus;
+  /** A close request that may be refused, e.g. while a destructive write is in flight. */
+  beforeClose?: (() => boolean) | undefined;
+}) {
   const defaultFinalFocus = useTaskFinalFocus();
   const finalFocus = explicitFinalFocus ?? defaultFinalFocus;
   const [open, setOpen] = useState(true);
@@ -213,7 +218,11 @@ export function DestructiveTaskDialog({
   return (
     <AlertDialog
       open={open}
-      onOpenChange={(next) => !next && setOpen(false)}
+      onOpenChange={(next) => {
+        if (next) return;
+        if (beforeClose !== undefined && !beforeClose()) return;
+        setOpen(false);
+      }}
       onOpenChangeComplete={(next) => !next && onClose()}
     >
       <AlertDialogContent

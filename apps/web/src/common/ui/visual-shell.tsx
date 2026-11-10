@@ -55,8 +55,6 @@ export interface VisualTaskRow {
   title: string;
   project: string;
   projectInitial: string;
-  /** The task's own state; the routed shell lists active rows and the settled shelf is queued. */
-  state: "active" | "settled";
   /** The absolute workspace path a task's terminals start in; the menu copies it verbatim. */
   workspacePath: string;
   /** Whether the task was created from an issue URL; the source item exists only then. */
@@ -308,16 +306,24 @@ function metadataFacts(row: VisualTaskRow): TooltipMetadataFact[] {
   ];
 }
 
-function TaskMetadataTooltip({ row, children }: { row: VisualTaskRow; children: ReactElement }) {
-  const [open, setOpen] = useState(false);
-
+function TaskMetadataTooltip({
+  row,
+  open,
+  onOpenChange: setOpen,
+  children,
+}: {
+  row: VisualTaskRow;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  children: ReactElement;
+}) {
   // A hover card does not follow a list scroll: close it so it cannot sit over the wrong row.
   useEffect(() => {
     if (!open) return undefined;
     const close = () => setOpen(false);
     window.addEventListener("scroll", close, true);
     return () => window.removeEventListener("scroll", close, true);
-  }, [open]);
+  }, [open, setOpen]);
 
   return (
     <Tooltip open={open} onOpenChange={setOpen}>
@@ -353,6 +359,8 @@ export function VisualTaskCard({
   onMenuOpen,
 }: VisualTaskCardProps) {
   const { status } = row;
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const icon = status === undefined ? undefined : statusIcon(status.tone);
 
   const hit = (
@@ -387,19 +395,32 @@ export function VisualTaskCard({
   return (
     <div className="visual-task-card" data-selected={selected ? "true" : undefined}>
       {menu === undefined ? (
-        <TaskMetadataTooltip row={row}>{hit}</TaskMetadataTooltip>
+        <TaskMetadataTooltip row={row} open={tooltipOpen} onOpenChange={setTooltipOpen}>
+          {hit}
+        </TaskMetadataTooltip>
       ) : (
         // The tooltip's trigger wraps the context-menu trigger so the hit button keeps both the
         // metadata tooltip and the row menu (Shift+F10, the menu key and right-click).
         <ContextMenu.Root
           onOpenChange={(open) => {
-            if (open) onMenuOpen?.();
+            setMenuOpen(open);
+            if (open) {
+              // A menu and the metadata card never stack; the mouse path opens the menu first.
+              setTooltipOpen(false);
+              onMenuOpen?.();
+            }
           }}
         >
-          <TaskMetadataTooltip row={row}>
+          <TaskMetadataTooltip
+            row={row}
+            open={!menuOpen && tooltipOpen}
+            onOpenChange={(open) => setTooltipOpen(menuOpen ? false : open)}
+          >
             <ContextMenu.Trigger render={hit} />
           </TaskMetadataTooltip>
-          <RowMenuPopup label={`Task actions for ${row.title}`}>{menu}</RowMenuPopup>
+          <RowMenuPopup label={`Task actions for ${row.title}`} skin="visual">
+            {menu}
+          </RowMenuPopup>
         </ContextMenu.Root>
       )}
       <div className="visual-task-slot">

@@ -234,3 +234,23 @@ test("a long worktree path wraps inside the dialog instead of overflowing it", a
     surface.getBoundingClientRect().right + 1,
   );
 });
+
+test("Escape cannot dismiss a removal that is already in flight", async () => {
+  let release!: () => void;
+  const onRemove = vi.fn<(force: boolean) => Promise<void>>(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  await render(<RemoveTaskDialog task={task} onRemove={onRemove} onClose={() => undefined} />);
+
+  await opened();
+  await userEvent.keyboard("{Tab}{Enter}");
+  await expect.element(dialog().getByRole("button", { name: "Cancel" })).toBeDisabled();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(dialog()).toBeVisible();
+
+  release();
+  await expect.element(dialog()).not.toBeInTheDocument();
+});

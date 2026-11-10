@@ -80,6 +80,31 @@ test("confirming a removal selects and focuses the next row, never the list's to
   await unmount();
 });
 
+test("removing a row that is not current leaves selection and focus where they were", async () => {
+  const client = await connectedClient();
+  await projectWithTasks(client, ["Delta task", "Echo task", "Foxtrot task"]);
+  const { unmount } = await render(<App client={client} />);
+  await waitForRows(3);
+
+  const order = rowIds();
+  const current = order[0]!;
+  const removed = order[1]!;
+  await userEvent.click(rowFor(titleOf(client, current)));
+
+  await rowFor(titleOf(client, removed)).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove task…" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect.element(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Remove task" }).click();
+  await expect.element(dialog).not.toBeInTheDocument();
+
+  await expect.poll(() => document.activeElement?.getAttribute("data-task-id")).toBe(current);
+  expect(
+    document.querySelector(`[data-task-id="${CSS.escape(current)}"]`)?.getAttribute("aria-current"),
+  ).toBe("true");
+  await unmount();
+});
+
 test("the remove dialog names the branch checked out in the worktree now", async () => {
   const client = await connectedClient();
   const repo = await createGitRepo(`menu-branch-${Date.now()}`);

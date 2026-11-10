@@ -28,11 +28,10 @@ import {
 } from "./visual-view.tsx";
 import { buildTaskRows } from "./visual-status.ts";
 
-/** The open removal: its preflight answer and the row that takes the selection afterwards. */
+/** The open removal and its preflight answer. */
 interface RemoveState {
   task: Task;
   workspaceMissing: boolean;
-  nextId: string | undefined;
 }
 
 /**
@@ -88,6 +87,8 @@ export function VisualWorkspace({
   const listFocus = useRef<VisualRowFocus | null>(null);
   const removeRead = useRef<AbortController | undefined>(undefined);
   const removeSucceeded = useRef(false);
+  const removeCurrent = useRef<string | undefined>(undefined);
+  const removeNext = useRef<string | undefined>(undefined);
   const browse = useCallback(
     (path: string, signal: AbortSignal) =>
       client.connection.api.projects.directories({ path }, { signal }),
@@ -111,6 +112,7 @@ export function VisualWorkspace({
   const newTaskBinding = bindingOf(config, "new-task");
   const settingsBinding = bindingOf(config, "settings");
   const renameBinding = bindingOf(config, "rename-task");
+  const removeBinding = bindingOf(config, "remove-task");
   const prefix = config.keys.prefix;
   const shortcut = useMemo(
     () => (binding === null ? undefined : { prefix, binding }),
@@ -127,6 +129,10 @@ export function VisualWorkspace({
   const renameShortcut = useMemo(
     () => (renameBinding === null ? undefined : { prefix, binding: renameBinding }),
     [prefix, renameBinding],
+  );
+  const removeShortcut = useMemo(
+    () => (removeBinding === null ? undefined : { prefix, binding: removeBinding }),
+    [prefix, removeBinding],
   );
 
   const findTask = useCallback(
@@ -145,14 +151,7 @@ export function VisualWorkspace({
         const task = findTask(id);
         if (task === undefined) return;
         removeSucceeded.current = false;
-        setRemove({
-          task,
-          workspaceMissing: false,
-          nextId: activeAfterClose(
-            rows.map((row) => row.id),
-            id,
-          ),
-        });
+        setRemove({ task, workspaceMissing: false });
         if (!task.ownsWorktree) return;
         // `tasks.remove` returns nothing, so the question is answered before it is asked: the
         // same read the Changes tab shows tells whether the directory is already gone.
@@ -172,7 +171,7 @@ export function VisualWorkspace({
         if (task?.source !== undefined) setSource(task);
       },
     }),
-    [client, findTask, rows],
+    [client, findTask],
   );
 
   const saveRename = useCallback(
@@ -199,18 +198,23 @@ export function VisualWorkspace({
         const snapshot = await client.connection.api.changes.files({ id: task.id });
         workspaceMissing = workspaceMissingPath(snapshot.error ?? "") !== undefined;
       }
-      const nextId = remove?.task.id === task.id ? remove.nextId : undefined;
+      // Rows re-sort while the dialog is open, so the neighbour is read from the list of this
+      // moment, not from the one that opened the menu.
+      const currentId = selectedRow?.id;
+      const nextId = activeAfterClose(
+        rows.map((row) => row.id),
+        task.id,
+      );
+      removeCurrent.current = currentId;
+      removeNext.current = nextId;
       await client.connection.api.tasks.remove({ id: task.id, force });
       removeSucceeded.current = true;
-      if (selectedTaskId === task.id && nextId !== undefined) {
-        onSelectTask(nextId);
-        listFocus.current?.focusRow(nextId);
-      }
+      if (currentId === task.id && nextId !== undefined) onSelectTask(nextId);
       if (workspaceMissing) {
         setNotice({ message: workspaceGoneNotice, tone: "notice" });
       }
     },
-    [client, onSelectTask, remove, selectedTaskId],
+    [client, onSelectTask, rows, selectedRow],
   );
 
   const startDraft = useCallback(
@@ -324,6 +328,7 @@ export function VisualWorkspace({
         newTaskShortcut={newTaskShortcut}
         settingsShortcut={settingsShortcut}
         renameShortcut={renameShortcut}
+        removeShortcut={removeShortcut}
         taskActions={taskActions}
         rowFocus={listFocus}
         notice={notice}
@@ -403,7 +408,11 @@ export function VisualWorkspace({
               : undefined
           }
           finalFocus={() => {
-            const id = removeSucceeded.current ? remove.nextId : remove.task.id;
+            if (!removeSucceeded.current)
+              return listFocus.current?.rowElement(remove.task.id) ?? null;
+            // A removal that was not current must not move the keyboard off the current row.
+            const id =
+              removeCurrent.current === remove.task.id ? removeNext.current : removeCurrent.current;
             return id === undefined ? null : (listFocus.current?.rowElement(id) ?? null);
           }}
           onRemove={(force) => removeTask(remove.task, force)}

@@ -110,10 +110,11 @@ What a user does. Everything below is built and verified end to end, chat views 
 - A visual-shell task row's menu orders identity before state before context before destruction:
   Copy ▸ Path, Branch when the task has one, and Task ID; Rename task…; View issue source… only for
   a task imported from an issue; and Remove task… with the same two-stage confirmation. Its
-  shortcut cell names the `prefix e` action that really runs. Settling stays out until the settled
-  shelf exists, so neither the menu nor the card offers it. A copy confirms in the footer's status
-  sentence and clears on the next interaction; a refused action keeps its sentence there. The menu
-  opens by right-click, the menu key and Shift+F10.
+  shortcut cells name the `prefix e` and `prefix shift+t` actions that really run; row chords stay
+  silent while the composer draft is open. The menu offers no Settle while the settled shelf is
+  queued; the card keeps its honest-disabled Settle control. A copy confirms in the sidebar's
+  notice row above the footer and clears on the next interaction; a refused action keeps its
+  sentence there. The menu opens by right-click, the menu key and Shift+F10.
 - One scrolling region per pane. At 1024×640 and above all controls must be reachable. Long
   forms may scroll inside the stock dialog with a viewport-relative height cap; do not
   shrink/reposition stock controls to recreate the former density.

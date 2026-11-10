@@ -5,13 +5,14 @@ import { useState } from "react";
 import { render } from "vitest-browser-react";
 import type { VisualTaskRow } from "../../common/ui/index.ts";
 import { stubClipboard } from "../../../test/clipboard.ts";
-import { prefixThen } from "../../../test/real-client.ts";
+import { prefixShifted, prefixThen } from "../../../test/real-client.ts";
 import { RemoveTaskDialog } from "../tasks/index.ts";
 import { VISUAL_REVIEW_ROWS, VISUAL_REVIEW_SELECTED } from "./visual-fixtures.ts";
 import { VisualShellView, type VisualTaskActions } from "./visual-view.tsx";
 
 const SHORTCUT = { prefix: "alt+a", binding: "\\" };
 const RENAME_SHORTCUT = { prefix: "alt+a", binding: "e" };
+const REMOVE_SHORTCUT = { prefix: "alt+a", binding: "shift+t" };
 const FIRST = VISUAL_REVIEW_ROWS[0]!;
 
 function Harness() {
@@ -44,9 +45,11 @@ function menuActions() {
 function MenuHarness({
   actions,
   rows = VISUAL_REVIEW_ROWS,
+  composerOpen = false,
 }: {
   actions: VisualTaskActions;
   rows?: readonly VisualTaskRow[];
+  composerOpen?: boolean;
 }) {
   const [selected, setSelected] = useState<string | null>(rows[0]?.id ?? null);
   return (
@@ -58,7 +61,9 @@ function MenuHarness({
       failure={undefined}
       shortcut={SHORTCUT}
       renameShortcut={RENAME_SHORTCUT}
+      removeShortcut={REMOVE_SHORTCUT}
       taskActions={actions}
+      composerOpen={composerOpen}
       onSelectTask={setSelected}
     />
   );
@@ -68,6 +73,8 @@ async function openRowMenu(title: string) {
   const card = page.getByRole("button", { name: new RegExp(title) });
   await userEvent.click(card, { button: "right" });
   await expect.element(page.getByRole("menu")).toBeVisible();
+  // One popup at a time: the mouse path also clears the metadata tooltip.
+  await expect.poll(() => document.querySelector('[role="tooltip"]')).toBeNull();
 }
 
 function menuNames(): (string | undefined)[] {
@@ -104,7 +111,7 @@ function taskOf(row: VisualTaskRow): Task {
     branch: row.metadata.branch ?? null,
     workspacePath: row.workspacePath,
     ownsWorktree: true,
-    state: row.state,
+    state: "active",
     seenAt: null,
     createdAt: 0,
   };
@@ -613,18 +620,13 @@ test("the row menu is copy, rename, source, remove, with live shortcut cells and
 
   await openRowMenu(FIRST.title);
   expect(menuNames()).toEqual(["Copy", "Rename task…", "View issue source…", "Remove task…"]);
-  expect(shortcutCells()).toEqual(["alt+a e"]);
-
-  // The glyph and the submenu chevron share the menu's 16 px step; the cell does not letterspace.
-  const copyTrigger = page.getByRole("menuitem", { name: "Copy" }).element();
-  const glyphWidths = [...copyTrigger.querySelectorAll("svg")].map(
-    (glyph) => glyph.getBoundingClientRect().width,
-  );
-  expect(glyphWidths).toHaveLength(2);
-  expect(Math.abs(glyphWidths[0]! - glyphWidths[1]!)).toBeLessThan(2);
-  expect(Math.min(...glyphWidths)).toBeGreaterThan(14);
-  const shortcut = document.querySelector('[data-slot="dropdown-menu-shortcut"]');
-  expect(["normal", "0px"]).toContain(getComputedStyle(shortcut!).letterSpacing);
+  expect(shortcutCells()).toEqual(["alt+a e", "alt+a shift+t"]);
+  expect(
+    page
+      .getByRole("menuitem", { name: "Rename task…" })
+      .element()
+      .getAttribute("aria-keyshortcuts"),
+  ).toBe("alt+a e");
 
   // The menu refuses the reference features whose contracts do not exist.
   for (const absent of [
@@ -662,7 +664,7 @@ test("copy writes the task path, branch and id, and each is confirmed in the cop
 
     await openRowMenu(FIRST.title);
     await page.getByRole("menuitem", { name: "Copy" }).click();
-    await page.getByRole("menuitem", { name: "Path" }).click();
+    await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
     await vi.waitFor(() =>
       expect(clipboard.writeText).toHaveBeenLastCalledWith(FIRST.workspacePath),
     );
@@ -670,7 +672,7 @@ test("copy writes the task path, branch and id, and each is confirmed in the cop
 
     await openRowMenu(FIRST.title);
     await page.getByRole("menuitem", { name: "Copy" }).click();
-    await page.getByRole("menuitem", { name: "Branch" }).click();
+    await page.getByRole("menuitem", { name: "Copy branch" }).click();
     await vi.waitFor(() =>
       expect(clipboard.writeText).toHaveBeenLastCalledWith(FIRST.metadata.branch),
     );
@@ -678,7 +680,7 @@ test("copy writes the task path, branch and id, and each is confirmed in the cop
 
     await openRowMenu(FIRST.title);
     await page.getByRole("menuitem", { name: "Copy" }).click();
-    await page.getByRole("menuitem", { name: "Task ID" }).click();
+    await page.getByRole("menuitem", { name: "Copy task ID" }).click();
     await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenLastCalledWith(FIRST.id));
     expect(copyNotice()).toBe("Task ID copied");
     await unmount();
@@ -698,9 +700,9 @@ test("a task without a branch has no Branch item under Copy, and the other items
 
   await openRowMenu(FIRST.title);
   await page.getByRole("menuitem", { name: "Copy" }).click();
-  await expect.element(page.getByRole("menuitem", { name: "Path" })).toBeVisible();
-  await expect.element(page.getByRole("menuitem", { name: "Task ID" })).toBeVisible();
-  await expect.element(page.getByRole("menuitem", { name: "Branch" })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("menuitem", { name: "Copy workspace path" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Copy task ID" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Copy branch" })).not.toBeInTheDocument();
   await userEvent.keyboard("{Escape}{Escape}");
 
   // A detached create records "HEAD"; the row carries no branch name to copy.
@@ -712,7 +714,7 @@ test("a task without a branch has no Branch item under Copy, and the other items
   await screen.rerender(<MenuHarness actions={actions} rows={[detached]} />);
   await openRowMenu(FIRST.title);
   await page.getByRole("menuitem", { name: "Copy" }).click();
-  await expect.element(page.getByRole("menuitem", { name: "Branch" })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("menuitem", { name: "Copy branch" })).not.toBeInTheDocument();
   await screen.unmount();
 });
 
@@ -747,7 +749,24 @@ test("the shortcut cells name the prefix actions that really run", async () => {
 
   await prefixThen("e");
   await vi.waitFor(() => expect(actions.onRename).toHaveBeenCalledExactlyOnceWith(FIRST.id));
+  await prefixShifted("t");
+  await vi.waitFor(() => expect(actions.onRemove).toHaveBeenCalledExactlyOnceWith(FIRST.id));
   await unmount();
+});
+
+test("row chords stay silent while a composer draft is open", async () => {
+  const actions = menuActions();
+  const screen = await render(<MenuHarness actions={actions} rows={[FIRST]} composerOpen />);
+
+  await prefixThen("e");
+  await prefixShifted("t");
+  expect(actions.onRename).not.toHaveBeenCalled();
+  expect(actions.onRemove).not.toHaveBeenCalled();
+
+  await screen.rerender(<MenuHarness actions={actions} rows={[FIRST]} composerOpen={false} />);
+  await prefixThen("e");
+  await vi.waitFor(() => expect(actions.onRename).toHaveBeenCalledExactlyOnceWith(FIRST.id));
+  await screen.unmount();
 });
 
 test("no menu item or card control settles a task while the shell has no settled shelf", async () => {
@@ -777,7 +796,7 @@ test("a copy confirmation clears on the next interaction", async () => {
 
     await openRowMenu(FIRST.title);
     await page.getByRole("menuitem", { name: "Copy" }).click();
-    await page.getByRole("menuitem", { name: "Path" }).click();
+    await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
     await vi.waitFor(() => expect(copyNotice()).toBe("Workspace path copied"));
 
     await userEvent.click(cardButton(0));

@@ -179,9 +179,10 @@ context-menu dispatcher.
   status row. `VisualIconButton`, `VisualSearchAction`, `VisualResizeHandle`, the dedicated row
   context menu, the compact tooltip/keycaps and the metadata tooltip are the only controls the
   shell composes. A row's menu is the task menu (a Copy submenu of Path, Branch and Task ID, then
-  rename, source when the task has one, and remove) on the same popup RowMenu uses, skinned with the
-  shell's floating-surface roles. A copy confirmation and a refused task action share the footer's
-  one status sentence; the confirmation clears on the next interaction.
+  rename, source when the task has one, and remove) on the same popup RowMenu uses; the visual host
+  opts into the shell's floating-surface skin, while the stock kit keeps its own. A copy
+  confirmation and a refused task action share the sidebar's notice row above the footer; the
+  confirmation clears on the next interaction.
 - One root-layer toggle owns hide/show. It reads the sidebar's real width and the reserved header
   and main-chrome slots, so the 240 ms width transition is the only motion; there is never a
   second visible or tabbable toggle at either endpoint or in flight.

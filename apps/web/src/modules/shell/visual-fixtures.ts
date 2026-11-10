@@ -7,7 +7,6 @@ import type { VisualTaskRow } from "../../common/ui/index.ts";
 export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   {
     id: "fixture-blocked",
-    state: "active",
     workspacePath: "/home/dev/.dev/worktrees/orbit/fix-oauth-token-refresh",
     hasSource: true,
     copyBranch: "fix/oauth-token-refresh",
@@ -30,7 +29,6 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   },
   {
     id: "fixture-error",
-    state: "active",
     workspacePath:
       "/home/dev/.dev/worktrees/open-telemetry-collector-contrib/fix-upload-retry-pipeline",
     hasSource: false,
@@ -52,7 +50,6 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   },
   {
     id: "fixture-done-unseen",
-    state: "active",
     workspacePath: "/home/dev/.dev/worktrees/atlas/feat-billing-export-endpoint",
     hasSource: false,
     copyBranch: "feat/billing-export-endpoint",
@@ -68,7 +65,6 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   },
   {
     id: "fixture-working",
-    state: "active",
     workspacePath: "/home/dev/.dev/worktrees/orbit/refactor-session-reconnect-handshake",
     hasSource: false,
     copyBranch: "refactor/session-reconnect-handshake",
@@ -85,7 +81,6 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   },
   {
     id: "fixture-done-seen",
-    state: "active",
     workspacePath: "/home/dev/.dev/worktrees/atlas/chore-upload-modal",
     hasSource: false,
     copyBranch: "chore/upload-modal",
@@ -101,7 +96,6 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   },
   {
     id: "fixture-idle",
-    state: "active",
     workspacePath: "/home/dev/.dev/worktrees/orbit/chore-workspace-cache",
     hasSource: false,
     copyBranch: "chore/workspace-cache",
@@ -117,7 +111,6 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   },
   {
     id: "fixture-no-status",
-    state: "active",
     workspacePath: "/home/dev/.dev/worktrees/atlas/docs-onboarding",
     hasSource: false,
     copyBranch: "docs/onboarding",
