@@ -2,7 +2,8 @@ import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vite-plus/test";
-import { cloneOfOrigin, initRepo, runGit } from "../../test/git-repo.ts";
+import { cloneOfOrigin, commitFile, initRepo, runGit } from "../../test/git-repo.ts";
+import { addProject } from "../../test/project-fixture.ts";
 import { useServer, within } from "../../test/server-fixture.ts";
 
 const server = useServer();
@@ -369,6 +370,45 @@ test.runIf(process.platform !== "win32")(
     expect(await api.projects.branches({ id: project.id })).toEqual(["injected"]);
   },
 );
+
+test("baseRefs offers local branches a worktree holds and remote-tracking refs", async () => {
+  const { clone } = cloneOfOrigin(server.scratchDir);
+  runGit(clone, "branch", "feature/login");
+  const linked = join(server.scratchDir, "base-ref-linked");
+  runGit(clone, "worktree", "add", "--", linked, "feature/login");
+  const api = await server.rpc();
+  const project = await api.projects.add({ path: clone });
+
+  // The base question, not `branches`' checkout one: `trunk` and `feature/login` are held by a
+  // worktree yet both are valid bases, and every remote-tracking ref is one too.
+  expect(await api.projects.baseRefs({ id: project.id })).toEqual([
+    "feature/login",
+    "trunk",
+    "origin/release/1.0",
+    "origin/trunk",
+  ]);
+  expect(await api.projects.branches({ id: project.id })).toEqual(["origin/release/1.0"]);
+});
+
+test("a task can start from a branch another worktree holds", async () => {
+  const { project, repo } = await addProject(server);
+  runGit(repo, "switch", "-c", "feature/held");
+  commitFile(repo, "held.txt", "held\n");
+  runGit(repo, "switch", "main");
+  const linked = join(server.scratchDir, "held-base");
+  runGit(repo, "worktree", "add", "--", linked, "feature/held");
+  const api = await server.rpc();
+
+  expect(await api.projects.baseRefs({ id: project.id })).toContain("feature/held");
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "From a held base",
+    workspace: { type: "new-branch", baseBranch: "feature/held" },
+  });
+
+  expect(runGit(task.workspacePath, "rev-parse", "HEAD")).toBe(runGit(linked, "rev-parse", "HEAD"));
+  expect(runGit(task.workspacePath, "log", "-1", "--format=%s").trim()).toBe("held.txt");
+});
 
 test("branches fails with typed errors for an unknown project and for a repository that is gone", async () => {
   const repo = initRepo(join(server.scratchDir, "app"));

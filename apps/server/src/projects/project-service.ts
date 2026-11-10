@@ -174,6 +174,17 @@ export class ProjectService {
     ];
   }
 
+  /**
+   * Every ref a new worktree may start from: local branches, checked-out ones included, then
+   * remote-tracking refs (`origin/x`). A branch another worktree holds is still a valid base, so
+   * this is the base question rather than `branches`' checkout one.
+   */
+  async baseRefs(id: string): Promise<string[]> {
+    const { path } = this.get(id);
+    const { local, remote } = await listBranches(path);
+    return [...local, ...remote];
+  }
+
   /** Reads one issue through the server's CLI inside the project, with no remote changes. */
   resolveIssue(
     id: string,
