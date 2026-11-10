@@ -68,7 +68,15 @@ describe("settings index", () => {
           revision: "1",
         },
       ],
-      projects: [{ id: "p1", name: "repo", path: "/repos/repo", defaultBaseBranch: "main" }],
+      projects: [
+        {
+          id: "p1",
+          name: "repo",
+          path: "/repos/repo",
+          defaultBaseBranch: "main",
+          pinnedAt: null,
+        },
+      ],
       selectedProjectPath: "/repos/repo",
     });
     const byTitle = (title: string) => items.filter((entry) => entry.title === title);
