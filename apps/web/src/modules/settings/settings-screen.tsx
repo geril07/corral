@@ -370,7 +370,7 @@ export function SettingsScreen({
             )}
           </div>
         </nav>
-        <div ref={content} className="settings-content">
+        <div ref={content} className="settings-content visual-scrollbar">
           <div className="settings-page">
             <SettingsSection id="appearance" current={current}>
               <AppearanceSection />
