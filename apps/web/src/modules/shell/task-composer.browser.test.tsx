@@ -174,7 +174,7 @@ test("Mod+Shift+N drafts in the current project, and without one it asks instead
   await ctrlShift("n");
   await expect.element(projectChoice()).toBeVisible();
   await expect.element(composer()).not.toBeInTheDocument();
-  await page.getByRole("button", { name: project.name }).click();
+  await page.getByRole("option", { name: project.name }).click();
   await expect.element(composer()).toBeVisible();
   await expect.element(projectButton()).toHaveTextContent(project.name);
   await third.unmount();
@@ -247,7 +247,7 @@ test("an empty install reaches a scratch draft without inventing a project", asy
 
   await newTaskButton().click();
   await expect.element(projectChoice()).toBeVisible();
-  await page.getByRole("button", { name: "No project" }).click();
+  await page.getByRole("option", { name: "No project" }).click();
   await expect.element(composer()).toBeVisible();
   await expect.element(projectButton()).toHaveTextContent("No project");
   await screen.unmount();
@@ -259,7 +259,7 @@ test("Settings opens the existing screen over the shell and returns to the draft
   await promptField().fill("Keep this across Settings");
   await page.getByRole("button", { name: "Settings" }).click();
   await expect.element(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
-  await page.getByRole("button", { name: "Back to workspace" }).click();
+  await page.getByRole("button", { name: "Close settings" }).click();
   await expect.element(composer()).toBeVisible();
   await expect.element(promptField()).toHaveValue("Keep this across Settings");
   await screen.unmount();
