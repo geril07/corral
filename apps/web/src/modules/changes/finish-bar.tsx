@@ -117,7 +117,7 @@ export function FinishBar({
   const base = finish?.base ?? null;
   const remote = finish?.remote ?? null;
   const canPush = branch !== null && remote !== null && finish !== undefined;
-  const drift = branchDrift(task.branch, branch);
+  const drift = task.branch === null ? undefined : branchDrift(task.branch, branch);
   /** Why push and create are unavailable, in the user's words; the tooltip names the remotes. */
   const blocked =
     branch === null

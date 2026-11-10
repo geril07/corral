@@ -200,7 +200,7 @@ export function Sidebar(props: SidebarProps) {
       pullRequest={pullRequests?.get(node.task.id)}
       now={now}
       onSelect={() => {
-        openProject(node.task.projectId);
+        if (node.task.projectId !== null) openProject(node.task.projectId);
         props.onSelectTask(node.task);
       }}
       onToggleSettle={() => props.onToggleSettle(node.task)}
@@ -533,8 +533,10 @@ function TaskRow({
   const unseen = row?.unseen ?? isUnseenDone(task, status);
   const current = task.id === selection?.taskId;
   const agent = sessions.find(({ session }) => session.kind !== "shell")?.session.kind;
-  const branchContext = task.ownsWorktree ? recordedBranchLabel(task.branch) : undefined;
-  const accessibleBranch = task.ownsWorktree ? recordedBranchAccessible(task.branch) : undefined;
+  const branchContext =
+    task.ownsWorktree && task.branch !== null ? recordedBranchLabel(task.branch) : undefined;
+  const accessibleBranch =
+    task.ownsWorktree && task.branch !== null ? recordedBranchAccessible(task.branch) : undefined;
   const context =
     [
       row?.projectName ?? projectName,

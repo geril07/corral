@@ -154,8 +154,9 @@ export function AgentLaunchPicker({
   ];
   const selected = launchCatalogRow(selection, menu.all);
   const hidden = selected && !modelVisible(menu.preferences.policy, selected);
-  const select = (option: LaunchSelection) =>
-    onChange({ ...option, model: selection.model }, "instance");
+  // Another instance means another runtime and model space: the previous model text is not
+  // carried over, because doing so would switch the model silently (`docs/ux.md`, **Task entry**).
+  const select = (option: LaunchSelection) => onChange({ ...option, model: "" }, "instance");
   return (
     <>
       <ModelPicker

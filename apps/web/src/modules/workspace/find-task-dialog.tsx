@@ -106,6 +106,7 @@ export function FindTaskDialog({
         <CommandList>
           <CommandGroup heading="Tasks">
             {results.map(({ task, project }) => {
+              if (task.branch === null) return null;
               const branch = recordedBranchParts(task.branch);
               return (
                 <CommandItem

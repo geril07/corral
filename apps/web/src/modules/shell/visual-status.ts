@@ -126,8 +126,9 @@ export function buildTaskRows(
   }[] = [];
   for (const task of tasks) {
     if (task.state !== "active") continue;
-    const project = projectById.get(task.projectId);
-    if (project === undefined) continue;
+    const project = task.projectId === null ? undefined : projectById.get(task.projectId);
+    if (task.projectId !== null && project === undefined) continue;
+    const projectName = project?.name ?? "No project";
     const primary = primarySession(task, sessions);
     const primaryStatus = primary === undefined ? undefined : sessionStatus(primary);
     const agent = visualAgent(primary);
@@ -139,12 +140,12 @@ export function buildTaskRows(
       row: {
         id: task.id,
         title: task.title,
-        project: project.name,
-        projectInitial: projectInitial(project.name),
+        project: projectName,
+        projectInitial: projectInitial(projectName),
         status: cardStatus(task, primaryStatus, now),
         metadata: {
-          project: project.name,
-          branch: task.branch,
+          project: projectName,
+          ...(task.branch === null ? {} : { branch: task.branch }),
           ...(agent === undefined ? {} : { agent }),
           ...(task.prompt === null ? {} : { prompt: task.prompt }),
         },

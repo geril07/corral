@@ -53,6 +53,14 @@
     0 -0.5px 0 0 rgb(255 255 255 / 6%);
 }
 
+/* Search and picker dialogs hang from a stable top edge. Centering them moves the input every time
+   the result count changes the dialog's height; OpenCode anchors its results-grow-down pickers the
+   same way (`max(48px, (100vh - 480px) / 2)`), and T3 anchors its palette at 10vh. */
+.visual-dialog-anchored {
+  top: max(3rem, calc((100dvh - 30rem) / 2));
+  translate: -50% 0;
+}
+
 .visual-path-dialog {
   background: var(--visual-bg-base);
   color: var(--visual-text-base);
@@ -99,9 +107,44 @@
   text-transform: none;
 }
 
+/* One row height for folders and for the empty/error line, so the list never resizes between
+   them. */
+/* The gap above and below the list is outside its scroller: rows clip at the frame edge instead of
+   scrolling through a padding that moves with them. */
+.visual-path-list-frame {
+  padding-block: 0.5rem;
+}
+
 .visual-path-list [role="option"] {
+  min-height: 2.25rem;
+  padding-block: 0;
   font-size: inherit;
-  min-height: 2rem;
+}
+
+/* The empty and error states occupy exactly one option row, so the list does not resize when a
+   settled result replaces them. */
+.visual-path-message-row {
+  padding: 0.5rem;
+}
+
+.visual-path-message {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 2.25rem;
+  padding: 0 0.5rem;
+  color: var(--visual-text-muted);
+}
+
+.visual-path-message[data-error] {
+  color: var(--visual-status-error);
+}
+
+.visual-path-message > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .visual-path-list [role="option"]:hover,
@@ -1030,4 +1073,103 @@
   border-radius: 6px;
   background: var(--visual-bg-layer-01);
   box-shadow: var(--visual-shadow-floating);
+}
+/* The model picker is one viewport-bounded dialog, not an anchored popover. */
+.model-picker-dialog {
+  width: min(62.5rem, calc(100vw - 2rem));
+  max-width: none;
+  max-height: calc(100dvh - 6rem);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+
+.model-picker-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.model-picker-columns {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr) minmax(8rem, 14rem);
+  height: min(36rem, calc(100dvh - 6rem));
+  min-height: 0;
+}
+.model-picker-rail {
+  min-height: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  padding: 0.25rem;
+}
+.model-picker-instance {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  color: var(--muted-foreground);
+  background: transparent;
+  cursor: pointer;
+}
+.model-picker-instance:hover,
+.model-picker-instance[aria-selected="true"] {
+  background: var(--accent);
+  color: var(--foreground);
+}
+.model-picker-badge {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 0.625rem;
+}
+.model-picker-models {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.model-picker-list {
+  flex: 1;
+  min-height: 0;
+}
+.model-picker-provider {
+  padding: 0.75rem 0.75rem 0.25rem;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.model-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+}
+.model-picker-option[data-active] {
+  background: var(--accent);
+}
+.model-picker-option[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+.model-picker-thinking {
+  min-width: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  padding: 0.75rem;
+}
+@media (max-width: 36rem) {
+  .model-picker-columns {
+    grid-template-columns: 3rem minmax(0, 1fr) minmax(6rem, 30%);
+  }
+  .model-picker-thinking {
+    padding: 0.5rem;
+  }
 }

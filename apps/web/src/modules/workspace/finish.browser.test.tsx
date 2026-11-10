@@ -82,7 +82,7 @@ test("stage, commit, push and create a pull request against the fakes, leaving t
     "feat: ship the change",
   );
   // The commit is local: the remote has no such branch until the push is confirmed.
-  expect(await originRef(origin, task.branch)).toBeUndefined();
+  expect(await originRef(origin, task.branch!)).toBeUndefined();
   expect(await issueCliCalls()).toEqual([]);
 
   // Push: the confirmation names the remote's URL and the branch, then the bare repo has both.
@@ -92,7 +92,7 @@ test("stage, commit, push and create a pull request against the fakes, leaving t
   await expect.element(pushDialog.getByText(new RegExp(origin))).toBeVisible();
   await expect.element(pushDialog.getByText(new RegExp(`branch ${task.branch}`))).toBeVisible();
   await pushDialog.getByRole("button", { name: `Push ${task.branch}` }).click();
-  await expect.poll(() => originRef(origin, task.branch)).toBe(commit);
+  await expect.poll(() => originRef(origin, task.branch!)).toBe(commit);
 
   // Create: the second confirmation names the request's target and says it does not push. A double
   // click must still open one request.

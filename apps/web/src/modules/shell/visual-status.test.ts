@@ -9,6 +9,19 @@ import {
 } from "./visual-status.ts";
 
 const NOW = 1_800_000_000_000;
+
+test("the sidebar retains scratch task title and primary status without a project", () => {
+  const primary = session("primary", { status: status("working") });
+  const scratch = task("scratch", {
+    projectId: null,
+    branch: null,
+    title: "Scratch title",
+    primarySessionId: primary.id,
+  });
+  expect(buildTaskRows([], [scratch], [primary], NOW)).toMatchObject([
+    { title: "Scratch title", project: "No project", status: { label: "Working" } },
+  ]);
+});
 const PROJECT: Project = {
   id: "project-1",
   name: "orbit",

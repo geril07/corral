@@ -1,5 +1,10 @@
 import type { ChatAnswer, ChatItem, ChatStreamMessage } from "@corral/protocol/chat";
-import { DEFAULT_BINDINGS, DEFAULT_PREFIX, defaultClientConfig } from "@corral/protocol/config";
+import {
+  DEFAULT_BINDINGS,
+  DEFAULT_DIRECT_BINDINGS,
+  DEFAULT_PREFIX,
+  defaultClientConfig,
+} from "@corral/protocol/config";
 import type { ChatSendMode } from "@corral/protocol/rpc";
 import { createConfigKeymap } from "@corral/client/prefix-keymap";
 import { useCallback, useMemo } from "react";
@@ -715,7 +720,11 @@ function PrefixHarness({
   const config = useMemo(
     () => ({
       ...defaultClientConfig(""),
-      keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } },
+      keys: {
+        prefix: DEFAULT_PREFIX,
+        bindings: { ...DEFAULT_BINDINGS },
+        direct: { ...DEFAULT_DIRECT_BINDINGS },
+      },
     }),
     [],
   );
