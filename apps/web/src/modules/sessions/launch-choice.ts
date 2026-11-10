@@ -199,9 +199,10 @@ export function launchProblem(
     if (!current)
       return `The profile "${selection.profile.name}" is no longer in the config file. Choose an agent or another profile.`;
     // A disabled instance is not offered, but a retained selection still names it; the server
-    // refuses the launch, so the picker says why before the request exists.
+    // refuses the launch, so the picker says why before the request exists. The server's own
+    // message for this state says "instance".
     if (current.enabled === false)
-      return `The profile "${current.name}" is disabled in the config file. Choose an agent or another profile.`;
+      return `The instance "${current.name}" is disabled in the config file. Choose an agent or another instance.`;
     if (current.revision !== selection.profile.revision)
       return `The profile "${current.name}" changed in the config file. Review it and choose it again.`;
   }

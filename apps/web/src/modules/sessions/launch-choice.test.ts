@@ -151,7 +151,7 @@ test("a disabled instance is not offered and a retained selection is refused", (
     model: "",
   };
   expect(launchProblem(retained, [disabled], config.agents)).toBe(
-    'The profile "Pi Stub" is disabled in the config file. Choose an agent or another profile.',
+    'The instance "Pi Stub" is disabled in the config file. Choose an agent or another instance.',
   );
   // Still readable for diagnostics: the launch payload keeps its pinned revision.
   expect(launchChoice(retained)).toMatchObject({

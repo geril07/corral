@@ -70,6 +70,13 @@
   overflow-wrap: anywhere;
 }
 
+.task-composer-ref-tag {
+  flex: 0 0 auto;
+  color: var(--visual-text-faint);
+  font-size: 11px;
+  line-height: 16px;
+}
+
 .task-composer-branch-error {
   margin: 0;
   padding: 8px 12px;
