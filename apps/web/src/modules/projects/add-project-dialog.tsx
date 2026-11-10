@@ -121,12 +121,10 @@ function ProjectPicker({
       ? undefined
       : failureMessage !== undefined
         ? { text: failureMessage, error: true }
-        : listing !== undefined && directories.length === 0
-          ? { text: "No directories found" }
-          : listing !== undefined && listing.listing.truncated
-            ? {
-                text: "Some directories are omitted. Type a longer path to narrow the list.",
-              }
+        : listing !== undefined && listing.listing.truncated
+          ? { text: "Some directories are omitted." }
+          : listing !== undefined && directories.length === 0
+            ? { text: "No directories found." }
             : undefined;
 
   async function submit() {

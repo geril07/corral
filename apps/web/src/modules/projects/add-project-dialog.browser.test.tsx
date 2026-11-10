@@ -204,11 +204,11 @@ test("old asynchronous results cannot replace a newer path", async () => {
   await vi.waitFor(() => expect(old).toBeDefined());
   await userEvent.fill(input(), "/new/");
   old({ directories: entries, truncated: false });
-  await expect.element(page.getByText("No directories found", { exact: true })).toBeVisible();
+  await expect.element(page.getByText("No directories found.", { exact: true })).toBeVisible();
   await expect.element(page.getByRole("option")).not.toBeInTheDocument();
 });
 
-test("a bounded listing keeps its rows and names the omitted directories", async () => {
+test("a bounded listing keeps its rows and names the omitted entries", async () => {
   await render(
     <AddProjectDialog
       onAdd={() => Promise.resolve()}
@@ -219,12 +219,25 @@ test("a bounded listing keeps its rows and names the omitted directories", async
   await userEvent.fill(input(), "/parent/");
   await expect.element(page.getByRole("option", { name: "alpha", exact: true })).toBeVisible();
   await expect
-    .element(
-      page.getByText("Some directories are omitted. Type a longer path to narrow the list.", {
-        exact: true,
-      }),
-    )
+    .element(page.getByText("Some directories are omitted.", { exact: true }))
     .toBeVisible();
+});
+
+test("a bounded listing with no match reports the bound, not an empty directory", async () => {
+  await render(
+    <AddProjectDialog
+      onAdd={() => Promise.resolve()}
+      onBrowse={() => Promise.resolve({ directories: [], truncated: true })}
+      onClose={() => undefined}
+    />,
+  );
+  await userEvent.fill(input(), "/parent/");
+  await expect
+    .element(page.getByText("Some directories are omitted.", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(page.getByText("No directories found.", { exact: true }))
+    .not.toBeInTheDocument();
 });
 
 test("the settled list stays while the next path is still loading", async () => {
@@ -252,7 +265,7 @@ test("the settled list stays while the next path is still loading", async () => 
   await expect.element(page.getByRole("option", { name: "alpha", exact: true })).toBeVisible();
   await expect.element(page.getByText("Loading directories…")).not.toBeInTheDocument();
   next({ directories: [], truncated: false });
-  await expect.element(page.getByText("No directories found", { exact: true })).toBeVisible();
+  await expect.element(page.getByText("No directories found.", { exact: true })).toBeVisible();
 });
 
 test("an empty result does not blink off while the next path is loading", async () => {
@@ -273,7 +286,7 @@ test("an empty result does not blink off while the next path is loading", async 
     />,
   );
   await userEvent.fill(input(), "/missing/");
-  const message = page.getByText("No directories found", { exact: true });
+  const message = page.getByText("No directories found.", { exact: true });
   await expect.element(message).toBeVisible();
   // The answer for the longer path is still in flight; the previous empty answer stays on screen
   // instead of clearing and coming back.
@@ -309,10 +322,10 @@ test("a listing error stays put while the next path is loading", async () => {
   // The error is the last settled answer: it does not flip to "no directories" mid-request.
   await expect.element(error).toBeVisible();
   await expect
-    .element(page.getByText("No directories found", { exact: true }))
+    .element(page.getByText("No directories found.", { exact: true }))
     .not.toBeInTheDocument();
   next({ directories: [], truncated: false });
-  await expect.element(page.getByText("No directories found", { exact: true })).toBeVisible();
+  await expect.element(page.getByText("No directories found.", { exact: true })).toBeVisible();
   await expect.element(error).not.toBeInTheDocument();
 });
 
@@ -395,7 +408,7 @@ test("empty and settled-empty states share one option row", async () => {
   const optionElement = option.element();
   const rowHeight = optionElement instanceof HTMLElement ? optionElement.offsetHeight : 0;
   await userEvent.fill(input(), "/empty/");
-  const message = page.getByText("No directories found", { exact: true });
+  const message = page.getByText("No directories found.", { exact: true });
   await expect.element(message).toBeVisible();
   const messageRow = document.querySelector<HTMLElement>('[data-slot="path-picker-message"]');
   expect(messageRow?.offsetHeight).toBe(rowHeight);
@@ -414,7 +427,7 @@ test("an emptied path lists nothing and never claims it found no directories", a
   await userEvent.fill(input(), "");
   await expect.element(page.getByRole("option")).not.toBeInTheDocument();
   await expect
-    .element(page.getByText("No directories found", { exact: true }))
+    .element(page.getByText("No directories found.", { exact: true }))
     .not.toBeInTheDocument();
   await expect.element(page.getByRole("button", { name: /Add project/ })).toBeDisabled();
 });
