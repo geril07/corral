@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vite-plus/test";
 import { cdp, page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
+import { Button } from "./button.tsx";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "./dialog.tsx";
 import { TaskDialog } from "./task-dialog.tsx";
 import {
@@ -125,4 +126,24 @@ test("TaskDialog unmounts its owner only once the exit animation ends", async ()
   expect(close).not.toHaveBeenCalled();
   await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
   expect(document.querySelector(dialog)).toBeNull();
+});
+
+test("a button does not move while it is pressed", async () => {
+  await render(<Button>Save</Button>);
+  const button = page.getByRole("button", { name: "Save" }).element();
+  const box = button.getBoundingClientRect();
+  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const movement = () => {
+    const style = getComputedStyle(button);
+    return { transform: style.transform, translate: style.translate };
+  };
+  const press = (type: "mousePressed" | "mouseReleased") =>
+    cdp().send("Input.dispatchMouseEvent", { type, ...point, button: "left", clickCount: 1 });
+
+  expect(movement()).toEqual({ transform: "none", translate: "none" });
+  // Only a trusted press puts the button in :active, so the check reads the state a user sees.
+  await press("mousePressed");
+  await vi.waitFor(() => expect(button.matches(":active")).toBe(true));
+  expect(movement()).toEqual({ transform: "none", translate: "none" });
+  await press("mouseReleased");
 });
