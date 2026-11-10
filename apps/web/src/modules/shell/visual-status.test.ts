@@ -1,4 +1,4 @@
-import type { AgentStatus, Project, Session, Task } from "@corral/protocol/rpc";
+import type { AgentStatus, Project, Session, Task, TaskSource } from "@corral/protocol/rpc";
 import { describe, expect, test } from "vite-plus/test";
 import {
   buildTaskRows,
@@ -66,6 +66,33 @@ function session(id: string, overrides: Partial<Session> = {}): Session {
     ...overrides,
   };
 }
+
+test("a row keeps its issue source flag and only a real recorded branch to copy", () => {
+  const source: TaskSource = {
+    provider: "github",
+    host: "github.com",
+    repository: "acme/app",
+    number: 7,
+    url: "https://github.com/acme/app/issues/7",
+    title: "Imported issue",
+    body: "Body",
+    fetchedAt: NOW,
+  };
+  const [imported] = buildTaskRows(
+    [PROJECT],
+    [task("imported", { source, branch: "feat/imported" })],
+    [],
+    NOW,
+  );
+  expect(imported).toMatchObject({ hasSource: true, copyBranch: "feat/imported" });
+
+  const [detached] = buildTaskRows([PROJECT], [task("detached", { branch: "HEAD" })], [], NOW);
+  expect(detached?.hasSource).toBe(false);
+  expect(detached?.copyBranch).toBeUndefined();
+
+  const [noBranch] = buildTaskRows([PROJECT], [task("no-branch", { branch: null })], [], NOW);
+  expect(noBranch?.copyBranch).toBeUndefined();
+});
 
 describe("formatCompactAge", () => {
   test("never shows seconds", () => {

@@ -929,7 +929,8 @@ export function useWorkspace({
         ),
     );
     await api.tasks.remove({ id: task.id, force });
-    setDialog(undefined);
+    // The dialog closes itself after a successful removal, so its exit and final focus run;
+    // `closeRemoveTask` clears the dialog when that finishes.
     if (task.id === selection.taskId) showTask(next);
     // `showTask` clears the failure, so the notice goes after it. The server pruned the stale git
     // entry because the directory was already gone (a failed prune refuses the removal); the

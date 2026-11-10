@@ -1,8 +1,11 @@
 import { describeError } from "@corral/client/rpc-errors";
+import { activeAfterClose } from "@corral/client/terminal-selection";
 import { taskSettingsFor } from "@corral/protocol/config";
 import type { CreateTaskInput, Task } from "@corral/protocol/rpc";
-import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import { workspaceMissingPath } from "@corral/protocol/workspace";
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
+import { createChangesActions } from "../changes/index.ts";
 import { useCorralClient } from "../connection/index.ts";
 import { bindingOf, useConfig } from "../keymap/index.ts";
 import { AddProjectDialog, ProjectChoiceDialog } from "../projects/index.ts";
@@ -16,8 +19,20 @@ import {
   type TaskComposerDraft,
 } from "../tasks/index.ts";
 import { RenameDialog, type RenameTarget } from "../workspace/index.ts";
-import { VisualShellView, type VisualShellNotice, type VisualTaskActions } from "./visual-view.tsx";
+import {
+  VisualShellView,
+  type VisualRowFocus,
+  type VisualShellNotice,
+  type VisualTaskActions,
+} from "./visual-view.tsx";
 import { buildTaskRows } from "./visual-status.ts";
+
+/** The open removal: its preflight answer and the row that takes the selection afterwards. */
+interface RemoveState {
+  task: Task;
+  workspaceMissing: boolean;
+  nextId: string | undefined;
+}
 
 /**
  * The live shell: independent read-only stores, the production task composer, and one keymap
@@ -66,9 +81,12 @@ export function VisualWorkspace({
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string>();
   const [rename, setRename] = useState<RenameTarget>();
-  const [remove, setRemove] = useState<Task>();
+  const [remove, setRemove] = useState<RemoveState>();
   const [source, setSource] = useState<Task>();
   const [notice, setNotice] = useState<VisualShellNotice>();
+  const listFocus = useRef<VisualRowFocus | null>(null);
+  const removeRead = useRef<AbortController | undefined>(undefined);
+  const removeSucceeded = useRef(false);
   const browse = useCallback(
     (path: string, signal: AbortSignal) =>
       client.connection.api.projects.directories({ path }, { signal }),
@@ -92,7 +110,6 @@ export function VisualWorkspace({
   const newTaskBinding = bindingOf(config, "new-task");
   const settingsBinding = bindingOf(config, "settings");
   const renameBinding = bindingOf(config, "rename-task");
-  const settleBinding = bindingOf(config, "settle-task");
   const prefix = config.keys.prefix;
   const shortcut = useMemo(
     () => (binding === null ? undefined : { prefix, binding }),
@@ -110,24 +127,10 @@ export function VisualWorkspace({
     () => (renameBinding === null ? undefined : { prefix, binding: renameBinding }),
     [prefix, renameBinding],
   );
-  const settleShortcut = useMemo(
-    () => (settleBinding === null ? undefined : { prefix, binding: settleBinding }),
-    [prefix, settleBinding],
-  );
 
   const findTask = useCallback(
     (id: string) => tasks.tasks.find((task) => task.id === id),
     [tasks.tasks],
-  );
-
-  /** The row the shell falls back to when the selected task leaves the active list. */
-  const selectAfterClose = useCallback(
-    (id: string) => {
-      if (selectedTaskId !== id) return;
-      const next = rows.find((row) => row.id !== id);
-      if (next !== undefined) onSelectTask(next.id);
-    },
-    [onSelectTask, rows, selectedTaskId],
   );
 
   const taskActions = useMemo<VisualTaskActions>(
@@ -137,25 +140,38 @@ export function VisualWorkspace({
         if (task === undefined) return;
         setRename({ type: "task", id, name: task.title, value: task.title });
       },
-      onToggleSettle: (id) => {
-        const task = findTask(id);
-        if (task === undefined) return;
-        setNotice(undefined);
-        void client.connection.api.tasks
-          .setState({ id, state: task.state === "active" ? "settled" : "active" })
-          .then(() => selectAfterClose(id))
-          .catch((error: unknown) => setNotice({ message: describeError(error), tone: "error" }));
-      },
       onRemove: (id) => {
         const task = findTask(id);
-        if (task !== undefined) setRemove(task);
+        if (task === undefined) return;
+        removeSucceeded.current = false;
+        setRemove({
+          task,
+          workspaceMissing: false,
+          nextId: activeAfterClose(
+            rows.map((row) => row.id),
+            id,
+          ),
+        });
+        if (!task.ownsWorktree) return;
+        // `tasks.remove` returns nothing, so the question is answered before it is asked: the
+        // same read the Changes tab shows tells whether the directory is already gone.
+        const controller = new AbortController();
+        removeRead.current = controller;
+        void client.connection.api.changes
+          .files({ id })
+          .then((snapshot) => {
+            if (controller.signal.aborted) return;
+            const workspaceMissing = workspaceMissingPath(snapshot.error ?? "") !== undefined;
+            setRemove((open) => (open?.task.id === id ? { ...open, workspaceMissing } : open));
+          })
+          .catch(() => undefined);
       },
       onViewSource: (id) => {
         const task = findTask(id);
         if (task?.source !== undefined) setSource(task);
       },
     }),
-    [client, findTask, selectAfterClose],
+    [client, findTask, rows],
   );
 
   const saveRename = useCallback(
@@ -169,13 +185,35 @@ export function VisualWorkspace({
     [client],
   );
 
+  const closeRemove = useCallback(() => {
+    removeRead.current?.abort();
+    setRemove(undefined);
+  }, []);
+
   const removeTask = useCallback(
     async (task: Task, force: boolean) => {
+      // Read once more at confirm time: a read that failed must not become a silent prune.
+      let workspaceMissing = false;
+      if (task.ownsWorktree) {
+        const snapshot = await client.connection.api.changes.files({ id: task.id });
+        workspaceMissing = workspaceMissingPath(snapshot.error ?? "") !== undefined;
+      }
+      const nextId = remove?.task.id === task.id ? remove.nextId : undefined;
       await client.connection.api.tasks.remove({ id: task.id, force });
-      setRemove(undefined);
-      selectAfterClose(task.id);
+      removeSucceeded.current = true;
+      if (selectedTaskId === task.id && nextId !== undefined) {
+        onSelectTask(nextId);
+        listFocus.current?.focusRow(nextId);
+      }
+      if (workspaceMissing) {
+        setNotice({
+          message:
+            "The directory was already gone. The stale git entry was pruned; the branch remains.",
+          tone: "notice",
+        });
+      }
     },
-    [client, selectAfterClose],
+    [client, onSelectTask, remove, selectedTaskId],
   );
 
   const startDraft = useCallback(
@@ -289,8 +327,8 @@ export function VisualWorkspace({
         newTaskShortcut={newTaskShortcut}
         settingsShortcut={settingsShortcut}
         renameShortcut={renameShortcut}
-        settleShortcut={settleShortcut}
         taskActions={taskActions}
+        rowFocus={listFocus}
         notice={notice}
         onDismissNotice={() => setNotice(undefined)}
         direct={direct}
@@ -357,9 +395,22 @@ export function VisualWorkspace({
       )}
       {remove !== undefined && (
         <RemoveTaskDialog
-          task={remove}
-          onRemove={(force) => removeTask(remove, force)}
-          onClose={() => setRemove(undefined)}
+          task={remove.task}
+          workspaceMissing={remove.workspaceMissing}
+          loadLiveBranch={
+            remove.task.ownsWorktree
+              ? () =>
+                  createChangesActions(client, remove.task.id)
+                    .finish()
+                    .then((finish) => finish.branch)
+              : undefined
+          }
+          finalFocus={() => {
+            const id = removeSucceeded.current ? remove.nextId : remove.task.id;
+            return id === undefined ? null : (listFocus.current?.rowElement(id) ?? null);
+          }}
+          onRemove={(force) => removeTask(remove.task, force)}
+          onClose={closeRemove}
         />
       )}
       {source !== undefined && source.source !== undefined && (

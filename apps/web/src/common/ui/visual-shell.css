@@ -790,20 +790,66 @@
   overflow: hidden;
 }
 
-/* The copy confirmation the header used to own, in the shell's one chrome row. */
-.visual-copy-notice {
-  margin: 0 0 0 auto;
-  min-width: 0;
-  overflow: hidden;
+/* A row menu is one floating shell surface: the same roles as the path dialog, not the stock
+   popover skin, so the menu, its items and its shortcut cells share one recipe. */
+.visual-menu {
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 176px;
+  max-width: var(--available-width);
+  max-height: var(--available-height);
+  padding: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--visual-border-muted);
+  border-radius: 8px;
+  background: var(--visual-bg-base);
+  color: var(--visual-text-base);
+  box-shadow: var(--visual-shadow-floating);
+  font-size: 13px;
+  line-height: 16px;
+  outline: none;
+}
+
+.visual-menu [data-slot="dropdown-menu-item"],
+.visual-menu [data-slot="dropdown-menu-sub-trigger"] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  color: inherit;
+  font-size: 13px;
+  line-height: 16px;
+  cursor: default;
+  outline: none;
+  user-select: none;
+}
+
+.visual-menu [data-slot="dropdown-menu-item"]:focus,
+.visual-menu [data-slot="dropdown-menu-sub-trigger"]:focus,
+.visual-menu [data-slot="dropdown-menu-sub-trigger"][data-popup-open] {
+  background: var(--visual-hover);
+}
+
+.visual-menu [data-slot="dropdown-menu-item"][data-variant="destructive"],
+.visual-menu [data-slot="dropdown-menu-item"][data-variant="destructive"] svg {
+  color: var(--visual-status-error);
+}
+
+.visual-menu [data-slot="dropdown-menu-shortcut"] {
+  margin-left: auto;
   color: var(--visual-text-faint);
   font-size: 11px;
   line-height: 16px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  letter-spacing: 0;
 }
 
-.visual-copy-notice[data-outcome="refused"] {
-  color: var(--visual-status-error);
+.visual-menu [data-slot="dropdown-menu-separator"] {
+  height: 1px;
+  margin: 4px -4px;
+  background: var(--visual-border-muted);
 }
 
 /* ── Main surface ────────────────────────────────────────────────────────── */
