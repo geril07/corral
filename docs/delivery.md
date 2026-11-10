@@ -37,6 +37,12 @@ A slice runs the same way every time.
 Reviews run per slice. Different slices may be reviewed in parallel; within a slice the two reviews
 are sequential, so the technical reviewer reads the UI-accepted version.
 
+## Models
+
+Every agent in the loop runs on the same model, and the launch passes it explicitly rather than
+relying on an agent default. A subagent that fails on a provider limit is relaunched with the model
+named, not silently left out of the pipeline.
+
 ## What reviewers run
 
 Reviewers do not run the gate and do not run test suites — that is the worker's evidence, and a
