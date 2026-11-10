@@ -235,12 +235,16 @@ What a user does. Everything below is built and verified end to end, chat views 
   applies without closing; old thinking levels disappear until that model is reported. Choosing
   thinking applies and closes. A refused choice stays open with its error. Another tool/profile
   starts a distinct session, never mutates the current launch or moves its unsent draft.
-  Before launch the picker offers native/configured defaults, supported native model IDs and
-  reported pi/OpenCode catalogs, never a stock catalog or invented thinking levels. Discovery does
-  not imply the adapter can select every entry; incompatible rows explain their disabled state.
-  Manage models opens a server-shared per-tool/profile allow/deny draft in Settings. Hiding a
-  current selection never changes it, and favorites cannot bypass the filter. A terminal session
-  has no live model control.
+  Before launch the picker offers the current model row (an explicit native/configured id, or
+  `Current · hidden by filter` when the model filter hides it), supported native model IDs and
+  reported pi/OpenCode catalogs, never a stock catalog or invented thinking levels; with no model
+  configured there is no default row at all, and a typed override's reset sits in the footer.
+  Discovery does not imply the adapter can select every entry; incompatible rows explain their
+  disabled state. The three regions are the instance rail, the searchable list (models grouped
+  under provider headings) and the fixed thinking column; the footer carries the status, the
+  native-ID field, the reset and Manage models. Manage models opens a server-shared per-tool/profile
+  allow/deny draft in Settings. Hiding a current selection never changes it, and favorites cannot
+  bypass the filter. A terminal session has no live model control.
 - The composer has no per-draft view switch in this slice: the launch view follows `[tasks] view`
   (or the project's) and opens in the terminal when the agent has no `chat.capabilities` driver;
   the server's config warning is the durable explanation. While capabilities are still loading,
@@ -328,6 +332,9 @@ What a user does. Everything below is built and verified end to end, chat views 
 ## Known limits
 
 - Desktop support begins at 1024×640; smaller responsive layouts remain undecided.
+- Favourites are listed inside the selected instance's model list. A picker-wide Favourites view
+  needs every configured instance's catalog, which would make one picker open discover all of
+  them; it waits for either a protocol change or an approved eager discovery decision.
 - Long values may truncate; names and effective summaries retain their full meaning.
 - Interface text scale is adjustable per device (80–140%, relative to OS/browser scale).
   Terminal text stays fixed and independent of the interface text scale; terminal font controls

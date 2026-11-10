@@ -28,19 +28,19 @@ export function useModelMenu(input: ModelCatalogInput, known?: KnownModelCatalog
     favorite,
     managing,
     returned,
-    footer: (
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs text-muted-foreground">
-          {!preferences.loaded
-            ? "Loading model preferences…"
-            : inventory.loading
-              ? "Loading models…"
-              : `Visible ${models.length} of ${all.length}`}
-        </span>
-        <Button size="sm" variant="ghost" onClick={() => setManaging(true)}>
-          Manage models…
-        </Button>
-      </div>
+    status: (
+      <span>
+        {!preferences.loaded
+          ? "Loading model preferences…"
+          : inventory.loading
+            ? "Loading models…"
+            : `Visible ${models.length} of ${all.length}`}
+      </span>
+    ),
+    manage: (
+      <Button size="sm" variant="ghost" onClick={() => setManaging(true)}>
+        Manage models…
+      </Button>
     ),
     settings: managing ? (
       <SettingsScreen

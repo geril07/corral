@@ -13,16 +13,19 @@ import type { AgentKind, LaunchSnapshot } from "@corral/protocol/rpc";
 import { useState, useSyncExternalStore, type RefObject } from "react";
 import { ModelPicker, type PickerModel } from "../../common/ui/index.ts";
 import {
+  defaultLaunch,
   launchChoice,
   launchKey,
   launchScope,
   catalogLaunchModel,
+  launchCatalogRow,
   launchModel,
   launchOptions,
   launchProblem,
   launchView,
   launchPickerInstances,
-  launchPickerModels,
+  launchCurrentModelRow,
+  CURRENT_ROW_KEY,
   supportsModel,
   LaunchViewControls,
   type AgentLaunchChoice,
@@ -111,6 +114,34 @@ export function ChatChoiceDialog({
     state.model &&
     menu.preferences.loaded &&
     !modelVisible(menu.preferences.policy, state.model);
+  // The configured default names this instance; another instance has no default here to return to.
+  const defaultSelection = defaultLaunch(settings, profiles, agents);
+  const configured =
+    defaultSelection !== undefined && launchKey(defaultSelection) === launchKey(selection)
+      ? defaultSelection
+      : undefined;
+  const configuredModel = configured === undefined ? undefined : launchModel(configured);
+  const currentModel = launchModel(selection);
+  const currentRow = existing ? undefined : launchCatalogRow(selection, menu.all);
+  const blocked = !!launchProblem({ ...selection, model: "" }, profiles, agents);
+  const launchCurrent = launchCurrentModelRow(
+    selection,
+    menu.all,
+    menu.models.map(modelKey),
+    blocked,
+  );
+  const launchModels: PickerModel[] = [
+    ...(launchCurrent ? [launchCurrent] : []),
+    ...menu.models.map((model) => ({
+      key: modelKey(model),
+      name: model.name,
+      provider: model.provider ?? undefined,
+      detail: model.id,
+      disabled: blocked || catalogLaunchModel(selection, model) === undefined,
+      favorite: menu.favorite(model),
+      current: currentRow === undefined ? false : modelKey(currentRow) === modelKey(model),
+    })),
+  ];
   const models: PickerModel[] = existing
     ? menu.models.map((model) => ({
         key: chatModelKey(model),
@@ -121,22 +152,7 @@ export function ChatChoiceDialog({
         disabled: !state.models.some((m) => chatModelKey(m) === chatModelKey(model)),
         favorite: menu.favorite(model),
       }))
-    : [
-        ...launchPickerModels(
-          selection,
-          !!launchProblem({ ...selection, model: "" }, profiles, agents),
-        ),
-        ...menu.models.map((model) => ({
-          key: modelKey(model),
-          name: model.name,
-          provider: model.provider ?? undefined,
-          detail: model.id,
-          disabled:
-            !!launchProblem({ ...selection, model: "" }, profiles, agents) ||
-            catalogLaunchModel(selection, model) === undefined,
-          favorite: menu.favorite(model),
-        })),
-      ];
+    : launchModels;
   if (hidden && state.model && !models.some((m) => m.current))
     models.unshift({
       key: chatModelKey(state.model),
@@ -176,12 +192,7 @@ export function ChatChoiceDialog({
     } else {
       const native = menu.models.find((m) => modelKey(m) === key);
       const value = native ? catalogLaunchModel(selection, native) : undefined;
-      const target =
-        key === "default"
-          ? { ...selection, model: "" }
-          : value
-            ? { ...selection, model: value }
-            : selection;
+      const target = value ? { ...selection, model: value } : selection;
       if (launchProblem(target, profiles, agents)) return;
       void apply(() => onStart({ ...launchChoice(target), view }), true);
     }
@@ -206,7 +217,19 @@ export function ChatChoiceDialog({
         }}
         models={models}
         onModel={chooseModel}
-        modelName={existing ? state.model?.name : launchModel(selection)}
+        onUseDefault={
+          !existing &&
+          configured !== undefined &&
+          currentModel !== undefined &&
+          currentModel !== configuredModel
+            ? () => {
+                const target = { ...selection, model: configuredModel ?? "" };
+                if (launchProblem(target, profiles, agents)) return;
+                void apply(() => onStart({ ...launchChoice(target), view }), true);
+              }
+            : undefined
+        }
+        modelName={existing ? state.model?.name : currentModel}
         levels={existing && !waiting ? state.reasoningLevels : []}
         level={existing ? state.reasoning : undefined}
         onLevel={(level) => {
@@ -228,9 +251,9 @@ export function ChatChoiceDialog({
           !existing && supportsModel(selection.kind)
             ? {
                 value: selection.model,
-                placeholder: selection.profile?.model ?? "Agent default",
+                placeholder: selection.profile?.model ?? "Native model ID",
                 onChange: (model) => setSelection({ ...selection, model }),
-                onSubmit: () => chooseModel("custom"),
+                onSubmit: () => chooseModel(CURRENT_ROW_KEY),
               }
             : undefined
         }
@@ -239,13 +262,13 @@ export function ChatChoiceDialog({
         footer={
           <>
             {hidden && (
-              <p className="my-1 text-xs text-muted-foreground">
+              <p className="m-0">
                 Current model is hidden by the filter; the session is unchanged.
               </p>
             )}
             {!existing ? (
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">New agent session</span>
+              <span className="flex items-center gap-2">
+                New agent session
                 <LaunchViewControls
                   value={view}
                   kind={selection.kind}
@@ -253,11 +276,12 @@ export function ChatChoiceDialog({
                   onChange={setRequestedView}
                   disabled={busy}
                 />
-              </div>
+              </span>
             ) : null}
-            {menu.footer}
+            {menu.status}
           </>
         }
+        actions={menu.manage}
         onClose={onClose}
       />
       {menu.settings}

@@ -1,11 +1,11 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { Toolbar } from "@base-ui/react/toolbar";
+import { CheckIcon, SearchIcon } from "lucide-react";
 import { useEnterGuard } from "../hooks/use-enter-guard.ts";
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import type { AgentKind } from "@corral/protocol/rpc";
 import { AgentIcon } from "./agent-icon.tsx";
 import { Button } from "./button.tsx";
-import { Input } from "./input.tsx";
 import { Icon } from "./icon.tsx";
 import { FormError, TaskDialog, useTaskFinalFocus } from "./task-dialog.tsx";
 import { Dialog, DialogContent, DialogTitle } from "./dialog.tsx";
@@ -31,12 +31,23 @@ export interface PickerModel {
   levels?: readonly string[] | undefined;
 }
 
-const NO_LEVELS: readonly string[] = [];
+/** One virtualized row: a provider heading or a model. Headings keep their own height. */
+type PickerRow =
+  | { type: "group"; key: string; provider: string }
+  | { type: "model"; key: string; model: PickerModel; index: number };
 
-function Name({ name }: { name: string }) {
+const NO_LEVELS: readonly string[] = [];
+const NATIVE_CAVEAT =
+  "Native ID overrides are not an access policy; the agent validates availability at launch.";
+
+function Name({ name, className }: { name: string; className?: string | undefined }) {
   const { observe, clipped } = useTruncatedText(name);
   return (
-    <span ref={observe} className="min-w-0 flex-1 truncate" title={clipped ? name : undefined}>
+    <span
+      ref={observe}
+      className={className ?? "min-w-0 flex-1 truncate"}
+      title={clipped ? name : undefined}
+    >
       {name}
     </span>
   );
@@ -75,6 +86,7 @@ export interface ModelPickerProps {
   emptyMessage?: string | undefined;
   error?: string | undefined;
   busy?: boolean | undefined;
+  /** A one-line native override, beside the footer's actions. */
   nativeModel?:
     | {
         value: string;
@@ -83,7 +95,12 @@ export interface ModelPickerProps {
         onSubmit: () => void;
       }
     | undefined;
+  /** Notes and status, in the footer's left half. */
   footer?: React.ReactNode;
+  /** Buttons beside the native field, such as Manage models. */
+  actions?: React.ReactNode;
+  /** Shown only when the caller has an override to clear. */
+  onUseDefault?: (() => void) | undefined;
   focus?: "instance" | "search" | "thinking" | undefined;
   onQuickChoice?: ((index: number) => void) | undefined;
   onInstanceEnter?: (() => void) | undefined;
@@ -154,6 +171,8 @@ function PickerContent({
   busy,
   nativeModel,
   footer,
+  actions,
+  onUseDefault,
   onQuickChoice,
   onInstanceEnter,
   searchRef,
@@ -173,6 +192,7 @@ function PickerContent({
   const instanceList = useRef<LegendListRef>(null);
   const id = useId();
   const instanceIndex = instances.findIndex((item) => item.key === instance);
+  const tabStop = instanceIndex >= 0 ? instance : instances[0]?.key;
   useEffect(() => {
     if (instanceIndex >= 0)
       void instanceList.current?.scrollToIndex({ index: instanceIndex, animated: false });
@@ -183,12 +203,20 @@ function PickerContent({
     const text = `${model.name} ${model.provider ?? ""} ${model.detail ?? ""}`.toLowerCase();
     return terms.every((term) => text.includes(term));
   });
+  // Provider headings are rows of their own, so a heading and a model never share one height.
+  const rows: PickerRow[] = [];
+  visible.forEach((model, index) => {
+    if (model.provider && model.provider !== visible[index - 1]?.provider)
+      rows.push({ type: "group", key: `group:${model.provider}`, provider: model.provider });
+    rows.push({ type: "model", key: `model:${model.key}`, model, index });
+  });
   const active = visible.findIndex((model) => model.key === highlight);
   const selected = visible[active] ?? visible.find((model) => model.current);
   const selectedLevels = selected?.current || !selected ? levels : (selected.levels ?? NO_LEVELS);
   const canChangeLevel = !selected || !!selected.current;
   const canChooseCandidateLevel =
     !!selected && !selected.current && !selected.disabled && !!onModelLevel;
+  const selectedName = selected?.name ?? modelName ?? "";
   function moveModel(direction: number) {
     if (!visible.length) return;
     let index = active < 0 ? (direction > 0 ? -1 : visible.length) : active;
@@ -196,7 +224,8 @@ function PickerContent({
       index = (index + direction + visible.length) % visible.length;
       if (!visible[index]?.disabled) {
         setHighlight(visible[index]!.key);
-        void modelList.current?.scrollToIndex({ index, animated: false });
+        const row = rows.findIndex((item) => item.type === "model" && item.index === index);
+        if (row >= 0) void modelList.current?.scrollToIndex({ index: row, animated: false });
         break;
       }
     }
@@ -234,14 +263,9 @@ function PickerContent({
       <div className="model-picker-columns">
         <div
           ref={instanceRef}
-          role="listbox"
-          aria-label="agent"
+          role="radiogroup"
+          aria-label="Instances"
           tabIndex={0}
-          aria-activedescendant={
-            instances.some((item) => item.key === instance)
-              ? `${id}-instance-${instanceIndex}`
-              : undefined
-          }
           className="model-picker-rail"
           onKeyDown={(event) => {
             if (
@@ -273,199 +297,178 @@ function PickerContent({
             extraData={`${instance}:${!!busy}`}
             recycleItems={false}
             keyExtractor={(item: PickerInstance) => item.key}
-            estimatedItemSize={44}
-            estimatedListSize={{ width: 52, height: 480 }}
-            className="h-full"
+            estimatedItemSize={40}
+            estimatedListSize={{ width: 44, height: 340 }}
+            className="model-picker-rail-list"
             renderItem={({ item, index }: { item: PickerInstance; index: number }) => (
               <button
                 type="button"
-                role="option"
+                role="radio"
                 id={`${id}-instance-${index}`}
-                aria-selected={item.key === instance}
-                aria-posinset={index + 1}
-                aria-setsize={instances.length}
+                aria-checked={item.key === instance}
                 aria-label={item.name}
                 title={[item.name, item.detail].filter(Boolean).join(" · ")}
                 disabled={busy}
-                tabIndex={-1}
+                tabIndex={item.key === tabStop ? 0 : -1}
                 className="model-picker-instance"
                 onClick={() => onInstance(item.key)}
               >
                 <AgentIcon kind={item.kind} size="chrome" />
-                {item.badge && <span className="model-picker-badge">{item.badge}</span>}
+                {item.badge && (
+                  <span aria-hidden="true" className="model-picker-badge">
+                    {item.badge}
+                  </span>
+                )}
               </button>
             )}
           />
         </div>
         <div className="model-picker-models">
-          <p className="m-0 flex shrink-0 px-2 pt-2 text-xs font-medium">
-            <Name name={instances.find((item) => item.key === instance)?.name ?? ""} />
-          </p>
-          <Input
-            ref={searchRef}
-            aria-label="Search models"
-            placeholder="Search models…"
-            role="combobox"
-            aria-expanded="true"
-            aria-controls={`${id}-model-list`}
-            aria-activedescendant={active >= 0 ? `${id}-model-${active}` : undefined}
-            value={query}
-            onChange={(event) => {
-              onQuery(event.target.value);
-              setHighlight(null);
-            }}
-            onCompositionStart={guard.start}
-            onCompositionEnd={guard.end}
-            onKeyDown={(event) => {
-              guard.noteKey(event.key);
-              if (event.key === "Enter" && guard.isComposition(event)) {
-                guard.consume();
-                event.preventDefault();
-                return;
-              }
-              if (
-                event.nativeEvent.isComposing ||
-                event.ctrlKey ||
-                event.metaKey ||
-                event.altKey ||
-                event.shiftKey
-              )
-                return;
-              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                event.preventDefault();
-                moveModel(event.key === "ArrowDown" ? 1 : -1);
-              }
-              if (event.key === "Enter") {
-                const model = visible[active] ?? visible.find((item) => !item.disabled);
-                if (model && !model.disabled && !busy) {
+          <div className="model-picker-search">
+            <SearchIcon aria-hidden="true" className="model-picker-search-icon" />
+            <input
+              ref={searchRef}
+              aria-label="Search models"
+              placeholder="Search models…"
+              role="combobox"
+              aria-expanded="true"
+              aria-autocomplete="list"
+              aria-controls={`${id}-model-list`}
+              aria-activedescendant={active >= 0 ? `${id}-model-${active}` : undefined}
+              value={query}
+              autoComplete="off"
+              spellCheck={false}
+              className="model-picker-search-input"
+              onChange={(event) => {
+                onQuery(event.target.value);
+                setHighlight(null);
+              }}
+              onCompositionStart={guard.start}
+              onCompositionEnd={guard.end}
+              onKeyDown={(event) => {
+                guard.noteKey(event.key);
+                if (event.key === "Enter" && guard.isComposition(event)) {
+                  guard.consume();
                   event.preventDefault();
-                  onModel(model.key);
+                  return;
                 }
-              }
-            }}
-          />
+                if (
+                  event.nativeEvent.isComposing ||
+                  event.ctrlKey ||
+                  event.metaKey ||
+                  event.altKey ||
+                  event.shiftKey
+                )
+                  return;
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  moveModel(event.key === "ArrowDown" ? 1 : -1);
+                }
+                if (event.key === "Enter") {
+                  const model = visible[active] ?? visible.find((item) => !item.disabled);
+                  if (model && !model.disabled && !busy) {
+                    event.preventDefault();
+                    onModel(model.key);
+                  }
+                }
+              }}
+            />
+          </div>
           {visible.length === 0 && (
-            <p className="p-3 text-sm text-muted-foreground">
+            <p className="model-picker-empty">
               {query ? "No models match." : (emptyMessage ?? "No models reported.")}
             </p>
           )}
           <LegendList
             ref={modelList}
-            data={visible}
-            alwaysRender={{ keys: active >= 0 ? [visible[active]!.key] : [] }}
+            data={rows}
+            alwaysRender={{
+              keys: active >= 0 ? [`model:${visible[active]!.key}`] : [],
+            }}
             extraData={`${query}:${highlight ?? ""}:${!!busy}`}
             recycleItems={false}
-            keyExtractor={(item: PickerModel) => item.key}
-            estimatedItemSize={48}
-            estimatedListSize={{ width: 600, height: 480 }}
+            keyExtractor={(item: PickerRow) => item.key}
+            estimatedItemSize={34}
+            estimatedListSize={{ width: 356, height: 348 }}
             className="model-picker-list"
             role="listbox"
             id={`${id}-model-list`}
             aria-label="Models"
-            renderItem={({ item: model, index }: { item: PickerModel; index: number }) => (
-              <div>
-                {model.provider &&
-                  (index === 0 || visible[index - 1]?.provider !== model.provider) && (
-                    <div className="model-picker-provider">{model.provider}</div>
-                  )}
+            renderItem={({ item }: { item: PickerRow }) =>
+              item.type === "group" ? (
+                <div role="presentation" className="model-picker-provider">
+                  {item.provider}
+                </div>
+              ) : (
                 <div
-                  id={`${id}-model-${index}`}
+                  id={`${id}-model-${item.index}`}
                   role="option"
-                  aria-selected={model.key === selected?.key}
-                  aria-posinset={index + 1}
+                  aria-selected={item.model.key === selected?.key}
+                  aria-posinset={item.index + 1}
                   aria-setsize={visible.length}
-                  aria-disabled={!!busy || !!model.disabled}
+                  aria-disabled={!!busy || !!item.model.disabled}
                   aria-label={[
-                    model.name,
-                    model.provider,
-                    model.detail,
-                    model.favorite ? "Favorite" : null,
+                    item.model.name,
+                    item.model.provider,
+                    item.model.detail,
+                    item.model.favorite ? "Favorite" : null,
                   ]
                     .filter(Boolean)
                     .join(" · ")}
-                  aria-current={model.current ? "true" : undefined}
-                  title={[model.name, model.provider, model.detail].filter(Boolean).join(" · ")}
+                  aria-current={item.model.current ? "true" : undefined}
+                  title={[item.model.name, item.model.provider, item.model.detail]
+                    .filter(Boolean)
+                    .join(" · ")}
                   className="model-picker-option"
-                  data-active={model.key === selected?.key || undefined}
-                  onMouseMove={() => setHighlight(model.key)}
+                  data-active={item.model.key === visible[active]?.key || undefined}
+                  onMouseMove={() => setHighlight(item.model.key)}
                   onClick={() => {
-                    if (!busy && !model.disabled) onModel(model.key);
+                    if (!busy && !item.model.disabled) onModel(item.model.key);
                   }}
                 >
-                  <div className="min-w-0 flex-1">
-                    <p className="m-0 flex">
-                      <Name name={model.name} />
-                    </p>
-                    {model.detail && (
-                      <p className="m-0 flex text-xs text-muted-foreground">
-                        <Name name={model.detail} />
-                      </p>
+                  <div className="model-picker-option-main">
+                    <Name name={item.model.name} className="model-picker-option-name" />
+                    {item.model.detail && (
+                      <Name name={item.model.detail} className="model-picker-option-detail" />
                     )}
                   </div>
-                  {model.favorite && <span aria-hidden="true">★</span>}
-                  {index < 9 && (
-                    <span className="shrink-0 text-xs text-muted-foreground">Ctrl+{index + 1}</span>
-                  )}
+                  <div className="model-picker-option-tail">
+                    {item.model.favorite && (
+                      <span aria-hidden="true" className="model-picker-star">
+                        ★
+                      </span>
+                    )}
+                    {item.index < 9 && (
+                      <kbd className="model-picker-keycap">Ctrl+{item.index + 1}</kbd>
+                    )}
+                    <span className="model-picker-check">
+                      {item.model.current && (
+                        <CheckIcon aria-hidden="true" className="model-picker-check-icon" />
+                      )}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            }
           />
-          {nativeModel && (
-            <div className="shrink-0 border-t border-border p-2">
-              <label className="mb-1 block text-xs text-muted-foreground">Native model ID</label>
-              <Input
-                aria-label="Model override"
-                value={nativeModel.value}
-                placeholder={nativeModel.placeholder}
-                disabled={busy}
-                onChange={(event) => nativeModel.onChange(event.target.value)}
-                onCompositionStart={guard.start}
-                onCompositionEnd={guard.end}
-                onKeyDown={(event) => {
-                  guard.noteKey(event.key);
-                  if (event.key === "Enter" && guard.isComposition(event)) {
-                    guard.consume();
-                    event.preventDefault();
-                    return;
-                  }
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    if (!busy) nativeModel.onSubmit();
-                  }
-                }}
-              />
-              <p className="mt-1 mb-0 text-xs text-muted-foreground">
-                Native ID overrides are not an access policy; the agent validates availability at
-                launch.
-              </p>
-            </div>
-          )}
         </div>
         <div className="model-picker-thinking" role="group" aria-label="Thinking levels">
-          <p className="mt-0 mb-2 text-xs text-muted-foreground">Thinking</p>
-          {(selected?.name ?? modelName) && (
-            <p className="my-2 flex text-sm font-medium">
-              <Name name={selected?.name ?? modelName ?? ""} />
-            </p>
-          )}
+          <div className="model-picker-thinking-head">
+            <span className="model-picker-thinking-title">Thinking</span>
+            {selectedName && <Name name={selectedName} className="model-picker-thinking-model" />}
+          </div>
           {selectedLevels.length > 0 ? (
             <Toolbar.Root
               orientation="vertical"
               aria-label="Thinking"
-              className="flex flex-col gap-1"
+              className="model-picker-levels"
             >
               {selectedLevels.map((value, index) => (
                 <Toolbar.Button
                   key={value}
                   ref={value === level || (!level && index === 0) ? thinkingRef : undefined}
-                  render={
-                    <Button
-                      layout="navigation"
-                      size="sm"
-                      variant={canChangeLevel && value === level ? "secondary" : "ghost"}
-                    />
-                  }
+                  type="button"
+                  className="model-picker-level"
                   aria-pressed={canChangeLevel && value === level}
                   disabled={busy || (canChangeLevel ? !onLevel : !canChooseCandidateLevel)}
                   onClick={() => {
@@ -474,12 +477,15 @@ function PickerContent({
                       onModelLevel?.(selected.key, value);
                   }}
                 >
-                  <Name name={value} />
+                  <span className="model-picker-level-name">{value}</span>
+                  {canChangeLevel && value === level && (
+                    <CheckIcon aria-hidden="true" className="model-picker-level-check" />
+                  )}
                 </Toolbar.Button>
               ))}
             </Toolbar.Root>
           ) : (
-            <p className="m-0 text-xs text-muted-foreground">
+            <p className="model-picker-thinking-note">
               {canChangeLevel
                 ? (unavailable ?? "This driver reports no thinking levels.")
                 : "Thinking levels not reported for this model."}
@@ -488,11 +494,56 @@ function PickerContent({
         </div>
       </div>
       {error && (
-        <div className="border-t border-border p-2">
+        <div className="model-picker-error">
           <FormError>{error}</FormError>
         </div>
       )}
-      {footer && <div className="shrink-0 border-t border-border px-3 py-2">{footer}</div>}
+      <div className="model-picker-footer">
+        {footer && <div className="model-picker-footer-status">{footer}</div>}
+        {(onUseDefault || nativeModel || actions) && (
+          <div className="model-picker-footer-actions">
+            {onUseDefault && (
+              <Button variant="ghost" size="xs" disabled={busy} onClick={onUseDefault}>
+                Use configured default
+              </Button>
+            )}
+            {nativeModel && (
+              <>
+                <input
+                  aria-label="Model override"
+                  aria-describedby={`${id}-native-caveat`}
+                  value={nativeModel.value}
+                  placeholder={nativeModel.placeholder}
+                  disabled={busy}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="model-picker-native"
+                  onChange={(event) => nativeModel.onChange(event.target.value)}
+                  onCompositionStart={guard.start}
+                  onCompositionEnd={guard.end}
+                  onKeyDown={(event) => {
+                    guard.noteKey(event.key);
+                    if (event.key === "Enter" && guard.isComposition(event)) {
+                      guard.consume();
+                      event.preventDefault();
+                      return;
+                    }
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (!busy) nativeModel.onSubmit();
+                    }
+                  }}
+                />
+                <span id={`${id}-native-caveat`} className="sr-only">
+                  {NATIVE_CAVEAT}
+                </span>
+              </>
+            )}
+            {actions}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
