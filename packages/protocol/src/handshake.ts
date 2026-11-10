@@ -40,9 +40,9 @@ import { z } from "zod";
  * 13 requires server directory completions before project registration. Version 14 adds the
  * required `Project.defaultBaseBranch` and `Project.pinnedAt`, nullable task project/branch/
  * workspace ownership, and the model policy's `providerOrder`/`modelOrder`, plus
- * `projects.baseRefs`: a version 13 daemon's projects and tasks fail required-field parsing, and
- * its model policy lacks the order arrays `orderModels` reads, so its replies are refused rather
- * than crashing the client. */
+ * `projects.baseRefs`: a version 13 daemon's projects and tasks lack required fields, and its
+ * model policy lacks the order arrays `orderModels` reads, so its replies are refused rather than
+ * silently misread. */
 export const PROTOCOL_VERSION = 14;
 
 /**
