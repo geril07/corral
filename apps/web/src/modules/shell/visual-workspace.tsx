@@ -262,9 +262,9 @@ export function VisualWorkspace({
     [client],
   );
 
-  const loadBranches = useCallback(
+  const loadBaseRefs = useCallback(
     (projectId: string, signal: AbortSignal) =>
-      client.connection.api.projects.branches({ id: projectId }, { signal }),
+      client.connection.api.projects.baseRefs({ id: projectId }, { signal }),
     [client],
   );
 
@@ -357,7 +357,7 @@ export function VisualWorkspace({
               onCreate={createTask}
               onCancel={() => setDraft(undefined)}
               onSetPinned={setProjectPinned}
-              loadBranches={loadBranches}
+              loadBaseRefs={loadBaseRefs}
               focusRequest={focusRequest}
               onModalChange={setComposerModal}
               creating={creating}

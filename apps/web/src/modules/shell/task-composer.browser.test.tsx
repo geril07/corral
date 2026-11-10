@@ -4,7 +4,7 @@ import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { writeConfig } from "../../../test/config-command.ts";
 import { agentLaunches } from "../../../test/fake-agents.ts";
-import { removeDirectoryIn } from "../../../test/files-client.ts";
+import { removeDirectoryIn, writeFilesIn } from "../../../test/files-client.ts";
 import { createGitRepo } from "../../../test/git-repo.ts";
 import { runGitIn } from "../../../test/git-client.ts";
 import { prefixThen, realServerClients } from "../../../test/real-client.ts";
@@ -239,6 +239,18 @@ test("Current checkout switches to a new worktree and sends the chosen base bran
   await expect.element(branchButton("feature/x")).toBeVisible();
   await expect.element(composer().getByText("from feature/x", { exact: true })).toBeVisible();
 
+  // The worktree base is not the checkout fact: switching back shows what is checked out and
+  // keeps the base for the next switch to a new worktree.
+  await workspaceButton("New worktree").click();
+  await page.getByRole("option", { name: "Current checkout" }).click();
+  const checkout = () => composer().element().querySelector(".task-composer-branch");
+  await vi.waitFor(() => expect(checkout()?.textContent).toBe("main"));
+  expect(composer().element().textContent).not.toContain("from feature/x");
+
+  await workspaceButton("Current checkout").click();
+  await page.getByRole("option", { name: "New worktree" }).click();
+  await expect.element(branchButton("feature/x")).toBeVisible();
+
   const prompt = "Start from the feature branch";
   await promptField().fill(prompt);
   await createButton().click();
@@ -252,6 +264,43 @@ test("Current checkout switches to a new worktree and sends the chosen base bran
   expect(task.workspacePath).not.toBe(repo);
   expect((await runGitIn(task.workspacePath, ["log", "-1", "--format=%s"])).trim()).toBe(
     "feature base",
+  );
+  await screen.unmount();
+});
+
+test("a branch another worktree holds is offered as a base and the task starts from it", async () => {
+  const { client, repo, screen } = await appWithProject("composer-held-base", ["feature/held"]);
+  await runGitIn(repo, ["checkout", "feature/held"]);
+  await writeFilesIn(repo, { "held.txt": "held\n" });
+  await runGitIn(repo, ["add", "held.txt"]);
+  await runGitIn(repo, ["commit", "-m", "held base"]);
+  await runGitIn(repo, ["checkout", "main"]);
+  const held = `${repo}-held`;
+  await runGitIn(repo, ["worktree", "add", held, "feature/held"]);
+
+  await ctrl("n");
+  await workspaceButton("Current checkout").click();
+  await page.getByRole("option", { name: "New worktree" }).click();
+  await branchButton("main").click();
+  const search = page.getByRole("combobox", { name: "Search branches" });
+  await userEvent.fill(search, "held");
+  await expect.element(page.getByRole("option", { name: "feature/held" })).toBeVisible();
+  await page.getByRole("option", { name: "feature/held" }).click();
+  await expect.element(branchButton("feature/held")).toBeVisible();
+
+  const prompt = "Start from the held branch";
+  await promptField().fill(prompt);
+  await createButton().click();
+  const task = await vi.waitFor(() => {
+    const found = client.tasks.getSnapshot().tasks.find((candidate) => candidate.prompt === prompt);
+    if (found === undefined) throw new Error("the task is not in the store yet");
+    return found;
+  });
+  expect((await runGitIn(task.workspacePath, ["rev-parse", "HEAD"])).trim()).toBe(
+    (await runGitIn(held, ["rev-parse", "HEAD"])).trim(),
+  );
+  expect((await runGitIn(task.workspacePath, ["log", "-1", "--format=%s"])).trim()).toBe(
+    "held base",
   );
   await screen.unmount();
 });
@@ -296,6 +345,44 @@ test("a pointer-created scratch task has no project, no Git controls and its own
   expect(eyebrow).toContain("No project");
   expect(eyebrow).not.toContain("recorded");
   await expect.element(newTaskButton()).toBeVisible();
+  await screen.unmount();
+});
+
+test("a draft whose project is removed shows it unavailable and cannot submit it", async () => {
+  const { client, project, screen } = await appWithProject("composer-removed-project");
+  await newTaskButton().click();
+  await expect.element(projectButton()).toHaveTextContent(project.name);
+  const prompt = "Keep this prompt";
+  await promptField().fill(prompt);
+
+  await client.connection.api.projects.remove({ id: project.id });
+  await expect.element(projectButton()).toHaveTextContent("Project unavailable");
+  await expect
+    .element(composer().getByRole("alert"))
+    .toHaveTextContent(
+      "The selected project is no longer available. Choose another project or No project.",
+    );
+  await expect.element(promptField()).toHaveValue(prompt);
+  await expect.element(createButton()).toBeDisabled();
+  await expect
+    .element(composer().getByRole("button", { name: /Workspace/ }))
+    .not.toBeInTheDocument();
+  expect(client.tasks.getSnapshot().tasks).toHaveLength(0);
+
+  // The draft survives the reselection and is created as the scratch task it now is, not with
+  // the removed project's id.
+  await projectButton().click();
+  await page.getByRole("option", { name: "No project" }).click();
+  await expect.element(projectButton()).toHaveTextContent("No project");
+  await expect.element(promptField()).toHaveValue(prompt);
+  await createButton().click();
+  const task = await vi.waitFor(() => {
+    const found = client.tasks.getSnapshot().tasks.find((candidate) => candidate.prompt === prompt);
+    if (found === undefined) throw new Error("the scratch task is not in the store yet");
+    return found;
+  });
+  expect(task.projectId).toBeNull();
+  expect(task.branch).toBeNull();
   await screen.unmount();
 });
 
