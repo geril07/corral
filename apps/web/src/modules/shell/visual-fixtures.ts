@@ -7,6 +7,9 @@ import type { VisualTaskRow } from "../../common/ui/index.ts";
 export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   {
     id: "fixture-blocked",
+    state: "active",
+    workspacePath: "/home/dev/.dev/worktrees/orbit/fix-oauth-token-refresh",
+    hasSource: true,
     title: "Fix OAuth callback token refresh on rotated credentials",
     project: "orbit",
     projectInitial: "O",
@@ -26,6 +29,10 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   },
   {
     id: "fixture-error",
+    state: "active",
+    workspacePath:
+      "/home/dev/.dev/worktrees/open-telemetry-collector-contrib/fix-upload-retry-pipeline",
+    hasSource: false,
     title: "Investigate the flaky image upload retry pipeline",
     project: "open-telemetry-collector-contrib",
     projectInitial: "O",
@@ -43,6 +50,9 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   },
   {
     id: "fixture-done-unseen",
+    state: "active",
+    workspacePath: "/home/dev/.dev/worktrees/atlas/feat-billing-export-endpoint",
+    hasSource: false,
     title: "Ship the new billing export endpoint",
     project: "atlas",
     projectInitial: "A",
@@ -55,6 +65,9 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   },
   {
     id: "fixture-working",
+    state: "active",
+    workspacePath: "/home/dev/.dev/worktrees/orbit/refactor-session-reconnect-handshake",
+    hasSource: false,
     title:
       "Refactor the terminal session reconnect handshake and exponential backoff while keeping the snapshot replay contract intact",
     project: "orbit",
@@ -68,6 +81,9 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   },
   {
     id: "fixture-done-seen",
+    state: "active",
+    workspacePath: "/home/dev/.dev/worktrees/atlas/chore-upload-modal",
+    hasSource: false,
     title: "Migrate the legacy upload modal to the shared dialog",
     project: "atlas",
     projectInitial: "A",
@@ -80,6 +96,9 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   },
   {
     id: "fixture-idle",
+    state: "active",
+    workspacePath: "/home/dev/.dev/worktrees/orbit/chore-workspace-cache",
+    hasSource: false,
     title: "Trace the stale workspace cache invalidation",
     project: "orbit",
     projectInitial: "O",
@@ -92,6 +111,9 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
   },
   {
     id: "fixture-no-status",
+    state: "active",
+    workspacePath: "/home/dev/.dev/worktrees/atlas/docs-onboarding",
+    hasSource: false,
     title: "Update contributor onboarding notes",
     project: "atlas",
     projectInitial: "A",

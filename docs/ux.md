@@ -107,6 +107,12 @@ What a user does. Everything below is built and verified end to end, chat views 
 - Secondary task/session actions use context menus and the palette; the task header keeps a
   discoverable overflow menu, and the tab row keeps its add-session menu; renaming a session keeps `prefix shift+r`, removing it
   asks first. Icons are Lucide's standard glyphs.
+- A visual-shell task row's menu orders identity before state before context before destruction:
+  Copy (workspace path, branch when the task has one, task ID), Rename task…, Settle task or
+  Unsettle task, View issue source… only for a task imported from an issue, and Remove task… with
+  the same two-stage confirmation. Its shortcut cells name the `prefix e` and `prefix d` actions
+  that really run. A copy confirms in one main-chrome status line; a refused action keeps its
+  sentence in the footer. The menu opens by right-click, the menu key and Shift+F10.
 - One scrolling region per pane. At 1024×640 and above all controls must be reachable. Long
   forms may scroll inside the stock dialog with a viewport-relative height cap; do not
   shrink/reposition stock controls to recreate the former density.

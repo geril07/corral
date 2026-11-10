@@ -1,3 +1,4 @@
+import { ContextMenu } from "@base-ui/react/context-menu";
 import {
   useEffect,
   useState,
@@ -7,6 +8,7 @@ import {
   type Ref,
 } from "react";
 import { Icon, type IconName } from "./icon.tsx";
+import { RowMenuPopup } from "./row-menu.tsx";
 import {
   Tooltip,
   TooltipCompact,
@@ -53,6 +55,12 @@ export interface VisualTaskRow {
   title: string;
   project: string;
   projectInitial: string;
+  /** The task's own state, which its menu's settle item follows. */
+  state: "active" | "settled";
+  /** The absolute workspace path a task's terminals start in; the menu copies it verbatim. */
+  workspacePath: string;
+  /** Whether the task was created from an issue URL; the source item exists only then. */
+  hasSource: boolean;
   status?: VisualCardStatus | undefined;
   metadata: VisualTaskMetadata;
 }
@@ -326,6 +334,10 @@ export interface VisualTaskCardProps {
   onNavigate: (id: string, direction: -1 | 1) => void;
   /** Why the settle action cannot run; the card always swaps its status for it on hover/focus. */
   settleReason: string;
+  /** The row's secondary actions; absent in a host that has no task store to act on. */
+  menu?: ReactNode | undefined;
+  /** Swaps the hover action for the same settle/unsettle action the menu names. */
+  onToggleSettle?: (() => void) | undefined;
 }
 
 /** One 52 px, two-line task card. Selection stays a click; details open on hover and keyboard focus. */
@@ -335,40 +347,57 @@ export function VisualTaskCard({
   onSelect,
   onNavigate,
   settleReason,
+  menu,
+  onToggleSettle,
 }: VisualTaskCardProps) {
   const { status } = row;
   const icon = status === undefined ? undefined : statusIcon(status.tone);
+  const settled = row.state === "settled";
+  const settleLabel = settled ? "Unsettle task" : "Settle task";
+
+  const hit = (
+    <button
+      type="button"
+      className="visual-task-card-hit"
+      data-task-id={row.id}
+      aria-current={selected ? "true" : undefined}
+      tabIndex={selected ? 0 : -1}
+      onClick={() => onSelect(row.id)}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          onNavigate(row.id, 1);
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          onNavigate(row.id, -1);
+        }
+      }}
+    >
+      <span className="visual-task-project-row">
+        <span className="visual-project-avatar" aria-hidden="true">
+          {row.projectInitial}
+        </span>
+        <span className="visual-task-project">{row.project}</span>
+      </span>
+      <span className="visual-task-title">{row.title}</span>
+    </button>
+  );
 
   return (
     <div className="visual-task-card" data-selected={selected ? "true" : undefined}>
-      <TaskMetadataTooltip row={row}>
-        <button
-          type="button"
-          className="visual-task-card-hit"
-          data-task-id={row.id}
-          aria-current={selected ? "true" : undefined}
-          tabIndex={selected ? 0 : -1}
-          onClick={() => onSelect(row.id)}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowDown") {
-              event.preventDefault();
-              onNavigate(row.id, 1);
-            }
-            if (event.key === "ArrowUp") {
-              event.preventDefault();
-              onNavigate(row.id, -1);
-            }
-          }}
-        >
-          <span className="visual-task-project-row">
-            <span className="visual-project-avatar" aria-hidden="true">
-              {row.projectInitial}
-            </span>
-            <span className="visual-task-project">{row.project}</span>
-          </span>
-          <span className="visual-task-title">{row.title}</span>
-        </button>
-      </TaskMetadataTooltip>
+      {menu === undefined ? (
+        <TaskMetadataTooltip row={row}>{hit}</TaskMetadataTooltip>
+      ) : (
+        // The tooltip's trigger wraps the context-menu trigger so the hit button keeps both the
+        // metadata tooltip and the row menu (Shift+F10, the menu key and right-click).
+        <ContextMenu.Root>
+          <TaskMetadataTooltip row={row}>
+            <ContextMenu.Trigger render={hit} />
+          </TaskMetadataTooltip>
+          <RowMenuPopup label={`Task actions for ${row.title}`}>{menu}</RowMenuPopup>
+        </ContextMenu.Root>
+      )}
       <div className="visual-task-slot">
         {status !== undefined && (
           <span
@@ -386,14 +415,18 @@ export function VisualTaskCard({
           </span>
         )}
         <span className="visual-task-slot-action">
-          <CompactTooltip label="Settle task" reason={settleReason}>
+          <CompactTooltip
+            label={settleLabel}
+            reason={onToggleSettle === undefined ? settleReason : undefined}
+          >
             <button
               type="button"
               className="visual-task-action"
-              aria-label="Settle task"
-              aria-disabled="true"
+              aria-label={settleLabel}
+              aria-disabled={onToggleSettle === undefined ? "true" : undefined}
+              onClick={onToggleSettle}
             >
-              <Icon name="settle" />
+              <Icon name={settled ? "unsettle" : "settle"} />
             </button>
           </CompactTooltip>
         </span>

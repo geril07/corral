@@ -110,7 +110,9 @@ context-menu dispatcher.
   not a word, keeps the row's hint and status inside the sidebar at 140 % interface scale.
 - RowMenu composes a real button with Base UI ContextMenu. Right-click, the menu key and
   Shift+F10 reach secondary actions. No permanently reserved invisible action gutter.
-  DropdownMenuItem uses the same underlying Base UI menu item in either kind of menu.
+  DropdownMenuItem uses the same underlying Base UI menu item in either kind of menu, and takes its
+  glyph from the kit's `IconName` set; a menu's shortcut cell is a `DropdownMenuShortcut`, hidden
+  from the accessible name because the item's label is the action.
 - OverflowMenu is the discoverable task-header and add-session menu, with one compact
   minimum width. Menus fit available width/height. Combo search popups default to a readable
   width, not the tiny trigger width, bounded by the available viewport.
@@ -174,8 +176,11 @@ context-menu dispatcher.
   metrics in every state, swaps the fixed 88 px status slot for the Settle action on hover/focus,
   and opens its metadata tooltip on hover and keyboard focus: title, then icon+value rows for
   project, branch and the primary agent's known model/provider, with no workspace path or ordinary
-  status row. `VisualIconButton`, `VisualSearchAction`, `VisualResizeHandle`, the compact
-  tooltip/keycaps and the metadata tooltip are the only controls the shell composes.
+  status row. `VisualIconButton`, `VisualSearchAction`, `VisualResizeHandle`, the dedicated row
+  context menu, the compact tooltip/keycaps and the metadata tooltip are the only controls the
+  shell composes. A row's menu is the task menu (copy submenu, rename, settle, source when the task
+  has one, remove) on the same popup RowMenu uses; a copy confirmation is one `role="status"` line
+  in the main chrome, and a refused task action is the footer's one status sentence.
 - One root-layer toggle owns hide/show. It reads the sidebar's real width and the reserved header
   and main-chrome slots, so the 240 ms width transition is the only motion; there is never a
   second visible or tabbable toggle at either endpoint or in flight.

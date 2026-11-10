@@ -1,12 +1,18 @@
-import { expect, test } from "vite-plus/test";
+import type { Task } from "@corral/protocol/rpc";
+import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { useState } from "react";
 import { render } from "vitest-browser-react";
+import type { VisualTaskRow } from "../../common/ui/index.ts";
+import { stubClipboard } from "../../../test/clipboard.ts";
 import { prefixThen } from "../../../test/real-client.ts";
+import { RemoveTaskDialog } from "../tasks/index.ts";
 import { VISUAL_REVIEW_ROWS, VISUAL_REVIEW_SELECTED } from "./visual-fixtures.ts";
-import { VisualShellView } from "./visual-view.tsx";
+import { VisualShellView, type VisualTaskActions } from "./visual-view.tsx";
 
 const SHORTCUT = { prefix: "alt+a", binding: "\\" };
+const RENAME_SHORTCUT = { prefix: "alt+a", binding: "e" };
+const SETTLE_SHORTCUT = { prefix: "alt+a", binding: "d" };
 const FIRST = VISUAL_REVIEW_ROWS[0]!;
 
 function Harness() {
@@ -26,6 +32,85 @@ function Harness() {
 
 function cardButton(index: number) {
   return page.getByRole("button", { name: new RegExp(VISUAL_REVIEW_ROWS[index]!.title) });
+}
+
+function menuActions() {
+  return {
+    onRename: vi.fn<(id: string) => void>(),
+    onToggleSettle: vi.fn<(id: string) => void>(),
+    onRemove: vi.fn<(id: string) => void>(),
+    onViewSource: vi.fn<(id: string) => void>(),
+  };
+}
+
+function MenuHarness({
+  actions,
+  rows = VISUAL_REVIEW_ROWS,
+}: {
+  actions: VisualTaskActions;
+  rows?: readonly VisualTaskRow[];
+}) {
+  const [selected, setSelected] = useState<string | null>(rows[0]?.id ?? null);
+  return (
+    <VisualShellView
+      rows={rows}
+      selectedId={selected}
+      projectsLoaded
+      tasksLoaded
+      failure={undefined}
+      shortcut={SHORTCUT}
+      renameShortcut={RENAME_SHORTCUT}
+      settleShortcut={SETTLE_SHORTCUT}
+      taskActions={actions}
+      onSelectTask={setSelected}
+    />
+  );
+}
+
+async function openRowMenu(title: string) {
+  const card = page.getByRole("button", { name: new RegExp(title) });
+  await userEvent.click(card, { button: "right" });
+  await expect.element(page.getByRole("menu")).toBeVisible();
+}
+
+function menuNames(): (string | undefined)[] {
+  return page
+    .getByRole("menuitem")
+    .elements()
+    .map((element) => {
+      // Shortcut cells are visual and aria-hidden; the label is what the item is.
+      const clone = element.cloneNode(true);
+      if (!(clone instanceof HTMLElement)) return undefined;
+      for (const shortcut of clone.querySelectorAll('[data-slot="dropdown-menu-shortcut"]')) {
+        shortcut.remove();
+      }
+      return clone.textContent?.replace(/\s+/g, " ").trim();
+    });
+}
+
+function shortcutCells(): (string | undefined)[] {
+  return [...document.querySelectorAll('[data-slot="dropdown-menu-shortcut"]')].map((element) =>
+    element.textContent?.trim(),
+  );
+}
+
+const copyNotice = () => document.querySelector(".visual-copy-notice")?.textContent;
+
+function taskOf(row: VisualTaskRow): Task {
+  return {
+    id: row.id,
+    projectId: "p1",
+    title: row.title,
+    titleSource: "user",
+    prompt: null,
+    primarySessionId: null,
+    branch: row.metadata.branch ?? null,
+    workspacePath: row.workspacePath,
+    ownsWorktree: true,
+    state: row.state,
+    seenAt: null,
+    createdAt: 0,
+  };
 }
 
 function tooltipText(): string | null {
@@ -194,7 +279,7 @@ test("a warm task hop replaces metadata instantly without replaying fades", asyn
   await unmount();
 });
 
-test("keyboard focus opens metadata, Escape closes it, and right-click is left to the future menu", async () => {
+test("keyboard focus opens metadata, Escape closes it, and a host with no actions leaves right-click alone", async () => {
   const { container, unmount } = await render(<Harness />);
   await userEvent.click(cardButton(2));
   await userEvent.keyboard("{ArrowDown}");
@@ -220,6 +305,7 @@ test("keyboard focus opens metadata, Escape closes it, and right-click is left t
   const context = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
   focused.dispatchEvent(context);
   expect(context.defaultPrevented).toBe(false);
+  expect(page.getByRole("menu").elements()).toHaveLength(0);
   expect(document.querySelector('[role="tooltip"]')).toBeNull();
   await unmount();
 });
@@ -521,5 +607,189 @@ test("unavailable actions say why in the compact tooltip and never claim to run"
   await userEvent.hover(hide);
   await expect.element(tooltip).toMatchTextContent("alt+a");
   await expect.element(tooltip).toMatchTextContent("\\");
+  await unmount();
+});
+
+test("the row menu is copy, rename, settle, source, remove, with live shortcut cells and nothing invented", async () => {
+  const actions = menuActions();
+  const { unmount } = await render(<MenuHarness actions={actions} rows={[FIRST]} />);
+
+  await openRowMenu(FIRST.title);
+  expect(menuNames()).toEqual([
+    "Copy",
+    "Rename task…",
+    "Settle task",
+    "View issue source…",
+    "Remove task…",
+  ]);
+  expect(shortcutCells()).toEqual(["alt+a e", "alt+a d"]);
+  // The menu refuses the reference features whose contracts do not exist.
+  for (const absent of [
+    "Pin task",
+    "Snooze",
+    "Mark unread",
+    "Regenerate title",
+    "Turn into project",
+  ]) {
+    expect(page.getByRole("menuitem", { name: absent }).elements()).toHaveLength(0);
+  }
+  await unmount();
+});
+
+test("View issue source… exists only for a task that has a source", async () => {
+  const actions = menuActions();
+  const withoutSource: VisualTaskRow = { ...FIRST, hasSource: false };
+  const { unmount } = await render(<MenuHarness actions={actions} rows={[withoutSource]} />);
+
+  await openRowMenu(FIRST.title);
+  await expect
+    .element(page.getByRole("menuitem", { name: "View issue source…" }))
+    .not.toBeInTheDocument();
+  await expect.element(page.getByRole("menuitem", { name: "Remove task…" })).toBeVisible();
+  await unmount();
+});
+
+test("copy writes the task path, branch and id, and each is confirmed in the copy notice", async () => {
+  const clipboard = stubClipboard(async () => undefined);
+  try {
+    const actions = menuActions();
+    const { unmount } = await render(<MenuHarness actions={actions} rows={[FIRST]} />);
+
+    await openRowMenu(FIRST.title);
+    await page.getByRole("menuitem", { name: "Copy" }).click();
+    await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
+    await vi.waitFor(() =>
+      expect(clipboard.writeText).toHaveBeenLastCalledWith(FIRST.workspacePath),
+    );
+    expect(copyNotice()).toBe("Workspace path copied");
+
+    await openRowMenu(FIRST.title);
+    await page.getByRole("menuitem", { name: "Copy" }).click();
+    await page.getByRole("menuitem", { name: "Copy branch" }).click();
+    await vi.waitFor(() =>
+      expect(clipboard.writeText).toHaveBeenLastCalledWith(FIRST.metadata.branch),
+    );
+    expect(copyNotice()).toBe("Branch copied");
+
+    await openRowMenu(FIRST.title);
+    await page.getByRole("menuitem", { name: "Copy" }).click();
+    await page.getByRole("menuitem", { name: "Copy task ID" }).click();
+    await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenLastCalledWith(FIRST.id));
+    expect(copyNotice()).toBe("Task ID copied");
+    await unmount();
+  } finally {
+    clipboard.restore();
+  }
+});
+
+test("a task without a branch has no Copy branch item, and every other copy item stays", async () => {
+  const actions = menuActions();
+  const branchless: VisualTaskRow = {
+    ...FIRST,
+    metadata: { ...FIRST.metadata, branch: undefined },
+  };
+  const screen = await render(<MenuHarness actions={actions} rows={[branchless]} />);
+
+  await openRowMenu(FIRST.title);
+  await page.getByRole("menuitem", { name: "Copy" }).click();
+  await expect.element(page.getByRole("menuitem", { name: "Copy workspace path" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Copy task ID" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Copy branch" })).not.toBeInTheDocument();
+  await userEvent.keyboard("{Escape}{Escape}");
+
+  // A detached create records "HEAD"; that is not a branch name to copy either.
+  const detached: VisualTaskRow = { ...FIRST, metadata: { ...FIRST.metadata, branch: "HEAD" } };
+  await screen.rerender(<MenuHarness actions={actions} rows={[detached]} />);
+  await openRowMenu(FIRST.title);
+  await page.getByRole("menuitem", { name: "Copy" }).click();
+  await expect.element(page.getByRole("menuitem", { name: "Copy branch" })).not.toBeInTheDocument();
+  await screen.unmount();
+});
+
+test("a settled task's menu says Unsettle task and settles through the same action", async () => {
+  const actions = menuActions();
+  const settled: VisualTaskRow = { ...FIRST, state: "settled" };
+  const { unmount } = await render(<MenuHarness actions={actions} rows={[settled]} />);
+
+  await openRowMenu(FIRST.title);
+  await expect.element(page.getByRole("menuitem", { name: "Unsettle task" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Settle task" })).not.toBeInTheDocument();
+  await page.getByRole("menuitem", { name: "Unsettle task" }).click();
+  await vi.waitFor(() => expect(actions.onToggleSettle).toHaveBeenCalledExactlyOnceWith(FIRST.id));
+  await unmount();
+});
+
+test("Shift+F10 and the menu key open the row menu, arrows walk it, and Escape returns focus", async () => {
+  const actions = menuActions();
+  const { container, unmount } = await render(<MenuHarness actions={actions} rows={[FIRST]} />);
+  const hit = container.querySelector<HTMLElement>(`[data-task-id="${FIRST.id}"]`);
+  if (hit === null) throw new Error("the task card is missing");
+
+  hit.focus();
+  await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+  await expect.element(page.getByRole("menu")).toBeVisible();
+  // One popup at a time: the row's metadata tooltip yields to its menu.
+  expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  await userEvent.keyboard("{ArrowDown}");
+  expect(document.activeElement?.getAttribute("role")).toBe("menuitem");
+  await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+  expect(document.activeElement).toBe(hit);
+
+  await userEvent.keyboard("{ContextMenu}");
+  await expect.element(page.getByRole("menu")).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+  expect(document.activeElement).toBe(hit);
+  await unmount();
+});
+
+test("the shortcut cells name the prefix actions that really run", async () => {
+  const actions = menuActions();
+  const { unmount } = await render(<MenuHarness actions={actions} rows={[FIRST]} />);
+
+  await prefixThen("e");
+  await vi.waitFor(() => expect(actions.onRename).toHaveBeenCalledExactlyOnceWith(FIRST.id));
+  await prefixThen("d");
+  await vi.waitFor(() => expect(actions.onToggleSettle).toHaveBeenCalledExactlyOnceWith(FIRST.id));
+  await unmount();
+});
+
+test("Remove task… reaches the real two-stage confirmation instead of removing at once", async () => {
+  const onRemove = vi.fn<(force: boolean) => Promise<void>>(() => Promise.resolve());
+
+  function RemoveHarness() {
+    const [removeId, setRemoveId] = useState<string>();
+    const actions = menuActions();
+    return (
+      <>
+        <MenuHarness actions={{ ...actions, onRemove: setRemoveId }} rows={[FIRST]} />
+        {removeId !== undefined && (
+          <RemoveTaskDialog
+            task={taskOf(FIRST)}
+            onRemove={onRemove}
+            onClose={() => setRemoveId(undefined)}
+          />
+        )}
+      </>
+    );
+  }
+
+  const { unmount } = await render(<RemoveHarness />);
+  await openRowMenu(FIRST.title);
+  await page.getByRole("menuitem", { name: "Remove task…" }).click();
+
+  const dialog = page.getByRole("alertdialog");
+  await expect.element(dialog).toBeVisible();
+  await expect.element(dialog.getByRole("button", { name: "Cancel" })).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(dialog).not.toBeInTheDocument();
+  expect(onRemove).not.toHaveBeenCalled();
+
+  await openRowMenu(FIRST.title);
+  await page.getByRole("menuitem", { name: "Remove task…" }).click();
+  await expect.element(dialog.getByRole("button", { name: "Cancel" })).toHaveFocus();
+  await userEvent.keyboard("{Tab}{Enter}");
+  await vi.waitFor(() => expect(onRemove).toHaveBeenCalledExactlyOnceWith(false));
   await unmount();
 });

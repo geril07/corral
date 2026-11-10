@@ -1,7 +1,22 @@
 import { createDirectKeymap, createPrefixKeymap } from "@corral/client/prefix-keymap";
 import { DirectActionId } from "@corral/protocol/config";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { copyText, type CopyOutcome } from "../../common/lib/clipboard.ts";
+import {
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   Icon,
   TooltipProvider,
   VisualIconButton,
@@ -13,11 +28,108 @@ import {
   type VisualTaskRow,
 } from "../../common/ui/index.ts";
 import { modifierPlatform, usePrefixMode } from "../keymap/index.ts";
+import { branchName } from "../tasks/index.ts";
 import {
   useVisualSidebarPane,
   VISUAL_SIDEBAR_MAX_WIDTH,
   VISUAL_SIDEBAR_MIN_WIDTH,
 } from "./sidebar-pane.ts";
+
+/** What a row's secondary actions do; every one reaches a real surface in the production host. */
+export interface VisualTaskActions {
+  onRename: (id: string) => void;
+  onToggleSettle: (id: string) => void;
+  onRemove: (id: string) => void;
+  onViewSource: (id: string) => void;
+}
+
+/** A workspace-level sentence that is not the list's own load failure. */
+export interface VisualShellNotice {
+  message: string;
+  tone: "error" | "notice";
+}
+
+function shortcutChord(shortcut: VisualShortcut | undefined): string | undefined {
+  return shortcut?.binding == null ? undefined : `${shortcut.prefix} ${shortcut.binding}`;
+}
+
+/**
+ * One row's menu: identity/copy, then state, then read-only context, then the destructive action.
+ * The source item exists only when the task has a source; the branch item only when it has a branch.
+ */
+function TaskRowMenu({
+  row,
+  actions,
+  renameShortcut,
+  settleShortcut,
+  onCopy,
+}: {
+  row: VisualTaskRow;
+  actions: VisualTaskActions;
+  renameShortcut: VisualShortcut | undefined;
+  settleShortcut: VisualShortcut | undefined;
+  onCopy: (text: string, copied: string) => void;
+}) {
+  const settled = row.state === "settled";
+  // A detached create records "HEAD", which is not a branch to copy (`branch-facts.ts`).
+  const branch = branchName(row.metadata.branch);
+  const renameChord = shortcutChord(renameShortcut);
+  const settleChord = shortcutChord(settleShortcut);
+  return (
+    <>
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>
+          <Icon name="copy" size="row" />
+          <span>Copy</span>
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent>
+          <DropdownMenuItem
+            icon="folder"
+            onClick={() => onCopy(row.workspacePath, "Workspace path copied")}
+          >
+            Copy workspace path
+          </DropdownMenuItem>
+          {branch !== undefined && (
+            <DropdownMenuItem icon="branch" onClick={() => onCopy(branch, "Branch copied")}>
+              Copy branch
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem icon="hash" onClick={() => onCopy(row.id, "Task ID copied")}>
+            Copy task ID
+          </DropdownMenuItem>
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+      <DropdownMenuItem icon="task" onClick={() => actions.onRename(row.id)}>
+        Rename task…
+        {renameChord !== undefined && (
+          <DropdownMenuShortcut aria-hidden="true">{renameChord}</DropdownMenuShortcut>
+        )}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        icon={settled ? "unsettle" : "settle"}
+        onClick={() => actions.onToggleSettle(row.id)}
+      >
+        {settled ? "Unsettle task" : "Settle task"}
+        {settleChord !== undefined && (
+          <DropdownMenuShortcut aria-hidden="true">{settleChord}</DropdownMenuShortcut>
+        )}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      {row.hasSource && (
+        <DropdownMenuItem icon="source" onClick={() => actions.onViewSource(row.id)}>
+          View issue source…
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuItem
+        variant="destructive"
+        icon="remove"
+        onClick={() => actions.onRemove(row.id)}
+      >
+        Remove task…
+      </DropdownMenuItem>
+    </>
+  );
+}
 
 export interface VisualShellViewProps {
   rows: readonly VisualTaskRow[];
@@ -47,6 +159,14 @@ export interface VisualShellViewProps {
   };
   /** False while a dialog, Settings or an in-flight create owns the keyboard. */
   prefixEnabled?: boolean | undefined;
+  /** A row's secondary actions; absent when this host has no task store to act on. */
+  taskActions?: VisualTaskActions | undefined;
+  /** The same effective bindings the task menu shows in its shortcut cells. */
+  renameShortcut?: VisualShortcut | undefined;
+  settleShortcut?: VisualShortcut | undefined;
+  /** A failed action or guidance that is not the task list's own load failure. */
+  notice?: VisualShellNotice | undefined;
+  onDismissNotice?: (() => void) | undefined;
 }
 
 function SidebarList({
@@ -57,6 +177,10 @@ function SidebarList({
   tasksLoaded,
   failure,
   onSelectTask,
+  taskActions,
+  renameShortcut,
+  settleShortcut,
+  onCopy,
 }: Pick<
   VisualShellViewProps,
   | "rows"
@@ -66,7 +190,10 @@ function SidebarList({
   | "tasksLoaded"
   | "failure"
   | "onSelectTask"
->) {
+  | "taskActions"
+  | "renameShortcut"
+  | "settleShortcut"
+> & { onCopy: (text: string, copied: string) => void }) {
   const list = useRef<HTMLDivElement>(null);
   const selected =
     selectedId === null ? undefined : (rows.find((row) => row.id === selectedId) ?? rows[0]);
@@ -139,6 +266,20 @@ function SidebarList({
               onSelect={select}
               onNavigate={navigate}
               settleReason="Settle is not part of this visual slice and is not connected to the old stop-all action."
+              menu={
+                taskActions === undefined ? undefined : (
+                  <TaskRowMenu
+                    row={row}
+                    actions={taskActions}
+                    renameShortcut={renameShortcut}
+                    settleShortcut={settleShortcut}
+                    onCopy={onCopy}
+                  />
+                )
+              }
+              onToggleSettle={
+                taskActions === undefined ? undefined : () => taskActions.onToggleSettle(row.id)
+              }
             />
           </li>
         ))}
@@ -243,10 +384,27 @@ export function VisualShellView({
   settingsShortcut,
   direct,
   prefixEnabled = true,
+  taskActions,
+  renameShortcut,
+  settleShortcut,
+  notice,
+  onDismissNotice,
 }: VisualShellViewProps) {
   const pane = useVisualSidebarPane();
   const selected =
     selectedId === null ? undefined : (rows.find((row) => row.id === selectedId) ?? rows[0]);
+  const [copyNotice, setCopyNotice] = useState<CopyOutcome>();
+  const copy = useCallback((text: string, copied: string) => {
+    setCopyNotice(undefined);
+    void copyText(text, copied).then(setCopyNotice);
+  }, []);
+  const selectTask = useCallback(
+    (id: string) => {
+      setCopyNotice(undefined);
+      onSelectTask(id);
+    },
+    [onSelectTask],
+  );
   const shellRef = useRef<HTMLDivElement>(null);
   const sidebarFrame = useRef<HTMLElement>(null);
   const toggleLayer = useRef<HTMLDivElement>(null);
@@ -262,10 +420,21 @@ export function VisualShellView({
       bindings[newTaskShortcut.binding] = "new-task";
     if (settingsShortcut?.binding !== null && settingsShortcut?.binding !== undefined)
       bindings[settingsShortcut.binding] = "settings";
+    if (taskActions !== undefined) {
+      if (renameShortcut?.binding !== null && renameShortcut?.binding !== undefined)
+        bindings[renameShortcut.binding] = "rename-task";
+      if (settleShortcut?.binding !== null && settleShortcut?.binding !== undefined)
+        bindings[settleShortcut.binding] = "toggle-settle";
+    }
     const prefix =
-      shortcut?.prefix ?? newTaskShortcut?.prefix ?? settingsShortcut?.prefix ?? "alt+a";
+      shortcut?.prefix ??
+      newTaskShortcut?.prefix ??
+      settingsShortcut?.prefix ??
+      renameShortcut?.prefix ??
+      settleShortcut?.prefix ??
+      "alt+a";
     return createPrefixKeymap(prefix, bindings);
-  }, [newTaskShortcut, settingsShortcut, shortcut]);
+  }, [newTaskShortcut, renameShortcut, settleShortcut, settingsShortcut, shortcut, taskActions]);
   const directKeymap = useMemo(() => {
     if (direct === undefined) return undefined;
     const bindings: Record<string, DirectActionId> = {};
@@ -332,13 +501,18 @@ export function VisualShellView({
       toggleButton.current?.focus();
     });
   }, [hidden, toggle]);
+  const selectedTaskId = selected?.id;
   const runAction = useCallback(
     (action: string) => {
       if (action === "toggle-sidebar") toggleSidebar();
       else if (action === "new-task") onNewTask?.();
       else if (action === "settings") onOpenSettings?.();
+      else if (action === "rename-task" && selectedTaskId !== undefined)
+        taskActions?.onRename(selectedTaskId);
+      else if (action === "toggle-settle" && selectedTaskId !== undefined)
+        taskActions?.onToggleSettle(selectedTaskId);
     },
-    [onNewTask, onOpenSettings, toggleSidebar],
+    [onNewTask, onOpenSettings, selectedTaskId, taskActions, toggleSidebar],
   );
   usePrefixMode(
     keymap,
@@ -414,9 +588,25 @@ export function VisualShellView({
             hasProjects={hasProjects}
             tasksLoaded={tasksLoaded}
             failure={failure}
-            onSelectTask={onSelectTask}
+            onSelectTask={selectTask}
+            taskActions={taskActions}
+            renameShortcut={renameShortcut}
+            settleShortcut={settleShortcut}
+            onCopy={copy}
           />
         </TooltipProvider>
+        {notice !== undefined && (
+          <div
+            className="visual-shell-notice"
+            data-tone={notice.tone}
+            role={notice.tone === "error" ? "alert" : "status"}
+          >
+            <span className="visual-shell-notice-message">{notice.message}</span>
+            {onDismissNotice !== undefined && (
+              <VisualIconButton label="Dismiss status" icon="close" onClick={onDismissNotice} />
+            )}
+          </div>
+        )}
         <div className="visual-sidebar-footer">
           <VisualIconButton
             label="Settings"
@@ -440,6 +630,16 @@ export function VisualShellView({
       <main className="visual-shell-main" aria-label="Workspace">
         <div className="visual-main-chrome">
           <span className="visual-toggle-slot" ref={closedToggleSlot} aria-hidden="true" />
+          <p
+            className="visual-copy-notice"
+            data-outcome={copyNotice?.outcome}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            title={copyNotice?.message}
+          >
+            {copyNotice?.message}
+          </p>
         </div>
         <div className="visual-main-content">
           {main !== undefined ? (
