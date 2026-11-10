@@ -39,6 +39,7 @@ const repoProject: Project = {
   name: "repo",
   path: "/repos/repo",
   defaultBaseBranch: "main",
+  pinnedAt: null,
 };
 
 const settledTask = (id: string, title: string, createdAt: number): Task => ({

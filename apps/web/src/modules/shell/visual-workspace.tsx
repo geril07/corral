@@ -132,6 +132,12 @@ export function VisualWorkspace({
     setProjectChoice(true);
   }, [projects.loaded, projects.projects, startDraft]);
 
+  const setProjectPinned = useCallback(
+    (id: string, pinned: boolean) =>
+      client.connection.api.projects.setPinned({ id, pinned }).then(() => undefined),
+    [client],
+  );
+
   const startInCurrentProject = useCallback(() => {
     if (currentProjectId === null) {
       setProjectChoice(true);
@@ -235,6 +241,7 @@ export function VisualWorkspace({
         <ProjectChoiceDialog
           projects={projects.projects}
           onChoose={startDraft}
+          onSetPinned={setProjectPinned}
           onClose={() => setProjectChoice(false)}
         />
       )}

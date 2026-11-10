@@ -309,7 +309,7 @@ test("the project chooser uses the current project host/cwd and cancels a pendin
 
   const otherRepo = await createGitRepo("second");
   await prefixShifted("p");
-  await userEvent.fill(addProjectDialog().getByRole("textbox"), otherRepo);
+  await userEvent.fill(addProjectDialog().getByRole("combobox"), otherRepo);
   await userEvent.keyboard("{Enter}");
   await expect.element(addProjectDialog()).not.toBeInTheDocument();
   const other = client.projects.getSnapshot().projects.find((p) => p.path === otherRepo)!;

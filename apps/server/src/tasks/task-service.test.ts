@@ -48,7 +48,7 @@ function service(
   const db = openDatabase(dataDir);
   databases.push(db);
   const projects = new ProjectStore(db);
-  projects.insert({ id: "p", name: "app", path: repo, defaultBaseBranch: "main" });
+  projects.insert({ id: "p", name: "app", path: repo, defaultBaseBranch: "main", pinnedAt: null });
   const closed: string[] = [];
   const removed: string[] = [];
   const sessions: TaskSessions = {

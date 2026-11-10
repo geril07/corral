@@ -7,6 +7,7 @@ const project = (id: string, name = `repo-${id}`): Project => ({
   name,
   path: `/repos/${id}`,
   defaultBaseBranch: "main",
+  pinnedAt: null,
 });
 
 const task = (

@@ -1,7 +1,7 @@
 import { Project } from "@corral/protocol/rpc";
 import type { DatabaseSync } from "node:sqlite";
 
-const COLUMNS = "id, name, path, default_base_branch AS defaultBaseBranch";
+const COLUMNS = "id, name, path, default_base_branch AS defaultBaseBranch, pinned_at AS pinnedAt";
 
 export class ProjectStore {
   readonly #db: DatabaseSync;
@@ -26,8 +26,14 @@ export class ProjectStore {
 
   insert(project: Project): void {
     this.#db
-      .prepare("INSERT INTO projects (id, name, path, default_base_branch) VALUES (?, ?, ?, ?)")
-      .run(project.id, project.name, project.path, project.defaultBaseBranch);
+      .prepare(
+        "INSERT INTO projects (id, name, path, default_base_branch, pinned_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(project.id, project.name, project.path, project.defaultBaseBranch, project.pinnedAt);
+  }
+
+  setPinned(id: string, pinnedAt: number | null): void {
+    this.#db.prepare("UPDATE projects SET pinned_at = ? WHERE id = ?").run(pinnedAt, id);
   }
 
   /** Tasks of the project go with it (foreign key cascade). */

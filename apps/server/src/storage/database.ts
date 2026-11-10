@@ -12,7 +12,7 @@ export type Migration = string | ((db: DatabaseSync) => void);
 export const MIGRATIONS: readonly Migration[] = [
   `CREATE TABLE projects (
      id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL UNIQUE,
-     default_base_branch TEXT NOT NULL
+     default_base_branch TEXT NOT NULL, pinned_at INTEGER
    ) STRICT;
    CREATE TABLE tasks (
      id TEXT PRIMARY KEY, project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,

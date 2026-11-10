@@ -129,6 +129,7 @@ export class ProjectService {
       name: basename(root),
       path: root,
       defaultBaseBranch: baseBranch,
+      pinnedAt: null,
     };
     this.#store.insert(project);
     this.#changes.notify();
@@ -141,6 +142,15 @@ export class ProjectService {
     // under a launch cannot cascade the task and strand the terminal it just started.
     await this.#tasks.removeProject(id);
     this.#changes.notify();
+  }
+
+  /** Pins a project at the current time, or clears the pin. A pin lives on the project row. */
+  setPinned(id: string, pinned: boolean): Project {
+    this.get(id);
+    this.#store.setPinned(id, pinned ? Date.now() : null);
+    const project = this.get(id);
+    this.#changes.notify();
+    return project;
   }
 
   /**

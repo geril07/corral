@@ -103,6 +103,7 @@ test("add registers the repository, named after its directory", async () => {
     name: "my-app",
     path: repo,
     defaultBaseBranch: "main",
+    pinnedAt: null,
   });
   expect(await api.projects.watch().then((updates) => updates.next())).toMatchObject({
     value: [project],
@@ -401,6 +402,57 @@ test("remove forgets the project, leaves the repository alone and tells watchers
     code: "PROJECT_NOT_FOUND",
   });
   await updates.return?.();
+});
+
+test("pin and unpin roundtrip through the RPC and reach watchers", async () => {
+  const repo = initRepo(join(server.scratchDir, "app"));
+  const api = await server.rpc();
+  const updates = await api.projects.watch();
+  const next = async () => (await within(updates.next(), "a projects update")).value;
+  expect(await next()).toEqual([]);
+  const project = await api.projects.add({ path: repo });
+  expect(await next()).toEqual([project]);
+
+  const before = Date.now();
+  const pinned = await api.projects.setPinned({ id: project.id, pinned: true });
+  expect(pinned.pinnedAt).toBeGreaterThanOrEqual(before);
+  expect(await next()).toEqual([pinned]);
+
+  const unpinned = await api.projects.setPinned({ id: project.id, pinned: false });
+  expect(unpinned.pinnedAt).toBeNull();
+  expect(await next()).toEqual([unpinned]);
+
+  await expect(api.projects.setPinned({ id: "nope", pinned: true })).rejects.toMatchObject({
+    code: "PROJECT_NOT_FOUND",
+    data: { id: "nope" },
+  });
+  await updates.return?.();
+});
+
+test("a pin is stored and survives reopening the database", async () => {
+  const repo = initRepo(join(server.scratchDir, "app"));
+  const api = await server.rpc();
+  const project = await api.projects.add({ path: repo });
+  const pinned = await api.projects.setPinned({ id: project.id, pinned: true });
+
+  await server.restart();
+
+  const restarted = await server.rpc();
+  expect((await restarted.projects.watch().then((updates) => updates.next())).value).toEqual([
+    pinned,
+  ]);
+});
+
+test("a pin goes away with its project", async () => {
+  const repo = initRepo(join(server.scratchDir, "app"));
+  const api = await server.rpc();
+  const project = await api.projects.add({ path: repo });
+  await api.projects.setPinned({ id: project.id, pinned: true });
+
+  await api.projects.remove({ id: project.id });
+
+  expect(await api.projects.watch().then((updates) => updates.next())).toMatchObject({ value: [] });
+  expect((await api.projects.add({ path: repo })).pinnedAt).toBeNull();
 });
 
 test("projects survive a server restart on the same data directory", async () => {
