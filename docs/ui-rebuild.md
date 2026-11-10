@@ -58,12 +58,14 @@ it — without meeting a single invented screen.
 
 ### In progress
 
-- **Tabs and working area** (`feat/263-tabs`) — two groups per task, primary agent first, Chat and
-  Terminal as one tab, Changes in the companion group, close ≠ delete with a closed stack,
-  device-local layout. Must mount the real chat and terminal surfaces.
-- **Task context menu** (`feat/263-task-menu`) — Copy ▸ path / branch / task ID, rename, settle, issue
-  source only when present, remove. Pinning stays in the project picker; the shell has no project
-  row to hang a menu on.
+- **Tabs and working area** (`feat/263-tabs`, committed `f0eadd7`) — two groups per task, primary
+  agent first, Chat and Terminal as one tab, Changes in the companion group, close ≠ delete with a
+  closed stack, device-local layout. Mounts the real chat, terminal and changes panes. Under UI/UX
+  review.
+- **Task context menu** (`feat/263-task-menu`, committed `ff2d138`) — Copy ▸ path / branch / task ID,
+  rename, issue source only when present, remove; Settle is out until the shelf exists. Both reviews
+  are done and their findings fixed; ready to merge. Pinning stays in the project picker; the shell
+  has no project row to hang a menu on.
 
 ### Queued, research done
 
@@ -114,11 +116,11 @@ behaviour and the open questions; the slice brief is written from it.
 
 Per `docs/delivery.md`, each slice gets a UI/UX review and then a technical review.
 
-| Surface                                           | UI/UX                                                                               | Technical   |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------- | ----------- |
-| Merged #263 surface (composer, settings, pickers) | done; no P0/P1, six P2/P3 fixes in `feat/263-review-fixes`, copy left for the owner | in progress |
-| Tabs (`feat/263-tabs`)                            | after the worker commits                                                            | after UI/UX |
-| Task menu (`feat/263-task-menu`)                  | after the worker commits                                                            | after UI/UX |
+| Surface                                           | UI/UX                                                                               | Technical                                     |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------- |
+| Merged #263 surface (composer, settings, pickers) | done; no P0/P1, six P2/P3 fixes in `feat/263-review-fixes`, copy left for the owner | in progress                                   |
+| Tabs (`feat/263-tabs`)                            | in progress                                                                         | after UI/UX                                   |
+| Task menu (`feat/263-task-menu`)                  | done; two P1s fixed (Settle removed, focus after remove)                            | done; no P0/P1, its P2/P3s fixed in `ff2d138` |
 
 ### Technical review triage
 
