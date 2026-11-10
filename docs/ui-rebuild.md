@@ -1,0 +1,104 @@
+# UI rebuild — goal, slices, status
+
+The working plan for the interface rebuild that replaced the first frontend. Use it as the scope:
+what the app should feel like, which slices exist, what is done, and what is still open. Update the
+status section when a slice lands; a slice that only lives in a chat does not exist.
+
+Rules for how work is done and reviewed: `docs/delivery.md`. Product decisions: `docs/design.md`.
+
+## The goal
+
+A keyboard-first workspace for running coding agents, rebuilt on two references instead of taste.
+
+- **T3 gives structure and behaviour**: composer geometry, settings shell, tab metrics, instance and
+  environment handling, sidebar semantics.
+- **OpenCode gives the visual language**: palette and semantic roles, control skin, spacing, quiet
+  surfaces, one shared picker frame.
+- **Nothing invented.** No user-visible copy, empty state, hint or control that a reference does
+  not have. A state that needs wording gets a reference quote or a question to the owner.
+- **One pattern, one implementation.** One project picker, one model picker, one composer surface,
+  one scrollbar, one row recipe. No per-module control skins.
+- **Text is content.** The caret is the focus indicator on fields; no focus rings on text inputs,
+  no press transforms, no decorative motion beyond what the references use.
+
+End state: a person opens the workspace, picks a project or a scratch space, writes a prompt, gets a
+working agent session in a tab, can run a shell beside it, review the changes, and configure all of
+it — without meeting a single invented screen.
+
+## Slices
+
+### Landed
+
+- **Shell and sidebar** (#259, #261) — app frame, task list, status, empty states.
+- **Compact Add project** (#260, #262).
+- **Task entry, scratch workspaces, agent instances** (#263) — three creation commands, server-owned
+  scratch directories, named instances with argv/environment/model preferences, no paid turn on a
+  draft.
+- **Task composer** (#263) — prompt surface, attach/reasoning slots (honest disabled states), agent
+  and model control, one context row: project / workspace / branch, reusing the shared project
+  picker, `from <branch>` picker in worktree mode.
+- **Model picker** (#263) — three regions: instance rail, searchable virtualized list, thinking
+  column; one footer; no "Agent default" row; current-model row when filtered out.
+- **Pinned projects and the searchable project picker** (#263) — server-owned `pinnedAt`, pin action
+  in the picker, one-row empty states.
+- **Settings rebuild** (#263) — T3 geometry (80×60 rem, 240 rail, 720 page), no header row,
+  borderless `Search`, T3 row metrics, no click focus boxes, T3 slider with percent and reset,
+  select-row for tab position.
+- **Kit cleanup** — standardized input and prompt padding (16 inline for the prompt, 12 for fields),
+  press translate removed from every button, `No project` icon matches the picker.
+
+### In progress
+
+- **Tabs and working area** (`feat/263-tabs`) — two groups per task, primary agent first, Chat and
+  Terminal as one tab, Changes in the companion group, close ≠ delete with a closed stack,
+  device-local layout. Must mount the real chat and terminal surfaces.
+- **Task context menu** (`feat/263-task-menu`) — Copy ▸ path / branch / task ID, rename, settle, issue
+  source only when present, remove; pin from the project row.
+
+### Queued, research done
+
+- **Chat transcript** — turn folding, verb summaries, working/thinking rows, hover actions, quote
+  from selection. Starts after tabs because the new shell does not render a conversation yet.
+  Timestamps and forks need protocol work and stay out.
+- **Draft tasks** — New task keeps what was typed, survives reload, returns where it was. References
+  store drafts client-side with a route id and a promotion pointer. Starts after tabs, since a draft
+  is a tab in both references.
+- **Favorites across instances** — the model-picker rail needs a favorite entry that carries a
+  display name, and a rule for applying a favorite from another instance. Blocked on that decision.
+- **Chat start polish** — one focus intent, a device-local last-used model layer, the hero headline,
+  and the create gating wording.
+
+### Deferred or descoped — needs an explicit record
+
+- **Real file attachments** — the composer shows an honest disabled control; a real attachment
+  contract (server, driver capability, limits) is its own slice.
+- **Pre-launch reasoning** — the protocol reports thinking levels only for a running chat; the
+  composer dropdown stays disabled until the driver declares levels up front.
+- **Settings → Models page** — the model picker is rebuilt; the settings page is the owner's own
+  next slice.
+- **Title-only task creation** — the composer requires a prompt today; either add the title control
+  or state the limit in the docs.
+- **Mobile clients** — later, and not part of this rebuild.
+
+## Known debt
+
+- **Prefix bindings are missing in the new shell**, so about 31 browser tests across five files fail
+  before they reach their subject. Every slice currently verifies with focused suites. This is the
+  one piece of test infrastructure that should be restored before the rebuild expands further.
+- **Stale docs**: `docs/ux.md` and `docs/layout.md` still describe sessions as equal tabs in places;
+  the tabs slice replaces those statements. `docs/ui-kit.md` still mentions one easing token that no
+  longer exists.
+- **`Project settings…`** lives only in the old sidebar and is unreachable until the new shell has
+  project rows.
+- **Legacy sweep flow** — `.review/orchestrator.md`, `.review/contract.md`, `.review/goal.md`, the
+  `.e2e/` artifacts and the `e2e-verifier` role are not used by this pipeline; remove them once the
+  new loop has proven itself.
+
+## Open decisions
+
+1. Favorites: extend the entry with a display name and apply it across instances?
+2. Drafts: one per project, reused (T3) or a new one each time (OpenCode); does closing delete it;
+   device-only or shared?
+3. Attachments and pre-launch reasoning: separate issues, or extend the protocol inside #263?
+4. Title-only creation: add the control or document that a prompt is required.
+5. Which remaining Corral-only strings stay (settings descriptions, capability hints).
