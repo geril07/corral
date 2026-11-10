@@ -554,7 +554,7 @@ function BranchControl({
   );
 }
 
-/** The configured instance is honoured; when it is disabled the fallback is named, not silent. */
+/** The parser's own refusal of a configured profile, which resolved settings cannot carry. */
 function configuredProfileProblem(
   problems: readonly ConfigProblem[],
   settingsPath: string,
