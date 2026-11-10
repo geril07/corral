@@ -116,6 +116,26 @@ Per `docs/delivery.md`, each slice gets a UI/UX review and then a technical revi
 | Tabs (`feat/263-tabs`)                            | after the worker commits                                                            | after UI/UX |
 | Task menu (`feat/263-task-menu`)                  | after the worker commits                                                            | after UI/UX |
 
+### Technical review triage
+
+The technical pass on the merged surface returned no P0, five P1 and eight P2. Disposition:
+
+| Finding                                                  | Sev | Disposition                                                                       |
+| -------------------------------------------------------- | --- | --------------------------------------------------------------------------------- |
+| Wire protocol stays at 13 after incompatible additions   | P1  | Fix now: bump the version and the handshake fixtures                              |
+| Create completion clears whichever draft is open         | P1  | Fix now: tie the completion to its submission                                     |
+| Disabled named instances stay selectable                 | P1  | Fix now; the server already refuses them                                          |
+| Save acknowledgement can lose to an older watch snapshot | P1  | Fix now: one owner for saved state                                                |
+| Verification gap and a deleted live-model test           | P1  | Restore the test now; the prefix-binding suite after tabs                         |
+| Duplicate virtual keys when favorites span providers     | P2  | Fix now                                                                           |
+| Instance rail moves selection without DOM focus          | P2  | Fix now: real roving focus                                                        |
+| A removed project renders as scratch but submits its id  | P2  | Fix now                                                                           |
+| Base-branch picker uses the checkout-only inventory      | P2  | Fix now: a base-ref read, with the protocol bump                                  |
+| Worktree base leaks into the Current checkout row        | P2  | Fix now                                                                           |
+| Settings re-skins kit controls from module CSS           | P2  | Follow-up slice after `feat/263-review-fixes`: move the recipes into kit variants |
+| Directory truncation warning dropped in Add project      | P2  | Fix now                                                                           |
+| Show all / Hide all erase saved ordering                 | P2  | Fix now                                                                           |
+
 ## Open decisions
 
 1. Favorites: extend the entry with a display name and apply it across instances?
