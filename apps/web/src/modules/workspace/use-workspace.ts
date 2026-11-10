@@ -45,7 +45,7 @@ import {
   type ActionTable,
 } from "../keymap/index.ts";
 import { describeLaunchError, type AgentLaunchChoice } from "../sessions/index.ts";
-import { emptyDraft, type ComposerDraft } from "../tasks/index.ts";
+import { emptyDraft, workspaceGoneNotice, type ComposerDraft } from "../tasks/index.ts";
 import type { RenameTarget } from "./rename-dialog.tsx";
 import { terminalLabel } from "./sidebar.tsx";
 import { ADD_PROJECT_BUTTON_ID, SIDEBAR_ROW_SELECTOR, sidebarRowTarget } from "./sidebar-focus.ts";
@@ -936,11 +936,7 @@ export function useWorkspace({
     // entry because the directory was already gone (a failed prune refuses the removal); the
     // branch is untouched.
     if (workspaceMissing) {
-      setFailure({
-        message:
-          "The directory was already gone. The stale git entry was pruned; the branch remains.",
-        tone: "notice",
-      });
+      setFailure({ message: workspaceGoneNotice, tone: "notice" });
     }
   };
 

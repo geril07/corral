@@ -56,3 +56,7 @@ export function removalBranchCopy(live: string | null | undefined): string {
   if (live === null) return "No branch is checked out in the worktree; branches are not deleted.";
   return "The branch checked out in the worktree stays.";
 }
+
+/** What a removal says when the workspace directory was already gone and the entry was pruned. */
+export const workspaceGoneNotice =
+  "The directory was already gone. The stale git entry was pruned; the branch remains.";

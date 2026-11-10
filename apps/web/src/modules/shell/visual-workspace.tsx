@@ -16,6 +16,7 @@ import {
   switchComposerProject,
   TaskComposer,
   TaskSourceDialog,
+  workspaceGoneNotice,
   type TaskComposerDraft,
 } from "../tasks/index.ts";
 import { RenameDialog, type RenameTarget } from "../workspace/index.ts";
@@ -206,11 +207,7 @@ export function VisualWorkspace({
         listFocus.current?.focusRow(nextId);
       }
       if (workspaceMissing) {
-        setNotice({
-          message:
-            "The directory was already gone. The stale git entry was pruned; the branch remains.",
-          tone: "notice",
-        });
+        setNotice({ message: workspaceGoneNotice, tone: "notice" });
       }
     },
     [client, onSelectTask, remove, selectedTaskId],

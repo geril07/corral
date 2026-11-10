@@ -4,6 +4,7 @@ export {
   recordedBranchAccessible,
   recordedBranchLabel,
   recordedBranchParts,
+  workspaceGoneNotice,
 } from "./branch-facts.ts";
 export { RemoveProjectDialog } from "./remove-project-dialog.tsx";
 export { emptyDraft, movedDraft, type ComposerDraft } from "./new-task-draft.ts";
