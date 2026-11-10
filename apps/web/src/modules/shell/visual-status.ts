@@ -1,6 +1,7 @@
 import { hasUnseen, sessionStatus, type TaskStatus } from "@corral/client/agent-status";
 import type { AgentStatus, Project, Session, Task } from "@corral/protocol/rpc";
 import type { VisualCardStatus, VisualTaskAgent, VisualTaskRow } from "../../common/ui/index.ts";
+import { branchName } from "../tasks/index.ts";
 
 /** A card's compressed age: no seconds, as agreed for the sidebar (`#258`, §6). */
 export function formatCompactAge(now: number, then: number): string {
@@ -129,6 +130,7 @@ export function buildTaskRows(
     const project = task.projectId === null ? undefined : projectById.get(task.projectId);
     if (task.projectId !== null && project === undefined) continue;
     const projectName = project?.name ?? "No project";
+    const copyBranch = branchName(task.branch);
     const primary = primarySession(task, sessions);
     const primaryStatus = primary === undefined ? undefined : sessionStatus(primary);
     const agent = visualAgent(primary);
@@ -145,6 +147,7 @@ export function buildTaskRows(
         state: task.state,
         workspacePath: task.workspacePath,
         hasSource: task.source !== undefined,
+        ...(copyBranch === undefined ? {} : { copyBranch }),
         status: cardStatus(task, primaryStatus, now),
         metadata: {
           project: projectName,

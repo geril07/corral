@@ -1,6 +1,6 @@
 import { describeError, dirtyWorktreeFiles } from "@corral/client/rpc-errors";
 import type { Task } from "@corral/protocol/rpc";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { useAttempt } from "../../common/hooks/use-attempt.ts";
 import {
   Button,
@@ -8,6 +8,7 @@ import {
   DestructiveTaskDialog,
   DialogActions,
   FormError,
+  useTaskDialogClose,
 } from "../../common/ui/index.ts";
 import { removalBranchCopy } from "./branch-facts.ts";
 
@@ -19,6 +20,8 @@ interface RemoveTaskDialogProps {
   loadLiveBranch?: (() => Promise<string | null>) | undefined;
   /** Resolves once the task is removed; a rejection is shown in the dialog. */
   onRemove: (force: boolean) => Promise<void>;
+  /** Where the keyboard goes when the dialog closes; the caller names the row that takes over. */
+  finalFocus?: ComponentProps<typeof DestructiveTaskDialog>["finalFocus"];
   onClose: () => void;
 }
 
@@ -27,10 +30,9 @@ export function RemoveTaskDialog({
   workspaceMissing = false,
   loadLiveBranch,
   onRemove,
+  finalFocus,
   onClose,
 }: RemoveTaskDialogProps) {
-  const attempt = useAttempt();
-  const dirtyFiles = attempt.failed ? dirtyWorktreeFiles(attempt.error) : undefined;
   const [live, setLive] = useState<{ taskId: string; branch: string | null }>();
   const liveBranch = live?.taskId === task.id ? live.branch : undefined;
   // The loader is read through a ref: its identity may change with the parent's render, but the
@@ -63,8 +65,40 @@ export function RemoveTaskDialog({
     <DestructiveTaskDialog
       title={`Remove task "${task.title}"?`}
       description={description}
+      finalFocus={finalFocus}
       onClose={onClose}
     >
+      <RemoveTaskContent onRemove={onRemove} onClose={onClose} />
+    </DestructiveTaskDialog>
+  );
+}
+
+/**
+ * The dialog's own actions. They sit inside the dialog's close context so a successful removal can
+ * play the exit and let `finalFocus` name the row that takes over; a refusal keeps the dialog open.
+ */
+function RemoveTaskContent({
+  onRemove,
+  onClose,
+}: {
+  onRemove: (force: boolean) => Promise<void>;
+  onClose: () => void;
+}) {
+  const attempt = useAttempt();
+  const closeDialog = useTaskDialogClose();
+  const dirtyFiles = attempt.failed ? dirtyWorktreeFiles(attempt.error) : undefined;
+  const cancel = () => {
+    if (closeDialog === undefined) onClose();
+    else closeDialog();
+  };
+  const remove = (force: boolean) =>
+    void attempt.run(async () => {
+      await onRemove(force);
+      cancel();
+    });
+
+  return (
+    <>
       {dirtyFiles && (
         <div className="mb-3">
           <p className="mb-2.5 text-destructive" role="alert">
@@ -85,34 +119,34 @@ export function RemoveTaskDialog({
             step cannot also confirm "Remove anyway": focus starts on Cancel again. */}
         {dirtyFiles ? (
           <>
-            <Button variant="outline" key="cancel-dirty" autoFocus onClick={onClose}>
+            <Button variant="outline" key="cancel-dirty" autoFocus onClick={cancel}>
               Cancel
             </Button>
             <Button
               key="force"
               variant="destructive"
               disabled={attempt.pending}
-              onClick={() => void attempt.run(() => onRemove(true))}
+              onClick={() => remove(true)}
             >
               Remove anyway
             </Button>
           </>
         ) : (
           <>
-            <Button variant="outline" key="cancel" onClick={onClose}>
+            <Button variant="outline" key="cancel" onClick={cancel}>
               Cancel
             </Button>
             <Button
               key="remove"
               variant="destructive"
               disabled={attempt.pending}
-              onClick={() => void attempt.run(() => onRemove(false))}
+              onClick={() => remove(false)}
             >
               Remove task
             </Button>
           </>
         )}
       </DialogActions>
-    </DestructiveTaskDialog>
+    </>
   );
 }

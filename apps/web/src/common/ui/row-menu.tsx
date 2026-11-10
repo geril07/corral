@@ -9,7 +9,7 @@ export function RowMenuPopup({ label, children }: { label: string; children: Rea
       <ContextMenu.Positioner className="isolate z-50 outline-none" sideOffset={4}>
         <ContextMenu.Popup
           aria-label={label}
-          className="max-h-(--available-height) min-w-44 max-w-(--available-width) overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-floating outline-none"
+          className="visual-menu w-max origin-(--transform-origin) data-[side=bottom]:motion-safe:slide-in-from-top-2 data-[side=inline-end]:motion-safe:slide-in-from-left-2 data-[side=inline-start]:motion-safe:slide-in-from-right-2 data-[side=left]:motion-safe:slide-in-from-right-2 data-[side=right]:motion-safe:slide-in-from-left-2 data-[side=top]:motion-safe:slide-in-from-bottom-2 data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 data-open:motion-safe:zoom-in-95"
         >
           {children}
         </ContextMenu.Popup>

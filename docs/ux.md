@@ -45,7 +45,7 @@ What a user does. Everything below is built and verified end to end, chat views 
    asked for a busy agent (stage C). Whether Codex's terminal is view-only while chat writes is
    measured when its driver starts.
 5. The visual shell lists active tasks flat, with no project/status headers and no settled shelf. A task's status is its **primary** session's, ordered: blocked/error, completed and unseen, working, then neutral; the newest report comes first inside a group. "Completed and unseen" clears when the task is opened or its status changes while it is selected. Restarting a stopped session of a settled task, or continuing it, makes the task active in the same step: the sessions that were running resume once, nothing starts while the task still reads settled, and the board includes it. Starting a shell or agent in a settled task is refused with "This task is settled. Continue it first."; `prefix v` on its stopped session only chooses the next view; on a running session created by an older daemon it refuses before a handoff. Search, project filters, the settled shelf and the full two-group workspace remain deferred. The task composer, its direct creation commands and Settings are connected in the production shell.
-6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles.
+6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`).
 7. Settings reuses the existing Settings screen as a route over the mounted shell; its close returns to the same selection. It carries the defaults the composer uses: view (global, overridable per project), workspace mode, worktree root, branch prefix, slug mode, naming agent/model; the agents, whether each is found and which have a chat driver; and the three direct command chords under `[keys.direct]`. A disabled instance is absent from new-choice rails, and a selected one that becomes disabled keeps its identity and is refused with the reason rather than swapped silently.
 
 ## Layout and navigation
@@ -108,11 +108,12 @@ What a user does. Everything below is built and verified end to end, chat views 
   discoverable overflow menu, and the tab row keeps its add-session menu; renaming a session keeps `prefix shift+r`, removing it
   asks first. Icons are Lucide's standard glyphs.
 - A visual-shell task row's menu orders identity before state before context before destruction:
-  Copy (workspace path, branch when the task has one, task ID), Rename task…, Settle task or
-  Unsettle task, View issue source… only for a task imported from an issue, and Remove task… with
-  the same two-stage confirmation. Its shortcut cells name the `prefix e` and `prefix d` actions
-  that really run. A copy confirms in one main-chrome status line; a refused action keeps its
-  sentence in the footer. The menu opens by right-click, the menu key and Shift+F10.
+  Copy ▸ Path, Branch when the task has one, and Task ID; Rename task…; View issue source… only for
+  a task imported from an issue; and Remove task… with the same two-stage confirmation. Its
+  shortcut cell names the `prefix e` action that really runs. Settling stays out until the settled
+  shelf exists, so neither the menu nor the card offers it. A copy confirms in the footer's status
+  sentence and clears on the next interaction; a refused action keeps its sentence there. The menu
+  opens by right-click, the menu key and Shift+F10.
 - One scrolling region per pane. At 1024×640 and above all controls must be reachable. Long
   forms may scroll inside the stock dialog with a viewport-relative height cap; do not
   shrink/reposition stock controls to recreate the former density.

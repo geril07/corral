@@ -178,9 +178,10 @@ context-menu dispatcher.
   project, branch and the primary agent's known model/provider, with no workspace path or ordinary
   status row. `VisualIconButton`, `VisualSearchAction`, `VisualResizeHandle`, the dedicated row
   context menu, the compact tooltip/keycaps and the metadata tooltip are the only controls the
-  shell composes. A row's menu is the task menu (copy submenu, rename, settle, source when the task
-  has one, remove) on the same popup RowMenu uses; a copy confirmation is one `role="status"` line
-  in the main chrome, and a refused task action is the footer's one status sentence.
+  shell composes. A row's menu is the task menu (a Copy submenu of Path, Branch and Task ID, then
+  rename, source when the task has one, and remove) on the same popup RowMenu uses, skinned with the
+  shell's floating-surface roles. A copy confirmation and a refused task action share the footer's
+  one status sentence; the confirmation clears on the next interaction.
 - One root-layer toggle owns hide/show. It reads the sidebar's real width and the reserved header
   and main-chrome slots, so the 240 ms width transition is the only motion; there is never a
   second visible or tabbable toggle at either endpoint or in flight.

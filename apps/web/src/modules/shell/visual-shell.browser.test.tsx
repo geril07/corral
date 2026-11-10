@@ -12,7 +12,6 @@ import { VisualShellView, type VisualTaskActions } from "./visual-view.tsx";
 
 const SHORTCUT = { prefix: "alt+a", binding: "\\" };
 const RENAME_SHORTCUT = { prefix: "alt+a", binding: "e" };
-const SETTLE_SHORTCUT = { prefix: "alt+a", binding: "d" };
 const FIRST = VISUAL_REVIEW_ROWS[0]!;
 
 function Harness() {
@@ -37,7 +36,6 @@ function cardButton(index: number) {
 function menuActions() {
   return {
     onRename: vi.fn<(id: string) => void>(),
-    onToggleSettle: vi.fn<(id: string) => void>(),
     onRemove: vi.fn<(id: string) => void>(),
     onViewSource: vi.fn<(id: string) => void>(),
   };
@@ -60,7 +58,6 @@ function MenuHarness({
       failure={undefined}
       shortcut={SHORTCUT}
       renameShortcut={RENAME_SHORTCUT}
-      settleShortcut={SETTLE_SHORTCUT}
       taskActions={actions}
       onSelectTask={setSelected}
     />
@@ -94,7 +91,7 @@ function shortcutCells(): (string | undefined)[] {
   );
 }
 
-const copyNotice = () => document.querySelector(".visual-copy-notice")?.textContent;
+const copyNotice = () => document.querySelector(".visual-shell-notice-message")?.textContent;
 
 function taskOf(row: VisualTaskRow): Task {
   return {
@@ -610,21 +607,29 @@ test("unavailable actions say why in the compact tooltip and never claim to run"
   await unmount();
 });
 
-test("the row menu is copy, rename, settle, source, remove, with live shortcut cells and nothing invented", async () => {
+test("the row menu is copy, rename, source, remove, with live shortcut cells and nothing invented", async () => {
   const actions = menuActions();
   const { unmount } = await render(<MenuHarness actions={actions} rows={[FIRST]} />);
 
   await openRowMenu(FIRST.title);
-  expect(menuNames()).toEqual([
-    "Copy",
-    "Rename task…",
-    "Settle task",
-    "View issue source…",
-    "Remove task…",
-  ]);
-  expect(shortcutCells()).toEqual(["alt+a e", "alt+a d"]);
+  expect(menuNames()).toEqual(["Copy", "Rename task…", "View issue source…", "Remove task…"]);
+  expect(shortcutCells()).toEqual(["alt+a e"]);
+
+  // The glyph and the submenu chevron share the menu's 16 px step; the cell does not letterspace.
+  const copyTrigger = page.getByRole("menuitem", { name: "Copy" }).element();
+  const glyphWidths = [...copyTrigger.querySelectorAll("svg")].map(
+    (glyph) => glyph.getBoundingClientRect().width,
+  );
+  expect(glyphWidths).toHaveLength(2);
+  expect(Math.abs(glyphWidths[0]! - glyphWidths[1]!)).toBeLessThan(2);
+  expect(Math.min(...glyphWidths)).toBeGreaterThan(14);
+  const shortcut = document.querySelector('[data-slot="dropdown-menu-shortcut"]');
+  expect(["normal", "0px"]).toContain(getComputedStyle(shortcut!).letterSpacing);
+
   // The menu refuses the reference features whose contracts do not exist.
   for (const absent of [
+    "Settle task",
+    "Unsettle task",
     "Pin task",
     "Snooze",
     "Mark unread",
@@ -657,7 +662,7 @@ test("copy writes the task path, branch and id, and each is confirmed in the cop
 
     await openRowMenu(FIRST.title);
     await page.getByRole("menuitem", { name: "Copy" }).click();
-    await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
+    await page.getByRole("menuitem", { name: "Path" }).click();
     await vi.waitFor(() =>
       expect(clipboard.writeText).toHaveBeenLastCalledWith(FIRST.workspacePath),
     );
@@ -665,7 +670,7 @@ test("copy writes the task path, branch and id, and each is confirmed in the cop
 
     await openRowMenu(FIRST.title);
     await page.getByRole("menuitem", { name: "Copy" }).click();
-    await page.getByRole("menuitem", { name: "Copy branch" }).click();
+    await page.getByRole("menuitem", { name: "Branch" }).click();
     await vi.waitFor(() =>
       expect(clipboard.writeText).toHaveBeenLastCalledWith(FIRST.metadata.branch),
     );
@@ -673,7 +678,7 @@ test("copy writes the task path, branch and id, and each is confirmed in the cop
 
     await openRowMenu(FIRST.title);
     await page.getByRole("menuitem", { name: "Copy" }).click();
-    await page.getByRole("menuitem", { name: "Copy task ID" }).click();
+    await page.getByRole("menuitem", { name: "Task ID" }).click();
     await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenLastCalledWith(FIRST.id));
     expect(copyNotice()).toBe("Task ID copied");
     await unmount();
@@ -682,41 +687,33 @@ test("copy writes the task path, branch and id, and each is confirmed in the cop
   }
 });
 
-test("a task without a branch has no Copy branch item, and every other copy item stays", async () => {
+test("a task without a branch has no Branch item under Copy, and the other items stay", async () => {
   const actions = menuActions();
   const branchless: VisualTaskRow = {
     ...FIRST,
+    copyBranch: undefined,
     metadata: { ...FIRST.metadata, branch: undefined },
   };
   const screen = await render(<MenuHarness actions={actions} rows={[branchless]} />);
 
   await openRowMenu(FIRST.title);
   await page.getByRole("menuitem", { name: "Copy" }).click();
-  await expect.element(page.getByRole("menuitem", { name: "Copy workspace path" })).toBeVisible();
-  await expect.element(page.getByRole("menuitem", { name: "Copy task ID" })).toBeVisible();
-  await expect.element(page.getByRole("menuitem", { name: "Copy branch" })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("menuitem", { name: "Path" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Task ID" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Branch" })).not.toBeInTheDocument();
   await userEvent.keyboard("{Escape}{Escape}");
 
-  // A detached create records "HEAD"; that is not a branch name to copy either.
-  const detached: VisualTaskRow = { ...FIRST, metadata: { ...FIRST.metadata, branch: "HEAD" } };
+  // A detached create records "HEAD"; the row carries no branch name to copy.
+  const detached: VisualTaskRow = {
+    ...FIRST,
+    copyBranch: undefined,
+    metadata: { ...FIRST.metadata, branch: "HEAD" },
+  };
   await screen.rerender(<MenuHarness actions={actions} rows={[detached]} />);
   await openRowMenu(FIRST.title);
   await page.getByRole("menuitem", { name: "Copy" }).click();
-  await expect.element(page.getByRole("menuitem", { name: "Copy branch" })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("menuitem", { name: "Branch" })).not.toBeInTheDocument();
   await screen.unmount();
-});
-
-test("a settled task's menu says Unsettle task and settles through the same action", async () => {
-  const actions = menuActions();
-  const settled: VisualTaskRow = { ...FIRST, state: "settled" };
-  const { unmount } = await render(<MenuHarness actions={actions} rows={[settled]} />);
-
-  await openRowMenu(FIRST.title);
-  await expect.element(page.getByRole("menuitem", { name: "Unsettle task" })).toBeVisible();
-  await expect.element(page.getByRole("menuitem", { name: "Settle task" })).not.toBeInTheDocument();
-  await page.getByRole("menuitem", { name: "Unsettle task" }).click();
-  await vi.waitFor(() => expect(actions.onToggleSettle).toHaveBeenCalledExactlyOnceWith(FIRST.id));
-  await unmount();
 });
 
 test("Shift+F10 and the menu key open the row menu, arrows walk it, and Escape returns focus", async () => {
@@ -750,9 +747,45 @@ test("the shortcut cells name the prefix actions that really run", async () => {
 
   await prefixThen("e");
   await vi.waitFor(() => expect(actions.onRename).toHaveBeenCalledExactlyOnceWith(FIRST.id));
-  await prefixThen("d");
-  await vi.waitFor(() => expect(actions.onToggleSettle).toHaveBeenCalledExactlyOnceWith(FIRST.id));
   await unmount();
+});
+
+test("no menu item or card control settles a task while the shell has no settled shelf", async () => {
+  const actions = menuActions();
+  const { container, unmount } = await render(<MenuHarness actions={actions} rows={[FIRST]} />);
+
+  await openRowMenu(FIRST.title);
+  expect(page.getByRole("menuitem", { name: /Settle|Unsettle/ }).elements()).toHaveLength(0);
+  await userEvent.keyboard("{Escape}");
+
+  const action = container.querySelector<HTMLElement>(".visual-task-action");
+  if (action === null) throw new Error("the settle action is missing");
+  expect(action.getAttribute("aria-label")).toBe("Settle task");
+  expect(action.getAttribute("aria-disabled")).toBe("true");
+  // aria-disabled controls keep their click handler unset; a forced DOM click does nothing.
+  action.click();
+  await prefixThen("d");
+  expect(page.getByRole("alertdialog").elements()).toHaveLength(0);
+  await unmount();
+});
+
+test("a copy confirmation clears on the next interaction", async () => {
+  const clipboard = stubClipboard(async () => undefined);
+  try {
+    const actions = menuActions();
+    const { unmount } = await render(<MenuHarness actions={actions} rows={[FIRST]} />);
+
+    await openRowMenu(FIRST.title);
+    await page.getByRole("menuitem", { name: "Copy" }).click();
+    await page.getByRole("menuitem", { name: "Path" }).click();
+    await vi.waitFor(() => expect(copyNotice()).toBe("Workspace path copied"));
+
+    await userEvent.click(cardButton(0));
+    await expect.poll(copyNotice).toBeUndefined();
+    await unmount();
+  } finally {
+    clipboard.restore();
+  }
 });
 
 test("Remove task… reaches the real two-stage confirmation instead of removing at once", async () => {

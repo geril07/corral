@@ -55,12 +55,14 @@ export interface VisualTaskRow {
   title: string;
   project: string;
   projectInitial: string;
-  /** The task's own state, which its menu's settle item follows. */
+  /** The task's own state; the routed shell lists active rows and the settled shelf is queued. */
   state: "active" | "settled";
   /** The absolute workspace path a task's terminals start in; the menu copies it verbatim. */
   workspacePath: string;
   /** Whether the task was created from an issue URL; the source item exists only then. */
   hasSource: boolean;
+  /** The recorded branch when it is a real branch name to copy; a detached create has none. */
+  copyBranch?: string | undefined;
   status?: VisualCardStatus | undefined;
   metadata: VisualTaskMetadata;
 }
@@ -336,8 +338,8 @@ export interface VisualTaskCardProps {
   settleReason: string;
   /** The row's secondary actions; absent in a host that has no task store to act on. */
   menu?: ReactNode | undefined;
-  /** Swaps the hover action for the same settle/unsettle action the menu names. */
-  onToggleSettle?: (() => void) | undefined;
+  /** The menu took the keyboard; the shell's transient copy confirmation can go. */
+  onMenuOpen?: (() => void) | undefined;
 }
 
 /** One 52 px, two-line task card. Selection stays a click; details open on hover and keyboard focus. */
@@ -348,12 +350,10 @@ export function VisualTaskCard({
   onNavigate,
   settleReason,
   menu,
-  onToggleSettle,
+  onMenuOpen,
 }: VisualTaskCardProps) {
   const { status } = row;
   const icon = status === undefined ? undefined : statusIcon(status.tone);
-  const settled = row.state === "settled";
-  const settleLabel = settled ? "Unsettle task" : "Settle task";
 
   const hit = (
     <button
@@ -391,7 +391,11 @@ export function VisualTaskCard({
       ) : (
         // The tooltip's trigger wraps the context-menu trigger so the hit button keeps both the
         // metadata tooltip and the row menu (Shift+F10, the menu key and right-click).
-        <ContextMenu.Root>
+        <ContextMenu.Root
+          onOpenChange={(open) => {
+            if (open) onMenuOpen?.();
+          }}
+        >
           <TaskMetadataTooltip row={row}>
             <ContextMenu.Trigger render={hit} />
           </TaskMetadataTooltip>
@@ -415,18 +419,14 @@ export function VisualTaskCard({
           </span>
         )}
         <span className="visual-task-slot-action">
-          <CompactTooltip
-            label={settleLabel}
-            reason={onToggleSettle === undefined ? settleReason : undefined}
-          >
+          <CompactTooltip label="Settle task" reason={settleReason}>
             <button
               type="button"
               className="visual-task-action"
-              aria-label={settleLabel}
-              aria-disabled={onToggleSettle === undefined ? "true" : undefined}
-              onClick={onToggleSettle}
+              aria-label="Settle task"
+              aria-disabled="true"
             >
-              <Icon name={settled ? "unsettle" : "settle"} />
+              <Icon name="settle" />
             </button>
           </CompactTooltip>
         </span>
