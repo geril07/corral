@@ -6,6 +6,13 @@ status section when a slice lands; a slice that only lives in a chat does not ex
 
 Rules for how work is done and reviewed: `docs/delivery.md`. Product decisions: `docs/design.md`.
 
+**Where we are (2026-11-10).** All landed slices are on `feat/263-task-composer-instances`
+(`8de4f5f` and its parents); nothing is pushed, there is no PR yet, and the running app is the dev
+stand built from that branch. Two slices are in flight in separate worktrees, branches
+`feat/263-tabs` and `feat/263-task-menu`. Research for the queued slices is in `.review/research/`
+(`tabs.md`, `sidebar-task-menu.md`, `chat-transcript.md`, `chat-start.md`, `drafts.md`); each claim
+there carries `path:line` into the reference checkouts.
+
 ## The goal
 
 A keyboard-first workspace for running coding agents, rebuilt on two references instead of taste.
@@ -56,6 +63,9 @@ it — without meeting a single invented screen.
   source only when present, remove; pin from the project row.
 
 ### Queued, research done
+
+Each queued slice has a report in `.review/research/` with the reference paths, the current Corral
+behaviour and the open questions; the slice brief is written from it.
 
 - **Chat transcript** — turn folding, verb summaries, working/thinking rows, hover actions, quote
   from selection. Starts after tabs because the new shell does not render a conversation yet.
