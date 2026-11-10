@@ -23,6 +23,7 @@ import {
 import { RenameDialog, type RenameTarget } from "../workspace/index.ts";
 import { useTaskWorkspace } from "./task-workspace.tsx";
 import {
+  TaskMain,
   VisualShellView,
   type VisualRowFocus,
   type VisualShellNotice,
@@ -398,6 +399,14 @@ export function VisualWorkspace({
           ) : selectedTask === undefined ? undefined : (
             taskWorkspace.main
           )
+        }
+        taskHeader={
+          draft === undefined && selectedTask !== undefined && selectedRow !== undefined ? (
+            <TaskMain row={selectedRow} compact />
+          ) : undefined
+        }
+        notice={
+          draft === undefined && selectedTask !== undefined ? taskWorkspace.notice : undefined
         }
         chrome={
           draft === undefined && selectedTask !== undefined ? taskWorkspace.chrome : undefined

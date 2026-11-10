@@ -256,6 +256,13 @@
   height: 28px;
 }
 
+/* The main-surface anchor exists for the handoff measurement, but it must not indent the strip
+   while the sidebar owns the visible toggle. */
+.visual-toggle-slot-collapsed {
+  flex-basis: 0;
+  width: 0;
+}
+
 .visual-toggle-handoff {
   position: absolute;
   top: 0;
@@ -780,6 +787,47 @@
   opacity: 0.5;
 }
 
+/* The task's identity row: title first, then the project/branch context and the status. */
+.visual-task-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.visual-task-header .visual-main-task-compact {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  max-width: none;
+  min-width: 0;
+}
+
+.visual-task-header .visual-main-title {
+  order: -1;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 530;
+}
+
+.visual-task-header .visual-main-eyebrow {
+  flex: 0 0 auto;
+}
+
+.visual-task-header .visual-main-status {
+  flex: 0 0 auto;
+}
+
 /* A real chrome row is reserved in the main surface, so its Show toggle never sits over the title. */
 .visual-main-chrome {
   display: flex;
@@ -1229,6 +1277,11 @@
   font-size: 11px;
   line-height: 16px;
   font-weight: 440;
+}
+
+.visual-workspace-empty {
+  align-items: center;
+  justify-content: center;
 }
 
 /* The companion group keeps its contents mounted while it is shut (`docs/layout.md`). */

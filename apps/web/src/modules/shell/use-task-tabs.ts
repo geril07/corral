@@ -1,5 +1,5 @@
 import type { Session, Task } from "@corral/protocol/rpc";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   defaultLayout,
   parseLayout,
@@ -49,28 +49,58 @@ function readCompanionWidth(): number {
  */
 export function useTaskTabLayout(task: Task | undefined, sessions: readonly Session[]) {
   const [layouts, setLayouts] = useState<ReadonlyMap<string, TaskTabLayout>>(() => new Map());
-  const sessionsRef = useRef(sessions);
-  sessionsRef.current = sessions;
-  const stored = task === undefined ? undefined : (layouts.get(task.id) ?? readLayout(task.id));
-  const layout = task === undefined ? undefined : reconcileLayout(stored, task, sessions);
-
-  const change = useCallback(
-    (update: (current: TaskTabLayout) => TaskTabLayout) => {
-      if (task === undefined) return;
-      setLayouts((previous) => {
-        const base =
-          previous.get(task.id) ?? readLayout(task.id) ?? defaultLayout(task, sessionsRef.current);
-        const current = reconcileLayout(base, task, sessionsRef.current);
-        const next = update(current);
-        if (next === current) return previous;
-        storeLayout(task.id, next);
-        const map = new Map(previous);
-        map.set(task.id, next);
-        return map;
-      });
-    },
-    [task],
+  const taskKey = useMemo(
+    () =>
+      task === undefined ? undefined : { id: task.id, primarySessionId: task.primarySessionId },
+    [task?.id, task?.primarySessionId],
   );
+  const sessionsRef = useRef(sessions);
+  const taskRef = useRef(taskKey);
+  useEffect(() => {
+    sessionsRef.current = sessions;
+    taskRef.current = taskKey;
+  }, [sessions, taskKey]);
+
+  // A session's status updates on every streamed delta; only a change in the set of ids can
+  // change the layout, so keep the reconciled object and the window listener identity stable.
+  const sessionKey = useMemo(() => {
+    if (taskKey === undefined) return "";
+    return sessions
+      .filter((session) => session.taskId === taskKey.id)
+      .map((session) => session.id)
+      .join("|");
+  }, [sessions, taskKey?.id]);
+  const layoutSessions = useMemo(
+    () =>
+      taskKey === undefined ? [] : sessions.filter((session) => session.taskId === taskKey.id),
+    [sessionKey],
+  );
+  const base = useMemo(
+    () => (taskKey === undefined ? undefined : (layouts.get(taskKey.id) ?? readLayout(taskKey.id))),
+    [layouts, taskKey?.id],
+  );
+  const layout = useMemo(
+    () => (taskKey === undefined ? undefined : reconcileLayout(base, taskKey, layoutSessions)),
+    [base, taskKey, layoutSessions],
+  );
+
+  const change = useCallback((update: (current: TaskTabLayout) => TaskTabLayout) => {
+    const currentTask = taskRef.current;
+    if (currentTask === undefined) return;
+    setLayouts((previous) => {
+      const storedBase =
+        previous.get(currentTask.id) ??
+        readLayout(currentTask.id) ??
+        defaultLayout(currentTask, sessionsRef.current);
+      const current = reconcileLayout(storedBase, currentTask, sessionsRef.current);
+      const next = update(current);
+      if (next === current) return previous;
+      storeLayout(currentTask.id, next);
+      const map = new Map(previous);
+      map.set(currentTask.id, next);
+      return map;
+    });
+  }, []);
 
   return { layout, change };
 }

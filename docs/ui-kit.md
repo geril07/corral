@@ -194,6 +194,9 @@ context-menu dispatcher.
 - One root-layer toggle owns hide/show. It reads the sidebar's real width and the reserved header
   and main-chrome slots, so the 240 ms width transition is the only motion; there is never a
   second visible or tabbable toggle at either endpoint or in flight.
+- `TaskMain` with `compact` is the working area's **40** px identity row: title, project, branch
+  and status reuse the card's existing strings. The strip's band follows it; a bottom strip
+  replaces the chrome row rather than adding an empty one.
 - `VisualTabStrip` owns the working-area strip: a **40** px band, **28** px tabs (radius **6**,
   inline padding **6**, gap **6**, **16** px glyph, **13/16** weight **530** title), a **20×20**
   close control at inset **4** revealed by hover/focus, a **1.5×12** separator between inactive

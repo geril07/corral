@@ -38,9 +38,10 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   host at `/visual-review` (development only) renders the same components with fixture rows for
   rare states. Search, New task, Settings and Settle are deferred in this slice; Add project opens
   the existing real dialog.
-- The main surface is the selected task's working area: one 40 px strip above the main group's
-  pane, and the optional companion group beside it. A task card carries its title, project, branch,
-  agent, status and prompt; the panes carry the conversation and work.
+- The main surface is the selected task's working area: a compact **40** px task row (title,
+  project, branch, status), the **40** px strip, and the optional companion group beside the main
+  pane. The task card shows its title, project initial and status; branch, agent and prompt are in
+  the card's metadata tooltip. The panes carry the conversation and work.
 
 The sections below describe the prior workspace composition. Those modules and their tests remain
 in the tree for the parts that are still useful (chat, changes, terminal, dialogs), but the
@@ -76,38 +77,45 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
 ## Working area
 
 - One task is one working area with two tab groups. The main group is always visible; the
-  companion group is hidden until it has a tab and the user opens it, so there is never an empty
-  half. The strip band is **40** high inside the main surface's **8** inset and **10** radius.
-- A tab is **28** high, radius **6**, inline padding **6**, gap **6**, icon **16**, title
-  **13/16** weight **530**. Hover takes the one hover overlay, the selected tab the pressed
-  overlay, and neither adds a border. The close control is **20×20** at inset **4** and appears on
-  hover or keyboard focus only. Two inactive neighbours share a **1.5×12** separator.
+  companion group is hidden until it has a tab, and a toggle with no companion tab opens
+  `Changes`. There is never an empty half. The strip band is **40** high inside the main
+  surface's **8** inset and **10** radius.
+- A tab is **28** high, radius **6**, inline padding **6** with **26** reserved at the end for the
+  close/status slot, gap **6**, icon **16**, title **13/16** weight **530**, maximum **200**. Hover takes the one
+  hover overlay, the selected tab the pressed overlay, and neither adds a border. The close
+  control is **20×20** at inset **4** and appears on hover or keyboard focus only. Two inactive
+  neighbours share a **1.5×12** separator.
 - Tabs keep a **72** px minimum and then scroll horizontally with **24** px edge fades; the active
   tab is scrolled into view. The trailing `+` and the `Changes` action do not scroll away.
 - The first tab of the main group is the task's **primary** session: `Task.primarySessionId`,
-  created with the task. The role is not the position, so moving the tab does not move the role.
-  Its close control stays absent; only the destructive `Remove session…` removes it.
-- The rest of the tabs are sessions (an agent or a shell), the task's `Changes`, and files
-  promoted from a preview. Chat and Terminal are **one** tab: the same session switches view in
-  place, and a both-live agent still has one tab. A task with no sessions shows an empty strip
-  with only the `+` and `Changes` actions, never a fake tab.
-- Session tabs carry a number **1–9** inside their group; `Changes` carries no number and no
-  status glyph. Every session tab's glyph slot shows the tool or shell logo, a working, blocked
-  or error glyph, and a failed or unresumable session uses the error glyph. The name carries its
-  state; stop/restart, rename and the destructive remove live in the tab's context menu.
+  created with the task. Moving that tab between groups is refused, so the primary stays first;
+  its close control stays absent and only the destructive `Remove session…` removes it.
+- The rest of the tabs are sessions (an agent or a shell) and the task's `Changes`. A file tab
+  promoted from a preview is not built yet. Chat and Terminal are **one** tab: the same session
+  switches view in place, and a both-live agent still has one tab. A task with no sessions keeps
+  the strip's `+`/`Changes` actions and repeats the same `+` add-session menu in the empty pane,
+  never a fake tab.
+- Session tabs carry a number **1–9** counted over the session tabs inside their group; `Changes`
+  carries no number and no status glyph. Every session tab's glyph slot shows the tool or shell
+  logo, a working, blocked or error glyph, and a failed or unresumable session uses the error
+  glyph. The accessible name carries the session's badge; stop/restart, the Chat/Terminal view
+  item, rename and the destructive remove live in the tab's context menu.
 - The companion group has its own strip and pane, separated by a **1** px border with an **8** px
-  drag hit area. At the 1024 floor the main pane keeps **560** and the companion **320** when the
-  sidebar is hidden; with the sidebar shown the companion keeps its minimum and the main pane
-  gives up part of its own. Closing the last companion tab collapses the group; toggling it shut
-  keeps the pane mounted. The companion width and the strip's top/bottom position are device-local.
+  drag hit area. At the 1024 floor with the sidebar hidden the main pane keeps **560** and the
+  companion can use **320–448**; the stored 600 clamps to 448. With the sidebar shown the
+  companion keeps **320** and the main pane gives up part of its own. Closing the last companion
+  tab collapses the group; toggling it shut keeps the pane mounted. The companion width and the
+  strip's top/bottom position are device-local.
 - Selection, order, group and the active tab are stored per task and device under
   `corral.task-tabs.<task id>`, with a closed stack of 20 views. Closing a session tab closes the
   view, not the session; reopening restores its group and order. The route keeps naming the task.
 - `prefix c` and `prefix s` add a shell or an agent and focus the new main-group tab;
   `prefix shift+c` opens `Changes` in the companion group without changing the current session.
   `prefix q`/`shift+q` close and reopen, `prefix shift+b` toggles the companion,
-  `prefix shift+o` moves the focused tab to the other group, and `prefix shift+w` focuses the
-  companion. Number and `n`/`p` navigation act inside the focused group.
+  `prefix shift+o` moves the focused tab to the other group, and `prefix shift+w` toggles the
+  focus between the groups. Number and `n`/`p` navigation act inside the focused group; when a
+  companion holds only `Changes` they act on the main group. A refused close of the primary or a
+  refused move says so in the one line above the strip, and choosing a tab clears that line.
 
 ## Terminal and chat
 

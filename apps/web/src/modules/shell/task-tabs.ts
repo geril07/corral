@@ -357,9 +357,14 @@ export function removeSession(layout: TaskTabLayout, sessionId: string): TaskTab
  * The keyboard's move-to-the-other-group. The main group always keeps at least one tab, so the
  * workspace never grows an empty half; Changes belongs to the companion group and does not move.
  */
-export function moveTab(layout: TaskTabLayout, id: string): TaskTabLayout {
+export function moveTab(
+  layout: TaskTabLayout,
+  id: string,
+  primarySessionId: string | null,
+): TaskTabLayout {
   const tab = layout.tabs.find((candidate) => tabId(candidate) === id);
   if (tab === undefined || tab.kind === "changes") return layout;
+  if (tab.kind === "session" && tab.sessionId === primarySessionId) return layout;
   if (tab.group === "main" && tabsInGroup(layout, "main").length === 1) return layout;
   const target: TaskTabGroup = tab.group === "main" ? "companion" : "main";
   const moved: TaskTab = { ...tab, group: target };
@@ -397,10 +402,13 @@ export function toggleCompanion(layout: TaskTabLayout): TaskTabLayout {
 export function tabNumber(layout: Pick<TaskTabLayout, "tabs">, id: string): number | undefined {
   const tab = layout.tabs.find((candidate) => tabId(candidate) === id);
   if (tab === undefined || tab.kind !== "session") return undefined;
-  const index = tabsInGroup(layout, tab.group).findIndex(
-    (candidate) => candidate.kind === "session" && tabId(candidate) === id,
-  );
-  return index >= 0 && index < 9 ? index + 1 : undefined;
+  let number = 0;
+  for (const candidate of tabsInGroup(layout, tab.group)) {
+    if (candidate.kind !== "session") continue;
+    number += 1;
+    if (tabId(candidate) === id) return number <= 9 ? number : undefined;
+  }
+  return undefined;
 }
 
 /** The n-th session tab of a group, as the prefix number keys name it. */

@@ -14,6 +14,7 @@ import {
   serializeLayout,
   sessionTabAt,
   tabId,
+  tabNumber,
   tabsInGroup,
   toggleCompanion,
   type TaskTabLayout,
@@ -159,13 +160,13 @@ describe("the companion group", () => {
 
 describe("moving tabs between groups", () => {
   test("a session moves beside the main group and back", () => {
-    const moved = moveTab(layout(), "session:s3");
+    const moved = moveTab(layout(), "session:s3", "s1");
     expect(tabsInGroup(moved, "main").map(tabId)).toEqual(["session:s1", "session:s2"]);
     expect(tabsInGroup(moved, "companion").map(tabId)).toEqual(["session:s3"]);
     expect(moved.active.companion).toBe("session:s3");
     expect(moved.companionOpen).toBe(true);
 
-    const back = moveTab(moved, "session:s3");
+    const back = moveTab(moved, "session:s3", "s1");
     expect(tabsInGroup(back, "main").map(tabId)).toEqual([
       "session:s1",
       "session:s2",
@@ -176,12 +177,17 @@ describe("moving tabs between groups", () => {
 
   test("the main group always keeps one tab", () => {
     const one = defaultLayout(task("s1"), [SESSIONS[1]!]);
-    expect(moveTab(one, "session:s1")).toBe(one);
+    expect(moveTab(one, "session:s1", "s1")).toBe(one);
   });
 
   test("Changes belongs to the companion group and does not move", () => {
     const l = addTab(layout(), { kind: "changes", group: "companion" });
-    expect(moveTab(l, "changes")).toBe(l);
+    expect(moveTab(l, "changes", "s1")).toBe(l);
+  });
+
+  test("the primary session stays first and does not move", () => {
+    const l = layout();
+    expect(moveTab(l, "session:s1", "s1")).toBe(l);
   });
 });
 
@@ -213,7 +219,7 @@ describe("reconciling with the server", () => {
 describe("the device-local record", () => {
   test("round-trips tab identity, group, order, active tabs and the closed stack", () => {
     let l = addTab(layout(), { kind: "changes", group: "companion" });
-    l = moveTab(l, "session:s3");
+    l = moveTab(l, "session:s3", "s1");
     l = closeTab(l, "session:s2", "s1");
     const stored = serializeLayout(l);
     expect(parseLayout(stored)).toEqual(l);
@@ -237,10 +243,18 @@ describe("the device-local record", () => {
 
 describe("numbers and stepping", () => {
   test("session tabs are numbered inside their own group; Changes is not numbered", () => {
-    const l = addTab(layout(), { kind: "changes", group: "companion" });
+    let l = addTab(layout(), { kind: "changes", group: "companion" });
     expect(sessionTabAt(l, "main", 1)).toMatchObject({ sessionId: "s1" });
     expect(sessionTabAt(l, "companion", 1)).toBeUndefined();
     expect(activeTab(l, "companion")).toMatchObject({ kind: "changes" });
+    expect(tabNumber(l, "session:s2")).toBe(2);
+    expect(tabNumber(l, "changes")).toBeUndefined();
+
+    // A session beside Changes is the companion group's first session, not its second tab.
+    l = moveTab(l, "session:s2", "s1");
+    expect(tabsInGroup(l, "companion").map(tabId)).toEqual(["changes", "session:s2"]);
+    expect(tabNumber(l, "session:s2")).toBe(1);
+    expect(sessionTabAt(l, "companion", 1)).toMatchObject({ sessionId: "s2" });
   });
 });
 

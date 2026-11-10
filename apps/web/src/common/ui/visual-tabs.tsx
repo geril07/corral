@@ -10,6 +10,7 @@ import {
 } from "react";
 import { AgentIcon } from "./agent-icon.tsx";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "./dropdown-menu.tsx";
+import { Hint } from "./hint.tsx";
 import { Icon, type IconName } from "./icon.tsx";
 import { RowMenu } from "./row-menu.tsx";
 import { StatusGlyph } from "./status-glyph.tsx";
@@ -21,6 +22,10 @@ export interface VisualTabItem {
   id: string;
   kind: VisualTabKind;
   label: string;
+  /** The state-bearing accessible name; the visible label stays short. */
+  ariaLabel?: string | undefined;
+  /** The context-menu name, e.g. `Session actions for shell 2`. */
+  menuLabel?: string | undefined;
   /** Session tabs carry 1–9 inside their group; Changes and files carry none. */
   number?: number | undefined;
   agentKind?: Session["kind"] | undefined;
@@ -64,6 +69,7 @@ function TabButton({
       role="tab"
       id={`tab-${item.id}`}
       className="visual-tab-main"
+      aria-label={item.ariaLabel ?? item.label}
       aria-selected={item.selected}
       aria-controls={item.paneId}
       tabIndex={item.selected ? 0 : -1}
@@ -198,7 +204,7 @@ export function VisualTabStrip({
                 <TabButton item={item} onSelect={onSelect} onStep={step} />
               ) : (
                 <RowMenu
-                  label="More options"
+                  label={item.menuLabel ?? item.label}
                   trigger={
                     <span className="visual-tab-trigger">
                       <TabButton item={item} onSelect={onSelect} onStep={step} />
@@ -212,8 +218,8 @@ export function VisualTabStrip({
                 <button
                   type="button"
                   className="visual-tab-close"
-                  aria-label="Close tab"
-                  title="Close tab"
+                  aria-label={`Close ${item.label} tab`}
+                  title={`Close ${item.label} tab`}
                   onClick={() => onClose(item.id)}
                 >
                   <Icon name="close" />
@@ -243,16 +249,27 @@ export function VisualTabStrip({
 }
 
 /** The strip's trailing plus, opening the same compact menu the workspace uses elsewhere. */
-export function VisualAddMenu({ label, children }: { label: string; children: ReactNode }) {
+export function VisualAddMenu({
+  label,
+  tooltip,
+  children,
+}: {
+  label: string;
+  /** The compact hint with the two prefix chords; the trigger's name stays the short label. */
+  tooltip?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <button type="button" className="visual-icon-button" aria-label={label} title={label}>
-            <Icon name="add" />
-          </button>
-        }
-      />
+      <Hint content={tooltip}>
+        <DropdownMenuTrigger
+          render={
+            <button type="button" className="visual-icon-button" aria-label={label}>
+              <Icon name="add" />
+            </button>
+          }
+        />
+      </Hint>
       <DropdownMenuContent align="end">{children}</DropdownMenuContent>
     </DropdownMenu>
   );
