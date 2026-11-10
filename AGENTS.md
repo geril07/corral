@@ -23,6 +23,15 @@ entrypoints, group and heavy classification. Orchestrators also read
 - Broad or undeterminable change — protocol, layout, build or config shapes, anything spanning packages — gets the full gate: `pnpm check`, plus `pnpm test:browser` and `pnpm test:e2e` where the changed surface is one a user or client can reach.
 - The PR says what ran and what did not. An unstated skip is the failure this rule exists to prevent; the full suites are the evidence a release needs, not the edit loop.
 
+## UI work
+
+- A pattern that exists in T3 or OpenCode is taken from there (T3: structure, geometry, behaviour;
+  OpenCode: visual language). A pattern that exists in neither is new work and is reviewed as such.
+- Do not invent user-visible copy. No reference wording and no functional error means no sentence.
+- Pipeline, review roles and what reviewers may run: `docs/delivery.md`.
+- Current scope, slice status and open decisions: `docs/ui-rebuild.md`. Read it before starting a
+  UI slice; update it when one lands.
+
 ## Issues and pull requests
 
 - A change starts from a GitHub issue: `gh issue view N` for the report and the decision it settles. Bugs, features and behaviour changes alike.
