@@ -38,8 +38,9 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   host at `/visual-review` (development only) renders the same components with fixture rows for
   rare states. Search, New task, Settings and Settle are deferred in this slice; Add project opens
   the existing real dialog.
-- The main surface in this slice shows the selected task's title, project/branch/workspace, agent,
-  status and prompt. Tab groups, chat and terminal panes are not built here.
+- The main surface is the selected task's working area: one 40 px strip above the main group's
+  pane, and the optional companion group beside it. A task card carries its title, project, branch,
+  agent, status and prompt; the panes carry the conversation and work.
 
 The sections below describe the prior workspace composition. Those modules and their tests remain
 in the tree for the parts that are still useful (chat, changes, terminal, dialogs), but the
@@ -72,21 +73,41 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
   copied", "Branch copied", or the clipboard's own refusal sentence. The line is a polite live
   region, is reachable by the menu's keyboard path, and the next header action clears it.
 
-## Session tabs
+## Working area
 
-- Content-width tabs within a maximum, horizontally scrollable with the selected tab in view.
-  Number hints 1–9 retain their existing prefix bindings. A draft gets a draft indicator,
-  not a fake server session or a premature add-session action.
-- Real tool/shell logo in one stable slot; working/blocked status replaces it without shifting
-  the tab, and a failed start shows the error glyph there. A tab's name carries its state
-  (`stopped`, `failed`, `unresumable`); the context menu and the pane button read one action from
-  the same state, `Restart` or `Start a new conversation` for an unresumable agent. Full label
-  remains accessible and clipped labels get a focus/hover tooltip.
-- Stop/restart, rename and remove live in the context menu and palette, not three invisible
-  hover-action slots. A trailing + opens the same compact menu scale as task actions.
-- Chat/Terminal is in this row. It uses the existing driver capability and safe handoff action:
-  a busy handoff-only agent still asks before ending its turn, both-live agents keep running,
-  and shells/unsupported drivers explain why chat is unavailable. It is disabled on Changes.
+- One task is one working area with two tab groups. The main group is always visible; the
+  companion group is hidden until it has a tab and the user opens it, so there is never an empty
+  half. The strip band is **40** high inside the main surface's **8** inset and **10** radius.
+- A tab is **28** high, radius **6**, inline padding **6**, gap **6**, icon **16**, title
+  **13/16** weight **530**. Hover takes the one hover overlay, the selected tab the pressed
+  overlay, and neither adds a border. The close control is **20×20** at inset **4** and appears on
+  hover or keyboard focus only. Two inactive neighbours share a **1.5×12** separator.
+- Tabs keep a **72** px minimum and then scroll horizontally with **24** px edge fades; the active
+  tab is scrolled into view. The trailing `+` and the `Changes` action do not scroll away.
+- The first tab of the main group is the task's **primary** session: `Task.primarySessionId`,
+  created with the task. The role is not the position, so moving the tab does not move the role.
+  Its close control stays absent; only the destructive `Remove session…` removes it.
+- The rest of the tabs are sessions (an agent or a shell), the task's `Changes`, and files
+  promoted from a preview. Chat and Terminal are **one** tab: the same session switches view in
+  place, and a both-live agent still has one tab. A task with no sessions shows an empty strip
+  with only the `+` and `Changes` actions, never a fake tab.
+- Session tabs carry a number **1–9** inside their group; `Changes` carries no number and no
+  status glyph. Every session tab's glyph slot shows the tool or shell logo, a working, blocked
+  or error glyph, and a failed or unresumable session uses the error glyph. The name carries its
+  state; stop/restart, rename and the destructive remove live in the tab's context menu.
+- The companion group has its own strip and pane, separated by a **1** px border with an **8** px
+  drag hit area. At the 1024 floor the main pane keeps **560** and the companion **320** when the
+  sidebar is hidden; with the sidebar shown the companion keeps its minimum and the main pane
+  gives up part of its own. Closing the last companion tab collapses the group; toggling it shut
+  keeps the pane mounted. The companion width and the strip's top/bottom position are device-local.
+- Selection, order, group and the active tab are stored per task and device under
+  `corral.task-tabs.<task id>`, with a closed stack of 20 views. Closing a session tab closes the
+  view, not the session; reopening restores its group and order. The route keeps naming the task.
+- `prefix c` and `prefix s` add a shell or an agent and focus the new main-group tab;
+  `prefix shift+c` opens `Changes` in the companion group without changing the current session.
+  `prefix q`/`shift+q` close and reopen, `prefix shift+b` toggles the companion,
+  `prefix shift+o` moves the focused tab to the other group, and `prefix shift+w` focuses the
+  companion. Number and `n`/`p` navigation act inside the focused group.
 
 ## Terminal and chat
 
@@ -114,7 +135,7 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
 
 ## Changes (stage C)
 
-- A `Changes` tab per task sits in the session tab strip after the task's sessions. It has no session behind it: no number hint, no status glyph, and selecting it does not change which session is current.
+- A `Changes` tab per task belongs to the companion group. It has no session behind it: no number hint, no status glyph, and selecting it does not change which session is current in the main group.
 - Full main-area width with the Terminal's padding, not the chat lane: diffs are wide and get
   horizontal scroll rather than wrapping.
 - A summary row at the top ("12 files, +340 −87", `text-sm`, muted), then compact file rows: status letter (`M`/`A`/`D`/`R`), path in mono truncated from the left, `+N −M` right-aligned. Changed files sort by path; a renamed file shows `old → new`.

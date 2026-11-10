@@ -88,10 +88,14 @@ test("the New task button creates a project task through the real server and sel
   expect(task.branch).toBe("main");
   expect((await runGitIn(repo, ["rev-parse", "--abbrev-ref", "HEAD"])).trim()).toBe(before);
 
-  await expect.element(page.getByRole("heading", { name: task.title })).toBeVisible();
-  const eyebrow = screen.container.querySelector(".visual-main-eyebrow")?.textContent ?? "";
-  expect(eyebrow).toContain("recorded");
-  expect(eyebrow).toContain("main");
+  // The created task is the selected card, and its primary agent owns the working area's first
+  // tab. The card carries the project name; the branch is the server's recorded fact.
+  const card = page.getByRole("button", { name: new RegExp(task.title) });
+  await expect.element(card).toHaveAttribute("aria-current", "true");
+  await expect.element(card).toMatchTextContent(project.name);
+  await expect
+    .element(page.getByRole("tablist", { name: "Sessions" }).getByRole("tab", { selected: true }))
+    .toBeVisible();
   expect(page.getByRole("button", { name: /branch/i }).elements()).toHaveLength(0);
   await screen.unmount();
 });
@@ -349,10 +353,12 @@ test("a pointer-created scratch task has no project, no Git controls and its own
   expect(
     client.sessions.getSnapshot().sessions.some((session) => session.id === task.primarySessionId),
   ).toBe(true);
-  await expect.element(page.getByRole("heading", { name: task.title })).toBeVisible();
-  const eyebrow = screen.container.querySelector(".visual-main-eyebrow")?.textContent ?? "";
-  expect(eyebrow).toContain("No project");
-  expect(eyebrow).not.toContain("recorded");
+  const card = page.getByRole("button", { name: new RegExp(task.title) });
+  await expect.element(card).toHaveAttribute("aria-current", "true");
+  await expect.element(card).toMatchTextContent("No project");
+  await expect
+    .element(page.getByRole("tablist", { name: "Sessions" }).getByRole("tab", { selected: true }))
+    .toBeVisible();
   await expect.element(newTaskButton()).toBeVisible();
   await screen.unmount();
 });

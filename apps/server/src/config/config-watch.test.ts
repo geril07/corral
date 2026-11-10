@@ -73,11 +73,11 @@ test("picks up a config file created later, together with its directory", async 
   const watcher = await openWatcher();
 
   await mkdir(server.configDir, { recursive: true });
-  await writeFile(configFile(), '[keys.bindings]\nnew-agent = "q"\n');
+  await writeFile(configFile(), '[keys.bindings]\nnew-agent = "z"\n');
 
   const state = await watcher.next("the config of the new file");
   expect(state).toMatchObject({ path: configFile(), exists: true, problems: [] });
-  expect(state.config.keys.bindings).toEqual({ ...DEFAULT_BINDINGS, "new-agent": "q" });
+  expect(state.config.keys.bindings).toEqual({ ...DEFAULT_BINDINGS, "new-agent": "z" });
 });
 
 test("reports an absent file in an existing config directory, then the file", async () => {
@@ -114,8 +114,8 @@ test("an empty file flips only existence, and removing it pushes that back", asy
 test("pushes an edit", async () => {
   const watcher = await openWatcher();
   await mkdir(server.configDir, { recursive: true });
-  await writeFile(configFile(), '[keys.bindings]\nboard = "q"\n');
-  expect((await watcher.next("the first config")).config.keys.bindings["board"]).toBe("q");
+  await writeFile(configFile(), '[keys.bindings]\nboard = "z"\n');
+  expect((await watcher.next("the first config")).config.keys.bindings["board"]).toBe("z");
 
   await writeFile(configFile(), '[keys.bindings]\nboard = "y"\n');
 
@@ -139,9 +139,9 @@ test("an invalid edit is pushed with its problems and keeps the valid entries", 
   const watcher = await openWatcher();
   await mkdir(server.configDir, { recursive: true });
 
-  await writeFile(configFile(), '[keys.bindings]\nnew-agent = "hyper+q"\nboard = "q"\n');
+  await writeFile(configFile(), '[keys.bindings]\nnew-agent = "hyper+q"\nboard = "z"\n');
   const partial = await watcher.next("the partly invalid config");
-  expect(partial.config.keys.bindings["board"]).toBe("q");
+  expect(partial.config.keys.bindings["board"]).toBe("z");
   expect(partial.config.keys.bindings["new-agent"]).toBe(DEFAULT_BINDINGS["new-agent"]);
   expect(partial.problems).toEqual([
     {
@@ -171,9 +171,9 @@ test("an unreadable config file is reported instead of crashing the server", asy
   ]);
 
   await rm(join(server.configDir, "config.toml"), { recursive: true });
-  await writeFile(configFile(), '[keys.bindings]\nnew-agent = "q"\n');
+  await writeFile(configFile(), '[keys.bindings]\nnew-agent = "z"\n');
 
-  expect((await watcher.next("the readable config")).config.keys.bindings["new-agent"]).toBe("q");
+  expect((await watcher.next("the readable config")).config.keys.bindings["new-agent"]).toBe("z");
 });
 
 test("deleting the file goes back to the defaults", async () => {

@@ -175,6 +175,10 @@ function controlOverrides(program, diagnostics, line) {
     "BoardList",
     "VisualResizeHandle",
     "VisualSidebar",
+    "VisualCompanion",
+    "VisualSplitHandle",
+    "VisualTabPanel",
+    "VisualTabStrip",
   ]);
   const controls = new Set();
   const namespaces = new Set();

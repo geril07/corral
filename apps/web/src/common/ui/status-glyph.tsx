@@ -1,8 +1,8 @@
 import type { AgentState } from "@corral/protocol/rpc";
 import { Icon, type IconSize } from "./icon.tsx";
 
-/** `row` is the 12 px glyph of sidebar rows, `chrome` the 14 px one of tabs and the task header. */
-export type StatusGlyphSize = Exclude<IconSize, "default">;
+/** `row` is 12 px, `chrome` 14 px, `default` the 16 px glyph of a working-area tab. */
+export type StatusGlyphSize = IconSize;
 
 const COLORS: Readonly<Record<AgentState, string>> = {
   working: "text-status-working",
@@ -14,7 +14,7 @@ const COLORS: Readonly<Record<AgentState, string>> = {
 
 /**
  * Shape, the caller's accessible name and the status color distinguish states (`layout.md`,
- * **Task header**, **Session tabs**). `muted` fades a finished update the user has already seen.
+ * **Task header**, **Working area**). `muted` fades a finished update the user has already seen.
  */
 export function StatusGlyph({
   state = "idle",

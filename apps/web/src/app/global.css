@@ -85,7 +85,7 @@
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   /* Agent state, in addition to the glyph and its word (`layout.md`, **Task header**,
-     **Session tabs**); alongside the T3-derived theme in `ui-kit.md`. */
+     **Working area**); alongside the T3-derived theme in `ui-kit.md`. */
   --status-working: oklch(0.55 0.16 250);
   --status-attention: oklch(0.62 0.14 75);
   --status-done: oklch(0.55 0.12 150);

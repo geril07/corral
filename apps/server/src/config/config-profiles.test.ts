@@ -78,7 +78,7 @@ test("profiles sit beside keys; an invalid key entry still drops only itself", (
 [keys]
 prefix = "ctrl+b"
 [keys.bindings]
-board = "q"
+board = "z"
 [profiles.p]
 name = "P"
 agent = "pi"
@@ -86,7 +86,7 @@ agent = "pi"
 
   expect(parsed.problems).toEqual([]);
   expect(parsed.config.keys.prefix).toBe("ctrl+b");
-  expect(parsed.config.keys.bindings["board"]).toBe("q");
+  expect(parsed.config.keys.bindings["board"]).toBe("z");
   expect(parsed.profiles).toHaveLength(1);
 
   const broken = parseText(
