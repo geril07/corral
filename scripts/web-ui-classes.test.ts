@@ -341,8 +341,7 @@ describe("spine scales", () => {
       // One ring width and offset.
       "focus-visible:ring-2",
       "ring-2",
-      // The declared easing token and Tailwind's default timing function (no class).
-      "ease-surface",
+      // Tailwind's default timing function (no class).
       "duration-200",
       "duration-200!",
       // Derived gutters: a step plus the control it clears (icon, indicator, close button).
@@ -411,7 +410,7 @@ describe("spine scales", () => {
       // The reduce partner itself stays legal, and a non-entry animation may keep one.
       'const cls = "motion-reduce:animate-none";',
       'const cls = "animate-wiggle motion-reduce:animate-none";',
-      'const cls = "transition-transform ease-surface motion-reduce:transition-none";',
+      'const cls = "transition-transform motion-reduce:transition-none";',
     ]) {
       expect(messages(source, "kit.tsx", "kit")).toEqual([]);
     }
