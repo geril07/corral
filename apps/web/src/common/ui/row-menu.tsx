@@ -1,15 +1,28 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
 import type { ReactElement, ReactNode } from "react";
+import { VISUAL_MENU_CLASS } from "./dropdown-menu.tsx";
 import { Hint } from "./hint.tsx";
 
+const STOCK_POPUP_CLASS =
+  "max-h-(--available-height) min-w-44 max-w-(--available-width) overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-floating outline-none";
+
 /** The popup of a row's secondary actions, shared by RowMenu and a row that owns its own trigger. */
-export function RowMenuPopup({ label, children }: { label: string; children: ReactNode }) {
+export function RowMenuPopup({
+  label,
+  skin = "stock",
+  children,
+}: {
+  label: string;
+  /** `visual` is the shell's floating-surface skin; the default is the stock kit menu. */
+  skin?: "stock" | "visual";
+  children: ReactNode;
+}) {
   return (
     <ContextMenu.Portal>
       <ContextMenu.Positioner className="isolate z-50 outline-none" sideOffset={4}>
         <ContextMenu.Popup
           aria-label={label}
-          className="visual-menu w-max origin-(--transform-origin) data-[side=bottom]:motion-safe:slide-in-from-top-2 data-[side=inline-end]:motion-safe:slide-in-from-left-2 data-[side=inline-start]:motion-safe:slide-in-from-right-2 data-[side=left]:motion-safe:slide-in-from-right-2 data-[side=right]:motion-safe:slide-in-from-left-2 data-[side=top]:motion-safe:slide-in-from-bottom-2 data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 data-open:motion-safe:zoom-in-95"
+          className={skin === "visual" ? VISUAL_MENU_CLASS : STOCK_POPUP_CLASS}
         >
           {children}
         </ContextMenu.Popup>

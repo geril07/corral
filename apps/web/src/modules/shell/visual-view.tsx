@@ -45,8 +45,6 @@ export interface VisualTaskActions {
 
 /** The list's mounted rows, for a closing dialog that has to name where the keyboard goes. */
 export interface VisualRowFocus {
-  /** Focus a row after the list has rendered the new selection. */
-  focusRow: (id: string) => void;
   /** The row's button as mounted now. */
   rowElement: (id: string) => HTMLElement | null;
 }
@@ -69,15 +67,18 @@ function TaskRowMenu({
   row,
   actions,
   renameShortcut,
+  removeShortcut,
   onCopy,
 }: {
   row: VisualTaskRow;
   actions: VisualTaskActions;
   renameShortcut: VisualShortcut | undefined;
+  removeShortcut: VisualShortcut | undefined;
   onCopy: (text: string, copied: string) => void;
 }) {
   const branch = row.copyBranch;
   const renameChord = shortcutChord(renameShortcut);
+  const removeChord = shortcutChord(removeShortcut);
   return (
     <>
       <DropdownMenuSub>
@@ -85,24 +86,37 @@ function TaskRowMenu({
           <Icon name="copy" />
           <span>Copy</span>
         </DropdownMenuSubTrigger>
-        <DropdownMenuSubContent>
+        <DropdownMenuSubContent skin="visual">
           <DropdownMenuItem
             icon="folder"
+            aria-label="Copy workspace path"
             onClick={() => onCopy(row.workspacePath, "Workspace path copied")}
           >
             Path
           </DropdownMenuItem>
           {branch !== undefined && (
-            <DropdownMenuItem icon="branch" onClick={() => onCopy(branch, "Branch copied")}>
+            <DropdownMenuItem
+              icon="branch"
+              aria-label="Copy branch"
+              onClick={() => onCopy(branch, "Branch copied")}
+            >
               Branch
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem icon="hash" onClick={() => onCopy(row.id, "Task ID copied")}>
+          <DropdownMenuItem
+            icon="hash"
+            aria-label="Copy task ID"
+            onClick={() => onCopy(row.id, "Task ID copied")}
+          >
             Task ID
           </DropdownMenuItem>
         </DropdownMenuSubContent>
       </DropdownMenuSub>
-      <DropdownMenuItem icon="task" onClick={() => actions.onRename(row.id)}>
+      <DropdownMenuItem
+        icon="task"
+        aria-keyshortcuts={renameChord}
+        onClick={() => actions.onRename(row.id)}
+      >
         Rename task…
         {renameChord !== undefined && (
           <DropdownMenuShortcut aria-hidden="true">{renameChord}</DropdownMenuShortcut>
@@ -120,6 +134,9 @@ function TaskRowMenu({
         onClick={() => actions.onRemove(row.id)}
       >
         Remove task…
+        {removeChord !== undefined && (
+          <DropdownMenuShortcut aria-hidden="true">{removeChord}</DropdownMenuShortcut>
+        )}
       </DropdownMenuItem>
     </>
   );
@@ -157,6 +174,7 @@ export interface VisualShellViewProps {
   taskActions?: VisualTaskActions | undefined;
   /** The same effective bindings the task menu shows in its shortcut cells. */
   renameShortcut?: VisualShortcut | undefined;
+  removeShortcut?: VisualShortcut | undefined;
   /** A failed action or guidance that is not the task list's own load failure. */
   notice?: VisualShellNotice | undefined;
   onDismissNotice?: (() => void) | undefined;
@@ -174,6 +192,7 @@ function SidebarList({
   onSelectTask,
   taskActions,
   renameShortcut,
+  removeShortcut,
   onCopy,
   onMenuOpen,
   rowFocus,
@@ -188,11 +207,11 @@ function SidebarList({
   | "onSelectTask"
   | "taskActions"
   | "renameShortcut"
+  | "removeShortcut"
   | "rowFocus"
 > & {
   onCopy: (text: string, copied: string) => void;
   onMenuOpen: () => void;
-  rowFocus: Ref<VisualRowFocus> | undefined;
 }) {
   const list = useRef<HTMLDivElement>(null);
   const selected =
@@ -207,7 +226,8 @@ function SidebarList({
     },
     [rowElement],
   );
-  useImperativeHandle(rowFocus, () => ({ focusRow, rowElement }), [focusRow, rowElement]);
+  // The selection path above owns `focusRow`; a closing dialog only needs the element itself.
+  useImperativeHandle(rowFocus, () => ({ rowElement }), [rowElement]);
 
   const select = useCallback(
     (id: string) => {
@@ -277,6 +297,7 @@ function SidebarList({
                     row={row}
                     actions={taskActions}
                     renameShortcut={renameShortcut}
+                    removeShortcut={removeShortcut}
                     onCopy={onCopy}
                   />
                 )
@@ -388,6 +409,7 @@ export function VisualShellView({
   prefixEnabled = true,
   taskActions,
   renameShortcut,
+  removeShortcut,
   notice,
   onDismissNotice,
   rowFocus,
@@ -430,20 +452,21 @@ export function VisualShellView({
       bindings[newTaskShortcut.binding] = "new-task";
     if (settingsShortcut?.binding !== null && settingsShortcut?.binding !== undefined)
       bindings[settingsShortcut.binding] = "settings";
-    if (
-      taskActions !== undefined &&
-      renameShortcut?.binding !== null &&
-      renameShortcut?.binding !== undefined
-    )
-      bindings[renameShortcut.binding] = "rename-task";
+    if (taskActions !== undefined) {
+      if (renameShortcut?.binding !== null && renameShortcut?.binding !== undefined)
+        bindings[renameShortcut.binding] = "rename-task";
+      if (removeShortcut?.binding !== null && removeShortcut?.binding !== undefined)
+        bindings[removeShortcut.binding] = "remove-task";
+    }
     const prefix =
       shortcut?.prefix ??
       newTaskShortcut?.prefix ??
       settingsShortcut?.prefix ??
       renameShortcut?.prefix ??
+      removeShortcut?.prefix ??
       "alt+a";
     return createPrefixKeymap(prefix, bindings);
-  }, [newTaskShortcut, renameShortcut, settingsShortcut, shortcut, taskActions]);
+  }, [newTaskShortcut, removeShortcut, renameShortcut, settingsShortcut, shortcut, taskActions]);
   const directKeymap = useMemo(() => {
     if (direct === undefined) return undefined;
     const bindings: Record<string, DirectActionId> = {};
@@ -510,16 +533,18 @@ export function VisualShellView({
       toggleButton.current?.focus();
     });
   }, [hidden, toggle]);
-  const selectedTaskId = selected?.id;
+  // The composer is a view, not a selected row: its open state also silences row chords.
+  const currentTaskId = composerOpen ? undefined : selected?.id;
   const runAction = useCallback(
     (action: string) => {
       if (action === "toggle-sidebar") toggleSidebar();
       else if (action === "new-task") onNewTask?.();
       else if (action === "settings") onOpenSettings?.();
-      else if (action === "rename-task" && selectedTaskId !== undefined)
-        taskActions?.onRename(selectedTaskId);
+      else if (currentTaskId === undefined) return;
+      else if (action === "rename-task") taskActions?.onRename(currentTaskId);
+      else if (action === "remove-task") taskActions?.onRemove(currentTaskId);
     },
-    [onNewTask, onOpenSettings, selectedTaskId, taskActions, toggleSidebar],
+    [currentTaskId, onNewTask, onOpenSettings, taskActions, toggleSidebar],
   );
   usePrefixMode(
     keymap,
@@ -595,7 +620,7 @@ export function VisualShellView({
         <TooltipProvider>
           <SidebarList
             rows={rows}
-            selectedId={composerOpen ? null : selected?.id}
+            selectedId={currentTaskId ?? null}
             projectsLoaded={projectsLoaded}
             hasProjects={hasProjects}
             tasksLoaded={tasksLoaded}
@@ -603,6 +628,7 @@ export function VisualShellView({
             onSelectTask={selectTask}
             taskActions={taskActions}
             renameShortcut={renameShortcut}
+            removeShortcut={removeShortcut}
             rowFocus={rowFocus}
             onCopy={copy}
             onMenuOpen={clearCopyNotice}

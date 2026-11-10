@@ -33,6 +33,7 @@ export function RemoveTaskDialog({
   finalFocus,
   onClose,
 }: RemoveTaskDialogProps) {
+  const [removing, setRemoving] = useState(false);
   const [live, setLive] = useState<{ taskId: string; branch: string | null }>();
   const liveBranch = live?.taskId === task.id ? live.branch : undefined;
   // The loader is read through a ref: its identity may change with the parent's render, but the
@@ -66,9 +67,10 @@ export function RemoveTaskDialog({
       title={`Remove task "${task.title}"?`}
       description={description}
       finalFocus={finalFocus}
+      beforeClose={() => !removing}
       onClose={onClose}
     >
-      <RemoveTaskContent onRemove={onRemove} onClose={onClose} />
+      <RemoveTaskContent onRemove={onRemove} onPendingChange={setRemoving} onClose={onClose} />
     </DestructiveTaskDialog>
   );
 }
@@ -79,9 +81,11 @@ export function RemoveTaskDialog({
  */
 function RemoveTaskContent({
   onRemove,
+  onPendingChange,
   onClose,
 }: {
   onRemove: (force: boolean) => Promise<void>;
+  onPendingChange: (pending: boolean) => void;
   onClose: () => void;
 }) {
   const attempt = useAttempt();
@@ -91,11 +95,15 @@ function RemoveTaskContent({
     if (closeDialog === undefined) onClose();
     else closeDialog();
   };
-  const remove = (force: boolean) =>
-    void attempt.run(async () => {
-      await onRemove(force);
-      cancel();
-    });
+  const remove = (force: boolean) => {
+    onPendingChange(true);
+    void attempt
+      .run(async () => {
+        await onRemove(force);
+        cancel();
+      })
+      .finally(() => onPendingChange(false));
+  };
 
   return (
     <>
@@ -119,7 +127,13 @@ function RemoveTaskContent({
             step cannot also confirm "Remove anyway": focus starts on Cancel again. */}
         {dirtyFiles ? (
           <>
-            <Button variant="outline" key="cancel-dirty" autoFocus onClick={cancel}>
+            <Button
+              variant="outline"
+              key="cancel-dirty"
+              autoFocus
+              disabled={attempt.pending}
+              onClick={cancel}
+            >
               Cancel
             </Button>
             <Button
@@ -133,7 +147,7 @@ function RemoveTaskContent({
           </>
         ) : (
           <>
-            <Button variant="outline" key="cancel" onClick={cancel}>
+            <Button variant="outline" key="cancel" disabled={attempt.pending} onClick={cancel}>
               Cancel
             </Button>
             <Button
