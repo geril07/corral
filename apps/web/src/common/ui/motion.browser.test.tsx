@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from "vite-plus/test";
 import { cdp, page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "./dialog.tsx";
+import { TaskDialog } from "./task-dialog.tsx";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -82,4 +83,46 @@ test("a dialog and its scrim enter only when motion is allowed: 200 ms normally,
   await vi.waitFor(() => expect(animationAt(dialog).name).toBe("enter"));
   expect(animationAt(dialog).duration).toBe("0.2s");
   expect(animationAt(scrim)).toEqual({ name: "enter", duration: "0.2s" });
+});
+
+test("a dialog fades and scales out before it unmounts, on its own compositing layer", async () => {
+  await emulateMotion("no-preference");
+  await render(
+    <Dialog>
+      <DialogTrigger>Open dialog</DialogTrigger>
+      <DialogContent>
+        <DialogTitle>Rename task</DialogTitle>
+      </DialogContent>
+    </Dialog>,
+  );
+
+  await userEvent.click(page.getByRole("button", { name: "Open dialog" }));
+  const dialog = '[data-slot="dialog-content"]';
+  const scrim = '[data-slot="dialog-overlay"]';
+  await vi.waitFor(() => expect(document.querySelector(dialog)).not.toBeNull());
+  expect(getComputedStyle(elementAt(dialog)).willChange).toBe("transform");
+
+  await userEvent.click(page.getByRole("button", { name: "Close" }));
+  await vi.waitFor(() => expect(animationAt(dialog).name).toBe("exit"));
+  expect(animationAt(dialog).duration).toBe("0.2s");
+  expect(animationAt(scrim)).toEqual({ name: "exit", duration: "0.2s" });
+  // The popup leaves the DOM only after the exit animation, so nothing closes with a cut.
+  await vi.waitFor(() => expect(document.querySelector(dialog)).toBeNull());
+});
+
+test("TaskDialog unmounts its owner only once the exit animation ends", async () => {
+  await emulateMotion("no-preference");
+  const close = vi.fn<() => void>();
+  await render(
+    <TaskDialog title="Settings" onClose={close}>
+      <button type="button">Save</button>
+    </TaskDialog>,
+  );
+  const dialog = '[data-slot="dialog-content"]';
+  await userEvent.click(page.getByRole("button", { name: "Close" }));
+  await vi.waitFor(() => expect(animationAt(dialog).name).toBe("exit"));
+  // Still mounted while the animation runs, so the caller reacts to close only after it.
+  expect(close).not.toHaveBeenCalled();
+  await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+  expect(document.querySelector(dialog)).toBeNull();
 });

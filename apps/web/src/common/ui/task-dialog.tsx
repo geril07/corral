@@ -17,9 +17,11 @@ import {
 import { CommandDialog } from "./command.tsx";
 import {
   createContext,
+  useCallback,
   useContext,
   useMemo,
   useRef,
+  useState,
   type ComponentProps,
   type ReactNode,
 } from "react";
@@ -98,6 +100,13 @@ type AlertFinalFocus = ComponentProps<typeof AlertDialogContent>["finalFocus"];
 
 const DestructiveContext = createContext(false);
 
+const TaskDialogCloseContext = createContext<(() => void) | undefined>(undefined);
+
+/** Closes the owning dialog through its exit animation; its `onClose` runs when that ends. */
+export function useTaskDialogClose(): (() => void) | undefined {
+  return useContext(TaskDialogCloseContext);
+}
+
 export function TaskCommandDialog({
   title,
   description,
@@ -105,15 +114,18 @@ export function TaskCommandDialog({
   children,
 }: Omit<DialogProps, "description"> & { description?: string }) {
   const finalFocus = useTaskFinalFocus();
+  const [open, setOpen] = useState(true);
+  const close = useCallback(() => setOpen(false), []);
   return (
     <CommandDialog
-      open
+      open={open}
       title={title}
       {...(description === undefined ? {} : { description })}
-      onOpenChange={(open) => !open && onClose()}
+      onOpenChange={(next) => !next && setOpen(false)}
+      onOpenChangeComplete={(next) => !next && onClose()}
       finalFocus={finalFocus}
     >
-      {children}
+      <TaskDialogCloseContext value={close}>{children}</TaskDialogCloseContext>
     </CommandDialog>
   );
 }
@@ -137,16 +149,22 @@ export function TaskDialog({
 }) {
   const defaultFinalFocus = useTaskFinalFocus();
   const finalFocus = explicitFinalFocus ?? defaultFinalFocus;
+  const [open, setOpen] = useState(true);
+  const close = useCallback(() => setOpen(false), []);
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => !next && setOpen(false)}
+      onOpenChangeComplete={(next) => !next && onClose()}
+    >
       <DialogContent
         className={
           layout === "settings"
             ? "flex h-[min(44rem,calc(100dvh-2rem))] w-[min(64rem,calc(100vw-2rem))] max-w-none flex-col gap-0 overflow-hidden sm:max-w-none"
             : layout === "path-picker"
-              ? "visual-path-dialog flex w-[32rem] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden sm:max-w-none"
+              ? "visual-dialog-anchored visual-path-dialog flex w-[32rem] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-6rem)] flex-col gap-0 overflow-hidden sm:max-w-none"
               : layout === "picker"
-                ? "flex w-[36rem] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden sm:max-w-none"
+                ? "visual-dialog-anchored flex w-[36rem] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-6rem)] flex-col gap-0 overflow-hidden sm:max-w-none"
                 : "max-h-[calc(100dvh-2rem)] overflow-y-auto"
         }
         padding={layout === "default" ? "default" : "none"}
@@ -167,7 +185,7 @@ export function TaskDialog({
           <DialogTitle render={layout === "settings" ? <h1 /> : <h2 />}>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
-        {children}
+        <TaskDialogCloseContext value={close}>{children}</TaskDialogCloseContext>
       </DialogContent>
     </Dialog>
   );
@@ -182,8 +200,14 @@ export function DestructiveTaskDialog({
 }: DialogProps & { finalFocus?: AlertFinalFocus }) {
   const defaultFinalFocus = useTaskFinalFocus();
   const finalFocus = explicitFinalFocus ?? defaultFinalFocus;
+  const [open, setOpen] = useState(true);
+  const close = useCallback(() => setOpen(false), []);
   return (
-    <AlertDialog open onOpenChange={(open) => !open && onClose()}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => !next && setOpen(false)}
+      onOpenChangeComplete={(next) => !next && onClose()}
+    >
       <AlertDialogContent
         className="max-h-[calc(100dvh-2rem)] overflow-y-auto [overflow-wrap:anywhere]"
         finalFocus={finalFocus}
@@ -192,7 +216,9 @@ export function DestructiveTaskDialog({
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
         </AlertDialogHeader>
-        <DestructiveContext value>{children}</DestructiveContext>
+        <TaskDialogCloseContext value={close}>
+          <DestructiveContext value>{children}</DestructiveContext>
+        </TaskDialogCloseContext>
       </AlertDialogContent>
     </AlertDialog>
   );

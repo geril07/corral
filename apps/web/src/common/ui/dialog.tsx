@@ -26,7 +26,7 @@ function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) 
     <DialogPrimitive.Backdrop
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-scrim data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 duration-200",
+        "fixed inset-0 isolate z-50 bg-scrim data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 data-closed:motion-safe:animate-out data-closed:motion-safe:fade-out-0 duration-200",
         className,
       )}
       {...props}
@@ -56,7 +56,7 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-popover text-sm text-popover-foreground shadow-dialog outline-none sm:max-w-sm data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 data-open:motion-safe:zoom-in-95 duration-200",
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-popover text-sm text-popover-foreground shadow-dialog outline-none will-change-transform sm:max-w-sm data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 data-open:motion-safe:zoom-in-95 data-closed:motion-safe:animate-out data-closed:motion-safe:fade-out-0 data-closed:motion-safe:zoom-out-95 duration-200",
           padding === "default" && "p-4",
           className,
         )}

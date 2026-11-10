@@ -24,8 +24,8 @@ const SURFACE =
 const FOCUS =
   /(?:^|[\s:])(?<!aria-invalid:)(?:ring-[a-z][a-z0-9-]*\/\d{1,3}|ring-3!?(?=$|[\s])|ring-\[3px\]!?(?=$|[\s])|focus-within:ring-)/;
 const MOTION =
-  /(?:^|[\s:])(?:transition!?(?=$|[\s])|transition-(?:all|colors|\[)|ease-(?:in|in-out|linear)!?(?=$|[\s])|animate-(?:out|ping|pulse|spin|bounce)(?=$|[\s])|(?:fade|zoom)-out-|blur-(?:in|out)(?=$|[\s-])|(?:animation-)?duration-(?!200!?(?=$|[\s])))/;
-/** Transitions pair with a reduce override; entry animations instead sit behind `motion-safe`. */
+  /(?:^|[\s:])(?:transition!?(?=$|[\s])|transition-(?:all|colors|\[)|ease-(?:in|in-out|linear)!?(?=$|[\s])|animate-(?:ping|pulse|spin|bounce)(?=$|[\s])|blur-(?:in|out)(?=$|[\s-])|(?:animation-)?duration-(?!200!?(?=$|[\s])))/;
+/** Transitions pair with a reduce override; enter and exit animations instead sit behind `motion-safe`. */
 const MOTION_USE = /(?:^|[\s:])transition-/;
 const MOTION_REDUCE = /motion-reduce:/;
 const MOTION_SAFE = /(?:^|:)motion-safe:(?:[^\s:]+:)*animate-/;

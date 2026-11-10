@@ -292,7 +292,6 @@ describe("spine scales", () => {
       ["duration-100", "motion outside the budget in class name: duration-100"],
       ["animation-duration-100", "motion outside the budget in class name: animation-duration-100"],
       ["animate-pulse", "motion outside the budget in class name: animate-pulse"],
-      ["fade-out-0", "motion outside the budget in class name: fade-out-0"],
       ["blur-in", "motion outside the budget in class name: blur-in"],
       ["text-primary", "primary as a text colour in class name: text-primary"],
     ]) {
@@ -407,6 +406,8 @@ describe("spine scales", () => {
       'const cls = "data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0";',
       'const cls = "motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95";',
       'const cls = "motion-safe:data-open:animate-in";',
+      // Exit animations belong to the same budget: dialogs fade and scale out through motion-safe.
+      'const cls = "data-closed:motion-safe:animate-out data-closed:motion-safe:fade-out-0 data-closed:motion-safe:zoom-out-95";',
       // The reduce partner itself stays legal, and a non-entry animation may keep one.
       'const cls = "motion-reduce:animate-none";',
       'const cls = "animate-wiggle motion-reduce:animate-none";',

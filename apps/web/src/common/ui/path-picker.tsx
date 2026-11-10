@@ -1,6 +1,6 @@
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Toast } from "@base-ui/react/toast";
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "./icon.tsx";
 
 /** Free-text server paths, not a select-value combobox. Base UI owns virtual focus. */
@@ -10,34 +10,63 @@ export function PathPicker({
   onChange,
   onSubmit,
   onClose,
-  status,
+  message,
   pending,
 }: {
   value: string;
   paths: { name: string; path: string }[];
-  onChange: (path: string) => void;
+  /** `picker` marks a value the user chose, which lists immediately instead of debouncing. */
+  onChange: (path: string, source: "input" | "picker") => void;
   onSubmit: () => void;
   onClose: () => void;
-  status?: ReactNode;
+  /** One list row in place of the list: a settled empty result or a settled error. */
+  message?: { text: ReactNode; error?: boolean } | undefined;
   pending: boolean;
 }) {
-  const [highlighted, setHighlighted] = useState<string>();
-  const highlightedPath = paths.find((entry) => entry.path === highlighted)?.path;
+  // A highlight belongs to the value it was made for. Once the value moves (typing, Tab, or
+  // entering a folder), the next Enter adds that path instead of pressing the old row again.
+  const [highlighted, setHighlighted] = useState<{ value: string; path: string }>();
+  const highlightedPath =
+    highlighted?.value === value && paths.some((entry) => entry.path === highlighted.path)
+      ? highlighted.path
+      : undefined;
   const shortcut = highlightedPath ? "Ctrl+Enter" : "Enter";
+  const input = useRef<HTMLInputElement>(null);
+  const caretToEnd = useRef(false);
+  // Base UI keeps its active row index across a value change, so entering a folder would leave the
+  // sixth row highlighted again. A fresh root per pick resets the highlight and the scroll.
+  const [epoch, setEpoch] = useState(0);
+  // A picked folder is read from the end: the tail of a long path is what the next choice adds to.
+  useLayoutEffect(() => {
+    const element = input.current;
+    if (element === null || !caretToEnd.current || element.value !== value) return;
+    caretToEnd.current = false;
+    element.focus();
+    element.setSelectionRange(value.length, value.length);
+    element.scrollLeft = element.scrollWidth;
+  }, [value]);
+  const pick = (path: string) => {
+    if (path !== value) caretToEnd.current = true;
+    setHighlighted(undefined);
+    setEpoch((current) => current + 1);
+    onChange(path, "picker");
+  };
   return (
     <Autocomplete.Root
+      key={epoch}
       inline
       open
       items={paths.map((entry) => entry.path)}
       filter={null}
       value={value}
-      onValueChange={onChange}
-      onItemHighlighted={setHighlighted}
+      onValueChange={(next) => onChange(next, "input")}
+      onItemHighlighted={(path) => setHighlighted(path === undefined ? undefined : { value, path })}
       autoHighlight={false}
       highlightItemOnHover={false}
     >
       <div className="visual-path-input-row flex items-center gap-2 border-b px-4">
         <Autocomplete.Input
+          ref={input}
           aria-label="Repository path"
           placeholder="~/"
           spellCheck={false}
@@ -65,7 +94,7 @@ export function PathPicker({
             if (event.key === "Enter") {
               event.preventDefault();
               if (!pending) {
-                if (!event.ctrlKey && highlightedPath) onChange(highlightedPath);
+                if (!event.ctrlKey && highlightedPath) pick(highlightedPath);
                 else onSubmit();
               }
             }
@@ -83,7 +112,7 @@ export function PathPicker({
               const completion = common.join("");
               if (completion && completion !== value) {
                 event.preventDefault();
-                onChange(completion);
+                pick(completion);
               }
             }
           }}
@@ -104,26 +133,40 @@ export function PathPicker({
           <kbd className="visual-keycap">{shortcut}</kbd>
         </button>
       </div>
-      <div className="px-4 pt-3 pb-2 text-xs text-muted-foreground">Directories</div>
-      <Autocomplete.List
-        className="visual-path-list max-h-72 overflow-y-auto p-2"
-        aria-label="Directories"
-      >
-        {(path: string) => (
-          <Autocomplete.Item
-            key={path}
-            value={path}
-            className="flex min-w-0 cursor-default items-center gap-2 rounded-sm px-2 py-2 text-sm data-highlighted:bg-accent hover:bg-accent"
-            onClick={() => onChange(path)}
+      <div className="px-4 pt-3 text-xs text-muted-foreground">Directories</div>
+      {paths.length > 0 ? (
+        <div className="visual-path-list-frame">
+          <Autocomplete.List
+            className="visual-path-list max-h-72 overflow-y-auto px-2"
+            aria-label="Directories"
           >
-            <Icon name="project" />
-            <span className="truncate">{paths.find((entry) => entry.path === path)?.name}</span>
-          </Autocomplete.Item>
-        )}
-      </Autocomplete.List>
-      {status && (
-        <div role="status" className="px-4 pb-3 text-xs text-muted-foreground">
-          {status}
+            {(path: string) => (
+              <Autocomplete.Item
+                key={path}
+                value={path}
+                className="flex min-w-0 cursor-default items-center gap-2 rounded-sm px-2 text-sm data-highlighted:bg-accent hover:bg-accent"
+                onClick={() => pick(path)}
+              >
+                <Icon name="project" />
+                <span className="truncate">{paths.find((entry) => entry.path === path)?.name}</span>
+              </Autocomplete.Item>
+            )}
+          </Autocomplete.List>
+        </div>
+      ) : (
+        <div className="visual-path-message-row">
+          <div
+            className="visual-path-message"
+            data-slot="path-picker-message"
+            role={message === undefined ? undefined : message.error ? "alert" : "status"}
+            data-error={message?.error ? "" : undefined}
+          >
+            {message && (
+              <span title={typeof message.text === "string" ? message.text : undefined}>
+                {message.text}
+              </span>
+            )}
+          </div>
         </div>
       )}
     </Autocomplete.Root>

@@ -30,6 +30,7 @@ export {
   DialogFocusProvider,
   FormError,
   useDialogFocus,
+  useTaskDialogClose,
   useTaskFinalFocus,
   workspaceInput,
 } from "./task-dialog.tsx";
