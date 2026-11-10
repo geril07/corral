@@ -58,6 +58,11 @@ test("Settings saves independent provider, model and favorite order to the share
   await page.getByRole("button", { name: "Move favorite Gamma · two up", exact: true }).click();
   expect(rowOrder()).toEqual(["Gamma · two", "Alpha · one"]);
 
+  // Visibility actions change visibility only: the saved provider, model and favorite order stay.
+  await page.getByRole("button", { name: "Hide all", exact: true }).click();
+  await page.getByRole("button", { name: "Show all", exact: true }).click();
+  expect(rowOrder()).toEqual(["Gamma · two", "Alpha · one"]);
+
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect
     .element(page.getByRole("status").filter({ hasText: "Saved · revision" }))

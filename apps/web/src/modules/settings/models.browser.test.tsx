@@ -1,13 +1,17 @@
 import { defaultModelPolicy, modelScopeKey, type ModelPreferences } from "@corral/protocol/models";
+import type { CorralClient } from "@corral/client/corral-client";
 import { Store } from "@corral/client/store";
 import type { WatchFailure, WatchStore } from "@corral/client/watch-store";
+import { taskSettingsFor } from "@corral/protocol/config";
+import type { Session } from "@corral/protocol/rpc";
 import { createHashHistory } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { App as RootApp } from "../../../src/app/app.tsx";
 import { AppProviders } from "../../../src/app/providers.tsx";
-import { SettingsScreen } from "./settings-screen.tsx";
+import { ChatChoiceDialog, ChatView } from "../chat/index.ts";
 import { renderApp } from "../../../test/render-app.tsx";
 import { createGitRepo } from "../../../test/git-repo.ts";
 import { writeFilesIn } from "../../../test/files-client.ts";
@@ -80,6 +84,87 @@ function installPreferences(client: ReturnType<typeof newClient>, preferences: F
     configurable: true,
     value: preferences.store,
   });
+}
+
+const NO_FILES = {
+  resolve: () => Promise.resolve([]),
+  read: () => Promise.reject(new Error("this chat has no local file links")),
+  open: () => Promise.resolve(),
+};
+
+/**
+ * The shared live-chat surface without the routed shell, which does not mount chat yet: the
+ * production `ChatView`, its model button and the `ChatChoiceDialog` it opens, wired the way the
+ * workspace owns them. Settings is the dialog's own Manage models screen.
+ */
+function LiveChat({
+  client,
+  taskId,
+  session,
+  projectPath,
+}: {
+  client: CorralClient;
+  taskId: string;
+  session: Session;
+  projectPath: string;
+}) {
+  const config = useSyncExternalStore(client.config.subscribe, client.config.getSnapshot);
+  const chat = useMemo(() => client.openChat(session.id), [client, session.id]);
+  useEffect(() => () => chat.close(), [chat]);
+  const [draft, setDraft] = useState("");
+  const [kind, setKind] = useState<"model" | "reasoning">();
+  const anchor = useRef<HTMLButtonElement>(null);
+  return (
+    <AppProviders client={client}>
+      <div className="h-screen w-full">
+        <ChatView
+          store={chat}
+          draft={draft}
+          onDraftChange={setDraft}
+          agent={session.kind === "shell" ? "pi" : session.kind}
+          followUp={undefined}
+          canChooseAgent
+          modelPickerAnchor={anchor}
+          abortHint={undefined}
+          onSend={async (text, mode) => {
+            await client.connection.api.chat.send({ sessionId: session.id, text, mode });
+          }}
+          aborting={false}
+          onAbort={async () => {
+            await client.connection.api.chat.abort({ sessionId: session.id });
+          }}
+          onRespond={async (requestId, value) => {
+            await client.connection.api.chat.respond({ sessionId: session.id, requestId, value });
+          }}
+          onChangeModel={() => setKind("model")}
+          onChangeReasoning={() => setKind("reasoning")}
+          files={NO_FILES}
+        />
+      </div>
+      {kind !== undefined && (
+        <ChatChoiceDialog
+          context={{ taskId }}
+          store={chat}
+          kind={kind}
+          agent={session.kind === "shell" ? "pi" : session.kind}
+          launch={session.launch}
+          profiles={config.profiles}
+          agents={config.config.agents}
+          settings={taskSettingsFor(config.config, projectPath)}
+          chatDrivers={["pi"]}
+          anchor={anchor}
+          onSetModel={async (model) => {
+            await client.connection.api.chat.setModel({ sessionId: session.id, model });
+          }}
+          onSetReasoning={async (level) => {
+            await client.connection.api.chat.setReasoning({ sessionId: session.id, level });
+          }}
+          onStart={() => Promise.resolve()}
+          onClose={() => setKind(undefined)}
+        />
+      )}
+    </AppProviders>
+  );
 }
 
 /** The real hash history, so a picker-owned Settings close is tested against browser Back. */
@@ -534,16 +619,83 @@ test("the configured default mark appears when a held catalog finishes loading",
   await expectMarked("Stub One · stub");
 });
 
+test("hiding a live model keeps its session, thinking, draft and composer node; other clients can reveal it again", async () => {
+  const client = newClient();
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
+  const repo = await createGitRepo("live-model");
+  const project = await client.connection.api.projects.add({ path: repo });
+  const task = await client.connection.api.tasks.create({
+    title: "Model visibility",
+    projectId: project.id,
+    workspace: { type: "main-worktree" },
+  });
+  const session = await client.connection.api.sessions.start({
+    taskId: task.id,
+    kind: "pi",
+    view: "chat",
+    size: { cols: 80, rows: 24 },
+  });
+  const screen = await render(
+    <LiveChat client={client} taskId={task.id} session={session} projectPath={repo} />,
+  );
+  try {
+    const message = page.getByRole("textbox", { name: "Message", exact: true });
+    await expect
+      .element(page.getByRole("button", { name: "Model Stub One", exact: true }))
+      .toBeVisible();
+    await message.fill("An independent live draft");
+    const composer = message.element();
+    await page.getByRole("button", { name: "Model Stub One", exact: true }).click();
+    const live = page.getByRole("dialog", { name: "Chat model", exact: true });
+    await live.getByRole("button", { name: "Manage models…" }).click();
+    await expect.element(settings()).toBeVisible();
+    await checkbox("Show provider stub including future models").click();
+    await models().getByRole("button", { name: "Save", exact: true }).click();
+    await expect.element(models().getByText("Saved ·", { exact: false })).toBeVisible();
+    await settings().getByRole("button", { name: "Close settings", exact: true }).click();
+    await expect
+      .element(live.getByText("Current model is hidden by the filter; the session is unchanged."))
+      .toBeVisible();
+    await expect.element(live.getByRole("option", { name: /Stub Two/ })).not.toBeInTheDocument();
+    await expect.element(live.getByRole("option", { name: /Stub One/ })).toBeDisabled();
+
+    const chat = client.openChat(session.id);
+    try {
+      await vi.waitFor(() => expect(chat.getSnapshot().state.model?.id).toBe("stub-1"));
+      expect(chat.getSnapshot().state.reasoning).toBe("medium");
+      const peer = newClient();
+      await vi.waitFor(() => expect(peer.modelPreferences.getSnapshot().loaded).toBe(true));
+      const prefs = peer.modelPreferences
+        .getSnapshot()
+        .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope))!;
+      await peer.connection.api.models.save({ ...prefs, policy: defaultModelPolicy() });
+      await expect.element(live.getByRole("option", { name: /Stub Two/ })).toBeVisible();
+    } finally {
+      chat.close();
+    }
+
+    await userEvent.keyboard("{Escape}");
+    expect(message.element()).toBe(composer);
+    await expect.element(message).toHaveValue("An independent live draft");
+    await expect.element(message).toHaveFocus();
+    expect(client.sessions.getSnapshot().sessions.filter((s) => s.taskId === task.id)).toHaveLength(
+      1,
+    );
+  } finally {
+    await screen.unmount();
+  }
+});
+
 test("a task-context manager follows its project override through {taskId}", async () => {
   const client = newClient();
   await writeConfig('[tasks]\nagent = "pi"\nmodel = "stub-1"\n');
-  await appWithProject(client);
-  const project = client.projects.getSnapshot().projects[0]!;
+  const repo = await createGitRepo("task-context-model");
+  const project = await client.connection.api.projects.add({ path: repo });
   await writeConfig(
-    `[tasks]\nagent = "pi"\nmodel = "stub-1"\n\n[projects."${project.path}"]\nmodel = "stub-2"\n`,
+    `[tasks]\nagent = "pi"\nmodel = "stub-1"\n\n[projects."${repo}"]\nmodel = "stub-2"\n`,
   );
   await vi.waitFor(() =>
-    expect(client.config.getSnapshot().config.projects[project.path]?.model.value).toBe("stub-2"),
+    expect(client.config.getSnapshot().config.projects[repo]?.model.value).toBe("stub-2"),
   );
   const task = await client.connection.api.tasks.create({
     title: "Configured default task",
@@ -553,17 +705,31 @@ test("a task-context manager follows its project override through {taskId}", asy
   await vi.waitFor(() =>
     expect(client.tasks.getSnapshot().tasks.some((each) => each.id === task.id)).toBe(true),
   );
-  // The shell has no chat surface yet, so the same production screen is opened on its task target.
+  const session = await client.connection.api.sessions.start({
+    taskId: task.id,
+    kind: "pi",
+    view: "chat",
+    size: { cols: 80, rows: 24 },
+  });
   const screen = await render(
-    <AppProviders client={client}>
-      <SettingsScreen modelTarget={{ scope, context: { taskId: task.id } }} onClose={() => {}} />
-    </AppProviders>,
+    <LiveChat client={client} taskId={task.id} session={session} projectPath={repo} />,
   );
-  await expect.element(settings()).toBeVisible();
-  await expect.element(checkbox("Show Stub Two · stub")).toBeVisible();
-  await expectMarked("Stub Two · stub");
-  await expectNotMarked("Stub One · stub");
-  await screen.unmount();
+  try {
+    // The live chat's own model button opens the manager; no Settings entry point is assumed.
+    const modelButton = () => page.getByRole("button", { name: /^Model / });
+    await vi.waitFor(() =>
+      expect(modelButton().element().getAttribute("aria-label")).not.toBe("Model none"),
+    );
+    await modelButton().click();
+    const live = page.getByRole("dialog", { name: "Chat model", exact: true });
+    await live.getByRole("button", { name: "Manage models…" }).click();
+    await expect.element(settings()).toBeVisible();
+    await expect.element(checkbox("Show Stub Two · stub")).toBeVisible();
+    await expectMarked("Stub Two · stub");
+    await expectNotMarked("Stub One · stub");
+  } finally {
+    await screen.unmount();
+  }
 });
 
 test("a refused preferences watch stays retryable, then returns focus to the footer when it loads", async () => {
@@ -908,6 +1074,48 @@ test("an idle editor takes another client's save and stays clean", async () => {
   await expect.element(checkbox("Show Stub One · stub")).not.toBeChecked();
   await expect.element(checkbox("Show Stub One · stub")).toBeDisabled();
   await expect.element(saveButton()).toBeDisabled();
+});
+
+test("a watch snapshot that predates the save acknowledgement cannot restore the saved policy", async () => {
+  let stale: PreferencesSnapshot | undefined;
+  let preferences: FakePreferences | undefined;
+  await openManager({
+    beforeManage: (each) => {
+      stale = each.modelPreferences.getSnapshot();
+      preferences = fakePreferences(stale);
+      installPreferences(each, preferences);
+    },
+  });
+  await expect.element(checkbox("Show Stub Two · stub")).toBeVisible();
+  const baseRevision =
+    stale?.items.find((item) => modelScopeKey(item.scope) === modelScopeKey(scope))?.revision ?? 0;
+  await checkbox("Show Stub Two · stub").click();
+  await saveButton().click();
+  const savedRevision = await vi.waitFor(() => {
+    const text = savedStatus().element().textContent ?? "";
+    const revision = Number(/revision (\d+)/.exec(text)?.[1]);
+    if (!Number.isFinite(revision) || revision === baseRevision)
+      throw new Error("save has not landed");
+    return revision;
+  });
+
+  // The acknowledgement landed (revision B); the watch is still showing revision A. Treating the
+  // different number as newer would restore the policy the save just replaced.
+  preferences!.set(stale!);
+  await expect.element(checkbox("Show Stub Two · stub")).not.toBeChecked();
+  await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${savedRevision}`);
+  await expect.element(saveButton()).toBeDisabled();
+
+  // An edit in that window is based on the acknowledged policy, so it is not a conflict and its
+  // save sends the acknowledged revision.
+  await checkbox("Show Stub One · stub").click();
+  await expect
+    .element(unsavedStatus())
+    .toMatchTextContent(`Unsaved changes · revision ${savedRevision}`);
+  await expect.element(models().getByRole("alert")).not.toBeInTheDocument();
+  await saveButton().click();
+  await expect.element(savedStatus()).toMatchTextContent("Saved · revision");
+  await expect.element(models().getByRole("alert")).not.toBeInTheDocument();
 });
 
 test("picker-owned Settings keeps its local confirm and does not register the routed history blocker", async () => {
