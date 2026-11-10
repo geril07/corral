@@ -3,6 +3,7 @@
 @import "../common/ui/shadcn.css";
 @import "../common/ui/visual-shell.css";
 @import "../modules/tasks/task-composer.css";
+@import "../modules/settings/settings.css";
 @import "@fontsource-variable/inter";
 /* Streamdown renders its own DOM, so Tailwind must scan the utilities in its dist. The path goes
    through the pnpm symlink in `apps/web/node_modules`; the B3 build greps a Streamdown-only

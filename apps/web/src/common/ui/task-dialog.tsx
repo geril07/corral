@@ -138,6 +138,8 @@ export function TaskDialog({
   layout = "default",
   initialFocus,
   finalFocus: explicitFinalFocus,
+  closeLabel,
+  beforeClose,
   children,
 }: DialogProps & {
   showCloseButton?: boolean;
@@ -146,6 +148,10 @@ export function TaskDialog({
   initialFocus?: DialogInitialFocus;
   /** Overrides the remembered opener, for a dialog opened from another dialog. */
   finalFocus?: DialogFinalFocus;
+  /** Overrides the close control's accessible name. */
+  closeLabel?: string;
+  /** A close request that may be refused (e.g. an unsaved draft); `false` keeps the dialog open. */
+  beforeClose?: (() => boolean) | undefined;
 }) {
   const defaultFinalFocus = useTaskFinalFocus();
   const finalFocus = explicitFinalFocus ?? defaultFinalFocus;
@@ -154,13 +160,17 @@ export function TaskDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={(next) => !next && setOpen(false)}
+      onOpenChange={(next) => {
+        if (next) return;
+        if (beforeClose !== undefined && !beforeClose()) return;
+        setOpen(false);
+      }}
       onOpenChangeComplete={(next) => !next && onClose()}
     >
       <DialogContent
         className={
           layout === "settings"
-            ? "flex h-[min(44rem,calc(100dvh-2rem))] w-[min(64rem,calc(100vw-2rem))] max-w-none flex-col gap-0 overflow-hidden sm:max-w-none"
+            ? "flex h-[min(60rem,calc(100dvh-3rem))] w-[min(80rem,calc(100vw-3rem))] max-w-none flex-col gap-0 overflow-hidden sm:max-w-none lg:h-[min(60rem,calc(100dvh-5rem))] lg:w-[min(80rem,calc(100vw-5rem))]"
             : layout === "path-picker"
               ? "visual-dialog-anchored visual-path-dialog flex w-[32rem] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-6rem)] flex-col gap-0 overflow-hidden sm:max-w-none"
               : layout === "picker"
@@ -168,7 +178,7 @@ export function TaskDialog({
                 : "max-h-[calc(100dvh-2rem)] overflow-y-auto"
         }
         padding={layout === "default" ? "default" : "none"}
-        closeLabel={layout === "settings" ? "Back to workspace" : "Close"}
+        closeLabel={closeLabel ?? (layout === "settings" ? "Close settings" : "Close")}
         initialFocus={initialFocus}
         finalFocus={finalFocus}
         showCloseButton={showCloseButton}

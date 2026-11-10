@@ -6,22 +6,29 @@ import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { App as RootApp } from "../../../src/app/app.tsx";
+import { AppProviders } from "../../../src/app/providers.tsx";
+import { SettingsScreen } from "./settings-screen.tsx";
+import { renderApp } from "../../../test/render-app.tsx";
 import { createGitRepo } from "../../../test/git-repo.ts";
 import { writeFilesIn } from "../../../test/files-client.ts";
 import { runGitIn } from "../../../test/git-client.ts";
 import { realServerClients, prefixThen } from "../../../test/real-client.ts";
 import { writeConfig } from "../../../test/config-command.ts";
 import { projectOptionLabel } from "../projects/index.ts";
-import {
-  appWithProject,
-  promptField,
-  newTaskView,
-  taskButton,
-  sessionTabs,
-} from "../../../test/task-flows.tsx";
+import { promptField, newTaskView } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 const scope = { kind: "pi" as const, profileId: null };
+
+/** The shell has no Add-project dialog; the API registers the repository and the app reads it. */
+async function appWithProject(client: ReturnType<typeof newClient>) {
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
+  const repo = await createGitRepo("repo");
+  const project = await client.connection.api.projects.add({ path: repo });
+  const rendered = await renderApp(client);
+  await expect.poll(() => client.projects.getSnapshot().loaded).toBe(true);
+  return { client, repo, project, rendered };
+}
 const picker = () => page.getByRole("dialog", { name: "Agent and model", exact: true });
 const settings = () => page.getByRole("dialog", { name: "Settings", exact: true });
 const models = () => page.getByRole("region", { name: "Models", exact: true });
@@ -163,7 +170,7 @@ async function openManager(
     .getByRole("button", { name: /^Agent pi/ })
     .click();
   await expect.element(picker().getByRole("option", { name: /Stub Two/ })).toBeVisible();
-  await picker().getByRole("combobox", { name: "Models" }).fill("stub");
+  await picker().getByRole("combobox", { name: "Search models" }).fill("stub");
   options.beforeManage?.(client);
   await picker().getByRole("button", { name: "Manage models…" }).click();
   await expect.element(settings()).toBeVisible();
@@ -257,7 +264,7 @@ test("Manage models starts and keeps the keyboard in the Models panel at 1024 an
     await assertTargetedModelsFocus();
 
     // Close from the panel, resize and take the same real targeted path again.
-    await settings().getByRole("button", { name: "Back to workspace" }).click();
+    await settings().getByRole("button", { name: "Close settings" }).click();
     await expect.element(settings()).not.toBeInTheDocument();
     await expect.element(picker()).toBeVisible();
     await page.viewport(1920, 1080);
@@ -269,7 +276,7 @@ test("Manage models starts and keeps the keyboard in the Models panel at 1024 an
     await expect.element(firstModelControl()).toHaveFocus();
     await userEvent.keyboard("{Enter}");
     await expect.element(models()).toBeVisible();
-    await expect.element(railButton("Models")).toHaveAttribute("aria-current", "true");
+    await expect.element(railButton("Models")).toHaveAttribute("aria-current", "page");
     await expect
       .element(page.getByRole("region", { name: "Appearance", exact: true }))
       .not.toBeInTheDocument();
@@ -294,10 +301,12 @@ test("the shared manager saves an exact whitelist and returns to picker search, 
         .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope))?.policy.allow,
     ).toEqual([{ type: "model", provider: "stub", id: "stub-2" }]),
   );
-  await settings().getByRole("button", { name: "Back to workspace" }).click();
+  await settings().getByRole("button", { name: "Close settings" }).click();
   await expect.element(picker()).toBeVisible();
-  await expect.element(picker().getByRole("combobox", { name: "Models" })).toHaveValue("stub");
-  await expect.element(picker().getByRole("combobox", { name: "Models" })).toHaveFocus();
+  await expect
+    .element(picker().getByRole("combobox", { name: "Search models" }))
+    .toHaveValue("stub");
+  await expect.element(picker().getByRole("combobox", { name: "Search models" })).toHaveFocus();
   await expect.element(picker().getByRole("option", { name: /Stub One/ })).not.toBeInTheDocument();
   await expect.element(picker().getByRole("option", { name: /Stub Two/ })).toBeVisible();
   await picker()
@@ -336,9 +345,9 @@ test("the configured default is marked at Server home; hiding it warns once and 
     ).toEqual([{ type: "model", provider: "stub", id: "stub-1" }]),
   );
 
-  await settings().getByRole("button", { name: "Back to workspace" }).click();
+  await settings().getByRole("button", { name: "Close settings" }).click();
   await expect.element(picker()).toBeVisible();
-  await picker().getByRole("combobox", { name: "Models" }).fill("");
+  await picker().getByRole("combobox", { name: "Search models" }).fill("");
   await expect.element(picker().getByText("Configured default", { exact: true })).toBeVisible();
   await expect
     .element(
@@ -530,23 +539,20 @@ test("a task-context manager follows its project override through {taskId}", asy
     projectId: project.id,
     workspace: { type: "main-worktree" },
   });
-  await client.connection.api.sessions.start({
-    taskId: task.id,
-    kind: "pi",
-    view: "chat",
-    size: { cols: 80, rows: 24 },
-  });
-  await taskButton("Configured default task").click();
-  await sessionTabs().getByRole("tab", { name: /^pi/ }).click();
-  const modelButton = page.getByRole("button", { name: "Model Stub One", exact: true });
-  await expect.element(modelButton).toBeVisible();
-  await modelButton.click();
-  const live = page.getByRole("dialog", { name: "Chat model", exact: true });
-  await live.getByRole("button", { name: "Manage models…" }).click();
+  await vi.waitFor(() =>
+    expect(client.tasks.getSnapshot().tasks.some((each) => each.id === task.id)).toBe(true),
+  );
+  // The shell has no chat surface yet, so the same production screen is opened on its task target.
+  const screen = await render(
+    <AppProviders client={client}>
+      <SettingsScreen modelTarget={{ scope, context: { taskId: task.id } }} onClose={() => {}} />
+    </AppProviders>,
+  );
   await expect.element(settings()).toBeVisible();
   await expect.element(checkbox("Show Stub Two · stub")).toBeVisible();
   await expectMarked("Stub Two · stub");
   await expectNotMarked("Stub One · stub");
+  await screen.unmount();
 });
 
 test("a refused preferences watch stays retryable, then returns focus to the footer when it loads", async () => {
@@ -633,7 +639,7 @@ test("a retry that fails again keeps Retry focused, and a reopened panel still n
   await expect.element(unavailableStatus()).toHaveTextContent("Preferences unavailable");
   await expect.element(retry).toHaveFocus();
 
-  await settings().getByRole("button", { name: "Back to workspace" }).click();
+  await settings().getByRole("button", { name: "Close settings" }).click();
   await expect.element(settings()).not.toBeInTheDocument();
   await expect.element(picker()).toBeVisible();
   await picker().getByRole("button", { name: "Manage models…" }).click();
@@ -791,7 +797,7 @@ test("picker-owned Settings announces a busy close, keeps the draft and does not
   const save = models().getByRole("button", { name: "Save", exact: true });
   await save.click();
   await expect.element(save).toBeDisabled();
-  const close = settings().getByRole("button", { name: "Back to workspace" });
+  const close = settings().getByRole("button", { name: "Close settings" });
 
   await close.click();
   await expect.element(closeRefusal()).toHaveLength(1);
@@ -828,7 +834,7 @@ test("another client's save makes a dirty draft stale: Save is disabled with its
     .element(unsavedStatus())
     .toMatchTextContent(`Unsaved changes · revision ${baseRevision}`);
 
-  await peer.connection.api.models.save({
+  const peerSaved = await peer.connection.api.models.save({
     scope,
     revision: baseRevision,
     policy: { ...defaultModelPolicy(), deny: [{ type: "provider", provider: "stub" }] },
@@ -839,7 +845,7 @@ test("another client's save makes a dirty draft stale: Save is disabled with its
   await expect
     .element(reason)
     .toMatchTextContent("Discard loads the latest version and drops the draft");
-  await vi.waitFor(() => expect(saved()?.revision).toBe(baseRevision + 1));
+  await vi.waitFor(() => expect(saved()?.revision).toBe(peerSaved.revision));
   await expect.element(saveButton()).toBeDisabled();
   const describedBy = saveButton().element().getAttribute("aria-describedby");
   expect(describedBy).not.toBeNull();
@@ -849,7 +855,7 @@ test("another client's save makes a dirty draft stale: Save is disabled with its
     .toMatchTextContent(`Unsaved changes · revision ${baseRevision}`);
   await expect.element(checkbox("Show Stub Two · stub")).toBeChecked();
 
-  await settings().getByRole("button", { name: "Back to workspace" }).click();
+  await settings().getByRole("button", { name: "Close settings" }).click();
   const confirm = page.getByRole("alertdialog", {
     name: "Discard unsaved model preferences?",
   });
@@ -865,10 +871,12 @@ test("another client's save makes a dirty draft stale: Save is disabled with its
   await expect.element(reason).not.toBeInTheDocument();
   await expect.element(checkbox("Show Stub Two · stub")).not.toBeChecked();
   await expect.element(checkbox("Show Stub Two · stub")).toBeDisabled();
-  await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${baseRevision + 1}`);
+  await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${peerSaved.revision}`);
   await expect.element(saveButton()).toBeDisabled();
-  await settings().getByRole("button", { name: "Back to workspace" }).click();
-  await expect.element(picker().getByRole("combobox", { name: "Models" })).toHaveValue("stub");
+  await settings().getByRole("button", { name: "Close settings" }).click();
+  await expect
+    .element(picker().getByRole("combobox", { name: "Search models" }))
+    .toHaveValue("stub");
 });
 
 test("an idle editor takes another client's save and stays clean", async () => {
@@ -880,12 +888,12 @@ test("an idle editor takes another client's save and stays clean", async () => {
     .getSnapshot()
     .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope));
   const baseRevision = saved?.revision ?? 0;
-  await peer.connection.api.models.save({
+  const peerSaved = await peer.connection.api.models.save({
     scope,
     revision: baseRevision,
     policy: { ...defaultModelPolicy(), deny: [{ type: "provider", provider: "stub" }] },
   });
-  await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${baseRevision + 1}`);
+  await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${peerSaved.revision}`);
   await expect.element(checkbox("Show Stub One · stub")).not.toBeChecked();
   await expect.element(checkbox("Show Stub One · stub")).toBeDisabled();
   await expect.element(saveButton()).toBeDisabled();
@@ -910,7 +918,7 @@ test("picker-owned Settings keeps its local confirm and does not register the ro
       .getByRole("button", { name: /^Agent pi/ })
       .click();
     await expect.element(picker().getByRole("option", { name: /Stub Two/ })).toBeVisible();
-    await picker().getByRole("combobox", { name: "Models" }).fill("stub");
+    await picker().getByRole("combobox", { name: "Search models" }).fill("stub");
     await picker().getByRole("button", { name: "Manage models…" }).click();
     await expect.element(settings()).toBeVisible();
     await expect.element(checkbox("Show Stub One · stub")).toBeVisible();
@@ -920,16 +928,14 @@ test("picker-owned Settings keeps its local confirm and does not register the ro
     const confirm = page.getByRole("alertdialog", {
       name: "Discard unsaved model preferences?",
     });
-    await settings().getByRole("button", { name: "Back to workspace" }).click();
+    await settings().getByRole("button", { name: "Close settings" }).click();
     await expect.element(confirm).toBeVisible();
     await expect
       .element(confirm.getByRole("button", { name: "Keep editing", exact: true }))
       .toHaveFocus();
     await confirm.getByRole("button", { name: "Keep editing", exact: true }).click();
     await expect.element(confirm).not.toBeInTheDocument();
-    await expect
-      .element(settings().getByRole("button", { name: "Back to workspace" }))
-      .toHaveFocus();
+    await expect.element(settings().getByRole("button", { name: "Close settings" })).toHaveFocus();
 
     // No routed blocker here: browser Back navigates instead of asking the routed discard.
     history.back();
@@ -937,65 +943,6 @@ test("picker-owned Settings keeps its local confirm and does not register the ro
     await expect.element(confirm).not.toBeInTheDocument();
   } finally {
     restore();
-  }
-});
-
-test("hiding a live model keeps its session, thinking, draft and composer node; other clients can reveal it again", async () => {
-  const client = newClient();
-  await appWithProject(client);
-  const project = client.projects.getSnapshot().projects[0]!;
-  const api = client.connection.api;
-  const task = await api.tasks.create({
-    title: "Model visibility",
-    projectId: project.id,
-    workspace: { type: "main-worktree" },
-  });
-  const session = await api.sessions.start({
-    taskId: task.id,
-    kind: "pi",
-    view: "chat",
-    size: { cols: 80, rows: 24 },
-  });
-  await taskButton("Model visibility").click();
-  await sessionTabs().getByRole("tab", { name: /^pi/ }).click();
-  const message = page.getByRole("textbox", { name: "Message", exact: true });
-  await expect
-    .element(page.getByRole("button", { name: "Model Stub One", exact: true }))
-    .toBeVisible();
-  await message.fill("An independent live draft");
-  const composer = message.element();
-  await page.getByRole("button", { name: "Model Stub One", exact: true }).click();
-  const live = page.getByRole("dialog", { name: "Chat model", exact: true });
-  await live.getByRole("button", { name: "Manage models…" }).click();
-  await checkbox("Show provider stub including future models").click();
-  await models().getByRole("button", { name: "Save", exact: true }).click();
-  await expect.element(models().getByText("Saved ·", { exact: false })).toBeVisible();
-  await settings().getByRole("button", { name: "Back to workspace" }).click();
-  await expect
-    .element(live.getByText("Current model is hidden by the filter; the session is unchanged."))
-    .toBeVisible();
-  await expect.element(live.getByRole("option", { name: /Stub Two/ })).not.toBeInTheDocument();
-  await expect.element(live.getByRole("option", { name: /Stub One/ })).toBeDisabled();
-  const chat = client.openChat(session.id);
-  try {
-    await vi.waitFor(() => expect(chat.getSnapshot().state.model?.id).toBe("stub-1"));
-    expect(chat.getSnapshot().state.reasoning).toBe("medium");
-    const peer = newClient();
-    await vi.waitFor(() => expect(peer.modelPreferences.getSnapshot().loaded).toBe(true));
-    const prefs = peer.modelPreferences
-      .getSnapshot()
-      .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope))!;
-    await peer.connection.api.models.save({ ...prefs, policy: defaultModelPolicy() });
-    await expect.element(live.getByRole("option", { name: /Stub Two/ })).toBeVisible();
-    await userEvent.keyboard("{Escape}");
-    expect(message.element()).toBe(composer);
-    await expect.element(message).toHaveValue("An independent live draft");
-    await expect.element(message).toHaveFocus();
-    expect(client.sessions.getSnapshot().sessions.filter((s) => s.taskId === task.id)).toHaveLength(
-      1,
-    );
-  } finally {
-    chat.close();
   }
 });
 
@@ -1057,7 +1004,12 @@ test("the footer follows the save lifecycle: unsaved before the request, Saving�
   await expect.element(unsavedStatus()).not.toBeInTheDocument();
 
   release();
-  await expect.element(savedStatus()).toHaveTextContent(`Saved · revision ${baseRevision + 1}`);
+  const savedRevision = await vi.waitFor(() => {
+    const current = saved()?.revision;
+    if (current === undefined || current === baseRevision) throw new Error("save has not landed");
+    return current;
+  });
+  await expect.element(savedStatus()).toHaveTextContent(`Saved · revision ${savedRevision}`);
   await expect.element(savingStatus()).not.toBeInTheDocument();
 });
 
@@ -1068,10 +1020,15 @@ test("saving from the keyboard announces the footer status and returns focus the
     client.modelPreferences
       .getSnapshot()
       .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope));
-  const nextRevision = (saved()?.revision ?? 0) + 1;
+  const baseRevision = saved()?.revision ?? 0;
   await checkbox("Show Stub Two · stub").click();
   saveButton().element().focus();
   await userEvent.keyboard("{Enter}");
+  const nextRevision = await vi.waitFor(() => {
+    const current = saved()?.revision;
+    if (current === undefined || current === baseRevision) throw new Error("save has not landed");
+    return current;
+  });
   await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${nextRevision}`);
   expect(savedStatus().element().getAttribute("role")).toBe("status");
   expect(savedStatus().element().tabIndex).toBe(-1);
@@ -1116,9 +1073,14 @@ test("a pointer save also lands the keyboard on the footer status", async () => 
     client.modelPreferences
       .getSnapshot()
       .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope));
-  const nextRevision = (saved()?.revision ?? 0) + 1;
+  const baseRevision = saved()?.revision ?? 0;
   await checkbox("Show Stub Two · stub").click();
   await saveButton().click();
+  const nextRevision = await vi.waitFor(() => {
+    const current = saved()?.revision;
+    if (current === undefined || current === baseRevision) throw new Error("save has not landed");
+    return current;
+  });
   await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${nextRevision}`);
   await expect.element(savedStatus()).toHaveFocus();
   expect(settings().element().contains(document.activeElement)).toBe(true);
@@ -1131,7 +1093,7 @@ test("a move made during an in-flight save is not pulled back by the ack", async
     client.modelPreferences
       .getSnapshot()
       .items.find((p) => modelScopeKey(p.scope) === modelScopeKey(scope));
-  const nextRevision = (saved()?.revision ?? 0) + 1;
+  const baseRevision = saved()?.revision ?? 0;
   await checkbox("Show Stub Two · stub").click();
   const { release } = holdNextSave(client);
   saveButton().element().focus();
@@ -1140,6 +1102,11 @@ test("a move made during an in-flight save is not pulled back by the ack", async
   findModels().element().focus();
   await expect.element(findModels()).toHaveFocus();
   release();
+  const nextRevision = await vi.waitFor(() => {
+    const current = saved()?.revision;
+    if (current === undefined || current === baseRevision) throw new Error("save has not landed");
+    return current;
+  });
   await expect.element(savedStatus()).toMatchTextContent(`Saved · revision ${nextRevision}`);
   await expect.element(findModels()).toHaveFocus();
   await expect.element(savedStatus()).not.toHaveFocus();

@@ -25,6 +25,17 @@ export const workspaceSearchSchema = z.object({
 
 export type WorkspaceSearch = z.infer<typeof workspaceSearchSchema>;
 
+/**
+ * The settings route keeps the workspace selection it will return to, plus an optional project
+ * path when a project's rows open Settings on that project. The workspace itself never reads
+ * `settingsProject`.
+ */
+export const settingsSearchSchema = workspaceSearchSchema.extend({
+  settingsProject: z.string().min(1).optional(),
+});
+
+export type SettingsSearch = z.infer<typeof settingsSearchSchema>;
+
 /** True when two route searches describe the same project, task, entry and session intent. */
 export function workspaceSearchEqual(a: WorkspaceSearch, b: WorkspaceSearch): boolean {
   return (
@@ -35,6 +46,12 @@ export function workspaceSearchEqual(a: WorkspaceSearch, b: WorkspaceSearch): bo
 /** Search params that do not validate fall back to the empty selection instead of failing the route. */
 export function validateWorkspaceSearch(input: Record<string, unknown>): WorkspaceSearch {
   const parsed = workspaceSearchSchema.safeParse(input);
+  return parsed.success ? parsed.data : {};
+}
+
+/** The settings route also accepts a project target; invalid input falls back to the workspace. */
+export function validateSettingsSearch(input: Record<string, unknown>): SettingsSearch {
+  const parsed = settingsSearchSchema.safeParse(input);
   return parsed.success ? parsed.data : {};
 }
 

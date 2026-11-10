@@ -63,6 +63,8 @@ export interface WorkspaceScreenProps {
   onChange: (search: WorkspaceSearch) => void;
   onOpenBoard: (search: WorkspaceSearch) => void;
   onOpenSettings: (search: WorkspaceSearch) => void;
+  /** Opens Settings on one project's rows; the caller adds its path to the settings search. */
+  onOpenProjectSettings?: ((projectPath: string) => void) | undefined;
 }
 
 /**
@@ -76,6 +78,7 @@ export function WorkspaceScreen({
   onChange,
   onOpenBoard,
   onOpenSettings,
+  onOpenProjectSettings,
 }: WorkspaceScreenProps) {
   const { appearance } = useAppearance();
   const settingsActivity = useSettingsActivity();
@@ -355,6 +358,9 @@ export function WorkspaceScreen({
             onToggleSettle={(task) => void toggleSettle(task)}
             onRemoveTask={openRemoveTask}
             onRemoveProject={openRemoveProject}
+            {...(onOpenProjectSettings === undefined
+              ? {}
+              : { onProjectSettings: (_project, _opener) => onOpenProjectSettings(_project.path) })}
             onViewSource={openTaskSource}
             onNewTask={(project) =>
               project === undefined ? invoke("new-task") : openNewTask(project)

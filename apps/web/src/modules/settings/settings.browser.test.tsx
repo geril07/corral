@@ -8,18 +8,13 @@ import { render } from "vitest-browser-react";
 import { stubClipboard } from "../../../test/clipboard.ts";
 import { writeConfig } from "../../../test/config-command.ts";
 import { prefixThen, realServerClients } from "../../../test/real-client.ts";
-import { App } from "../../../test/render-app.tsx";
+import { App, renderApp } from "../../../test/render-app.tsx";
+import { createGitRepo } from "../../../test/git-repo.ts";
 import { App as RootApp } from "../../../src/app/app.tsx";
 import { createAppHistory } from "../../../src/app/history.ts";
 import { KeymapProvider } from "../keymap/index.ts";
-import { ConfigFileSection } from "./config-file-section.tsx";
-import {
-  appWithProject,
-  createTaskWithShell,
-  promptField,
-  sessionTabs,
-  taskButton,
-} from "../../../test/task-flows.tsx";
+import { DiagnosticsSection } from "./diagnostics-section.tsx";
+import { promptField } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 
@@ -70,7 +65,7 @@ view = "terminal"
 /** A regular expression for `parts` in this order, with whitespace between and nothing else. */
 function sequence(...parts: string[]): RegExp {
   const escaped = parts.map((part) => part.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  return new RegExp(escaped.join("\\s*"));
+  return new RegExp(escaped.join("\\s*(?:·\\s*)?"));
 }
 
 const settingsHeading = () => page.getByRole("heading", { name: "Settings", level: 1 });
@@ -98,6 +93,39 @@ const closeRefusal = () =>
 async function renderSettings(client: CorralClient, initialEntries = ["/settings"]) {
   await render(<App client={client} initialEntries={initialEntries} />);
   await expect.element(settingsHeading()).toBeVisible();
+}
+
+/** This shell's tests create projects and tasks through the API; the old dialogs are gone. */
+async function connected(client: CorralClient) {
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
+}
+
+async function appWithProjectViaApi(client: CorralClient) {
+  await connected(client);
+  const repo = await createGitRepo("repo");
+  const project = await client.connection.api.projects.add({ path: repo });
+  const rendered = await renderApp(client);
+  await vi.waitFor(() =>
+    expect(client.projects.getSnapshot().projects.some((each) => each.id === project.id)).toBe(
+      true,
+    ),
+  );
+  return { client, repo, rendered, project };
+}
+
+/** A selected task in a real project, opened by its route, so Settings has a task to return to. */
+async function appWithTaskViaApi(client: CorralClient, title: string) {
+  await connected(client);
+  const repo = await createGitRepo("repo");
+  const project = await client.connection.api.projects.add({ path: repo });
+  const task = await client.connection.api.tasks.create({
+    projectId: project.id,
+    title,
+    workspace: { type: "main-worktree" },
+  });
+  const rendered = await renderApp(client, [`/?task=${task.id}`]);
+  await expect.element(page.getByRole("button", { name: new RegExp(title) })).toBeVisible();
+  return { client, repo, rendered, project, task };
 }
 
 function configFileSnapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
@@ -202,10 +230,9 @@ test("the settings surface shows effective keys, profiles with reference names, 
 
   await expect.element(page.getByRole("region", { name: "Appearance", exact: true })).toBeVisible();
   await expect
-    .element(page.getByRole("region", { name: "Effective keys", exact: true }))
+    .element(page.getByRole("region", { name: "Keyboard", exact: true }))
     .not.toBeInTheDocument();
-  const keys = await section("Effective keys");
-  await expect.element(page.getByText("read-only", { exact: true })).toBeVisible();
+  const keys = await section("Keyboard");
   await expect
     .element(page.getByRole("region", { name: "Appearance", exact: true }))
     .not.toBeInTheDocument();
@@ -213,7 +240,7 @@ test("the settings surface shows effective keys, profiles with reference names, 
   await expect.element(keys).toMatchTextContent(/Settings\s*alt\+a o/);
   await expect.element(keys).toMatchTextContent("Prefix");
 
-  const profiles = await section("Agent profiles");
+  const profiles = await section("Profiles");
   await expect.element(profiles).toMatchTextContent("Claude gateway");
   await expect.element(profiles).toMatchTextContent("claude-gateway");
   await expect.element(profiles).toMatchTextContent("model claude-sonnet-4-5");
@@ -229,13 +256,13 @@ test("the settings surface shows effective keys, profiles with reference names, 
   await expect.element(profiles).toMatchTextContent("ANTHROPIC_AUTH_TOKEN");
   await expect.element(profiles).toMatchTextContent("CLAUDE_SERVER_TOKEN");
 
-  await section("Effective keys");
-  await section("Agent profiles");
+  await section("Keyboard");
+  await section("Profiles");
   await expect
     .element(profiles.getByRole("button", { name: "environment references for Claude gateway" }))
     .toHaveAttribute("aria-expanded", "true");
 
-  const config = await section("Config file");
+  const config = await section("Diagnostics");
   await expect.element(config).toMatchTextContent(client.config.getSnapshot().path);
   await expect.element(config).toMatchTextContent("never writes it");
   await expect.element(config).toMatchTextContent("Problems (1)");
@@ -254,37 +281,46 @@ test("a conflicting binding shows its fallback chord and the server's reason on 
     await renderSettings(client);
     await vi.waitFor(() => expect(client.config.getSnapshot().problems).toHaveLength(2));
 
-    const keys = await section("Effective keys");
-    const row = (text: RegExp) => keys.getByRole("listitem").filter({ hasText: text }).first();
-    const newTask = row(/New task\s*alt\+a t/);
-    const settings = row(/Settings\s*alt\+a o/);
+    const keys = await section("Keyboard");
+    const row = (title: RegExp) => {
+      const found = [...keys.element().querySelectorAll<HTMLElement>(".settings-row")].find(
+        (candidate) =>
+          title.test(candidate.querySelector(".settings-row-title")?.textContent ?? ""),
+      );
+      if (found === undefined) throw new Error(`no settings row matches ${String(title)}`);
+      return found;
+    };
+    const newTask = row(/^New task$/);
+    const settings = row(/^Settings$/);
     const newTaskReason = 'the chord "shift+s" is also used by settings';
     const settingsReason = 'the chord "shift+s" is also used by new-task';
 
     // The fallback chord and the server's own reason are in the same category.
-    await expect
-      .element(newTask)
-      .toMatchTextContent(sequence("New task", "alt+a t", newTaskReason));
-    await expect.element(keys.getByText(newTaskReason, { exact: true })).toBeVisible();
-    await expect
-      .element(settings)
-      .toMatchTextContent(sequence("Settings", "alt+a o", settingsReason));
+    for (const part of ["New task", "alt+a t", newTaskReason]) {
+      expect(newTask.textContent).toContain(part);
+    }
+    expect(keys.element().textContent).toContain(newTaskReason);
+    for (const part of ["Settings", "alt+a o", settingsReason]) {
+      expect(settings.textContent).toContain(part);
+    }
 
     // The row exposes the reason as its accessible description, not only as visible text.
     for (const [entry, reason] of [
       [newTask, newTaskReason],
       [settings, settingsReason],
     ] as const) {
-      const describedBy = entry.element().getAttribute("aria-describedby");
+      const describedBy = entry.getAttribute("aria-describedby");
       expect(describedBy).not.toBeNull();
       expect(document.getElementById(describedBy ?? "")?.textContent).toBe(reason);
     }
 
     // An action without a problem keeps its one-line chord row.
-    const newTerminal = row(/New terminal\s*alt\+a c/);
-    await expect.element(newTerminal).toMatchTextContent(sequence("New terminal", "alt+a c"));
-    await expect.element(newTerminal).not.toMatchTextContent("also used by");
-    expect(newTerminal.element().getAttribute("aria-describedby")).toBeNull();
+    const newTerminal = row(/^New terminal$/);
+    for (const part of ["New terminal", "alt+a c"]) {
+      expect(newTerminal.textContent).toContain(part);
+    }
+    expect(newTerminal.textContent).not.toContain("also used by");
+    expect(newTerminal.getAttribute("aria-describedby")).toBeNull();
 
     const assertNoOverflow = () => {
       expect(keys.element().scrollWidth).toBeLessThanOrEqual(keys.element().clientWidth + 1);
@@ -302,7 +338,7 @@ test("a conflicting binding shows its fallback chord and the server's reason on 
   }
 });
 
-test("effective task defaults, naming and project overrides appear with the layer each came from", async () => {
+test("effective task defaults and naming appear with the layer each came from", async () => {
   const client = newClient();
   await writeConfig(TASK_SETTINGS);
   await renderSettings(client);
@@ -311,7 +347,7 @@ test("effective task defaults, naming and project overrides appear with the laye
   );
 
   await expect
-    .element(await section("Task defaults"))
+    .element(await section("Defaults"))
     .toMatchTextContent(
       sequence(
         "Agent",
@@ -341,7 +377,7 @@ test("effective task defaults, naming and project overrides appear with the laye
       ),
     );
 
-  const naming = await section("Task naming");
+  const naming = await section("Naming");
   await expect
     .element(naming)
     .toMatchTextContent(
@@ -361,50 +397,38 @@ test("effective task defaults, naming and project overrides appear with the laye
       ),
     );
   await expect.element(naming).not.toMatchTextContent("No naming profile or agent is set");
-
-  await expect
-    .element(await section("Project overrides"))
-    .toMatchTextContent(
-      sequence(
-        "/repos/app",
-        "no added project has this path",
-        "Branch prefix",
-        "app/",
-        "project",
-        "View",
-        "terminal",
-        "project",
-      ),
-    );
 });
 
-test("an empty naming section says seed titles stay, and no project entry reads as none", async () => {
+test("an empty naming section says seed titles stay, and Projects starts with a picker", async () => {
   const client = newClient();
   await writeConfig('[tasks]\nagent = "pi"\n');
   await renderSettings(client);
   await vi.waitFor(() => expect(client.config.getSnapshot().config.tasks.agent.value).toBe("pi"));
 
-  const naming = await section("Task naming");
+  const naming = await section("Naming");
   await expect.element(naming).toMatchTextContent("No naming profile or agent is set");
   await expect.element(naming).toMatchTextContent("keeps the title derived from its prompt");
 
-  await expect
-    .element(await section("Project overrides"))
-    .toMatchTextContent("No project overrides");
+  const projects = await section("Projects");
+  await expect.element(projects).toMatchTextContent("No projects yet");
+  await expect.element(projects).toMatchTextContent("Add one from the workspace sidebar");
 
   const root = client.config.getSnapshot().config.tasks.worktreeRoot.value;
   expect(root.endsWith("worktrees")).toBe(true);
-  const defaults = await section("Task defaults");
+  const defaults = await section("Defaults");
   await expect.element(defaults).toMatchTextContent(sequence("Agent", "pi", "global"));
   await expect.element(defaults).toMatchTextContent(sequence("Worktree root", root, "default"));
 });
 
-test("a project table whose path is not an added project says so, an added one does not", async () => {
+test("a project table whose path is not an added project says so on its own page", async () => {
   const client = newClient();
-  await appWithProject(client);
-  const projectPath = client.projects.getSnapshot().projects[0]?.path ?? "";
+  await appWithProjectViaApi(client);
+  const project = client.projects.getSnapshot().projects[0]!;
   await writeConfig(`
-[projects."${projectPath}"]
+[tasks]
+agent = "pi"
+
+[projects."${project.path}"]
 branch-prefix = "app/"
 
 [projects."/repos/not-added"]
@@ -413,22 +437,40 @@ branch-prefix = "nope/"
   await settingsButton().click();
   await expect.element(settingsHeading()).toBeVisible();
   await vi.waitFor(() =>
-    expect(client.config.getSnapshot().config.projects[projectPath]?.branchPrefix.value).toBe(
+    expect(client.config.getSnapshot().config.projects[project.path]?.branchPrefix.value).toBe(
       "app/",
     ),
   );
 
-  const projects = await section("Project overrides");
-  const added = projects.getByRole("listitem").filter({ hasText: projectPath }).first();
-  await expect.element(added).toMatchTextContent(sequence("Branch prefix", "app/", "project"));
-  await expect.element(added).not.toMatchTextContent("no added project has this path");
-
-  const unknown = projects.getByRole("listitem").filter({ hasText: "/repos/not-added" }).first();
+  const projects = await section("Projects");
+  const picker = projects.getByRole("button", { name: `Project settings for ${project.name}` });
+  await expect.element(picker).toBeVisible();
   await expect
-    .element(unknown)
-    .toMatchTextContent(
-      sequence("no added project has this path", "Branch prefix", "nope/", "project"),
-    );
+    .element(projects.getByRole("button", { name: "Project settings for not-added" }))
+    .toBeVisible();
+  await picker.click();
+
+  const selected = projects.element().querySelector<HTMLElement>("#settings-projects-selected");
+  expect(selected?.textContent).toContain(project.name);
+  expect(selected?.textContent).toContain(project.path);
+  const branchRow = projects
+    .element()
+    .querySelector<HTMLElement>("#settings-project-branch-prefix");
+  expect(branchRow?.textContent).toContain("Branch prefix");
+  expect(branchRow?.textContent).toContain("app/");
+  expect(branchRow?.querySelector(".settings-source")?.textContent).toBe("project");
+  const agentRow = projects.element().querySelector<HTMLElement>("#settings-project-agent");
+  expect(agentRow?.textContent).toContain("pi");
+  expect(agentRow?.querySelector(".settings-source")?.textContent).toBe("inherited");
+
+  await projects.getByRole("button", { name: "Change project" }).click();
+  await projects.getByRole("button", { name: "Project settings for not-added" }).click();
+  await expect.element(projects.getByText(/no added project has this path/)).toBeVisible();
+  const unknownRow = projects
+    .element()
+    .querySelector<HTMLElement>("#settings-project-branch-prefix");
+  expect(unknownRow?.textContent).toContain("nope/");
+  expect(unknownRow?.querySelector(".settings-source")?.textContent).toBe("project");
 });
 
 test("the Agents section names each agent, its command, whether it is found and its chat driver", async () => {
@@ -449,17 +491,19 @@ enabled = false
   // A command that is not there is reported, and Settings says so instead of claiming a launch.
   await expect
     .element(agents)
-    .toMatchTextContent(sequence("pi", "/nonexistent/pi", "global", "not found", "chat", "driver"));
+    .toMatchTextContent(
+      sequence("pi", "/nonexistent/pi", "global command", "not found", "chat driver"),
+    );
   // Disabled in the file, found on the host, and shown as chat by this build's driver.
   await expect
     .element(agents)
     .toMatchTextContent(
-      sequence("claude", "claude", "default", "found", "chat", "driver", "disabled"),
+      sequence("claude", "claude", "default command", "found", "chat driver", "disabled"),
     );
   // Every agent in this build has a chat driver.
   await expect
     .element(agents)
-    .toMatchTextContent(sequence("codex", "codex", "default", "found", "chat", "driver"));
+    .toMatchTextContent(sequence("codex", "codex", "default command", "found", "chat driver"));
   await expect.element(agents).toMatchTextContent("an absolute path that replaces the PATH lookup");
 
   await writeConfig(null);
@@ -474,19 +518,16 @@ test("the task sections wait for the server's config instead of showing built-in
   await expect.element(settingsHeading()).toBeVisible();
 
   const waiting = "waiting for the server's config";
-  const defaults = await section("Task defaults");
+  const defaults = await section("Defaults");
   await expect.element(defaults).toMatchTextContent(waiting);
   await expect.element(defaults).not.toMatchTextContent("Worktree root");
-  await expect.element(await section("Task naming")).toMatchTextContent(waiting);
-  await expect.element(await section("Project overrides")).toMatchTextContent(waiting);
+  await expect.element(await section("Naming")).toMatchTextContent(waiting);
+  await expect.element(await section("Projects")).toMatchTextContent(waiting);
 
-  const config = await section("Config file");
+  const config = await section("Diagnostics");
   await expect.element(config).toMatchTextContent(waiting);
   await expect.element(config).not.toMatchTextContent("No problems");
   await expect.element(config).not.toMatchTextContent("has not been created");
-  await expect
-    .element(config.getByRole("heading", { name: "Problems", exact: true }))
-    .not.toBeInTheDocument();
   await expect
     .element(config.getByRole("button", { name: "Copy config path" }))
     .not.toBeInTheDocument();
@@ -500,31 +541,22 @@ test("an absent config file says it has not been created, then a clean file says
     await renderSettings(client);
     await vi.waitFor(() => expect(client.config.getSnapshot().exists).toBe(false));
 
-    const config = await section("Config file");
+    const config = await section("Diagnostics");
     const path = client.config.getSnapshot().path;
     await expect.element(config).toMatchTextContent(path);
     await expect.element(config).toMatchTextContent("never writes it");
-    await expect
-      .element(config)
-      .toMatchTextContent(
-        "The config file has not been created yet. Corral applies the built-in defaults.",
-      );
+    await expect.element(config).toMatchTextContent("The config file has not been created yet");
+    await expect.element(config).toMatchTextContent("Corral applies the built-in defaults");
     await expect.element(config).not.toMatchTextContent("No problems");
-    await expect
-      .element(config.getByRole("heading", { name: "Problems", exact: true }))
-      .not.toBeInTheDocument();
     await expect.element(config.getByRole("button", { name: "Copy config path" })).toBeVisible();
     await config.getByRole("button", { name: "Copy config path" }).click();
-    await expect.element(config).toMatchTextContent("Path copied.");
+    await expect.element(config).toMatchTextContent("Path copied");
     expect(clipboard.writeText).toHaveBeenLastCalledWith(path);
 
     await writeConfig('[tasks]\nagent = "pi"\n');
     await vi.waitFor(() => expect(client.config.getSnapshot().exists).toBe(true));
-    await expect.element(config).toMatchTextContent("No problems.");
+    await expect.element(config).toMatchTextContent("No problems");
     await expect.element(config).not.toMatchTextContent("has not been created");
-    await expect
-      .element(config.getByRole("heading", { name: "Problems", exact: true }))
-      .not.toBeInTheDocument();
     await config.getByRole("button", { name: "Copy config path" }).click();
     expect(clipboard.writeText).toHaveBeenLastCalledWith(path);
   } finally {
@@ -538,21 +570,19 @@ test("a daemon without the exists field says existence is unknown", async () => 
     const snapshot = configFileSnapshot();
     await render(
       <KeymapProvider config={snapshot}>
-        <ConfigFileSection />
+        <DiagnosticsSection />
       </KeymapProvider>,
     );
 
+    await expect.element(page.getByText("Existence unknown")).toBeVisible();
     await expect
-      .element(page.getByText("This server does not report whether the config file exists."))
+      .element(page.getByText("This server does not report whether the config file exists"))
       .toBeVisible();
-    await expect.element(page.getByText("No problems.")).not.toBeInTheDocument();
+    await expect.element(page.getByText("No problems", { exact: true })).not.toBeInTheDocument();
     await expect.element(page.getByText(/has not been created/)).not.toBeInTheDocument();
-    await expect
-      .element(page.getByRole("heading", { name: "Problems", exact: true }))
-      .not.toBeInTheDocument();
     await expect.element(page.getByText(snapshot.path, { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Copy config path" }).click();
-    await expect.element(page.getByText("Path copied.")).toBeVisible();
+    await expect.element(page.getByText("Path copied")).toBeVisible();
     expect(clipboard.writeText).toHaveBeenLastCalledWith(snapshot.path);
   } finally {
     clipboard.restore();
@@ -565,7 +595,7 @@ test("a problem at the profiles table itself is shown, not only per-profile path
   await renderSettings(client);
   await vi.waitFor(() => expect(client.config.getSnapshot().problems).toHaveLength(1));
 
-  const config = await section("Config file");
+  const config = await section("Diagnostics");
   await expect.element(config).toMatchTextContent("Problems (1)");
   await expect.element(config.getByText("profiles", { exact: true })).toBeVisible();
   await expect.element(config).toMatchTextContent("profile id");
@@ -586,17 +616,16 @@ provider = "anthropic"
 `);
   await vi.waitFor(() => expect(client.config.getSnapshot().profiles[0]?.id).toBe("live"));
 
-  const profiles = await section("Agent profiles");
+  const profiles = await section("Profiles");
   await expect.element(profiles).toMatchTextContent("Live profile");
   await expect.element(profiles).toMatchTextContent("model and provider (model required)");
   await expect.element(profiles).not.toMatchTextContent("Claude gateway");
-  await expect.element(await section("Config file")).toMatchTextContent("No problems");
+  await expect.element(await section("Diagnostics")).toMatchTextContent("No problems");
 });
 
 test("the sidebar entry opens settings; Escape and Back return to the same task with focus on the entry", async () => {
   const client = newClient();
-  const { rendered } = await appWithProject(client);
-  await createTaskWithShell("Settings trip");
+  const { rendered } = await appWithTaskViaApi(client, "Settings trip");
   const terminal = document.querySelector(".terminal-host");
 
   await settingsButton().click();
@@ -607,24 +636,26 @@ test("the sidebar entry opens settings; Escape and Back return to the same task 
 
   // The mounted workspace is covered, not exposed: its terminal cannot take focus and AT
   // does not read it while settings is open.
-  const navigation = page
-    .getByRole("navigation", { name: "workspace", includeHidden: true })
-    .element();
-  expect(navigation.closest("[inert]")).not.toBeNull();
-  expect(navigation.closest('[aria-hidden="true"]')).not.toBeNull();
+  const workspaceLayer = document.querySelector(".visual-route-fill");
+  expect(workspaceLayer?.closest("[inert]")).not.toBeNull();
+  expect(workspaceLayer?.closest('[aria-hidden="true"]')).not.toBeNull();
 
   await userEvent.keyboard("{Escape}");
   await expect.element(settingsHeading()).not.toBeInTheDocument();
-  await expect.element(taskButton("Settings trip")).toHaveAttribute("aria-current", "true");
+  await expect
+    .element(page.getByRole("button", { name: /Settings trip/ }))
+    .toHaveAttribute("aria-current", "true");
   await expect.element(settingsButton()).toHaveFocus();
-  expect(navigation.closest("[inert]")).toBeNull();
-  expect(navigation.closest('[aria-hidden="true"]')).toBeNull();
+  expect(document.querySelector(".visual-route-fill")?.closest("[inert]")).toBeNull();
+  expect(document.querySelector(".visual-route-fill")?.closest('[aria-hidden="true"]')).toBeNull();
 
   await settingsButton().click();
   await expect.element(settingsHeading()).toBeVisible();
-  await page.getByRole("button", { name: "Back to workspace" }).click();
+  await page.getByRole("button", { name: "Close settings" }).click();
   await expect.element(settingsHeading()).not.toBeInTheDocument();
-  await expect.element(taskButton("Settings trip")).toHaveAttribute("aria-current", "true");
+  await expect
+    .element(page.getByRole("button", { name: /Settings trip/ }))
+    .toHaveAttribute("aria-current", "true");
   await expect.element(settingsButton()).toHaveFocus();
 
   // Clean history Back is the third close path and closes without a discard prompt.
@@ -632,21 +663,22 @@ test("the sidebar entry opens settings; Escape and Back return to the same task 
   await expect.element(settingsHeading()).toBeVisible();
   rendered.history.back();
   await expect.element(settingsHeading()).not.toBeInTheDocument();
-  await expect.element(taskButton("Settings trip")).toHaveAttribute("aria-current", "true");
+  await expect
+    .element(page.getByRole("button", { name: /Settings trip/ }))
+    .toHaveAttribute("aria-current", "true");
   await expect.element(settingsButton()).toHaveFocus();
 });
 
 test("a dirty Models draft refuses X and Escape until Keep editing or Discard", async () => {
   const client = newClient();
   await writeConfig('[tasks]\nagent = "pi"\n');
-  const { rendered } = await appWithProject(client);
-  await createTaskWithShell("Dirty settings");
+  const { rendered } = await appWithTaskViaApi(client, "Dirty settings");
   await settingsButton().click();
   await expect.element(settingsHeading()).toBeVisible();
   await makeModelsDirty();
 
-  // X / "Back to workspace": the confirm takes focus on Keep editing and the URL stays put.
-  await page.getByRole("button", { name: "Back to workspace" }).click();
+  // X / "Close settings": the confirm takes focus on Keep editing and the URL stays put.
+  await page.getByRole("button", { name: "Close settings" }).click();
   await expect.element(discardConfirm()).toBeVisible();
   await expect.element(discardConfirm()).toMatchTextContent("visibility and favorites");
   await expect
@@ -656,7 +688,7 @@ test("a dirty Models draft refuses X and Escape until Keep editing or Discard", 
   await discardConfirm().getByRole("button", { name: "Keep editing", exact: true }).click();
   await expect.element(discardConfirm()).not.toBeInTheDocument();
   await expect.element(settingsHeading()).toBeVisible();
-  await expect.element(page.getByRole("button", { name: "Back to workspace" })).toHaveFocus();
+  await expect.element(page.getByRole("button", { name: "Close settings" })).toHaveFocus();
   await expect
     .element(modelEditor().getByRole("button", { name: "Save", exact: true }))
     .toBeEnabled();
@@ -677,12 +709,14 @@ test("a dirty Models draft refuses X and Escape until Keep editing or Discard", 
   await discardConfirm().getByRole("button", { name: "Keep editing", exact: true }).click();
 
   // Discard closes without a second prompt and returns to the task.
-  await page.getByRole("button", { name: "Back to workspace" }).click();
+  await page.getByRole("button", { name: "Close settings" }).click();
   await expect.element(discardConfirm()).toBeVisible();
   await discardConfirm().getByRole("button", { name: "Discard and close", exact: true }).click();
   await expect.element(settingsHeading()).not.toBeInTheDocument();
   await expect.element(discardConfirm()).not.toBeInTheDocument();
-  await expect.element(taskButton("Dirty settings")).toHaveAttribute("aria-current", "true");
+  await expect
+    .element(page.getByRole("button", { name: /Dirty settings/ }))
+    .toHaveAttribute("aria-current", "true");
   expect(rendered.history.location.pathname).toBe("/");
 });
 
@@ -845,7 +879,7 @@ test("a close request during an in-flight save is refused and keeps the draft", 
     await expect.element(discardConfirm()).not.toBeInTheDocument();
     await expect.element(modelCheckbox("Show Stub Two · stub")).toBeChecked();
 
-    await page.getByRole("button", { name: "Back to workspace" }).click();
+    await page.getByRole("button", { name: "Close settings" }).click();
     await expect.element(closeRefusal()).toHaveLength(1);
     await expect.element(settingsHeading()).toBeVisible();
     await expect.element(discardConfirm()).not.toBeInTheDocument();
@@ -913,8 +947,7 @@ test("a failed save leaves no held history close and no discard confirm", async 
 
 test("settings preserve a draft and its caret, pause background keys and keep appearance on this device", async () => {
   const client = newClient();
-  const { rendered } = await appWithProject(client);
-  await createTaskWithShell("Keep this workspace");
+  const { rendered } = await appWithTaskViaApi(client, "Keep this workspace");
   await prefixThen("t");
   await promptField().fill("Keep this unfinished prompt");
   const prompt = promptField().element();
@@ -927,26 +960,21 @@ test("settings preserve a draft and its caret, pause background keys and keep ap
   await page.getByRole("radio", { name: "Bottom", exact: true }).click();
   await page.getByRole("button", { name: "120%", exact: true }).click();
   await userEvent.keyboard("{Escape}");
+  await expect.element(settingsHeading()).not.toBeInTheDocument();
   expect(promptField().element()).toBe(prompt);
   expect(prompt.value).toBe("Keep this unfinished prompt");
   expect(prompt.selectionStart).toBe(5);
   expect(document.documentElement.style.fontSize).toBe("120%");
-  const content = page
-    .getByRole("region", { name: "task content" })
-    .element()
-    .getBoundingClientRect();
-  expect(sessionTabs().element().getBoundingClientRect().top).toBeGreaterThanOrEqual(
-    content.bottom,
-  );
+  expect(JSON.parse(window.localStorage.getItem("corral.appearance") ?? "{}")).toMatchObject({
+    scale: 120,
+    tabPosition: "bottom",
+  });
   await rendered.unmount();
   await render(<App client={client} />);
   expect(document.documentElement.style.fontSize).toBe("120%");
-  expect(
-    sessionTabs().element().closest("[data-tab-position]")?.getAttribute("data-tab-position"),
-  ).toBe("bottom");
 });
 
-test("the settings action is a configurable key and a palette entry, never a hardcoded chord", async () => {
+test("the settings action is a configurable key, never a hardcoded chord", async () => {
   const client = newClient();
   await render(<App client={client} />);
   await writeConfig('[keys.bindings]\nsettings = "q"\n');
@@ -960,20 +988,10 @@ test("the settings action is a configurable key and a palette entry, never a har
   await prefixThen("q");
   await expect.element(settingsHeading()).toBeVisible();
   await expect.element(settingsRailButton("Appearance")).toHaveFocus();
-  await expect.element(await section("Effective keys")).toMatchTextContent(/Settings\s*alt\+a q/);
+  await expect.element(await section("Keyboard")).toMatchTextContent(/Settings\s*alt\+a q/);
 
   await userEvent.keyboard("{Escape}");
   await expect.element(settingsHeading()).not.toBeInTheDocument();
-
-  await prefixThen(" ");
-  const palette = page.getByRole("dialog", { name: "Command palette" });
-  await expect
-    .element(palette.getByRole("option", { name: /Settings/ }))
-    .toMatchTextContent("alt+a q");
-  await userEvent.keyboard("settings{Enter}");
-  await expect.element(palette).not.toBeInTheDocument();
-  await expect.element(settingsHeading()).toBeVisible();
-  await expect.element(settingsRailButton("Appearance")).toHaveFocus();
 });
 
 test("copy feedback clears, re-announces on a second copy, and does not survive a category change", async () => {
@@ -983,22 +1001,22 @@ test("copy feedback clears, re-announces on a second copy, and does not survive 
   try {
     await renderSettings(client);
     await vi.waitFor(() => expect(client.config.getSnapshot().exists).toBe(false));
-    const config = await section("Config file");
+    const config = await section("Diagnostics");
     const copy = config.getByRole("button", { name: "Copy config path" });
     await copy.click();
-    await expect.element(config.getByText("Path copied.", { exact: true })).toBeVisible();
+    await expect.element(config.getByText("Path copied", { exact: true })).toBeVisible();
     await vi.waitFor(
-      () => expect(config.getByText("Path copied.", { exact: true }).elements()).toHaveLength(0),
+      () => expect(config.getByText("Path copied", { exact: true }).elements()).toHaveLength(0),
       { timeout: 2500 },
     );
 
     await copy.click();
-    await expect.element(config.getByText("Path copied.", { exact: true })).toBeVisible();
+    await expect.element(config.getByText("Path copied", { exact: true })).toBeVisible();
     await copy.click();
-    await expect.element(config.getByText("Path copied.", { exact: true })).toHaveLength(1);
+    await expect.element(config.getByText("Path copied", { exact: true })).toHaveLength(1);
     await settingsRailButton("Appearance").click();
-    await settingsRailButton("Config file").click();
-    await expect.element(config.getByText("Path copied.", { exact: true })).not.toBeInTheDocument();
+    await settingsRailButton("Diagnostics").click();
+    await expect.element(config.getByText("Path copied", { exact: true })).not.toBeInTheDocument();
   } finally {
     clipboard.restore();
   }
@@ -1011,11 +1029,11 @@ test("a refused config copy keeps the message and leaves the path keyboard-selec
   try {
     await renderSettings(client);
     await vi.waitFor(() => expect(client.config.getSnapshot().exists).toBe(false));
-    const config = await section("Config file");
+    const config = await section("Diagnostics");
     await config.getByRole("button", { name: "Copy config path" }).click();
     await expect
       .element(config.getByRole("alert"))
-      .toMatchTextContent("Copy is unavailable; select the path above.");
+      .toMatchTextContent("Copy is unavailable; select the path above");
     const path = config.getByText(client.config.getSnapshot().path, { exact: true });
     await expect.element(path).toBeVisible();
     expect(path.element().tabIndex).toBe(0);
@@ -1028,4 +1046,100 @@ test("a refused config copy keeps the message and leaves the path keyboard-selec
   } finally {
     clipboard.restore();
   }
+});
+
+test("the sidebar groups every section and `/` focuses search before Escape closes", async () => {
+  const client = newClient();
+  await renderSettings(client);
+  const nav = page.getByRole("navigation", { name: "Settings categories" });
+  await Promise.all(
+    ["General", "Tasks", "Agents", "Models", "Code", "Diagnostics"].map(async (heading) => {
+      await expect.element(nav.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+    }),
+  );
+  await vi.waitFor(() => expect(nav.element().getBoundingClientRect().width).toBeCloseTo(240, 0));
+
+  const search = page.getByRole("combobox", { name: "Search settings" });
+  await userEvent.keyboard("/");
+  await expect.element(search).toHaveFocus();
+  await userEvent.keyboard("agent");
+  await expect.element(search).toHaveValue("agent");
+  // A slash inside the field is text, not another focus request.
+  await userEvent.keyboard("/");
+  await expect.element(search).toHaveValue("agent/");
+
+  // The first Escape clears the query; the second reaches the dialog.
+  await userEvent.keyboard("{Escape}");
+  await expect.element(search).toHaveValue("");
+  await expect.element(settingsHeading()).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(settingsHeading()).not.toBeInTheDocument();
+});
+
+test("a search result navigates to its row, clears the query and highlights it", async () => {
+  const client = newClient();
+  await renderSettings(client);
+  const search = page.getByRole("combobox", { name: "Search settings" });
+  await search.click();
+  await userEvent.keyboard("worktree root");
+  await expect.element(page.getByRole("listbox", { name: "Settings results" })).toBeVisible();
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(page.getByRole("region", { name: "Defaults" })).toBeVisible();
+  await expect.element(search).toHaveValue("");
+  const row = document.getElementById("settings-defaults-worktree-root");
+  expect(row).not.toBeNull();
+  await vi.waitFor(() => expect(row?.getAttribute("data-highlight")).toBe("true"));
+  expect(document.activeElement).toBe(row);
+});
+
+test("an empty search says No settings found in one row", async () => {
+  const client = newClient();
+  await renderSettings(client);
+  const search = page.getByRole("combobox", { name: "Search settings" });
+  await search.fill("no such setting");
+  await expect.element(page.getByText("No settings found", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("listbox", { name: "Settings results" }))
+    .not.toBeInTheDocument();
+});
+
+test("each section keeps its own scroll offset while the dialog stays open", async () => {
+  const client = newClient();
+  await renderSettings(client);
+  await section("Keyboard");
+  const content = document.querySelector<HTMLElement>(".settings-content");
+  if (content === null) throw new Error("no settings scroller");
+  content.scrollTop = content.scrollHeight;
+  const saved = content.scrollTop;
+  expect(saved).toBeGreaterThan(0);
+
+  await settingsRailButton("Appearance").click();
+  await settingsRailButton("Keyboard").click();
+  await vi.waitFor(() => expect(content.scrollTop).toBe(saved));
+});
+
+test("a project target opens Projects with that project selected", async () => {
+  const client = newClient();
+  await connected(client);
+  const repo = await createGitRepo("repo");
+  const project = await client.connection.api.projects.add({ path: repo });
+  await render(
+    <App
+      client={client}
+      initialEntries={[`/settings?settingsProject=${encodeURIComponent(project.path)}`]}
+    />,
+  );
+  await expect.element(settingsHeading()).toBeVisible();
+  const projects = page.getByRole("region", { name: "Projects" });
+  await expect.element(projects).toBeVisible();
+  const selected = projects.element().querySelector<HTMLElement>("#settings-projects-selected");
+  expect(selected?.textContent).toContain(project.name);
+  expect(selected?.textContent).toContain(project.path);
+  expect(
+    projects
+      .element()
+      .querySelector<HTMLElement>("#settings-project-branch-prefix")
+      ?.querySelector(".settings-source")?.textContent,
+  ).toBe("inherited");
 });

@@ -121,11 +121,30 @@ context-menu dispatcher.
   trailing pin action is revealed on row hover or keyboard focus within a reserved slot, and there
   is no header close button (Escape and outside press still close). The project picker has no empty
   state: `No project` alone is the list when nothing else matches.
-  Settings uses the named large, viewport-bounded `layout="settings"`, with its own scrolling
-  content and categories. It is a route-backed modal over a mounted workspace, not a page that
-  destroys drafts and terminal attachments. The board is a full-screen route layer over the same
-  parent, not a dialog: no scrim, and its close returns the keyboard through the same fallback.
+  Settings uses the named large, viewport-bounded `layout="settings"`: T3's 80 × 60 rem cap,
+  inset 24 px from the viewport (40 px at lg), with one content scroller and a 240 px settings
+  sidebar. It is a route-backed modal over a mounted workspace, not a page that destroys drafts and
+  terminal attachments. The board is a full-screen route layer over the same parent, not a
+  dialog: no scrim, and its close returns the keyboard through the same fallback.
   Other dialogs keep their existing dimensions.
+- Settings composes the settings-only primitives in `modules/settings`: a 240 px grouped sidebar
+  (28 px rows, 4 px radius, 6 px inline padding, 16 px icon, 6 px icon-text gap, 16 px group gap,
+  8 px item gap, 12 px muted group headings), one 720 px content page inline-padded 40 px (24 px
+  narrow), a 15/20 semibold section title with one line of 13/20 muted description, and 8 px
+  cards on `bg-layer-01` with a muted border, 16 px inline padding, and rows separated by 0.5 px
+  dividers. The content repeats the active sidebar label; there are no breadcrumbs and no separate
+  back action (the dialog's X closes). Projects are file-owned and read-only: a picker list, then
+  one project's resolved task settings with `inherited` / `project` source labels, reached from a
+  project row's `Project settings…`.
+- Settings search indexes rows, not prose: each entry is `{id, title, section, aliases}` and only
+  the title, section label and authored aliases are fields. Ranking is exact title, title prefix,
+  title substring, all query tokens in the title, then a phrase in any field, with declaration order
+  as the tiebreak; generated action/profile/agent/project rows are secondary and rank after real
+  settings. `/` focuses the 36 px search field unless focus is in a text field or nested popup;
+  Escape clears a non-empty query before it reaches the dialog. Selecting a result switches the
+  section, clears the query, scrolls the row into view, focuses it, and plays one motion-safe
+  highlight. Search navigation is local state: it never rewrites the URL or starts the discard
+  guard.
 - Enter only; the reason is in Direction (**Motion**). RowMenu has no delayed teardown.
 - Hint retains Base UI semantics and the shared 300 ms cold delay, and mounts its provider and
   trigger in every state so a clipping flip never remounts the trigger or drops focus.
@@ -160,12 +179,12 @@ context-menu dispatcher.
   second visible or tabbable toggle at either endpoint or in flight.
 - Unavailable shell actions stay focusable with `aria-disabled` and explain the reason in the
   compact tooltip; they never use an empty click handler. Add project opens the existing real
-  dialog; Search, New task, Settings and Settle are deferred in this slice.
+  dialog; Search and Settle are deferred in this slice.
 - The workspace status slot follows the task's **primary** session only; auxiliary terminals do
   not contribute agent status, unread state or sort priority. Working shows no duration because
   `AgentStatus.updatedAt` is a report time, not a run start.
-- Settings, the board, chat, changes and the terminal panes still use the prior kit compositions
-  until their own rebuild; their controls do not become the source of new visual rules.
+- The board, chat, changes and the terminal panes still use the prior kit compositions until their
+  own rebuild; their controls do not become the source of new visual rules.
 - ComposerSurface and ComposerToolbar own the shared prompt frame and wrapping control row. The
   frame shows the shared focus ring while focus is inside it.
   Textarea `frame="composer"` removes its duplicate inner border without changing prompt/chat

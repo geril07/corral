@@ -110,6 +110,7 @@ const handlers = () => ({
   onToggleSettle: vi.fn<(task: Task) => void>(),
   onRemoveTask: vi.fn<(task: Task) => void>(),
   onRemoveProject: vi.fn<(project: Project, opener?: HTMLElement) => void>(),
+  onProjectSettings: vi.fn<(project: Project, opener?: HTMLElement) => void>(),
   onNewTask: vi.fn<(project?: Project, opener?: HTMLElement) => void>(),
   onFindTask: vi.fn<(opener?: HTMLElement) => void>(),
 });
@@ -898,6 +899,19 @@ test("right-clicking a project row's New task action opens the row menu", async 
   await expect.element(page.getByRole("menu")).toBeVisible();
   await expect.element(page.getByRole("menuitem", { name: "New task in repo-p1" })).toBeVisible();
   await expect.element(page.getByRole("menuitem", { name: "Remove project…" })).toBeVisible();
+});
+
+test("a project's row menu opens Settings on that project", async () => {
+  const { rendered, handlers: spies } = renderSidebar();
+  await rendered;
+  const projectRow = containerRow("repo-p1");
+
+  await projectRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Project settings…" }).click();
+  expect(spies.onProjectSettings).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ id: "p1", path: "/repos/p1" }),
+    projectRow.element(),
+  );
 });
 
 test("a project's row menu starts a task in it and asks to remove it, with the row as the opener", async () => {
