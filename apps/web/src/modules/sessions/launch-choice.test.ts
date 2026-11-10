@@ -133,6 +133,33 @@ test("native agents precede profiles, and disabled tools cannot be selected thro
   expect(launchOptions([gateway], agents).some((option) => option.kind === "claude")).toBe(false);
 });
 
+test("a disabled instance is not offered and a retained selection is refused", () => {
+  const disabled: LaunchProfile = { ...piStub, enabled: false };
+  // The reviewer's regression: the agent was enabled, so the profile stayed selectable.
+  expect(
+    launchOptions([disabled], config.agents).some((option) => option.profile?.id === "pi-stub"),
+  ).toBe(false);
+  const retained = {
+    kind: "pi" as const,
+    profile: {
+      id: disabled.id,
+      name: disabled.name,
+      revision: disabled.revision,
+      model: disabled.model,
+      provider: disabled.provider,
+    },
+    model: "",
+  };
+  expect(launchProblem(retained, [disabled], config.agents)).toBe(
+    'The profile "Pi Stub" is disabled in the config file. Choose an agent or another profile.',
+  );
+  // Still readable for diagnostics: the launch payload keeps its pinned revision.
+  expect(launchChoice(retained)).toMatchObject({
+    profileId: "pi-stub",
+    expectedProfileRevision: "3",
+  });
+});
+
 test("the picker's selection maps to exactly one catalog row, including pi's provider-qualified id", () => {
   const native = { kind: "pi" as const, profile: null, model: "stub-1" };
   expect(launchCatalogRow(native, [stubOne, stubTwo])).toBe(stubOne);

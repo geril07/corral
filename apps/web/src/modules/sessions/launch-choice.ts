@@ -158,7 +158,7 @@ export function launchOptions(
       model: "",
     })),
     ...profiles
-      .filter((profile) => agents[profile.agent].enabled.value)
+      .filter((profile) => profile.enabled !== false && agents[profile.agent].enabled.value)
       .map((profile) => ({
         kind: profile.agent,
         profile: {
@@ -198,6 +198,10 @@ export function launchProblem(
     const current = profiles.find((profile) => profile.id === selection.profile?.id);
     if (!current)
       return `The profile "${selection.profile.name}" is no longer in the config file. Choose an agent or another profile.`;
+    // A disabled instance is not offered, but a retained selection still names it; the server
+    // refuses the launch, so the picker says why before the request exists.
+    if (current.enabled === false)
+      return `The profile "${current.name}" is disabled in the config file. Choose an agent or another profile.`;
     if (current.revision !== selection.profile.revision)
       return `The profile "${current.name}" changed in the config file. Review it and choose it again.`;
   }
