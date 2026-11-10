@@ -1,6 +1,6 @@
 import { describeError } from "@corral/client/rpc-errors";
 import { taskSettingsFor } from "@corral/protocol/config";
-import type { CreateTaskInput } from "@corral/protocol/rpc";
+import type { CreateTaskInput, Task } from "@corral/protocol/rpc";
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
 import { useCorralClient } from "../connection/index.ts";
@@ -9,11 +9,14 @@ import { AddProjectDialog, ProjectChoiceDialog } from "../projects/index.ts";
 import { defaultLaunch, describeLaunchError } from "../sessions/index.ts";
 import {
   emptyTaskComposerDraft,
+  RemoveTaskDialog,
   switchComposerProject,
   TaskComposer,
+  TaskSourceDialog,
   type TaskComposerDraft,
 } from "../tasks/index.ts";
-import { VisualShellView } from "./visual-view.tsx";
+import { RenameDialog, type RenameTarget } from "../workspace/index.ts";
+import { VisualShellView, type VisualShellNotice, type VisualTaskActions } from "./visual-view.tsx";
 import { buildTaskRows } from "./visual-status.ts";
 
 /**
@@ -62,6 +65,10 @@ export function VisualWorkspace({
   const [composerModal, setComposerModal] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string>();
+  const [rename, setRename] = useState<RenameTarget>();
+  const [remove, setRemove] = useState<Task>();
+  const [source, setSource] = useState<Task>();
+  const [notice, setNotice] = useState<VisualShellNotice>();
   const browse = useCallback(
     (path: string, signal: AbortSignal) =>
       client.connection.api.projects.directories({ path }, { signal }),
@@ -84,6 +91,8 @@ export function VisualWorkspace({
   const binding = bindingOf(config, "toggle-sidebar");
   const newTaskBinding = bindingOf(config, "new-task");
   const settingsBinding = bindingOf(config, "settings");
+  const renameBinding = bindingOf(config, "rename-task");
+  const settleBinding = bindingOf(config, "settle-task");
   const prefix = config.keys.prefix;
   const shortcut = useMemo(
     () => (binding === null ? undefined : { prefix, binding }),
@@ -96,6 +105,77 @@ export function VisualWorkspace({
   const settingsShortcut = useMemo(
     () => (settingsBinding === null ? undefined : { prefix, binding: settingsBinding }),
     [prefix, settingsBinding],
+  );
+  const renameShortcut = useMemo(
+    () => (renameBinding === null ? undefined : { prefix, binding: renameBinding }),
+    [prefix, renameBinding],
+  );
+  const settleShortcut = useMemo(
+    () => (settleBinding === null ? undefined : { prefix, binding: settleBinding }),
+    [prefix, settleBinding],
+  );
+
+  const findTask = useCallback(
+    (id: string) => tasks.tasks.find((task) => task.id === id),
+    [tasks.tasks],
+  );
+
+  /** The row the shell falls back to when the selected task leaves the active list. */
+  const selectAfterClose = useCallback(
+    (id: string) => {
+      if (selectedTaskId !== id) return;
+      const next = rows.find((row) => row.id !== id);
+      if (next !== undefined) onSelectTask(next.id);
+    },
+    [onSelectTask, rows, selectedTaskId],
+  );
+
+  const taskActions = useMemo<VisualTaskActions>(
+    () => ({
+      onRename: (id) => {
+        const task = findTask(id);
+        if (task === undefined) return;
+        setRename({ type: "task", id, name: task.title, value: task.title });
+      },
+      onToggleSettle: (id) => {
+        const task = findTask(id);
+        if (task === undefined) return;
+        setNotice(undefined);
+        void client.connection.api.tasks
+          .setState({ id, state: task.state === "active" ? "settled" : "active" })
+          .then(() => selectAfterClose(id))
+          .catch((error: unknown) => setNotice({ message: describeError(error), tone: "error" }));
+      },
+      onRemove: (id) => {
+        const task = findTask(id);
+        if (task !== undefined) setRemove(task);
+      },
+      onViewSource: (id) => {
+        const task = findTask(id);
+        if (task?.source !== undefined) setSource(task);
+      },
+    }),
+    [client, findTask, selectAfterClose],
+  );
+
+  const saveRename = useCallback(
+    (target: RenameTarget, name: string | null) => {
+      if (target.type !== "task" || name === null) return;
+      setNotice(undefined);
+      void client.connection.api.tasks
+        .rename({ id: target.id, title: name })
+        .catch((error: unknown) => setNotice({ message: describeError(error), tone: "error" }));
+    },
+    [client],
+  );
+
+  const removeTask = useCallback(
+    async (task: Task, force: boolean) => {
+      await client.connection.api.tasks.remove({ id: task.id, force });
+      setRemove(undefined);
+      selectAfterClose(task.id);
+    },
+    [client, selectAfterClose],
   );
 
   const startDraft = useCallback(
@@ -169,6 +249,7 @@ export function VisualWorkspace({
       setDraft(undefined);
       setProjectChoice(false);
       setCreateError(undefined);
+      setNotice(undefined);
       onSelectTask(id);
     },
     [onSelectTask],
@@ -207,6 +288,11 @@ export function VisualWorkspace({
         shortcut={shortcut}
         newTaskShortcut={newTaskShortcut}
         settingsShortcut={settingsShortcut}
+        renameShortcut={renameShortcut}
+        settleShortcut={settleShortcut}
+        taskActions={taskActions}
+        notice={notice}
+        onDismissNotice={() => setNotice(undefined)}
         direct={direct}
         onSelectTask={selectTask}
         onAddProject={() => setAddingProject(true)}
@@ -234,7 +320,16 @@ export function VisualWorkspace({
             />
           )
         }
-        prefixEnabled={active && !addingProject && !projectChoice && !composerModal && !creating}
+        prefixEnabled={
+          active &&
+          !addingProject &&
+          !projectChoice &&
+          !composerModal &&
+          !creating &&
+          rename === undefined &&
+          remove === undefined &&
+          source === undefined
+        }
       />
       {addingProject && (
         <AddProjectDialog
@@ -251,6 +346,27 @@ export function VisualWorkspace({
           onChoose={startDraft}
           onSetPinned={setProjectPinned}
           onClose={() => setProjectChoice(false)}
+        />
+      )}
+      {rename !== undefined && (
+        <RenameDialog
+          target={rename}
+          onSave={(name) => saveRename(rename, name)}
+          onClose={() => setRename(undefined)}
+        />
+      )}
+      {remove !== undefined && (
+        <RemoveTaskDialog
+          task={remove}
+          onRemove={(force) => removeTask(remove, force)}
+          onClose={() => setRemove(undefined)}
+        />
+      )}
+      {source !== undefined && source.source !== undefined && (
+        <TaskSourceDialog
+          source={source.source}
+          taskTitle={source.title}
+          onClose={() => setSource(undefined)}
         />
       )}
     </>

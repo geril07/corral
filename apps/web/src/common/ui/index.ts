@@ -67,7 +67,14 @@ export {
   type PickerInstance,
   type PickerModel,
 } from "./model-picker.tsx";
-export { DropdownMenuItem } from "./dropdown-menu.tsx";
+export {
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from "./dropdown-menu.tsx";
 export { RadioGroup, RadioGroupItem } from "./radio-group.tsx";
 export { StatusGlyph, type StatusGlyphSize } from "./status-glyph.tsx";
 export { useTruncatedText } from "./truncated-text.tsx";

@@ -2,6 +2,7 @@ import * as React from "react";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { cn } from "../lib/cn.ts";
 import { ChevronRightIcon, CheckIcon } from "lucide-react";
+import { Icon, type IconName } from "./icon.tsx";
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
   return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
@@ -74,10 +75,14 @@ function DropdownMenuItem({
   className,
   inset,
   variant = "default",
+  icon,
+  children,
   ...props
 }: MenuPrimitive.Item.Props & {
   inset?: boolean;
   variant?: "default" | "destructive";
+  /** The item's glyph, from the kit's one icon set. */
+  icon?: IconName;
 }) {
   return (
     <MenuPrimitive.Item
@@ -89,7 +94,10 @@ function DropdownMenuItem({
         className,
       )}
       {...props}
-    />
+    >
+      {icon !== undefined && <Icon name={icon} size="row" />}
+      {children}
+    </MenuPrimitive.Item>
   );
 }
 

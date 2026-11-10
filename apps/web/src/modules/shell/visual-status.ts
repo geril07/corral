@@ -142,6 +142,9 @@ export function buildTaskRows(
         title: task.title,
         project: projectName,
         projectInitial: projectInitial(projectName),
+        state: task.state,
+        workspacePath: task.workspacePath,
+        hasSource: task.source !== undefined,
         status: cardStatus(task, primaryStatus, now),
         metadata: {
           project: projectName,

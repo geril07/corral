@@ -379,6 +379,29 @@
   overflow-wrap: anywhere;
 }
 
+/* One status sentence above the footer's actions: a copy confirmation or a refused action. */
+.visual-shell-notice {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  border-top: 1px solid var(--visual-border-muted);
+}
+
+.visual-shell-notice-message {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--visual-text-muted);
+  font-size: 11px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.visual-shell-notice[data-tone="error"] .visual-shell-notice-message {
+  color: var(--visual-status-error);
+}
+
 .visual-sidebar-footer {
   display: flex;
   flex: 0 0 auto;
@@ -765,6 +788,22 @@
   height: 40px;
   padding: 0 8px;
   overflow: hidden;
+}
+
+/* The copy confirmation the header used to own, in the shell's one chrome row. */
+.visual-copy-notice {
+  margin: 0 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--visual-text-faint);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.visual-copy-notice[data-outcome="refused"] {
+  color: var(--visual-status-error);
 }
 
 /* ── Main surface ────────────────────────────────────────────────────────── */

@@ -3,6 +3,7 @@ import type { TaskNode } from "@corral/client/workspace-tree";
 import type { ActionId, ClientConfig } from "@corral/protocol/config";
 import type { Project, PullRequest, Task, TaskChanges } from "@corral/protocol/rpc";
 import { useRef, useState } from "react";
+import { copyText } from "../../common/lib/clipboard.ts";
 import {
   DropdownMenuItem,
   IconButton,
@@ -14,17 +15,7 @@ import { formatBinding } from "../keymap/index.ts";
 import { StatusIndicator } from "../status/index.ts";
 import { branchName, recordedBranchAccessible, recordedBranchLabel } from "../tasks/index.ts";
 
-interface CopyNotice {
-  readonly outcome: "copied" | "refused";
-  readonly message: string;
-}
-
-/** The host's own refusal sentence, or ours when the clipboard is absent. */
-function clipboardRefusal(error: unknown): string {
-  return error instanceof Error && error.message.trim() !== ""
-    ? error.message
-    : "Clipboard access is unavailable.";
-}
+type CopyNotice = Awaited<ReturnType<typeof copyText>>;
 
 export interface TaskHeaderProps {
   node?: TaskNode | undefined;
@@ -83,14 +74,7 @@ export function TaskHeader({
     config ? `${label} · ${formatBinding(config, action)}` : label;
   const copy = async (text: string, copied: string) => {
     clearCopyNotice();
-    try {
-      const clipboard = navigator.clipboard;
-      if (clipboard === undefined) throw new Error("Clipboard access is unavailable.");
-      await clipboard.writeText(text);
-      setCopyNotice({ outcome: "copied", message: copied });
-    } catch (error) {
-      setCopyNotice({ outcome: "refused", message: clipboardRefusal(error) });
-    }
+    setCopyNotice(await copyText(text, copied));
   };
   return (
     <header
