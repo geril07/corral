@@ -424,7 +424,7 @@ test("a task can start from a branch another worktree holds", async () => {
   expect(runGit(task.workspacePath, "log", "-1", "--format=%s").trim()).toBe("held.txt");
 });
 
-test("branches fails with typed errors for an unknown project and for a repository that is gone", async () => {
+test("branches and baseRefs fail with typed errors for an unknown project and a gone repository", async () => {
   const repo = initRepo(join(server.scratchDir, "app"));
   const api = await server.rpc();
   const project = await api.projects.add({ path: repo });
@@ -433,8 +433,15 @@ test("branches fails with typed errors for an unknown project and for a reposito
     code: "PROJECT_NOT_FOUND",
     data: { id: "nope" },
   });
+  await expect(api.projects.baseRefs({ id: "nope" })).rejects.toMatchObject({
+    code: "PROJECT_NOT_FOUND",
+    data: { id: "nope" },
+  });
   await rm(repo, { recursive: true });
   await expect(api.projects.branches({ id: project.id })).rejects.toMatchObject({
+    code: "GIT_FAILED",
+  });
+  await expect(api.projects.baseRefs({ id: project.id })).rejects.toMatchObject({
     code: "GIT_FAILED",
   });
 });
