@@ -35,7 +35,10 @@ The manager edits a draft with Preview, Save and Discard. A profile switch with 
 blocked; changing workspace does not discard rules. Closing asks whether to discard; an in-flight
 save must finish first. Each save uses an expected preference revision. Another client's save
 updates an idle editor, but conflicts never overwrite its draft. When a conflict makes the draft
-stale, Save is not offered; Discard loads the latest revision and drops the draft.
+stale, Save is not offered; Discard loads the latest revision and drops the draft. While a save
+acknowledgement waits for the watch to catch up, Discard keeps that acknowledged revision: a
+watch snapshot of a revision the save replaced is not the latest revision, even when it is the
+last event the client has seen.
 
 `models.toml` has one `[[preferences]]` entry per scope, with a `scope` table (`kind` and optional
 `profileId`) and a `policy` table (`mode`, `allow`, `deny`, `favorites`, `providerOrder`, `modelOrder`). Omitted provider/profile

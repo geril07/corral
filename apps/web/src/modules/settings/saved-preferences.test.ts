@@ -34,6 +34,19 @@ test("an acknowledgement owns the save and a watch snapshot of its base is not a
   expect(external.current.revision).toBe(30);
 });
 
+test("a second acknowledgement keeps the revisions the first superseded", () => {
+  let state = initialSavedPreferences(saved(10));
+  state = acknowledgeSavedPreferences(state, saved(20));
+  state = adoptWatchedPreferences(state, saved(20));
+  state = acknowledgeSavedPreferences(state, saved(30));
+
+  // Save 1 (A→B) and save 2 (B→C): a watch snapshot still showing A predates both.
+  expect(watchedRevisionIsOld(state, 10)).toBe(true);
+  expect(adoptWatchedPreferences(state, saved(10))).toBe(state);
+  expect(state.current.revision).toBe(30);
+  expect(adoptWatchedPreferences(state, saved(10)).current.revision).toBe(30);
+});
+
 test("an idle editor adopts an external revision whatever its opaque number is", () => {
   let state = initialSavedPreferences(saved(90));
   state = adoptWatchedPreferences(state, saved(4));
