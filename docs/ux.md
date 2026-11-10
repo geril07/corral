@@ -25,7 +25,7 @@ See [Model catalogs](model-catalog.md) for the policy and adapter limits.
 
 What a user does. Everything below is built and verified end to end, chat views and the handoff included. Keys listed here are the effective defaults.
 
-1. A draft opens in the main area (the task composer) from the New task button or a direct command. `Mod+N` chooses a project first, skipping the question when exactly one exists; `Mod+Shift+N` uses the selected task's project, and asks instead of guessing when no project is current; `Mod+Alt+N` starts a No project (scratch) draft. `Mod` is Cmd on macOS and Ctrl elsewhere, and `prefix t` still opens the same project choice. The composer is a prompt with attach, instance/model and reasoning on the bottom-left and Send on the right; project/workspace controls sit below, with the branch as a read-only fact. Opening a draft creates nothing and starts no agent; Enter or Send calls `tasks.create`. A scratch task has a server-owned directory and no Git controls.
+1. A draft opens in the main area (the task composer) from the New task button or a direct command. `Mod+N` chooses a project first, skipping the question when exactly one exists; `Mod+Shift+N` uses the selected task's project, and asks instead of guessing when no project is current; `Mod+Alt+N` starts a No project (scratch) draft. `Mod` is Cmd on macOS and Ctrl elsewhere, and `prefix t` still opens the same project choice. The composer is a prompt with attach, instance/model and reasoning on the bottom-left and Send on the right; one left-aligned context row below it names the project, the workspace and its branch. The project name opens the same project picker as project selection, pins included, and returns focus to the prompt. `Current checkout` is a read-only fact; `New worktree` shows `from <branch>` with a branch picker, and only that choice sends a base branch. Opening a draft creates nothing and starts no agent; Enter or Send calls `tasks.create`. A scratch task has a server-owned directory and no Git controls.
 2. The task appears in the sidebar at once under the prompt-derived seed title, which the generated title replaces. Its primary agent opens in the chosen view, already working on the prompt. No shell opens on its own.
 3. Inside a task (header and tab strip: `layout.md`), sessions are equal tabs: agents (terminal or chat) and shells. `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel. `prefix shift+c` opens the task's `Changes` tab after the sessions: what the task changed, and — under the summary row — staging, a commit message and commit, then push and create-pull-request behind one confirmation each, with no number hint and no status glyph; opening it leaves the current session where it was — the arrow keys in the strip keep moving between sessions, and choosing a session tab returns to it.
 4. `prefix v` hands the current agent session over between chat and terminal: one frontend is
@@ -125,8 +125,11 @@ What a user does. Everything below is built and verified end to end, chat views 
   the input. Browsing never registers, creates folders or starts tasks. Browser chrome can reserve
   Ctrl+N; desktop has no competing menu accelerator.
   New task is the composer in the main area, not a form dialog: the prompt, then attach,
-  instance/model and reasoning on the left and Send on the right; project, workspace mode and the
-  read-only branch fact sit below. The prompt is the task's source; a task with an agent starts
+  instance/model and reasoning on the left and Send on the right; one left-aligned context row
+  below names the project, workspace mode and the branch. The project name opens the shared
+  project picker and choosing one returns focus to the prompt. `Current checkout` never switches
+  the checkout and shows the project's default base as a fact; `New worktree` chooses a base
+  branch and sends it with the create. The prompt is the task's source; a task with an agent starts
   that primary session with the prompt, and the task appears in the sidebar with the server's
   seed title. Switching project or No project keeps the typed prompt, the chosen agent and focus;
   switching to No project removes the workspace and Git controls. File attachments are not supported by the

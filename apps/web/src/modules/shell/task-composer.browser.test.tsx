@@ -17,14 +17,18 @@ const promptField = () => composer().getByRole("textbox", { name: "Prompt" });
 const createButton = () => composer().getByRole("button", { name: /Create task|Creating task/ });
 const projectChoice = () => page.getByRole("dialog", { name: "New task" });
 const newTaskButton = () => page.getByRole("button", { name: "New task" });
-const projectButton = () => composer().getByRole("combobox", { name: /^Project / });
+const projectButton = () => composer().getByRole("button", { name: /^Project / });
+const workspaceButton = (name: string) =>
+  composer().getByRole("combobox", { name: `Workspace ${name}` });
+const branchButton = (name: string) =>
+  composer().getByRole("combobox", { name: `Base branch ${name}` });
 
 async function connected(client: CorralClient) {
   await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
 }
 
-async function appWithProject(name: string) {
-  const repo = await createGitRepo(name);
+async function appWithProject(name: string, branches: string[] = []) {
+  const repo = await createGitRepo(name, branches);
   const client = newClient();
   await connected(client);
   const project = await client.connection.api.projects.add({ path: repo });
@@ -50,6 +54,14 @@ async function createTaskThroughApi(client: CorralClient, project: Project): Pro
 const ctrl = (key: string) => userEvent.keyboard(`{Control>}${key}{/Control}`);
 const ctrlShift = (key: string) => userEvent.keyboard(`{Control>}{Shift>}${key}{/Shift}{/Control}`);
 const ctrlAlt = (key: string) => userEvent.keyboard(`{Control>}{Alt>}${key}{/Alt}{/Control}`);
+
+/** Tailwind composes a zero-alpha shadow chain even without a ring, so a ring shows as a layer
+ * that is not fully transparent. */
+function visibleShadow(value: string) {
+  return value === "none"
+    ? ""
+    : value.replaceAll(/rgba\(0, 0, 0, 0\)|0px 0px 0px 0px|,/g, "").trim();
+}
 
 test("the New task button creates a project task through the real server and selects it", async () => {
   const { client, project, repo, screen } = await appWithProject("composer-project");
@@ -83,17 +95,130 @@ test("the New task button creates a project task through the real server and sel
   await screen.unmount();
 });
 
+test("the prompt has no focus ring and cannot be resized by dragging", async () => {
+  const { screen } = await appWithProject("composer-prompt-chrome");
+  await ctrl("n");
+  await expect.element(promptField()).toHaveFocus();
+
+  // Tailwind composes a zero-alpha shadow chain even without a ring, so a ring shows as a layer
+  // that is not fully transparent.
+  const field = promptField().element();
+  const style = getComputedStyle(field);
+  expect(style.resize).toBe("none");
+  expect(style.outlineStyle).toBe("none");
+  expect(visibleShadow(style.boxShadow)).toBe("");
+
+  const surface = composer().element().querySelector('[data-slot="composer-surface"]');
+  if (!(surface instanceof HTMLElement)) throw new Error("the composer has no surface");
+  expect(visibleShadow(getComputedStyle(surface).boxShadow)).toBe("");
+  await screen.unmount();
+});
+
+test("Escape closes a context picker without leaving the draft", async () => {
+  const { screen } = await appWithProject("composer-context-escape");
+  await ctrl("n");
+  await workspaceButton("Current checkout").click();
+  await expect.element(page.getByRole("option", { name: "New worktree" })).toBeVisible();
+
+  await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("option", { name: "New worktree" })).not.toBeInTheDocument();
+  await expect.element(composer()).toBeVisible();
+  await screen.unmount();
+});
+
+test("the project name opens the shared project picker and returns focus to the prompt", async () => {
+  const { project, screen } = await appWithProject("composer-project-picker");
+  await ctrl("n");
+  await promptField().fill("Keep this draft");
+
+  await projectButton().click();
+  await expect.element(projectChoice()).toBeVisible();
+  await expect.element(page.getByRole("combobox", { name: "Search projects" })).toHaveFocus();
+  await expect.element(page.getByRole("button", { name: `Pin ${project.name}` })).toBeVisible();
+
+  await page.getByRole("option", { name: project.name, exact: true }).click();
+  await expect.element(projectChoice()).not.toBeInTheDocument();
+  await expect.element(promptField()).toHaveFocus();
+  await expect.element(promptField()).toHaveValue("Keep this draft");
+  await screen.unmount();
+});
+
+test("Current checkout switches to a new worktree and sends the chosen base branch", async () => {
+  const { client, project, repo, screen } = await appWithProject("composer-base-branch", [
+    "feature/x",
+  ]);
+  await runGitIn(repo, ["checkout", "feature/x"]);
+  await runGitIn(repo, ["commit", "--allow-empty", "-m", "feature base"]);
+  await runGitIn(repo, ["checkout", "main"]);
+
+  await ctrl("n");
+  await expect.element(promptField()).toHaveFocus();
+
+  const context = composer().element().querySelector(".task-composer-context");
+  if (!(context instanceof HTMLElement)) throw new Error("the composer has no context row");
+  expect(context.textContent).toContain(project.name);
+  expect(context.textContent).toContain("Current checkout");
+  expect(context.querySelector(".task-composer-branch")?.textContent).toBe("main");
+  expect(context.textContent).not.toContain(project.path);
+  expect(getComputedStyle(context).flexWrap).toBe("nowrap");
+
+  await workspaceButton("Current checkout").click();
+  await expect.element(page.getByRole("option", { name: "Current checkout" })).toBeVisible();
+  await expect.element(page.getByRole("option", { name: "New worktree" })).toBeVisible();
+  expect(page.getByRole("option").elements()).toHaveLength(2);
+  await page.getByRole("option", { name: "New worktree" }).click();
+
+  await expect.element(branchButton("main")).toBeVisible();
+  await expect.element(composer().getByText("from main", { exact: true })).toBeVisible();
+
+  await branchButton("main").click();
+  const search = page.getByRole("combobox", { name: "Search branches" });
+  await expect.element(search).toBeVisible();
+  await expect.element(search).toHaveFocus();
+  await expect.element(page.getByRole("option", { name: "main" })).toBeVisible();
+  await expect
+    .element(page.getByRole("option", { name: "main" }))
+    .toHaveAttribute("aria-selected", "true");
+  await expect.element(page.getByRole("option", { name: "feature/x" })).toBeVisible();
+
+  await userEvent.fill(search, "feat");
+  await expect.element(page.getByRole("option", { name: "feature/x" })).toBeVisible();
+  await expect.element(page.getByRole("option", { name: "main" })).not.toBeInTheDocument();
+  await page.getByRole("option", { name: "feature/x" }).click();
+
+  await expect.element(branchButton("feature/x")).toBeVisible();
+  await expect.element(composer().getByText("from feature/x", { exact: true })).toBeVisible();
+
+  const prompt = "Start from the feature branch";
+  await promptField().fill(prompt);
+  await createButton().click();
+
+  const task = await vi.waitFor(() => {
+    const found = client.tasks.getSnapshot().tasks.find((candidate) => candidate.prompt === prompt);
+    if (found === undefined) throw new Error("the task is not in the store yet");
+    return found;
+  });
+  expect(task.branch).not.toBe("main");
+  expect(task.workspacePath).not.toBe(repo);
+  expect((await runGitIn(task.workspacePath, ["log", "-1", "--format=%s"])).trim()).toBe(
+    "feature base",
+  );
+  await screen.unmount();
+});
+
 test("a pointer-created scratch task has no project, no Git controls and its own row", async () => {
   const { client, screen } = await appWithProject("composer-scratch");
   await newTaskButton().click();
   await expect.element(composer()).toBeVisible();
 
-  await selectOption(/^Project /, /No project/);
-  await expect.element(composer().getByText("Scratch workspace · no Git controls")).toBeVisible();
+  await projectButton().click();
+  await page.getByRole("option", { name: "No project" }).click();
+  await expect.element(projectButton()).toHaveTextContent("No project");
   await expect.element(promptField()).toHaveFocus();
   await expect
     .element(composer().getByRole("button", { name: /Workspace/ }))
     .not.toBeInTheDocument();
+  await expect.element(composer().getByText(/Scratch workspace/)).not.toBeInTheDocument();
 
   const prompt = "Sketch a release checklist";
   await promptField().fill(prompt);
@@ -185,7 +310,7 @@ test("Mod+Alt+N drafts without a project on an install that has one", async () =
   await ctrlAlt("n");
   await expect.element(composer()).toBeVisible();
   await expect.element(projectButton()).toHaveTextContent("No project");
-  await expect.element(composer().getByText("Scratch workspace · no Git controls")).toBeVisible();
+  await expect.element(composer().getByText(/Scratch workspace/)).not.toBeInTheDocument();
   await screen.unmount();
 });
 
@@ -230,7 +355,8 @@ test("a cancelled picker and a failed create keep the prompt and its focus", asy
   await expect.element(promptField()).toHaveFocus();
 
   // A real server refusal: the project's repository disappears before a new-worktree create.
-  await selectOption("Workspace Main worktree", "New worktree");
+  await selectOption("Workspace Current checkout", "New worktree");
+  await expect.element(branchButton("main")).toBeVisible();
   await removeDirectoryIn(repo);
   await createButton().click();
   await expect.element(composer().getByRole("alert")).toBeVisible();

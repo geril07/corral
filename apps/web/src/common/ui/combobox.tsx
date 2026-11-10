@@ -31,27 +31,40 @@ function ComboboxTrigger({ className, children, ...props }: ComboboxPrimitive.Tr
  * The trigger alone, as a compact stock button showing the selected value (`layout.md`,
  * **New task view**). The list opens with a search input inside its popup, so the trigger is the
  * form control and takes its name from `aria-label` or `Combobox.Label`; keyboard navigation and
- * type-to-filter then belong to that input.
+ * type-to-filter then belong to that input. `layout="text"` is the borderless plain-text trigger
+ * of the composer's context row; its chevron is then the caller's choice.
  */
 function ComboboxButton({
   className,
   children,
   layout = "default",
+  chevron = true,
   ...props
-}: ComboboxPrimitive.Trigger.Props & { layout?: "default" | "bounded" }) {
+}: ComboboxPrimitive.Trigger.Props & {
+  layout?: "default" | "bounded" | "text";
+  chevron?: boolean;
+}) {
+  const text = layout === "text";
   return (
     <ComboboxPrimitive.Trigger
       data-slot="combobox-button"
-      render={<Button variant="outline" size="sm" />}
+      render={
+        <Button variant={text ? "ghost" : "outline"} size="sm" layout={text ? "text" : "default"} />
+      }
       className={cn(
-        "min-w-0 justify-between font-normal",
+        "min-w-0 font-normal",
+        !text && "justify-between",
         layout === "bounded" && "max-w-64 overflow-hidden",
         className,
       )}
       {...props}
     >
       {layout === "bounded" ? <ComboboxButtonLabel>{children}</ComboboxButtonLabel> : children}
-      <ChevronDownIcon className="pointer-events-none size-4 text-muted-foreground" />
+      {chevron && (
+        <ChevronDownIcon
+          className={cn("pointer-events-none text-muted-foreground", text ? "size-3.5" : "size-4")}
+        />
+      )}
     </ComboboxPrimitive.Trigger>
   );
 }
@@ -116,12 +129,21 @@ function ComboboxInput({
 }
 
 /** The popup's search field: a stock input, for the input-inside-popup combobox pattern. */
-function ComboboxSearch({ className, ...props }: ComboboxPrimitive.Input.Props) {
+function ComboboxSearch({
+  className,
+  variant = "field",
+  ...props
+}: ComboboxPrimitive.Input.Props & { variant?: "field" | "band" }) {
   return (
     <ComboboxPrimitive.Input
       data-slot="combobox-search"
+      data-variant={variant}
       render={<Input />}
-      className={cn(className)}
+      className={cn(
+        variant === "band" &&
+          "h-10 rounded-none border-0 border-b border-border bg-transparent px-3 dark:bg-transparent",
+        className,
+      )}
       {...props}
     />
   );
@@ -164,12 +186,17 @@ function ComboboxContent({
   );
 }
 
-function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props) {
+function ComboboxList({
+  className,
+  scrollbar = "hidden",
+  ...props
+}: ComboboxPrimitive.List.Props & { scrollbar?: "hidden" | "visible" }) {
   return (
     <ComboboxPrimitive.List
       data-slot="combobox-list"
       className={cn(
-        "no-scrollbar max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 overflow-y-auto overscroll-contain p-1 data-empty:p-0",
+        "max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 overflow-y-auto overscroll-contain p-1 data-empty:p-0",
+        scrollbar === "hidden" && "no-scrollbar",
         className,
       )}
       {...props}

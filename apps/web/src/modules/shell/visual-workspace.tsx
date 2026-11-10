@@ -138,6 +138,12 @@ export function VisualWorkspace({
     [client],
   );
 
+  const loadBranches = useCallback(
+    (projectId: string, signal: AbortSignal) =>
+      client.connection.api.projects.branches({ id: projectId }, { signal }),
+    [client],
+  );
+
   const startInCurrentProject = useCallback(() => {
     if (currentProjectId === null) {
       setProjectChoice(true);
@@ -219,6 +225,8 @@ export function VisualWorkspace({
               onDraftChange={setDraft}
               onCreate={createTask}
               onCancel={() => setDraft(undefined)}
+              onSetPinned={setProjectPinned}
+              loadBranches={loadBranches}
               focusRequest={focusRequest}
               onModalChange={setComposerModal}
               creating={creating}
