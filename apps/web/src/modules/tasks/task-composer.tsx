@@ -48,7 +48,7 @@ const COMPOSER_WORKSPACES: readonly {
 
 const WORKTREE = "new-worktree";
 
-interface BranchState {
+interface BaseRefState {
   projectId: string;
   status: "loaded" | "failed";
   names: readonly string[];
@@ -67,8 +67,8 @@ export interface TaskComposerProps {
   onCancel: () => void;
   /** Pins a project from the picker the project name opens. */
   onSetPinned: (id: string, pinned: boolean) => Promise<void>;
-  /** Branches a new worktree can start from, read again whenever the draft's project changes. */
-  loadBranches: (projectId: string, signal: AbortSignal) => Promise<string[]>;
+  /** Refs a new worktree can start from, read again whenever the draft's project changes. */
+  loadBaseRefs: (projectId: string, signal: AbortSignal) => Promise<string[]>;
   /** Increments whenever the shell wants the prompt to take the keyboard. */
   focusRequest: number;
   onModalChange: (open: boolean) => void;
@@ -94,7 +94,7 @@ export function TaskComposer({
   onCreate,
   onCancel,
   onSetPinned,
-  loadBranches,
+  loadBaseRefs,
   focusRequest,
   onModalChange,
   creating,
@@ -104,7 +104,7 @@ export function TaskComposer({
   const agentAnchor = useRef<HTMLButtonElement>(null);
   const [pickingAgent, setPickingAgent] = useState(false);
   const [pickingProject, setPickingProject] = useState(false);
-  const [branches, setBranches] = useState<BranchState>();
+  const [baseRefs, setBaseRefs] = useState<BaseRefState>();
   const guard = useEnterGuard();
 
   useEffect(() => {
@@ -120,6 +120,7 @@ export function TaskComposer({
     draft.projectId === null
       ? undefined
       : projects.find((candidate) => candidate.id === draft.projectId);
+  const projectMissing = draft.projectId !== null && project === undefined;
   const projectId = project?.id;
   const settings: ResolvedTaskSettings =
     project === undefined ? config.tasks : taskSettingsFor(config, project.path);
@@ -130,35 +131,29 @@ export function TaskComposer({
   const workspace =
     COMPOSER_WORKSPACES.find((choice) => choice.key === draft.workspaceKey) ??
     workspaceFromSettings(settings);
-  const baseBranch = draft.baseBranch ?? project?.defaultBaseBranch ?? "";
-  const branchState = branches?.projectId === projectId ? branches : undefined;
-  // `projects.branches` answers only targets a worktree can check out, so the project's own
-  // default base (usually checked out in the main tree) is merged back as the first choice: it is
-  // a real base and the one the row starts on.
-  const branchNames = branchState?.names ?? [];
-  const branchChoices =
-    project !== undefined &&
-    project.defaultBaseBranch !== "" &&
-    !branchNames.includes(project.defaultBaseBranch)
-      ? [project.defaultBaseBranch, ...branchNames]
-      : branchNames;
+  // `Current checkout` names the project's checkout; only `New worktree` reads the base a fresh
+  // worktree starts from, so choosing a base never changes what the read-only row claims.
+  const checkoutBranch = project?.defaultBaseBranch ?? "";
+  const worktreeBase = draft.baseBranch ?? project?.defaultBaseBranch ?? "";
+  const baseRefState = baseRefs?.projectId === projectId ? baseRefs : undefined;
+  const baseRefNames = baseRefState?.names ?? [];
 
   // OpenCode preloads branches before its picker opens; the project is the only key, so one read
-  // serves both the read-only fact and the picker and a change of project cannot mix two lists.
+  // serves the picker and a change of project cannot mix two lists.
   useEffect(() => {
     if (projectId === undefined) return undefined;
     const controller = new AbortController();
-    loadBranches(projectId, controller.signal).then(
+    loadBaseRefs(projectId, controller.signal).then(
       (names) => {
-        if (!controller.signal.aborted) setBranches({ projectId, status: "loaded", names });
+        if (!controller.signal.aborted) setBaseRefs({ projectId, status: "loaded", names });
       },
       (error: unknown) => {
         if (!controller.signal.aborted)
-          setBranches({ projectId, status: "failed", names: [], error: describeError(error) });
+          setBaseRefs({ projectId, status: "failed", names: [], error: describeError(error) });
       },
     );
     return () => controller.abort();
-  }, [loadBranches, projectId]);
+  }, [loadBaseRefs, projectId]);
 
   // The pickers restore focus to their triggers after a popup closes; hand it back to the prompt
   // afterwards, so a project/workspace/branch switch keeps typing where the user left it.
@@ -170,11 +165,12 @@ export function TaskComposer({
   const promptText = draft.prompt.trim();
   const ready =
     !creating &&
+    !projectMissing &&
     promptText !== "" &&
     (agent === undefined || (agentProblem === undefined && capabilitiesReady));
 
   const submit = () => {
-    if (!ready) return;
+    if (!ready || projectMissing) return;
     onCreate({
       projectId: draft.projectId,
       prompt: promptText,
@@ -184,9 +180,9 @@ export function TaskComposer({
           ? { type: "scratch" }
           : workspace.key !== WORKTREE
             ? { type: "main-worktree" }
-            : baseBranch === ""
+            : worktreeBase === ""
               ? { type: "new-branch" }
-              : { type: "new-branch", baseBranch },
+              : { type: "new-branch", baseBranch: worktreeBase },
     });
   };
 
@@ -309,12 +305,16 @@ export function TaskComposer({
             variant="ghost"
             size="sm"
             layout="text"
-            aria-label={`Project ${project?.name ?? "No project"}`}
+            aria-label={`Project ${
+              project?.name ?? (projectMissing ? "unavailable" : "No project")
+            }`}
             aria-haspopup="dialog"
             onClick={() => setPickingProject(true)}
           >
             <Icon name={project === undefined ? "no-project" : "project"} size="row" />
-            <span className="min-w-0 truncate">{project?.name ?? "No project"}</span>
+            <span className="min-w-0 truncate">
+              {project?.name ?? (projectMissing ? "Project unavailable" : "No project")}
+            </span>
           </Button>
           {project !== undefined && (
             <>
@@ -333,7 +333,7 @@ export function TaskComposer({
                     baseBranch:
                       next === WORKTREE
                         ? (draft.baseBranch ?? project.defaultBaseBranch)
-                        : baseBranch,
+                        : draft.baseBranch,
                   });
                   focusPromptSoon();
                 }}
@@ -366,10 +366,10 @@ export function TaskComposer({
               </span>
               {workspace.key === WORKTREE ? (
                 <BranchControl
-                  names={branchChoices}
-                  status={branchState?.status ?? "loading"}
-                  error={branchState?.error}
-                  value={baseBranch}
+                  names={baseRefNames}
+                  status={baseRefState?.status ?? "loading"}
+                  error={baseRefState?.error}
+                  value={worktreeBase}
                   onChange={(branch) => {
                     onDraftChange({ ...draft, baseBranch: branch });
                     focusPromptSoon();
@@ -378,12 +378,18 @@ export function TaskComposer({
               ) : (
                 <span className="task-composer-branch">
                   <Icon name="branch" size="row" />
-                  <span className="min-w-0 truncate">{baseBranch}</span>
+                  <span className="min-w-0 truncate">{checkoutBranch}</span>
                 </span>
               )}
             </>
           )}
         </div>
+
+        {projectMissing && !pickingProject && (
+          <p className="task-composer-error" role="alert">
+            The selected project is no longer available. Choose another project or No project.
+          </p>
+        )}
 
         {configuredDisabled !== undefined && !pickingAgent && (
           <p className="task-composer-note">{configuredDisabled}</p>
@@ -455,7 +461,7 @@ function BranchControl({
   onChange,
 }: {
   names: readonly string[];
-  status: "loading" | BranchState["status"];
+  status: "loading" | BaseRefState["status"];
   error: string | undefined;
   value: string;
   onChange: (branch: string) => void;
