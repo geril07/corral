@@ -1,6 +1,5 @@
 import type { ChatModel } from "@corral/protocol/chat";
 import {
-  defaultModelPolicy,
   matchesModel,
   modelKey,
   modelScopeKey,
@@ -12,7 +11,6 @@ import {
   toggleModelFavorite,
   type ModelContext,
   type ModelPolicy,
-  type ModelPreferences,
   type ModelScope,
 } from "@corral/protocol/models";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
@@ -42,6 +40,13 @@ import { ProjectOption, projectOptionLabel } from "../projects/index.ts";
 import { CONFIGURED_DEFAULT, configuredDefaultRow } from "../sessions/launch-choice.ts";
 import { useModelCatalog, useModelPreferences, type KnownModelCatalog } from "./model-catalog.ts";
 import { modelFooterText } from "./model-footer.ts";
+import {
+  acknowledgeSavedPreferences,
+  adoptWatchedPreferences,
+  initialSavedPreferences,
+  watchedRevisionIsOld,
+  type SavedPreferences,
+} from "./saved-preferences.ts";
 
 export interface ModelManagementTarget {
   scope: ModelScope;
@@ -330,11 +335,10 @@ function ModelPolicyEditor({
 }) {
   const client = useCorralClient();
   const latest = useModelPreferences(scope);
-  const [base, setBase] = useState<ModelPreferences>(() => ({
-    scope,
-    revision: latest.revision,
-    policy: latest.policy,
-  }));
+  const [saved, setSaved] = useState<SavedPreferences>(() =>
+    initialSavedPreferences({ scope, revision: latest.revision, policy: latest.policy }),
+  );
+  const base = saved.current;
   const [policy, applyPolicy] = useState<ModelPolicy>(base.policy);
   const setPolicy = (next: ModelPolicy) => {
     applyPolicy(next);
@@ -357,16 +361,25 @@ function ModelPolicyEditor({
   const retryFocus = useRef(false);
   const conflictReason = useId();
   const dirty = JSON.stringify(policy) !== JSON.stringify(base.policy);
-  const stale = dirty && latest.revision !== base.revision;
+  // A watched snapshot of a revision the acknowledgement replaced is not a conflict, even though
+  // its opaque number differs from the saved one.
+  const stale =
+    dirty && !watchedRevisionIsOld(saved, latest.revision) && latest.revision !== base.revision;
   const hidesConfiguredDefault =
     configuredDefault !== undefined &&
     dirty &&
     modelVisible(base.policy, configuredDefault) &&
     !modelVisible(policy, configuredDefault);
-  if (!dirty && latest.revision !== base.revision) {
-    const next = { scope, revision: latest.revision, policy: latest.policy };
-    setBase(next);
-    applyPolicy(next.policy);
+  if (!dirty) {
+    const next = adoptWatchedPreferences(saved, {
+      scope,
+      revision: latest.revision,
+      policy: latest.policy,
+    });
+    if (next !== saved) {
+      setSaved(next);
+      applyPolicy(next.current.policy);
+    }
   }
   // A retry settles on a delivered snapshot or a new refusal, never on `loaded` alone: a loaded
   // snapshot outlives the refusal that Retry clears synchronously.
@@ -432,7 +445,7 @@ function ModelPolicyEditor({
         revision: base.revision,
         policy,
       });
-      setBase(next);
+      setSaved((current) => acknowledgeSavedPreferences(current, next));
       applyPolicy(next.policy);
       onDirty(false);
       if (fromSave) returnFocus.current = "status";
@@ -475,9 +488,15 @@ function ModelPolicyEditor({
     (latest.failure ? retryButton.current : statusLine.current)?.focus();
   }, [retrying, latest.failure]);
   const discard = () => {
-    const next = { scope, revision: latest.revision, policy: latest.policy };
-    setBase(next);
-    applyPolicy(next.policy);
+    // Discard adopts what the watch really shows, through the same owner; a snapshot the last
+    // acknowledgement replaced cannot pull the editor back to an older policy.
+    const next = adoptWatchedPreferences(saved, {
+      scope,
+      revision: latest.revision,
+      policy: latest.policy,
+    });
+    setSaved(next);
+    applyPolicy(next.current.policy);
     onDirty(false);
     setFailure(undefined);
   };
@@ -820,9 +839,7 @@ function ModelPolicyEditor({
               size="sm"
               variant="ghost"
               disabled={busy || !latest.loaded}
-              onClick={() =>
-                setPolicy({ ...defaultModelPolicy(), mode: "allow", favorites: policy.favorites })
-              }
+              onClick={() => setPolicy({ ...policy, mode: "allow", allow: [] })}
             >
               Hide all
             </Button>
@@ -830,7 +847,7 @@ function ModelPolicyEditor({
               size="sm"
               variant="ghost"
               disabled={busy || !latest.loaded}
-              onClick={() => setPolicy({ ...defaultModelPolicy(), favorites: policy.favorites })}
+              onClick={() => setPolicy({ ...policy, mode: "all", allow: [], deny: [] })}
             >
               Show all
             </Button>
