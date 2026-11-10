@@ -123,10 +123,6 @@
   transition: none;
 }
 
-.settings-nav-item [data-slot="button"]:active {
-  translate: none;
-}
-
 .settings-nav-item [data-slot="button"]:hover,
 .settings-nav-item [data-slot="button"][data-highlighted] {
   background: var(--visual-hover);
