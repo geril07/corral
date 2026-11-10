@@ -41,11 +41,18 @@ elevation, motion and focus follow **Spine**.
 - **Elevation** — canvas, raised surface, floating popup, dialog with its scrim, and one inverted
   tooltip; a border separates first; only the two floating tiers carry a shadow; surface, border
   and shadow are the primitive's choice and a caller cannot add one.
+- **Dialog placement** — settings and small confirmations are centered. Search, project, model and
+  history dialogs hang from a fixed top edge, `max(48px, (100dvh - 480px) / 2)`, with
+  `max-height: calc(100dvh - 96px)`, so a changing result count changes only the bottom edge and the
+  input never moves. Same rule as OpenCode's results-grow-down pickers; T3's palette anchors higher
+  at `10vh`.
 - **Motion** — two durations by role and one decelerating easing token; only opacity and transform
-  animate; nothing loops; entry animations are conditional on motion being allowed, so reduced
+  animate; nothing loops; both directions are conditional on motion being allowed, so reduced
   motion removes them and transitions still carry their own reduced-motion pair; there is no global
-  kill switch; **enter only — no exit animation, because a closing popup must not hold the
-  keyboard** (`ux.md`, Focus).
+  kill switch. **Dialogs and their scrim also animate out over 200 ms**: Base UI keeps the popup
+  mounted only until that animation ends, then removes it and returns focus, so the keyboard is
+  held for a bounded 200 ms rather than an open-ended one. Menus and other popups stay enter-only
+  (`ux.md`, Focus).
 - **Density** — control heights are kit sizes; a control takes the height of the row it sits in; a
   full-width row uses a row size; a tab fills the tabstrip; a chrome band reads the chrome tokens;
   there is no comfort/compact mode.

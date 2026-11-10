@@ -44,7 +44,10 @@ function CommandDialog({
         <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
       <DialogContent
-        className={cn("top-1/3 translate-y-0 overflow-hidden rounded-lg!", className)}
+        className={cn(
+          "visual-dialog-anchored max-h-[calc(100dvh-6rem)] overflow-hidden rounded-lg!",
+          className,
+        )}
         padding="none"
         showCloseButton={showCloseButton}
         finalFocus={finalFocus}
