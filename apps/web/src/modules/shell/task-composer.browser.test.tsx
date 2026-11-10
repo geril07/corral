@@ -514,6 +514,26 @@ test("a draft whose project is removed shows it unavailable and cannot submit it
   await screen.unmount();
 });
 
+test("the shell prefix and direct commands stay live while a draft is open", async () => {
+  const { screen } = await appWithProject("composer-prefix");
+  await ctrl("n");
+  await expect.element(composer()).toBeVisible();
+  const aside = screen.container.querySelector<HTMLElement>(".visual-shell-sidebar");
+  if (aside === null) throw new Error("the sidebar is missing");
+
+  await prefixThen("\\");
+  await expect.poll(() => Math.round(aside.getBoundingClientRect().width)).toBe(0);
+  await prefixThen("\\");
+  await expect.poll(() => Math.round(aside.getBoundingClientRect().width)).toBe(320);
+
+  // The direct creation command shares the same listener and still opens the draft.
+  await ctrl("n");
+  await expect.element(composer()).toBeVisible();
+  await expect.element(promptField()).toHaveFocus();
+  await screen.unmount();
+});
+
+
 test("Mod+N skips project selection with one project; prefix new-task still works", async () => {
   const { client, project, screen } = await appWithProject("composer-direct-new");
   await ctrl("n");

@@ -156,6 +156,10 @@ export interface VisualShellViewProps {
   onAddProject?: (() => void) | undefined;
   /** The main area's composer when a draft is open; otherwise the selected task or empty state. */
   main?: ReactNode | undefined;
+  /** The task's identity row above the strip: title, project, branch, status. */
+  taskHeader?: ReactNode | undefined;
+  /** One line above the whole working area: a refused action, never a tab-local error. */
+  notice?: ReactNode | undefined;
   /** The task's main tab strip, inside the 40 px chrome band. */
   chrome?: ReactNode | undefined;
   /** The companion group's column; it keeps its own strip and pane. */
@@ -337,10 +341,17 @@ function statusLine(row: VisualTaskRow): string | undefined {
     .join(" · ");
 }
 
-function TaskMain({ row }: { row: VisualTaskRow }) {
+export function TaskMain({
+  row,
+  compact = false,
+}: {
+  row: VisualTaskRow;
+  /** The working area's one-line header; the review host keeps the full block. */
+  compact?: boolean;
+}) {
   const status = statusLine(row);
   return (
-    <div className="visual-main-task">
+    <div className={compact ? "visual-main-task visual-main-task-compact" : "visual-main-task"}>
       <span className="visual-main-eyebrow">
         {row.project}
         {row.metadata.branch !== undefined && (
@@ -358,7 +369,7 @@ function TaskMain({ row }: { row: VisualTaskRow }) {
           {status}
         </span>
       )}
-      {row.metadata.prompt !== undefined && (
+      {!compact && row.metadata.prompt !== undefined && (
         <p className="visual-main-prompt">{row.metadata.prompt}</p>
       )}
     </div>
@@ -411,6 +422,8 @@ export function VisualShellView({
   onSelectTask,
   onAddProject,
   main,
+  taskHeader,
+  notice,
   chrome,
   companion,
   mainFill = false,
@@ -710,10 +723,37 @@ export function VisualShellView({
         </div>
       </VisualSidebar>
       <main className="visual-shell-main" aria-label="Workspace">
-        <div className="visual-main-chrome">
-          <span className="visual-toggle-slot" ref={closedToggleSlot} aria-hidden="true" />
-          {chrome}
-        </div>
+        {taskHeader !== undefined && (
+          <div className="visual-task-header">
+            <span
+              className={
+                pane.hidden
+                  ? "visual-toggle-slot"
+                  : "visual-toggle-slot visual-toggle-slot-collapsed"
+              }
+              ref={closedToggleSlot}
+              aria-hidden="true"
+            />
+            {taskHeader}
+          </div>
+        )}
+        {notice}
+        {(taskHeader === undefined || chrome !== undefined) && (
+          <div className="visual-main-chrome">
+            {taskHeader === undefined && (
+              <span
+                className={
+                  pane.hidden
+                    ? "visual-toggle-slot"
+                    : "visual-toggle-slot visual-toggle-slot-collapsed"
+                }
+                ref={closedToggleSlot}
+                aria-hidden="true"
+              />
+            )}
+            {chrome}
+          </div>
+        )}
         <div className="visual-workspace-body">
           <div
             className={
