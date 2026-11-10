@@ -17,4 +17,4 @@ export {
 } from "./config-problems.tsx";
 export { KeymapProvider, useConfig, usePrefix } from "./config-context.tsx";
 export { CommandPaletteDialog } from "./command-palette.tsx";
-export { usePrefixMode } from "./prefix-mode.ts";
+export { modifierPlatform, usePrefixMode } from "./prefix-mode.ts";

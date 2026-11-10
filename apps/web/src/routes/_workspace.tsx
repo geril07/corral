@@ -1,4 +1,5 @@
 import { createFileRoute, Outlet, useLocation } from "@tanstack/react-router";
+import { useCallback } from "react";
 import { VisualWorkspace } from "../modules/shell/index.ts";
 import { NO_TASK, validateWorkspaceSearch } from "../modules/workspace/index.ts";
 
@@ -16,16 +17,21 @@ function WorkspaceRoute() {
   });
   const selectedTaskId =
     search.task === undefined ? undefined : search.task === NO_TASK ? null : search.task;
+  const openSettings = useCallback(() => {
+    void navigate({ to: "/settings", search });
+  }, [navigate, search]);
   return (
     <>
       {/* The same inert layer the old workspace used: a full-screen route covers the shell, while
           the shell stays mounted and keeps its state. */}
       <div className="visual-route-fill" inert={!active} aria-hidden={!active || undefined}>
         <VisualWorkspace
+          active={active}
           selectedTaskId={selectedTaskId}
           onSelectTask={(id) =>
             void navigate({ to: "/", search: { ...search, task: id }, replace: true })
           }
+          onOpenSettings={openSettings}
         />
       </div>
       <Outlet />

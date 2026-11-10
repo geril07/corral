@@ -8,6 +8,7 @@ import {
 } from "@corral/client/workspace-tree";
 import {
   DEFAULT_BINDINGS,
+  DEFAULT_DIRECT_BINDINGS,
   DEFAULT_PREFIX,
   defaultClientConfig,
   type ClientConfig,
@@ -90,7 +91,11 @@ const defaultSessions = [
 
 const config: ClientConfig = {
   ...defaultClientConfig(""),
-  keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } },
+  keys: {
+    prefix: DEFAULT_PREFIX,
+    bindings: { ...DEFAULT_BINDINGS },
+    direct: { ...DEFAULT_DIRECT_BINDINGS },
+  },
 };
 
 const handlers = () => ({

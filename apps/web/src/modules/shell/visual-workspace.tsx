@@ -1,26 +1,48 @@
 import { describeError } from "@corral/client/rpc-errors";
+import { taskSettingsFor } from "@corral/protocol/config";
+import type { CreateTaskInput } from "@corral/protocol/rpc";
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
 import { useCorralClient } from "../connection/index.ts";
 import { bindingOf, useConfig } from "../keymap/index.ts";
-import { AddProjectDialog } from "../projects/index.ts";
+import { AddProjectDialog, ProjectChoiceDialog } from "../projects/index.ts";
+import { defaultLaunch, describeLaunchError } from "../sessions/index.ts";
+import {
+  emptyTaskComposerDraft,
+  switchComposerProject,
+  TaskComposer,
+  type TaskComposerDraft,
+} from "../tasks/index.ts";
 import { VisualShellView } from "./visual-view.tsx";
 import { buildTaskRows } from "./visual-status.ts";
 
-/** The live shell: independent read-only stores and one safe write path (add project). */
+/**
+ * The live shell: independent read-only stores, the production task composer, and one keymap
+ * listener for the prefix and the three direct creation commands. Opening a draft writes nothing;
+ * only Send calls `tasks.create`.
+ */
 export function VisualWorkspace({
   selectedTaskId,
   onSelectTask,
+  onOpenSettings,
+  active = true,
 }: {
   selectedTaskId: string | null | undefined;
   onSelectTask: (id: string) => void;
+  onOpenSettings: () => void;
+  /** False while Settings or the board covers the shell, so neither route's keys are stolen. */
+  active?: boolean;
 }) {
   const client = useCorralClient();
-  const { config } = useConfig();
+  const { config, profiles, loaded: configLoaded } = useConfig();
   const now = useNow(30_000);
   const projects = useSyncExternalStore(client.projects.subscribe, client.projects.getSnapshot);
   const tasks = useSyncExternalStore(client.tasks.subscribe, client.tasks.getSnapshot);
   const sessions = useSyncExternalStore(client.sessions.subscribe, client.sessions.getSnapshot);
+  const chatCapabilities = useSyncExternalStore(
+    client.chatCapabilities.subscribe,
+    client.chatCapabilities.getSnapshot,
+  );
   const projectsFailure = useSyncExternalStore(
     client.projects.failure.subscribe,
     client.projects.failure.getSnapshot,
@@ -34,6 +56,12 @@ export function VisualWorkspace({
     client.sessions.failure.getSnapshot,
   );
   const [addingProject, setAddingProject] = useState(false);
+  const [projectChoice, setProjectChoice] = useState(false);
+  const [draft, setDraft] = useState<TaskComposerDraft>();
+  const [focusRequest, setFocusRequest] = useState(0);
+  const [composerModal, setComposerModal] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string>();
   const browse = useCallback(
     (path: string, signal: AbortSignal) =>
       client.connection.api.projects.directories({ path }, { signal }),
@@ -44,12 +72,113 @@ export function VisualWorkspace({
     () => buildTaskRows(projects.projects, tasks.tasks, sessions.sessions, now),
     [now, projects.projects, sessions.sessions, tasks.tasks],
   );
+  const selectedRow =
+    selectedTaskId === null
+      ? undefined
+      : (rows.find((row) => row.id === selectedTaskId) ?? rows[0]);
+  const currentProjectId =
+    selectedRow === undefined
+      ? null
+      : (tasks.tasks.find((task) => task.id === selectedRow.id)?.projectId ?? null);
   const failure = projectsFailure ?? tasksFailure ?? sessionFailure;
   const binding = bindingOf(config, "toggle-sidebar");
+  const newTaskBinding = bindingOf(config, "new-task");
+  const settingsBinding = bindingOf(config, "settings");
   const prefix = config.keys.prefix;
   const shortcut = useMemo(
     () => (binding === null ? undefined : { prefix, binding }),
     [binding, prefix],
+  );
+  const newTaskShortcut = useMemo(
+    () => (newTaskBinding === null ? undefined : { prefix, binding: newTaskBinding }),
+    [newTaskBinding, prefix],
+  );
+  const settingsShortcut = useMemo(
+    () => (settingsBinding === null ? undefined : { prefix, binding: settingsBinding }),
+    [prefix, settingsBinding],
+  );
+
+  const startDraft = useCallback(
+    (projectId: string | null) => {
+      const project =
+        projectId === null
+          ? undefined
+          : projects.projects.find((candidate) => candidate.id === projectId);
+      const settings = project === undefined ? config.tasks : taskSettingsFor(config, project.path);
+      // Before the server's config arrives, the defaults may not name the real agent; leave the
+      // draft unpinned so it follows the loaded config instead of freezing the placeholder.
+      const opening = configLoaded ? defaultLaunch(settings, profiles, config.agents) : undefined;
+      setDraft((previous) => {
+        const next =
+          previous === undefined
+            ? emptyTaskComposerDraft(projectId)
+            : switchComposerProject(previous, projectId);
+        // Pin the launch the draft opened with. A later config edit then shows an invalidation
+        // instead of silently swapping the runtime under the same prompt (`docs/ux.md`).
+        return { ...next, agent: next.agent ?? opening };
+      });
+      setProjectChoice(false);
+      setCreateError(undefined);
+      setFocusRequest((request) => request + 1);
+    },
+    [config, configLoaded, profiles, projects.projects],
+  );
+
+  const chooseProjectFirst = useCallback(() => {
+    if (projects.loaded && projects.projects.length === 1) {
+      startDraft(projects.projects[0]!.id);
+      return;
+    }
+    setProjectChoice(true);
+  }, [projects.loaded, projects.projects, startDraft]);
+
+  const startInCurrentProject = useCallback(() => {
+    if (currentProjectId === null) {
+      setProjectChoice(true);
+      return;
+    }
+    startDraft(currentProjectId);
+  }, [currentProjectId, startDraft]);
+
+  const direct = useMemo(
+    () => ({
+      bindings: config.keys.direct,
+      onAction: (action: "new-task" | "new-task-in-project" | "new-task-no-project") => {
+        if (action === "new-task") chooseProjectFirst();
+        else if (action === "new-task-in-project") startInCurrentProject();
+        else startDraft(null);
+      },
+    }),
+    [chooseProjectFirst, config.keys.direct, startDraft, startInCurrentProject],
+  );
+
+  const selectTask = useCallback(
+    (id: string) => {
+      setDraft(undefined);
+      setProjectChoice(false);
+      setCreateError(undefined);
+      onSelectTask(id);
+    },
+    [onSelectTask],
+  );
+
+  const createTask = useCallback(
+    (input: CreateTaskInput) => {
+      setCreating(true);
+      setCreateError(undefined);
+      void client.connection.api.tasks
+        .create(input)
+        .then((task) => {
+          setDraft(undefined);
+          setCreateError(undefined);
+          onSelectTask(task.id);
+        })
+        .catch((error: unknown) => {
+          setCreateError(describeLaunchError(error) ?? describeError(error));
+        })
+        .finally(() => setCreating(false));
+    },
+    [client, onSelectTask],
   );
 
   return (
@@ -58,14 +187,40 @@ export function VisualWorkspace({
         rows={rows}
         selectedId={selectedTaskId}
         projectsLoaded={projects.loaded}
+        hasProjects={projects.projects.length > 0}
         tasksLoaded={tasks.loaded}
         failure={
           failure === undefined ? undefined : `${failure.label}: ${describeError(failure.error)}`
         }
         shortcut={shortcut}
-        onSelectTask={onSelectTask}
+        newTaskShortcut={newTaskShortcut}
+        settingsShortcut={settingsShortcut}
+        direct={direct}
+        onSelectTask={selectTask}
         onAddProject={() => setAddingProject(true)}
-        prefixEnabled={!addingProject}
+        onNewTask={chooseProjectFirst}
+        onOpenSettings={onOpenSettings}
+        composerOpen={draft !== undefined}
+        main={
+          draft === undefined ? undefined : (
+            <TaskComposer
+              projects={projects.projects}
+              config={config}
+              profiles={profiles}
+              chatDrivers={chatCapabilities.drivers.map((driver) => driver.kind)}
+              capabilitiesReady={chatCapabilities.loaded}
+              draft={draft}
+              onDraftChange={setDraft}
+              onCreate={createTask}
+              onCancel={() => setDraft(undefined)}
+              focusRequest={focusRequest}
+              onModalChange={setComposerModal}
+              creating={creating}
+              failure={createError}
+            />
+          )
+        }
+        prefixEnabled={active && !addingProject && !projectChoice && !composerModal && !creating}
       />
       {addingProject && (
         <AddProjectDialog
@@ -74,6 +229,13 @@ export function VisualWorkspace({
             await client.connection.api.projects.add({ path });
           }}
           onClose={() => setAddingProject(false)}
+        />
+      )}
+      {projectChoice && (
+        <ProjectChoiceDialog
+          projects={projects.projects}
+          onChoose={startDraft}
+          onClose={() => setProjectChoice(false)}
         />
       )}
     </>

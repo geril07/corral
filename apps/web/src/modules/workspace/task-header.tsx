@@ -60,8 +60,9 @@ export function TaskHeader({
   const unseen = task !== undefined && isUnseenDone(task, status);
   const attention = attentionWord(status);
   const taskTitle = task?.title ?? "New task";
-  const branchText = task === undefined ? undefined : recordedBranchLabel(task.branch, "detached");
-  const branchAccessible = task === undefined ? undefined : recordedBranchAccessible(task.branch);
+  const branchText =
+    task?.branch == null ? undefined : recordedBranchLabel(task.branch, "detached");
+  const branchAccessible = task?.branch == null ? undefined : recordedBranchAccessible(task.branch);
   const where = [project?.name, branchText].filter(Boolean).join(" / ");
   const whereName = [project?.name, branchAccessible].filter(Boolean).join(" / ");
   const copyableBranch = task === undefined ? undefined : branchName(task.branch);

@@ -1,5 +1,5 @@
 import type { ModelCatalogInput } from "@corral/protocol/models";
-import { modelKey, modelVisible } from "@corral/protocol/models";
+import { modelKey, modelVisible, orderModels } from "@corral/protocol/models";
 import { useState } from "react";
 import { Button } from "../../common/ui/index.ts";
 import { useModelCatalog, useModelPreferences, type KnownModelCatalog } from "./model-catalog.ts";
@@ -15,9 +15,10 @@ export function useModelMenu(input: ModelCatalogInput, known?: KnownModelCatalog
   const favorite = (model: { provider: string | null; id: string }) =>
     preferences.policy.favorites.some((f) => modelKey(f) === modelKey(model));
   const models = preferences.loaded
-    ? all
-        .filter((m) => modelVisible(preferences.policy, m))
-        .toSorted((a, b) => Number(favorite(b)) - Number(favorite(a)))
+    ? orderModels(
+        preferences.policy,
+        all.filter((model) => modelVisible(preferences.policy, model)),
+      )
     : [];
   return {
     ...inventory,

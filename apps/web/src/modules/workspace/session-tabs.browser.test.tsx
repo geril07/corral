@@ -2,6 +2,7 @@ import { sessionLabels } from "@corral/client/session-labels";
 import type { SessionEntry } from "@corral/client/workspace-tree";
 import {
   DEFAULT_BINDINGS,
+  DEFAULT_DIRECT_BINDINGS,
   DEFAULT_PREFIX,
   defaultClientConfig,
   type ClientConfig,
@@ -39,7 +40,11 @@ const entry = (value: Session): SessionEntry => ({
 
 const config: ClientConfig = {
   ...defaultClientConfig(""),
-  keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } },
+  keys: {
+    prefix: DEFAULT_PREFIX,
+    bindings: { ...DEFAULT_BINDINGS },
+    direct: { ...DEFAULT_DIRECT_BINDINGS },
+  },
 };
 
 const defaultSessions = [

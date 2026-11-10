@@ -5,6 +5,7 @@ import {
   modelKey,
   modelScopeKey,
   modelVisible,
+  orderModels,
   providerDenied,
   setModelVisible,
   setProviderVisible,
@@ -27,6 +28,7 @@ import {
   ComboboxSearch,
   FormError,
   Input,
+  Icon,
   ModelPicker,
   useTruncatedText,
 } from "../../common/ui/index.ts";
@@ -244,6 +246,67 @@ function ModelName({ name }: { name: string }) {
   );
 }
 
+function moveOrder<T>(
+  configured: readonly T[],
+  displayed: readonly T[],
+  value: T,
+  direction: -1 | 1,
+  key: (item: T) => string,
+): T[] {
+  const index = displayed.findIndex((item) => key(item) === key(value));
+  const neighbor = displayed[index + direction];
+  if (index < 0 || neighbor === undefined) return [...configured];
+  const next = [...configured];
+  const keys = new Set(next.map(key));
+  for (const item of displayed) {
+    if (!keys.has(key(item))) {
+      next.push(item);
+      keys.add(key(item));
+    }
+  }
+  const from = next.findIndex((item) => key(item) === key(value));
+  const to = next.findIndex((item) => key(item) === key(neighbor));
+  [next[from], next[to]] = [next[to]!, next[from]!];
+  return next;
+}
+
+function OrderButtons({
+  label,
+  index,
+  count,
+  disabled,
+  onMove,
+}: {
+  label: string;
+  index: number;
+  count: number;
+  disabled: boolean;
+  onMove: (direction: -1 | 1) => void;
+}) {
+  return (
+    <div className="flex shrink-0" role="group" aria-label={`Order ${label}`}>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        aria-label={`Move ${label} up`}
+        disabled={disabled || index <= 0}
+        onClick={() => onMove(-1)}
+      >
+        <Icon name="up" size="chrome" />
+      </Button>
+      <Button
+        size="icon-sm"
+        variant="ghost"
+        aria-label={`Move ${label} down`}
+        disabled={disabled || index < 0 || index >= count - 1}
+        onClick={() => onMove(1)}
+      >
+        <Icon name="down" size="chrome" />
+      </Button>
+    </div>
+  );
+}
+
 function ModelPolicyEditor({
   scope,
   catalog,
@@ -300,7 +363,7 @@ function ModelPolicyEditor({
     dirty &&
     modelVisible(base.policy, configuredDefault) &&
     !modelVisible(policy, configuredDefault);
-  if (!dirty && latest.revision > base.revision) {
+  if (!dirty && latest.revision !== base.revision) {
     const next = { scope, revision: latest.revision, policy: latest.policy };
     setBase(next);
     applyPolicy(next.policy);
@@ -313,12 +376,30 @@ function ModelPolicyEditor({
       (latest.failure === undefined && latest.snapshot !== retryFromSnapshot))
   )
     setRetrying(false);
-  const providers = [...new Set(catalog.map((m) => m.provider))];
+  const catalogOrder = orderModels({ ...policy, favorites: [] }, catalog);
+  const providerModels = new Map<string | null, ChatModel[]>();
+  const modelIndices = new Map<string, number>();
+  for (const model of catalogOrder) {
+    let group = providerModels.get(model.provider);
+    if (!group) {
+      group = [];
+      providerModels.set(model.provider, group);
+    }
+    modelIndices.set(modelKey(model), group.length);
+    group.push(model);
+  }
+  const favoriteKeys = new Set(policy.favorites.map(modelKey));
+  const favoriteModels = orderModels(policy, catalog).filter((model) =>
+    favoriteKeys.has(modelKey(model)),
+  );
+  const favoriteIndices = new Map(favoriteModels.map((model, index) => [modelKey(model), index]));
+  const providers = [...new Set(catalogOrder.map((model) => model.provider))];
+  const namedProviders = providers.filter((value): value is string => value !== null);
   const selectedProvider = providers.some((p) => JSON.stringify(p) === provider)
     ? provider
     : undefined;
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const rows = catalog.filter(
+  const rows = (view === "favorites" ? orderModels(policy, catalog) : catalogOrder).filter(
     (m) =>
       (selectedProvider === undefined || JSON.stringify(m.provider) === selectedProvider) &&
       terms.every((term) =>
@@ -329,7 +410,11 @@ function ModelPolicyEditor({
         (view === "hidden" && !modelVisible(policy, m)) ||
         (view === "favorites" && policy.favorites.some((f) => modelKey(f) === modelKey(m)))),
   );
-  const visible = catalog.filter((m) => modelVisible(policy, m));
+  const visible = orderModels(
+    policy,
+    catalog.filter((model) => modelVisible(policy, model)),
+  );
+  const orderingDisabled = busy || !latest.loaded || terms.length > 0;
   const missing = (["allow", "deny"] as const).flatMap((action) =>
     [...new Map(policy[action].map((rule) => [JSON.stringify(rule), rule])).values()]
       .filter((rule) => !catalog.some((m) => matchesModel(rule, m)))
@@ -494,10 +579,14 @@ function ModelPolicyEditor({
           {status}
         </p>
       )}
+      <p className="m-0 shrink-0 text-xs text-muted-foreground">
+        Use the arrows to order providers and models. Choose Favorites to order favorites
+        separately. Clear search to change order.
+      </p>
       <div className="flex min-h-32 flex-1 overflow-hidden rounded-lg border border-border">
         <nav
           aria-label="Model providers"
-          className="flex w-36 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border p-1"
+          className="flex w-52 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border p-1"
         >
           <Button
             size="sm"
@@ -508,7 +597,7 @@ function ModelPolicyEditor({
             All providers
           </Button>
           {providers.map((p) => {
-            const group = catalog.filter((m) => m.provider === p);
+            const group = providerModels.get(p) ?? [];
             const count = group.filter((m) => modelVisible(policy, m)).length;
             const key = JSON.stringify(p);
             const denied = providerDenied(policy, p);
@@ -540,6 +629,26 @@ function ModelPolicyEditor({
                     {count}/{group.length}
                   </span>
                 </Button>
+                {p !== null && (
+                  <OrderButtons
+                    label={`provider ${p}`}
+                    index={namedProviders.indexOf(p)}
+                    count={namedProviders.length}
+                    disabled={orderingDisabled}
+                    onMove={(direction) =>
+                      setPolicy({
+                        ...policy,
+                        providerOrder: moveOrder(
+                          policy.providerOrder,
+                          namedProviders,
+                          p,
+                          direction,
+                          (value) => value,
+                        ),
+                      })
+                    }
+                  />
+                )}
               </div>
             );
           })}
@@ -575,6 +684,12 @@ function ModelPolicyEditor({
               const favorite = policy.favorites.some((f) => modelKey(f) === modelKey(model));
               const configured =
                 configuredDefault !== undefined && modelKey(configuredDefault) === modelKey(model);
+              const group =
+                view === "favorites" ? favoriteModels : (providerModels.get(model.provider) ?? []);
+              const index = (view === "favorites" ? favoriteIndices : modelIndices).get(
+                modelKey(model),
+              );
+              const orderLabel = `${view === "favorites" ? "favorite" : "model"} ${model.name} · ${model.provider ?? model.id}`;
               return (
                 <div
                   key={modelKey(model)}
@@ -604,6 +719,19 @@ function ModelPolicyEditor({
                       </p>
                     )}
                   </div>
+                  <OrderButtons
+                    label={orderLabel}
+                    index={index ?? -1}
+                    count={group.length}
+                    disabled={orderingDisabled || (view !== "all" && view !== "favorites")}
+                    onMove={(direction) => {
+                      const field = view === "favorites" ? "favorites" : "modelOrder";
+                      setPolicy({
+                        ...policy,
+                        [field]: moveOrder(policy[field], group, model, direction, modelKey),
+                      });
+                    }}
+                  />
                   <Button
                     size="icon-sm"
                     variant="ghost"

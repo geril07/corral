@@ -1,6 +1,8 @@
-import { createPrefixKeymap } from "@corral/client/prefix-keymap";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { createDirectKeymap, createPrefixKeymap } from "@corral/client/prefix-keymap";
+import { DirectActionId } from "@corral/protocol/config";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import {
+  Icon,
   TooltipProvider,
   VisualIconButton,
   VisualResizeHandle,
@@ -10,7 +12,7 @@ import {
   type VisualShortcut,
   type VisualTaskRow,
 } from "../../common/ui/index.ts";
-import { usePrefixMode } from "../keymap/index.ts";
+import { modifierPlatform, usePrefixMode } from "../keymap/index.ts";
 import {
   useVisualSidebarPane,
   VISUAL_SIDEBAR_MAX_WIDTH,
@@ -22,13 +24,28 @@ export interface VisualShellViewProps {
   /** `null` means the user explicitly chose no task; `undefined` falls back to the first row. */
   selectedId: string | null | undefined;
   projectsLoaded: boolean;
+  hasProjects?: boolean | undefined;
   tasksLoaded: boolean;
   failure: string | undefined;
   shortcut: VisualShortcut | undefined;
   onSelectTask: (id: string) => void;
   /** A real, safe path when the shell has one; absent in the review host. */
   onAddProject?: (() => void) | undefined;
-  /** False while a dialog owns the keyboard, so the prefix cannot swallow its typing. */
+  /** The main area's composer when a draft is open; otherwise the selected task or empty state. */
+  main?: ReactNode | undefined;
+  /** While a draft is open no sidebar row is current (`docs/ux.md`, **Layout**). */
+  composerOpen?: boolean | undefined;
+  onNewTask?: (() => void) | undefined;
+  onOpenSettings?: (() => void) | undefined;
+  /** The prefix action `new-task`/`settings`, for the button tooltips. */
+  newTaskShortcut?: VisualShortcut | undefined;
+  settingsShortcut?: VisualShortcut | undefined;
+  /** Direct creation commands, already resolved from config; one listener handles all of them. */
+  direct?: {
+    bindings: Readonly<Record<DirectActionId, string | null>>;
+    onAction: (action: DirectActionId) => void;
+  };
+  /** False while a dialog, Settings or an in-flight create owns the keyboard. */
   prefixEnabled?: boolean | undefined;
 }
 
@@ -36,12 +53,19 @@ function SidebarList({
   rows,
   selectedId,
   projectsLoaded,
+  hasProjects,
   tasksLoaded,
   failure,
   onSelectTask,
 }: Pick<
   VisualShellViewProps,
-  "rows" | "selectedId" | "projectsLoaded" | "tasksLoaded" | "failure" | "onSelectTask"
+  | "rows"
+  | "selectedId"
+  | "projectsLoaded"
+  | "hasProjects"
+  | "tasksLoaded"
+  | "failure"
+  | "onSelectTask"
 >) {
   const list = useRef<HTMLDivElement>(null);
   const selected =
@@ -95,7 +119,11 @@ function SidebarList({
       <div className="visual-task-scroll">
         <div className="visual-list-state">
           <span className="visual-list-state-title">No active tasks.</span>
-          <span className="visual-list-state-detail">Add a project to start one.</span>
+          <span className="visual-list-state-detail">
+            {hasProjects
+              ? "Start one with New task."
+              : "Add a project, or start without one with New task."}
+          </span>
         </div>
       </div>
     );
@@ -136,7 +164,15 @@ function TaskMain({ row }: { row: VisualTaskRow }) {
   return (
     <div className="visual-main-task">
       <span className="visual-main-eyebrow">
-        {row.project} · {row.metadata.branch}
+        {row.project}
+        {row.metadata.branch !== undefined && (
+          <>
+            <span aria-hidden="true">·</span>
+            <Icon name="branch" size="row" />
+            <span>{row.metadata.branch}</span>
+            <span>recorded</span>
+          </>
+        )}
       </span>
       <h1 className="visual-main-title">{row.title}</h1>
       {row.status !== undefined && (
@@ -156,9 +192,11 @@ function TaskMain({ row }: { row: VisualTaskRow }) {
 
 function EmptyMain({
   rows,
+  hasProjects,
   failure,
 }: {
   rows: readonly VisualTaskRow[];
+  hasProjects: boolean;
   failure: string | undefined;
 }) {
   return (
@@ -174,7 +212,9 @@ function EmptyMain({
         {failure !== undefined
           ? failure
           : rows.length === 0
-            ? "Add a project from the sidebar footer to get started."
+            ? hasProjects
+              ? "Start a task with New task."
+              : "Add a project from the sidebar footer, or start a scratch task with New task."
             : "Choose a task in the sidebar."}
       </span>
     </div>
@@ -189,11 +229,19 @@ export function VisualShellView({
   rows,
   selectedId,
   projectsLoaded,
+  hasProjects = false,
   tasksLoaded,
   failure,
   shortcut,
   onSelectTask,
   onAddProject,
+  main,
+  composerOpen = false,
+  onNewTask,
+  onOpenSettings,
+  newTaskShortcut,
+  settingsShortcut,
+  direct,
   prefixEnabled = true,
 }: VisualShellViewProps) {
   const pane = useVisualSidebarPane();
@@ -206,16 +254,27 @@ export function VisualShellView({
   const openToggleSlot = useRef<HTMLSpanElement>(null);
   const closedToggleSlot = useRef<HTMLSpanElement>(null);
   const pendingFocus = useRef<number | null>(null);
-  const keymap = useMemo(
-    () =>
-      createPrefixKeymap(
-        shortcut?.prefix ?? "alt+a",
-        shortcut?.binding === null || shortcut?.binding === undefined
-          ? {}
-          : { [shortcut.binding]: "toggle-sidebar" },
-      ),
-    [shortcut],
-  );
+  const keymap = useMemo(() => {
+    const bindings: Record<string, string> = {};
+    if (shortcut?.binding !== null && shortcut?.binding !== undefined)
+      bindings[shortcut.binding] = "toggle-sidebar";
+    if (newTaskShortcut?.binding !== null && newTaskShortcut?.binding !== undefined)
+      bindings[newTaskShortcut.binding] = "new-task";
+    if (settingsShortcut?.binding !== null && settingsShortcut?.binding !== undefined)
+      bindings[settingsShortcut.binding] = "settings";
+    const prefix =
+      shortcut?.prefix ?? newTaskShortcut?.prefix ?? settingsShortcut?.prefix ?? "alt+a";
+    return createPrefixKeymap(prefix, bindings);
+  }, [newTaskShortcut, settingsShortcut, shortcut]);
+  const directKeymap = useMemo(() => {
+    if (direct === undefined) return undefined;
+    const bindings: Record<string, DirectActionId> = {};
+    for (const action of DirectActionId.options) {
+      const chord = direct.bindings[action];
+      if (chord !== null) bindings[chord] = action;
+    }
+    return createDirectKeymap<DirectActionId>(bindings, modifierPlatform());
+  }, [direct]);
   const { hidden, toggle } = pane;
 
   // One toggle floats over both surfaces; its position is read from the sidebar's real width, so
@@ -276,10 +335,19 @@ export function VisualShellView({
   const runAction = useCallback(
     (action: string) => {
       if (action === "toggle-sidebar") toggleSidebar();
+      else if (action === "new-task") onNewTask?.();
+      else if (action === "settings") onOpenSettings?.();
     },
-    [toggleSidebar],
+    [onNewTask, onOpenSettings, toggleSidebar],
   );
-  usePrefixMode(keymap, runAction, prefixEnabled);
+  usePrefixMode(
+    keymap,
+    runAction,
+    prefixEnabled,
+    directKeymap === undefined || direct === undefined
+      ? undefined
+      : { keymap: directKeymap, onAction: direct.onAction },
+  );
 
   useEffect(
     () => () => {
@@ -331,14 +399,19 @@ export function VisualShellView({
           <VisualIconButton
             label="New task"
             icon="add"
-            disabledReason="Creating tasks is not part of this visual slice."
+            onClick={onNewTask}
+            shortcut={newTaskShortcut}
+            disabledReason={
+              onNewTask === undefined ? "Creating tasks is unavailable here." : undefined
+            }
           />
         </div>
         <TooltipProvider>
           <SidebarList
             rows={rows}
-            selectedId={selected?.id}
+            selectedId={composerOpen ? null : selected?.id}
             projectsLoaded={projectsLoaded}
+            hasProjects={hasProjects}
             tasksLoaded={tasksLoaded}
             failure={failure}
             onSelectTask={onSelectTask}
@@ -348,7 +421,11 @@ export function VisualShellView({
           <VisualIconButton
             label="Settings"
             icon="settings"
-            disabledReason="Settings is not part of this visual slice."
+            onClick={onOpenSettings}
+            shortcut={settingsShortcut}
+            disabledReason={
+              onOpenSettings === undefined ? "Settings is unavailable here." : undefined
+            }
           />
           <VisualIconButton
             label="Add project"
@@ -365,8 +442,10 @@ export function VisualShellView({
           <span className="visual-toggle-slot" ref={closedToggleSlot} aria-hidden="true" />
         </div>
         <div className="visual-main-content">
-          {selected === undefined ? (
-            <EmptyMain rows={rows} failure={failure} />
+          {main !== undefined ? (
+            main
+          ) : selected === undefined ? (
+            <EmptyMain rows={rows} hasProjects={hasProjects} failure={failure} />
           ) : (
             <TaskMain row={selected} />
           )}

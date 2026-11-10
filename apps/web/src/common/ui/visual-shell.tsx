@@ -43,7 +43,7 @@ export interface VisualCardStatus {
 /** Facts the metadata tooltip may show; every one came from the server. */
 export interface VisualTaskMetadata {
   project: string;
-  branch: string;
+  branch?: string | undefined;
   agent?: VisualTaskAgent | undefined;
   prompt?: string | undefined;
 }
@@ -282,7 +282,7 @@ function metadataFacts(row: VisualTaskRow): TooltipMetadataFact[] {
   const error = status?.tone === "error" ? (status.message ?? "Error") : undefined;
   return [
     { icon: "project", value: metadata.project, truncate: true },
-    { icon: "branch", value: metadata.branch },
+    ...(metadata.branch === undefined ? [] : [{ icon: "branch" as const, value: metadata.branch }]),
     ...(agent === undefined
       ? []
       : [

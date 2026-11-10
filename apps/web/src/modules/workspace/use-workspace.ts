@@ -469,7 +469,7 @@ export function useWorkspace({
   }, [api, choose, chatTaskId]);
 
   const showTask = (task: Task | undefined) =>
-    choose({ projectId: task?.projectId, taskId: task?.id, entryId: undefined });
+    choose({ projectId: task?.projectId ?? undefined, taskId: task?.id, entryId: undefined });
 
   const openTask = (task: Task) => {
     setFailure(undefined);
@@ -877,12 +877,12 @@ export function useWorkspace({
     const task = await api.tasks.create(input);
     setDialog(undefined);
     // The task owns the draft now; the next composer starts empty in the task's project.
-    setComposerDraft(emptyDraft(task.projectId));
+    if (task.projectId !== null) setComposerDraft(emptyDraft(task.projectId));
     // The task's primary session is where the prompt went, when the composer named an agent; a
     // task created without one stays empty until the user adds a session (design.md, **Domain
     // model → Task → Creation**). Creating a task starts no shell.
     choose({
-      projectId: task.projectId,
+      projectId: task.projectId ?? undefined,
       taskId: task.id,
       entryId: task.primarySessionId ?? undefined,
     });
