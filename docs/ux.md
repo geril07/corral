@@ -27,7 +27,7 @@ What a user does. Everything below is built and verified end to end, chat views 
 
 1. A draft opens in the main area (the task composer) from the New task button or a direct command. `Mod+N` chooses a project first, skipping the question when exactly one exists; `Mod+Shift+N` uses the selected task's project, and asks instead of guessing when no project is current; `Mod+Alt+N` starts a No project (scratch) draft. `Mod` is Cmd on macOS and Ctrl elsewhere, and `prefix t` still opens the same project choice. The composer is a prompt with attach, instance/model and reasoning on the bottom-left and Send on the right; one left-aligned context row below it names the project, the workspace and its branch. The project name opens the same project picker as project selection, pins included, and returns focus to the prompt. `Current checkout` is a read-only fact; `New worktree` shows `from <branch>` with a base-ref picker (local branches another worktree holds included, plus remote-tracking refs), and only that choice sends a base branch. A draft whose project was removed shows `Project unavailable`, keeps its prompt and cannot create until another project or No project is chosen. Opening a draft creates nothing and starts no agent; Enter or Send calls `tasks.create`. A scratch task has a server-owned directory and no Git controls.
 2. The task appears in the sidebar at once under the prompt-derived seed title, which the generated title replaces. Its primary agent opens in the chosen view, already working on the prompt. No shell opens on its own.
-3. Inside a task (header and tab strip: `layout.md`), sessions are equal tabs: agents (terminal or chat) and shells. `prefix c` adds a shell, `prefix s` another agent, `prefix n`/`p` or `prefix 1`–`9` switch tabs. Chat is a tab kind, not a separate mode or a bottom panel. `prefix shift+c` opens the task's `Changes` tab after the sessions: what the task changed, and — under the summary row — staging, a commit message and commit, then push and create-pull-request behind one confirmation each, with no number hint and no status glyph; opening it leaves the current session where it was — the arrow keys in the strip keep moving between sessions, and choosing a session tab returns to it.
+3. Inside a task (`layout.md`, **Working area**), one working area has two tab groups. The main group always shows the task's **primary** agent session first; that role is `Task.primarySessionId`, not a tab position. Chat and Terminal are two views of that one tab, not two tabs. A shell, another agent, the task's `Changes` and files promoted from a preview are other tabs. The companion group is hidden until it has a tab and the user opens it; there is no empty half. `prefix c` adds a shell and `prefix s` an agent, both in the main group; `prefix n`/`p` and `prefix 1`–`9` move inside the focused group. Closing a session tab closes the view (`prefix q`), not the session; the last 20 closed views reopen with `prefix shift+q` in their old group and order, and only `Remove session…` forgets the session. Selection and layout are device-local per task; the route keeps naming the task. `prefix shift+c` opens `Changes` in the companion group — what the task changed, and, under the summary row, staging, a commit message and commit, then push and create-pull-request behind one confirmation each, with no number hint and no status glyph. Opening it leaves the current main-group session where it was; `prefix shift+b` toggles the group, `prefix shift+o` moves the focused tab beside or back, and `prefix shift+w` focuses it.
 4. `prefix v` hands the current agent session over between chat and terminal: one frontend is
    stopped and its process waited for, then the other starts on the same agent conversation, so
    the session keeps its name, its tab and its history. An idle agent switches at once; a working
@@ -50,9 +50,9 @@ What a user does. Everything below is built and verified end to end, chat views 
 
 ## Layout and navigation
 
-- Three places: the sidebar of tasks, the main area's task header and session tabs, and the
-  session below them (`layout.md`). The sidebar is a fixed pane the user resizes; the terminal
-  takes the rest of the main area. There is no title bar of our own and no global status bar.
+- Three places: the sidebar of tasks, the main area's working-area tab strip, and the pane below
+  it (`layout.md`, **Working area**). The sidebar is a fixed pane the user resizes; the working
+  area takes the rest. There is no title bar of our own and no global status bar.
 - The sidebar lists tasks only. A wordmark header has the sidebar toggle opposite it; the next
   row has Search, grouping and New task. Its footer carries Settings, Add project, the prefix
   hint while disarmed, and the shell status: connection state, config problems, the armed-prefix
@@ -81,18 +81,21 @@ What a user does. Everything below is built and verified end to end, chat views 
   container names carry their counts, a clipped project row names its absolute path, and an
   exited loose terminal names its code. A focused row keeps focus and its ring across a sidebar
   resize. Loose terminals sit in the Scratch section, one line each, and only while some exist.
-- The main area has two separate rows: repository/task header, then session tabs with a
-  Chat/Terminal switch and add-session menu. A draft also keeps both rows. Tabs may sit above
-  or below content (device preference). A tab shows its number, real tool logo or a working,
-  blocked or failed status glyph, and its name; right-click or Shift+F10 opens stop/restart,
-  rename and remove. No space is reserved for invisible actions. `prefix 1`–`9` and `prefix n`/`p`
-  still select.
-  After the sessions, a `Changes` tab holds the task's changed files and finishes the task
+- The main area is the selected task's working area: a **40** px strip above the main group, and
+  the optional companion group beside it. The main group is always present; the companion group
+  is hidden until it has a tab. Tabs may sit above or below their pane (device preference). A
+  session tab shows its number in the group, its tool logo or a working, blocked or error glyph,
+  and its name; right-click or Shift+F10 opens stop/restart, rename, close and the destructive
+  remove. No space is reserved for invisible actions. `prefix 1`–`9` and `prefix n`/`p` act
+  inside the focused group; `prefix shift+w` focuses the companion.
+  Closing a session tab closes only the view, and the last 20 reopen into their old group and
+  order. The primary session's tab has no close control; only `Remove session…` removes it. The
+  companion group's `Changes` tab holds the task's changed files and finishes the task
   (`layout.md`, **Changes**): stage, commit, push to the named remote and open a pull request
-  through the user's own `gh`/`glab`, every remote write confirmed by name and URL. While it is
-  open the current session keeps its place in the strip and a `+N −M` count sits in the task header
-  and the sidebar row when the task changed something; a linked pull request's name and state sit
-  beside the count, and a merged one offers settle in the `Changes` finish bar.
+  through the user's own `gh`/`glab`, every remote write confirmed by name and URL. Opening it
+  keeps the main group's current session and a `+N −M` count sits in the sidebar row when the task
+  changed something; a linked pull request's name and state sit beside the count, and a merged one
+  offers settle in the `Changes` finish bar.
 - The main area shows the open draft; otherwise the selected task's minimal view or an empty
   state. A draft has no URL of its own and no sidebar row: while it is open no task row is
   current, and Escape (with no failure on screen) returns to the selection the URL still names.

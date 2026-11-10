@@ -1117,6 +1117,43 @@ export function useWorkspace({
       ...actionAvailability(selection.taskId !== null, "Select a task to see its changes."),
       run: openChanges,
     },
+    // The legacy workspace has one strip of equal session tabs, not the working area's two groups.
+    // These entries keep the exhaustive action table typed; the routed shell owns their behavior.
+    "close-tab": {
+      label: "Close tab",
+      group: "Sessions",
+      enabled: false,
+      reason: "This workspace has no closable tabs.",
+      run: () => undefined,
+    },
+    "reopen-closed-tab": {
+      label: "Reopen closed tab",
+      group: "Sessions",
+      enabled: false,
+      reason: "This workspace has no closed tabs.",
+      run: () => undefined,
+    },
+    "toggle-companion": {
+      label: "Toggle companion group",
+      group: "Sessions",
+      enabled: false,
+      reason: "This workspace has no companion group.",
+      run: () => undefined,
+    },
+    "move-tab": {
+      label: "Move tab to the other group",
+      group: "Sessions",
+      enabled: false,
+      reason: "This workspace has no second group.",
+      run: () => undefined,
+    },
+    "focus-companion": {
+      label: "Focus companion group",
+      group: "Sessions",
+      enabled: false,
+      reason: "This workspace has no companion group.",
+      run: () => undefined,
+    },
     "session-1": goToSession(1),
     "session-2": goToSession(2),
     "session-3": goToSession(3),

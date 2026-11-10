@@ -194,6 +194,16 @@ context-menu dispatcher.
 - One root-layer toggle owns hide/show. It reads the sidebar's real width and the reserved header
   and main-chrome slots, so the 240 ms width transition is the only motion; there is never a
   second visible or tabbable toggle at either endpoint or in flight.
+- `VisualTabStrip` owns the working-area strip: a **40** px band, **28** px tabs (radius **6**,
+  inline padding **6**, gap **6**, **16** px glyph, **13/16** weight **530** title), a **20×20**
+  close control at inset **4** revealed by hover/focus, a **1.5×12** separator between inactive
+  neighbours, a **72** px tab minimum and **24** px edge fades over a horizontal scroller that
+  keeps the active tab in view. Numbers are session-tab content inside a group; `Changes` and file
+  tabs carry none. `VisualTabPanel`, `VisualAddMenu`, `VisualCompanion` and `VisualSplitHandle`
+  are the strip's remaining structural pieces: the companion owns a **1** px split with an **8** px
+  pointer and keyboard hit area, keeps its contents mounted while shut, and its width and the
+  strip's top/bottom position are device preferences. Hover is instant; only the companion's
+  width and the edge fades carry motion, both removed under reduced motion.
 - Unavailable shell actions stay focusable with `aria-disabled` and explain the reason in the
   compact tooltip; they never use an empty click handler. Add project opens the existing real
   dialog; Search and Settle are deferred in this slice.

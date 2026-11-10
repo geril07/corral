@@ -970,6 +970,331 @@
   line-height: 16px;
 }
 
+/* ── Working area ─────────────────────────────────────────────────────────── */
+
+.visual-workspace-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.visual-main-content-fill {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* The strip lives in the 40 px chrome band; the band itself then owns the inset. */
+.visual-main-chrome:has(.visual-tab-band) {
+  padding: 0;
+}
+
+.visual-tab-band {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 40px;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+/* The main band shares the chrome row with the reserved sidebar-toggle slot. */
+.visual-main-chrome > .visual-tab-band {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.visual-tab-band[data-position="bottom"] {
+  border-top: 1px solid var(--visual-border-muted);
+}
+
+.visual-tab-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+}
+
+.visual-tab-scroll {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.visual-tab-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.visual-tab-trailing {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.visual-tab-fade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 24px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.visual-tab-fade[data-edge="start"] {
+  left: 0;
+  background: linear-gradient(to right, var(--visual-bg-base), transparent);
+}
+
+.visual-tab-fade[data-edge="end"] {
+  right: 0;
+  background: linear-gradient(to left, var(--visual-bg-base), transparent);
+}
+
+.visual-tab-fade[data-visible="true"] {
+  opacity: 1;
+}
+
+.visual-tab {
+  position: relative;
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  height: 28px;
+  min-width: 72px;
+  max-width: 200px;
+}
+
+/* 1.5 × 12 between two inactive neighbours; hover or selection takes it away. */
+.visual-tab:not([data-selected]) + .visual-tab:not([data-selected])::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: -3.75px;
+  width: 1.5px;
+  height: 12px;
+  background: var(--visual-border-muted);
+}
+
+.visual-tab:not([data-selected]):hover::before,
+.visual-tab:not([data-selected]):has(+ .visual-tab:hover)::before,
+.visual-tab[data-selected]::before,
+.visual-tab:has(+ .visual-tab[data-selected])::before {
+  opacity: 0;
+}
+
+.visual-tab-trigger {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.visual-tab-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  min-width: 72px;
+  padding: 0 26px 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--visual-text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+  outline: none;
+}
+
+.visual-tab-main:hover {
+  background: var(--visual-hover);
+  color: var(--visual-text-base);
+}
+
+.visual-tab[data-selected] .visual-tab-main {
+  background: var(--visual-pressed);
+  color: var(--visual-text-base);
+}
+
+.visual-tab-main:focus-visible {
+  outline: 2px solid var(--visual-border-focus);
+  outline-offset: -1px;
+}
+
+.visual-tab-number {
+  min-width: 9px;
+  color: var(--visual-text-faint);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 440;
+  text-align: center;
+}
+
+.visual-tab-glyph {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--visual-icon-muted);
+}
+
+.visual-tab[data-selected] .visual-tab-glyph {
+  color: var(--visual-icon-base);
+}
+
+.visual-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 530;
+}
+
+/* Close and a session's status share the trailing 20 px slot; close is hover/focus only. */
+.visual-tab-close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--visual-icon-muted);
+  opacity: 0;
+  pointer-events: none;
+  outline: none;
+  cursor: default;
+}
+
+.visual-tab:hover .visual-tab-close,
+.visual-tab:focus-within .visual-tab-close {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.visual-tab-close:hover {
+  background: var(--visual-pressed);
+  color: var(--visual-icon-base);
+}
+
+.visual-tab-close:focus-visible {
+  outline: 2px solid var(--visual-border-focus);
+  outline-offset: 1px;
+}
+
+.visual-tab-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.visual-tab-panel-fill {
+  min-height: 0;
+}
+
+.visual-workspace-pane {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.visual-workspace-alert {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 4px 8px;
+  color: var(--visual-status-error);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 440;
+}
+
+/* The companion group keeps its contents mounted while it is shut (`docs/layout.md`). */
+.visual-companion {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 600px;
+  min-width: 0;
+  border-left: 1px solid var(--visual-border-muted);
+  transition: width 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.visual-companion:not([data-open]) {
+  width: 0;
+  border-left-color: transparent;
+}
+
+.visual-companion-clip {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.visual-companion-surface {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.visual-split-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  z-index: 2;
+  width: 8px;
+  cursor: col-resize;
+  outline: none;
+}
+
+.visual-split-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3.5px;
+  width: 1px;
+  background: transparent;
+}
+
+.visual-split-handle:focus-visible::after {
+  background: var(--visual-border-focus);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .visual-tab-fade,
+  .visual-companion {
+    transition: none;
+  }
+}
+
 /* ── Resize handle ───────────────────────────────────────────────────────── */
 
 .visual-resize-handle {

@@ -199,12 +199,12 @@ test.for(rejected)("%s is rejected at %s", ([file, path, message]) => {
 
 test("an invalid entry is dropped while its neighbours still apply", () => {
   const { config, problems } = parseText(
-    '[keys]\nprefix = "alt+b"\n[keys.bindings]\nnew-agent = "not a chord"\nboard = "q"\n',
+    '[keys]\nprefix = "alt+b"\n[keys.bindings]\nnew-agent = "not a chord"\nboard = "z"\n',
   );
 
   expect(config.keys.prefix).toBe("alt+b");
   expect(config.keys.bindings["new-agent"]).toBe(DEFAULT_BINDINGS["new-agent"]);
-  expect(config.keys.bindings["board"]).toBe("q");
+  expect(config.keys.bindings["board"]).toBe("z");
   expect(problems.map((problem) => problem.path)).toEqual(["keys.bindings.new-agent"]);
 });
 
@@ -246,7 +246,7 @@ test("unbinding the action that holds the chord frees it for the prefix", () => 
 });
 
 test("two bindings on one chord are both dropped back to their defaults", () => {
-  const { config, problems } = parseText('[keys.bindings]\nnew-agent = "q"\nboard = "q"\n');
+  const { config, problems } = parseText('[keys.bindings]\nnew-agent = "z"\nboard = "z"\n');
 
   expect(config.keys.bindings["new-agent"]).toBe(DEFAULT_BINDINGS["new-agent"]);
   expect(config.keys.bindings["board"]).toBe(DEFAULT_BINDINGS["board"]);
@@ -254,12 +254,12 @@ test("two bindings on one chord are both dropped back to their defaults", () => 
     {
       severity: "error",
       path: "keys.bindings.new-agent",
-      message: 'the chord "q" is also used by board',
+      message: 'the chord "z" is also used by board',
     },
     {
       severity: "error",
       path: "keys.bindings.board",
-      message: 'the chord "q" is also used by new-agent',
+      message: 'the chord "z" is also used by new-agent',
     },
   ]);
 });

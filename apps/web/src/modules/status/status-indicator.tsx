@@ -20,7 +20,7 @@ export function StatusIndicator({
 }: {
   status: AgentStatus | undefined;
   muted?: boolean;
-  /** `chrome` is the 14 px glyph of tabs and the task header (`layout.md`, **Task header**, **Session tabs**). */
+  /** `chrome` is the 14 px glyph of tabs and the task header (`layout.md`, **Task header**, **Working area**). */
   size?: StatusGlyphSize;
   /** A sidebar row owns one tooltip for all its facts; the glyph then carries only its text alternative. */
   tooltip?: boolean;

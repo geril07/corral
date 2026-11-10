@@ -156,18 +156,32 @@ export interface VisualShellViewProps {
   onAddProject?: (() => void) | undefined;
   /** The main area's composer when a draft is open; otherwise the selected task or empty state. */
   main?: ReactNode | undefined;
+  /** The task's main tab strip, inside the 40 px chrome band. */
+  chrome?: ReactNode | undefined;
+  /** The companion group's column; it keeps its own strip and pane. */
+  companion?: ReactNode | undefined;
+  /** The working area owns its pane's padding; empty states keep the content inset. */
+  mainFill?: boolean | undefined;
   /** While a draft is open no sidebar row is current (`docs/ux.md`, **Layout**). */
   composerOpen?: boolean | undefined;
   onNewTask?: (() => void) | undefined;
   onOpenSettings?: (() => void) | undefined;
-  /** The prefix action `new-task`/`settings`, for the button tooltips. */
+  /** The prefix action `new-task`/`settings`/`add-project`, for the button tooltips and keymap. */
   newTaskShortcut?: VisualShortcut | undefined;
   settingsShortcut?: VisualShortcut | undefined;
+  addProjectShortcut?: VisualShortcut | undefined;
   /** Direct creation commands, already resolved from config; one listener handles all of them. */
   direct?: {
     bindings: Readonly<Record<DirectActionId, string | null>>;
     onAction: (action: DirectActionId) => void;
   };
+  /** The working area's prefix actions, merged into the shell's one prefix listener. */
+  prefixExtra?:
+    | {
+        bindings: Readonly<Record<string, string>>;
+        onAction: (action: string) => void;
+      }
+    | undefined;
   /** False while a dialog, Settings or an in-flight create owns the keyboard. */
   prefixEnabled?: boolean | undefined;
   /** A row's secondary actions; absent when this host has no task store to act on. */
@@ -347,9 +361,6 @@ function TaskMain({ row }: { row: VisualTaskRow }) {
       {row.metadata.prompt !== undefined && (
         <p className="visual-main-prompt">{row.metadata.prompt}</p>
       )}
-      <p className="visual-main-note">
-        Workspace tab groups and the conversation are not part of this visual slice.
-      </p>
     </div>
   );
 }
@@ -400,12 +411,17 @@ export function VisualShellView({
   onSelectTask,
   onAddProject,
   main,
+  chrome,
+  companion,
+  mainFill = false,
   composerOpen = false,
   onNewTask,
   onOpenSettings,
   newTaskShortcut,
   settingsShortcut,
+  addProjectShortcut,
   direct,
+  prefixExtra,
   prefixEnabled = true,
   taskActions,
   renameShortcut,
@@ -458,6 +474,13 @@ export function VisualShellView({
       if (removeShortcut?.binding !== null && removeShortcut?.binding !== undefined)
         bindings[removeShortcut.binding] = "remove-task";
     }
+    if (addProjectShortcut?.binding !== null && addProjectShortcut?.binding !== undefined)
+      bindings[addProjectShortcut.binding] = "add-project";
+    if (prefixExtra !== undefined) {
+      for (const [chord, action] of Object.entries(prefixExtra.bindings)) {
+        bindings[chord] = action;
+      }
+    }
     const prefix =
       shortcut?.prefix ??
       newTaskShortcut?.prefix ??
@@ -466,7 +489,16 @@ export function VisualShellView({
       removeShortcut?.prefix ??
       "alt+a";
     return createPrefixKeymap(prefix, bindings);
-  }, [newTaskShortcut, removeShortcut, renameShortcut, settingsShortcut, shortcut, taskActions]);
+  }, [
+    addProjectShortcut,
+    newTaskShortcut,
+    prefixExtra,
+    removeShortcut,
+    renameShortcut,
+    settingsShortcut,
+    shortcut,
+    taskActions,
+  ]);
   const directKeymap = useMemo(() => {
     if (direct === undefined) return undefined;
     const bindings: Record<string, DirectActionId> = {};
@@ -540,11 +572,14 @@ export function VisualShellView({
       if (action === "toggle-sidebar") toggleSidebar();
       else if (action === "new-task") onNewTask?.();
       else if (action === "settings") onOpenSettings?.();
-      else if (currentTaskId === undefined) return;
-      else if (action === "rename-task") taskActions?.onRename(currentTaskId);
-      else if (action === "remove-task") taskActions?.onRemove(currentTaskId);
+      else if (action === "add-project") onAddProject?.();
+      else if (action === "rename-task" || action === "remove-task") {
+        if (currentTaskId === undefined) return;
+        if (action === "rename-task") taskActions?.onRename(currentTaskId);
+        else taskActions?.onRemove(currentTaskId);
+      } else prefixExtra?.onAction(action);
     },
-    [currentTaskId, onNewTask, onOpenSettings, taskActions, toggleSidebar],
+    [currentTaskId, onAddProject, onNewTask, onOpenSettings, prefixExtra, taskActions, toggleSidebar],
   );
   usePrefixMode(
     keymap,
@@ -667,6 +702,7 @@ export function VisualShellView({
             label="Add project"
             icon="add-project"
             onClick={onAddProject}
+            shortcut={addProjectShortcut}
             disabledReason={
               onAddProject === undefined ? "Adding projects is unavailable here." : undefined
             }
@@ -676,15 +712,23 @@ export function VisualShellView({
       <main className="visual-shell-main" aria-label="Workspace">
         <div className="visual-main-chrome">
           <span className="visual-toggle-slot" ref={closedToggleSlot} aria-hidden="true" />
+          {chrome}
         </div>
-        <div className="visual-main-content">
-          {main !== undefined ? (
-            main
-          ) : selected === undefined ? (
-            <EmptyMain rows={rows} hasProjects={hasProjects} failure={failure} />
-          ) : (
-            <TaskMain row={selected} />
-          )}
+        <div className="visual-workspace-body">
+          <div
+            className={
+              mainFill ? "visual-main-content visual-main-content-fill" : "visual-main-content"
+            }
+          >
+            {main !== undefined ? (
+              main
+            ) : selected === undefined ? (
+              <EmptyMain rows={rows} hasProjects={hasProjects} failure={failure} />
+            ) : (
+              <TaskMain row={selected} />
+            )}
+          </div>
+          {companion}
         </div>
       </main>
     </div>

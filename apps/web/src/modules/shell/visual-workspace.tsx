@@ -10,6 +10,7 @@ import { useCorralClient } from "../connection/index.ts";
 import { bindingOf, useConfig } from "../keymap/index.ts";
 import { AddProjectDialog, ProjectChoiceDialog } from "../projects/index.ts";
 import { defaultLaunch, describeLaunchError } from "../sessions/index.ts";
+import { useAppearance } from "../settings/index.ts";
 import {
   emptyTaskComposerDraft,
   RemoveTaskDialog,
@@ -20,6 +21,7 @@ import {
   type TaskComposerDraft,
 } from "../tasks/index.ts";
 import { RenameDialog, type RenameTarget } from "../workspace/index.ts";
+import { useTaskWorkspace } from "./task-workspace.tsx";
 import {
   VisualShellView,
   type VisualRowFocus,
@@ -53,10 +55,12 @@ export function VisualWorkspace({
 }) {
   const client = useCorralClient();
   const { config, profiles, loaded: configLoaded, problems: configProblems } = useConfig();
+  const { appearance } = useAppearance();
   const now = useNow(30_000);
   const projects = useSyncExternalStore(client.projects.subscribe, client.projects.getSnapshot);
   const tasks = useSyncExternalStore(client.tasks.subscribe, client.tasks.getSnapshot);
   const sessions = useSyncExternalStore(client.sessions.subscribe, client.sessions.getSnapshot);
+  const terminals = useSyncExternalStore(client.terminals.subscribe, client.terminals.getSnapshot);
   const chatCapabilities = useSyncExternalStore(
     client.chatCapabilities.subscribe,
     client.chatCapabilities.getSnapshot,
@@ -116,6 +120,7 @@ export function VisualWorkspace({
   const settingsBinding = bindingOf(config, "settings");
   const renameBinding = bindingOf(config, "rename-task");
   const removeBinding = bindingOf(config, "remove-task");
+  const addProjectBinding = bindingOf(config, "add-project");
   const prefix = config.keys.prefix;
   const shortcut = useMemo(
     () => (binding === null ? undefined : { prefix, binding }),
@@ -220,6 +225,11 @@ export function VisualWorkspace({
     [client, onSelectTask, rows, selectedRow],
   );
 
+  const addProjectShortcut = useMemo(
+    () => (addProjectBinding === null ? undefined : { prefix, binding: addProjectBinding }),
+    [addProjectBinding, prefix],
+  );
+
   const startDraft = useCallback(
     (projectId: string | null) => {
       const project =
@@ -318,6 +328,26 @@ export function VisualWorkspace({
     [client, onSelectTask],
   );
 
+  const selectedTask =
+    selectedRow === undefined ? undefined : tasks.tasks.find((task) => task.id === selectedRow.id);
+  const selectedProject =
+    selectedTask?.projectId === null || selectedTask === undefined
+      ? undefined
+      : projects.projects.find((project) => project.id === selectedTask.projectId);
+  const taskWorkspace = useTaskWorkspace({
+    client,
+    task: selectedTask,
+    sessions: sessions.sessions,
+    terminals: terminals.terminals,
+    config,
+    profiles,
+    drivers: chatCapabilities.drivers,
+    capabilitiesReady: chatCapabilities.loaded,
+    projectPath: selectedProject?.path,
+    position: appearance.tabPosition,
+    active,
+  });
+
   return (
     <>
       <VisualShellView
@@ -338,6 +368,7 @@ export function VisualWorkspace({
         rowFocus={listFocus}
         notice={notice}
         onDismissNotice={() => setNotice(undefined)}
+        addProjectShortcut={addProjectShortcut}
         direct={direct}
         onSelectTask={selectTask}
         onAddProject={() => setAddingProject(true)}
@@ -345,7 +376,7 @@ export function VisualWorkspace({
         onOpenSettings={onOpenSettings}
         composerOpen={draft !== undefined}
         main={
-          draft === undefined ? undefined : (
+          draft !== undefined ? (
             <TaskComposer
               projects={projects.projects}
               config={config}
@@ -364,7 +395,19 @@ export function VisualWorkspace({
               creating={creating}
               failure={createError}
             />
+          ) : selectedTask === undefined ? undefined : (
+            taskWorkspace.main
           )
+        }
+        chrome={
+          draft === undefined && selectedTask !== undefined ? taskWorkspace.chrome : undefined
+        }
+        companion={
+          draft === undefined && selectedTask !== undefined ? taskWorkspace.companion : undefined
+        }
+        mainFill={draft === undefined && selectedTask !== undefined}
+        prefixExtra={
+          draft === undefined && selectedTask !== undefined ? taskWorkspace.prefix : undefined
         }
         prefixEnabled={
           active &&
@@ -374,9 +417,11 @@ export function VisualWorkspace({
           !creating &&
           rename === undefined &&
           remove === undefined &&
-          source === undefined
+          source === undefined &&
+          taskWorkspace.prefixEnabled
         }
       />
+      {taskWorkspace.dialogs}
       {addingProject && (
         <AddProjectDialog
           onBrowse={browse}

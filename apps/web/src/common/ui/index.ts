@@ -91,6 +91,15 @@ export {
   type VisualTaskMetadata,
   type VisualTaskRow,
 } from "./visual-shell.tsx";
+export {
+  VisualAddMenu,
+  VisualCompanion,
+  VisualSplitHandle,
+  VisualTabPanel,
+  VisualTabStrip,
+  type VisualTabItem,
+  type VisualTabKind,
+} from "./visual-tabs.tsx";
 export { PathPicker, PickerToastProvider, usePickerToast } from "./path-picker.tsx";
 export { PickerFrame, type PickerFrameMessage } from "./picker-frame.tsx";
 export { PickerAutocomplete } from "./picker-autocomplete.tsx";
