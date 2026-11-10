@@ -313,7 +313,7 @@ export function TaskComposer({
             aria-haspopup="dialog"
             onClick={() => setPickingProject(true)}
           >
-            <Icon name="project" size="row" />
+            <Icon name={project === undefined ? "no-project" : "project"} size="row" />
             <span className="min-w-0 truncate">{project?.name ?? "No project"}</span>
           </Button>
           {project !== undefined && (

@@ -216,9 +216,15 @@ test("a pointer-created scratch task has no project, no Git controls and its own
   await newTaskButton().click();
   await expect.element(composer()).toBeVisible();
 
+  // The trigger names the project with the folder glyph; No project uses the picker's own glyph.
+  const glyph = () => projectButton().element().querySelector("svg");
+  expect(glyph()?.classList.contains("lucide-folder")).toBe(true);
+
   await projectButton().click();
   await page.getByRole("option", { name: "No project" }).click();
   await expect.element(projectButton()).toHaveTextContent("No project");
+  expect(glyph()?.classList.contains("lucide-message-square-dashed")).toBe(true);
+  expect(glyph()?.classList.contains("lucide-folder")).toBe(false);
   await expect.element(promptField()).toHaveFocus();
   await expect
     .element(composer().getByRole("button", { name: /Workspace/ }))
