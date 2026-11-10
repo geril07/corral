@@ -14,6 +14,9 @@ import { z } from "zod";
  * [keys.bindings]   # action = chord after the prefix; "" unbinds
  * new-agent = "a"
  *
+ * [keys.direct]     # direct commands; `mod` is Cmd on macOS, Ctrl elsewhere
+ * new-task = "mod+n"
+ *
  * [profiles.gateway]  # a launch profile; see docs/agent-profiles.md
  * name = "Claude via gateway"
  * agent = "claude"
@@ -147,6 +150,27 @@ export const DEFAULT_BINDINGS: Readonly<Record<ActionId, string>> = {
 };
 
 /**
+ * A direct command: it fires without the prefix. The three creation commands mirror T3's
+ * desktop/web semantics (`docs/ux.md`, **Task entry**). A chord is config syntax understood by
+ * `parseModChord`; `mod` is Command on macOS and Control elsewhere.
+ */
+export const DirectActionId = z.enum(["new-task", "new-task-in-project", "new-task-no-project"]);
+export type DirectActionId = z.infer<typeof DirectActionId>;
+
+export const DEFAULT_DIRECT_BINDINGS: Readonly<Record<DirectActionId, string>> = {
+  "new-task": "mod+n",
+  "new-task-in-project": "mod+shift+n",
+  "new-task-no-project": "mod+alt+n",
+};
+
+/** What each direct command opens, for Settings and the browser-owned warning. */
+export const DIRECT_ACTION_LABELS: Readonly<Record<DirectActionId, string>> = {
+  "new-task": "New task (choose a project)",
+  "new-task-in-project": "New task in the current project",
+  "new-task-no-project": "New task without a project",
+};
+
+/**
  * A server environment variable a profile hands to the agent. Only names: the value is read
  * from the server environment at launch and never stored, sent to a client or written to argv.
  */
@@ -160,8 +184,8 @@ export type EnvRef = z.infer<typeof EnvRef>;
 
 /**
  * A named launch profile from the config file: an agent and, where the agent supports it, a
- * native model/provider. It changes explicit launch choices only; it does not isolate the
- * agent from the server's other environment variables or from the agent's own credential files.
+ * native model/provider. Literal environment values remain private to the server. Instance
+ * command, args and enabled are descriptors; launch integration is not yet complete.
  */
 export const LaunchProfile = z.object({
   id: z.string(),
@@ -170,6 +194,11 @@ export const LaunchProfile = z.object({
   model: z.string().nullable(),
   provider: z.string().nullable(),
   env: z.array(EnvRef),
+  /** Literal entry names only; their values never leave the server. */
+  literalEnvNames: z.array(z.string()).optional(),
+  command: z.string().nullable().optional(),
+  args: z.array(z.string()).optional(),
+  enabled: z.boolean().optional(),
   /** Content revision of this definition, so a session can say which one it was launched with. */
   revision: z.string(),
 });
@@ -339,7 +368,11 @@ export function defaultWorktreeRoot(dataDir: string): string {
  */
 export function defaultClientConfig(dataDir: string): ClientConfig {
   return {
-    keys: { prefix: DEFAULT_PREFIX, bindings: { ...DEFAULT_BINDINGS } },
+    keys: {
+      prefix: DEFAULT_PREFIX,
+      bindings: { ...DEFAULT_BINDINGS },
+      direct: { ...DEFAULT_DIRECT_BINDINGS },
+    },
     tasks: {
       agent: builtin<AgentKind | null>(null),
       profile: builtin<string | null>(null),
@@ -363,6 +396,13 @@ export const ClientConfig = z.object({
     prefix: z.string(),
     /** Every action; `null` when the user unbound it. */
     bindings: z.record(ActionId, z.string().nullable()),
+    /**
+     * Direct commands, `null` when unbound. The default keeps a daemon from before this table
+     * answering with the accepted creation shortcuts.
+     */
+    direct: z
+      .record(DirectActionId, z.string().nullable())
+      .default(() => ({ ...DEFAULT_DIRECT_BINDINGS })),
   }),
   /** The `[tasks]` values every project without an override gets. */
   tasks: ResolvedTaskSettings,

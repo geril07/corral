@@ -1,9 +1,17 @@
-import { DEFAULT_BINDINGS, defaultClientConfig, type ClientConfig } from "@corral/protocol/config";
+import {
+  DEFAULT_BINDINGS,
+  DEFAULT_DIRECT_BINDINGS,
+  defaultClientConfig,
+  type ClientConfig,
+} from "@corral/protocol/config";
 import { parseChord } from "@corral/protocol/keymap";
 import { expect, test } from "vite-plus/test";
 import {
+  createConfigDirectKeymap,
   createConfigKeymap,
+  createDirectKeymap,
   createPrefixKeymap,
+  resolveDirectKey,
   resolvePrefixKey,
   type KeyInput,
 } from "./prefix-keymap.ts";
@@ -70,6 +78,7 @@ test("the config builds the keymap and leaves an unbound action without a key", 
     keys: {
       prefix: "ctrl+b",
       bindings: { ...DEFAULT_BINDINGS, "new-agent": null, board: "q" },
+      direct: { ...DEFAULT_DIRECT_BINDINGS },
     },
   };
   const fromConfig = createConfigKeymap(config);
@@ -89,6 +98,7 @@ test("a binding a same-version daemon does not know is skipped, not parsed", () 
     keys: {
       prefix: "alt+a",
       bindings: { ...DEFAULT_BINDINGS, "change-model": undefined },
+      direct: { ...DEFAULT_DIRECT_BINDINGS },
     },
   };
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a same-version daemon's wire
@@ -98,7 +108,11 @@ test("a binding a same-version daemon does not know is skipped, not parsed", () 
 test("a keymap from config dispatches the action bound in the file", () => {
   const config: ClientConfig = {
     ...defaultClientConfig(""),
-    keys: { prefix: "alt+a", bindings: { ...DEFAULT_BINDINGS, "new-agent": "a" } },
+    keys: {
+      prefix: "alt+a",
+      bindings: { ...DEFAULT_BINDINGS, "new-agent": "a" },
+      direct: { ...DEFAULT_DIRECT_BINDINGS },
+    },
   };
   const fromConfig = createConfigKeymap(config);
 
@@ -108,4 +122,41 @@ test("a keymap from config dispatches the action bound in the file", () => {
     action: "new-agent",
   });
   expect(resolvePrefixKey(fromConfig, true, key("KeyS"))).toEqual({ armed: false, handled: true });
+});
+
+test("direct commands match the platform's mod key and leave other presses alone", () => {
+  const direct = createDirectKeymap({ "mod+n": "new-task" }, "other");
+  expect(resolveDirectKey(direct, key("KeyN", { ctrlKey: true }))).toEqual({
+    armed: false,
+    handled: true,
+    action: "new-task",
+  });
+  expect(resolveDirectKey(direct, key("KeyN", { metaKey: true }))).toBeUndefined();
+  expect(resolveDirectKey(direct, key("KeyN"))).toBeUndefined();
+
+  const mac = createDirectKeymap({ "mod+n": "new-task" }, "mac");
+  expect(resolveDirectKey(mac, key("KeyN", { metaKey: true }))).toMatchObject({
+    action: "new-task",
+  });
+});
+
+test("the config's direct commands are unbound when the file says null", () => {
+  const config: ClientConfig = {
+    ...defaultClientConfig(""),
+    keys: {
+      prefix: "alt+a",
+      bindings: { ...DEFAULT_BINDINGS },
+      direct: { ...DEFAULT_DIRECT_BINDINGS, "new-task": null, "new-task-no-project": "alt+n" },
+    },
+  };
+  const direct = createConfigDirectKeymap(config, "other");
+
+  expect(direct.bindings.map(({ action }) => action)).toEqual([
+    "new-task-in-project",
+    "new-task-no-project",
+  ]);
+  expect(resolveDirectKey(direct, key("KeyN", { ctrlKey: true }))).toBeUndefined();
+  expect(resolveDirectKey(direct, key("KeyN", { altKey: true }))).toMatchObject({
+    action: "new-task-no-project",
+  });
 });

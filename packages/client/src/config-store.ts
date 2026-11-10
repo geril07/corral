@@ -1,6 +1,8 @@
 import {
   ActionId,
   DEFAULT_BINDINGS,
+  DEFAULT_DIRECT_BINDINGS,
+  DirectActionId,
   defaultAgentSettings,
   defaultClientConfig,
   defaultEditorSetting,
@@ -46,11 +48,16 @@ function normalizeConfig(config: ClientConfig): ClientConfig {
     const chord = config.keys?.bindings?.[action];
     if (chord !== undefined) bindings[action] = chord;
   }
+  const direct: Record<DirectActionId, string | null> = { ...DEFAULT_DIRECT_BINDINGS };
+  for (const action of DirectActionId.options) {
+    const chord = config.keys?.direct?.[action];
+    if (chord !== undefined) direct[action] = chord;
+  }
   return {
     ...config,
     agents: config.agents ?? defaultAgentSettings(),
     editor: config.editor ?? defaultEditorSetting(),
-    keys: { prefix: config.keys?.prefix ?? "", bindings },
+    keys: { prefix: config.keys?.prefix ?? "", bindings, direct },
   };
 }
 

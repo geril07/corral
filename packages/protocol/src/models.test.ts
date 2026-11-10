@@ -4,6 +4,7 @@ import {
   modelKey,
   modelScopeKey,
   modelVisible,
+  orderModels,
   setModelVisible,
   setProviderVisible,
   toggleModelFavorite,
@@ -57,4 +58,40 @@ test("identities do not collide on delimiters, null providers, or same-id profil
   expect(modelScopeKey({ kind: "pi", profileId: null })).not.toBe(
     modelScopeKey({ kind: "pi", profileId: "null" }),
   );
+});
+
+test("favorite order is independent of provider and ordinary model ordering", () => {
+  const native = { provider: null, id: "native" };
+  const policy = {
+    ...defaultModelPolicy(),
+    favorites: [other, one],
+    providerOrder: ["two", "one"],
+    modelOrder: [sibling, one],
+  };
+  const remaining = { provider: "two", id: "ordinary" };
+  expect(orderModels(policy, [one, sibling, native, remaining, other])).toEqual([
+    other,
+    one,
+    remaining,
+    sibling,
+    native,
+  ]);
+  expect(orderModels({ ...policy, favorites: [] }, [one, sibling, other])).toEqual([
+    other,
+    sibling,
+    one,
+  ]);
+});
+
+test("unlisted models stay in reported order within first-seen provider groups", () => {
+  const unlisted = { provider: "new", id: "new" };
+  const missing = { provider: "missing", id: "remembered" };
+  const policy = { ...defaultModelPolicy(), modelOrder: [missing] };
+  expect(orderModels(policy, [one, other, sibling, unlisted])).toEqual([
+    one,
+    sibling,
+    other,
+    unlisted,
+  ]);
+  expect(policy.modelOrder).toEqual([missing]);
 });

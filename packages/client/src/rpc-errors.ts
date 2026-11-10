@@ -66,6 +66,10 @@ export function describeError(error: unknown): string {
         return `${String(field(data, "path"))} is not inside a git repository.`;
       case "PROJECT_EXISTS":
         return "This repository is already added.";
+      case "MODEL_PREFERENCES_CONFIG_INVALID":
+        return "Could not read model preferences. Check models.toml before saving.";
+      case "MODEL_PREFERENCES_CHANGED":
+        return "Model preferences changed. Reload them before saving.";
       case "GIT_FAILED":
       case "DIRECTORY_UNREADABLE":
         return String(field(data, "message"));

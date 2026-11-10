@@ -31,17 +31,42 @@ export const ModelPolicy = z.object({
   allow: z.array(ModelRule).max(10000),
   deny: z.array(ModelRule).max(10000),
   favorites: z.array(ChatModelRef).max(10000),
+  providerOrder: z.array(z.string()).max(10000).default([]),
+  modelOrder: z.array(ChatModelRef).max(10000).default([]),
 });
 export type ModelPolicy = z.infer<typeof ModelPolicy>;
 export const ModelPreferences = z.object({
   scope: ModelScope,
+  /** Opaque content revision, not a counter callers increment. Zero names an absent scope. */
   revision: z.number().int().nonnegative(),
   policy: ModelPolicy,
 });
 export type ModelPreferences = z.infer<typeof ModelPreferences>;
 
 export function defaultModelPolicy(): ModelPolicy {
-  return { mode: "all", allow: [], deny: [], favorites: [] };
+  return { mode: "all", allow: [], deny: [], favorites: [], providerOrder: [], modelOrder: [] };
+}
+
+/** Favorites keep their own order; ordinary models group by provider, then the configured order. */
+export function orderModels<T extends ModelRef>(policy: ModelPolicy, models: readonly T[]): T[] {
+  const favorites = new Map(policy.favorites.map((model, index) => [modelKey(model), index]));
+  const providers = new Map<string | null, number>();
+  for (const provider of [...policy.providerOrder, ...models.map((model) => model.provider)]) {
+    if (!providers.has(provider)) providers.set(provider, providers.size);
+  }
+  const order = new Map(policy.modelOrder.map((model, index) => [modelKey(model), index]));
+  return models.toSorted((a, b) => {
+    const favoriteA = favorites.get(modelKey(a)) ?? Infinity;
+    const favoriteB = favorites.get(modelKey(b)) ?? Infinity;
+    if (favoriteA !== favoriteB) return favoriteA - favoriteB;
+    if (favoriteA !== Infinity) return 0;
+    const providerA = providers.get(a.provider)!;
+    const providerB = providers.get(b.provider)!;
+    if (providerA !== providerB) return providerA - providerB;
+    const modelA = order.get(modelKey(a)) ?? Infinity;
+    const modelB = order.get(modelKey(b)) ?? Infinity;
+    return modelA === modelB ? 0 : modelA - modelB;
+  });
 }
 export function matchesModel(rule: ModelRule, model: ModelRef): boolean {
   return rule.provider === model.provider && (rule.type === "provider" || rule.id === model.id);
@@ -132,6 +157,7 @@ export const modelsContract = {
     .output(ModelPreferences)
     .errors({
       MODEL_PREFERENCES_CHANGED: { status: 409 },
+      MODEL_PREFERENCES_CONFIG_INVALID: { status: 422 },
     }),
   catalog: oc.input(ModelCatalogInput).output(ModelCatalog),
 };
