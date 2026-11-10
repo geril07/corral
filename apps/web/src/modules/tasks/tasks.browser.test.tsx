@@ -51,13 +51,13 @@ test("a path outside any repository, or a repository added twice, is explained i
   const { repo } = await appWithProject();
 
   await prefixShifted("p");
-  await expect.element(addProjectDialog().getByRole("textbox")).toHaveFocus();
+  await expect.element(addProjectDialog().getByRole("combobox")).toHaveFocus();
   await userEvent.keyboard("/{Enter}");
   await expect
     .element(addProjectDialog().getByRole("alert"))
     .toMatchTextContent("/ is not inside a git repository.");
 
-  await userEvent.fill(addProjectDialog().getByRole("textbox"), repo);
+  await userEvent.fill(addProjectDialog().getByRole("combobox"), repo);
   await userEvent.keyboard("{Enter}");
   await expect
     .element(addProjectDialog().getByRole("alert"))
@@ -157,7 +157,7 @@ test("New task starts on the selected project and can create the task in another
   const first = client.projects.getSnapshot().projects[0]!;
   const otherRepo = await createGitRepo("second");
   await prefixShifted("p");
-  await userEvent.fill(addProjectDialog().getByRole("textbox"), otherRepo);
+  await userEvent.fill(addProjectDialog().getByRole("combobox"), otherRepo);
   await userEvent.keyboard("{Enter}");
   await expect.element(addProjectDialog()).not.toBeInTheDocument();
   const other = client.projects

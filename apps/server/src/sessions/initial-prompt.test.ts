@@ -72,6 +72,7 @@ beforeEach(async () => {
     name: "app",
     path: workspace,
     defaultBaseBranch: "main",
+    pinnedAt: null,
   });
   new ProjectStore(database).insert(project);
   new TaskStore(database).insert(

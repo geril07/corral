@@ -36,7 +36,7 @@ const storedTask = (id: string): Task => ({
 function serviceWith(sessions: TaskSessions) {
   const db = openDatabase(dataDir);
   const projects = new ProjectStore(db);
-  projects.insert({ id: "p", name: "n", path: dataDir, defaultBaseBranch: "main" });
+  projects.insert({ id: "p", name: "n", path: dataDir, defaultBaseBranch: "main", pinnedAt: null });
   const store = new TaskStore(db);
   store.insert(storedTask("t"));
   const settings = defaultTaskSettings({ dataDir });

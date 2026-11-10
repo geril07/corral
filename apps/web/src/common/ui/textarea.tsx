@@ -3,12 +3,11 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../lib/cn.ts";
 
 const textareaVariants = cva(
-  "flex field-sizing-content min-h-16 w-full rounded-(--control-radius) border border-input bg-transparent px-2.5 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
+  "flex field-sizing-content min-h-16 w-full rounded-(--control-radius) border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
   {
     variants: {
       frame: {
-        composer:
-          "rounded-none border-0 bg-transparent shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent",
+        composer: "rounded-none border-0 bg-transparent shadow-none dark:bg-transparent",
       },
       layout: {
         // The new-task composer's prompt: a four-line rest and a half-view growth cap

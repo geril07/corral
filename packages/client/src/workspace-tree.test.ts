@@ -26,6 +26,7 @@ const project = (id: string): Project => ({
   name: id,
   path: `/repos/${id}`,
   defaultBaseBranch: "main",
+  pinnedAt: null,
 });
 const task = (id: string, projectId: string, state: Task["state"] = "active"): Task => ({
   id,

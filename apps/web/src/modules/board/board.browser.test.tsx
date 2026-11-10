@@ -10,6 +10,7 @@ const project = (id: string): Project => ({
   name: `repo-${id}`,
   path: `/repos/${id}`,
   defaultBaseBranch: "main",
+  pinnedAt: null,
 });
 const row = (id: string, status?: AgentStatus, sessionId = `s-${id}`): BoardRow => ({
   project: project("p1"),

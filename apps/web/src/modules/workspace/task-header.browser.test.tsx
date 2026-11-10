@@ -18,6 +18,7 @@ const project: Project = {
   name: "alpha",
   path: "/repos/alpha",
   defaultBaseBranch: "main",
+  pinnedAt: null,
 };
 
 const task = (id: string, branch: string, title: string, ownsWorktree = true): Task => ({

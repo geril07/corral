@@ -57,7 +57,7 @@ function service(
   const db = openDatabase(dataDir);
   databases.push(db);
   const projects = new ProjectStore(db);
-  projects.insert({ id: "p", name: "app", path: repo, defaultBaseBranch: "main" });
+  projects.insert({ id: "p", name: "app", path: repo, defaultBaseBranch: "main", pinnedAt: null });
   const tasks = new TaskService({
     dataDir,
     store: new TaskStore(db),
@@ -154,7 +154,7 @@ test("a project removed while the worktree is being added leaves no row, worktre
   expect(existsSync(hookedPath)).toBe(false);
 
   // The project comes back and the same create is retried: one worktree and one branch, no `-2`.
-  projects.insert({ id: "p", name: "app", path: repo, defaultBaseBranch: "main" });
+  projects.insert({ id: "p", name: "app", path: repo, defaultBaseBranch: "main", pinnedAt: null });
   const retried = await tasks.create({
     projectId: "p",
     title: "Hooked",

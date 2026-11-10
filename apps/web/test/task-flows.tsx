@@ -58,7 +58,7 @@ export async function appWithProject(client: CorralClient, branches: string[] = 
   const repo = await createGitRepo("repo", branches);
   const rendered = await renderApp(client);
   await prefixShifted("p");
-  await expect.element(addProjectDialog().getByRole("textbox")).toHaveFocus();
+  await expect.element(addProjectDialog().getByRole("combobox")).toHaveFocus();
   await userEvent.keyboard(`${repo}{Enter}`);
   await expect.element(addProjectDialog()).not.toBeInTheDocument();
   // Adding a project selects it, and the route names the selection: waiting for that project id

@@ -30,6 +30,7 @@ const repo: Project = {
   name: "repo",
   path: "/repos/repo",
   defaultBaseBranch: "main",
+  pinnedAt: null,
 };
 
 const other: Project = {
@@ -37,6 +38,7 @@ const other: Project = {
   name: "other",
   path: "/repos/other",
   defaultBaseBranch: "trunk",
+  pinnedAt: null,
 };
 
 const issue: TaskSource = {

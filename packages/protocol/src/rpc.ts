@@ -86,6 +86,11 @@ export const Project = z.object({
   path: z.string(),
   /** Branch new tasks start from unless told otherwise: `origin/HEAD`'s branch, else the current branch. */
   defaultBaseBranch: z.string(),
+  /**
+   * Epoch milliseconds of the pin, or `null` when unpinned. The pin is a project field: it goes
+   * with the project and is never kept anywhere a removed project leaves behind.
+   */
+  pinnedAt: z.number().int().nullable(),
 });
 export type Project = z.infer<typeof Project>;
 
@@ -806,6 +811,11 @@ export const contract = {
       .errors({ ...projectNotFound, HAS_LIVE_TERMINALS: {} })
       .input(z.object({ id: ProjectId }))
       .output(z.void()),
+    /** Pins or unpins a project; the wire takes the decision, the entity exposes when it was pinned. */
+    setPinned: oc
+      .errors({ ...projectNotFound })
+      .input(z.object({ id: ProjectId, pinned: z.boolean() }))
+      .output(Project),
     /** Local and remote-tracking branches (`origin/x`) a new worktree can check out without a local branch-name conflict, for the create-task form. */
     branches: oc
       .errors({ ...projectNotFound, ...gitFailed })

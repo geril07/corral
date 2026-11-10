@@ -84,3 +84,5 @@ export {
   type VisualTaskRow,
 } from "./visual-shell.tsx";
 export { PathPicker, PickerToastProvider, usePickerToast } from "./path-picker.tsx";
+export { PickerFrame, type PickerFrameMessage } from "./picker-frame.tsx";
+export { PickerAutocomplete } from "./picker-autocomplete.tsx";

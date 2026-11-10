@@ -370,6 +370,15 @@ export function createRpcRouter({
           },
         ),
       ),
+      setPinned: os.projects.setPinned.handler(({ input, errors }) =>
+        translating(
+          () => projects.setPinned(input.id, input.pinned),
+          (error) =>
+            error instanceof ProjectNotFoundError
+              ? errors.PROJECT_NOT_FOUND({ data: { id: error.id } })
+              : undefined,
+        ),
+      ),
       branches: os.projects.branches.handler(({ input, errors }) =>
         translating(
           () => projects.branches(input.id),

@@ -116,7 +116,11 @@ context-menu dispatcher.
   width, not the tiny trigger width, bounded by the available viewport.
 - TaskDialog / DestructiveTaskDialog retain the remembered opener, or the explicit final-focus
   target its caller passes, and the workspace-input fallback (chat/task composer, then terminal).
-  The named picker layout contains the shared ModelPicker.
+  The named picker layout contains the shared ModelPicker and the project picker: a search field
+  over one local autocomplete list, `No project` first, then pinned projects, then the rest; the
+  trailing pin action is revealed on row hover or keyboard focus within a reserved slot, and there
+  is no header close button (Escape and outside press still close). The project picker has no empty
+  state: `No project` alone is the list when nothing else matches.
   Settings uses the named large, viewport-bounded `layout="settings"`, with its own scrolling
   content and categories. It is a route-backed modal over a mounted workspace, not a page that
   destroys drafts and terminal attachments. The board is a full-screen route layer over the same

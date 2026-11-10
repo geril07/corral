@@ -27,6 +27,7 @@ const PROJECT: Project = {
   name: "orbit",
   path: "/repos/orbit",
   defaultBaseBranch: "main",
+  pinnedAt: null,
 };
 
 function task(id: string, overrides: Partial<Task> = {}): Task {
