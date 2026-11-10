@@ -62,7 +62,8 @@ it — without meeting a single invented screen.
   Terminal as one tab, Changes in the companion group, close ≠ delete with a closed stack,
   device-local layout. Must mount the real chat and terminal surfaces.
 - **Task context menu** (`feat/263-task-menu`) — Copy ▸ path / branch / task ID, rename, settle, issue
-  source only when present, remove; pin from the project row.
+  source only when present, remove. Pinning stays in the project picker; the shell has no project
+  row to hang a menu on.
 
 ### Queued, research done
 
@@ -79,6 +80,9 @@ behaviour and the open questions; the slice brief is written from it.
   display name, and a rule for applying a favorite from another instance. Blocked on that decision.
 - **Chat start polish** — one focus intent, a device-local last-used model layer, the hero headline,
   and the create gating wording.
+- **Settled shelf** — the task menu advertises Settle, but the routed shell drops non-active tasks
+  (`visual-status.ts:128`) and has no place to bring one back; `docs/design.md:78` wants a collapsed
+  shelf that resumes sessions. The menu's Settle stays out until the shelf exists.
 
 ### Deferred or descoped — needs an explicit record
 
@@ -135,6 +139,13 @@ The technical pass on the merged surface returned no P0, five P1 and eight P2. D
 | Settings re-skins kit controls from module CSS           | P2  | Follow-up slice after `feat/263-review-fixes`: move the recipes into kit variants |
 | Directory truncation warning dropped in Add project      | P2  | Fix now                                                                           |
 | Show all / Hide all erase saved ordering                 | P2  | Fix now                                                                           |
+
+Status: the protocol, disabled-instance, saved-state, removed-project, base-ref, base-leak,
+truncation, ordering and restored-test rows are implemented on `feat/263-tech-fixes` (eight commits,
+protocol now 14) and are in UI/UX review. The remaining three — create completion versus draft
+ownership, duplicate virtual keys, and roving focus in the instance rail — go to
+`feat/263-tech-fixes-b` because they share files with `feat/263-review-fixes`, which is still in
+flight.
 
 ## Open decisions
 
