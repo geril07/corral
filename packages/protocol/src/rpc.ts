@@ -94,6 +94,21 @@ export const Project = z.object({
 });
 export type Project = z.infer<typeof Project>;
 
+/**
+ * What a new worktree may start from, and what the project's main tree has checked out. Local
+ * and remote-tracking refs are separate because `main` and `origin/main` are different starting
+ * points; the checkout is a read of the main worktree, not the base stored when it was added.
+ */
+export const ProjectBaseRefs = z.object({
+  /** `main`, `feature/x`; a branch another worktree holds is still a valid base. */
+  local: z.array(z.string()),
+  /** `origin/main`; the symbolic `origin/HEAD` is left out. */
+  remote: z.array(z.string()),
+  /** The main worktree's checked-out branch, or `null` when HEAD is detached. */
+  currentBranch: z.string().nullable(),
+});
+export type ProjectBaseRefs = z.infer<typeof ProjectBaseRefs>;
+
 /** Where a task's issue came from. */
 export const IssueProvider = z.enum(["github", "gitlab"]);
 export type IssueProvider = z.infer<typeof IssueProvider>;
@@ -822,14 +837,14 @@ export const contract = {
       .input(z.object({ id: ProjectId }))
       .output(z.array(z.string())),
     /**
-     * Every ref a new worktree may start from: local branches (checked-out ones included) and
-     * remote-tracking refs (`origin/x`). Unlike `branches`, this answers what is valid as a base,
-     * not what a worktree can still check out.
+     * Every ref a new worktree may start from, split into local and remote-tracking branches,
+     * plus the main worktree's checked-out branch. Unlike `branches`, this answers what is valid
+     * as a base and what is checked out, not what a worktree can still check out.
      */
     baseRefs: oc
       .errors({ ...projectNotFound, ...gitFailed })
       .input(z.object({ id: ProjectId }))
-      .output(z.array(z.string())),
+      .output(ProjectBaseRefs),
     /**
      * Reads one GitHub or GitLab issue through the server host's own `gh`/`glab` login. Read-only:
      * the CLI gets a validated issue URL and a read command, nothing else. The result is a

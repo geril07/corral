@@ -107,8 +107,8 @@ Protocol 14 requires `projects.directories`, a bounded authenticated read of the
 before registration. It scans at most 4096 entries and returns at most 200 folders, marking an
 incomplete listing. It never runs Git. Canonical registration remains `projects.add`.
 `projects.baseRefs` answers what a new worktree can start from — local branches, checked-out ones
-included, then remote-tracking refs — while `projects.branches` keeps its checkout meaning and
-hides a branch another worktree holds.
+included, and remote-tracking refs kept separate — plus the main tree's `currentBranch`, while
+`projects.branches` keeps its checkout meaning and hides a branch another worktree holds.
 
 shadcn/ui Base UI / Nova components live in `apps/web/src/common/ui`.
 The OpenCode-based visual shell supersedes the earlier T3-like appearance for the workspace; its
