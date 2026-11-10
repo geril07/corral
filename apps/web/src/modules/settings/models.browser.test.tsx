@@ -327,6 +327,7 @@ const rail = () => settings().getByRole("navigation", { name: "Settings categori
 const railButton = (name: string) => rail().getByRole("button", { name, exact: true });
 const firstModelControl = () =>
   models().getByRole("combobox", { name: "Model tool/profile", exact: true });
+const liveModelButton = () => page.getByRole("button", { name: /^Model / });
 
 /** Every targeted open starts on the panel's first control and one Tab stays in that panel. */
 async function assertTargetedModelsFocus() {
@@ -688,6 +689,7 @@ test("hiding a live model keeps its session, thinking, draft and composer node; 
 
 test("a task-context manager follows its project override through {taskId}", async () => {
   const client = newClient();
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
   await writeConfig('[tasks]\nagent = "pi"\nmodel = "stub-1"\n');
   const repo = await createGitRepo("task-context-model");
   const project = await client.connection.api.projects.add({ path: repo });
@@ -716,11 +718,10 @@ test("a task-context manager follows its project override through {taskId}", asy
   );
   try {
     // The live chat's own model button opens the manager; no Settings entry point is assumed.
-    const modelButton = () => page.getByRole("button", { name: /^Model / });
     await vi.waitFor(() =>
-      expect(modelButton().element().getAttribute("aria-label")).not.toBe("Model none"),
+      expect(liveModelButton().element().getAttribute("aria-label")).not.toBe("Model none"),
     );
-    await modelButton().click();
+    await liveModelButton().click();
     const live = page.getByRole("dialog", { name: "Chat model", exact: true });
     await live.getByRole("button", { name: "Manage models…" }).click();
     await expect.element(settings()).toBeVisible();
