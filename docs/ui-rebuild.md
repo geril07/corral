@@ -6,11 +6,10 @@ status section when a slice lands; a slice that only lives in a chat does not ex
 
 Rules for how work is done and reviewed: `docs/delivery.md`. Product decisions: `docs/design.md`.
 
-**Where we are (2026-11-11).** All completed slices are integrated together for delivery to `main`
-from `feat/263-task-composer-instances`. After viewing the combined dev stand, the owner authorized
-publishing and merging this work, with subsequent visual fixes handled separately. The chat
-transcript has passed both reviews. Legacy test cleanup is blocked on the scope decision below;
-its incomplete worktree changes are not included. No new product slices are being started.
+**Where we are (2026-11-11).** The completed rebuild was merged in #264. Issue #265 covers
+cleanup of replaced UI, tests and superseded documentation; it does not authorize new product
+slices or an editor-terminal behavior fix. Settle remains as implemented pending a separate
+decision. The chat transcript passed both reviews.
 Research for the queued slices is in `.review/research/`
 (`tabs.md`, `sidebar-task-menu.md`, `chat-transcript.md`, `chat-start.md`, `drafts.md`); each claim
 there carries `path:line` into the reference checkouts.
@@ -101,14 +100,11 @@ it — without meeting a single invented screen.
 
 ### In progress — session completion only
 
-- **Legacy test cleanup** (`chore/263-drop-legacy-browser-tests`) — measured and classified,
-  but not landed. The partial chat-link port preserves all assertions and exposes the live editor
-  visibility regression below; no tests, helpers or production code have been deleted. Finishing
-  this work with green full suites needs the owner's scope decision, not deletion of live coverage.
+- **Legacy test cleanup** (#265) — the routed chat-link port preserves the live editor visibility
+  assertion below. Test and helper migration is authorized; a product fix is not.
 - **Completion boundary** — finish only work already started, then stop. Favorites and chat-start
   polish remain unstarted. The owner subsequently authorized merging the completed work into `main`
-  before addressing the visual fixes they identify; this does not authorize the blocked cleanup
-  expansion.
+  before addressing the visual fixes they identify. No new product slices are authorized.
 
 ### Combined-tree verification
 
@@ -220,12 +216,9 @@ gate rule that rejects a module stylesheet selecting on a kit `data-slot`.
    with `Discarded`/`Undo`, Escape keeps, and a reload restores the text on the next New task.
 3. Attachments and pre-launch reasoning: separate issues, or extend the protocol inside #263?
 4. Title-only creation: add the control or document that a prompt is required.
-5. ~~The failing legacy browser files~~ — decided: they are not needed. The ones that drive a
-   surface the routed shell replaced are deleted; a test whose subject still ships is ported rather
-   than dropped. The full suite becomes evidence again once the removal lands. **Blocked on scope:**
-   authorize the live editor-terminal fix and substantive Electron test port, or finish the
-   transcript and stop with the measured test debt recorded. The owner has been asked; neither
-   expansion has been started.
+5. Legacy tests: #265 authorizes porting live behavior, including Electron tests, and removing only
+   assertions exclusive to removed surfaces. The editor visibility regression needs a separate
+   product decision and is not authorized as part of cleanup.
 6. Which remaining Corral-only strings stay. The UI/UX review of the merged surface flagged these as
    authored copy with no reference match, and left them unchanged pending your word:
    `settings-sections.ts:20,25,30,60` (the four settings section descriptions),
