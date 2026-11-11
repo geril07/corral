@@ -1,5 +1,5 @@
 import type { CorralClient } from "@corral/client/corral-client";
-import type { Project, Task } from "@corral/protocol/rpc";
+import type { CreateTaskInput, Project, Task } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { writeConfig } from "../../../test/config-command.ts";
@@ -653,6 +653,98 @@ test("a cancelled picker and a failed create keep the prompt and its focus", asy
   await expect.element(promptField()).toHaveValue(prompt);
   expect(client.tasks.getSnapshot().tasks.some((task) => task.prompt === prompt)).toBe(false);
   await second.unmount();
+});
+
+/** Holds every `tasks.create` at the client's RPC boundary until the returned release runs. */
+function holdCreates(client: CorralClient): () => void {
+  const connection = client.connection;
+  const tasks = connection.api.tasks;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const gatedTasks = new Proxy(tasks, {
+    get(target, property, receiver) {
+      if (property !== "create") return Reflect.get(target, property, receiver);
+      return async (input: CreateTaskInput) => {
+        await held;
+        return target.create(input);
+      };
+    },
+  });
+  Object.assign(connection, {
+    api: new Proxy(connection.api, {
+      get(target, property, receiver) {
+        return property === "tasks" ? gatedTasks : Reflect.get(target, property, receiver);
+      },
+    }),
+  });
+  return release;
+}
+
+test("a create that lands after its draft closed leaves the next draft alone", async () => {
+  const { client, screen } = await appWithProject("composer-late-create");
+  const release = holdCreates(client);
+
+  await newTaskButton().click();
+  await expect.element(promptField()).toHaveFocus();
+  await promptField().fill("First draft");
+  // Enter submits from the prompt, which keeps the keyboard there for the Escape below.
+  await userEvent.keyboard("{Enter}");
+  await expect.element(composer()).toHaveAttribute("aria-busy", "true");
+
+  // Escape closes the draft while its create is still running; New task opens another one.
+  await userEvent.keyboard("{Escape}");
+  await expect.element(composer()).not.toBeInTheDocument();
+  await newTaskButton().click();
+  await expect.element(composer()).toBeVisible();
+  const second = "Second draft, still mine";
+  await promptField().fill(second);
+  // The first create's busy state belongs to the draft that sent it, not to this one.
+  await expect.element(composer()).not.toHaveAttribute("aria-busy", "true");
+
+  release();
+  const created = await vi.waitFor(() => {
+    const found = client.tasks.getSnapshot().tasks.find((task) => task.prompt === "First draft");
+    if (found === undefined) throw new Error("the first task is not in the store yet");
+    return found;
+  });
+  // The completion neither closed this draft nor moved the selection to the task it created.
+  await expect.element(composer()).toBeVisible();
+  await expect.element(promptField()).toHaveValue(second);
+  await expect
+    .element(page.getByRole("button", { name: new RegExp(created.title) }))
+    .not.toHaveAttribute("aria-current", "true");
+
+  // The open draft still creates its own task.
+  await createButton().click();
+  await vi.waitFor(() => {
+    expect(client.tasks.getSnapshot().tasks.some((task) => task.prompt === second)).toBe(true);
+  });
+  await screen.unmount();
+});
+
+test("an edit made while its create runs survives the completion", async () => {
+  const { client, screen } = await appWithProject("composer-late-edit");
+  const release = holdCreates(client);
+
+  await newTaskButton().click();
+  await promptField().fill("Submitted text");
+  await userEvent.keyboard("{Enter}");
+  await expect.element(composer()).toHaveAttribute("aria-busy", "true");
+  const edited = "Edited while the create ran";
+  await promptField().fill(edited);
+
+  release();
+  await vi.waitFor(() => {
+    expect(client.tasks.getSnapshot().tasks.some((task) => task.prompt === "Submitted text")).toBe(
+      true,
+    );
+  });
+  // The draft that sent the create changed under it, so the completion does not discard the edit.
+  await expect.element(composer()).toBeVisible();
+  await expect.element(promptField()).toHaveValue(edited);
+  await screen.unmount();
 });
 
 test("an empty install reaches a scratch draft without inventing a project", async () => {
