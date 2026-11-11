@@ -128,9 +128,6 @@ behaviour and the open questions; the slice brief is written from it.
   exist in the routed shell, helpers that still drive the previous UI); the rebuild's own suites —
   composer, settings, pickers, tabs, workspace, chat, terminal — pass. Every slice therefore verifies
   with focused suites, and the full suite is not evidence of anything until this is resolved.
-- **Stale docs**: `docs/ux.md` and `docs/layout.md` still describe sessions as equal tabs in places;
-  the tabs slice replaces those statements. `docs/ui-kit.md` still mentions one easing token that no
-  longer exists.
 - **`Project settings…`** lives only in the old sidebar and is unreachable until the new shell has
   project rows.
 - **Legacy sweep flow** — `.review/orchestrator.md`, `.review/contract.md`, `.review/goal.md`, the
@@ -144,7 +141,9 @@ Per `docs/delivery.md`, each slice gets a UI/UX review and then a technical revi
 | Surface                                           | UI/UX                                                    | Technical                                  |
 | ------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------ |
 | Merged #263 surface (composer, settings, pickers) | done; its P2/P3 fixes merged in `d3b8f5b`                | done; merged in `88444cd`, copy still open |
-| Tabs (`feat/263-tabs`)                            | done; two P1s and eight P2s fixed in `d149684`           | in progress                                |
+| Tabs (`feat/263-tabs`)                            | done; two P1s and eight P2s fixed in `d149684`           | done; merged in `0150b3b`                  |
+| Settings recipes (`feat/263-kit-settings`)        | done; visually neutral, two claimed differences          | done; merged in `e13a482`                  |
+| Drafts (`feat/263-drafts`)                        | done; one P1 and three P2s fixed in `cdf010f`            | in progress                                |
 | Task menu (`feat/263-task-menu`)                  | done; two P1s fixed (Settle removed, focus after remove) | done; merged `0490416`                     |
 
 ### Technical review triage
@@ -167,10 +166,10 @@ The technical pass on the merged surface returned no P0, five P1 and eight P2. D
 | Directory truncation warning dropped in Add project      | P2  | Fix now                                                                           |
 | Show all / Hide all erase saved ordering                 | P2  | Fix now                                                                           |
 
-Status: every row is merged on the feature branch. The last three — create completion versus draft
-ownership (P1), duplicate virtual keys when favorites span providers (P2) and roving focus in the
-instance rail (P2) — landed in `ae0cd2f`/`262d1b4`. The settings control recipes stay a queued slice
-of their own.
+Status: every row is merged on the feature branch. Create completion versus draft ownership (P1),
+duplicate virtual keys when favorites span providers (P2) and roving focus in the instance rail (P2)
+landed in `ae0cd2f`/`262d1b4`; the settings control recipes landed in `e13a482` together with a UI
+gate rule that rejects a module stylesheet selecting on a kit `data-slot`.
 
 ## Open decisions
 
