@@ -4,7 +4,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 import { useState } from "react";
 import { render } from "vitest-browser-react";
 import type { VisualTaskRow } from "../../common/ui/index.ts";
-import { stubClipboard } from "../../../test/clipboard.ts";
+import { removeClipboard, stubClipboard } from "../../../test/clipboard.ts";
 import { prefixShifted, prefixThen } from "../../../test/real-client.ts";
 import { RemoveTaskDialog } from "../tasks/index.ts";
 import {
@@ -741,6 +741,38 @@ test("copy writes the task path, branch and id, and each is confirmed in the cop
     await page.getByRole("menuitem", { name: "Copy task ID" }).click();
     await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenLastCalledWith(FIRST.id));
     expect(copyNotice()).toBe("Task ID copied");
+    await unmount();
+  } finally {
+    clipboard.restore();
+  }
+});
+
+test("clipboard refusal is visible in the task notice", async () => {
+  const clipboard = stubClipboard(() =>
+    Promise.reject(new Error("The system denied clipboard access.")),
+  );
+  try {
+    const { unmount } = await render(<MenuHarness actions={menuActions()} rows={[FIRST]} />);
+    await openRowMenu(FIRST.title);
+    await page.getByRole("menuitem", { name: "Copy" }).click();
+    await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
+    await vi.waitFor(() => expect(copyNotice()).toBe("The system denied clipboard access."));
+    await expect.element(page.getByRole("alert")).toBeVisible();
+    await unmount();
+  } finally {
+    clipboard.restore();
+  }
+});
+
+test("an unavailable clipboard is reported instead of claiming a copy", async () => {
+  const clipboard = removeClipboard();
+  try {
+    const { unmount } = await render(<MenuHarness actions={menuActions()} rows={[FIRST]} />);
+    await openRowMenu(FIRST.title);
+    await page.getByRole("menuitem", { name: "Copy" }).click();
+    await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
+    await vi.waitFor(() => expect(copyNotice()).toBe("Clipboard access is unavailable."));
+    await expect.element(page.getByRole("alert")).toBeVisible();
     await unmount();
   } finally {
     clipboard.restore();
