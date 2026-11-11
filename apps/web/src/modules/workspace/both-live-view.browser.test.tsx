@@ -1,13 +1,9 @@
 import { expect, test, vi } from "vite-plus/test";
-import { page, userEvent } from "vite-plus/test/browser";
+import { page } from "vite-plus/test/browser";
+import { createGitRepo } from "../../../test/git-repo.ts";
 import { prefixThen, realServerClients, screenText } from "../../../test/real-client.ts";
-import {
-  appWithProject,
-  focusedIsTerminal,
-  newTaskView,
-  promptField,
-  sessionTab,
-} from "../../../test/task-flows.tsx";
+import { renderApp } from "../../../test/render-app.tsx";
+import { focusedIsTerminal, sessionTab } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 
@@ -20,18 +16,17 @@ const terminalHost = () => document.querySelector(".terminal-host");
  * a focused terminal in both directions, which is how the verifier hit the bug.
  */
 test("prefix v returns a both-live session from a focused terminal to chat, and back", async () => {
-  const { client } = await appWithProject(newClient());
-  await prefixThen("t");
-  const form = newTaskView();
-  await userEvent.click(form.getByRole("button", { name: /^Agent / }));
-  await page
-    .getByRole("dialog", { name: "Agent and model" })
-    .getByRole("radio", { name: "opencode", exact: true })
-    .click();
-  await userEvent.keyboard("{Escape}");
-  await form.getByRole("button", { name: "Open in chat" }).click();
-  await userEvent.click(promptField());
-  await userEvent.keyboard("both views{Enter}");
+  const client = newClient();
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
+  const project = await client.connection.api.projects.add({ path: await createGitRepo("repo") });
+  const task = await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "both views",
+    prompt: "both views",
+    agent: { kind: "opencode", view: "chat" },
+    workspace: { type: "main-worktree" },
+  });
+  await renderApp(client, [`/?task=${task.id}`]);
 
   // The task opens as chat on the fake OpenCode server Corral starts.
   await expect.element(chatTranscript()).toBeVisible();
