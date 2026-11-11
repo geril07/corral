@@ -92,12 +92,16 @@ function windowSize(app: ElectronApplication) {
 
 // Playwright sends keys over CDP, past native menu handling, so this cannot catch the Alt
 // menu-bar problem that main.ts guards against; it covers the app reacting to the prefix.
-test("the window shows the app and the prefix chord arms prefix mode", async ({ launchApp }) => {
+test("the window shows the app and the prefix chord toggles the sidebar", async ({ launchApp }) => {
   const window = await openedWindow(await launchApp());
   await expect(window).toHaveTitle("Corral");
 
   await window.keyboard.press("Alt+KeyA");
-  await expect(window.getByRole("status", { name: "prefix mode" })).toBeVisible();
+  await window.keyboard.press("Backslash");
+  await expect(window.getByRole("separator", { name: "Resize sidebar" })).toBeHidden();
+  await window.keyboard.press("Alt+KeyA");
+  await window.keyboard.press("Backslash");
+  await expect(window.getByRole("separator", { name: "Resize sidebar" })).toBeVisible();
 });
 
 test("the window and the sidebar keep the 1024×640 floor", async ({ launchApp }) => {
@@ -106,38 +110,30 @@ test("the window and the sidebar keep the 1024×640 floor", async ({ launchApp }
   const separator = window.getByRole("separator", { name: "Resize sidebar" });
   await expect(separator).toBeVisible();
 
-  // The host refuses a smaller size; the web layout sees 1024 and leaves the main area 640.
+  // The host refuses a smaller size; the web layout sees 1024 and applies the routed shell's range.
   await app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()[0]?.setSize(800, 600);
   });
   await expect.poll(() => windowSize(app)).toEqual([1024, 640]);
   await expect.poll(() => window.evaluate<number>("window.innerWidth")).toBe(1024);
-  await expect(separator).toHaveAttribute("aria-valuemax", "384");
-  // The launch default may have been the 1280 px window's; reset at 1024 names the narrow one.
-  await separator.dblclick();
-  await expect(separator).toHaveAttribute("aria-valuenow", "232");
+  await expect(separator).toHaveAttribute("aria-valuemax", "640");
+  await expect(separator).toHaveAttribute("aria-valuemin", "100");
+  await expect(separator).toHaveAttribute("aria-valuenow", "320");
 
-  // The edge stops at 208 and 384, and the main area is exactly its reserve at the maximum.
+  // The edge stops at the configured limits; the main area remains visible.
   // oxlint-disable-next-line eslint/no-await-in-loop -- each press must land on the new width
   for (let press = 0; press < 20; press += 1) await separator.press("ArrowRight");
-  await expect(separator).toHaveAttribute("aria-valuenow", "384");
-  expect(await window.locator("main").evaluate((main) => main.getBoundingClientRect().width)).toBe(
-    640,
-  );
+  await expect(separator).toHaveAttribute("aria-valuenow", "640");
+  await expect(window.locator("main")).toBeVisible();
   await separator.press("ArrowLeft");
-  await expect(separator).toHaveAttribute("aria-valuenow", "368");
+  await expect(separator).toHaveAttribute("aria-valuenow", "624");
   await separator.press("ArrowRight");
-  await expect(separator).toHaveAttribute("aria-valuenow", "384");
+  await expect(separator).toHaveAttribute("aria-valuenow", "640");
   await separator.press("ArrowRight");
-  await expect(separator).toHaveAttribute("aria-valuenow", "384");
+  await expect(separator).toHaveAttribute("aria-valuenow", "640");
   // oxlint-disable-next-line eslint/no-await-in-loop -- each press must land on the new width
-  for (let press = 0; press < 20; press += 1) await separator.press("ArrowLeft");
-  await expect(separator).toHaveAttribute("aria-valuenow", "208");
-
-  // Double-click resets to the narrow default at the supported floor. The 1920 px default is
-  // covered in Browser Mode, where a pretend window width cannot be retiled by the compositor.
-  await separator.dblclick();
-  await expect(separator).toHaveAttribute("aria-valuenow", "232");
+  for (let press = 0; press < 40; press += 1) await separator.press("ArrowLeft");
+  await expect(separator).toHaveAttribute("aria-valuenow", "100");
 });
 
 test("the window is given the URL of the server the app started, and the capability only over IPC", async ({

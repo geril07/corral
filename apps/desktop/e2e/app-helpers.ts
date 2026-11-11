@@ -53,35 +53,16 @@ export function createRepo(stateDir: string): string {
   return repo;
 }
 
-/**
- * The project the workspace route has selected, read from the hash search. Hash history appends
- * the document query (`?server=…`) to it, so the value stops at the next `?`.
- */
-function selectedProject(window: Page): string | undefined {
-  const hash = new URL(window.url()).hash;
-  const search = hash.slice(hash.indexOf("?") + 1);
-  return new URLSearchParams(search).get("project")?.split("?")[0] ?? undefined;
-}
-
-/** Adds `repo` as a project from the keyboard and waits until the new project is current. */
+/** Adds `repo` through the path-first picker; registration does not open a draft. */
 export async function addProject(window: Page, repo: string) {
-  const before = selectedProject(window);
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("Shift+KeyP");
-  await expect(
-    window.getByRole("dialog", { name: "Add project" }).getByRole("textbox"),
-  ).toBeFocused();
-  await window.keyboard.type(repo);
-  await window.keyboard.press("Enter");
-  // Adding a project selects it: the route names a different project than it did before, which a
-  // second project would not satisfy by leaving the previous one selected.
-  await expect.poll(() => selectedProject(window)).not.toBe(before);
-  expect(selectedProject(window)).toEqual(expect.any(String));
-  // Add project lands in the new project's composer: no sidebar row is current, and the prompt
-  // has the keyboard (`layout.md`, **New task view**).
-  await expect(newTaskView(window)).toBeVisible();
-  await expect(promptField(window)).toBeFocused();
-  await expect(workspace(window).locator('[aria-current="true"]')).toHaveCount(0);
+  const dialog = window.getByRole("dialog", { name: "Add project" });
+  const field = dialog.getByRole("combobox", { name: "Repository path" });
+  await expect(field).toBeFocused();
+  await field.fill(repo);
+  await field.press("Enter");
+  await expect(dialog).toBeHidden();
 }
 
 /** The new-task composer in the main area (`layout.md`, **New task view**): a view, not a dialog. */
