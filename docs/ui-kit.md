@@ -179,29 +179,33 @@ context-menu dispatcher.
   `agent-logos.ts` / `agent-logos.LICENSE`. StatusGlyph still distinguishes states by shape
   and color; its sizes match the tab's tool icon slot.
 - AppShell, SidebarPanel, MainPanel, TaskContent, ContentLane and MeasuredBox own structural
-  layout. MeasuredBox is a scrolling block with a maximum height the caller measured (the Settled
-  shelf's one page); a raw inline style stays in the kit.
+  layout. MeasuredBox is a scrolling block with a maximum height the caller measured (the prior
+  sidebar's one-page Settled shelf); a raw inline style stays in the kit.
   TaskContent is a size container so a prompt capped at 50cqh fits half the content area,
   excluding the task/session chrome rather than growing to half the entire window. Sidebar sizing is
   device-local; text scale never applies a CSS transform that would confuse popup coordinates.
 - The workspace route now composes `VisualShellView`: a borderless 320 px (100–640) sidebar over
   `bg-deep`, an 8 px inset `bg-base` main surface with radius 10, a 40 px Corral header, the
-  Search/New-task row, a flat 52 px task card list and a footer. `VisualTaskCard` keeps its title
-  metrics in every state, swaps the fixed 88 px status slot for the Settle action on hover/focus,
-  and opens its metadata tooltip on hover and keyboard focus: title, then icon+value rows for
+  Search/New-task row, a flat 52 px task card list, the Settled shelf and a footer. `VisualTaskCard`
+  keeps its title metrics in every state, swaps the fixed 88 px status slot for the settle action on
+  hover/focus (settle or unsettle, absent in a host with no task store), and opens its metadata
+  tooltip on hover and keyboard focus: title, then icon+value rows for
   project, branch and the primary agent's known model/provider, with no workspace path or ordinary
-  status row. `VisualIconButton`, `VisualSearchAction`, `VisualResizeHandle`, the dedicated row
-  context menu, the compact tooltip/keycaps and the metadata tooltip are the only controls the
-  shell composes. A row's menu is the task menu (a Copy submenu of Path, Branch and Task ID, then
-  rename, source when the task has one, and remove) on the same popup RowMenu uses; the visual host
+  status row. `VisualIconButton`, `VisualSearchAction`, `VisualShelfToggle`, `VisualResizeHandle`,
+  the dedicated row context menu, the compact tooltip/keycaps and the metadata tooltip are the only
+  controls the shell composes. Search and the shelf's disclosure share one wide ghost row recipe,
+  `visual-sidebar-row`. A row's menu is the task menu (a Copy submenu of Path, Branch and Task ID,
+  then rename, settle or unsettle, source when the task has one, and remove) on the same popup
+  RowMenu uses; the visual host
   opts into the shell's floating-surface skin, while the stock kit keeps its own. A copy
   confirmation and a refused task action share the sidebar's notice row above the footer; the
   confirmation clears on the next interaction.
 - One root-layer toggle owns hide/show. It reads the sidebar's real width and the reserved header
   and main-chrome slots, so the 240 ms width transition is the only motion; there is never a
   second visible or tabbable toggle at either endpoint or in flight.
-- `TaskMain` with `compact` is the working area's **40** px identity row: title, project, branch
-  and status reuse the card's existing strings. The strip's band follows it; a bottom strip
+- `TaskMain` with `compact` is the working area's **40** px identity row: title, project, branch,
+  status and the settled state's word `Settled`, reusing the card's existing strings. The strip's
+  band follows it; a bottom strip
   replaces the chrome row rather than adding an empty one.
 - `VisualTabStrip` owns the working-area strip: a **40** px band, **28** px tabs (radius **6**,
   inline padding **6**, gap **6**, **16** px glyph, **13/16** weight **530** title), a **20×20**
@@ -216,7 +220,7 @@ context-menu dispatcher.
   width and the edge fades carry motion, both removed under reduced motion.
 - Unavailable shell actions stay focusable with `aria-disabled` and explain the reason in the
   compact tooltip; they never use an empty click handler. Add project opens the existing real
-  dialog; Search and Settle are deferred in this slice.
+  dialog; Search is deferred in this slice.
 - The workspace status slot follows the task's **primary** session only; auxiliary terminals do
   not contribute agent status, unread state or sort priority. Working shows no duration because
   `AgentStatus.updatedAt` is a report time, not a run start.

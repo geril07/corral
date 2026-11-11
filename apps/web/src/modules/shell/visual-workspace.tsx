@@ -36,7 +36,7 @@ import {
   type VisualShellNotice,
   type VisualTaskActions,
 } from "./visual-view.tsx";
-import { buildTaskRows } from "./visual-status.ts";
+import { buildSettledRows, buildTaskRows } from "./visual-status.ts";
 
 /** The open removal and its preflight answer. */
 interface RemoveState {
@@ -163,10 +163,17 @@ export function VisualWorkspace({
     () => buildTaskRows(projects.projects, tasks.tasks, sessions.sessions, now),
     [now, projects.projects, sessions.sessions, tasks.tasks],
   );
+  const settledRows = useMemo(
+    () => buildSettledRows(projects.projects, tasks.tasks, sessions.sessions, now),
+    [now, projects.projects, sessions.sessions, tasks.tasks],
+  );
+  // The shelf is part of the one list: a settled task stays selectable, and its working area keeps
+  // its tabs and explains that continuing it resumes the sessions that were running.
+  const listedRows = useMemo(() => [...rows, ...settledRows], [rows, settledRows]);
   const selectedRow =
     selectedTaskId === null
       ? undefined
-      : (rows.find((row) => row.id === selectedTaskId) ?? rows[0]);
+      : (listedRows.find((row) => row.id === selectedTaskId) ?? rows[0]);
   const currentProjectId =
     selectedRow === undefined
       ? null
@@ -178,6 +185,8 @@ export function VisualWorkspace({
   const renameBinding = bindingOf(config, "rename-task");
   const removeBinding = bindingOf(config, "remove-task");
   const addProjectBinding = bindingOf(config, "add-project");
+  const focusSidebarBinding = bindingOf(config, "focus-sidebar");
+  const settleBinding = bindingOf(config, "settle-task");
   const prefix = config.keys.prefix;
   const shortcut = useMemo(
     () => (binding === null ? undefined : { prefix, binding }),
@@ -198,6 +207,14 @@ export function VisualWorkspace({
   const removeShortcut = useMemo(
     () => (removeBinding === null ? undefined : { prefix, binding: removeBinding }),
     [prefix, removeBinding],
+  );
+  const focusSidebarShortcut = useMemo(
+    () => (focusSidebarBinding === null ? undefined : { prefix, binding: focusSidebarBinding }),
+    [focusSidebarBinding, prefix],
+  );
+  const settleShortcut = useMemo(
+    () => (settleBinding === null ? undefined : { prefix, binding: settleBinding }),
+    [prefix, settleBinding],
   );
 
   const findTask = useCallback(
@@ -235,6 +252,16 @@ export function VisualWorkspace({
         const task = findTask(id);
         if (task?.source !== undefined) setSource(task);
       },
+      onToggleSettle: (id) => {
+        const task = findTask(id);
+        if (task === undefined) return;
+        setNotice(undefined);
+        // The server owns the state: settling stops the running sessions, continuing resumes the
+        // ones that were running (`design.md`, **Domain model** — Task).
+        void client.connection.api.tasks
+          .setState({ id, state: task.state === "active" ? "settled" : "active" })
+          .catch((error: unknown) => setNotice({ message: describeError(error), tone: "error" }));
+      },
     }),
     [client, findTask],
   );
@@ -267,7 +294,7 @@ export function VisualWorkspace({
       // moment, not from the one that opened the menu.
       const currentId = selectedRow?.id;
       const nextId = activeAfterClose(
-        rows.map((row) => row.id),
+        listedRows.map((row) => row.id),
         task.id,
       );
       removeCurrent.current = currentId;
@@ -279,7 +306,7 @@ export function VisualWorkspace({
         setNotice({ message: workspaceGoneNotice, tone: "notice" });
       }
     },
-    [client, onSelectTask, rows, selectedRow],
+    [client, listedRows, onSelectTask, selectedRow],
   );
 
   const addProjectShortcut = useMemo(
@@ -612,6 +639,7 @@ export function VisualWorkspace({
     <>
       <VisualShellView
         rows={rows}
+        settledRows={settledRows}
         selectedId={selectedTaskId}
         projectsLoaded={projects.loaded}
         hasProjects={projects.projects.length > 0}
@@ -624,6 +652,8 @@ export function VisualWorkspace({
         settingsShortcut={settingsShortcut}
         renameShortcut={renameShortcut}
         removeShortcut={removeShortcut}
+        focusSidebarShortcut={focusSidebarShortcut}
+        settleShortcut={settleShortcut}
         taskActions={taskActions}
         rowFocus={listFocus}
         notice={shownNotice}

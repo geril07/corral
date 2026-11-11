@@ -83,6 +83,7 @@ export {
   VisualIconButton,
   VisualResizeHandle,
   VisualSearchAction,
+  VisualShelfToggle,
   VisualSidebar,
   VisualTaskCard,
   type VisualCardStatus,

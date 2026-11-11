@@ -106,10 +106,60 @@ function visualAgent(session: Session | undefined): VisualTaskAgent | undefined 
   };
 }
 
+/** A row and the facts each list orders it by; the two lists share the row recipe. */
+interface RowEntry {
+  row: VisualTaskRow;
+  priority: number;
+  /** The moment the row's age counts from: its status report, or the task's creation. */
+  activity: number;
+  title: string;
+  createdAt: number;
+  id: string;
+}
+
+/** One task's row, or `undefined` when its project is not among the ones the client knows. */
+function rowOf(
+  task: Task,
+  projectById: ReadonlyMap<string, Project>,
+  sessions: readonly Session[],
+  now: number,
+): RowEntry | undefined {
+  const project = task.projectId === null ? undefined : projectById.get(task.projectId);
+  if (task.projectId !== null && project === undefined) return undefined;
+  const projectName = project?.name ?? "No project";
+  const copyBranch = branchName(task.branch);
+  const primary = primarySession(task, sessions);
+  const primaryStatus = primary === undefined ? undefined : sessionStatus(primary);
+  const agent = visualAgent(primary);
+  return {
+    priority: cardPriority(task, primaryStatus),
+    activity: primaryStatus?.updatedAt ?? task.createdAt,
+    title: task.title,
+    createdAt: task.createdAt,
+    id: task.id,
+    row: {
+      id: task.id,
+      title: task.title,
+      project: projectName,
+      projectInitial: projectInitial(projectName),
+      workspacePath: task.workspacePath,
+      hasSource: task.source !== undefined,
+      ...(copyBranch === undefined ? {} : { copyBranch }),
+      ...(task.state === "settled" ? { settled: true } : {}),
+      status: cardStatus(task, primaryStatus, now),
+      metadata: {
+        project: projectName,
+        ...(task.branch === null ? {} : { branch: task.branch }),
+        ...(agent === undefined ? {} : { agent }),
+        ...(task.prompt === null ? {} : { prompt: task.prompt }),
+      },
+    },
+  };
+}
+
 /**
- * The sidebar rows: active tasks of projects the client already knows, flat and sorted by status
- * priority, then by the last reported status or the task's creation. Settled tasks are history and
- * stay out of this visual slice.
+ * The sidebar's active rows: tasks of projects the client already knows, flat and sorted by status
+ * priority, then by the last reported status or the task's creation.
  */
 export function buildTaskRows(
   projects: readonly Project[],
@@ -118,44 +168,11 @@ export function buildTaskRows(
   now: number,
 ): VisualTaskRow[] {
   const projectById = new Map(projects.map((project) => [project.id, project]));
-  const rows: {
-    row: VisualTaskRow;
-    priority: number;
-    activity: number;
-    title: string;
-    id: string;
-  }[] = [];
+  const rows: RowEntry[] = [];
   for (const task of tasks) {
     if (task.state !== "active") continue;
-    const project = task.projectId === null ? undefined : projectById.get(task.projectId);
-    if (task.projectId !== null && project === undefined) continue;
-    const projectName = project?.name ?? "No project";
-    const copyBranch = branchName(task.branch);
-    const primary = primarySession(task, sessions);
-    const primaryStatus = primary === undefined ? undefined : sessionStatus(primary);
-    const agent = visualAgent(primary);
-    rows.push({
-      priority: cardPriority(task, primaryStatus),
-      activity: primaryStatus?.updatedAt ?? task.createdAt,
-      title: task.title,
-      id: task.id,
-      row: {
-        id: task.id,
-        title: task.title,
-        project: projectName,
-        projectInitial: projectInitial(projectName),
-        workspacePath: task.workspacePath,
-        hasSource: task.source !== undefined,
-        ...(copyBranch === undefined ? {} : { copyBranch }),
-        status: cardStatus(task, primaryStatus, now),
-        metadata: {
-          project: projectName,
-          ...(task.branch === null ? {} : { branch: task.branch }),
-          ...(agent === undefined ? {} : { agent }),
-          ...(task.prompt === null ? {} : { prompt: task.prompt }),
-        },
-      },
-    });
+    const entry = rowOf(task, projectById, sessions, now);
+    if (entry !== undefined) rows.push(entry);
   }
   return rows
     .toSorted(
@@ -164,6 +181,31 @@ export function buildTaskRows(
         b.activity - a.activity ||
         (a.title < b.title ? -1 : a.title > b.title ? 1 : 0) ||
         (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    )
+    .map(({ row }) => row);
+}
+
+/**
+ * The Settled shelf's rows across every project, in their one order: the most recent activity
+ * first, then the newest task, then the id. A settled task without a status sorts by creation;
+ * the server records no settle time (`layout.md`, **Sidebar**).
+ */
+export function buildSettledRows(
+  projects: readonly Project[],
+  tasks: readonly Task[],
+  sessions: readonly Session[],
+  now: number,
+): VisualTaskRow[] {
+  const projectById = new Map(projects.map((project) => [project.id, project]));
+  const rows: RowEntry[] = [];
+  for (const task of tasks) {
+    if (task.state !== "settled") continue;
+    const entry = rowOf(task, projectById, sessions, now);
+    if (entry !== undefined) rows.push(entry);
+  }
+  return rows
+    .toSorted(
+      (a, b) => b.activity - a.activity || b.createdAt - a.createdAt || a.id.localeCompare(b.id),
     )
     .map(({ row }) => row);
 }

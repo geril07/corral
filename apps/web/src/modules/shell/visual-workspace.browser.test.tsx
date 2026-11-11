@@ -5,7 +5,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { removeDirectoryIn } from "../../../test/files-client.ts";
 import { createGitRepo } from "../../../test/git-repo.ts";
-import { realServerClients } from "../../../test/real-client.ts";
+import { realServerClients, prefixThen } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
 
 const { newClient } = realServerClients();
@@ -19,9 +19,25 @@ async function connectedClient(): Promise<CorralClient> {
 const rows = () => [...document.querySelectorAll<HTMLElement>("[data-task-id]")];
 const rowIds = () => rows().map((element) => element.getAttribute("data-task-id") ?? "");
 const rowFor = (title: string) => page.getByRole("button", { name: new RegExp(title) });
+const shelfToggleButton = () => page.getByRole("button", { name: /^Settled \(/ });
+
+/** The cards inside the Settled shelf; the active list is the same query outside it. */
+const shelfIds = () =>
+  rows()
+    .filter((element) => element.closest(".visual-shelf") !== null)
+    .map((element) => element.getAttribute("data-task-id") ?? "");
+
+const activeIds = () =>
+  rows()
+    .filter((element) => element.closest(".visual-shelf") === null)
+    .map((element) => element.getAttribute("data-task-id") ?? "");
 
 async function waitForRows(count: number) {
   await vi.waitFor(() => expect(rows()).toHaveLength(count));
+}
+
+async function waitForActiveRows(count: number) {
+  await vi.waitFor(() => expect(activeIds()).toHaveLength(count));
 }
 
 function titleOf(client: CorralClient, id: string): string {
@@ -200,5 +216,163 @@ test("View issue source… opens the real dialog only for a task with a source",
   await expect
     .element(page.getByRole("menuitem", { name: "View issue source…" }))
     .not.toBeInTheDocument();
+  await unmount();
+});
+
+test("a task's settled state moves it between the active list and the shelf, both ways", async () => {
+  const client = await connectedClient();
+  await projectWithTasks(client, ["Alpha task", "Bravo task", "Charlie task"]);
+  const { unmount } = await render(<App client={client} />);
+  await waitForActiveRows(3);
+
+  const settled = rowIds()[1]!;
+
+  await rowFor(titleOf(client, settled)).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Settle task" }).click();
+
+  // The row leaves the active list; the shelf names the one settled task and stays closed.
+  await waitForActiveRows(2);
+  expect(activeIds()).not.toContain(settled);
+  await expect.element(shelfToggleButton()).toMatchTextContent("Settled (1)");
+  await expect.element(shelfToggleButton()).toHaveAttribute("aria-expanded", "false");
+  expect(shelfIds()).toEqual([]);
+
+  await shelfToggleButton().click();
+  await expect.element(shelfToggleButton()).toHaveAttribute("aria-expanded", "true");
+  await expect.element(rowFor(titleOf(client, settled))).toBeVisible();
+  expect(shelfIds()).toEqual([settled]);
+  // The same card recipe, marked with the server-owned state.
+  expect(
+    document
+      .querySelector(`[data-task-id="${CSS.escape(settled)}"]`)
+      ?.closest(".visual-task-card")
+      ?.getAttribute("data-settled"),
+  ).toBe("true");
+
+  await rowFor(titleOf(client, settled)).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Unsettle task" }).click();
+  await waitForActiveRows(3);
+  expect(activeIds()).toContain(settled);
+  await expect.element(shelfToggleButton()).not.toBeInTheDocument();
+  await unmount();
+});
+
+test("settling the selected task keeps its working area, its tabs and the truth about its sessions", async () => {
+  const client = await connectedClient();
+  const repo = await createGitRepo(`settle-open-${Date.now()}`);
+  const project = await client.connection.api.projects.add({ path: repo });
+  const task = await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "Settle me",
+    prompt: "Explain the build",
+    agent: { kind: "pi", view: "chat" },
+    workspace: { type: "main-worktree" },
+  });
+  await client.connection.api.sessions.start({
+    taskId: task.id,
+    kind: "shell",
+    size: { cols: 80, rows: 24 },
+  });
+  await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "Stay active",
+    workspace: { type: "main-worktree" },
+  });
+  const { unmount } = await render(
+    <App client={client} initialEntries={[`/?project=${project.id}&task=${task.id}`]} />,
+  );
+  const sessionTabs = page.getByRole("tablist", { name: "Sessions" });
+  await expect.element(sessionTabs.getByRole("tab").first()).toBeVisible();
+  const tabsBefore = sessionTabs
+    .getByRole("tab")
+    .elements()
+    .map((element) => element.textContent ?? "");
+  expect(tabsBefore).toHaveLength(2);
+
+  await prefixThen("d");
+  const shelfToggle = page.getByRole("button", { name: "Settled (1)" });
+  await expect.element(shelfToggle).toBeVisible();
+  await expect.element(page.getByText("Settled", { exact: true })).toBeVisible();
+  // The current settled task keeps its row, its tabs and its selection.
+  expect(
+    document.querySelector(`[data-task-id="${CSS.escape(task.id)}"]`)?.getAttribute("aria-current"),
+  ).toBe("true");
+  expect(
+    sessionTabs
+      .getByRole("tab")
+      .elements()
+      .map((element) => element.textContent ?? ""),
+  ).toEqual(tabsBefore);
+  // The server stopped its sessions, and the pane says what continuing would do.
+  await expect
+    .element(page.getByRole("region", { name: /stopped session/ }))
+    .toMatchTextContent(
+      "This task is settled. Restarting makes the task active and resumes the sessions that were running.",
+    );
+
+  // Selecting another task, then the settled one, opens the working area again with its sessions.
+  await userEvent.click(rowFor("Stay active"));
+  await expect.element(page.getByRole("heading", { name: "Stay active" })).toBeVisible();
+  await shelfToggle.click();
+  await userEvent.click(rowFor("Settle me"));
+  await expect.element(page.getByRole("heading", { name: "Settle me" })).toBeVisible();
+  await expect.element(sessionTabs.getByRole("tab").first()).toBeVisible();
+  expect(
+    sessionTabs
+      .getByRole("tab")
+      .elements()
+      .map((element) => element.textContent ?? ""),
+  ).toEqual(tabsBefore);
+  await expect.element(page.getByText("Settled", { exact: true })).toBeVisible();
+  await unmount();
+});
+
+test("the shelf's collapsed state is device-local and survives a reload", async () => {
+  const client = await connectedClient();
+  await projectWithTasks(client, ["First task", "Second task"]);
+  const screen = await render(<App client={client} />);
+  await waitForActiveRows(2);
+  const settled = rowIds()[0]!;
+  await rowFor(titleOf(client, settled)).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Settle task" }).click();
+  await expect.element(shelfToggleButton()).toBeVisible();
+  // Collapsed by default, as `design.md` asks.
+  await expect.element(shelfToggleButton()).toHaveAttribute("aria-expanded", "false");
+
+  await shelfToggleButton().click();
+  await expect.element(shelfToggleButton()).toHaveAttribute("aria-expanded", "true");
+  await screen.unmount();
+
+  // A fresh page reads the same device preference; the server still owns the settled state.
+  const { unmount } = await render(<App client={client} />);
+  await expect.element(shelfToggleButton()).toHaveAttribute("aria-expanded", "true");
+  await expect.element(rowFor(titleOf(client, settled))).toBeVisible();
+  await unmount();
+});
+
+test("settling one task leaves the active rows where they were", async () => {
+  const client = await connectedClient();
+  await projectWithTasks(client, ["One task", "Two task", "Three task"]);
+  const { unmount } = await render(<App client={client} />);
+  await waitForActiveRows(3);
+
+  const tops = () =>
+    activeIds().map((id) => {
+      const element = document.querySelector(`[data-task-id="${CSS.escape(id)}"]`);
+      return { id, top: element?.getBoundingClientRect().top ?? 0 };
+    });
+  const before = tops();
+  const last = rowIds()[2]!;
+  await rowFor(titleOf(client, last)).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Settle task" }).click();
+  await waitForActiveRows(2);
+
+  expect(tops()).toEqual(before.slice(0, 2));
+  // The shelf rests below the active rows.
+  const toggle = page.getByRole("button", { name: "Settled (1)" }).element();
+  const lastActive = document.querySelector(`[data-task-id="${CSS.escape(activeIds()[1]!)}"]`);
+  expect(toggle.getBoundingClientRect().top).toBeGreaterThan(
+    lastActive?.getBoundingClientRect().bottom ?? 0,
+  );
   await unmount();
 });

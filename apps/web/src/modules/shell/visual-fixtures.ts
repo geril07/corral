@@ -125,3 +125,42 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
 ];
 
 export const VISUAL_REVIEW_SELECTED = "fixture-blocked";
+
+/**
+ * The Settled shelf's fixture rows: the same card recipe, the server-owned settled state, and the
+ * one order the shelf keeps (`layout.md`, **Sidebar**).
+ */
+export const VISUAL_REVIEW_SETTLED_ROWS: readonly VisualTaskRow[] = [
+  {
+    id: "fixture-settled-merged",
+    workspacePath: "/home/dev/.dev/worktrees/orbit/feat-billing-webhooks",
+    hasSource: false,
+    copyBranch: "feat/billing-webhooks",
+    settled: true,
+    title: "Add the billing webhook receiver",
+    project: "orbit",
+    projectInitial: "O",
+    status: { tone: "neutral", muted: true, time: "1d" },
+    metadata: {
+      project: "orbit",
+      branch: "feat/billing-webhooks",
+      agent: { kind: "pi", provider: "anthropic", model: "claude-sonnet-4-5" },
+    },
+  },
+  {
+    id: "fixture-settled-docs",
+    workspacePath: "/home/dev/.dev/worktrees/atlas/docs-release-notes",
+    hasSource: false,
+    copyBranch: "docs/release-notes",
+    settled: true,
+    title: "Write the release notes for the desktop build",
+    project: "atlas",
+    projectInitial: "A",
+    status: { tone: "done", label: "Done", time: "3d" },
+    metadata: {
+      project: "atlas",
+      branch: "docs/release-notes",
+      agent: { kind: "codex" },
+    },
+  },
+];

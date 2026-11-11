@@ -61,6 +61,8 @@ export interface VisualTaskRow {
   hasSource: boolean;
   /** The recorded branch when it is a real branch name to copy; a detached create has none. */
   copyBranch?: string | undefined;
+  /** The server-owned task state: a settled task is history and shows the shelf's quieter row. */
+  settled?: boolean | undefined;
   status?: VisualCardStatus | undefined;
   metadata: VisualTaskMetadata;
 }
@@ -154,11 +156,46 @@ export function VisualSearchAction({
 }) {
   return (
     <CompactTooltip label={label} reason={disabledReason} shortcut={shortcut}>
-      <button type="button" className="visual-search-row" aria-disabled="true">
+      <button type="button" className="visual-sidebar-row" aria-disabled="true">
         <Icon name="find" />
-        <span className="visual-search-label">{label}</span>
+        <span className="visual-sidebar-label">{label}</span>
       </button>
     </CompactTooltip>
+  );
+}
+
+/** The sidebar's one disclosure row: the wide ghost row with a chevron and a label. */
+export function VisualShelfToggle({
+  label,
+  expanded,
+  onToggle,
+  onStep,
+  buttonRef,
+}: {
+  label: string;
+  expanded: boolean;
+  onToggle: () => void;
+  /** An arrow from the row: the next keyboard stop in the list's order. */
+  onStep: (direction: -1 | 1) => void;
+  buttonRef?: Ref<HTMLButtonElement> | undefined;
+}) {
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      className="visual-sidebar-row"
+      data-tone="muted"
+      aria-expanded={expanded}
+      onClick={onToggle}
+      onKeyDown={(event) => {
+        if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+        event.preventDefault();
+        onStep(event.key === "ArrowDown" ? 1 : -1);
+      }}
+    >
+      <Icon name={expanded ? "collapse" : "expand"} />
+      <span className="visual-sidebar-label">{label}</span>
+    </button>
   );
 }
 
@@ -340,8 +377,11 @@ export interface VisualTaskCardProps {
   selected: boolean;
   onSelect: (id: string) => void;
   onNavigate: (id: string, direction: -1 | 1) => void;
-  /** Why the settle action cannot run; the card always swaps its status for it on hover/focus. */
-  settleReason: string;
+  /**
+   * Settle, or unsettle a settled task. Absent in a host with no task store: the slot then keeps
+   * the status instead of offering an action that could not run.
+   */
+  onToggleSettle?: (() => void) | undefined;
   /** The row's secondary actions; absent in a host that has no task store to act on. */
   menu?: ReactNode | undefined;
   /** The menu took the keyboard; the shell's transient copy confirmation can go. */
@@ -354,14 +394,15 @@ export function VisualTaskCard({
   selected,
   onSelect,
   onNavigate,
-  settleReason,
+  onToggleSettle,
   menu,
   onMenuOpen,
 }: VisualTaskCardProps) {
-  const { status } = row;
+  const { status, settled = false } = row;
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const icon = status === undefined ? undefined : statusIcon(status.tone);
+  const settleLabel = settled ? "Unsettle task" : "Settle task";
 
   const hit = (
     <button
@@ -393,7 +434,11 @@ export function VisualTaskCard({
   );
 
   return (
-    <div className="visual-task-card" data-selected={selected ? "true" : undefined}>
+    <div
+      className="visual-task-card"
+      data-selected={selected ? "true" : undefined}
+      data-settled={settled ? "true" : undefined}
+    >
       {menu === undefined ? (
         <TaskMetadataTooltip row={row} open={tooltipOpen} onOpenChange={setTooltipOpen}>
           {hit}
@@ -440,16 +485,18 @@ export function VisualTaskCard({
           </span>
         )}
         <span className="visual-task-slot-action">
-          <CompactTooltip label="Settle task" reason={settleReason}>
-            <button
-              type="button"
-              className="visual-task-action"
-              aria-label="Settle task"
-              aria-disabled="true"
-            >
-              <Icon name="settle" />
-            </button>
-          </CompactTooltip>
+          {onToggleSettle !== undefined && (
+            <CompactTooltip label={settleLabel}>
+              <button
+                type="button"
+                className="visual-task-action"
+                aria-label={settleLabel}
+                onClick={onToggleSettle}
+              >
+                <Icon name={settled ? "unsettle" : "settle"} />
+              </button>
+            </CompactTooltip>
+          )}
         </span>
       </div>
     </div>

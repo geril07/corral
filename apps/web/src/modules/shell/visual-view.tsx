@@ -26,6 +26,7 @@ import {
   VisualIconButton,
   VisualResizeHandle,
   VisualSearchAction,
+  VisualShelfToggle,
   VisualSidebar,
   VisualTaskCard,
   type VisualShortcut,
@@ -37,12 +38,15 @@ import {
   VISUAL_SIDEBAR_MAX_WIDTH,
   VISUAL_SIDEBAR_MIN_WIDTH,
 } from "./sidebar-pane.ts";
+import { useSettledShelf } from "./settled-shelf.ts";
 
 /** What a row's secondary actions do; every one reaches a real surface in the production host. */
 export interface VisualTaskActions {
   onRename: (id: string) => void;
   onRemove: (id: string) => void;
   onViewSource: (id: string) => void;
+  /** Settle an active task, or continue a settled one; the server stops or resumes its sessions. */
+  onToggleSettle: (id: string) => void;
 }
 
 /** The list's mounted rows, for a closing dialog that has to name where the keyboard goes. */
@@ -132,6 +136,12 @@ function TaskRowMenu({
           <DropdownMenuShortcut aria-hidden="true">{renameChord}</DropdownMenuShortcut>
         )}
       </DropdownMenuItem>
+      <DropdownMenuItem
+        icon={row.settled === true ? "unsettle" : "settle"}
+        onClick={() => actions.onToggleSettle(row.id)}
+      >
+        {row.settled === true ? "Unsettle task" : "Settle task"}
+      </DropdownMenuItem>
       <DropdownMenuSeparator />
       {row.hasSource && (
         <DropdownMenuItem icon="source" onClick={() => actions.onViewSource(row.id)}>
@@ -152,8 +162,19 @@ function TaskRowMenu({
   );
 }
 
+/** The shelf's disclosure as one keyboard stop; task ids are UUIDs, so no row can take the name. */
+const SHELF_STOP = "shelf";
+
+/** No settled rows, as one stable value: an inline `[]` default would change on every render. */
+const NO_SETTLED_ROWS: readonly VisualTaskRow[] = [];
+
 export interface VisualShellViewProps {
   rows: readonly VisualTaskRow[];
+  /**
+   * The Settled shelf's rows across every project, newest activity first. Empty hides the shelf;
+   * the state itself is the server's `Task.state`, never a client fact.
+   */
+  settledRows?: readonly VisualTaskRow[] | undefined;
   /** `null` means the user explicitly chose no task; `undefined` falls back to the first row. */
   selectedId: string | null | undefined;
   projectsLoaded: boolean;
@@ -184,6 +205,9 @@ export interface VisualShellViewProps {
   newTaskShortcut?: VisualShortcut | undefined;
   settingsShortcut?: VisualShortcut | undefined;
   addProjectShortcut?: VisualShortcut | undefined;
+  /** `prefix w`: the list takes the keyboard; `prefix d`: settle or unsettle the current task. */
+  focusSidebarShortcut?: VisualShortcut | undefined;
+  settleShortcut?: VisualShortcut | undefined;
   /** Direct creation commands, already resolved from config; one listener handles all of them. */
   direct?: {
     bindings: Readonly<Record<DirectActionId, string | null>>;
@@ -212,66 +236,20 @@ export interface VisualShellViewProps {
 
 function SidebarList({
   rows,
-  selectedId,
   projectsLoaded,
   hasProjects,
   tasksLoaded,
   failure,
-  onSelectTask,
-  taskActions,
-  renameShortcut,
-  removeShortcut,
-  onCopy,
-  onMenuOpen,
-  listRef,
-  rowElement,
+  renderRow,
+  shelf,
 }: Pick<
   VisualShellViewProps,
-  | "rows"
-  | "selectedId"
-  | "projectsLoaded"
-  | "hasProjects"
-  | "tasksLoaded"
-  | "failure"
-  | "onSelectTask"
-  | "taskActions"
-  | "renameShortcut"
-  | "removeShortcut"
+  "rows" | "projectsLoaded" | "hasProjects" | "tasksLoaded" | "failure"
 > & {
-  onCopy: (text: string, copied: string) => void;
-  onMenuOpen: () => void;
-  /** The mounted list, so the shell can find a row or a fallback for the keyboard. */
-  listRef: RefObject<HTMLDivElement | null>;
-  rowElement: (id: string) => HTMLElement | null;
+  renderRow: (row: VisualTaskRow) => ReactNode;
+  /** The Settled shelf: the same scroller, so the sidebar stays one scrolling region. */
+  shelf?: ReactNode | undefined;
 }) {
-  const selected =
-    selectedId === null ? undefined : (rows.find((row) => row.id === selectedId) ?? rows[0]);
-
-  const focusRow = useCallback(
-    (id: string) => {
-      requestAnimationFrame(() => rowElement(id)?.focus());
-    },
-    [rowElement],
-  );
-
-  const select = useCallback(
-    (id: string) => {
-      onSelectTask(id);
-      focusRow(id);
-    },
-    [focusRow, onSelectTask],
-  );
-
-  const navigate = useCallback(
-    (id: string, direction: -1 | 1) => {
-      const index = rows.findIndex((row) => row.id === id);
-      if (index === -1) return;
-      const next = rows[Math.min(rows.length - 1, Math.max(0, index + direction))];
-      if (next !== undefined && next.id !== id) select(next.id);
-    },
-    [rows, select],
-  );
-
   if (failure !== undefined) {
     return (
       <div className="visual-task-scroll">
@@ -291,9 +269,9 @@ function SidebarList({
       </div>
     );
   }
-  if (rows.length === 0) {
-    return (
-      <div className="visual-task-scroll">
+  return (
+    <div className="visual-task-scroll">
+      {rows.length === 0 ? (
         <div className="visual-list-state">
           <span className="visual-list-state-title">No active tasks.</span>
           <span className="visual-list-state-detail">
@@ -302,36 +280,50 @@ function SidebarList({
               : "Add a project, or start without one with New task."}
           </span>
         </div>
-      </div>
-    );
-  }
+      ) : (
+        <ul className="visual-task-list" aria-label="Tasks">
+          {rows.map(renderRow)}
+        </ul>
+      )}
+      {shelf}
+    </div>
+  );
+}
+
+/**
+ * The settled tasks below the active list (`design.md`, **Domain model** — Task): one collapsed
+ * group, the count in its label, and the same card rows as the active list. Collapsed, it keeps
+ * the current task's row alone, so closing the shelf never hides what the main area shows.
+ */
+function SettledShelf({
+  rows,
+  shown,
+  expanded,
+  onToggle,
+  onStep,
+  toggleRef,
+  renderRow,
+}: {
+  rows: readonly VisualTaskRow[];
+  /** The rows mounted now: all of them expanded, the current one alone collapsed. */
+  shown: readonly VisualTaskRow[];
+  expanded: boolean;
+  onToggle: () => void;
+  /** An arrow from the toggle: the next stop in the sidebar's order. */
+  onStep: (direction: -1 | 1) => void;
+  toggleRef: RefObject<HTMLButtonElement | null>;
+  renderRow: (row: VisualTaskRow) => ReactNode;
+}) {
   return (
-    <div className="visual-task-scroll" ref={listRef}>
-      <ul className="visual-task-list" aria-label="Tasks">
-        {rows.map((row) => (
-          <li key={row.id}>
-            <VisualTaskCard
-              row={row}
-              selected={selected?.id === row.id}
-              onSelect={select}
-              onNavigate={navigate}
-              settleReason="Settle is not part of this visual slice and is not connected to the old stop-all action."
-              menu={
-                taskActions === undefined ? undefined : (
-                  <TaskRowMenu
-                    row={row}
-                    actions={taskActions}
-                    renameShortcut={renameShortcut}
-                    removeShortcut={removeShortcut}
-                    onCopy={onCopy}
-                  />
-                )
-              }
-              onMenuOpen={onMenuOpen}
-            />
-          </li>
-        ))}
-      </ul>
+    <div className="visual-shelf">
+      <VisualShelfToggle
+        label={`Settled (${rows.length})`}
+        expanded={expanded}
+        onToggle={onToggle}
+        onStep={onStep}
+        buttonRef={toggleRef}
+      />
+      {shown.length > 0 && <ul className="visual-task-list">{shown.map(renderRow)}</ul>}
     </div>
   );
 }
@@ -376,6 +368,7 @@ export function TaskMain({
           {status}
         </span>
       )}
+      {row.settled === true && <span className="visual-main-settled">Settled</span>}
       {!compact && row.metadata.prompt !== undefined && (
         <p className="visual-main-prompt">{row.metadata.prompt}</p>
       )}
@@ -420,6 +413,7 @@ function EmptyMain({
  */
 export function VisualShellView({
   rows,
+  settledRows: settled = NO_SETTLED_ROWS,
   selectedId,
   projectsLoaded,
   hasProjects = false,
@@ -440,6 +434,8 @@ export function VisualShellView({
   newTaskShortcut,
   settingsShortcut,
   addProjectShortcut,
+  focusSidebarShortcut,
+  settleShortcut,
   direct,
   prefixExtra,
   prefixEnabled = true,
@@ -451,8 +447,13 @@ export function VisualShellView({
   rowFocus,
 }: VisualShellViewProps) {
   const pane = useVisualSidebarPane();
+  const shelf = useSettledShelf();
+  // The selection may name a settled task: the shelf is part of the one list, so a settled row is
+  // found before the fallback to the first active one.
   const selected =
-    selectedId === null ? undefined : (rows.find((row) => row.id === selectedId) ?? rows[0]);
+    selectedId === null
+      ? undefined
+      : ([...rows, ...settled].find((row) => row.id === selectedId) ?? rows[0]);
   const [copyNotice, setCopyNotice] = useState<CopyOutcome>();
   const clearCopyNotice = useCallback(() => setCopyNotice(undefined), []);
   const copy = useCallback((text: string, copied: string) => {
@@ -475,14 +476,15 @@ export function VisualShellView({
         };
   const shellRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
   const newTaskButton = useRef<HTMLButtonElement>(null);
   const sidebarFrame = useRef<HTMLElement>(null);
+  const shelfToggle = useRef<HTMLButtonElement>(null);
   const toggleLayer = useRef<HTMLDivElement>(null);
   const toggleButton = useRef<HTMLButtonElement>(null);
   const openToggleSlot = useRef<HTMLSpanElement>(null);
   const closedToggleSlot = useRef<HTMLSpanElement>(null);
   const pendingFocus = useRef<number | null>(null);
+  const settleFocus = useRef<{ id: string; settled: boolean } | undefined>(undefined);
   const keymap = useMemo(() => {
     const bindings: Record<string, string> = {};
     if (shortcut?.binding !== null && shortcut?.binding !== undefined)
@@ -491,11 +493,15 @@ export function VisualShellView({
       bindings[newTaskShortcut.binding] = "new-task";
     if (settingsShortcut?.binding !== null && settingsShortcut?.binding !== undefined)
       bindings[settingsShortcut.binding] = "settings";
+    if (focusSidebarShortcut?.binding !== null && focusSidebarShortcut?.binding !== undefined)
+      bindings[focusSidebarShortcut.binding] = "focus-sidebar";
     if (taskActions !== undefined) {
       if (renameShortcut?.binding !== null && renameShortcut?.binding !== undefined)
         bindings[renameShortcut.binding] = "rename-task";
       if (removeShortcut?.binding !== null && removeShortcut?.binding !== undefined)
         bindings[removeShortcut.binding] = "remove-task";
+      if (settleShortcut?.binding !== null && settleShortcut?.binding !== undefined)
+        bindings[settleShortcut.binding] = "settle-task";
     }
     if (addProjectShortcut?.binding !== null && addProjectShortcut?.binding !== undefined)
       bindings[addProjectShortcut.binding] = "add-project";
@@ -514,11 +520,13 @@ export function VisualShellView({
     return createPrefixKeymap(prefix, bindings);
   }, [
     addProjectShortcut,
+    focusSidebarShortcut,
     newTaskShortcut,
     prefixExtra,
     removeShortcut,
     renameShortcut,
     settingsShortcut,
+    settleShortcut,
     shortcut,
     taskActions,
   ]);
@@ -533,11 +541,90 @@ export function VisualShellView({
   }, [direct]);
   const { hidden, toggle } = pane;
 
+  // The sidebar frame, not the scroller: a settled row lives in the shelf below the active list.
   const rowElement = useCallback(
     (id: string) =>
-      listRef.current?.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(id)}"]`) ?? null,
+      sidebarFrame.current?.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(id)}"]`) ??
+      null,
     [],
   );
+  const focusRow = useCallback(
+    (id: string) => {
+      requestAnimationFrame(() => rowElement(id)?.focus());
+    },
+    [rowElement],
+  );
+  const selectRow = useCallback(
+    (id: string) => {
+      selectTask(id);
+      focusRow(id);
+    },
+    [focusRow, selectTask],
+  );
+  // The composer is a view, not a selected row: its open state also silences row chords.
+  const currentTaskId = composerOpen ? undefined : selected?.id;
+  // What the shelf mounts: every settled row when open, the current one alone when closed.
+  const currentSettled = settled.find((row) => row.id === currentTaskId);
+  const shownSettled = useMemo(
+    () => (shelf.expanded ? settled : currentSettled === undefined ? [] : [currentSettled]),
+    [currentSettled, settled, shelf.expanded],
+  );
+  // Every keyboard stop in the sidebar's order: the active cards, the shelf toggle, its rows.
+  const stops = useMemo(() => {
+    const list: string[] = rows.map((row) => row.id);
+    if (settled.length > 0) {
+      list.push(SHELF_STOP);
+      for (const row of shownSettled) list.push(row.id);
+    }
+    return list;
+  }, [rows, settled.length, shownSettled]);
+  const navigate = useCallback(
+    (from: string, direction: -1 | 1) => {
+      const index = stops.indexOf(from);
+      if (index === -1) return;
+      const next = stops[Math.min(stops.length - 1, Math.max(0, index + direction))];
+      if (next === undefined || next === from) return;
+      if (next === SHELF_STOP) {
+        shelfToggle.current?.focus();
+        return;
+      }
+      selectRow(next);
+    },
+    [selectRow, stops],
+  );
+  const toggleSettle = useCallback(
+    (id: string) => {
+      if (taskActions === undefined) return;
+      // The row moves between two lists, so it remounts: remember where it was and hand the
+      // keyboard back once its new home is rendered.
+      if (sidebarFrame.current?.contains(document.activeElement) === true) {
+        settleFocus.current = { id, settled: settled.some((row) => row.id === id) };
+      }
+      taskActions.onToggleSettle(id);
+    },
+    [settled, taskActions],
+  );
+  useLayoutEffect(() => {
+    const pending = settleFocus.current;
+    if (pending === undefined) return;
+    const home = settled.some((row) => row.id === pending.id);
+    if (home === pending.settled) return;
+    settleFocus.current = undefined;
+    const row = rowElement(pending.id);
+    if (row !== null) row.focus();
+    else if (home) shelfToggle.current?.focus();
+  }, [rowElement, settled]);
+  const focusList = useCallback(() => {
+    if (hidden) toggle();
+    requestAnimationFrame(() => {
+      const target =
+        (currentTaskId === undefined ? null : rowElement(currentTaskId)) ??
+        (rows[0] === undefined ? null : rowElement(rows[0].id)) ??
+        shelfToggle.current ??
+        newTaskButton.current;
+      target?.focus();
+    });
+  }, [currentTaskId, hidden, rowElement, rows, toggle]);
   // One handle for the mounted rows and for the keyboard's landing place when the working area
   // empties; the caller never searches the document.
   const fallbackElement = useCallback(() => {
@@ -617,28 +704,30 @@ export function VisualShellView({
       toggleButton.current?.focus();
     });
   }, [hidden, toggle]);
-  // The composer is a view, not a selected row: its open state also silences row chords.
-  const currentTaskId = composerOpen ? undefined : selected?.id;
   const runAction = useCallback(
     (action: string) => {
       if (action === "toggle-sidebar") toggleSidebar();
       else if (action === "new-task") onNewTask?.();
       else if (action === "settings") onOpenSettings?.();
       else if (action === "add-project") onAddProject?.();
-      else if (action === "rename-task" || action === "remove-task") {
+      else if (action === "focus-sidebar") focusList();
+      else if (action === "rename-task" || action === "remove-task" || action === "settle-task") {
         if (currentTaskId === undefined) return;
         if (action === "rename-task") taskActions?.onRename(currentTaskId);
-        else taskActions?.onRemove(currentTaskId);
+        else if (action === "remove-task") taskActions?.onRemove(currentTaskId);
+        else toggleSettle(currentTaskId);
       } else prefixExtra?.onAction(action);
     },
     [
       currentTaskId,
+      focusList,
       onAddProject,
       onNewTask,
       onOpenSettings,
       prefixExtra,
       taskActions,
       toggleSidebar,
+      toggleSettle,
     ],
   );
   usePrefixMode(
@@ -656,6 +745,57 @@ export function VisualShellView({
     },
     [],
   );
+
+  // One card recipe for both lists: the active list and the shelf differ in their group, not in
+  // their row.
+  const renderRow = useCallback(
+    (row: VisualTaskRow) => (
+      <li key={row.id}>
+        <VisualTaskCard
+          row={row}
+          selected={currentTaskId === row.id}
+          onSelect={selectRow}
+          onNavigate={navigate}
+          onToggleSettle={taskActions === undefined ? undefined : () => toggleSettle(row.id)}
+          menu={
+            taskActions === undefined ? undefined : (
+              <TaskRowMenu
+                row={row}
+                actions={taskActions}
+                renameShortcut={renameShortcut}
+                removeShortcut={removeShortcut}
+                onCopy={copy}
+              />
+            )
+          }
+          onMenuOpen={clearCopyNotice}
+        />
+      </li>
+    ),
+    [
+      clearCopyNotice,
+      copy,
+      currentTaskId,
+      navigate,
+      removeShortcut,
+      renameShortcut,
+      selectRow,
+      taskActions,
+      toggleSettle,
+    ],
+  );
+  const shelfElement =
+    settled.length === 0 ? undefined : (
+      <SettledShelf
+        rows={settled}
+        shown={shownSettled}
+        expanded={shelf.expanded}
+        onToggle={shelf.toggle}
+        onStep={(direction) => navigate(SHELF_STOP, direction)}
+        toggleRef={shelfToggle}
+        renderRow={renderRow}
+      />
+    );
 
   return (
     <div
@@ -716,19 +856,12 @@ export function VisualShellView({
         <TooltipProvider>
           <SidebarList
             rows={rows}
-            selectedId={currentTaskId ?? null}
             projectsLoaded={projectsLoaded}
             hasProjects={hasProjects}
             tasksLoaded={tasksLoaded}
             failure={failure}
-            onSelectTask={selectTask}
-            taskActions={taskActions}
-            renameShortcut={renameShortcut}
-            removeShortcut={removeShortcut}
-            listRef={listRef}
-            rowElement={rowElement}
-            onCopy={copy}
-            onMenuOpen={clearCopyNotice}
+            renderRow={renderRow}
+            shelf={shelfElement}
           />
         </TooltipProvider>
         {shownNotice !== undefined && (

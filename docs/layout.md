@@ -24,10 +24,19 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   no border or shadow. The first line carries a **16** px project avatar/icon and the project at
   **11/16** weight **440**; the right slot carries status/time at **11/16** weight **530**. The
   second line is the title at **13/16** weight **530** in every state. Unselected titles use
-  `text-muted`, selected titles `text-base`; hover and selection share the one hover overlay.
+  `text-muted`, selected titles `text-base`, and a settled row's title stays `text-faint`
+  (`text-muted` when selected) because the shelf already names its state; hover and selection share
+  the one hover overlay.
 - The right slot is a fixed **88** px. Hover and keyboard focus swap the status for the **20×20**
-  action without moving the title. The action is Settle's slot; Settle is deferred, so it is
-  `aria-disabled` with the reason in its compact tooltip rather than a no-op.
+  action without moving the title. The action is Settle's slot: it settles an active task and
+  unsettles a settled one, named `Settle task` / `Unsettle task`; a host with no task store keeps
+  the status instead of offering an action that could not run.
+- The Settled shelf is the last group of the same scroller, after the active rows: a **28**-high
+  wide ghost row (the Search row's recipe) with the disclosure chevron and `Settled (N)`, then the
+  same **52** px cards in the shelf's one order. It is collapsed by default and kept per device;
+  collapsed it mounts only the current task's row, so the main area's task is never hidden. The
+  shelf rests at the bottom while the list is short (`margin-top: auto`) and scrolls with the list
+  when it is long, so settling a task never moves the active rows above it.
 - The footer is **28** high with **28×28** Settings and Add project actions, gap **4**, start
   aligned. Both are icon-only with compact tooltips.
 - The status slot follows only the task's **primary** agent session. Working has no displayed
@@ -36,12 +45,13 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
 - `prefix \` toggles the sidebar. When hidden, the same toggle floats at the main surface's
   top-start corner. Clicking a card selects it and updates the route's `task` search; the review
   host at `/visual-review` (development only) renders the same components with fixture rows for
-  rare states. Search and Settle are deferred in this slice; New task, Settings and Add project
-  are connected to the real surfaces.
+  rare states. Search is deferred; Settle, New task, Settings and Add project are connected to the
+  real surfaces.
 - The main surface is the selected task's working area: a compact **40** px task row (title,
-  project, branch, status), the **40** px strip, and the optional companion group beside the main
-  pane. The task card shows its title, project initial and status; branch, agent and prompt are in
-  the card's metadata tooltip. The panes carry the conversation and work.
+  project, branch, status, and the word `Settled` for a settled task), the **40** px strip, and the
+  optional companion group beside the main pane. The task card shows its title, project initial
+  and status; branch, agent and prompt are in the card's metadata tooltip. The panes carry the
+  conversation and work.
 
 The sections below describe the prior workspace composition. Those modules and their tests remain
 in the tree for the parts that are still useful (chat, changes, terminal, dialogs), but the

@@ -1,6 +1,7 @@
 import type { AgentStatus, Project, Session, Task, TaskSource } from "@corral/protocol/rpc";
 import { describe, expect, test } from "vite-plus/test";
 import {
+  buildSettledRows,
   buildTaskRows,
   cardPriority,
   cardStatus,
@@ -206,6 +207,48 @@ describe("card status", () => {
       muted: true,
       time: "5m",
     });
+  });
+});
+
+describe("the Settled shelf's rows", () => {
+  test("only settled tasks, marked, in the one order: newest activity, then newest task", () => {
+    const tasks: Task[] = [
+      task("active-one", { createdAt: NOW - 1_000 }),
+      task("old-activity", {
+        primarySessionId: "old",
+        createdAt: NOW - 90_000,
+        state: "settled",
+      }),
+      task("new-task", { createdAt: NOW - 5_000, state: "settled" }),
+      task("recent-activity", {
+        primarySessionId: "recent",
+        createdAt: NOW - 900_000,
+        state: "settled",
+      }),
+    ];
+    const sessions = [
+      session("old", {
+        taskId: "old-activity",
+        state: "stopped",
+        status: status("done", NOW - 60_000),
+      }),
+      session("recent", {
+        taskId: "recent-activity",
+        state: "stopped",
+        status: status("done", NOW - 2_000),
+      }),
+    ];
+
+    const rows = buildSettledRows([PROJECT], tasks, sessions, NOW);
+    expect(rows.map((row) => row.id)).toEqual(["recent-activity", "new-task", "old-activity"]);
+    // The state is the server's, carried once into the row the card and the header read.
+    expect(rows.every((row) => row.settled === true)).toBe(true);
+    // A settled task without a project the client knows has no row, like an active one.
+    expect(buildSettledRows([], [{ ...task("orphan"), state: "settled" }], [], NOW)).toEqual([]);
+    // The active list stays active-only.
+    expect(buildTaskRows([PROJECT], tasks, sessions, NOW).map((row) => row.id)).toEqual([
+      "active-one",
+    ]);
   });
 });
 
