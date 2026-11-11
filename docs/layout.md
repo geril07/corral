@@ -32,10 +32,14 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
 - The Settled shelf is the last group of the same scroller, after the active rows: a **28**-high
   wide ghost row (the Search row's recipe) with the disclosure chevron and `Settled (N)`, then the
   same **52** px cards in the shelf's one order: newest activity, then newest task, then id — the
-  server records no settle time. It is collapsed by default and kept per device;
+  server records no settle time, and activity is the **primary** session's report the card shows,
+  not the most urgent of all sessions the prior sidebar used. It is collapsed by default and kept
+  per device;
   collapsed it mounts only the current task's row, so the main area's task is never hidden. The
   shelf rests at the bottom while the list is short (`margin-top: auto`) and scrolls with the list
-  when it is long, so settling a task never moves the active rows above it.
+  when it is long, so settling a task never moves the active rows above it. Open, it mounts every
+  settled row: the prior sidebar paged its measured box, and paging is not built here, so a very
+  long settled history costs one card per row.
 - The footer is **28** high with **28×28** Settings and Add project actions, gap **4**, start
   aligned. Both are icon-only with compact tooltips.
 - The status slot follows only the task's **primary** agent session. Working has no displayed

@@ -168,12 +168,15 @@ export function VisualSearchAction({
 export function VisualShelfToggle({
   label,
   expanded,
+  ariaControls,
   onToggle,
   onStep,
   buttonRef,
 }: {
   label: string;
   expanded: boolean;
+  /** The list this row discloses, so the expanded state names its target. */
+  ariaControls?: string | undefined;
   onToggle: () => void;
   /** An arrow from the row: the next keyboard stop in the list's order. */
   onStep: (direction: -1 | 1) => void;
@@ -186,6 +189,7 @@ export function VisualShelfToggle({
       className="visual-sidebar-row"
       data-tone="muted"
       aria-expanded={expanded}
+      aria-controls={ariaControls}
       onClick={onToggle}
       onKeyDown={(event) => {
         if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;

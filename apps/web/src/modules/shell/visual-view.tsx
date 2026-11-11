@@ -47,8 +47,8 @@ export interface VisualTaskActions {
   onViewSource: (id: string) => void;
   /**
    * Settle an active task, or continue a settled one; the server stops or resumes its sessions.
-   * Resolves false when the server refuses it. Absent in a host with no task store, which then
-   * offers no settle control at all.
+   * Resolves true only when the server changed the state, false when it refused or nothing moved.
+   * Absent in a host with no task store, which then offers no settle control at all.
    */
   onToggleSettle?: ((id: string) => Promise<boolean>) | undefined;
 }
@@ -307,6 +307,9 @@ function SidebarList({
   );
 }
 
+/** The settled list's one id, so the disclosure's expanded state names the list it opens. */
+const SETTLED_LIST_ID = "visual-settled-list";
+
 /**
  * The settled tasks below the active list (`design.md`, **Domain model** — Task): one collapsed
  * group, the count in its label, and the same card rows as the active list. Collapsed, it keeps
@@ -336,11 +339,15 @@ function SettledShelf({
       <VisualShelfToggle
         label={`Settled (${rows.length})`}
         expanded={expanded}
+        ariaControls={SETTLED_LIST_ID}
         onToggle={onToggle}
         onStep={onStep}
         buttonRef={toggleRef}
       />
-      {shown.length > 0 && <ul className="visual-task-list">{shown.map(renderRow)}</ul>}
+      {/* Always mounted, so the disclosure's `aria-controls` names a real list in every state. */}
+      <ul id={SETTLED_LIST_ID} className="visual-task-list" aria-label="Settled tasks">
+        {shown.map(renderRow)}
+      </ul>
     </div>
   );
 }
@@ -502,6 +509,12 @@ export function VisualShellView({
   const closedToggleSlot = useRef<HTMLSpanElement>(null);
   const pendingFocus = useRef<number | null>(null);
   const settleFocus = useRef<{ id: string; settled: boolean } | undefined>(undefined);
+  // One transient-state clear for both: the copy confirmation and a settle's focus intent end on
+  // the user's next input, so neither can act after the user has moved on.
+  const clearTransient = useCallback(() => {
+    setCopyNotice(undefined);
+    settleFocus.current = undefined;
+  }, []);
   const keymap = useMemo(() => {
     const bindings: Record<string, string> = {};
     if (shortcut?.binding !== null && shortcut?.binding !== undefined)
@@ -588,17 +601,24 @@ export function VisualShellView({
     () => (shelf.expanded ? settled : currentSettled === undefined ? [] : [currentSettled]),
     [currentSettled, settled, shelf.expanded],
   );
+  // Navigation and the settle intent read the rows as they are *now*, through refs, so their
+  // callbacks stay one identity across a status tick instead of re-rendering every mounted card.
+  const rowsRef = useRef(rows);
+  const settledRef = useRef(settled);
+  const shownSettledRef = useRef(shownSettled);
+  useLayoutEffect(() => {
+    rowsRef.current = rows;
+    settledRef.current = settled;
+    shownSettledRef.current = shownSettled;
+  }, [rows, settled, shownSettled]);
   // Every keyboard stop in the sidebar's order: the active cards, the shelf toggle, its rows.
-  const stops = useMemo(() => {
-    const list: string[] = rows.map((row) => row.id);
-    if (settled.length > 0) {
-      list.push(SHELF_STOP);
-      for (const row of shownSettled) list.push(row.id);
-    }
-    return list;
-  }, [rows, settled.length, shownSettled]);
   const navigate = useCallback(
     (from: string, direction: -1 | 1) => {
+      const stops = rowsRef.current.map((row) => row.id);
+      if (settledRef.current.length > 0) {
+        stops.push(SHELF_STOP);
+        for (const row of shownSettledRef.current) stops.push(row.id);
+      }
       const index = stops.indexOf(from);
       if (index === -1) return;
       const next = stops[Math.min(stops.length - 1, Math.max(0, index + direction))];
@@ -609,27 +629,34 @@ export function VisualShellView({
       }
       selectRow(next);
     },
-    [selectRow, stops],
+    [selectRow],
   );
   const settle = taskActions?.onToggleSettle;
+  // The intent lives only until the user does something else or the row moves: a settle that
+  // reports success without moving (the server already had the state) must not take the keyboard
+  // back when another window's watch lands later.
+  const dropSettleFocus = useCallback(() => {
+    settleFocus.current = undefined;
+  }, []);
   // Every row-originated settle: the row is about to move between two lists and remount, so its
   // new home takes the keyboard back. A menu item lives in a portal, so this path cannot ask
   // whether the sidebar held focus; `prefix d` asks that in `toggleSettle`.
   const settleRow = useCallback(
     (id: string) => {
       if (settle === undefined) return;
-      settleFocus.current = { id, settled: settled.some((row) => row.id === id) };
+      settleFocus.current = { id, settled: settledRef.current.some((row) => row.id === id) };
       void settle(id).then(
         (accepted) => {
-          // A refused settle moves nothing; drop the intent instead of letting it fire later.
-          if (!accepted && settleFocus.current?.id === id) settleFocus.current = undefined;
+          // False means the server refused it or nothing moved; either way there is nothing to
+          // hand the keyboard back to.
+          if (!accepted && settleFocus.current?.id === id) dropSettleFocus();
         },
         () => {
-          if (settleFocus.current?.id === id) settleFocus.current = undefined;
+          if (settleFocus.current?.id === id) dropSettleFocus();
         },
       );
     },
-    [settle, settled],
+    [dropSettleFocus, settle],
   );
   const toggleSettle = useCallback(
     (id: string) => {
@@ -648,12 +675,19 @@ export function VisualShellView({
     if (pending === undefined) return;
     const home = settled.some((row) => row.id === pending.id);
     if (home === pending.settled) return;
-    settleFocus.current = undefined;
+    dropSettleFocus();
     const row = rowElement(pending.id);
     // The row went into a collapsed shelf and is not mounted: its disclosure now names it.
     if (row !== null) row.focus();
     else if (home) shelfToggle.current?.focus();
-  }, [rowElement, settled]);
+  }, [dropSettleFocus, rowElement, settled]);
+  // A selection that arrives from outside the sidebar (a `?task=` URL on load) is not a focus
+  // change, so the shelf has to reveal its current row the way the prior shelf did.
+  useLayoutEffect(() => {
+    if (currentTaskId === undefined) return;
+    rowElement(currentTaskId)?.scrollIntoView({ block: "nearest" });
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- opening the shelf is the trigger
+  }, [currentTaskId, rowElement, shelf.expanded]);
   const focusList = useCallback(() => {
     if (hidden) toggle();
     requestAnimationFrame(() => {
@@ -845,8 +879,8 @@ export function VisualShellView({
     <div
       className="visual-shell-screen"
       ref={shellRef}
-      onPointerDownCapture={clearCopyNotice}
-      onKeyDownCapture={clearCopyNotice}
+      onPointerDownCapture={clearTransient}
+      onKeyDownCapture={clearTransient}
     >
       <div className="visual-toggle-handoff" ref={toggleLayer}>
         <VisualIconButton
