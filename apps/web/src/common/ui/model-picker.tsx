@@ -198,6 +198,29 @@ function PickerContent({
     if (instanceIndex >= 0)
       void instanceList.current?.scrollToIndex({ index: instanceIndex, animated: false });
   }, [instanceIndex]);
+  // Arrow keys move the selection, so the keyboard has to follow it: focus stays on the previous
+  // radio otherwise, and Space would reactivate that instance. The target can mount a frame after
+  // the selection renders (the list scrolls it in), so the focus retries until it is there.
+  const focusInstance = useRef<string | null>(null);
+  useEffect(() => {
+    if (focusInstance.current !== instance) return undefined;
+    const index = instances.findIndex((item) => item.key === instance);
+    if (index < 0) return undefined;
+    let frame = 0;
+    let attempt = 0;
+    const focus = () => {
+      if (focusInstance.current !== instance) return;
+      const radio = document.getElementById(`${id}-instance-${index}`);
+      if (!(radio instanceof HTMLButtonElement)) {
+        if (attempt++ < 10) frame = requestAnimationFrame(focus);
+        return;
+      }
+      focusInstance.current = null;
+      radio.focus();
+    };
+    focus();
+    return () => cancelAnimationFrame(frame);
+  }, [id, instance, instances]);
   const [highlight, setHighlight] = useState<string | null>(null);
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const visible = models.filter((model) => {
@@ -207,8 +230,14 @@ function PickerContent({
   // Provider headings are rows of their own, so a heading and a model never share one height.
   const rows: PickerRow[] = [];
   visible.forEach((model, index) => {
+    // Favorites are ordered ahead of the provider groups, so one provider can head more than one
+    // run. The run's first model index keeps each heading key distinct.
     if (model.provider && model.provider !== visible[index - 1]?.provider)
-      rows.push({ type: "group", key: `group:${model.provider}`, provider: model.provider });
+      rows.push({
+        type: "group",
+        key: `group:${model.provider}:${index}`,
+        provider: model.provider,
+      });
     rows.push({ type: "model", key: `model:${model.key}`, model, index });
   });
   const active = visible.findIndex((model) => model.key === highlight);
@@ -238,6 +267,7 @@ function PickerContent({
       instances.findIndex((item) => item.key === instance),
     );
     const next = (index + direction + instances.length) % instances.length;
+    focusInstance.current = instances[next]!.key;
     onInstance(instances[next]!.key);
     void instanceList.current?.scrollToIndex({ index: next, animated: false });
   }

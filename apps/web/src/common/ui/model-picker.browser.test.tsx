@@ -133,10 +133,16 @@ test("virtual model and instance lists navigate beyond mounted rows", async () =
   expect(onModel).toHaveBeenCalledWith("499");
   await search.fill("");
   const rail = page.getByRole("radiogroup", { name: "Instances" });
-  rail.element().focus();
+  const first = page.getByRole("radio", { name: "Instance 0" });
+  await expect.element(first).toBeChecked();
+  first.element().focus();
   await userEvent.keyboard("{ArrowUp}");
   const last = page.getByRole("radio", { name: "Instance 499" });
   await expect.element(last).toBeVisible();
+  await expect.element(last).toHaveAttribute("aria-checked", "true");
+  // The keyboard follows the selection, so Space acts on the instance just chosen, not the old one.
+  await expect.element(last).toHaveFocus();
+  await userEvent.keyboard("Space");
   await expect.element(last).toHaveAttribute("aria-checked", "true");
   const scroller = rail.element().querySelector<HTMLElement>(".model-picker-rail-list");
   if (!scroller) throw new Error("Instance scroller missing");
@@ -144,6 +150,8 @@ test("virtual model and instance lists navigate beyond mounted rows", async () =
   scroller.dispatchEvent(new Event("scroll"));
   await expect.element(page.getByRole("radio", { name: "Instance 0" })).toBeVisible();
   await expect.element(last).toHaveAttribute("aria-checked", "true");
+  // The selected instance is always rendered, so scrolling away cannot drop its focus.
+  await expect.element(last).toHaveFocus();
 });
 
 function FocusFixture() {
@@ -368,4 +376,36 @@ test("a favorite row keeps its star and instance identity in the scoped list", a
   await expect.element(page.getByRole("radio", { name: "Gateway" })).toBeChecked();
   await expect.element(page.getByRole("radio", { name: "pi" })).not.toBeChecked();
   await expect.element(page.getByText("stub", { exact: true })).toHaveLength(1);
+});
+
+test("favorites from two providers head their own runs without sharing a row key", async () => {
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    await render(
+      <ModelPicker
+        title="Models"
+        instances={[{ key: "pi", kind: "pi", name: "Pi" }]}
+        instance="pi"
+        onInstance={() => {}}
+        // Favorites are ordered ahead of the provider groups, so each provider heads two runs.
+        models={[
+          { key: "alpha-favorite", name: "Alpha favorite", provider: "Alpha", favorite: true },
+          { key: "bravo-favorite", name: "Bravo favorite", provider: "Bravo", favorite: true },
+          { key: "alpha", name: "Alpha one", provider: "Alpha" },
+          { key: "bravo", name: "Bravo one", provider: "Bravo" },
+        ]}
+        onModel={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    await expect.element(page.getByRole("option", { name: /Alpha one/ })).toBeVisible();
+    expect(page.getByText("Alpha", { exact: true }).elements()).toHaveLength(2);
+    expect(page.getByText("Bravo", { exact: true }).elements()).toHaveLength(2);
+    // The virtual list refuses a repeated key: it would make rows go missing or jump.
+    expect(
+      errors.mock.calls.filter(([message]) => String(message).includes("overlapping key")),
+    ).toHaveLength(0);
+  } finally {
+    errors.mockRestore();
+  }
 });
