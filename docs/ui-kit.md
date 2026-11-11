@@ -115,7 +115,9 @@ context-menu dispatcher.
   from the accessible name because the item's label is the action.
 - OverflowMenu is the discoverable task-header and add-session menu, with one compact
   minimum width. Menus fit available width/height. Combo search popups default to a readable
-  width, not the tiny trigger width, bounded by the available viewport.
+  width, not the tiny trigger width, bounded by the available viewport; `layout="anchor"` is the
+  opt-in for a select row that opens at its trigger's width, and it survives portalling because the
+  kit popup owns it rather than a descendant rule.
 - TaskDialog / DestructiveTaskDialog retain the remembered opener, or the explicit final-focus
   target its caller passes, and the workspace-input fallback (chat/task composer, then terminal).
   The named picker layout contains the shared ModelPicker and the project picker: a search field
@@ -125,10 +127,11 @@ context-menu dispatcher.
   state: `No project` alone is the list when nothing else matches.
   Settings uses the named large, viewport-bounded `layout="settings"`: T3's 80 × 60 rem cap,
   inset 24 px from the viewport (40 px at lg), with one content scroller and a 240 px settings
-  sidebar. It is a route-backed modal over a mounted workspace, not a page that destroys drafts and
-  terminal attachments. The board is a full-screen route layer over the same parent, not a
-  dialog: no scrim, and its close returns the keyboard through the same fallback.
-  Other dialogs keep their existing dimensions.
+  sidebar. Its type takes the shared rem roles (15/20 title, 13/16 label, 11/16 meta), so the
+  interface text scale moves it with the controls instead of leaving it fixed. It is a route-backed
+  modal over a mounted workspace, not a page that destroys drafts and terminal attachments. The
+  board is a full-screen route layer over the same parent, not a dialog: no scrim, and its close
+  returns the keyboard through the same fallback. Other dialogs keep their existing dimensions.
 - Settings composes the settings-only primitives in `modules/settings`: a 240 px grouped sidebar
   (32 px rows, 8 px radius, 10 px inline padding, 16 px icon, 8 px icon-text gap, 16 px group gap,
   4 px item gap, 12 px muted group headings), a borderless 32 px search row that takes the hover
@@ -145,11 +148,16 @@ context-menu dispatcher.
   title substring, all query tokens in the title, then a phrase in any field, with declaration order
   as the tiebreak; generated action/profile/agent/project rows are secondary and rank after real
   settings. `/` focuses the borderless 32 px search field unless focus is in a text field or nested popup;
-  Escape clears a non-empty query before it reaches the dialog. Selecting a result switches the
-  section, clears the query, scrolls the row into view, focuses it, and plays one motion-safe
-  highlight. Search navigation is local state: it never rewrites the URL or starts the discard
-  guard.
+  Escape clears a non-empty query before it reaches the dialog. The arrow keys move the highlight,
+  which is painted on the option it belongs to and revealed in the rail as it moves; selecting a
+  result switches the section, clears the query, scrolls the row into view, focuses it, and plays
+  one motion-safe highlight. Search navigation is local state: it never rewrites the URL or starts
+  the discard guard.
 - Enter only; the reason is in Direction (**Motion**). RowMenu has no delayed teardown.
+- Every native scroller takes the one bar in `app/global.css`, with no opt-in class: an 8 px lane,
+  a transparent track inset 4 px at its ends, and a pill thumb inset by its 2 px border. The thumb
+  rests low-contrast, so a scrollable column is discoverable without a pointer, and strengthens
+  while the scroller is hovered or holds the caret.
 - Hint retains Base UI semantics and the shared 300 ms cold delay, and mounts its provider and
   trigger in every state so a clipping flip never remounts the trigger or drops focus.
   `useTruncatedText` owns clipping measurement and middle ellipsis; full labels remain accessible,
