@@ -19,6 +19,19 @@ import { readLaunches, test } from "./fixtures.ts";
 const branchesOf = (repo: string) =>
   git(repo, "branch", "--format=%(refname:short)").split("\n").filter(Boolean);
 
+test("adding a project and opening its draft starts no agent", async ({ launchApp, stateDir }) => {
+  const repo = createRepo(stateDir);
+  const window = await openedWindow(await launchApp());
+  await addProject(window, repo);
+
+  await window.getByRole("button", { name: "New task", exact: true }).click();
+  await expect(promptField(window)).toBeFocused();
+  await expect(newTaskView(window).getByRole("button", { name: /^Project / })).toContainText(
+    "repo",
+  );
+  expect(readLaunches(stateDir)).toEqual([]);
+});
+
 // MVP step 2: a task is a branch in a worktree of its own, which the app creates and removes.
 test("a task gets a worktree and a terminal in it, and removing it leaves the branch", async ({
   launchApp,
