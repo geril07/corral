@@ -411,11 +411,12 @@ export interface TranscriptRowProps {
   expanded: ReadonlySet<string>;
   onToggleFold: (key: string) => void;
   onRespond: (requestId: string, value: ChatAnswer) => Promise<void>;
-  onAnswered: () => void;
+  onAnswered: (requestId: string) => void;
   /** A message action that failed says so in the pane's one failure line. */
   onFailure: (message: string) => void;
   /** The agent is blocked on the user, so a streaming reasoning row is not live work. */
   waiting: boolean;
+  focusedRequest?: string | undefined;
 }
 
 /**
@@ -430,6 +431,7 @@ export function TranscriptRow({
   onAnswered,
   onFailure,
   waiting,
+  focusedRequest,
 }: TranscriptRowProps) {
   if (row.kind === "working") return <WorkingItem />;
   if (row.kind === "turn") {
@@ -448,6 +450,7 @@ export function TranscriptRow({
               onAnswered={onAnswered}
               onFailure={onFailure}
               waiting={waiting}
+              focusedRequest={focusedRequest}
             />
           ) : null,
         )}
@@ -509,7 +512,8 @@ export function TranscriptRow({
         <ChatRequestItem
           item={item}
           onRespond={(value) => onRespond(item.id, value)}
-          onAnswered={onAnswered}
+          onAnswered={() => onAnswered(item.id)}
+          selected={item.id === focusedRequest}
         />
       );
     case "notice":

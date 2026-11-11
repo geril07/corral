@@ -21,7 +21,7 @@ export interface ChatTimelineProps {
   expanded: ReadonlySet<string>;
   onToggleFold: (key: string) => void;
   onRespond: (requestId: string, value: ChatAnswer) => Promise<void>;
-  onAnswered: () => void;
+  onAnswered: (requestId: string) => void;
   /** A message action that failed says so in the pane's one failure line. */
   onFailure: (message: string) => void;
 }
@@ -57,7 +57,12 @@ export function ChatTimeline({
   const [restored] = useState(() => memory.read());
   /** False after the user moved up, so a layout change below does not drag the view back. */
   const [follow, setFollow] = useState(() => restored.anchor === undefined || restored.atEnd);
+  const [revealedRequest, setRevealedRequest] = useState<string>();
   const followConfig = useMemo(() => ({ on: { dataAppend: true, dataChange: true } }), []);
+  const extraData = useMemo(
+    () => ({ expanded, revealedRequest, requestId }),
+    [expanded, revealedRequest, requestId],
+  );
 
   const scrollNode = useCallback((): HTMLElement | null => {
     const node = list.current?.getScrollableNode();
@@ -162,12 +167,31 @@ export function ChatTimeline({
     }
   };
 
-  // A new request owns the keyboard, even while history is being read. Reveal it so the
-  // virtualized row mounts and can focus its control.
+  const requestIndex = rows.findIndex(
+    (row) =>
+      (row.kind === "item" && row.item.id === requestId) ||
+      (row.kind === "turn" &&
+        row.rows.some((inner) => inner.kind === "item" && inner.item.id === requestId)),
+  );
+
+  // A request can be inside a turn row, and an older pending request can be far from the tail.
+  // First mount its outer row, then let the request focus and reveal its own control.
   useEffect(() => {
-    if (requestId === undefined) return;
-    void list.current?.scrollToEnd({ animated: false });
-  }, [requestId]);
+    if (requestId === undefined || requestIndex < 0) return undefined;
+    let cancelled = false;
+    const target = list.current;
+    if (target === null) return undefined;
+    target.cancelScroll();
+    setFollow(false);
+    void target
+      .scrollToIndex({ index: requestIndex, animated: false, viewPosition: 0 })
+      .then(() => {
+        if (!cancelled) setRevealedRequest(requestId);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestId, requestIndex]);
 
   const renderItem = useCallback(
     ({ item }: { item: ChatRow }) => (
@@ -181,10 +205,11 @@ export function ChatTimeline({
           onAnswered={onAnswered}
           onFailure={onFailure}
           waiting={waiting}
+          focusedRequest={revealedRequest === requestId ? requestId : undefined}
         />
       </div>
     ),
-    [expanded, toggleFold, onRespond, onAnswered, onFailure, waiting],
+    [expanded, toggleFold, onRespond, onAnswered, onFailure, waiting, revealedRequest, requestId],
   );
 
   /**
@@ -206,8 +231,8 @@ export function ChatTimeline({
       ref={list}
       data={rows}
       keyExtractor={(row: ChatRow) => row.key}
-      // A fold opens and closes outside the list's data, so the rows must re-render with it.
-      extraData={expanded}
+      // Folds and selected request change outside the list's row data.
+      extraData={extraData}
       renderItem={renderItem}
       estimatedItemSize={96}
       estimatedListSize={{ width: 720, height: 480 }}
@@ -215,7 +240,7 @@ export function ChatTimeline({
         ? { initialScrollAtEnd: true }
         : { initialScrollIndex: { index: startIndex } })}
       alignItemsAtEnd
-      maintainScrollAtEnd={follow ? followConfig : false}
+      maintainScrollAtEnd={follow && requestId === undefined ? followConfig : false}
       recycleItems={false}
       className="h-full overflow-anchor-none"
       data-testid="chat-timeline"

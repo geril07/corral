@@ -139,6 +139,20 @@ export function ChatView({
   }, []);
 
   const focusComposer = useCallback(() => composerRef.current?.focus(), []);
+  const focusAfterAnswer = useCallback(
+    (answeredId: string) => {
+      if (
+        !store
+          .getSnapshot()
+          .items.some(
+            (item) =>
+              item.kind === "user-request" && item.status === "pending" && item.id !== answeredId,
+          )
+      )
+        focusComposer();
+    },
+    [focusComposer, store],
+  );
 
   /**
    * A fold is the user's own disclosure: it opens and closes here and the session's memory keeps
@@ -175,7 +189,7 @@ export function ChatView({
     if (document.activeElement === event.currentTarget) focusComposer();
   };
 
-  // A request takes the keyboard when it arrives; answering it hands the keyboard back.
+  // A request takes the keyboard; the composer takes it back only when no request remains.
   useEffect(() => {
     if (requestId === undefined) focusComposer();
     else composerRef.current?.blur();
@@ -245,7 +259,7 @@ export function ChatView({
                 expanded={expanded}
                 onToggleFold={toggleFold}
                 onRespond={onRespond}
-                onAnswered={focusComposer}
+                onAnswered={focusAfterAnswer}
                 onFailure={setFailure}
               />
             </div>
