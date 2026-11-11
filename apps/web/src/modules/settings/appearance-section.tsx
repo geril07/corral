@@ -35,7 +35,7 @@ export function AppearanceSection() {
                 <ComboboxButton layout="bounded" size="default" aria-label="Session tab position">
                   {TAB_LABELS[appearance.tabPosition]}
                 </ComboboxButton>
-                <ComboboxContent align="end">
+                <ComboboxContent align="end" layout="anchor">
                   <ComboboxList>
                     {TAB_POSITIONS.map((position) => (
                       <ComboboxItem key={position} value={position}>
