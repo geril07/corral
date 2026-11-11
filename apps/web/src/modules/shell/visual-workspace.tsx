@@ -75,6 +75,9 @@ export function VisualWorkspace({
   );
   const [addingProject, setAddingProject] = useState(false);
   const [projectChoice, setProjectChoice] = useState(false);
+  // Whether the open project choice ended in a draft. The picker is replaced by the composer in one
+  // commit, so the dialog's final-focus callback reads this ref instead of the render it closed in.
+  const pickedProject = useRef(false);
   const [draft, setDraft] = useState<TaskComposerDraft>();
   const [focusRequest, setFocusRequest] = useState(0);
   const [composerModal, setComposerModal] = useState(false);
@@ -236,6 +239,7 @@ export function VisualWorkspace({
         // instead of silently swapping the runtime under the same prompt (`docs/ux.md`).
         return { ...next, agent: next.agent ?? opening };
       });
+      pickedProject.current = true;
       setProjectChoice(false);
       setCreateError(undefined);
       setFocusRequest((request) => request + 1);
@@ -248,6 +252,7 @@ export function VisualWorkspace({
       startDraft(projects.projects[0]!.id);
       return;
     }
+    pickedProject.current = false;
     setProjectChoice(true);
   }, [projects.loaded, projects.projects, startDraft]);
 
@@ -385,6 +390,10 @@ export function VisualWorkspace({
           projects={projects.projects}
           onChoose={startDraft}
           onSetPinned={setProjectPinned}
+          // A chosen project hands the keyboard to the prompt, which the composer focuses on mount;
+          // `false` tells the dialog not to restore its opener on top of it. A cancelled picker
+          // keeps the dialog's default (`null`), which returns to the New task button.
+          finalFocus={() => (pickedProject.current ? false : null)}
           onClose={() => setProjectChoice(false)}
         />
       )}
