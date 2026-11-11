@@ -405,7 +405,7 @@ export function VisualWorkspace({
             <TaskMain row={selectedRow} compact />
           ) : undefined
         }
-        notice={
+        workingNotice={
           draft === undefined && selectedTask !== undefined ? taskWorkspace.notice : undefined
         }
         chrome={
