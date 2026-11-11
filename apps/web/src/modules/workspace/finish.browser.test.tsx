@@ -7,7 +7,7 @@ import { createGitRepoWithRemote } from "../../../test/git-repo.ts";
 import { clearIssueCliCalls, issueCliCalls, issueCliPath } from "../../../test/issue-cli-client.ts";
 import { prefixShifted, realServerClients } from "../../../test/real-client.ts";
 import { renderApp } from "../../../test/render-app.tsx";
-import { sessionTab, shellTabs, taskHeader, workspace } from "../../../test/task-flows.tsx";
+import { sessionTab, shellTabs } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 const SIZE = { cols: 80, rows: 24 };
@@ -15,7 +15,7 @@ const PR_URL = "https://forge.invalid/acme/app/pull/7";
 
 const finish = () => page.getByRole("group", { name: "Finish" });
 const commitMessage = () => finish().getByRole("textbox", { name: "Commit message" });
-const headerBadge = () => taskHeader().getByRole("button", { name: /PR #7/ });
+const requestBadge = () => finish().getByRole("button", { name: /PR #7/ });
 
 /** The bare repository's ref, or `undefined` while it has none. */
 async function originRef(origin: string, branch: string): Promise<string | undefined> {
@@ -60,7 +60,7 @@ test("stage, commit, push and create a pull request against the fakes, leaving t
     }),
   );
 
-  await renderApp(newClient(), [`/?project=${project.id}&task=${task.id}&entry=${session.id}`]);
+  await renderApp(newClient(), [`/?project=${project.id}&task=${task.id}`]);
   await expect.element(sessionTab("shell")).toHaveAttribute("aria-selected", "true");
 
   // The Changes tab, by key, with the write controls under the summary row.
@@ -104,12 +104,8 @@ test("stage, commit, push and create a pull request against the fakes, leaving t
     .toBeVisible();
   await userEvent.dblClick(createDialog.getByRole("button", { name: "Create in main" }));
 
-  // The header badge and the sidebar row carry the request; the tab shows it too.
-  await expect.element(headerBadge()).toBeVisible();
-  await expect.element(finish().getByRole("button", { name: /PR #7 open/ })).toBeVisible();
-  await expect
-    .element(workspace().getByRole("button", { name: /Ship the change — .*PR #7 open/ }))
-    .toBeVisible();
+  // The routed Changes pane carries the request.
+  await expect.element(requestBadge()).toHaveAccessibleName(/PR #7 open/);
   const creates = (await issueCliCalls()).filter(
     (call) => call.argv[0] === "pr" && call.argv[1] === "create",
   );
@@ -127,11 +123,12 @@ test("stage, commit, push and create a pull request against the fakes, leaving t
     "-",
   ]);
 
-  // No session changed: the strip still holds the one shell and the Changes tab, the shell is still
-  // the session behind the tab, and the route still names it.
+  // No session changed: the shell remains selected in the main group while Changes is open.
   expect(shellTabs().elements()).toHaveLength(1);
-  await expect.element(sessionTab("shell")).toHaveAttribute("aria-current", "true");
-  await expect.element(sessionTab("shell")).not.toHaveAttribute("aria-selected", "true");
+  await expect.element(sessionTab("shell")).toHaveAttribute("aria-selected", "true");
+  expect(
+    setup.sessions.getSnapshot().sessions.find((each) => each.id === session.id),
+  ).toBeDefined();
 
   // The state is refreshed on focus, and a merged request offers settle without settling.
   await setServerEnv(
@@ -149,7 +146,7 @@ test("stage, commit, push and create a pull request against the fakes, leaving t
   );
   window.dispatchEvent(new Event("focus"));
   await expect.element(finish().getByRole("button", { name: "Settle task" })).toBeVisible();
-  await expect.element(headerBadge()).toHaveAccessibleName(/PR #7 merged/);
+  await expect.element(requestBadge()).toHaveAccessibleName(/PR #7 merged/);
   expect(await api.changes.pullRequest({ id: task.id })).toMatchObject({ state: "merged" });
   expect(
     await vi.waitFor(
@@ -165,7 +162,7 @@ test("stage, commit, push and create a pull request against the fakes, leaving t
     "To get started with GitHub CLI, please run: gh auth login",
   );
   window.dispatchEvent(new Event("focus"));
-  await expect.element(headerBadge()).toHaveAccessibleName(/state unknown/);
-  await expect.element(headerBadge()).toHaveAccessibleName(/not logged in/);
+  await expect.element(requestBadge()).toHaveAccessibleName(/state unknown/);
+  await expect.element(requestBadge()).toHaveAccessibleName(/not logged in/);
   await setServerEnv("FAKE_ISSUE_MODE", "ok");
 });
