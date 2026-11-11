@@ -92,6 +92,9 @@ it — without meeting a single invented screen.
 - **Chat transcript** (`feat/263-chat-transcript`) — turn folding, verb summaries, working/thinking
   rows, hover actions and quote from selection, inside the chat pane the tabs slice mounted.
   Timestamps and forks stay out; they need protocol work.
+- **Settled shelf** (`feat/263-settled-shelf`, committed `68b8826`) — a collapsed `Settled (N)` group
+  at the end of the same list, Settle/Unsettle back in the row menu and on the card, and a settled
+  task stays selectable with its tabs. Under UI/UX review.
 
 ### Queued, research done
 
@@ -102,9 +105,6 @@ behaviour and the open questions; the slice brief is written from it.
   display name, and a rule for applying a favorite from another instance. Blocked on that decision.
 - **Chat start polish** — one focus intent, a device-local last-used model layer, the hero headline,
   and the create gating wording.
-- **Settled shelf** (`feat/263-settled-shelf`) — the routed shell drops non-active tasks
-  (`visual-status.ts:128`) and has no place to bring one back; `docs/design.md:78` wants a collapsed
-  shelf that resumes sessions. In flight; Settle returns to the menu when it lands.
 
 ### Deferred or descoped — needs an explicit record
 
@@ -142,6 +142,7 @@ Per `docs/delivery.md`, each slice gets a UI/UX review and then a technical revi
 | Tabs (`feat/263-tabs`)                            | done; two P1s and eight P2s fixed in `d149684`           | done; merged in `0150b3b`                  |
 | Settings recipes (`feat/263-kit-settings`)        | done; visually neutral, two claimed differences          | done; merged in `e13a482`                  |
 | Drafts (`feat/263-drafts`)                        | done; one P1 and three P2s fixed in `cdf010f`            | done; merged in `8263d43`                  |
+| Settled shelf (`feat/263-settled-shelf`)          | in progress                                              | after UI/UX                                |
 | Task menu (`feat/263-task-menu`)                  | done; two P1s fixed (Settle removed, focus after remove) | done; merged `0490416`                     |
 
 ### Technical review triage
