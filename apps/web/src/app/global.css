@@ -55,6 +55,10 @@
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   --color-scrim: var(--scrim);
+  /* The visual shell's canvas and its first raised layer, named for modules (`ui-kit.md`,
+     **Direction**): a chat pane sits on the canvas and a user bubble on layer-01. */
+  --color-canvas: var(--visual-bg-base);
+  --color-layer-01: var(--visual-bg-layer-01);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);

@@ -44,6 +44,10 @@ const buttonVariants = cva(
         tab: "h-full min-w-0 max-w-50 justify-start overflow-hidden text-left focus-visible:ring-inset",
         // A footer status line shares the row with other occupants and truncates its label.
         status: "min-w-0 flex-1 justify-start overflow-hidden focus-visible:ring-inset",
+        // A transcript activity row: the whole lane's width, label first, disclosure last, and an
+        // inset ring because it lives in the timeline's scroll container (T3's `WorkLogButton`,
+        // `WorkLog.tsx:78`).
+        activity: "w-full min-w-0 justify-start overflow-hidden text-left focus-visible:ring-inset",
       },
       size: {
         default:
@@ -55,6 +59,9 @@ const buttonVariants = cva(
         row: "min-h-13 gap-2 px-2 py-1.5",
         // Dense single-line list row (ChangeFileRow): the height and width of the row it fills.
         "row-sm": "min-h-7 w-full gap-2 rounded-sm px-2",
+        // A transcript activity row is 24 px with the icon in a 24 px slot (T3's `WorkLogLine`,
+        // `WorkLog.tsx:51`: `min-h-6 gap-1.5 px-0.5 py-0.5 text-sm leading-relaxed`).
+        activity: "min-h-6 gap-1.5 px-0.5 py-0.5 text-sm leading-relaxed",
         icon: "size-8",
         "icon-micro": "size-5 rounded-sm p-0 [&_svg:not([class*='size-'])]:size-3",
         "icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3",
