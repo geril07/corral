@@ -63,6 +63,13 @@ it — without meeting a single invented screen.
   Terminal as one tab, Changes in the companion group, close ≠ delete with a closed stack,
   device-local layout, a compact task row above the strip and an actionable empty pane. Mounts the
   real chat, terminal and changes panes.
+- **Draft ownership, list keys and rail focus** (#263, `262d1b4`) — a create clears and selects only
+  the draft that sent it, favorite headings no longer repeat virtual-list keys across providers, and
+  the instance rail moves DOM focus with the selection.
+- **Dialog and Escape fixes** (#263, `b33f16a`) — dialogs animate without transitioning their
+  geometry (the interface scale was animating width, height, font size and radii mid-interaction),
+  and Escape with a workspace or branch picker open closes the picker instead of cancelling the
+  draft.
 - **Technical fixes** (#263, `88444cd`) — protocol 14, `projects.baseRefs` with grouped local/remote
   refs and the main tree's `currentBranch`, disabled instances refused, one owner for saved
   preferences, a missing project cannot be submitted, the checkout row shows the real branch, the
@@ -153,10 +160,10 @@ The technical pass on the merged surface returned no P0, five P1 and eight P2. D
 | Directory truncation warning dropped in Add project      | P2  | Fix now                                                                           |
 | Show all / Hide all erase saved ordering                 | P2  | Fix now                                                                           |
 
-Status: every row except three is merged on the feature branch (`88444cd`). Still open, and being
-fixed on `feat/263-tech-fixes-b`: create completion versus draft ownership (P1), duplicate virtual
-keys when favorites span providers (P2), and roving focus in the instance rail (P2). The settings
-control recipes stay a queued slice of their own.
+Status: every row is merged on the feature branch. The last three — create completion versus draft
+ownership (P1), duplicate virtual keys when favorites span providers (P2) and roving focus in the
+instance rail (P2) — landed in `ae0cd2f`/`262d1b4`. The settings control recipes stay a queued slice
+of their own.
 
 ## Open decisions
 
