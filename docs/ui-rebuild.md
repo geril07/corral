@@ -6,10 +6,11 @@ status section when a slice lands; a slice that only lives in a chat does not ex
 
 Rules for how work is done and reviewed: `docs/delivery.md`. Product decisions: `docs/design.md`.
 
-**Where we are (2026-11-11).** All landed slices are on `feat/263-task-composer-instances`, the
-branch's current head; nothing is pushed, there is no PR yet, and the running app is the dev
-stand built from that branch. The chat transcript has landed locally after both reviews. Legacy
-test cleanup is blocked on the scope decision below. No new product slices are being started.
+**Where we are (2026-11-11).** All completed slices are integrated together for delivery to `main`
+from `feat/263-task-composer-instances`. After viewing the combined dev stand, the owner authorized
+publishing and merging this work, with subsequent visual fixes handled separately. The chat
+transcript has passed both reviews. Legacy test cleanup is blocked on the scope decision below;
+its incomplete worktree changes are not included. No new product slices are being started.
 Research for the queued slices is in `.review/research/`
 (`tabs.md`, `sidebar-task-menu.md`, `chat-transcript.md`, `chat-start.md`, `drafts.md`); each claim
 there carries `path:line` into the reference checkouts.
@@ -105,7 +106,9 @@ it — without meeting a single invented screen.
   visibility regression below; no tests, helpers or production code have been deleted. Finishing
   this work with green full suites needs the owner's scope decision, not deletion of live coverage.
 - **Completion boundary** — finish only work already started, then stop. Favorites and chat-start
-  polish remain unstarted; no push or PR is authorized.
+  polish remain unstarted. The owner subsequently authorized merging the completed work into `main`
+  before addressing the visual fixes they identify; this does not authorize the blocked cleanup
+  expansion.
 
 ### Combined-tree verification
 
