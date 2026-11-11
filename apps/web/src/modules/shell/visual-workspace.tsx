@@ -1,6 +1,6 @@
 import { describeError } from "@corral/client/rpc-errors";
 import { activeAfterClose } from "@corral/client/terminal-selection";
-import { taskSettingsFor } from "@corral/protocol/config";
+import { taskSettingsFor, type ActionId } from "@corral/protocol/config";
 import type { CreateTaskInput, Task } from "@corral/protocol/rpc";
 import { workspaceMissingPath } from "@corral/protocol/workspace";
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -20,7 +20,12 @@ import {
   type TaskComposerDraft,
 } from "../tasks/index.ts";
 import { RenameDialog, type RenameTarget } from "../workspace/index.ts";
-import { draftForProject, newTaskDraft } from "./task-drafts.ts";
+import {
+  draftForProject,
+  draftHasContent,
+  newTaskDraft,
+  updateDraftComposer,
+} from "./task-drafts.ts";
 import { useTaskDrafts } from "./use-task-drafts.ts";
 import { useTaskWorkspace } from "./task-workspace.tsx";
 
@@ -41,6 +46,19 @@ interface RemoveState {
 
 /** The pane the open draft's tab controls; the composer is its content. */
 const DRAFT_PANE_ID = "task-draft-pane";
+
+/** The prefix's numbered chords, the same nine a task's strip uses. */
+const NUMBER_ACTIONS = [
+  "session-1",
+  "session-2",
+  "session-3",
+  "session-4",
+  "session-5",
+  "session-6",
+  "session-7",
+  "session-8",
+  "session-9",
+] as const satisfies readonly ActionId[];
 
 /** The failure map without one draft's entry; the same map when it had none. */
 function withoutError(errors: ReadonlyMap<number, string>, key: number) {
@@ -271,9 +289,7 @@ export function VisualWorkspace({
     (next: TaskComposerDraft) => {
       const id = activeDraftIdRef.current;
       if (id === undefined) return;
-      changeDrafts((current) =>
-        current.map((entry) => (entry.id === id ? { ...entry, composer: next } : entry)),
-      );
+      changeDrafts((current) => updateDraftComposer(current, id, next));
     },
     [changeDrafts],
   );
@@ -289,7 +305,7 @@ export function VisualWorkspace({
       // draft unpinned so it follows the loaded config instead of freezing the placeholder.
       const opening = configLoaded ? defaultLaunch(settings, profiles, config.agents) : undefined;
       // One draft per project, reused (T3): an existing draft comes back with its text and picks.
-      const existing = draftForProject(draftsRef.current, projectId, activeDraftIdRef.current);
+      const existing = draftForProject(draftsRef.current, projectId);
       pickedProject.current = true;
       setProjectChoice(false);
       if (existing === undefined) {
@@ -304,7 +320,6 @@ export function VisualWorkspace({
       setFocusRequest((request) => request + 1);
     },
     [
-      activeDraftIdRef,
       changeDrafts,
       config,
       configLoaded,
@@ -326,25 +341,65 @@ export function VisualWorkspace({
 
   /**
    * Closing a draft tab discards it, as OpenCode's close does for a draft: the tab and what was
-   * typed go together. Escape is the way out that keeps it.
+   * typed go together. T3 makes exactly this action undoable, so the sidebar notice keeps the
+   * removed draft and puts it back until the notice is replaced or dismissed. Escape is the way
+   * out that keeps the draft without a notice.
    */
-  const closeDraftTab = useCallback(
+  const discardDraft = useCallback(
     (id: string) => {
       const current = draftsRef.current;
       const index = current.findIndex((entry) => entry.id === id);
       if (index === -1) return;
+      const discarded = current[index]!;
       const next = current[index + 1] ?? current[index - 1];
       changeDrafts((all) => all.filter((entry) => entry.id !== id));
+      setNotice({
+        message: "Discarded",
+        tone: "notice",
+        action: {
+          label: "Undo",
+          run: () => {
+            const replacement = draftsRef.current.find(
+              (entry) =>
+                entry.id !== discarded.id &&
+                entry.composer.projectId === discarded.composer.projectId,
+            );
+            // T3 refuses to restore over a draft with new content; an empty one has nothing to
+            // lose and is dropped, so the restored draft keeps the one-draft-per-project rule.
+            if (replacement !== undefined && draftHasContent(replacement)) {
+              setNotice({ message: "The draft has new content.", tone: "error" });
+              return;
+            }
+            const open = activeDraftIdRef.current;
+            changeDrafts((all) => {
+              if (all.some((entry) => entry.id === discarded.id)) return all;
+              const rest = all.filter(
+                (entry) => entry.composer.projectId !== discarded.composer.projectId,
+              );
+              const at = Math.min(index, rest.length);
+              return [...rest.slice(0, at), discarded, ...rest.slice(at)];
+            });
+            setNotice(undefined);
+            // The strip only shows with an open draft, so a restore with none reopens it; when
+            // another draft owns the composer, the tab comes back without taking the keyboard.
+            if (open === undefined) {
+              setActiveDraftId(discarded.id);
+              setFocusRequest((request) => request + 1);
+            }
+          },
+        },
+      });
       if (activeDraftIdRef.current !== id) return;
       setActiveDraftId(next?.id);
       if (next !== undefined) {
         setFocusRequest((request) => request + 1);
         return;
       }
-      // The working area fell back to the selected task; its active tab is the next thing to use,
-      // and an empty workspace hands the keyboard back to New task.
+      // The working area fell back to the selected task; its selected tab is the next thing to
+      // use, then any tab, and an empty workspace hands the keyboard back to New task.
       requestAnimationFrame(() => {
         const target =
+          document.querySelector<HTMLElement>('[data-tab-id][aria-selected="true"]') ??
           document.querySelector<HTMLElement>("[data-tab-id]") ??
           document.querySelector<HTMLElement>('button[aria-label="New task"]');
         target?.focus();
@@ -471,19 +526,32 @@ export function VisualWorkspace({
     active,
   });
   const closeBinding = bindingOf(config, "close-tab");
-  // A draft tab has the same keyboard close as any other tab; it has no closed stack to reopen.
-  const draftPrefix = useMemo(
-    () => ({
-      bindings: closeBinding === null ? {} : { [closeBinding]: "close-draft" },
+  // A draft tab has the same keyboard close and numbered chords as any other tab; it has no
+  // closed stack to reopen.
+  const draftPrefix = useMemo(() => {
+    const bindings: Record<string, string> = {};
+    if (closeBinding !== null) bindings[closeBinding] = "close-draft";
+    for (const [index, action] of NUMBER_ACTIONS.entries()) {
+      const chord = bindingOf(config, action);
+      if (chord !== null) bindings[chord] = `draft-${index + 1}`;
+    }
+    return {
+      bindings,
       onAction: (action: string) => {
-        if (action === "close-draft" && activeDraft !== undefined) closeDraftTab(activeDraft.id);
+        if (action === "close-draft") {
+          if (activeDraft !== undefined) discardDraft(activeDraft.id);
+          return;
+        }
+        if (!action.startsWith("draft-")) return;
+        const draft = drafts[Number(action.slice("draft-".length)) - 1];
+        if (draft !== undefined) selectDraft(draft.id);
       },
-    }),
-    [activeDraft, closeBinding, closeDraftTab],
-  );
-  // A draft is a tab in the main group; every open draft shows in the same strip. The project
-  // names the draft where two tabs would otherwise read the same (`docs/layout.md`).
-  const draftItems: VisualTabItem[] = drafts.map((entry) => {
+    };
+  }, [activeDraft, closeBinding, config, discardDraft, drafts, selectDraft]);
+  // A draft is a tab in the main group; every open draft shows in the same strip. The project is
+  // the visible label, so two drafts never read the same, and the pencil glyph says it is a draft
+  // (`docs/layout.md`).
+  const draftItems: VisualTabItem[] = drafts.map((entry, index) => {
     const projectName =
       entry.composer.projectId === null
         ? "No project"
@@ -492,7 +560,8 @@ export function VisualWorkspace({
     return {
       id: entry.id,
       kind: "draft",
-      label: "New task",
+      number: index < 9 ? index + 1 : undefined,
+      label: projectName,
       ariaLabel: ["New task", projectName].join(" "),
       title: `New task · ${projectName}`,
       selected: entry.id === activeDraft?.id,
@@ -506,7 +575,7 @@ export function VisualWorkspace({
       items={draftItems}
       position={appearance.tabPosition}
       onSelect={selectDraft}
-      onClose={closeDraftTab}
+      onClose={discardDraft}
     />
   );
 

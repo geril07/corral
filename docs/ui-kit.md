@@ -207,8 +207,9 @@ context-menu dispatcher.
   inline padding **6**, gap **6**, **16** px glyph, **13/16** weight **530** title), a **20×20**
   close control at inset **4** revealed by hover/focus, a **1.5×12** separator between inactive
   neighbours, a **72** px tab minimum and **24** px edge fades over a horizontal scroller that
-  keeps the active tab in view. Numbers are session-tab content inside a group; `Changes` and file
-  tabs carry none. `VisualTabPanel`, `VisualAddMenu`, `VisualCompanion` and `VisualSplitHandle`
+  keeps the active tab in view. Numbers are session-tab content inside a group and draft-tab
+  content in the draft strip, where the same numbered chords select them; `Changes` and file tabs
+  carry none. `VisualTabPanel`, `VisualAddMenu`, `VisualCompanion` and `VisualSplitHandle`
   are the strip's remaining structural pieces: the companion owns a **1** px split with an **8** px
   pointer and keyboard hit area, keeps its contents mounted while shut, and its width and the
   strip's top/bottom position are device preferences. Hover is instant; only the companion's

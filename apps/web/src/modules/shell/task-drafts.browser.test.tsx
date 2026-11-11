@@ -221,7 +221,16 @@ test("a corrupt draft record is ignored", async () => {
   await second.unmount();
 });
 
-test("Escape keeps the draft while closing its tab discards it", async () => {
+const noticeMessage = () => page.getByText("Discarded", { exact: true });
+const undoButton = () => page.getByRole("button", { name: "Undo" });
+const dismissNotice = () => page.getByRole("button", { name: "Dismiss status" });
+
+async function discardDraftTab(projectName: string) {
+  await userEvent.hover(draftTab(projectName));
+  await page.getByRole("button", { name: `Close ${projectName} tab` }).click();
+}
+
+test("Escape keeps the draft while closing its tab discards it with an Undo", async () => {
   const { projects, screen } = await appWithProjects(["drafts-close"]);
   const project = projects[0]!;
   const prompt = "Keep me on Escape";
@@ -230,23 +239,179 @@ test("Escape keeps the draft while closing its tab discards it", async () => {
   await promptField().fill(prompt);
   await userEvent.keyboard("{Escape}");
   await expect.element(composer()).not.toBeInTheDocument();
+  // Escape keeps the draft and says nothing; there is no undo to dismiss.
+  await expect.element(undoButton()).not.toBeInTheDocument();
 
   await startNewTask();
   await expect.element(promptField()).toHaveValue(prompt);
 
-  // OpenCode's close is destructive for a draft: the tab and its text go together.
-  await userEvent.hover(draftTab(project.name));
-  await page.getByRole("button", { name: "Close New task tab" }).click();
+  // OpenCode's close is destructive for a draft, and T3 makes that action undoable.
+  await discardDraftTab(project.name);
   await expect.element(composer()).not.toBeInTheDocument();
+  await expect.element(noticeMessage()).toBeVisible();
+  await undoButton().click();
+  await expect.element(promptField()).toHaveValue(prompt);
+  await expect.element(draftTab(project.name)).toHaveAttribute("aria-selected", "true");
+  expect(draftTabs().getByRole("tab").elements()).toHaveLength(1);
+  await expect.element(undoButton()).not.toBeInTheDocument();
 
-  await startNewTask();
-  await expect.element(promptField()).toHaveValue("");
-
-  // The tab's own keyboard close is the same destructive action.
+  // The tab's own keyboard close is the same action, and the notice is dismissible without undo.
   await promptField().fill("Close with the keyboard");
   await prefixThen("q");
   await expect.element(composer()).not.toBeInTheDocument();
+  await expect.element(noticeMessage()).toBeVisible();
+  await dismissNotice().click();
+  await expect.element(undoButton()).not.toBeInTheDocument();
+
   await startNewTask();
   await expect.element(promptField()).toHaveValue("");
+  await screen.unmount();
+});
+
+test("discarding two drafts keeps one undo, for the last discard", async () => {
+  const { projects, screen } = await appWithProjects(["drafts-undo-a", "drafts-undo-b"]);
+  const alpha = projects[0]!;
+  const beta = projects[1]!;
+
+  await startNewTaskIn(alpha);
+  await promptField().fill("Alpha draft");
+  await userEvent.keyboard("{Escape}");
+  await startNewTaskIn(beta);
+  await promptField().fill("Beta draft");
+
+  // Closing a background draft's tab keeps the open one where it is.
+  await discardDraftTab(alpha.name);
+  await expect.element(promptField()).toHaveValue("Beta draft");
+  await expect.element(undoButton()).toBeVisible();
+  expect(undoButton().elements()).toHaveLength(1);
+
+  // The second discard replaces the first undo instead of stacking one behind it.
+  await discardDraftTab(beta.name);
+  expect(undoButton().elements()).toHaveLength(1);
+  await undoButton().click();
+
+  // Only beta's draft comes back; alpha's undo was replaced and is gone.
+  await expect.element(draftTab(beta.name)).toHaveAttribute("aria-selected", "true");
+  await expect.element(promptField()).toHaveValue("Beta draft");
+  expect(draftTabs().getByRole("tab").elements()).toHaveLength(1);
+  await screen.unmount();
+});
+
+test("the discard notice's Undo is a keyboard-reachable button", async () => {
+  const { projects, screen } = await appWithProjects(["drafts-undo-keyboard"]);
+  const project = projects[0]!;
+  const prompt = "Undo with the keyboard";
+
+  await startNewTask();
+  await promptField().fill(prompt);
+  await discardDraftTab(project.name);
+  await expect.element(composer()).not.toBeInTheDocument();
+
+  const undo = undoButton().element();
+  expect(undo.tabIndex).toBe(0);
+  undo.focus();
+  await expect.element(undoButton()).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(promptField()).toHaveValue(prompt);
+  await screen.unmount();
+});
+
+test("switching the project in the composer leaves one draft per project", async () => {
+  const { projects, screen } = await appWithProjects(["drafts-switch-a", "drafts-switch-b"]);
+  const alpha = projects[0]!;
+  const beta = projects[1]!;
+
+  await startNewTaskIn(alpha);
+  await promptField().fill("Alpha draft");
+  await userEvent.keyboard("{Escape}");
+  await startNewTaskIn(beta);
+  await promptField().fill("Beta draft");
+
+  // Moving beta's draft onto alpha takes alpha's older draft with it.
+  await projectButton().click();
+  await chooseProject(alpha);
+
+  expect(draftTabs().getByRole("tab").elements()).toHaveLength(1);
+  await expect.element(draftTab(alpha.name)).toHaveAttribute("aria-selected", "true");
+  await expect.element(promptField()).toHaveValue("Beta draft");
+  await expect.element(projectButton()).toHaveTextContent(alpha.name);
+
+  // New task for alpha returns that one draft instead of opening a second.
+  await userEvent.keyboard("{Escape}");
+  await startNewTaskIn(alpha);
+  expect(draftTabs().getByRole("tab").elements()).toHaveLength(1);
+  await expect.element(promptField()).toHaveValue("Beta draft");
+  await screen.unmount();
+});
+
+test("two draft tabs show their project names and have distinct close controls", async () => {
+  const { projects, screen } = await appWithProjects(["drafts-labels-a", "drafts-labels-b"]);
+  const alpha = projects[0]!;
+  const beta = projects[1]!;
+
+  await startNewTaskIn(alpha);
+  await promptField().fill("Alpha draft");
+  await userEvent.keyboard("{Escape}");
+  await startNewTaskIn(beta);
+  await promptField().fill("Beta draft");
+
+  const labels = draftTabs()
+    .getByRole("tab")
+    .elements()
+    .map((element) => element.querySelector(".visual-tab-label")?.textContent);
+  expect(labels).toEqual([alpha.name, beta.name]);
+  await expect
+    .element(page.getByRole("button", { name: `Close ${alpha.name} tab` }))
+    .toBeInTheDocument();
+  await expect
+    .element(page.getByRole("button", { name: `Close ${beta.name} tab` }))
+    .toBeInTheDocument();
+  await screen.unmount();
+});
+
+test("the numbered chords select a draft", async () => {
+  const { projects, screen } = await appWithProjects(["drafts-number-a", "drafts-number-b"]);
+  const alpha = projects[0]!;
+  const beta = projects[1]!;
+
+  await startNewTaskIn(alpha);
+  await promptField().fill("Alpha draft");
+  await userEvent.keyboard("{Escape}");
+  await startNewTaskIn(beta);
+  await promptField().fill("Beta draft");
+
+  const numbers = draftTabs()
+    .getByRole("tab")
+    .elements()
+    .map((element) => element.querySelector(".visual-tab-number")?.textContent);
+  expect(numbers).toEqual(["1", "2"]);
+
+  await prefixThen("1");
+  await expect.element(draftTab(alpha.name)).toHaveAttribute("aria-selected", "true");
+  await expect.element(promptField()).toHaveValue("Alpha draft");
+  await prefixThen("2");
+  await expect.element(draftTab(beta.name)).toHaveAttribute("aria-selected", "true");
+  await expect.element(promptField()).toHaveValue("Beta draft");
+  await screen.unmount();
+});
+
+test("closing the last draft returns focus to the selected task tab", async () => {
+  const { projects, screen } = await appWithProjects(["drafts-focus"]);
+  const project = projects[0]!;
+
+  await startNewTask();
+  await promptField().fill("A task with a session");
+  await createButton().click();
+  const sessions = page.getByRole("tablist", { name: "Sessions" });
+  await expect.element(sessions).toBeVisible();
+  const selectedTab = sessions.getByRole("tab", { selected: true });
+  await expect.element(selectedTab).toBeVisible();
+
+  await startNewTask();
+  await expect.element(promptField()).toHaveFocus();
+  await discardDraftTab(project.name);
+  await expect.element(composer()).not.toBeInTheDocument();
+
+  await expect.element(selectedTab).toHaveFocus();
   await screen.unmount();
 });
