@@ -102,7 +102,10 @@ What a user does. Everything below is built and verified end to end, chat views 
   open no task row is current. Closing the draft's tab discards it, while Escape (with no failure
   on screen) returns to the selection the URL still names and keeps the draft for the next New
   task. The prompt and its focus survive a project/No project switch, a cancelled project or model
-  picker and a failed create; reopening New task after a reload restores the text, the choices and
+  picker and a failed create; choosing another project in the composer moves the draft there only
+  when that project's draft is empty, and a project whose draft has text keeps that draft, which
+  the composer opens instead, so neither draft loses its text. Reopening New task after a reload
+  restores the text, the choices and
   the prompt's focus. A failed create keeps Escape in the composer so its
   `role="alert"` cannot be hidden. Until the projects, tasks, sessions and terminals lists have
   each delivered once, the main area says it is loading; a list the server refuses is one muted
@@ -360,9 +363,11 @@ What a user does. Everything below is built and verified end to end, chat views 
 - Interface text scale is adjustable per device (80–140%, relative to OS/browser scale).
   Terminal text stays fixed and independent of the interface text scale; terminal font controls
   are separate scope.
-- Task drafts are one device-local record shared by every window of the app. Two windows on the
-  same record keep the last write, so the other window's typing is dropped. Storage eviction or
-  private mode can drop drafts; nothing is kept on the server.
+- Task drafts are one device-local record shared by every window of the app. A window writes only
+  after an edit of its own, so closing an idle window keeps the other window's record; two windows
+  that both type keep the last write, and the other window's typing is dropped. A page that could
+  not read the record does not write it on close. Storage eviction or private mode can drop drafts;
+  nothing is kept on the server.
 - Hover-only row actions and settings writes are not implied by this kit migration.
   Mid-session model and reasoning switching belongs to a chat driver; a terminal session has no
   such control.

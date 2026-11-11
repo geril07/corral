@@ -75,21 +75,41 @@ export function draftForProject(
   return drafts.find((draft) => draft.composer.projectId === projectId);
 }
 
+/** The drafts after one composer edit, and the draft the composer must show when it had to move. */
+export interface DraftComposerUpdate {
+  drafts: readonly TaskDraft[];
+  /** The project's existing draft the composer switches to instead of taking the project. */
+  openId?: string;
+}
+
 /**
- * The drafts with `id`'s composer replaced. One draft per project: a composer that moves to a
- * project another draft already names drops that older draft in the same pass, as T3 rehomes the
- * draft to its project key. The updated draft keeps its strip position.
+ * The drafts with `id`'s composer replaced. One draft per project, and a draft with content is
+ * never dropped: a composer that moves to a project another draft already names takes that
+ * project only when its draft is empty, as T3 rehomes the draft to its project key. When the other
+ * draft has text, the edit cannot take the project, so the composer opens that draft and this one
+ * keeps its own project, strip position and text.
  */
 export function updateDraftComposer(
   drafts: readonly TaskDraft[],
   id: string,
   composer: TaskComposerDraft,
-): readonly TaskDraft[] {
-  if (!drafts.some((draft) => draft.id === id)) return drafts;
-  return drafts.flatMap((draft) => {
-    if (draft.id === id) return [{ ...draft, composer }];
-    return draft.composer.projectId === composer.projectId ? [] : [draft];
-  });
+): DraftComposerUpdate {
+  if (!drafts.some((draft) => draft.id === id)) return { drafts };
+  const target = drafts.find(
+    (draft) => draft.id !== id && draft.composer.projectId === composer.projectId,
+  );
+  if (target === undefined) {
+    return {
+      drafts: drafts.map((draft) => (draft.id === id ? { ...draft, composer } : draft)),
+    };
+  }
+  if (draftHasContent(target)) return { drafts, openId: target.id };
+  return {
+    drafts: drafts.flatMap((draft) => {
+      if (draft.id === id) return [{ ...draft, composer }];
+      return draft.id === target.id ? [] : [draft];
+    }),
+  };
 }
 
 /**
@@ -143,6 +163,9 @@ export function parseDrafts(raw: string | null): TaskDraft[] | undefined {
   const record = recordOf(parsed);
   if (record === undefined) return undefined;
   if (record["version"] !== 1 || !Array.isArray(record["drafts"])) return undefined;
+  // One draft per project, first entry wins: a record written by hand or by an older build must
+  // not resume two drafts that New task could never choose between.
+  const projects = new Set<string | null>();
   return record["drafts"].flatMap((value) => {
     const entry = recordOf(value);
     if (entry === undefined) return [];
@@ -151,7 +174,9 @@ export function parseDrafts(raw: string | null): TaskDraft[] | undefined {
     if (typeof id !== "string" || id === "" || composer === undefined) return [];
     const draft = resumedTaskDraft(id, composer);
     // The store only holds drafts with something typed; an empty entry is not resumed.
-    return draftHasContent(draft) ? [draft] : [];
+    if (!draftHasContent(draft) || projects.has(draft.composer.projectId)) return [];
+    projects.add(draft.composer.projectId);
+    return [draft];
   });
 }
 

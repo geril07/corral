@@ -124,6 +124,10 @@ export function TaskComposer({
     onModalChange(pickingAgent || pickingProject);
   }, [onModalChange, pickingAgent, pickingProject]);
 
+  // A picker cannot outlive the composer: the draft's tab can close with the project or agent
+  // popup open, and a stale `true` would keep the shell's whole prefix disabled.
+  useEffect(() => () => onModalChange(false), [onModalChange]);
+
   const project =
     draft.projectId === null
       ? undefined
