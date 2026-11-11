@@ -1,15 +1,13 @@
 import { expect, type Page } from "@playwright/test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
-  openAgentSessionPicker,
   addProject,
   createRepo,
-  createTask,
   openedWindow,
+  promptField,
   screenText,
   sessionTab,
-  startShell,
   unwrappedScreenText,
   workspace,
 } from "./app-helpers.ts";
@@ -39,22 +37,26 @@ test("a renamed task session keeps its name, its process and its conversation ac
   stateDir,
 }) => {
   const repo = createRepo(stateDir);
+  mkdirSync(path.join(stateDir, "config"), { recursive: true });
+  writeFileSync(
+    path.join(stateDir, "config", "config.toml"),
+    '[tasks]\nagent = "claude"\nview = "terminal"\n',
+  );
   const first = await launchApp();
   const window = await openedWindow(first);
-  // The window takes keys only once the workspace has loaded (as every other spec waits).
-  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
-  await createTask(window, "Labels");
-  await startShell(window);
-
-  await openAgentSessionPicker(window, "terminal");
-  await expect(window.getByRole("radio", { name: "claude" })).toBeFocused();
-  await window.keyboard.press("Digit1");
+  await window.getByRole("button", { name: "New task", exact: true }).click();
+  await promptField(window).fill("Labels");
+  await promptField(window).press("Enter");
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
   await window.keyboard.type("first-prompt");
   await window.keyboard.press("Enter");
   await expect.poll(() => unwrappedScreenText(window)).toContain("fake claude got: first-prompt");
   const started = readLaunches(stateDir).find((launch) => launch.agent === "claude");
+  await window.keyboard.press("Alt+KeyA");
+  await window.keyboard.press("KeyC");
+  await expect(tab(window, "shell")).toBeVisible();
+  await tab(window, "claude").click();
 
   // Renaming changes the name only: the same process, still on the same conversation.
   await renameCurrent(window, "claude", "reviewer");
