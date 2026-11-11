@@ -36,8 +36,8 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
 - `prefix \` toggles the sidebar. When hidden, the same toggle floats at the main surface's
   top-start corner. Clicking a card selects it and updates the route's `task` search; the review
   host at `/visual-review` (development only) renders the same components with fixture rows for
-  rare states. Search, New task, Settings and Settle are deferred in this slice; Add project opens
-  the existing real dialog.
+  rare states. Search and Settle are deferred in this slice; New task, Settings and Add project
+  are connected to the real surfaces.
 - The main surface is the selected task's working area: a compact **40** px task row (title,
   project, branch, status), the **40** px strip, and the optional companion group beside the main
   pane. The task card shows its title, project initial and status; branch, agent and prompt are in
@@ -50,10 +50,11 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
 ## Task header
 
 - Read-only repository/worktree-branch context, separator, task title; both truncate with their
-  complete accessible name and a tooltip. The draft names its actual repository and New task.
-  The branch is the task's recorded create-time fact, shown as `<branch> (recorded)` and recorded
-  at create in the accessible name; a detached create shows `detached`, never `HEAD`. The header
-  does not claim it is the current checkout: Changes names the live branch when it differs.
+  complete accessible name and a tooltip. A draft has no task header: its tab in the strip names
+  the project. The branch is the task's recorded create-time fact, shown as `<branch> (recorded)`
+  and recorded at create in the accessible name; a detached create shows `detached`, never `HEAD`.
+  The header does not claim it is the current checkout: Changes names the live branch when it
+  differs.
 - The task's status sits after the change counts and linked-request badge, before the overflow
   menu. This legacy header still uses the most urgent of all sessions; the routed shell's card uses
   the primary session only. In the sidebar's vocabulary: a glyph alone
@@ -165,7 +166,8 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
   tabs and with the same close control; its pane is the composer. Opening New task for a project
   that already has a draft selects that draft instead of creating a second one, and a No project
   draft is its own. Closing the draft's tab discards it (OpenCode's close is destructive for a
-  draft); Escape and a task selection only put it away.
+  draft) and offers Undo in the sidebar notice, which restores the draft in its project, strip
+  position and text; Escape and a task selection only put it away.
 - Drafts are device-local: one versioned record, `corral.task-drafts`, holds the drafts with
   something typed — prompt, project, agent/model, workspace mode and base branch — written 300 ms
   after the last edit and flushed before unload. A draft with nothing typed is never written and
@@ -173,9 +175,10 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
   choices and the prompt's focus. There is no server draft, no protocol type and no draft URL, and
   no draft row in the sidebar: while a draft is open no task, project or loose-terminal row is
   current.
-- The strip names every draft tab `New task`; the project it belongs to (or `No project`, or
-  `Project unavailable`) is in the tab's accessible name and tooltip. The task header is absent
-  while a draft owns the main area.
+- The strip labels every draft tab with its project (or `No project`, or `Project unavailable`);
+  the pencil glyph says it is a draft, the visible number is the `prefix 1`–`9` chord, and the
+  accessible name and tooltip still begin with `New task`. The task header is absent while a draft
+  owns the main area.
 - Prompt and agent/model, Chat/Terminal and Create controls share the composer. One left-aligned
   context row below it names the project, the workspace mode and the branch; setup never sits in
   ongoing chat. The project name reuses the shared project picker, and choosing a project returns

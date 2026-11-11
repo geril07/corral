@@ -685,7 +685,7 @@ function holdCreates(client: CorralClient): () => void {
 }
 
 test("a create that lands after its draft closed leaves the next draft alone", async () => {
-  const { client, screen } = await appWithProject("composer-late-create");
+  const { client, project, screen } = await appWithProject("composer-late-create");
   const release = holdCreates(client);
 
   await newTaskButton().click();
@@ -698,7 +698,7 @@ test("a create that lands after its draft closed leaves the next draft alone", a
   // Closing the draft's tab discards it while its create is still running; New task opens a new
   // draft for the project, not the discarded one.
   await userEvent.hover(page.getByRole("tab", { name: /^New task / }));
-  await page.getByRole("button", { name: "Close New task tab" }).click();
+  await page.getByRole("button", { name: `Close ${project.name} tab` }).click();
   await expect.element(composer()).not.toBeInTheDocument();
   await newTaskButton().click();
   await expect.element(composer()).toBeVisible();

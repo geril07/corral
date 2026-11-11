@@ -24,6 +24,27 @@ export const TASK_DRAFT_STORAGE_KEY = "corral.task-drafts";
 
 let nextKey = 0;
 
+/** OpenCode's fallback for a context where `randomUUID` is missing or refused. */
+function fallbackId(): string {
+  return Math.random().toString(16).slice(2);
+}
+
+/**
+ * A client-only id. `crypto.randomUUID` is secure-context only, and the server has a `--host`
+ * option, so the app is reachable over a LAN address where the browser withholds it.
+ */
+function idOf(): string {
+  const crypto = globalThis.crypto;
+  if (crypto === undefined || typeof crypto.randomUUID !== "function") return fallbackId();
+  if (typeof globalThis.isSecureContext === "boolean" && !globalThis.isSecureContext)
+    return fallbackId();
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return fallbackId();
+  }
+}
+
 /** A draft for `projectId` with nothing typed and the launch the composer opened with pinned. */
 export function newTaskDraft(
   projectId: string | null,
@@ -31,7 +52,7 @@ export function newTaskDraft(
 ): TaskDraft {
   nextKey += 1;
   return {
-    id: crypto.randomUUID(),
+    id: idOf(),
     key: nextKey,
     composer: { ...emptyTaskComposerDraft(projectId), agent },
   };
@@ -44,17 +65,31 @@ export function resumedTaskDraft(id: string, composer: TaskComposerDraft): TaskD
 }
 
 /**
- * The project's draft, if one is open. T3 keeps one draft per project and reuses it; the active
- * draft wins when a project switch left two drafts naming the same project.
+ * The project's draft, if one is open. T3 keeps one draft per project and reuses it, so there is
+ * never a second one to choose between (`updateDraftComposer` keeps that invariant).
  */
 export function draftForProject(
   drafts: readonly TaskDraft[],
   projectId: string | null,
-  activeId?: string,
 ): TaskDraft | undefined {
-  const active = drafts.find((draft) => draft.id === activeId);
-  if (active !== undefined && active.composer.projectId === projectId) return active;
   return drafts.find((draft) => draft.composer.projectId === projectId);
+}
+
+/**
+ * The drafts with `id`'s composer replaced. One draft per project: a composer that moves to a
+ * project another draft already names drops that older draft in the same pass, as T3 rehomes the
+ * draft to its project key. The updated draft keeps its strip position.
+ */
+export function updateDraftComposer(
+  drafts: readonly TaskDraft[],
+  id: string,
+  composer: TaskComposerDraft,
+): readonly TaskDraft[] {
+  if (!drafts.some((draft) => draft.id === id)) return drafts;
+  return drafts.flatMap((draft) => {
+    if (draft.id === id) return [{ ...draft, composer }];
+    return draft.composer.projectId === composer.projectId ? [] : [draft];
+  });
 }
 
 /**

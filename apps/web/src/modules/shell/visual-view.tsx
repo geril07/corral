@@ -13,6 +13,7 @@ import {
 } from "react";
 import { copyText, type CopyOutcome } from "../../common/lib/clipboard.ts";
 import {
+  Button,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
@@ -53,6 +54,8 @@ export interface VisualRowFocus {
 export interface VisualShellNotice {
   message: string;
   tone: "error" | "notice";
+  /** One recoverable action, as T3's undo notice carries; it lives only in this notice. */
+  action?: { label: string; run: () => void } | undefined;
 }
 
 function shortcutChord(shortcut: VisualShortcut | undefined): string | undefined {
@@ -697,6 +700,11 @@ export function VisualShellView({
             role={shownNotice.tone === "error" ? "alert" : "status"}
           >
             <span className="visual-shell-notice-message">{shownNotice.message}</span>
+            {shownNotice.action !== undefined && (
+              <Button variant="ghost" size="xs" onClick={shownNotice.action.run}>
+                {shownNotice.action.label}
+              </Button>
+            )}
             {(onDismissNotice !== undefined || copyNotice !== undefined) && (
               <VisualIconButton
                 label="Dismiss status"

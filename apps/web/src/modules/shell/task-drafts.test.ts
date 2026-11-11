@@ -8,6 +8,7 @@ import {
   newTaskDraft,
   parseDrafts,
   serializeDrafts,
+  updateDraftComposer,
   type TaskDraft,
 } from "./task-drafts.ts";
 
@@ -78,14 +79,50 @@ test("a malformed draft is dropped without losing the rest of the record", () =>
   expect(parsed?.map((entry) => entry.composer.prompt)).toEqual(["Still here"]);
 });
 
-test("New task reuses the project's draft and prefers the one that is open", () => {
+test("New task finds the project's one draft", () => {
   const alpha = draft("project-a", { prompt: "Alpha" });
-  const movedAlpha = draft("project-a", { prompt: "Alpha moved here" });
   const beta = draft("project-b", { prompt: "Beta" });
-  const drafts = [alpha, movedAlpha, beta];
+  const drafts = [alpha, beta];
 
   expect(draftForProject(drafts, "project-a")).toBe(alpha);
-  expect(draftForProject(drafts, "project-a", movedAlpha.id)).toBe(movedAlpha);
   expect(draftForProject(drafts, "project-b")).toBe(beta);
   expect(draftForProject(drafts, null)).toBeUndefined();
+});
+
+test("a draft moved to a project that already has one drops the older duplicate", () => {
+  const alpha = draft("project-a", { prompt: "Alpha" });
+  const beta = draft("project-b", { prompt: "Beta" });
+
+  const moved = updateDraftComposer([alpha, beta], beta.id, {
+    ...beta.composer,
+    projectId: "project-a",
+  });
+
+  // One draft per project: the older project-a draft is gone and the moved one keeps its text.
+  expect(moved.map((entry) => entry.composer.projectId)).toEqual(["project-a"]);
+  expect(draftForProject(moved, "project-a")?.composer.prompt).toBe("Beta");
+  expect(draftForProject(moved, "project-b")).toBeUndefined();
+});
+
+test("a draft moved to No project replaces the older No project draft too", () => {
+  const scratch = draft(null, { prompt: "Scratch" });
+  const beta = draft("project-b", { prompt: "Beta" });
+
+  const moved = updateDraftComposer([scratch, beta], beta.id, {
+    ...beta.composer,
+    projectId: null,
+  });
+
+  expect(moved.map((entry) => entry.composer.projectId)).toEqual([null]);
+  expect(draftForProject(moved, null)?.composer.prompt).toBe("Beta");
+});
+
+test("updating a draft that is gone leaves the list as it was", () => {
+  const alpha = draft("project-a", { prompt: "Alpha" });
+  const beta = draft("project-b", { prompt: "Beta" });
+  const drafts = [alpha, beta];
+
+  expect(updateDraftComposer(drafts, "missing", { ...beta.composer, projectId: "project-a" })).toBe(
+    drafts,
+  );
 });
