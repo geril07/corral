@@ -56,13 +56,18 @@ function MenuHarness({
   rows = VISUAL_REVIEW_ROWS,
   settledRows = NO_SETTLED_ROWS,
   composerOpen = false,
+  selectedId,
 }: {
   actions: VisualTaskActions;
   rows?: readonly VisualTaskRow[];
   settledRows?: readonly VisualTaskRow[];
   composerOpen?: boolean;
+  /** The selection a route would name on load; absent starts on the first active row. */
+  selectedId?: string | null | undefined;
 }) {
-  const [selected, setSelected] = useState<string | null>(rows[0]?.id ?? null);
+  const [selected, setSelected] = useState<string | null>(
+    selectedId === undefined ? (rows[0]?.id ?? null) : selectedId,
+  );
   return (
     <VisualShellView
       rows={rows}
@@ -847,7 +852,58 @@ test("the Settled shelf names its count, opens from the keyboard and keeps the c
   expect(shelfRows.map((row) => row.getAttribute("data-task-id"))).toEqual(
     settled.map((row) => row.id),
   );
+  // The disclosure names the list it opens, in every state.
+  const list = document.getElementById(toggle.element().getAttribute("aria-controls") ?? "");
+  expect(list?.tagName).toBe("UL");
+  expect(list?.getAttribute("aria-label")).toBe("Settled tasks");
   await screen.unmount();
+});
+
+test("an expanded shelf reveals the current row when the selection arrives from outside", async () => {
+  const settled = Array.from({ length: 30 }, (_, index) => ({
+    ...VISUAL_REVIEW_ROWS[0]!,
+    id: `fixture-settled-${index}`,
+    title: `Settled row ${index}`,
+    settled: true,
+  }));
+  const last = settled.at(-1)!;
+  // The device preference from a prior visit: the shelf is already open when the route names a task.
+  window.localStorage.setItem("corral.sidebar-shelf", JSON.stringify({ expanded: true, page: 2 }));
+
+  const { container, unmount } = await render(
+    <MenuHarness actions={menuActions()} rows={[]} settledRows={settled} selectedId={last.id} />,
+  );
+  await expect
+    .element(page.getByRole("button", { name: "Settled (30)" }))
+    .toHaveAttribute("aria-expanded", "true");
+  const row = container.querySelector<HTMLElement>(`[data-task-id="${last.id}"]`);
+  const scroller = container.querySelector<HTMLElement>(".visual-task-scroll");
+  if (row === null || scroller === null) throw new Error("the shelf is missing its scroller");
+  expect(row.getAttribute("aria-current")).toBe("true");
+
+  const rowBox = row.getBoundingClientRect();
+  const scrollerBox = scroller.getBoundingClientRect();
+  expect(rowBox.top).toBeGreaterThanOrEqual(scrollerBox.top - 1);
+  expect(rowBox.bottom).toBeLessThanOrEqual(scrollerBox.bottom + 1);
+  await unmount();
+});
+
+test("the shelf's writer keeps the prior sidebar's page in the shared device preference", async () => {
+  window.localStorage.setItem("corral.sidebar-shelf", JSON.stringify({ expanded: false, page: 2 }));
+  const { unmount } = await render(
+    <MenuHarness
+      actions={menuActions()}
+      rows={VISUAL_REVIEW_ROWS}
+      settledRows={VISUAL_REVIEW_SETTLED_ROWS}
+    />,
+  );
+
+  await page.getByRole("button", { name: "Settled (2)" }).click();
+  expect(JSON.parse(window.localStorage.getItem("corral.sidebar-shelf") ?? "null")).toEqual({
+    expanded: true,
+    page: 2,
+  });
+  await unmount();
 });
 
 test("prefix w shows a hidden sidebar and gives its list the keyboard", async () => {
@@ -979,13 +1035,16 @@ const NO_MOVED_ROWS: readonly string[] = [];
 /**
  * The shelf's real mechanics for one device: the host moves the row between the two lists and
  * reports the server's answer. `refuse` keeps the state where it is, as a server refusal does;
- * `moved` is a change made elsewhere (another client, a restart).
+ * `still` reports success without moving, as a server that already had the state does; `moved` is
+ * a change made elsewhere (another client, a restart).
  */
 function ShelfHarness({
   refuse = false,
+  still = false,
   moved = NO_MOVED_ROWS,
 }: {
   refuse?: boolean;
+  still?: boolean;
   moved?: readonly string[];
 }) {
   const [settledIds, setSettledIds] = useState<readonly string[]>([]);
@@ -997,6 +1056,7 @@ function ShelfHarness({
     onViewSource: () => undefined,
     onToggleSettle: async (id) => {
       if (refuse) return false;
+      if (still) return true;
       setSettledIds((current) =>
         current.includes(id) ? current.filter((each) => each !== id) : [...current, id],
       );
@@ -1052,6 +1112,30 @@ test("a refused settle leaves no focus intent behind", async () => {
   if (!(elsewhere instanceof HTMLElement)) throw new Error("the toggle is missing");
   elsewhere.focus();
   await screen.rerender(<ShelfHarness refuse moved={[FIRST.id]} />);
+  await nextFrame();
+  expect(document.activeElement).toBe(elsewhere);
+  await expect.element(page.getByRole("button", { name: "Settled (1)" })).toBeVisible();
+  await screen.unmount();
+});
+
+test("a settle that reports success without moving cannot take the keyboard later", async () => {
+  // The server already had the target state, so it answered early and notified nobody; another
+  // window's watch may still land later.
+  const screen = await render(<ShelfHarness still />);
+  const hit = screen.container.querySelector<HTMLElement>(`[data-task-id="${FIRST.id}"]`);
+  if (hit === null) throw new Error("the card is missing");
+
+  hit.focus();
+  await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+  await page.getByRole("menuitem", { name: "Settle task" }).click();
+  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+
+  // The user moves on with a key of their own; the intent must end there.
+  const elsewhere = page.getByRole("button", { name: "Hide sidebar" }).element();
+  if (!(elsewhere instanceof HTMLElement)) throw new Error("the toggle is missing");
+  elsewhere.focus();
+  await userEvent.keyboard("{Escape}");
+  await screen.rerender(<ShelfHarness still moved={[FIRST.id]} />);
   await nextFrame();
   expect(document.activeElement).toBe(elsewhere);
   await expect.element(page.getByRole("button", { name: "Settled (1)" })).toBeVisible();

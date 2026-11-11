@@ -261,7 +261,9 @@ export function VisualWorkspace({
         // ones that were running (`design.md`, **Domain model** — Task).
         try {
           const updated = await client.connection.api.tasks.setState({ id, state });
-          return updated.state === state;
+          // The server answers early without notifying when it already had this state, so compare
+          // against what this client saw: only a real change moves the row.
+          return updated.state === state && task.state !== state;
         } catch (error) {
           setNotice({ message: describeError(error), tone: "error" });
           return false;
