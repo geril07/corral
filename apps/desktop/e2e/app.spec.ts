@@ -7,11 +7,11 @@ import {
   type ElectronApplication,
 } from "@playwright/test";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { addProject, createRepo, createTask, sessionTabs, workspace } from "./app-helpers.ts";
+import { addProject, createRepo, promptField, sessionTabs } from "./app-helpers.ts";
 
 interface Fixtures {
   stateDir: string;
@@ -90,6 +90,26 @@ function windowSize(app: ElectronApplication) {
   return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getSize());
 }
 
+function disableAgents(stateDir: string) {
+  mkdirSync(path.join(stateDir, "config"), { recursive: true });
+  writeFileSync(
+    path.join(stateDir, "config", "config.toml"),
+    ["claude", "codex", "opencode", "pi"]
+      .map((agent) => `[agents.${agent}]\nenabled = false\n`)
+      .join("\n"),
+  );
+}
+
+async function createTaskWithoutAgent(window: import("@playwright/test").Page, title: string) {
+  await window.getByRole("button", { name: "New task", exact: true }).click();
+  await promptField(window).fill(title);
+  await promptField(window).press("Enter");
+  await expect(window.getByRole("button", { name: new RegExp(title) })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+}
+
 // Playwright sends keys over CDP, past native menu handling, so this cannot catch the Alt
 // menu-bar problem that main.ts guards against; it covers the app reacting to the prefix.
 test("the window shows the app and the prefix chord toggles the sidebar", async ({ launchApp }) => {
@@ -166,13 +186,16 @@ test("the window is given the URL of the server the app started, and the capabil
 
 test("a reload reconnects through the preload bridge and keeps the hash route", async ({
   launchApp,
+  stateDir,
 }) => {
+  disableAgents(stateDir);
+  const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  const nav = window.getByRole("navigation", { name: "workspace" });
-  await expect(window.getByText("Add a repository to start")).toBeVisible();
+  await addProject(window, repo);
+  await createTaskWithoutAgent(window, "Reload task");
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyC");
-  await expect(nav.getByRole("button", { name: /^sh · / })).toHaveCount(1);
+  await expect(sessionTabs(window).getByRole("tab", { name: /^shell/ })).toHaveCount(1);
 
   await window.evaluate("window.location.hash = '#/board'");
   await expect(window).toHaveURL(/#\/board$/);
@@ -182,10 +205,11 @@ test("a reload reconnects through the preload bridge and keeps the hash route", 
 
   await expect(window).toHaveURL(/#\/board$/);
   await expect(window.getByRole("region", { name: "Board" })).toBeVisible();
-  // Back on the workspace after the reload, the terminal list comes from the reconnected RPC.
+  // Back on the task after the reload, the session list comes from the reconnected RPC.
   await window.evaluate("window.location.hash = '#/'");
   await expect(window.getByRole("region", { name: "Board" })).toBeHidden();
-  await expect(nav.getByRole("button", { name: /^sh · / })).toHaveCount(1);
+  await window.getByRole("button", { name: /Reload task/ }).click();
+  await expect(sessionTabs(window).getByRole("tab", { name: /^shell/ })).toHaveCount(1);
 });
 
 test("the server outlives the app and the next launch reuses it", async ({
@@ -230,18 +254,22 @@ test("a server restart with a new capability reconnects without quitting the app
   launchApp,
   stateDir,
 }) => {
+  disableAgents(stateDir);
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
-  await createTask(window, "Survives restart");
-  const selectedTask = workspace(window).getByRole("button", { name: /^Survives restart/ });
+  await createTaskWithoutAgent(window, "Survives restart");
+  const selectedTask = window.getByRole("button", { name: /Survives restart/ });
   await expect(selectedTask).toHaveAttribute("aria-current", "true");
 
   const before = readEndpoint(stateDir);
   const oldPid = before?.pid ?? 0;
   const oldCapability = before?.capability;
   expect(oldCapability).toBeDefined();
+  let reconnectFrames = 0;
+  window.on("websocket", (socket) => {
+    if (socket.url().includes("/rpc")) socket.on("framereceived", () => (reconnectFrames += 1));
+  });
   process.kill(oldPid, "SIGKILL");
   await expect.poll(() => isAlive(oldPid), { timeout: 5_000 }).toBe(false);
 
@@ -255,9 +283,8 @@ test("a server restart with a new capability reconnects without quitting the app
       { timeout: 20_000 },
     )
     .not.toBe(oldCapability);
+  await expect.poll(() => reconnectFrames, { timeout: 20_000 }).toBeGreaterThan(0);
 
-  // The footer's connection opener only shows while it is not connected.
-  await expect(window.getByRole("button", { name: /^connection:/ })).toHaveCount(0);
   await expect(selectedTask).toHaveAttribute("aria-current", "true");
 
   const shells = sessionTabs(window).getByRole("tab", { name: /^shell(?: \d+)?$/ });
