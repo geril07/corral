@@ -102,9 +102,9 @@ behaviour and the open questions; the slice brief is written from it.
   display name, and a rule for applying a favorite from another instance. Blocked on that decision.
 - **Chat start polish** — one focus intent, a device-local last-used model layer, the hero headline,
   and the create gating wording.
-- **Settled shelf** — the task menu advertises Settle, but the routed shell drops non-active tasks
+- **Settled shelf** (`feat/263-settled-shelf`) — the routed shell drops non-active tasks
   (`visual-status.ts:128`) and has no place to bring one back; `docs/design.md:78` wants a collapsed
-  shelf that resumes sessions. The menu's Settle stays out until the shelf exists.
+  shelf that resumes sessions. In flight; Settle returns to the menu when it lands.
 
 ### Deferred or descoped — needs an explicit record
 
