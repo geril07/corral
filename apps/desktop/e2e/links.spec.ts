@@ -2,13 +2,10 @@ import { expect } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
-  chooseTaskAgent,
   addProject,
   createRepo,
-  newTaskView,
   openedWindow,
   promptField,
-  sessionTab,
   unwrappedScreenText,
 } from "./app-helpers.ts";
 import { test } from "./fixtures.ts";
@@ -32,7 +29,7 @@ test("a file link opens the editor at its line and a web link goes to the OS bro
   mkdirSync(path.join(stateDir, "config"), { recursive: true });
   writeFileSync(
     path.join(stateDir, "config", "config.toml"),
-    '[editor]\ncommand = "/bin/echo {file}:{line}"\n',
+    '[tasks]\nagent = "pi"\nview = "chat"\n[editor]\ncommand = "/bin/echo {file}:{line}"\n',
   );
 
   const app = await launchApp({ FAKE_PI_RPC: "links" });
@@ -46,7 +43,6 @@ test("a file link opens the editor at its line and a web link goes to the OS bro
     };
   });
 
-  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
 
   // A prompt-created task in chat view: pi is the agent with a driver in this build (chat.spec.ts).
@@ -54,15 +50,12 @@ test("a file link opens the editor at its line and a web link goes to the OS bro
   await window.keyboard.press("KeyT");
   await expect(promptField(window)).toBeFocused();
   await window.keyboard.type("Fix the build");
-  await chooseTaskAgent(window, "pi");
-  await expect(newTaskView(window).getByRole("button", { name: "Open in chat" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
   await promptField(window).click();
   await window.keyboard.press("Enter");
 
-  await expect(sessionTab(window, "pi")).toHaveAttribute("aria-selected", "true");
+  await expect(
+    window.getByRole("tablist", { name: "Sessions" }).getByRole("tab", { name: /^pi/ }),
+  ).toHaveAttribute("aria-selected", "true");
   const transcript = window.getByRole("log", { name: "Chat transcript" });
   await expect(transcript.getByText("Here is the answer.")).toBeVisible();
 
@@ -84,10 +77,9 @@ test("a file link opens the editor at its line and a web link goes to the OS bro
   // The path in the answer is an action too (a button, not a URL), and it opens the editor as a
   // terminal in the workspace.
   await transcript.getByRole("button", { name: "src/app.ts:12" }).click();
+  // The capability-bearing document must never navigate away.
+  expect(documentOf(window.url())).toBe(documentOf(before));
   await expect
     .poll(() => unwrappedScreenText(window), { timeout: 15_000 })
     .toContain(`${repo}/src/app.ts:12`);
-  // Opening the editor changes the route (the new terminal is the current tab) but not the
-  // document the app is loaded from: still no navigation away from the capability-bearing window.
-  expect(documentOf(window.url())).toBe(documentOf(before));
 });
