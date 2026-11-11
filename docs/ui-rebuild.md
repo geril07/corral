@@ -8,8 +8,9 @@ Rules for how work is done and reviewed: `docs/delivery.md`. Product decisions: 
 
 **Where we are (2026-11-11).** All landed slices are on `feat/263-task-composer-instances`, the
 branch's current head; nothing is pushed, there is no PR yet, and the running app is the dev
-stand built from that branch. One slice is in flight in its own worktree, branch
-`feat/263-tabs`. Research for the queued slices is in `.review/research/`
+stand built from that branch. The chat transcript has landed locally after both reviews. Legacy
+test cleanup is blocked on the scope decision below. No new product slices are being started.
+Research for the queued slices is in `.review/research/`
 (`tabs.md`, `sidebar-task-menu.md`, `chat-transcript.md`, `chat-start.md`, `drafts.md`); each claim
 there carries `path:line` into the reference checkouts.
 
@@ -84,18 +85,40 @@ it — without meeting a single invented screen.
   preferences, a missing project cannot be submitted, the checkout row shows the real branch, the
   truncation notice no longer instructs the impossible, and visibility actions keep saved ordering.
 - **Task context menu** (#263, merged `0490416`) — Copy ▸ path / branch / task ID, rename, issue
-  source only when present, remove. Settle stays out until the shelf exists. Pinning lives in the
+  source only when present, remove. The shelf slice restores Settle/Unsettle. Pinning lives in the
   project picker; the shell has no project row to hang a menu on.
-
-### In progress
-
-- **Chat transcript** (`feat/263-chat-transcript`, `92b4c17`) — turn folding that keeps only the
+- **Chat transcript** (#263, `16ef7aa`) — turn folding that keeps only the
   turn's last message, verb summaries, working/thinking rows, copy on hover and focus, quote from a
   selection, and per-session folds and reading position. Timestamps and forks stay out; they need
-  protocol work. UI/UX review done and its findings fixed; technical review in progress.
-- **Settled shelf** (`feat/263-settled-shelf`, `c632d16`) — a collapsed `Settled (N)` group at the
+  protocol work. While the session is working, all turn folds stay open: the contract cannot
+  distinguish delivered steers from new prompts reliably. A pending request interrupts history
+  reading to reveal and focus the selected request, including an older one after another is answered.
+  Both reviews are done; the final technical recheck returned no findings.
+- **Settled shelf** (#263, `c632d16`) — a collapsed `Settled (N)` group at the
   end of the same list, Settle/Unsettle back in the row menu and on the card, and a settled task
   stays selectable with its tabs. Both reviews done and merged.
+
+### In progress — session completion only
+
+- **Legacy test cleanup** (`chore/263-drop-legacy-browser-tests`) — measured and classified,
+  but not landed. The partial chat-link port preserves all assertions and exposes the live editor
+  visibility regression below; no tests, helpers or production code have been deleted. Finishing
+  this work with green full suites needs the owner's scope decision, not deletion of live coverage.
+- **Completion boundary** — finish only work already started, then stop. Favorites and chat-start
+  polish remain unstarted; no push or PR is authorized.
+
+### Combined-tree verification
+
+After rebasing and fast-forwarding the transcript onto the feature branch (`16ef7aa`):
+
+- `pnpm check` passed: 151 Node files passed, 1 skipped; 1,323 tests passed, 22 skipped.
+  Format, UI class gate and all five workspace typechecks passed. Two existing
+  `no-await-in-loop` lint warnings remain in `visual-shell.browser.test.tsx`.
+- Six focused browser files passed together: chat-view, task-workspace, task-composer, visual-tabs,
+  visual-shell and visual-workspace; **146 tests passed**.
+- Logs: `.review/transcript-merged-check.log` and `.review/transcript-merged-browser.log`.
+  Full browser and Electron suites were not rerun on this combined tree: their measured failures
+  and the scope blocker are recorded below. No claim of a green full release gate.
 
 ### Queued, research done
 
@@ -121,12 +144,24 @@ behaviour and the open questions; the slice brief is written from it.
 
 ## Known debt
 
-- **The browser suite is mostly red, and the number is bigger than this document used to say.**
-  Measured on `197be6f`: 26 of 47 files pass, **21 files and 245 of 662 tests fail**. The failures
-  are the legacy surfaces the rebuild replaced (old workspace screens, prefix bindings that no longer
-  exist in the routed shell, helpers that still drive the previous UI); the rebuild's own suites —
-  composer, settings, pickers, tabs, workspace, chat, terminal — pass. Every slice therefore verifies
-  with focused suites, and the full suite is not evidence of anything until this is resolved.
+- **The full browser suite remains red.** Clean baseline on `a1540c3`, before the transcript:
+  **21 of 50 files and 233 of 721 tests fail; 488 tests pass**. All four native shards completed
+  without fail-fast. Many failures use replaced screens or helpers, but several assert live
+  behavior (Changes, chat links, session lifecycle); they cannot be bulk-deleted. Exact names and
+  provisional per-file dispositions are in
+  `.review/worktrees/legacy-tests/.review/legacy-tests-report.md` and its linked logs. Cleanup has
+  not landed, and this is not a measurement of the combined transcript tree.
+- **The configured editor terminal is not visible in the routed shell.** The chat-link port
+  passes 13 of 14 tests: opening a local file starts the correct editor process in a loose terminal,
+  but `TaskWorkspace` ignores the returned terminal and the routed shell has no loose-terminal view.
+  The visibility assertion is retained; choosing its place in the tab model is a product change,
+  outside the cleanup assignment's no-behavior-change boundary.
+- **Electron E2E remains red.** The transcript worktree's full run passed 3 tests and failed 22:
+  twenty wait for the removed empty state, two expect old prefix/sidebar behavior. The desktop
+  helper also assumes the former route, title-only composer and picker; a substantive desktop test
+  port is needed, not the browser helper replacement. That task graph stopped before web E2E.
+  This is old-interface evidence, not a green release gate. Earlier transcript copy-action mount
+  and 5,000-item timing failures also remain disclosed confidence limits despite later passes.
 - **The open Settled shelf mounts every settled row** in the sidebar's one scroller; the prior
   sidebar paged its measured box (`SHELF_MAX_PAGES`, `Show more`). A very long settled history costs
   one card per row until paging or virtualisation is built.
@@ -140,15 +175,15 @@ behaviour and the open questions; the slice brief is written from it.
 
 Per `docs/delivery.md`, each slice gets a UI/UX review and then a technical review.
 
-| Surface                                           | UI/UX                                                    | Technical                                  |
-| ------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------ |
-| Merged #263 surface (composer, settings, pickers) | done; its P2/P3 fixes merged in `d3b8f5b`                | done; merged in `88444cd`, copy still open |
-| Tabs (`feat/263-tabs`)                            | done; two P1s and eight P2s fixed in `d149684`           | done; merged in `0150b3b`                  |
-| Settings recipes (`feat/263-kit-settings`)        | done; visually neutral, two claimed differences          | done; merged in `e13a482`                  |
-| Drafts (`feat/263-drafts`)                        | done; one P1 and three P2s fixed in `cdf010f`            | done; merged in `8263d43`                  |
-| Settled shelf (`feat/263-settled-shelf`)          | done; one P1 and two P2s fixed in `f35972f`              | done; merged in `c632d16`                  |
-| Chat transcript (`feat/263-chat-transcript`)      | done; one P1, three P2s and six P3s fixed in `92b4c17`   | in progress                                |
-| Task menu (`feat/263-task-menu`)                  | done; two P1s fixed (Settle removed, focus after remove) | done; merged `0490416`                     |
+| Surface                                           | UI/UX                                                    | Technical                                   |
+| ------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------- |
+| Merged #263 surface (composer, settings, pickers) | done; its P2/P3 fixes merged in `d3b8f5b`                | done; merged in `88444cd`, copy still open  |
+| Tabs (`feat/263-tabs`)                            | done; two P1s and eight P2s fixed in `d149684`           | done; merged in `0150b3b`                   |
+| Settings recipes (`feat/263-kit-settings`)        | done; visually neutral, two claimed differences          | done; merged in `e13a482`                   |
+| Drafts (`feat/263-drafts`)                        | done; one P1 and three P2s fixed in `cdf010f`            | done; merged in `8263d43`                   |
+| Settled shelf (`feat/263-settled-shelf`)          | done; one P1 and two P2s fixed in `f35972f`              | done; merged in `c632d16`                   |
+| Chat transcript (`feat/263-chat-transcript`)      | done; one P1, three P2s and six P3s fixed                | done; final recheck clean, merged `16ef7aa` |
+| Task menu (`feat/263-task-menu`)                  | done; two P1s fixed (Settle removed, focus after remove) | done; merged `0490416`                      |
 
 ### Technical review triage
 
@@ -184,7 +219,10 @@ gate rule that rejects a module stylesheet selecting on a kit `data-slot`.
 4. Title-only creation: add the control or document that a prompt is required.
 5. ~~The failing legacy browser files~~ — decided: they are not needed. The ones that drive a
    surface the routed shell replaced are deleted; a test whose subject still ships is ported rather
-   than dropped. The full suite becomes evidence again once the removal lands.
+   than dropped. The full suite becomes evidence again once the removal lands. **Blocked on scope:**
+   authorize the live editor-terminal fix and substantive Electron test port, or finish the
+   transcript and stop with the measured test debt recorded. The owner has been asked; neither
+   expansion has been started.
 6. Which remaining Corral-only strings stay. The UI/UX review of the merged surface flagged these as
    authored copy with no reference match, and left them unchanged pending your word:
    `settings-sections.ts:20,25,30,60` (the four settings section descriptions),
