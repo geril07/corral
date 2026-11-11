@@ -145,7 +145,8 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
   the composer that overlays the lane's end. Scroll belongs to the pane: the transcript's `log`
   owns it, opening or closing a fold leaves the row that was clicked where it is (the list's end
   follow is released for that layout change), and each session keeps its reading row and open
-  folds while the session is open.
+  folds while the session is open. A pending request overrides the reading position: the transcript
+  reveals it and its control takes the keyboard.
 - New-task and chat prompts share the bordered composer surface and wrapping control row.
   Send/steer, abort and IME protection retain their existing semantics; follow-up is offered only
   where the driver declares it. The prompt's caret is its focus indicator, and its textarea has no

@@ -282,8 +282,8 @@ What a user does. Everything below is built and verified end to end, chat views 
   Home/End and the arrow keys scroll it without a pointer; moving up releases the end follow and
   End takes it again. A fold that expands while the user reads above the end does not drag the
   view back to the tail. Opening a fold at the end can release following to keep the clicked row
-  in place; reaching the end again re-arms it. A request arriving while history is being read does
-  not move the transcript to the tail.
+  in place; reaching the end again re-arms it. A pending request is the exception to history
+  preservation: it reveals the tail and takes the keyboard even when the user was reading above it.
 
 ### The chat transcript
 

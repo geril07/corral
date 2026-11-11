@@ -162,11 +162,12 @@ export function ChatTimeline({
     }
   };
 
-  // A new request is the last item and takes focus; make sure virtualization made it visible.
+  // A new request owns the keyboard, even while history is being read. Reveal it so the
+  // virtualized row mounts and can focus its control.
   useEffect(() => {
-    if (requestId === undefined || !follow) return;
+    if (requestId === undefined) return;
     void list.current?.scrollToEnd({ animated: false });
-  }, [requestId, follow]);
+  }, [requestId]);
 
   const renderItem = useCallback(
     ({ item }: { item: ChatRow }) => (
