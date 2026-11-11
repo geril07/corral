@@ -97,9 +97,13 @@ context-menu dispatcher.
 
 - Button `layout="tree"`: allocation/truncation inside a horizontal task/project row;
   `size="row"`: the two-line task; `size="row-sm"`: a dense single-line list row (the Changes
-  file list). `layout="navigation"` fills a settings category's width without vertically
-  stretching it. `layout="tab"` fills the tabstrip's height and uses content width up to a
-  maximum. `layout="model"` bounds a model trigger so long native IDs really truncate.
+  file list). `layout="navigation"` fills a compact rail row's width without vertically stretching
+  it (the model editor's provider rail). `layout="category"` is the settings category row: 32 px,
+  8 px radius, 10 px inline padding, a muted 13/16 label that takes the hover overlay, and the
+  current section on `bg-layer-03`. `layout="result"` is a settings search result row, and
+  `layout="picker-row"` a settings card list row. `layout="tab"` fills the tabstrip's height and
+  uses content width up to a maximum. `layout="model"` bounds a model trigger so long native IDs
+  really truncate.
 - Button `layout="status"` keeps the footer's connection opener in its row; the visible label is
   the connection state word, shortened when the row cannot hold it, and the sentence with attempt
   and elapsed is its `Hint` and the recovery dialog. It opens that dialog.
@@ -133,16 +137,18 @@ context-menu dispatcher.
   board is a full-screen route layer over the same parent, not a dialog: no scrim, and its close
   returns the keyboard through the same fallback. Other dialogs keep their existing dimensions.
 - Settings composes the settings-only primitives in `modules/settings`: a 240 px grouped sidebar
-  (32 px rows, 8 px radius, 10 px inline padding, 16 px icon, 8 px icon-text gap, 16 px group gap,
-  4 px item gap, 12 px muted group headings), a borderless 32 px search row that takes the hover
-  overlay, one 720 px content page inline-padded 40 px (24 px narrow), a 15/20 semibold section
-  title with one line of 13/20 muted description, and 8 px cards on `bg-layer-01` with a muted
-  border, 16 px inline padding, and rows separated by 0.5 px dividers. There is no settings header
-  row: the content repeats the active sidebar label and the dialog's X closes, so there are no
-  breadcrumbs and no separate back action. Projects are file-owned and read-only: a picker list,
-  then one project's resolved task settings with `inherited` / `project` source labels, reached from
-  a project row's `Project settings…`. Two-option rows use the kit combobox as a select; a ranged
-  row uses `Slider` with the value box and a reset action beside the label.
+  whose category rows are the kit's `layout="category"` (32 px, 8 px radius, 10 px inline padding,
+  16 px icon, 8 px icon-text gap; 16 px group gap, 4 px item gap, 12 px muted group headings), a
+  borderless 32 px search row that takes the hover overlay and holds the kit's `frame="bare"` field
+  (the caret is its focus indicator), one 720 px content page inline-padded 40 px (24 px narrow), a
+  15/20 semibold section title with one line of 13/20 muted description, and 8 px cards on
+  `bg-layer-01` with a muted border, 16 px inline padding, and rows separated by 0.5 px dividers.
+  There is no settings header row: the content repeats the active sidebar label and the dialog's X
+  closes, so there are no breadcrumbs and no separate back action. Projects are file-owned and
+  read-only: a picker list of `layout="picker-row"` rows, then one project's resolved task settings
+  with `inherited` / `project` source labels, reached from a project row's `Project settings…`.
+  Two-option rows use the kit combobox as a select, its trigger stretched to the module's own box;
+  a ranged row uses `Slider` with the value box and a reset action beside the label.
 - Settings search indexes rows, not prose: each entry is `{id, title, section, aliases}` and only
   the title, section label and authored aliases are fields. Ranking is exact title, title prefix,
   title substring, all query tokens in the title, then a phrase in any field, with declaration order

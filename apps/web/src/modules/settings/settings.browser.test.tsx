@@ -448,6 +448,13 @@ branch-prefix = "nope/"
   await expect
     .element(projects.getByRole("button", { name: "Project settings for not-added" }))
     .toBeVisible();
+  // Keyboard focus on a project row is the shell's inset outline, not the stock ring on top of it.
+  await userEvent.keyboard("{Shift}");
+  picker.element().focus();
+  expect(picker.element().matches(":focus-visible")).toBe(true);
+  expect(getComputedStyle(picker.element()).outlineStyle).toBe("solid");
+  expect(getComputedStyle(picker.element()).outlineWidth).toBe("2px");
+  expect(getComputedStyle(picker.element()).boxShadow).not.toContain("inset");
   await picker.click();
 
   const selected = projects.element().querySelector<HTMLElement>("#settings-projects-selected");
@@ -1075,6 +1082,13 @@ test("session tab position is a select row with Top and Bottom", async () => {
   await expect
     .element(page.getByRole("radiogroup", { name: "Session tab position" }))
     .not.toBeInTheDocument();
+  // The module owns the select's 160 px box; the kit trigger fills it.
+  const box = trigger.element().closest<HTMLElement>(".settings-select");
+  if (box === null) throw new Error("the select has no box");
+  expect(getComputedStyle(box).width).toBe("160px");
+  expect(trigger.element().getBoundingClientRect().width).toBeCloseTo(
+    box.getBoundingClientRect().width,
+  );
   await trigger.click();
   await page.getByRole("option", { name: "Bottom", exact: true }).click();
   await expect.element(trigger).toHaveTextContent("Bottom");
