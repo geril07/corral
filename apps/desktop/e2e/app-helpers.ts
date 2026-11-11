@@ -55,6 +55,7 @@ export function createRepo(stateDir: string): string {
 
 /** Adds `repo` through the path-first picker; registration does not open a draft. */
 export async function addProject(window: Page, repo: string) {
+  await expect(window.getByRole("button", { name: "Add project", exact: true })).toBeVisible();
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("Shift+KeyP");
   const dialog = window.getByRole("dialog", { name: "Add project" });

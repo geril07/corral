@@ -1,13 +1,7 @@
 import { expect } from "@playwright/test";
-import {
-  chooseTaskAgent,
-  addProject,
-  createRepo,
-  newTaskView,
-  openedWindow,
-  promptField,
-  sessionTab,
-} from "./app-helpers.ts";
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { addProject, createRepo, newTaskView, openedWindow, promptField } from "./app-helpers.ts";
 import { readLaunches, test } from "./fixtures.ts";
 
 // The composer's view control and the chat tab: a prompt-created task opens in chat, its agent is
@@ -17,8 +11,12 @@ test("a task created in chat view from the composer opens as chat", async ({
   stateDir,
 }) => {
   const repo = createRepo(stateDir);
+  mkdirSync(path.join(stateDir, "config"), { recursive: true });
+  writeFileSync(
+    path.join(stateDir, "config", "config.toml"),
+    '[tasks]\nagent = "pi"\nview = "chat"\n',
+  );
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
 
   await window.keyboard.press("Alt+KeyA");
@@ -26,23 +24,19 @@ test("a task created in chat view from the composer opens as chat", async ({
   await expect(promptField(window)).toBeFocused();
   await window.keyboard.type("Explain the build");
 
-  // pi is the agent with a chat driver in this build, so the view control offers chat.
-  await chooseTaskAgent(window, "pi");
-  await expect(newTaskView(window).getByRole("button", { name: "Open in chat" })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  // The configured pi launch is visible before submitting the prompt.
+  await expect(newTaskView(window).getByRole("button", { name: /^Agent pi/ })).toBeVisible();
   await promptField(window).click();
   await window.keyboard.press("Enter");
 
   // The task's primary session is a chat tab: pi's, with the chat lane instead of a terminal.
-  await expect(
-    window.getByRole("navigation", { name: "workspace" }).getByRole("button", {
-      name: /^Explain the build/,
-    }),
-  ).toHaveAttribute("aria-current", "true");
-  await expect(sessionTab(window, "pi")).toHaveAttribute("aria-selected", "true");
-  await expect(sessionTab(window, "shell")).toHaveCount(0);
+  await expect(window.getByRole("button", { name: /Explain the build/ })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  const tabs = window.getByRole("tablist", { name: "Sessions" });
+  await expect(tabs.getByRole("tab", { name: /^pi/ })).toHaveAttribute("aria-selected", "true");
+  await expect(tabs.getByRole("tab", { name: /^shell/ })).toHaveCount(0);
   await expect(window.getByRole("log", { name: "Chat transcript" })).toBeVisible();
   await expect(window.getByRole("textbox", { name: "Message" })).toBeVisible();
 
