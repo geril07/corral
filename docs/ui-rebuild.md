@@ -63,6 +63,10 @@ it — without meeting a single invented screen.
   Terminal as one tab, Changes in the companion group, close ≠ delete with a closed stack,
   device-local layout, a compact task row above the strip and an actionable empty pane. Mounts the
   real chat, terminal and changes panes.
+- **Settings control recipes** (#263, `e13a482`) — the module no longer restyles kit controls: the
+  recipes are `Button layout="category"|"result"|"picker-row"` and `Input frame="bare"`, laid out by
+  `settings.css` only. The UI gate now rejects a module stylesheet that selects on the kit's
+  `data-slot`, so the violation cannot come back unnoticed.
 - **Draft ownership, list keys and rail focus** (#263, `262d1b4`) — a create clears and selects only
   the draft that sent it, favorite headings no longer repeat virtual-list keys across providers, and
   the instance rail moves DOM focus with the selection.
@@ -84,10 +88,6 @@ it — without meeting a single invented screen.
   device-local, one per project and reused, with the prompt and the composer's choices surviving
   Escape and reload; closing the tab discards it, a successful create clears only the draft that
   sent it. Under UI/UX review.
-- **Settings control recipes** (`feat/263-kit-settings`, committed `0974096`) — the last ownership
-  finding: module CSS in `settings.css` restyled kit controls; the recipes now live in named kit
-  variants (`Button layout="category"|"result"|"picker-row"`, `Input frame="bare"`) and the module
-  keeps only layout. Under UI/UX review.
 
 ### Queued, research done
 
