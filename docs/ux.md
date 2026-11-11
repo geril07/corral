@@ -364,10 +364,10 @@ What a user does. Everything below is built and verified end to end, chat views 
   Terminal text stays fixed and independent of the interface text scale; terminal font controls
   are separate scope.
 - Task drafts are one device-local record shared by every window of the app. A window writes only
-  after an edit of its own, so closing an idle window keeps the other window's record; two windows
-  that both type keep the last write, and the other window's typing is dropped. A page that could
-  not read the record does not write it on close. Storage eviction or private mode can drop drafts;
-  nothing is kept on the server.
+  when its own stored drafts change, so opening New task and closing an idle window keep the other
+  window's record; two windows that both type keep the last write, and the other window's typing is
+  dropped. A page that could not read the record never writes it. Storage eviction or private mode
+  can drop drafts; nothing is kept on the server.
 - Hover-only row actions and settings writes are not implied by this kit migration.
   Mid-session model and reasoning switching belongs to a chat driver; a terminal session has no
   such control.

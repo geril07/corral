@@ -396,9 +396,11 @@ export function VisualWorkspace({
               return [...rest.slice(0, at), discarded, ...rest.slice(at)];
             });
             setNotice(undefined);
-            // The strip only shows with an open draft, so a restore with none reopens it; when
-            // another draft owns the composer, the tab comes back without taking the keyboard.
-            if (open === undefined) {
+            // The strip only shows with an open draft, so a restore with none reopens it; so does
+            // a restore that drops the open draft, which is what New task reopening the project
+            // after the discard left there. A tab that comes back beside another draft does not
+            // take the keyboard.
+            if (open === undefined || open === replacement?.id) {
               setActiveDraftId(discarded.id);
               setFocusRequest((request) => request + 1);
             }
@@ -600,11 +602,11 @@ export function VisualWorkspace({
 
   // A refused write gets one sentence: the draft still works here, but it will not survive a
   // reload. A notice about the current action keeps the slot.
-  const shownNotice: VisualShellNotice | undefined =
-    notice ??
-    (storageFailed && !storageNoticeDismissed
+  const storageNotice: VisualShellNotice | undefined =
+    storageFailed && !storageNoticeDismissed
       ? { message: DRAFT_STORAGE_NOTICE, tone: "error" }
-      : undefined);
+      : undefined;
+  const shownNotice = notice ?? storageNotice;
 
   return (
     <>
@@ -626,8 +628,10 @@ export function VisualWorkspace({
         rowFocus={listFocus}
         notice={shownNotice}
         onDismissNotice={() => {
+          // Only dismissing the storage sentence silences it; dismissing a copy or action notice
+          // must leave a later write failure reportable.
+          if (shownNotice === storageNotice) setStorageNoticeDismissed(true);
           setNotice(undefined);
-          setStorageNoticeDismissed(true);
         }}
         addProjectShortcut={addProjectShortcut}
         direct={direct}
