@@ -10,6 +10,7 @@ import {
   useState,
   type ReactNode,
   type Ref,
+  type RefObject,
 } from "react";
 import { copyText, type CopyOutcome } from "../../common/lib/clipboard.ts";
 import {
@@ -48,6 +49,12 @@ export interface VisualTaskActions {
 export interface VisualRowFocus {
   /** The row's button as mounted now. */
   rowElement: (id: string) => HTMLElement | null;
+  /**
+   * What takes the keyboard when the working area empties: its selected tab, else any tab, else
+   * the selected row, else New task, else the sidebar toggle. Never `null` while the shell is
+   * mounted, so focus never falls to `<body>`.
+   */
+  fallbackElement: () => HTMLElement | null;
 }
 
 /** A workspace-level sentence that is not the list's own load failure. */
@@ -216,7 +223,8 @@ function SidebarList({
   removeShortcut,
   onCopy,
   onMenuOpen,
-  rowFocus,
+  listRef,
+  rowElement,
 }: Pick<
   VisualShellViewProps,
   | "rows"
@@ -229,26 +237,22 @@ function SidebarList({
   | "taskActions"
   | "renameShortcut"
   | "removeShortcut"
-  | "rowFocus"
 > & {
   onCopy: (text: string, copied: string) => void;
   onMenuOpen: () => void;
+  /** The mounted list, so the shell can find a row or a fallback for the keyboard. */
+  listRef: RefObject<HTMLDivElement | null>;
+  rowElement: (id: string) => HTMLElement | null;
 }) {
-  const list = useRef<HTMLDivElement>(null);
   const selected =
     selectedId === null ? undefined : (rows.find((row) => row.id === selectedId) ?? rows[0]);
 
-  const rowElement = useCallback((id: string) => {
-    return list.current?.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(id)}"]`) ?? null;
-  }, []);
   const focusRow = useCallback(
     (id: string) => {
       requestAnimationFrame(() => rowElement(id)?.focus());
     },
     [rowElement],
   );
-  // The selection path above owns `focusRow`; a closing dialog only needs the element itself.
-  useImperativeHandle(rowFocus, () => ({ rowElement }), [rowElement]);
 
   const select = useCallback(
     (id: string) => {
@@ -302,7 +306,7 @@ function SidebarList({
     );
   }
   return (
-    <div className="visual-task-scroll" ref={list}>
+    <div className="visual-task-scroll" ref={listRef}>
       <ul className="visual-task-list" aria-label="Tasks">
         {rows.map((row) => (
           <li key={row.id}>
@@ -470,6 +474,9 @@ export function VisualShellView({
           tone: copyNotice.outcome === "refused" ? "error" : "notice",
         };
   const shellRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const newTaskButton = useRef<HTMLButtonElement>(null);
   const sidebarFrame = useRef<HTMLElement>(null);
   const toggleLayer = useRef<HTMLDivElement>(null);
   const toggleButton = useRef<HTMLButtonElement>(null);
@@ -525,6 +532,35 @@ export function VisualShellView({
     return createDirectKeymap<DirectActionId>(bindings, modifierPlatform());
   }, [direct]);
   const { hidden, toggle } = pane;
+
+  const rowElement = useCallback(
+    (id: string) =>
+      listRef.current?.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(id)}"]`) ?? null,
+    [],
+  );
+  // One handle for the mounted rows and for the keyboard's landing place when the working area
+  // empties; the caller never searches the document.
+  const fallbackElement = useCallback(() => {
+    const area = mainRef.current;
+    const tab =
+      area?.querySelector<HTMLElement>('[data-tab-id][aria-selected="true"]') ??
+      area?.querySelector<HTMLElement>("[data-tab-id]");
+    if (tab !== null && tab !== undefined) return tab;
+    // A hidden sidebar is inert, so its buttons cannot take focus.
+    if (!hidden) {
+      const row = selected === undefined ? null : rowElement(selected.id);
+      if (row !== null) return row;
+      const first = rows[0];
+      const firstRow = first === undefined ? null : rowElement(first.id);
+      if (firstRow !== null) return firstRow;
+      return newTaskButton.current;
+    }
+    return toggleButton.current;
+  }, [hidden, rowElement, rows, selected]);
+  useImperativeHandle(rowFocus, () => ({ rowElement, fallbackElement }), [
+    fallbackElement,
+    rowElement,
+  ]);
 
   // One toggle floats over both surfaces; its position is read from the sidebar's real width, so
   // the CSS transition is the only motion and the button follows the same progress every frame.
@@ -671,6 +707,7 @@ export function VisualShellView({
             icon="add"
             onClick={onNewTask}
             shortcut={newTaskShortcut}
+            buttonRef={newTaskButton}
             disabledReason={
               onNewTask === undefined ? "Creating tasks is unavailable here." : undefined
             }
@@ -688,7 +725,8 @@ export function VisualShellView({
             taskActions={taskActions}
             renameShortcut={renameShortcut}
             removeShortcut={removeShortcut}
-            rowFocus={rowFocus}
+            listRef={listRef}
+            rowElement={rowElement}
             onCopy={copy}
             onMenuOpen={clearCopyNotice}
           />
@@ -738,7 +776,7 @@ export function VisualShellView({
           />
         </div>
       </VisualSidebar>
-      <main className="visual-shell-main" aria-label="Workspace">
+      <main className="visual-shell-main" aria-label="Workspace" ref={mainRef}>
         {taskHeader !== undefined && (
           <div className="visual-task-header">
             <span

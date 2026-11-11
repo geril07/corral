@@ -6,6 +6,7 @@ import { prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { renderApp } from "../../../test/render-app.tsx";
 import { recordOf } from "./json-record.ts";
 import { TASK_DRAFT_STORAGE_KEY } from "./task-drafts.ts";
+import { DRAFT_STORAGE_NOTICE, DRAFT_WRITE_DELAY } from "./use-task-drafts.ts";
 
 const { newClient } = realServerClients();
 
@@ -316,7 +317,7 @@ test("the discard notice's Undo is a keyboard-reachable button", async () => {
   await screen.unmount();
 });
 
-test("switching the project in the composer leaves one draft per project", async () => {
+test("switching to a project whose draft has text opens that draft and keeps both", async () => {
   const { projects, screen } = await appWithProjects(["drafts-switch-a", "drafts-switch-b"]);
   const alpha = projects[0]!;
   const beta = projects[1]!;
@@ -327,20 +328,51 @@ test("switching the project in the composer leaves one draft per project", async
   await startNewTaskIn(beta);
   await promptField().fill("Beta draft");
 
-  // Moving beta's draft onto alpha takes alpha's older draft with it.
+  // Alpha's draft has text, so beta's cannot take the project: the composer opens alpha's draft
+  // and beta's keeps its own project, tab and text.
   await projectButton().click();
   await chooseProject(alpha);
 
-  expect(draftTabs().getByRole("tab").elements()).toHaveLength(1);
+  expect(draftTabs().getByRole("tab").elements()).toHaveLength(2);
   await expect.element(draftTab(alpha.name)).toHaveAttribute("aria-selected", "true");
-  await expect.element(promptField()).toHaveValue("Beta draft");
+  await expect.element(promptField()).toHaveValue("Alpha draft");
   await expect.element(projectButton()).toHaveTextContent(alpha.name);
+
+  await draftTab(beta.name).click();
+  await expect.element(promptField()).toHaveValue("Beta draft");
+  await expect.element(projectButton()).toHaveTextContent(beta.name);
 
   // New task for alpha returns that one draft instead of opening a second.
   await userEvent.keyboard("{Escape}");
   await startNewTaskIn(alpha);
+  expect(draftTabs().getByRole("tab").elements()).toHaveLength(2);
+  await expect.element(promptField()).toHaveValue("Alpha draft");
+  await screen.unmount();
+});
+
+test("switching to a project whose draft is empty moves the draft there", async () => {
+  const { projects, screen } = await appWithProjects([
+    "drafts-merge-a",
+    "drafts-merge-b",
+    "drafts-merge-c",
+  ]);
+  const beta = projects[1]!;
+  const gamma = projects[2]!;
+
+  // Gamma has a draft with nothing typed, so it has nothing to lose.
+  await startNewTaskIn(gamma);
+  await userEvent.keyboard("{Escape}");
+  await startNewTaskIn(beta);
+  await promptField().fill("Beta draft");
+
+  await projectButton().click();
+  await chooseProject(gamma);
+
   expect(draftTabs().getByRole("tab").elements()).toHaveLength(1);
+  await expect.element(draftTab(gamma.name)).toHaveAttribute("aria-selected", "true");
   await expect.element(promptField()).toHaveValue("Beta draft");
+  await expect.element(projectButton()).toHaveTextContent(gamma.name);
+  await expect.element(draftTab(beta.name)).not.toBeInTheDocument();
   await screen.unmount();
 });
 
@@ -413,5 +445,92 @@ test("closing the last draft returns focus to the selected task tab", async () =
   await expect.element(composer()).not.toBeInTheDocument();
 
   await expect.element(selectedTab).toHaveFocus();
+  await screen.unmount();
+});
+
+test("typing is written after the debounce, not on the keystroke", async () => {
+  const { screen } = await appWithProjects(["drafts-debounce"]);
+  const original = window.localStorage.setItem.bind(window.localStorage);
+  const writes: number[] = [];
+  const setItem = vi
+    .spyOn(Storage.prototype, "setItem")
+    .mockImplementation((key: string, value: string) => {
+      if (key === TASK_DRAFT_STORAGE_KEY) writes.push(performance.now());
+      original(key, value);
+    });
+  try {
+    await startNewTask();
+    // Opening a draft schedules its own write; the fill below replaces that timer.
+    const started = performance.now();
+    await promptField().fill("Wait for the debounce");
+    const written = await vi.waitFor(() => {
+      const at = writes.find((time) => time >= started);
+      if (at === undefined) throw new Error("the draft is not written yet");
+      return at;
+    });
+    // The record waits for the delay instead of being written per keystroke, and it is written
+    // before the unmount the other tests end with.
+    expect(written - started).toBeGreaterThanOrEqual(DRAFT_WRITE_DELAY);
+    expect(writes.filter((time) => time >= started)).toHaveLength(1);
+  } finally {
+    setItem.mockRestore();
+  }
+  await screen.unmount();
+});
+
+test("closing a window that never edited writes nothing", async () => {
+  const { screen } = await appWithProjects(["drafts-idle"]);
+  const setItem = vi.spyOn(Storage.prototype, "setItem");
+  await screen.unmount();
+  const writes = setItem.mock.calls.filter(([key]) => key === TASK_DRAFT_STORAGE_KEY);
+  setItem.mockRestore();
+  // An idle window's empty snapshot must not replace the record another window typed into.
+  expect(writes).toHaveLength(0);
+});
+
+test("a refused write says so and keeps the draft in the page", async () => {
+  const { screen } = await appWithProjects(["drafts-quota"]);
+  const original = window.localStorage.setItem.bind(window.localStorage);
+  const setItem = vi
+    .spyOn(Storage.prototype, "setItem")
+    .mockImplementation((key: string, value: string) => {
+      if (key === TASK_DRAFT_STORAGE_KEY)
+        throw new DOMException("Quota exceeded", "QuotaExceededError");
+      original(key, value);
+    });
+  try {
+    await startNewTask();
+    await promptField().fill("Too big for this device");
+    await expect.element(page.getByText(DRAFT_STORAGE_NOTICE, { exact: true })).toBeVisible();
+    await expect.element(promptField()).toHaveValue("Too big for this device");
+  } finally {
+    setItem.mockRestore();
+  }
+  await screen.unmount();
+  expect(storedDrafts()).toHaveLength(0);
+});
+
+test("a create of the discarded draft's project drops its Undo", async () => {
+  const { client, projects, screen } = await appWithProjects(["drafts-undo-create"]);
+  const project = projects[0]!;
+  const prompt = "Send this only once";
+
+  await startNewTask();
+  await promptField().fill(prompt);
+  await discardDraftTab(project.name);
+  await expect.element(noticeMessage()).toBeVisible();
+
+  // The same text is typed again and sent; its Undo must not bring the sent draft back.
+  await startNewTask();
+  await promptField().fill(prompt);
+  await createButton().click();
+  await vi.waitFor(() => {
+    const found = client.tasks.getSnapshot().tasks.find((candidate) => candidate.prompt === prompt);
+    if (found === undefined) throw new Error("the task is not in the store yet");
+    return found;
+  });
+
+  await expect.element(undoButton()).not.toBeInTheDocument();
+  await expect.element(noticeMessage()).not.toBeInTheDocument();
   await screen.unmount();
 });

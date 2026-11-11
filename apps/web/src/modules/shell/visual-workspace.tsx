@@ -26,7 +26,7 @@ import {
   newTaskDraft,
   updateDraftComposer,
 } from "./task-drafts.ts";
-import { useTaskDrafts } from "./use-task-drafts.ts";
+import { DRAFT_STORAGE_NOTICE, useTaskDrafts } from "./use-task-drafts.ts";
 import { useTaskWorkspace } from "./task-workspace.tsx";
 
 import {
@@ -114,7 +114,7 @@ export function VisualWorkspace({
   // Whether the open project choice ended in a draft. The picker is replaced by the composer in one
   // commit, so the dialog's final-focus callback reads this ref instead of the render it closed in.
   const pickedProject = useRef(false);
-  const { drafts, draftsRef, change: changeDrafts } = useTaskDrafts();
+  const { drafts, draftsRef, change: changeDrafts, storageFailed } = useTaskDrafts();
   const [activeDraftId, setActiveDraftIdState] = useState<string>();
   const activeDraftIdRef = useRef<string | undefined>(activeDraftId);
   // The ref carries the open draft before React commits, so a create's completion knows whether
@@ -139,6 +139,14 @@ export function VisualWorkspace({
   const [remove, setRemove] = useState<RemoveState>();
   const [source, setSource] = useState<Task>();
   const [notice, setNotice] = useState<VisualShellNotice>();
+  // A refused write keeps its one notice until the user dismisses it; it never takes the slot from
+  // a notice that already says something about the action at hand.
+  const [storageNoticeDismissed, setStorageNoticeDismissed] = useState(false);
+  // The discard whose Undo the current notice carries. A create for that draft's project clears
+  // the notice, so Undo cannot bring back text that has already been sent.
+  const discardUndo = useRef<{ notice: VisualShellNotice; projectId: string | null } | undefined>(
+    undefined,
+  );
   const listFocus = useRef<VisualRowFocus | null>(null);
 
   const removeRead = useRef<AbortController | undefined>(undefined);
@@ -289,9 +297,17 @@ export function VisualWorkspace({
     (next: TaskComposerDraft) => {
       const id = activeDraftIdRef.current;
       if (id === undefined) return;
-      changeDrafts((current) => updateDraftComposer(current, id, next));
+      const update = updateDraftComposer(draftsRef.current, id, next);
+      // A project has one draft, and the one that already has text is the one you get: the
+      // composer opens it instead of moving this draft onto it.
+      if (update.openId !== undefined) {
+        setActiveDraftId(update.openId);
+        setFocusRequest((request) => request + 1);
+        return;
+      }
+      changeDrafts(() => update.drafts);
     },
-    [changeDrafts],
+    [changeDrafts, draftsRef, setActiveDraftId, setFocusRequest],
   );
 
   const openDraft = useCallback(
@@ -353,7 +369,7 @@ export function VisualWorkspace({
       const discarded = current[index]!;
       const next = current[index + 1] ?? current[index - 1];
       changeDrafts((all) => all.filter((entry) => entry.id !== id));
-      setNotice({
+      const discardedNotice: VisualShellNotice = {
         message: "Discarded",
         tone: "notice",
         action: {
@@ -388,22 +404,18 @@ export function VisualWorkspace({
             }
           },
         },
-      });
+      };
+      discardUndo.current = { notice: discardedNotice, projectId: discarded.composer.projectId };
+      setNotice(discardedNotice);
       if (activeDraftIdRef.current !== id) return;
       setActiveDraftId(next?.id);
       if (next !== undefined) {
         setFocusRequest((request) => request + 1);
         return;
       }
-      // The working area fell back to the selected task; its selected tab is the next thing to
-      // use, then any tab, and an empty workspace hands the keyboard back to New task.
-      requestAnimationFrame(() => {
-        const target =
-          document.querySelector<HTMLElement>('[data-tab-id][aria-selected="true"]') ??
-          document.querySelector<HTMLElement>("[data-tab-id]") ??
-          document.querySelector<HTMLElement>('button[aria-label="New task"]');
-        target?.focus();
-      });
+      // The working area fell back to the selected task; the shell names the target, and it always
+      // has one, so the keyboard never falls to `<body>`.
+      requestAnimationFrame(() => listFocus.current?.fallbackElement()?.focus());
     },
     [changeDrafts, draftsRef, setActiveDraftId, setFocusRequest],
   );
@@ -468,6 +480,15 @@ export function VisualWorkspace({
       void client.connection.api.tasks
         .create(input)
         .then((task) => {
+          // A create for the discarded draft's project sends that text, so its Undo must go:
+          // restoring the draft would offer a second Send of the same task.
+          setNotice((current) =>
+            current !== undefined &&
+            discardUndo.current?.notice === current &&
+            discardUndo.current.projectId === submitted.composer.projectId
+              ? undefined
+              : current,
+          );
           const current = draftsRef.current.find((entry) => entry.id === submitted.id);
           // Only the draft that sent this create may close, and only while it is untouched: a
           // draft opened or edited after the submit keeps its text and its selection.
@@ -476,8 +497,7 @@ export function VisualWorkspace({
           // task's working area in the same place.
           changeDrafts((all) => all.filter((entry) => entry.key !== submitted.key));
           if (activeDraftIdRef.current !== submitted.id) return;
-          setActiveDraftId(undefined);
-          onSelectTask(task.id);
+          selectTask(task.id);
         })
         .catch((error: unknown) => {
           const message = describeLaunchError(error) ?? describeError(error);
@@ -498,8 +518,7 @@ export function VisualWorkspace({
       changeDrafts,
       client,
       draftsRef,
-      onSelectTask,
-      setActiveDraftId,
+      selectTask,
       setCreateErrors,
       setCreatingKeys,
       setNotice,
@@ -579,6 +598,14 @@ export function VisualWorkspace({
     />
   );
 
+  // A refused write gets one sentence: the draft still works here, but it will not survive a
+  // reload. A notice about the current action keeps the slot.
+  const shownNotice: VisualShellNotice | undefined =
+    notice ??
+    (storageFailed && !storageNoticeDismissed
+      ? { message: DRAFT_STORAGE_NOTICE, tone: "error" }
+      : undefined);
+
   return (
     <>
       <VisualShellView
@@ -597,8 +624,11 @@ export function VisualWorkspace({
         removeShortcut={removeShortcut}
         taskActions={taskActions}
         rowFocus={listFocus}
-        notice={notice}
-        onDismissNotice={() => setNotice(undefined)}
+        notice={shownNotice}
+        onDismissNotice={() => {
+          setNotice(undefined);
+          setStorageNoticeDismissed(true);
+        }}
         addProjectShortcut={addProjectShortcut}
         direct={direct}
         onSelectTask={selectTask}

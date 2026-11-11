@@ -26,12 +26,12 @@ export interface VisualTabItem {
   ariaLabel?: string | undefined;
   /** The context-menu name, e.g. `Session actions for shell 2`. */
   menuLabel?: string | undefined;
-  /** Session tabs carry 1–9 inside their group; Changes and files carry none. */
+  /** Session and draft tabs carry 1–9 inside their group; Changes and files carry none. */
   number?: number | undefined;
   agentKind?: Session["kind"] | undefined;
   status?: AgentStatus | undefined;
   selected: boolean;
-  /** The primary session is not a closable view; Changes and files are. */
+  /** The primary session is not a closable view; Changes, files and drafts are. */
   canClose: boolean;
   /** The whole label and the session's state, when the label clips. */
   title?: string | undefined;
