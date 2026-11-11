@@ -45,8 +45,8 @@ What a user does. Everything below is built and verified end to end, chat views 
    aborted, and the tab menu says "Open the … view" instead of "Switch to …", so no confirmation is
    asked for a busy agent (stage C). Whether Codex's terminal is view-only while chat writes is
    measured when its driver starts.
-5. The visual shell lists active tasks flat, with no project/status headers and no settled shelf. A task's status is its **primary** session's, ordered: blocked/error, completed and unseen, working, then neutral; the newest report comes first inside a group. "Completed and unseen" clears when the task is opened or its status changes while it is selected. Restarting a stopped session of a settled task, or continuing it, makes the task active in the same step: the sessions that were running resume once, nothing starts while the task still reads settled, and the board includes it. Starting a shell or agent in a settled task is refused with "This task is settled. Continue it first."; `prefix v` on its stopped session only chooses the next view; on a running session created by an older daemon it refuses before a handoff. Search, project filters and the settled shelf remain deferred. The task composer, its direct creation commands, Settings and the task's working area are connected in the production shell.
-6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles.
+5. The visual shell lists active tasks flat, with no project/status headers, and the settled ones in one **Settled** shelf below them. A task's status is its **primary** session's, ordered: blocked/error, completed and unseen, working, then neutral; the newest report comes first inside a group. "Completed and unseen" clears when the task is opened or its status changes while it is selected. Settling moves a task into the shelf and stops its running sessions; the shelf names the count (`Settled (5)`), is collapsed by default, keeps its collapsed state per device, and collapsed it shows only the current task's row. `prefix d`, the card's hover action and the row menu's `Settle task` / `Unsettle task` settle and continue a task; a settled task stays selectable, and its working area keeps its tabs and says that continuing resumes the sessions that were running. Restarting a stopped session of a settled task, or continuing it, makes the task active in the same step: the sessions that were running resume once, nothing starts while the task still reads settled, and the board includes it. Starting a shell or agent in a settled task is refused with "This task is settled. Continue it first."; `prefix v` on its stopped session only chooses the next view; on a running session created by an older daemon it refuses before a handoff. `prefix w` gives the list the keyboard: arrows walk the active rows and then the shelf's disclosure, and Enter opens the shelf. Search and project filters remain deferred. The task composer, its direct creation commands, Settings and the task's working area are connected in the production shell.
+6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles the task or continues a settled one.
 7. Settings reuses the existing Settings screen as a route over the mounted shell; its close returns to the same selection. It carries the defaults the composer uses: view (global, overridable per project), workspace mode, worktree root, branch prefix, slug mode, naming agent/model; the agents, whether each is found and which have a chat driver; and the three direct command chords under `[keys.direct]`. A disabled instance is absent from new-choice rails, and a selected one that becomes disabled keeps its identity and is refused with the reason rather than swapped silently.
 
 ## Layout and navigation
@@ -70,9 +70,8 @@ What a user does. Everything below is built and verified end to end, chat views 
   the sidebar first if it was hidden: arrows walk its rows, Enter opens one, and Escape returns
   the keyboard to where it came from.
 - Project grouping is the default (`prefix l` switches to status groups and the device keeps
-  the choice). The bottom Settled shelf spans projects with one order in both modes
-  (`layout.md`, **Sidebar**), scrolls independently and pages by the rows its box fits; selecting
-  older history reveals it without resuming it. Rows are two-line tasks;
+  the choice). Settled tasks sit in the bottom shelf with one order across projects
+  (`layout.md`, **Sidebar**); selecting older history reveals it without resuming it. Rows are two-line tasks;
   selection uses secondary appearance plus `aria-current` on exactly one task or loose terminal;
   a project or Scratch container row never carries it, and no row is current while a project's
   composer is open — not a bespoke colored left bar. Titles and paths truncate without losing
@@ -117,11 +116,12 @@ What a user does. Everything below is built and verified end to end, chat views 
   discoverable overflow menu, and the tab row keeps its add-session menu; renaming a session keeps `prefix shift+r`, removing it
   asks first. Icons are Lucide's standard glyphs.
 - A visual-shell task row's menu orders identity before state before context before destruction:
-  Copy ▸ Path, Branch when the task has one, and Task ID; Rename task…; View issue source… only for
-  a task imported from an issue; and Remove task… with the same two-stage confirmation. Its
+  Copy ▸ Path, Branch when the task has one, and Task ID; Rename task…; `Settle task`, or
+  `Unsettle task` for a settled one; View issue source… only for a task imported from an issue; and
+  Remove task… with the same two-stage confirmation. Its
   shortcut cells name the `prefix e` and `prefix shift+t` actions that really run; row chords stay
-  silent while the composer draft is open. The menu offers no Settle while the settled shelf is
-  queued; the card keeps its honest-disabled Settle control. A copy confirms in the sidebar's
+  silent while the composer draft is open. The card's hover action is the same settle command,
+  named for the state it leaves. A copy confirms in the sidebar's
   notice row above the footer and clears on the next interaction; a refused action keeps its
   sentence there. The menu opens by right-click, the menu key and Shift+F10.
 - One scrolling region per pane. At 1024×640 and above all controls must be reachable. Long

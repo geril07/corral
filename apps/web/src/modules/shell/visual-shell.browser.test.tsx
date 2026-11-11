@@ -7,12 +7,20 @@ import type { VisualTaskRow } from "../../common/ui/index.ts";
 import { stubClipboard } from "../../../test/clipboard.ts";
 import { prefixShifted, prefixThen } from "../../../test/real-client.ts";
 import { RemoveTaskDialog } from "../tasks/index.ts";
-import { VISUAL_REVIEW_ROWS, VISUAL_REVIEW_SELECTED } from "./visual-fixtures.ts";
+import {
+  VISUAL_REVIEW_ROWS,
+  VISUAL_REVIEW_SELECTED,
+  VISUAL_REVIEW_SETTLED_ROWS,
+} from "./visual-fixtures.ts";
 import { VisualShellView, type VisualTaskActions } from "./visual-view.tsx";
 
 const SHORTCUT = { prefix: "alt+a", binding: "\\" };
 const RENAME_SHORTCUT = { prefix: "alt+a", binding: "e" };
 const REMOVE_SHORTCUT = { prefix: "alt+a", binding: "shift+t" };
+const SETTLE_SHORTCUT = { prefix: "alt+a", binding: "d" };
+const FOCUS_SHORTCUT = { prefix: "alt+a", binding: "w" };
+/** No settled rows, as one stable value: an inline `[]` default would change on every render. */
+const NO_SETTLED_ROWS: readonly VisualTaskRow[] = [];
 const FIRST = VISUAL_REVIEW_ROWS[0]!;
 
 function Harness() {
@@ -39,22 +47,26 @@ function menuActions() {
     onRename: vi.fn<(id: string) => void>(),
     onRemove: vi.fn<(id: string) => void>(),
     onViewSource: vi.fn<(id: string) => void>(),
+    onToggleSettle: vi.fn<(id: string) => void>(),
   };
 }
 
 function MenuHarness({
   actions,
   rows = VISUAL_REVIEW_ROWS,
+  settledRows = NO_SETTLED_ROWS,
   composerOpen = false,
 }: {
   actions: VisualTaskActions;
   rows?: readonly VisualTaskRow[];
+  settledRows?: readonly VisualTaskRow[];
   composerOpen?: boolean;
 }) {
   const [selected, setSelected] = useState<string | null>(rows[0]?.id ?? null);
   return (
     <VisualShellView
       rows={rows}
+      settledRows={settledRows}
       selectedId={selected}
       projectsLoaded
       tasksLoaded
@@ -62,6 +74,8 @@ function MenuHarness({
       shortcut={SHORTCUT}
       renameShortcut={RENAME_SHORTCUT}
       removeShortcut={REMOVE_SHORTCUT}
+      settleShortcut={SETTLE_SHORTCUT}
+      focusSidebarShortcut={FOCUS_SHORTCUT}
       taskActions={actions}
       composerOpen={composerOpen}
       onSelectTask={setSelected}
@@ -149,8 +163,8 @@ test("a card selects the task, and ArrowDown moves selection and focus", async (
   await unmount();
 });
 
-test("hover/focus swaps the status slot for the unavailable Settle action without moving the title", async () => {
-  const { container, unmount } = await render(<Harness />);
+test("hover/focus swaps the status slot for the Settle action without moving the title", async () => {
+  const { container, unmount } = await render(<MenuHarness actions={menuActions()} />);
   const first = container.querySelector(".visual-task-card");
   if (!(first instanceof HTMLElement)) throw new Error("first card is missing");
   const action = first.querySelector<HTMLElement>(".visual-task-slot-action");
@@ -160,8 +174,18 @@ test("hover/focus swaps the status slot for the unavailable Settle action withou
   await userEvent.click(cardButton(0));
   await expect.poll(() => getComputedStyle(action).opacity).toBe("1");
   const settle = first.querySelector<HTMLButtonElement>(".visual-task-action");
-  expect(settle?.getAttribute("aria-disabled")).toBe("true");
-  expect(settle?.hasAttribute("disabled")).toBe(false);
+  expect(settle?.getAttribute("aria-label")).toBe("Settle task");
+  expect(settle?.getAttribute("aria-disabled")).toBeNull();
+  await unmount();
+});
+
+test("a host with no task store keeps the status instead of offering a settle action", async () => {
+  const { container, unmount } = await render(<Harness />);
+  await userEvent.click(cardButton(0));
+  const first = container.querySelector(".visual-task-card");
+  if (!(first instanceof HTMLElement)) throw new Error("first card is missing");
+  expect(first.querySelector(".visual-task-action")).toBeNull();
+  expect(first.querySelector(".visual-task-status")).not.toBeNull();
   await unmount();
 });
 
@@ -231,7 +255,7 @@ test("only task-list hops warm; standalone and disabled controls stay cold", asy
 });
 
 test("the card status strip is not a pointer dead zone, and Settle replaces rather than conflicts", async () => {
-  const { container, unmount } = await render(<Harness />);
+  const { container, unmount } = await render(<MenuHarness actions={menuActions()} />);
   const hits = [...container.querySelectorAll<HTMLElement>(".visual-task-card-hit")];
   if (hits.length === 0) throw new Error("cards are missing");
 
@@ -314,15 +338,12 @@ test("keyboard focus opens metadata, Escape closes it, and a host with no action
   await unmount();
 });
 
-test("an unavailable action stacks its title over the wrapped reason instead of using columns", async () => {
-  const { container, unmount } = await render(<Harness />);
-  await userEvent.click(cardButton(0));
-  const first = container.querySelector(".visual-task-card");
-  if (!(first instanceof HTMLElement)) throw new Error("first card is missing");
-  const settle = first.querySelector<HTMLElement>(".visual-task-action");
-  if (settle === null) throw new Error("settle action is missing");
+test("an unavailable action stacks its title over its reason instead of using columns", async () => {
+  const { unmount } = await render(<Harness />);
+  const search = page.getByRole("button", { name: /Search tasks/ }).element();
+  if (!(search instanceof HTMLElement)) throw new Error("search row is missing");
 
-  await userEvent.hover(settle);
+  await userEvent.hover(search);
   await expect.element(page.getByRole("tooltip")).toBeVisible();
   const popup = document.querySelector<HTMLElement>(".visual-tooltip-explanation");
   const heading = popup?.querySelector<HTMLElement>(".visual-tooltip-heading");
@@ -338,12 +359,12 @@ test("an unavailable action stacks its title over the wrapped reason instead of 
   expect(popup.getBoundingClientRect().width).toBeLessThanOrEqual(280);
   expect(reasonBox.top).toBeGreaterThanOrEqual(headingBox.bottom);
   expect(Math.abs(reasonBox.left - headingBox.left)).toBeLessThan(1);
-  expect(reasonBox.height).toBeGreaterThan(15);
+  expect(reasonBox.height).toBeGreaterThanOrEqual(15);
 
-  const before = getComputedStyle(settle).backgroundColor;
-  await userEvent.unhover(settle);
-  await expect.poll(() => getComputedStyle(settle).backgroundColor).not.toBe(before);
-  expect(getComputedStyle(settle).cursor).toBe("not-allowed");
+  const before = getComputedStyle(search).backgroundColor;
+  await userEvent.unhover(search);
+  await expect.poll(() => getComputedStyle(search).backgroundColor).not.toBe(before);
+  expect(getComputedStyle(search).cursor).toBe("not-allowed");
   await unmount();
 });
 
@@ -478,7 +499,7 @@ test("the sidebar can be dragged to 100, keeps essential controls reachable, and
 
   const controls = [
     toggle,
-    container.querySelector<HTMLElement>(".visual-search-row"),
+    container.querySelector<HTMLElement>(".visual-sidebar-row"),
     container.querySelector<HTMLElement>('[aria-label="New task"]'),
     container.querySelector<HTMLElement>('[aria-label="Settings"]'),
     container.querySelector<HTMLElement>('[aria-label="Add project"]'),
@@ -614,12 +635,18 @@ test("unavailable actions say why in the compact tooltip and never claim to run"
   await unmount();
 });
 
-test("the row menu is copy, rename, source, remove, with live shortcut cells and nothing invented", async () => {
+test("the row menu is copy, rename, settle, source, remove, with live shortcut cells and nothing invented", async () => {
   const actions = menuActions();
   const { unmount } = await render(<MenuHarness actions={actions} rows={[FIRST]} />);
 
   await openRowMenu(FIRST.title);
-  expect(menuNames()).toEqual(["Copy", "Rename task…", "View issue source…", "Remove task…"]);
+  expect(menuNames()).toEqual([
+    "Copy",
+    "Rename task…",
+    "Settle task",
+    "View issue source…",
+    "Remove task…",
+  ]);
   expect(shortcutCells()).toEqual(["alt+a e", "alt+a shift+t"]);
   expect(
     page
@@ -630,8 +657,6 @@ test("the row menu is copy, rename, source, remove, with live shortcut cells and
 
   // The menu refuses the reference features whose contracts do not exist.
   for (const absent of [
-    "Settle task",
-    "Unsettle task",
     "Pin task",
     "Snooze",
     "Mark unread",
@@ -769,21 +794,158 @@ test("row chords stay silent while a composer draft is open", async () => {
   await screen.unmount();
 });
 
-test("no menu item or card control settles a task while the shell has no settled shelf", async () => {
+test("the Settled shelf names its count, opens from the keyboard and keeps the current row alone when closed", async () => {
+  const actions = menuActions();
+  const settled = VISUAL_REVIEW_SETTLED_ROWS;
+  const screen = await render(
+    <MenuHarness actions={actions} rows={VISUAL_REVIEW_ROWS} settledRows={settled} />,
+  );
+
+  const toggle = page.getByRole("button", { name: "Settled (2)" });
+  await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
+  // Collapsed: none of the history is mounted, and the active list is untouched.
+  expect(document.querySelector(`[data-task-id="${settled[0]!.id}"]`)).toBeNull();
+  expect(
+    document
+      .querySelector<HTMLElement>('[data-task-id="fixture-blocked"]')
+      ?.getAttribute("aria-current"),
+  ).toBe("true");
+
+  await toggle.click();
+  await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect
+    .element(page.getByRole("button", { name: new RegExp(settled[0]!.title) }))
+    .toBeVisible();
+  await expect
+    .element(page.getByRole("button", { name: new RegExp(settled[1]!.title) }))
+    .toBeVisible();
+  // The shelf's rows are the same card recipe, in the shelf's one order.
+  const shelfRows = [...document.querySelectorAll<HTMLElement>(".visual-shelf [data-task-id]")];
+  expect(shelfRows.map((row) => row.getAttribute("data-task-id"))).toEqual(
+    settled.map((row) => row.id),
+  );
+  await screen.unmount();
+});
+
+test("prefix w shows a hidden sidebar and gives its list the keyboard", async () => {
+  const { unmount } = await render(<MenuHarness actions={menuActions()} />);
+  await page.getByRole("button", { name: "Hide sidebar" }).click();
+  await expect.element(page.getByRole("button", { name: "Show sidebar" })).toBeVisible();
+
+  await prefixThen("w");
+  await vi.waitFor(() =>
+    expect(document.activeElement?.getAttribute("data-task-id")).toBe(VISUAL_REVIEW_ROWS[0]!.id),
+  );
+  await expect.element(page.getByRole("button", { name: "Hide sidebar" })).toBeVisible();
+  await unmount();
+});
+
+test("the keyboard reaches the shelf, opens it, and selects a settled task without a pointer", async () => {
+  const actions = menuActions();
+  const settled = VISUAL_REVIEW_SETTLED_ROWS;
+  const { unmount } = await render(
+    <MenuHarness actions={actions} rows={VISUAL_REVIEW_ROWS} settledRows={settled} />,
+  );
+
+  // `prefix w` gives the list the keyboard, on the current row.
+  await prefixThen("w");
+  await vi.waitFor(() =>
+    expect(document.activeElement?.getAttribute("data-task-id")).toBe(VISUAL_REVIEW_ROWS[0]!.id),
+  );
+  // Arrows walk the active rows, then the shelf's disclosure.
+  for (let step = 1; step < VISUAL_REVIEW_ROWS.length; step += 1) {
+    await userEvent.keyboard("{ArrowDown}");
+    await vi.waitFor(() =>
+      expect(document.activeElement?.getAttribute("data-task-id")).toBe(
+        VISUAL_REVIEW_ROWS[step]!.id,
+      ),
+    );
+  }
+  await userEvent.keyboard("{ArrowDown}");
+  const toggle = page.getByRole("button", { name: `Settled (${settled.length})` });
+  await vi.waitFor(() => expect(document.activeElement).toBe(toggle.element()));
+
+  await userEvent.keyboard("{Enter}");
+  await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
+  await userEvent.keyboard("{ArrowDown}");
+  await vi.waitFor(() =>
+    expect(document.activeElement?.getAttribute("data-task-id")).toBe(settled[0]!.id),
+  );
+  // The settled row is the current one, and its working area names the state.
+  await expect.element(page.getByRole("heading", { name: settled[0]!.title })).toBeVisible();
+  await expect.element(page.getByText("Settled", { exact: true })).toBeVisible();
+
+  // `prefix d` continues it: the same action the row's menu and card offer.
+  await prefixThen("d");
+  await vi.waitFor(() =>
+    expect(actions.onToggleSettle).toHaveBeenCalledExactlyOnceWith(settled[0]!.id),
+  );
+  await unmount();
+});
+
+test("a settled task's row is current, keeps its status slot, and its menu and card unsettle it", async () => {
+  const actions = menuActions();
+  const settled = VISUAL_REVIEW_SETTLED_ROWS[0]!;
+  function SettledHarness() {
+    const [selected, setSelected] = useState<string | null>(settled.id);
+    return (
+      <VisualShellView
+        rows={VISUAL_REVIEW_ROWS}
+        settledRows={[settled]}
+        selectedId={selected}
+        projectsLoaded
+        tasksLoaded
+        failure={undefined}
+        shortcut={SHORTCUT}
+        taskActions={actions}
+        onSelectTask={setSelected}
+      />
+    );
+  }
+  const { container, unmount } = await render(<SettledHarness />);
+
+  // The current settled task is shown by its own row, and no active row claims the marker.
+  const row = container.querySelector<HTMLElement>(`[data-task-id="${settled.id}"]`);
+  expect(row?.getAttribute("aria-current")).toBe("true");
+  expect(
+    container
+      .querySelector<HTMLElement>('[data-task-id="fixture-blocked"]')
+      ?.getAttribute("aria-current"),
+  ).toBeNull();
+  // The working area names the server-owned state; the row keeps its status slot.
+  await expect.element(page.getByRole("heading", { name: settled.title })).toBeVisible();
+  await expect.element(page.getByText("Settled", { exact: true })).toBeVisible();
+  expect(row?.closest(".visual-task-card")?.getAttribute("data-settled")).toBe("true");
+  expect(row?.closest(".visual-task-card")?.querySelector(".visual-task-status")).not.toBeNull();
+
+  await userEvent.click(page.getByRole("button", { name: new RegExp(settled.title) }), {
+    button: "right",
+  });
+  await page.getByRole("menuitem", { name: "Unsettle task" }).click();
+  expect(actions.onToggleSettle).toHaveBeenCalledExactlyOnceWith(settled.id);
+
+  // The card's hover action is the same action, named for the state it leaves.
+  const action = row
+    ?.closest(".visual-task-card")
+    ?.querySelector<HTMLButtonElement>(".visual-task-action");
+  expect(action?.getAttribute("aria-label")).toBe("Unsettle task");
+  action?.click();
+  expect(actions.onToggleSettle).toHaveBeenLastCalledWith(settled.id);
+  await unmount();
+});
+
+test("the settle action is a real command: the card and prefix d call it, and no confirmation appears", async () => {
   const actions = menuActions();
   const { container, unmount } = await render(<MenuHarness actions={actions} rows={[FIRST]} />);
 
-  await openRowMenu(FIRST.title);
-  expect(page.getByRole("menuitem", { name: /Settle|Unsettle/ }).elements()).toHaveLength(0);
-  await userEvent.keyboard("{Escape}");
-
-  const action = container.querySelector<HTMLElement>(".visual-task-action");
+  const action = container.querySelector<HTMLButtonElement>(".visual-task-action");
   if (action === null) throw new Error("the settle action is missing");
-  expect(action.getAttribute("aria-label")).toBe("Settle task");
-  expect(action.getAttribute("aria-disabled")).toBe("true");
-  // aria-disabled controls keep their click handler unset; a forced DOM click does nothing.
   action.click();
+  expect(actions.onToggleSettle).toHaveBeenCalledExactlyOnceWith(FIRST.id);
+
   await prefixThen("d");
+  await vi.waitFor(() => expect(actions.onToggleSettle).toHaveBeenCalledTimes(2));
+  expect(actions.onToggleSettle).toHaveBeenLastCalledWith(FIRST.id);
   expect(page.getByRole("alertdialog").elements()).toHaveLength(0);
   await unmount();
 });

@@ -294,7 +294,8 @@
   margin-top: 4px;
 }
 
-.visual-search-row {
+/* The sidebar's one wide ghost row: Search and the Settled shelf's disclosure share it. */
+.visual-sidebar-row {
   display: flex;
   flex: 1 1 auto;
   align-items: center;
@@ -317,27 +318,31 @@
   user-select: none;
 }
 
-.visual-search-row:hover,
-.visual-search-row:focus-visible {
+.visual-sidebar-row:hover,
+.visual-sidebar-row:focus-visible {
   background: var(--visual-hover);
   color: var(--visual-text-base);
 }
 
-.visual-search-row:focus-visible {
+.visual-sidebar-row:focus-visible {
   outline: 2px solid var(--visual-border-focus);
   outline-offset: 2.5px;
 }
 
-.visual-search-row[aria-disabled="true"] {
+.visual-sidebar-row[data-tone="muted"] {
+  color: var(--visual-text-muted);
+}
+
+.visual-sidebar-row[aria-disabled="true"] {
   cursor: not-allowed;
 }
 
-.visual-search-row[aria-disabled="true"] svg,
-.visual-search-row[aria-disabled="true"] .visual-search-label {
+.visual-sidebar-row[aria-disabled="true"] svg,
+.visual-sidebar-row[aria-disabled="true"] .visual-sidebar-label {
   opacity: 0.5;
 }
 
-.visual-search-label {
+.visual-sidebar-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -384,6 +389,17 @@
 
 .visual-list-state-detail {
   overflow-wrap: anywhere;
+}
+
+/* The Settled shelf sits after the active rows in the same scroller and rests at the bottom while
+   the list is short; opening it grows the scroller's content, never the active list's rows. */
+.visual-shelf {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: auto;
+  padding-top: 8px;
 }
 
 /* One status sentence above the footer's actions: a copy confirmation or a refused action. */
@@ -525,6 +541,15 @@
 
 .visual-task-card[data-selected="true"] .visual-task-title {
   color: var(--visual-text-base);
+}
+
+/* A settled row is history: the shelf names its state, so the title stays quiet (`design.md`). */
+.visual-task-card[data-settled="true"] .visual-task-title {
+  color: var(--visual-text-faint);
+}
+
+.visual-task-card[data-settled="true"][data-selected="true"] .visual-task-title {
+  color: var(--visual-text-muted);
 }
 
 .visual-task-slot {
@@ -1071,6 +1096,15 @@
 
 .visual-main-status[data-tone="blocked"] {
   color: var(--visual-status-blocked);
+}
+
+/* The server-owned settled state, named in the identity row as the sidebar names it. */
+.visual-main-settled {
+  flex: 0 0 auto;
+  color: var(--visual-text-muted);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 530;
 }
 
 .visual-main-prompt {

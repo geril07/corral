@@ -1,7 +1,11 @@
 import { useState } from "react";
 import { VisualIconButton } from "../../common/ui/index.ts";
 import { bindingOf, useConfig } from "../keymap/index.ts";
-import { VISUAL_REVIEW_ROWS, VISUAL_REVIEW_SELECTED } from "./visual-fixtures.ts";
+import {
+  VISUAL_REVIEW_ROWS,
+  VISUAL_REVIEW_SELECTED,
+  VISUAL_REVIEW_SETTLED_ROWS,
+} from "./visual-fixtures.ts";
 import { VisualShellView, type VisualTaskActions } from "./visual-view.tsx";
 
 /**
@@ -26,6 +30,7 @@ export function VisualReview() {
     onRename: () => undefined,
     onRemove: () => undefined,
     onViewSource: () => undefined,
+    onToggleSettle: () => undefined,
   };
 
   if (!import.meta.env.DEV) {
@@ -41,6 +46,7 @@ export function VisualReview() {
     <>
       <VisualShellView
         rows={VISUAL_REVIEW_ROWS}
+        settledRows={VISUAL_REVIEW_SETTLED_ROWS}
         selectedId={selectedId}
         projectsLoaded
         tasksLoaded
