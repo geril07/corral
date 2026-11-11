@@ -119,12 +119,15 @@ export function AgentLaunchPicker({
     ...(selection.profile ? { expectedProfileRevision: selection.profile.revision } : {}),
   });
   const currentModel = launchModel(selection);
-  // The configured default names this instance; another instance has no default here to return to.
+  // The configured default names this instance; another instance has no configured model of its
+  // own, so its baseline is the native default (`docs/ux.md`, **Task entry**).
   const configured =
     defaultSelection !== undefined && launchKey(defaultSelection) === key
       ? defaultSelection
       : undefined;
   const configuredModel = configured === undefined ? undefined : launchModel(configured);
+  const instanceDefaultModel = launchModel({ ...selection, model: "" });
+  const defaultModel = configured === undefined ? instanceDefaultModel : configuredModel;
   const currentRow = launchCatalogRow(selection, menu.all);
   const current = launchCurrentModelRow(selection, menu.all, menu.models.map(modelKey), blocked);
   const models: PickerModel[] = [
@@ -143,8 +146,7 @@ export function AgentLaunchPicker({
     })),
   ];
   const hidden = currentRow !== undefined && !modelVisible(menu.preferences.policy, currentRow);
-  const overridden =
-    configured !== undefined && currentModel !== undefined && currentModel !== configuredModel;
+  const overridden = currentModel !== undefined && currentModel !== defaultModel;
   // Another instance means another runtime and model space: the previous model text is not
   // carried over, because doing so would switch the model silently (`docs/ux.md`, **Task entry**).
   // Re-picking the instance already shown changes nothing, so its configured model stays.
@@ -182,7 +184,7 @@ export function AgentLaunchPicker({
         onUseDefault={
           overridden
             ? () => {
-                const target = { ...selection, model: configuredModel ?? "" };
+                const target = { ...selection, model: defaultModel ?? "" };
                 onChange(target, "model");
                 onCommit(target);
               }
