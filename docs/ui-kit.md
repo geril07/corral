@@ -111,7 +111,8 @@ context-menu dispatcher.
   lane's width, a 24 px slot holding a 16 px glyph, a truncating label and a trailing disclosure,
   with an inset ring because it sits in the timeline's scroll container. Its minimum is T3's
   24 px (`WorkLog.tsx:51`); the rendered height is **29.75** px at the default interface scale, so
-  the minimum is a floor, not the metric. A row without an icon is a turn-level row —
+  the minimum is a floor, not the metric. Static and interactive activity rows use this same recipe
+  and height. A row without an icon is a turn-level row —
   the fold's `Worked` and the live `Working` — and starts at the lane's edge. The kit's icon set
   carries the transcript's verbs (`read`, `edit`, `run`'s terminal, `find`, `diagnostics`,
   `hammer` for a mixed group, `thinking`) and `quote`; `DisclosureIcon` is its one rotating

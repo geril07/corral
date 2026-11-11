@@ -128,6 +128,16 @@ test("prefix v moves the one agent tab between chat and terminal and back", asyn
   const before = sessionTabs().getByRole("tab").elements().length;
 
   await prefixThen("v");
+  // The fake pi can already be waiting for input when the shortcut reaches it.
+  await expect
+    .poll(
+      () =>
+        screenText().includes("fake pi") || document.querySelector('[role="alertdialog"]') !== null,
+    )
+    .toBe(true);
+  if (document.querySelector('[role="alertdialog"]') !== null) {
+    await page.getByRole("button", { name: "Switch to terminal" }).click();
+  }
   await expect.poll(() => sessionTabs().getByRole("tab").elements().length).toBe(before);
   await expect.element(sessionTab(/^pi/)).toHaveAttribute("aria-selected", "true");
   await expect.element(page.getByRole("log", { name: "Chat transcript" })).not.toBeInTheDocument();

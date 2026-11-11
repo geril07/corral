@@ -944,6 +944,49 @@ test("expanding a fold near the end does not drag the tail back into view", asyn
   expect(Math.abs(scrollNode().scrollTop - before)).toBeLessThan(2);
 });
 
+test("keyboard opening a focused fold just above the viewport keeps the reading row", async () => {
+  const items: ChatItem[] = [
+    ...Array.from({ length: 20 }, (_, index): ChatItem => ({
+      kind: "notice",
+      id: `before-${index}`,
+      text: `Before ${index}`,
+    })),
+    { kind: "user-message", id: "above", text: "Do the work" },
+    READ("above-work", "above.ts"),
+    { kind: "assistant-message", id: "above-answer", text: "Done", streaming: false },
+    ...Array.from({ length: 50 }, (_, index): ChatItem => ({
+      kind: "notice",
+      id: `after-${index}`,
+      text: `After ${index}`,
+    })),
+  ];
+  const memory = chatTranscriptStore();
+  memory.remember({ key: "turn:above", index: 21 }, false);
+  const chat = await renderChat(
+    recorded([], { state: { ...IDLE_CHAT, turn: "settled" }, items }),
+    {},
+    { memory },
+  );
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const fold = page.getByRole("button", { name: "Worked" });
+  await expect.element(fold).toBeVisible();
+  const button = fold.element();
+  if (!(button instanceof HTMLElement)) throw new Error("the fold is not a button");
+  button.focus();
+  await userEvent.wheel(page.getByTestId("chat-timeline"), { delta: { y: 160 } });
+  await vi.waitFor(() =>
+    expect(button.getBoundingClientRect().bottom).toBeLessThan(
+      scrollNode().getBoundingClientRect().top,
+    ),
+  );
+  expect(document.activeElement).toBe(button);
+  const reading = topRowKey();
+  await userEvent.keyboard("{Enter}");
+  await expect.element(fold).toHaveAttribute("aria-expanded", "true");
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  expect(topRowKey()).toBe(reading);
+});
+
 /** A fresh transcript per test: the list's item identities must not outlive one render. */
 const userAndAnswer = (): ChatItem[] => [
   { kind: "user-message", id: "u1", text: "Fix the auth test." },
@@ -958,6 +1001,49 @@ const READ = (id: string, path: string): ChatItem => ({
   status: "done",
   output: "contents",
   diff: null,
+});
+
+async function expectSteeredWorkVisible() {
+  await expect.element(page.getByRole("button", { name: "Read old.ts" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Read current.ts" })).toBeVisible();
+  expect(page.getByRole("button", { name: "Worked" }).elements()).toHaveLength(0);
+}
+
+test("steering queue changes never hide work while a turn runs, even with duplicate prompts", async () => {
+  const items: ChatItem[] = [
+    { kind: "user-message", id: "old", text: "same prompt" },
+    READ("old-work", "old.ts"),
+    { kind: "user-message", id: "current", text: "same prompt" },
+    READ("current-work", "current.ts"),
+  ];
+  const chat = await renderChat(recorded([], { state: workingChat(), items }));
+  await expect.element(page.getByRole("button", { name: "Read old.ts" })).toBeVisible();
+  chat.script.push({
+    type: "event",
+    sequence: 1,
+    event: { type: "item", item: { kind: "user-message", id: "steer", text: "same prompt" } },
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(1));
+  await expectSteeredWorkVisible(); // The message arrives before the queue update.
+  chat.script.push({
+    type: "event",
+    sequence: 2,
+    event: { type: "state", state: { ...workingChat(), steering: ["same prompt"] } },
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(2));
+  await expectSteeredWorkVisible();
+  chat.script.push({ type: "event", sequence: 3, event: { type: "state", state: workingChat() } });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(3));
+  await expectSteeredWorkVisible();
+  chat.script.push({
+    type: "event",
+    sequence: 4,
+    event: { type: "state", state: { ...IDLE_CHAT, turn: "settled" } },
+  });
+  await vi.waitFor(() =>
+    expect(page.getByRole("button", { name: "Worked" }).elements()).toHaveLength(2),
+  );
+  expect(page.getByRole("button", { name: "Read current.ts" }).elements()).toHaveLength(0);
 });
 
 test("a narrating turn folds to one row, keeps its last message and expands back to its work", async () => {
@@ -1154,11 +1240,11 @@ test("another session's memory leaves the same transcript closed", async () => {
 test("a session's memory reopens the transcript on the row it was reading", async () => {
   // A tab switch unmounts the pane; the workspace hands the new mount the row it was left on.
   const memory = chatTranscriptStore();
-  memory.remember({ key: "turn:long-100", index: 20 }, false);
+  memory.remember({ key: "long-100", index: 100 }, false);
   const chat = await renderChat(longChat(160), {}, { memory });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
 
-  await vi.waitFor(() => expect(topRowKey()).toBe("turn:long-100"));
+  await vi.waitFor(() => expect(topRowKey()).toBe("long-100"));
   // It is neither the tail nor the start: the end follow was not re-armed by the mount.
   expect(atEnd(scrollNode())).toBe(false);
   expect(scrollNode().scrollTop).toBeGreaterThan(0);
@@ -1287,6 +1373,10 @@ test("the live rows shimmer only when motion is allowed", async () => {
 
   const working = page.getByText("Working", { exact: true }).element();
   const thinking = page.getByText("Thinking", { exact: true }).element();
+  expect(working.parentElement!.getBoundingClientRect().height).toBeCloseTo(
+    thinking.parentElement!.getBoundingClientRect().height,
+    1,
+  );
   expect(getComputedStyle(working).animationName).toBe("none");
   expect(getComputedStyle(thinking).animationName).toBe("none");
 

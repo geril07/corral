@@ -40,6 +40,7 @@ import {
   ChatChoiceDialog,
   ChatView,
   chatTranscriptStore,
+  reconcileTranscriptMemory,
   useChatSession,
   type ChatFiles,
   type ChatTranscriptStore,
@@ -178,16 +179,8 @@ export function useTaskWorkspace({
     ReadonlyMap<string, ChatTranscriptStore>
   >(() => new Map());
   const sessionIds = new Set(sessions.map((session) => session.id));
-  let memories = transcriptMemory;
-  if (
-    sessionIds.size !== transcriptMemory.size ||
-    [...sessionIds].some((id) => !transcriptMemory.has(id))
-  ) {
-    memories = new Map(
-      [...sessionIds].map((id) => [id, transcriptMemory.get(id) ?? chatTranscriptStore()]),
-    );
-    setTranscriptMemory(memories);
-  }
+  const memories = reconcileTranscriptMemory(transcriptMemory, sessionIds);
+  if (memories !== transcriptMemory) setTranscriptMemory(memories);
   const [dialogState, setDialogState] = useState<
     { taskId: string | undefined; dialog: DialogState | undefined } | undefined
   >();

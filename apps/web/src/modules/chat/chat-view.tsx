@@ -238,7 +238,6 @@ export function ChatView({
               <ChatTimeline
                 items={snapshot.items}
                 turn={snapshot.state.turn}
-                steering={snapshot.state.steering}
                 waiting={request !== undefined}
                 requestId={request?.id}
                 endSpace={panelHeight}

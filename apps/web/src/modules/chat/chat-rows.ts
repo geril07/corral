@@ -40,22 +40,15 @@ export type ChatRow =
 
 export interface ChatRowInput {
   readonly items: readonly ChatItem[];
-  /** The session's turn. Only a working turn keeps its newest work unfolded. */
+  /** A working session keeps every turn unfolded because steer boundaries are not in the contract. */
   readonly turn: ChatTurnState;
   /** The agent is waiting on the user, so the working row would claim work that is not happening. */
   readonly waiting: boolean;
-  /**
-   * The messages the agent is being steered with (`ChatSessionState.steering`). A steer is a
-   * `user-message` item inside the running turn (`apps/server/src/chat/chat-rpc.test.ts:773`), so
-   * it must not start a second turn: the turn it steered would fold mid-stream.
-   */
-  readonly steering?: readonly string[];
 }
 
 /** What one row of the transcript is. */
-export function chatRows({ items, turn, waiting, steering = [] }: ChatRowInput): ChatRow[] {
+export function chatRows({ items, turn, waiting }: ChatRowInput): ChatRow[] {
   const rows: ChatRow[] = [];
-  const steers = steerIds(items, turn, steering);
   const firstTurn = items.findIndex((item) => item.kind === "user-message");
   const start = firstTurn === -1 ? items.length : firstTurn;
   // A notice or an error before the first prompt belongs to no turn, but a run of calls still groups.
@@ -67,12 +60,13 @@ export function chatRows({ items, turn, waiting, steering = [] }: ChatRowInput):
       index += 1;
       continue;
     }
-    const end = nextTurnStart(items, index + 1, steers);
+    const end = nextTurnStart(items, index + 1);
     const segment = items.slice(index, end);
     const [prompt, ...work] = segment;
     // The prompt is never hidden: the fold covers the turn's work, not what asked for it.
     if (prompt !== undefined) rows.push({ kind: "item", key: prompt.id, item: prompt });
-    if (folds(work, end === items.length ? turn : "settled")) {
+    // A steer is another user message, indistinguishable from a turn boundary in the contract.
+    if (folds(work, turn === "working" ? turn : end === items.length ? turn : "settled")) {
       const turnRows = projectRows(work);
       rows.push({
         kind: "turn",
@@ -89,42 +83,12 @@ export function chatRows({ items, turn, waiting, steering = [] }: ChatRowInput):
   return rows;
 }
 
-function nextTurnStart(
-  items: readonly ChatItem[],
-  from: number,
-  steers: ReadonlySet<string>,
-): number {
+function nextTurnStart(items: readonly ChatItem[], from: number): number {
   for (let index = from; index < items.length; index += 1) {
     const item = items[index];
-    if (item?.kind === "user-message" && !steers.has(item.id)) return index;
+    if (item?.kind === "user-message") return index;
   }
   return items.length;
-}
-
-/**
- * The user messages that steered the running turn rather than starting one. `steering` is in send
- * order, so each entry is matched to the last unclaimed prompt with its text; a steer and a prompt
- * that read the same therefore still map one-to-one, newest first.
- */
-function steerIds(
-  items: readonly ChatItem[],
-  turn: ChatTurnState,
-  steering: readonly string[],
-): ReadonlySet<string> {
-  const ids = new Set<string>();
-  if (turn !== "working" || steering.length === 0) return ids;
-  let before = items.length;
-  for (let steer = steering.length - 1; steer >= 0; steer -= 1) {
-    const text = steering[steer];
-    for (let index = before - 1; index >= 0; index -= 1) {
-      const item = items[index];
-      if (item?.kind !== "user-message" || item.text !== text) continue;
-      ids.add(item.id);
-      before = index;
-      break;
-    }
-  }
-  return ids;
 }
 
 /**

@@ -1,5 +1,10 @@
 import { expect, test } from "vite-plus/test";
-import { chatTranscriptStore, insertQuote, quoteBlock } from "./chat-transcript.ts";
+import {
+  chatTranscriptStore,
+  insertQuote,
+  quoteBlock,
+  reconcileTranscriptMemory,
+} from "./chat-transcript.ts";
 
 test("a quote is one blockquote line per selected line, then the comment's line", () => {
   expect(quoteBlock("Waits on the condition.\n\nThe timeout was the race.")).toBe(
@@ -52,4 +57,16 @@ test("a session's store keeps its folds and its reading row, and another session
     atEnd: false,
     expanded: new Set(),
   });
+});
+
+test("removing a session forgets its reading state without disturbing another session", () => {
+  const first = reconcileTranscriptMemory(new Map(), new Set(["removed", "kept"]));
+  first.get("removed")?.toggle("turn:old");
+  first.get("kept")?.toggle("turn:kept");
+  const afterRemoval = reconcileTranscriptMemory(first, new Set(["kept"]));
+  expect(afterRemoval.has("removed")).toBe(false);
+  expect([...afterRemoval.get("kept")!.read().expanded]).toEqual(["turn:kept"]);
+  const afterRecreation = reconcileTranscriptMemory(afterRemoval, new Set(["removed", "kept"]));
+  expect([...afterRecreation.get("removed")!.read().expanded]).toEqual([]);
+  expect([...afterRecreation.get("kept")!.read().expanded]).toEqual(["turn:kept"]);
 });

@@ -159,31 +159,6 @@ test("the live tail is absent while the agent waits on the user", () => {
   ).toEqual(["item", "tool"]);
 });
 
-test("a queued steer does not fold the work of the running turn", () => {
-  const steer: ChatItem = { kind: "user-message", id: "steer", text: "change direction" };
-  const rows = chatRows({
-    items: [
-      user("old"),
-      call("old-work", "done"),
-      user("current"),
-      call("work", "done"),
-      steer,
-      call("live", "running"),
-    ],
-    ...working,
-    steering: ["change direction"],
-  });
-  expect(rows.map((row) => row.key)).toEqual([
-    "old",
-    "turn:old",
-    "current",
-    "work",
-    "steer",
-    "live",
-    "working",
-  ]);
-});
-
 test("an action is read from the call's shape, never its name", () => {
   expect(toolAction(call("a", "done", { name: "whatever", arguments: '{"path":"x"}' }))).toBe(
     "read",
