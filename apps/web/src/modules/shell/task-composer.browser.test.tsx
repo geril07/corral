@@ -533,7 +533,6 @@ test("the shell prefix and direct commands stay live while a draft is open", asy
   await screen.unmount();
 });
 
-
 test("Mod+N skips project selection with one project; prefix new-task still works", async () => {
   const { client, project, screen } = await appWithProject("composer-direct-new");
   await ctrl("n");

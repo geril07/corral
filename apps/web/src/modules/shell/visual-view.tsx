@@ -159,7 +159,7 @@ export interface VisualShellViewProps {
   /** The task's identity row above the strip: title, project, branch, status. */
   taskHeader?: ReactNode | undefined;
   /** One line above the whole working area: a refused action, never a tab-local error. */
-  notice?: ReactNode | undefined;
+  workingNotice?: ReactNode | undefined;
   /** The task's main tab strip, inside the 40 px chrome band. */
   chrome?: ReactNode | undefined;
   /** The companion group's column; it keeps its own strip and pane. */
@@ -423,7 +423,7 @@ export function VisualShellView({
   onAddProject,
   main,
   taskHeader,
-  notice,
+  workingNotice,
   chrome,
   companion,
   mainFill = false,
@@ -592,7 +592,15 @@ export function VisualShellView({
         else taskActions?.onRemove(currentTaskId);
       } else prefixExtra?.onAction(action);
     },
-    [currentTaskId, onAddProject, onNewTask, onOpenSettings, prefixExtra, taskActions, toggleSidebar],
+    [
+      currentTaskId,
+      onAddProject,
+      onNewTask,
+      onOpenSettings,
+      prefixExtra,
+      taskActions,
+      toggleSidebar,
+    ],
   );
   usePrefixMode(
     keymap,
@@ -737,7 +745,7 @@ export function VisualShellView({
             {taskHeader}
           </div>
         )}
-        {notice}
+        {workingNotice}
         {(taskHeader === undefined || chrome !== undefined) && (
           <div className="visual-main-chrome">
             {taskHeader === undefined && (
