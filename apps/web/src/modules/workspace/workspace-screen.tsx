@@ -15,7 +15,12 @@ import {
 } from "../../common/ui/index.ts";
 import { ChangesView } from "../changes/index.ts";
 import { AddProjectDialog } from "../projects/index.ts";
-import { ChatChoiceDialog, ChatView } from "../chat/index.ts";
+import {
+  ChatChoiceDialog,
+  ChatView,
+  chatTranscriptStore,
+  type ChatTranscriptStore,
+} from "../chat/index.ts";
 import {
   AgentPicker,
   RemoveSessionDialog,
@@ -86,6 +91,18 @@ export function WorkspaceScreen({
   const modelPickerAnchor = useRef<HTMLButtonElement>(null);
   const reasoningPickerAnchor = useRef<HTMLButtonElement>(null);
   const [chatDrafts, setChatDrafts] = useState<ReadonlyMap<string, string>>(new Map());
+  // Scroll offset and open folds per session, beside the draft: a tab switch unmounts the pane.
+  const [transcriptMemory] = useState<Map<string, ChatTranscriptStore>>(() => new Map());
+  const memoryFor = useCallback(
+    (sessionId: string) => {
+      const existing = transcriptMemory.get(sessionId);
+      if (existing !== undefined) return existing;
+      const created = chatTranscriptStore();
+      transcriptMemory.set(sessionId, created);
+      return created;
+    },
+    [transcriptMemory],
+  );
   const {
     client,
     config,
@@ -297,6 +314,7 @@ export function WorkspaceScreen({
       <ChatView
         key={currentSession.id}
         store={chat.store}
+        memory={memoryFor(currentSession.id)}
         draft={chatDrafts.get(currentSession.id) ?? ""}
         onDraftChange={(update) => {
           const id = currentSession.id;

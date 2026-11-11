@@ -23,12 +23,14 @@ import {
   ComposerToolbar,
   ContentLane,
   ModelPickerButton,
+  SelectionAction,
   Textarea,
   useTruncatedText,
 } from "../../common/ui/index.ts";
 import { draftLeftAfterSend } from "./chat-draft.ts";
 import { pendingRequest } from "./chat-rows.ts";
 import { ChatTimeline } from "./chat-timeline.tsx";
+import { insertQuote as quoteIntoDraft, type ChatTranscriptStore } from "./chat-transcript.ts";
 import {
   LocalLinkFailure,
   LocalLinks,
@@ -67,6 +69,11 @@ export interface ChatViewProps {
   onChangeReasoning: () => void;
   /** Local links of the messages: resolved against the task's workspace by the workspace. */
   files: ChatFiles;
+  /**
+   * This session's reading row and open folds, owned by the workspace so that closing the tab and
+   * coming back is not a fresh session.
+   */
+  memory: ChatTranscriptStore;
 }
 
 /**
@@ -91,13 +98,16 @@ export function ChatView({
   onChangeModel,
   onChangeReasoning,
   files,
+  memory,
 }: ChatViewProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const reasoning = snapshot.state.reasoning ?? "Thinking";
   const { observe: observeReasoning, clipped: clippedReasoning } = useTruncatedText(reasoning);
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string>();
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => memory.read().expanded);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [panelHeight, setPanelHeight] = useState(0);
   const guard = useEnterGuard();
@@ -129,6 +139,34 @@ export function ChatView({
   }, []);
 
   const focusComposer = useCallback(() => composerRef.current?.focus(), []);
+
+  /**
+   * A fold is the user's own disclosure: it opens and closes here and the session's memory keeps
+   * the answer, so the same folds are open after a tab switch.
+   */
+  const toggleFold = useCallback((key: string) => setExpanded(memory.toggle(key)), [memory]);
+
+  /**
+   * Quoting a selection puts a Markdown blockquote at the composer's caret and leaves the caret on
+   * the line below it, where the comment goes (`.review/research/chat-transcript.md`, **Quote
+   * flow** — Corral v1 sends plain Markdown, so no protocol field carries the quote).
+   */
+  const quoteSelection = useCallback(
+    (text: string) => {
+      const field = composerRef.current;
+      const selection =
+        field === null ? undefined : { start: field.selectionStart, end: field.selectionEnd };
+      const { text: next, caret } = quoteIntoDraft(draft, selection, text);
+      setDraft(next);
+      requestAnimationFrame(() => {
+        const composer = composerRef.current;
+        if (composer === null) return;
+        composer.focus();
+        composer.setSelectionRange(caret, caret);
+      });
+    },
+    [draft, setDraft],
+  );
 
   // A keyboard activation has the button focused; move the keyboard back before the action
   // disables it, because Chromium drops a disabled button's focus to <body>. A pointer press
@@ -196,19 +234,25 @@ export function ChatView({
       <div className="flex h-full min-h-0 justify-center px-4">
         <ContentLane className="relative h-full min-h-0">
           <div className="relative min-h-0 flex-1">
-            <div className="absolute inset-0">
+            <div className="absolute inset-0" ref={transcriptRef}>
               <ChatTimeline
                 items={snapshot.items}
+                turn={snapshot.state.turn}
+                waiting={request !== undefined}
                 requestId={request?.id}
                 endSpace={panelHeight}
+                memory={memory}
+                expanded={expanded}
+                onToggleFold={toggleFold}
                 onRespond={onRespond}
                 onAnswered={focusComposer}
+                onFailure={setFailure}
               />
             </div>
           </div>
           <div
             ref={panelRef}
-            className="absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-background pt-2"
+            className="absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-canvas pt-2"
           >
             {snapshot.failure !== null && (
               <Alert variant="destructive">
@@ -340,6 +384,12 @@ export function ChatView({
           </div>
         </ContentLane>
       </div>
+      <SelectionAction
+        scope={transcriptRef}
+        label="Quote"
+        ariaLabel="Quote selection"
+        onSelect={quoteSelection}
+      />
     </LocalLinks>
   );
 }

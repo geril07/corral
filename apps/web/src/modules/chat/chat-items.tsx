@@ -1,163 +1,363 @@
 import type {
+  ChatAnswer,
   ChatAssistantMessage,
   ChatError,
   ChatNotice,
   ChatReasoning,
   ChatToolCall,
-  ChatToolStatus,
   ChatUserMessage,
 } from "@corral/protocol/chat";
-import type { AgentState } from "@corral/protocol/rpc";
-import { useEffect, useRef, useState } from "react";
-import { Button, DiffView, Icon, Markdown, StatusGlyph } from "../../common/ui/index.ts";
+import { useEffect, useState, type ReactNode } from "react";
+import { describeError } from "@corral/client/rpc-errors";
+import {
+  Button,
+  DiffView,
+  Icon,
+  IconButton,
+  Markdown,
+  type IconName,
+} from "../../common/ui/index.ts";
+import { ChatRequestItem } from "./chat-request.tsx";
+import {
+  isWorkRow,
+  toolAction,
+  toolGroupSummary,
+  toolLabel,
+  type ChatRow,
+  type ChatToolAction,
+} from "./chat-rows.ts";
 import { useMarkdownLinks } from "./local-links.tsx";
-import { toolSummary } from "./chat-rows.ts";
 
-/** User text is what the user typed; it is not Markdown and keeps its line breaks. */
-export function UserMessageItem({ item }: { item: ChatUserMessage }) {
-  return (
-    <article
-      aria-label="Your message"
-      className="ml-auto max-w-xl rounded-lg bg-muted px-3 py-2 text-sm whitespace-pre-wrap"
-    >
-      {item.text}
-    </article>
+/** How long a copied message shows the check, as T3's copy state does (~1.2 s, no toast). */
+const COPIED_MS = 1200;
+
+/** The glyph of each action, from T3's `toolGroupSummaryIconName` (`TimelineWorkEntryRow.logic.ts:12`). */
+const ACTION_ICON: Readonly<Record<ChatToolAction | "mixed", IconName>> = {
+  read: "read",
+  search: "find",
+  edit: "edit",
+  run: "terminal",
+  other: "diagnostics",
+  mixed: "hammer",
+};
+
+/**
+ * One activity row: the icon slot, the label and the disclosure, in T3's work-row geometry
+ * (`WorkLog.tsx:51`, `MessagesTimeline.tsx:1637`). A row without an icon is a turn-level row — the
+ * fold's `Worked` — and starts at the lane's edge, as T3's turn fold does.
+ */
+function ActivityRow({
+  icon,
+  label,
+  expanded,
+  live = false,
+  failed = false,
+  shimmer = false,
+  ariaLabel,
+  onClick,
+}: {
+  icon?: IconName | undefined;
+  label: string;
+  expanded?: boolean | undefined;
+  live?: boolean;
+  failed?: boolean;
+  shimmer?: boolean;
+  ariaLabel?: string | undefined;
+  onClick?: (() => void) | undefined;
+}) {
+  const content = (
+    <>
+      {icon !== undefined && (
+        <span
+          className={[
+            "flex w-6 shrink-0 items-center justify-center",
+            failed ? "text-destructive" : live ? "text-foreground" : "text-muted-foreground",
+          ].join(" ")}
+        >
+          <Icon name={icon} size="row" />
+        </span>
+      )}
+      <span
+        className={[
+          "min-w-0 flex-1 truncate text-left",
+          shimmer ? "shimmer" : "",
+          live || shimmer ? "text-foreground" : "text-muted-foreground",
+        ].join(" ")}
+      >
+        {label}
+      </span>
+      {expanded !== undefined && <Icon name={expanded ? "collapse" : "expand"} size="row" />}
+    </>
   );
-}
-
-/** The agent's answer, rendered as streaming Markdown by the kit's Streamdown wrapper. */
-export function AssistantMessageItem({ item }: { item: ChatAssistantMessage }) {
-  // Local file paths and web links behave as the lane's `LocalLinks` resolved them; `docs/ux.md`.
-  const links = useMarkdownLinks();
+  if (onClick === undefined) {
+    return (
+      <div className="flex min-h-6 min-w-0 items-center gap-1.5 px-0.5 py-0.5 text-sm leading-relaxed">
+        {content}
+      </div>
+    );
+  }
   return (
-    <article aria-label="Agent message">
-      <Markdown text={item.text} streaming={item.streaming} links={links} />
-    </article>
+    <Button
+      variant="ghost"
+      layout="activity"
+      size="activity"
+      aria-label={ariaLabel}
+      aria-expanded={expanded}
+      onClick={onClick}
+    >
+      {content}
+    </Button>
   );
 }
 
 /**
- * Reasoning is one muted line (`layout.md`, **Chat**), collapsed by default. The contract carries
- * no timestamps, so the duration is measured from when this row first saw it streaming; a row
- * restored from a snapshot without that history says "Thought".
+ * The message's actions, under it and revealed by hover or keyboard focus but always tabbable
+ * (`TimelineAssistantRows.tsx:170`: `opacity-0 ... focus-within:opacity-100 group-hover:opacity-100`).
+ * Copy is T3's `MessageCopyButton`: raw text, the icon turns into a check, no toast.
  */
-export function ReasoningItem({ item }: { item: ChatReasoning }) {
-  const [open, setOpen] = useState(false);
-  const [seconds, setSeconds] = useState<number>();
-  const startedAt = useRef<number | undefined>(undefined);
+function MessageActions({
+  text,
+  onFailure,
+}: {
+  text: string;
+  onFailure: (message: string) => void;
+}) {
+  const [copied, setCopied] = useState(false);
   useEffect(() => {
-    if (item.streaming) {
-      startedAt.current ??= Date.now();
-      return;
-    }
-    if (startedAt.current === undefined) return;
-    setSeconds(Math.max(1, Math.round((Date.now() - startedAt.current) / 1000)));
-    startedAt.current = undefined;
-  }, [item.streaming]);
-  const label =
-    item.streaming || seconds === undefined
-      ? item.streaming
-        ? "Thinking…"
-        : "Thought"
-      : `Thought for ${seconds}s`;
+    if (!copied) return undefined;
+    const timer = setTimeout(() => setCopied(false), COPIED_MS);
+    return () => clearTimeout(timer);
+  }, [copied]);
   return (
-    <div className="flex flex-col gap-1">
-      <div>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
-          <Icon name={open ? "collapse" : "expand"} size="row" />
-          <span className="text-xs text-muted-foreground">{label}</span>
-        </Button>
-      </div>
-      {open && (
-        <p className="m-0 whitespace-pre-wrap text-sm text-muted-foreground italic">{item.text}</p>
-      )}
+    <div className="flex items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/message:opacity-100 focus-within:opacity-100 motion-reduce:transition-none">
+      <IconButton
+        label="Copy message"
+        icon={copied ? "status-done" : "copy"}
+        size="icon-xs"
+        variant="ghost"
+        onClick={() => {
+          void navigator.clipboard.writeText(text).then(
+            () => setCopied(true),
+            // A refused clipboard is a sentence above the composer, as a refused send is.
+            (error: unknown) => onFailure(describeError(error)),
+          );
+        }}
+      />
     </div>
   );
 }
 
-const TOOL_STATE: Readonly<Record<ChatToolStatus, AgentState>> = {
-  running: "working",
-  done: "done",
-  error: "error",
-};
-
-/** One call: glyph, name, a shape-derived argument hint and its status, expandable in place. */
-export function ToolCallItem({ item }: { item: ChatToolCall }) {
-  const [open, setOpen] = useState(false);
-  const summary = toolSummary(item.arguments);
+/** User text is what the user typed; it is not Markdown and keeps its line breaks. */
+export function UserMessageItem({
+  item,
+  onFailure,
+}: {
+  item: ChatUserMessage;
+  onFailure: (message: string) => void;
+}) {
   return (
-    <div className="flex flex-col gap-1">
-      <div>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-expanded={open}
-          aria-label={`${item.name} ${summary}`.trim()}
-          onClick={() => setOpen((value) => !value)}
-        >
-          <StatusGlyph state={TOOL_STATE[item.status]} size="row" />
-          <span className="max-w-48 shrink-0 truncate font-mono text-sm">{item.name}</span>
-          {summary !== "" && (
-            <span className="max-w-80 truncate text-sm text-muted-foreground">{summary}</span>
-          )}
-        </Button>
+    <div className="group/message flex flex-col items-end gap-1">
+      <article
+        aria-label="Your message"
+        className="max-w-xl rounded-xl bg-layer-01 px-3 py-2 text-sm whitespace-pre-wrap"
+      >
+        {item.text}
+      </article>
+      <div className="pe-1">
+        <MessageActions text={item.text} onFailure={onFailure} />
       </div>
-      {open && (
-        <div className="flex flex-col gap-2 pl-6">
-          {item.arguments !== "" && (
-            <div className="flex flex-col gap-1">
-              <p className="m-0 text-xs text-muted-foreground">Arguments</p>
-              <pre className="m-0 max-h-64 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap">
-                {item.arguments}
-              </pre>
-            </div>
-          )}
-          {item.diff !== null ? (
-            <DiffView text={item.diff.text} path={item.diff.path} />
-          ) : (
-            item.output !== null && (
-              <div className="flex flex-col gap-1">
-                <p className="m-0 text-xs text-muted-foreground">Output</p>
-                <pre className="m-0 max-h-64 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap">
-                  {item.output}
-                </pre>
-              </div>
-            )
-          )}
+    </div>
+  );
+}
+
+/** The agent's answer, rendered as streaming Markdown by the kit's Streamdown wrapper. */
+export function AssistantMessageItem({
+  item,
+  onFailure,
+}: {
+  item: ChatAssistantMessage;
+  onFailure: (message: string) => void;
+}) {
+  // Local file paths and web links behave as the lane's `LocalLinks` resolved them; `docs/ux.md`.
+  const links = useMarkdownLinks();
+  return (
+    <div className="group/message flex flex-col gap-1">
+      {/* A selection inside this message can be quoted into the composer (`SelectionAction`). */}
+      <article aria-label="Agent message" data-selection-action>
+        <Markdown text={item.text} streaming={item.streaming} links={links} />
+      </article>
+      {!item.streaming && (
+        <div className="px-1">
+          <MessageActions text={item.text} onFailure={onFailure} />
         </div>
       )}
     </div>
   );
 }
 
-/** A run of finished calls folds into one line until expanded (`layout.md`, **Chat**). */
-export function ToolGroupItem({ items }: { items: readonly ChatToolCall[] }) {
-  const [open, setOpen] = useState(false);
+/**
+ * Reasoning is one muted row, collapsed by default. While it streams the row is T3's live
+ * `Thinking`; when the turn moves on it is `Thought` (`TimelineWorkGroupRows.tsx:361`). The
+ * contract carries no timestamps, so no duration is claimed.
+ */
+export function ReasoningItem({
+  item,
+  expanded,
+  onToggle,
+}: {
+  item: ChatReasoning;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <div className="flex flex-col gap-1">
-      <div>
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-        >
-          <Icon name={open ? "collapse" : "expand"} size="row" />
-          <span className="text-xs text-muted-foreground">{items.length} tool calls</span>
-        </Button>
-      </div>
-      {open && (
-        <div className="flex flex-col gap-1 pl-6">
-          {items.map((item) => (
-            <ToolCallItem key={item.id} item={item} />
-          ))}
+    <div className="flex flex-col">
+      <ActivityRow
+        icon="thinking"
+        label={item.streaming ? "Thinking" : "Thought"}
+        expanded={expanded}
+        live={item.streaming}
+        shimmer={item.streaming}
+        onClick={onToggle}
+      />
+      {expanded && (
+        <p className="m-0 pl-6 text-sm whitespace-pre-wrap text-muted-foreground italic">
+          {item.text}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One call: the action's glyph, its one-line label and its status, expandable in place. A failed
+ * call keeps its action glyph in the error colour and says so in its accessible name, as T3 does
+ * (`TimelineWorkGroupRows.tsx:449`).
+ */
+export function ToolCallItem({
+  item,
+  expanded,
+  onToggle,
+}: {
+  item: ChatToolCall;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const label = toolLabel(item);
+  const failed = item.status === "error";
+  return (
+    <div className="flex flex-col">
+      <ActivityRow
+        icon={ACTION_ICON[toolAction(item)]}
+        label={label}
+        expanded={expanded}
+        live={item.status === "running"}
+        failed={failed}
+        ariaLabel={failed ? `${label}, tool call failed` : label}
+        onClick={onToggle}
+      />
+      {expanded && <ToolCallBody item={item} />}
+    </div>
+  );
+}
+
+function ToolCallBody({ item }: { item: ChatToolCall }) {
+  const argumentsText = item.arguments.trim();
+  const output = item.output?.trim() ?? "";
+  return (
+    <div className="flex flex-col gap-2 pl-6">
+      {argumentsText !== "" && (
+        <div className="flex flex-col gap-1">
+          {/* T3's expanded tool body labels its JSON with this line (`TimelineWorkEntryRow.logic.ts:100`). */}
+          <p className="m-0 text-xs text-muted-foreground">Tool input</p>
+          <pre className="m-0 max-h-64 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap">
+            {argumentsText}
+          </pre>
         </div>
       )}
+      {item.diff !== null ? (
+        <DiffView text={item.diff.text} path={item.diff.path} />
+      ) : (
+        output !== "" && (
+          <pre className="m-0 max-h-64 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap">
+            {output}
+          </pre>
+        )
+      )}
+    </div>
+  );
+}
+
+/**
+ * A run of finished calls folds into one verb summary — `Read 4 files and ran 2 commands` — until
+ * expanded (`presentation.ts:532`, `TimelineWorkGroupRows.tsx:583`). Its entries are listed without
+ * a second indent: they are the group's own rows, not a body under one of them.
+ */
+export function ToolGroupItem({
+  items,
+  expanded,
+  onToggle,
+  expandedFolds,
+  onToggleFold,
+}: {
+  items: readonly ChatToolCall[];
+  expanded: boolean;
+  onToggle: () => void;
+  expandedFolds: ReadonlySet<string>;
+  onToggleFold: (key: string) => void;
+}) {
+  const summary = toolGroupSummary(items);
+  return (
+    <div className="flex flex-col">
+      <ActivityRow
+        icon={ACTION_ICON[summary.action]}
+        label={summary.label}
+        expanded={expanded}
+        failed={items.some((item) => item.status === "error")}
+        onClick={onToggle}
+      />
+      {expanded &&
+        items.map((item) => (
+          <ToolCallItem
+            key={item.id}
+            item={item}
+            expanded={expandedFolds.has(item.id)}
+            onToggle={() => onToggleFold(item.id)}
+          />
+        ))}
+    </div>
+  );
+}
+
+/**
+ * A finished turn folds to one line: T3's `Worked` is the label it uses when the contract carries
+ * no timestamps (`MessagesTimeline.logic.ts:1181`). The rows it hides are its own work — the
+ * assistant's answer stays outside.
+ */
+export function TurnFoldItem({
+  expanded,
+  onToggle,
+  children,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col">
+      <div className="border-b border-border/60">
+        <ActivityRow label="Worked" expanded={expanded} onClick={onToggle} />
+      </div>
+      {/* The caller keeps the answer here; only the turn's own work is hidden while closed. */}
+      {children}
+    </div>
+  );
+}
+
+/** The live tail of a running turn: OpenCode's `Working` with its shimmer (`en.ts:656`). */
+export function WorkingItem() {
+  return (
+    <div className="border-b border-border/60">
+      <ActivityRow label="Working" live shimmer />
     </div>
   );
 }
@@ -177,4 +377,99 @@ export function ErrorItem({ item }: { item: ChatError }) {
       {item.text}
     </p>
   );
+}
+
+export interface TranscriptRowProps {
+  row: ChatRow;
+  /** The folds the user opened, keyed by turn or group id. */
+  expanded: ReadonlySet<string>;
+  onToggleFold: (key: string) => void;
+  onRespond: (requestId: string, value: ChatAnswer) => Promise<void>;
+  onAnswered: () => void;
+  /** A message action that failed says so in the pane's one failure line. */
+  onFailure: (message: string) => void;
+}
+
+/**
+ * One projected row. A turn fold and a tool group both recurse through here, so a fold's contents
+ * are the same rows the timeline would have shown.
+ */
+export function TranscriptRow({
+  row,
+  expanded,
+  onToggleFold,
+  onRespond,
+  onAnswered,
+  onFailure,
+}: TranscriptRowProps) {
+  if (row.kind === "working") return <WorkingItem />;
+  if (row.kind === "turn") {
+    const open = expanded.has(row.key);
+    return (
+      <TurnFoldItem expanded={open} onToggle={() => onToggleFold(row.key)}>
+        {row.rows.map((inner) =>
+          // Collapsed, only the work is hidden; the answer keeps its place after the fold.
+          open || !isWorkRow(inner) ? (
+            <TranscriptRow
+              key={inner.key}
+              row={inner}
+              expanded={expanded}
+              onToggleFold={onToggleFold}
+              onRespond={onRespond}
+              onAnswered={onAnswered}
+              onFailure={onFailure}
+            />
+          ) : null,
+        )}
+      </TurnFoldItem>
+    );
+  }
+  if (row.kind === "group") {
+    return (
+      <ToolGroupItem
+        items={row.items}
+        expanded={expanded.has(row.key)}
+        onToggle={() => onToggleFold(row.key)}
+        expandedFolds={expanded}
+        onToggleFold={onToggleFold}
+      />
+    );
+  }
+  const { item } = row;
+  switch (item.kind) {
+    case "user-message":
+      return <UserMessageItem item={item} onFailure={onFailure} />;
+    case "assistant-message":
+      return <AssistantMessageItem item={item} onFailure={onFailure} />;
+    case "reasoning":
+      return (
+        <ReasoningItem
+          item={item}
+          expanded={expanded.has(item.id)}
+          onToggle={() => onToggleFold(item.id)}
+        />
+      );
+    case "tool-call":
+      return (
+        <ToolCallItem
+          item={item}
+          expanded={expanded.has(item.id)}
+          onToggle={() => onToggleFold(item.id)}
+        />
+      );
+    case "user-request":
+      return (
+        <ChatRequestItem
+          item={item}
+          onRespond={(value) => onRespond(item.id, value)}
+          onAnswered={onAnswered}
+        />
+      );
+    case "notice":
+      return <NoticeItem item={item} />;
+    case "error":
+      return <ErrorItem item={item} />;
+    default:
+      return null;
+  }
 }
