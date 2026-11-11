@@ -1,4 +1,4 @@
-import type { Project, Session, Task } from "@corral/protocol/rpc";
+import type { Session, Task } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
 import { createGitRepo } from "../../../test/git-repo.ts";
@@ -7,100 +7,83 @@ import { renderApp } from "../../../test/render-app.tsx";
 
 const { newClient } = realServerClients();
 const SIZE = { cols: 80, rows: 24 };
-const workspace = () => page.getByRole("navigation", { name: "workspace" });
-const sessionTabs = () => page.getByRole("tablist", { name: "Sessions" });
-const sessionButton = (name: string) => sessionTabs().getByRole("tab", { name, exact: true });
+const tab = (name: string | RegExp) =>
+  page.getByRole("tablist", { name: "Sessions" }).getByRole("tab", { name });
 
-interface Seeded {
-  project: Project;
+async function seed(
+  secondKind: "shell" | "claude",
+  label?: string,
+  title = "Two sessions",
+): Promise<{
   task: Task;
-  first: Session;
   second: Session;
-  firstHref: string;
-  secondHref: string;
-}
-
-async function seed(secondKind: "shell" | "claude", label?: string): Promise<Seeded> {
+  href: string;
+}> {
   const setup = newClient();
   await expect.poll(() => setup.connection.state.getSnapshot().status).toBe("connected");
   const { api } = setup.connection;
   const project = await api.projects.add({ path: await createGitRepo("repo") });
   const task = await api.tasks.create({
     projectId: project.id,
-    title: "Two sessions",
+    title,
     workspace: { type: "new-branch" },
   });
-  const first = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
+  await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
   const second = await api.sessions.start({ taskId: task.id, kind: secondKind, size: SIZE });
   if (label !== undefined) await api.sessions.setLabel({ id: second.id, label });
-  const href = (session: Session) => `/?project=${project.id}&task=${task.id}&entry=${session.id}`;
-  return {
-    project,
-    task,
-    first,
-    second,
-    firstHref: href(first),
-    secondHref: href(second),
-  };
+  return { task, second, href: `/?task=${task.id}` };
 }
 
-test("a fresh client at a non-first natural session URL selects it after the stores load", async () => {
-  const { secondHref } = await seed("claude");
-  await renderApp(newClient(), [secondHref]);
+test("a fresh client restores a selected non-first agent session", async () => {
+  const { href } = await seed("claude");
+  const first = await renderApp(newClient(), [href]);
+  await tab(/^claude/).click();
+  await expect.element(tab(/^claude/)).toHaveAttribute("aria-selected", "true");
+  await vi.waitFor(() => expect(screenText()).toContain("fake claude ready"));
+  await first.unmount();
 
-  await expect.element(sessionButton("claude")).toHaveAttribute("aria-selected", "true");
-  await expect.element(sessionButton("shell")).not.toHaveAttribute("aria-selected", "true");
+  await renderApp(newClient(), [href]);
+  await expect.element(tab(/^claude/)).toHaveAttribute("aria-selected", "true");
+  await expect.element(tab(/^shell/)).not.toHaveAttribute("aria-selected", "true");
   await vi.waitFor(() => expect(screenText()).toContain("fake claude ready"));
 });
 
-test("a fresh client at a renamed non-first session URL selects the row by its label", async () => {
-  const { secondHref } = await seed("shell", "deploy shell");
-  await renderApp(newClient(), [secondHref]);
+test("a fresh client restores a selected renamed non-first session", async () => {
+  const { href } = await seed("shell", "deploy shell");
+  const first = await renderApp(newClient(), [href]);
+  await tab(/^deploy shell/).click();
+  await expect.element(tab(/^deploy shell/)).toHaveAttribute("aria-selected", "true");
+  await first.unmount();
 
-  await expect.element(sessionButton("deploy shell")).toHaveAttribute("aria-selected", "true");
-  await expect.element(sessionButton("shell")).not.toHaveAttribute("aria-selected", "true");
+  await renderApp(newClient(), [href]);
+  await expect.element(tab(/^deploy shell/)).toHaveAttribute("aria-selected", "true");
+  await expect.element(tab(/^shell$/)).not.toHaveAttribute("aria-selected", "true");
 });
 
-test("route search changes and Back/Forward follow the URL intent", async () => {
-  const { firstHref, secondHref } = await seed("shell");
-  const screen = await renderApp(newClient(), [firstHref]);
-
-  await expect.element(sessionButton("shell")).toHaveAttribute("aria-selected", "true");
-  screen.history.push(secondHref);
-  await expect.element(sessionButton("shell 2")).toHaveAttribute("aria-selected", "true");
-  await expect.element(sessionButton("shell")).not.toHaveAttribute("aria-selected", "true");
-
+test("task route changes and Back/Forward follow the task URL", async () => {
+  const first = await seed("shell");
+  const second = await seed("shell", undefined, "Another task");
+  const screen = await renderApp(newClient(), [first.href]);
+  await expect.element(page.getByRole("heading", { name: first.task.title })).toBeVisible();
+  screen.history.push(second.href);
+  await expect.element(page.getByRole("heading", { name: second.task.title })).toBeVisible();
   screen.history.back();
-  await expect.element(sessionButton("shell")).toHaveAttribute("aria-selected", "true");
+  await expect.element(page.getByRole("heading", { name: first.task.title })).toBeVisible();
   screen.history.forward();
-  await expect.element(sessionButton("shell 2")).toHaveAttribute("aria-selected", "true");
+  await expect.element(page.getByRole("heading", { name: second.task.title })).toBeVisible();
 });
 
-test("a URL whose entry was really removed falls back to the first remaining session", async () => {
-  const { secondHref, second } = await seed("shell");
+test("a removed selected session falls back to the remaining session on reopen", async () => {
+  const { href, second } = await seed("shell");
+  const screen = await renderApp(newClient(), [href]);
+  await tab(/^shell 2/).click();
+  await expect.element(tab(/^shell 2/)).toHaveAttribute("aria-selected", "true");
+  await screen.unmount();
   const setup = newClient();
   await expect.poll(() => setup.connection.state.getSnapshot().status).toBe("connected");
   await setup.connection.api.sessions.remove({ id: second.id });
 
-  await renderApp(newClient(), [secondHref]);
-
-  await expect.element(sessionButton("shell")).toHaveAttribute("aria-selected", "true");
-  await expect.element(sessionButton("shell 2")).not.toBeInTheDocument();
-});
-
-test("a fresh client at a non-first loose terminal URL selects it", async () => {
-  const setup = newClient();
-  await expect.poll(() => setup.connection.state.getSnapshot().status).toBe("connected");
-  const { api } = setup.connection;
-  await api.terminals.create({ size: SIZE });
-  const second = await api.terminals.create({ command: "/bin/cat", size: SIZE });
-
-  await renderApp(newClient(), [`/?task=none&entry=${second.id}`]);
-
-  await expect
-    .element(workspace().getByRole("button", { name: /^cat · / }))
-    .toHaveAttribute("aria-current", "true");
-  await expect
-    .element(workspace().getByRole("button", { name: /^sh · / }))
-    .not.toHaveAttribute("aria-current");
+  await renderApp(newClient(), [href]);
+  await expect.element(tab(/^shell$/)).toHaveAttribute("aria-selected", "true");
+  await expect.element(tab(/^shell 2/)).not.toBeInTheDocument();
 });
