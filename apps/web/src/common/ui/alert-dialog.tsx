@@ -23,7 +23,7 @@ function AlertDialogOverlay({ className, ...props }: AlertDialogPrimitive.Backdr
     <AlertDialogPrimitive.Backdrop
       data-slot="alert-dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-scrim data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 data-closed:motion-safe:animate-out data-closed:motion-safe:fade-out-0 duration-200",
+        "fixed inset-0 isolate z-50 bg-scrim data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 data-closed:motion-safe:animate-out data-closed:motion-safe:fade-out-0 animation-duration-200",
         className,
       )}
       {...props}
@@ -31,6 +31,7 @@ function AlertDialogOverlay({ className, ...props }: AlertDialogPrimitive.Backdr
   );
 }
 
+/** The same enter/exit duration as `DialogContent`: an animation, never a transition (`dialog.tsx`). */
 function AlertDialogContent({
   className,
   size = "default",
@@ -45,7 +46,7 @@ function AlertDialogContent({
         data-slot="alert-dialog-content"
         data-size={size}
         className={cn(
-          "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-dialog outline-none will-change-transform data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-sm data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 data-open:motion-safe:zoom-in-95 data-closed:motion-safe:animate-out data-closed:motion-safe:fade-out-0 data-closed:motion-safe:zoom-out-95 duration-200",
+          "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-dialog outline-none will-change-transform data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-sm data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 data-open:motion-safe:zoom-in-95 data-closed:motion-safe:animate-out data-closed:motion-safe:fade-out-0 data-closed:motion-safe:zoom-out-95 animation-duration-200",
           className,
         )}
         {...props}
