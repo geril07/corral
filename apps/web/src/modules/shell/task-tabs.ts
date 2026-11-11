@@ -30,7 +30,7 @@ export interface TaskTabLayout {
   active: { main?: string; companion?: string };
   /** The companion group keeps this preference while it is shut. */
   companionOpen: boolean;
-  /** Most recent last, capped at {@link CLOSED_TAB_LIMIT}. */
+  /** Most recent last; every closed view stays reopenable for the life of the task. */
   closed: readonly ClosedTaskTab[];
   /**
    * Every session this layout has ever shown. A session missing from `tabs` was closed as a view;
@@ -40,7 +40,6 @@ export interface TaskTabLayout {
   seenSessions: readonly string[];
 }
 
-export const CLOSED_TAB_LIMIT = 20;
 export const TASK_TAB_STORAGE_PREFIX = "corral.task-tabs.";
 
 export function tabId(tab: TaskTab): string {
@@ -120,14 +119,18 @@ function hasSession(sessions: ReadonlySet<string>, tab: TaskTab): boolean {
 
 /** The active id a group falls back to after its current tab leaves. */
 function fallbackActive(
-  tabs: readonly TaskTab[],
+  before: readonly TaskTab[],
+  after: readonly TaskTab[],
   group: TaskTabGroup,
   preferred: string | undefined,
 ): string | undefined {
-  const inGroup = tabsInGroup({ tabs }, group);
+  const inGroup = tabsInGroup({ tabs: after }, group);
   if (inGroup.length === 0) return undefined;
   if (preferred !== undefined && inGroup.some((tab) => tabId(tab) === preferred)) return preferred;
-  return tabId(inGroup[0]!);
+  const removed = tabsInGroup({ tabs: before }, group).find((tab) => tabId(tab) === preferred);
+  return removed === undefined
+    ? tabId(inGroup[0]!)
+    : nextActiveAfterRemoval(before, after, group, removed);
 }
 
 function sameLayout(a: TaskTabLayout, b: TaskTabLayout): boolean {
@@ -169,17 +172,25 @@ export function reconcileLayout(
     known.add(session.id);
     tabs.push({ kind: "session", sessionId: session.id, group: "main" });
   }
-  const closed = stored.closed
-    .filter((entry) => hasSession(available, entry.tab))
-    .slice(-CLOSED_TAB_LIMIT);
-  const companionOpen = stored.companionOpen && tabs.some((tab) => tab.group === "companion");
-  const main = fallbackActive(tabs, "main", stored.active.main);
+  // The primary role is not a position users can set: a stored layout that put it in the
+  // companion group, or after another main tab, is normalised back to the first main tab.
+  const primaryTab = tabs.find(
+    (tab) => tab.kind === "session" && tab.sessionId === task.primarySessionId,
+  );
+  const orderedTabs =
+    primaryTab === undefined
+      ? tabs
+      : [{ ...primaryTab, group: "main" as const }, ...tabs.filter((tab) => tab !== primaryTab)];
+  const closed = stored.closed.filter((entry) => hasSession(available, entry.tab));
+  const companionOpen =
+    stored.companionOpen && orderedTabs.some((tab) => tab.group === "companion");
+  const main = fallbackActive(stored.tabs, orderedTabs, "main", stored.active.main);
   const companion =
-    tabsInGroup({ tabs }, "companion").length === 0
+    tabsInGroup({ tabs: orderedTabs }, "companion").length === 0
       ? undefined
-      : fallbackActive(tabs, "companion", stored.active.companion);
+      : fallbackActive(stored.tabs, orderedTabs, "companion", stored.active.companion);
   const next: TaskTabLayout = {
-    tabs,
+    tabs: orderedTabs,
     active: {
       ...(main === undefined ? {} : { main }),
       ...(companion === undefined ? {} : { companion }),
@@ -205,14 +216,10 @@ export function selectTab(layout: TaskTabLayout, id: string): TaskTabLayout {
   };
 }
 
-export function addTab(
-  layout: TaskTabLayout,
-  tab: TaskTab,
-  options: { activate?: boolean } = {},
-): TaskTabLayout {
+export function addTab(layout: TaskTabLayout, tab: TaskTab): TaskTabLayout {
   const id = tabId(tab);
   if (layout.tabs.some((candidate) => tabId(candidate) === id)) {
-    return options.activate === false ? layout : selectTab(layout, id);
+    return selectTab(layout, id);
   }
   const tabs = [...layout.tabs, tab];
   const seenSessions =
@@ -221,7 +228,7 @@ export function addTab(
         ? layout.seenSessions
         : [...layout.seenSessions, tab.sessionId]
       : layout.seenSessions;
-  const active = options.activate === false ? layout.active : { ...layout.active, [tab.group]: id };
+  const active = { ...layout.active, [tab.group]: id };
   return {
     ...layout,
     tabs,
@@ -273,7 +280,7 @@ export function closeTab(
     if (next === undefined) delete active[tab.group];
     else active[tab.group] = next;
   }
-  const closed = [...layout.closed, { tab, order: Math.max(0, order) }].slice(-CLOSED_TAB_LIMIT);
+  const closed = [...layout.closed, { tab, order: Math.max(0, order) }];
   return {
     ...layout,
     tabs,
@@ -354,8 +361,8 @@ export function removeSession(layout: TaskTabLayout, sessionId: string): TaskTab
 }
 
 /**
- * The keyboard's move-to-the-other-group. The main group always keeps at least one tab, so the
- * workspace never grows an empty half; Changes belongs to the companion group and does not move.
+ * The keyboard's move-to-the-other-group. Moving the last main tab is refused, so this command
+ * never leaves the main group empty; Changes belongs to the companion group and does not move.
  */
 export function moveTab(
   layout: TaskTabLayout,
@@ -512,7 +519,13 @@ function readStoredTab(value: unknown): ClosedTaskTab | undefined {
   const kind = asKind(record["kind"]);
   const group = asGroup(record["group"]);
   const order = record["order"];
-  if (kind === undefined || group === undefined || typeof order !== "number") return undefined;
+  if (
+    kind === undefined ||
+    group === undefined ||
+    typeof order !== "number" ||
+    !Number.isFinite(order)
+  )
+    return undefined;
   const sessionId = record["sessionId"];
   const path = record["path"];
   if (kind === "session" && (typeof sessionId !== "string" || sessionId === "")) return undefined;
@@ -568,7 +581,7 @@ export function parseLayout(raw: string | null): TaskTabLayout | undefined {
       ...(typeof activeCompanion === "string" ? { companion: activeCompanion } : {}),
     },
     companionOpen: record["companionOpen"] === true,
-    closed: closed.slice(-CLOSED_TAB_LIMIT),
+    closed,
     seenSessions,
   };
 }

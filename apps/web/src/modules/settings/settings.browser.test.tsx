@@ -980,18 +980,18 @@ test("settings preserve a draft and its caret, pause background keys and keep ap
 test("the settings action is a configurable key, never a hardcoded chord", async () => {
   const client = newClient();
   await render(<App client={client} />);
-  await writeConfig('[keys.bindings]\nsettings = "q"\n');
+  await writeConfig('[keys.bindings]\nsettings = "z"\n');
   await vi.waitFor(() =>
-    expect(client.config.getSnapshot().config.keys.bindings["settings"]).toBe("q"),
+    expect(client.config.getSnapshot().config.keys.bindings["settings"]).toBe("z"),
   );
 
   await prefixThen("o");
   await expect.element(settingsHeading()).not.toBeInTheDocument();
 
-  await prefixThen("q");
+  await prefixThen("z");
   await expect.element(settingsHeading()).toBeVisible();
   await expect.element(settingsRailButton("Appearance")).toHaveFocus();
-  await expect.element(await section("Keyboard")).toMatchTextContent(/Settings\s*alt\+a q/);
+  await expect.element(await section("Keyboard")).toMatchTextContent(/Settings\s*alt\+a z/);
 
   await userEvent.keyboard("{Escape}");
   await expect.element(settingsHeading()).not.toBeInTheDocument();

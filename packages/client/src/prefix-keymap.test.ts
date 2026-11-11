@@ -77,7 +77,7 @@ test("the config builds the keymap and leaves an unbound action without a key", 
     ...defaultClientConfig(""),
     keys: {
       prefix: "ctrl+b",
-      bindings: { ...DEFAULT_BINDINGS, "new-agent": null, board: "q" },
+      bindings: { ...DEFAULT_BINDINGS, "new-agent": null, board: "z" },
       direct: { ...DEFAULT_DIRECT_BINDINGS },
     },
   };
@@ -88,7 +88,7 @@ test("the config builds the keymap and leaves an unbound action without a key", 
     chord: parseChord("c"),
     action: "new-terminal",
   });
-  expect(fromConfig.bindings).toContainEqual({ chord: parseChord("q"), action: "board" });
+  expect(fromConfig.bindings).toContainEqual({ chord: parseChord("z"), action: "board" });
   expect(fromConfig.bindings.some(({ action }) => action === "new-agent")).toBe(false);
 });
 
