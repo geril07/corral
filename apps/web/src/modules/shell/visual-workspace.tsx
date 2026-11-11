@@ -5,6 +5,7 @@ import type { CreateTaskInput, Task } from "@corral/protocol/rpc";
 import { workspaceMissingPath } from "@corral/protocol/workspace";
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
+import { VisualTabPanel, VisualTabStrip, type VisualTabItem } from "../../common/ui/index.ts";
 import { createChangesActions } from "../changes/index.ts";
 import { useCorralClient } from "../connection/index.ts";
 import { bindingOf, useConfig } from "../keymap/index.ts";
@@ -12,16 +13,17 @@ import { AddProjectDialog, ProjectChoiceDialog } from "../projects/index.ts";
 import { defaultLaunch, describeLaunchError } from "../sessions/index.ts";
 import { useAppearance } from "../settings/index.ts";
 import {
-  emptyTaskComposerDraft,
   RemoveTaskDialog,
-  switchComposerProject,
   TaskComposer,
   TaskSourceDialog,
   workspaceGoneNotice,
   type TaskComposerDraft,
 } from "../tasks/index.ts";
 import { RenameDialog, type RenameTarget } from "../workspace/index.ts";
+import { draftForProject, newTaskDraft } from "./task-drafts.ts";
+import { useTaskDrafts } from "./use-task-drafts.ts";
 import { useTaskWorkspace } from "./task-workspace.tsx";
+
 import {
   TaskMain,
   VisualShellView,
@@ -37,14 +39,15 @@ interface RemoveState {
   workspaceMissing: boolean;
 }
 
-/**
- * The open composer and the session that owns it. A session starts when a draft opens; a create
- * resolves only against the session and text it was submitted from, so a late completion cannot
- * close or replace a draft the user opened or edited afterwards.
- */
-interface OpenDraft {
-  session: number;
-  draft: TaskComposerDraft;
+/** The pane the open draft's tab controls; the composer is its content. */
+const DRAFT_PANE_ID = "task-draft-pane";
+
+/** The failure map without one draft's entry; the same map when it had none. */
+function withoutError(errors: ReadonlyMap<number, string>, key: number) {
+  if (!errors.has(key)) return errors;
+  const next = new Map(errors);
+  next.delete(key);
+  return next;
 }
 
 /**
@@ -93,23 +96,33 @@ export function VisualWorkspace({
   // Whether the open project choice ended in a draft. The picker is replaced by the composer in one
   // commit, so the dialog's final-focus callback reads this ref instead of the render it closed in.
   const pickedProject = useRef(false);
-  const [openDraft, setOpenDraft] = useState<OpenDraft>();
+  const { drafts, draftsRef, change: changeDrafts } = useTaskDrafts();
+  const [activeDraftId, setActiveDraftIdState] = useState<string>();
+  const activeDraftIdRef = useRef<string | undefined>(activeDraftId);
+  // The ref carries the open draft before React commits, so a create's completion knows whether
+  // its draft is still the one on screen.
+  const setActiveDraftId = useCallback(
+    (id: string | undefined) => {
+      activeDraftIdRef.current = id;
+      setActiveDraftIdState(id);
+    },
+    [setActiveDraftIdState],
+  );
+  const activeDraft = drafts.find((entry) => entry.id === activeDraftId);
   const [focusRequest, setFocusRequest] = useState(0);
   const [composerModal, setComposerModal] = useState(false);
-  // Sessions with a create in flight. A draft's busy state is its own: a create from a closed
-  // draft must not keep the next one from submitting.
-  const [creatingSessions, setCreatingSessions] = useState<readonly number[]>([]);
-  const [createError, setCreateError] = useState<string>();
-  const draft = openDraft?.draft;
-  const creating = openDraft !== undefined && creatingSessions.includes(openDraft.session);
+  // Creates in flight, by draft incarnation. A draft's busy state is its own: a create from a
+  // closed draft must not keep the next one from submitting.
+  const [creatingKeys, setCreatingKeys] = useState<readonly number[]>([]);
+  const [createErrors, setCreateErrors] = useState<ReadonlyMap<number, string>>(() => new Map());
+  const creating = activeDraft !== undefined && creatingKeys.includes(activeDraft.key);
+  const createError = activeDraft === undefined ? undefined : createErrors.get(activeDraft.key);
   const [rename, setRename] = useState<RenameTarget>();
   const [remove, setRemove] = useState<RemoveState>();
   const [source, setSource] = useState<Task>();
   const [notice, setNotice] = useState<VisualShellNotice>();
   const listFocus = useRef<VisualRowFocus | null>(null);
-  // The draft of this moment, read by a create's completion outside the render that sent it.
-  const openDraftRef = useRef<OpenDraft | undefined>(undefined);
-  const draftSession = useRef(0);
+
   const removeRead = useRef<AbortController | undefined>(undefined);
   const removeSucceeded = useRef(false);
   const removeCurrent = useRef<string | undefined>(undefined);
@@ -248,20 +261,24 @@ export function VisualWorkspace({
     [addProjectBinding, prefix],
   );
 
-  const closeDraft = useCallback(() => {
-    openDraftRef.current = undefined;
-    setOpenDraft(undefined);
-  }, []);
+  /**
+   * Escape and a task selection take the working area back; the drafts stay where they are and
+   * the next New task for the same project returns to one (`docs/ux.md`).
+   */
+  const hideDraft = useCallback(() => setActiveDraftId(undefined), [setActiveDraftId]);
 
-  const updateDraft = useCallback((next: TaskComposerDraft) => {
-    const current = openDraftRef.current;
-    if (current === undefined) return;
-    const updated = { ...current, draft: next };
-    openDraftRef.current = updated;
-    setOpenDraft(updated);
-  }, []);
+  const updateDraft = useCallback(
+    (next: TaskComposerDraft) => {
+      const id = activeDraftIdRef.current;
+      if (id === undefined) return;
+      changeDrafts((current) =>
+        current.map((entry) => (entry.id === id ? { ...entry, composer: next } : entry)),
+      );
+    },
+    [changeDrafts],
+  );
 
-  const startDraft = useCallback(
+  const openDraft = useCallback(
     (projectId: string | null) => {
       const project =
         projectId === null
@@ -271,35 +288,79 @@ export function VisualWorkspace({
       // Before the server's config arrives, the defaults may not name the real agent; leave the
       // draft unpinned so it follows the loaded config instead of freezing the placeholder.
       const opening = configLoaded ? defaultLaunch(settings, profiles, config.agents) : undefined;
-      const previous = openDraftRef.current;
-      const next =
-        previous === undefined
-          ? emptyTaskComposerDraft(projectId)
-          : switchComposerProject(previous.draft, projectId);
-      const opened: OpenDraft = {
-        session: (draftSession.current += 1),
-        // Pin the launch the draft opened with. A later config edit then shows an invalidation
-        // instead of silently swapping the runtime under the same prompt (`docs/ux.md`).
-        draft: { ...next, agent: next.agent ?? opening },
-      };
-      openDraftRef.current = opened;
-      setOpenDraft(opened);
+      // One draft per project, reused (T3): an existing draft comes back with its text and picks.
+      const existing = draftForProject(draftsRef.current, projectId, activeDraftIdRef.current);
       pickedProject.current = true;
       setProjectChoice(false);
-      setCreateError(undefined);
+      if (existing === undefined) {
+        // Pin the launch the draft opened with. A later config edit then shows an invalidation
+        // instead of silently swapping the runtime under the same prompt (`docs/ux.md`).
+        const opened = newTaskDraft(projectId, opening);
+        changeDrafts((current) => [...current, opened]);
+        setActiveDraftId(opened.id);
+      } else {
+        setActiveDraftId(existing.id);
+      }
       setFocusRequest((request) => request + 1);
     },
-    [config, configLoaded, profiles, projects.projects],
+    [
+      activeDraftIdRef,
+      changeDrafts,
+      config,
+      configLoaded,
+      draftsRef,
+      profiles,
+      projects.projects,
+      setActiveDraftId,
+      setFocusRequest,
+    ],
+  );
+
+  const selectDraft = useCallback(
+    (id: string) => {
+      setActiveDraftId(id);
+      setFocusRequest((request) => request + 1);
+    },
+    [setActiveDraftId, setFocusRequest],
+  );
+
+  /**
+   * Closing a draft tab discards it, as OpenCode's close does for a draft: the tab and what was
+   * typed go together. Escape is the way out that keeps it.
+   */
+  const closeDraftTab = useCallback(
+    (id: string) => {
+      const current = draftsRef.current;
+      const index = current.findIndex((entry) => entry.id === id);
+      if (index === -1) return;
+      const next = current[index + 1] ?? current[index - 1];
+      changeDrafts((all) => all.filter((entry) => entry.id !== id));
+      if (activeDraftIdRef.current !== id) return;
+      setActiveDraftId(next?.id);
+      if (next !== undefined) {
+        setFocusRequest((request) => request + 1);
+        return;
+      }
+      // The working area fell back to the selected task; its active tab is the next thing to use,
+      // and an empty workspace hands the keyboard back to New task.
+      requestAnimationFrame(() => {
+        const target =
+          document.querySelector<HTMLElement>("[data-tab-id]") ??
+          document.querySelector<HTMLElement>('button[aria-label="New task"]');
+        target?.focus();
+      });
+    },
+    [changeDrafts, draftsRef, setActiveDraftId, setFocusRequest],
   );
 
   const chooseProjectFirst = useCallback(() => {
     if (projects.loaded && projects.projects.length === 1) {
-      startDraft(projects.projects[0]!.id);
+      openDraft(projects.projects[0]!.id);
       return;
     }
     pickedProject.current = false;
     setProjectChoice(true);
-  }, [projects.loaded, projects.projects, startDraft]);
+  }, [openDraft, projects.loaded, projects.projects]);
 
   const setProjectPinned = useCallback(
     (id: string, pinned: boolean) =>
@@ -318,8 +379,8 @@ export function VisualWorkspace({
       setProjectChoice(true);
       return;
     }
-    startDraft(currentProjectId);
-  }, [currentProjectId, startDraft]);
+    openDraft(currentProjectId);
+  }, [currentProjectId, openDraft]);
 
   const direct = useMemo(
     () => ({
@@ -327,53 +388,67 @@ export function VisualWorkspace({
       onAction: (action: "new-task" | "new-task-in-project" | "new-task-no-project") => {
         if (action === "new-task") chooseProjectFirst();
         else if (action === "new-task-in-project") startInCurrentProject();
-        else startDraft(null);
+        else openDraft(null);
       },
     }),
-    [chooseProjectFirst, config.keys.direct, startDraft, startInCurrentProject],
+    [chooseProjectFirst, config.keys.direct, openDraft, startInCurrentProject],
   );
 
   const selectTask = useCallback(
     (id: string) => {
-      closeDraft();
+      hideDraft();
       setProjectChoice(false);
-      setCreateError(undefined);
       setNotice(undefined);
       onSelectTask(id);
     },
-    [closeDraft, onSelectTask],
+    [hideDraft, onSelectTask],
   );
 
   const createTask = useCallback(
     (input: CreateTaskInput) => {
-      const submitted = openDraftRef.current;
+      const submitted = activeDraft;
       if (submitted === undefined) return;
-      setCreatingSessions((pending) => [...pending, submitted.session]);
-      setCreateError(undefined);
+      setCreatingKeys((pending) => [...pending, submitted.key]);
+      setCreateErrors((errors) => withoutError(errors, submitted.key));
       void client.connection.api.tasks
         .create(input)
         .then((task) => {
+          const current = draftsRef.current.find((entry) => entry.id === submitted.id);
           // Only the draft that sent this create may close, and only while it is untouched: a
           // draft opened or edited after the submit keeps its text and its selection.
-          const current = openDraftRef.current;
-          if (current?.session !== submitted.session || current.draft !== submitted.draft) return;
-          setCreateError(undefined);
-          closeDraft();
+          if (current?.key !== submitted.key || current.composer !== submitted.composer) return;
+          // The create clears the draft that sent it and no other; its tab is replaced by the
+          // task's working area in the same place.
+          changeDrafts((all) => all.filter((entry) => entry.key !== submitted.key));
+          if (activeDraftIdRef.current !== submitted.id) return;
+          setActiveDraftId(undefined);
           onSelectTask(task.id);
         })
         .catch((error: unknown) => {
           const message = describeLaunchError(error) ?? describeError(error);
+          const current = draftsRef.current.find((entry) => entry.id === submitted.id);
           // A refusal for a draft that is gone or replaced still reaches the shell's notice.
-          if (openDraftRef.current?.session === submitted.session) setCreateError(message);
-          else setNotice({ message, tone: "error" });
+          if (current?.key === submitted.key) {
+            setCreateErrors((errors) => new Map(errors).set(submitted.key, message));
+          } else {
+            setNotice({ message, tone: "error" });
+          }
         })
         .finally(() => {
-          setCreatingSessions((pending) =>
-            pending.filter((session) => session !== submitted.session),
-          );
+          setCreatingKeys((pending) => pending.filter((key) => key !== submitted.key));
         });
     },
-    [client, closeDraft, onSelectTask],
+    [
+      activeDraft,
+      changeDrafts,
+      client,
+      draftsRef,
+      onSelectTask,
+      setActiveDraftId,
+      setCreateErrors,
+      setCreatingKeys,
+      setNotice,
+    ],
   );
 
   const selectedTask =
@@ -395,6 +470,45 @@ export function VisualWorkspace({
     position: appearance.tabPosition,
     active,
   });
+  const closeBinding = bindingOf(config, "close-tab");
+  // A draft tab has the same keyboard close as any other tab; it has no closed stack to reopen.
+  const draftPrefix = useMemo(
+    () => ({
+      bindings: closeBinding === null ? {} : { [closeBinding]: "close-draft" },
+      onAction: (action: string) => {
+        if (action === "close-draft" && activeDraft !== undefined) closeDraftTab(activeDraft.id);
+      },
+    }),
+    [activeDraft, closeBinding, closeDraftTab],
+  );
+  // A draft is a tab in the main group; every open draft shows in the same strip. The project
+  // names the draft where two tabs would otherwise read the same (`docs/layout.md`).
+  const draftItems: VisualTabItem[] = drafts.map((entry) => {
+    const projectName =
+      entry.composer.projectId === null
+        ? "No project"
+        : (projects.projects.find((project) => project.id === entry.composer.projectId)?.name ??
+          "Project unavailable");
+    return {
+      id: entry.id,
+      kind: "draft",
+      label: "New task",
+      ariaLabel: ["New task", projectName].join(" "),
+      title: `New task · ${projectName}`,
+      selected: entry.id === activeDraft?.id,
+      canClose: true,
+      paneId: DRAFT_PANE_ID,
+    };
+  });
+  const draftStrip = (
+    <VisualTabStrip
+      label="New task"
+      items={draftItems}
+      position={appearance.tabPosition}
+      onSelect={selectDraft}
+      onClose={closeDraftTab}
+    />
+  );
 
   return (
     <>
@@ -422,48 +536,68 @@ export function VisualWorkspace({
         onAddProject={() => setAddingProject(true)}
         onNewTask={chooseProjectFirst}
         onOpenSettings={onOpenSettings}
-        composerOpen={draft !== undefined}
+        composerOpen={activeDraft !== undefined}
         main={
-          draft !== undefined ? (
-            <TaskComposer
-              projects={projects.projects}
-              config={config}
-              configProblems={configProblems}
-              profiles={profiles}
-              chatDrivers={chatCapabilities.drivers.map((driver) => driver.kind)}
-              capabilitiesReady={chatCapabilities.loaded}
-              draft={draft}
-              onDraftChange={updateDraft}
-              onCreate={createTask}
-              onCancel={closeDraft}
-              onSetPinned={setProjectPinned}
-              loadBaseRefs={loadBaseRefs}
-              focusRequest={focusRequest}
-              onModalChange={setComposerModal}
-              creating={creating}
-              failure={createError}
-            />
+          activeDraft !== undefined ? (
+            <>
+              <VisualTabPanel id={DRAFT_PANE_ID} labelledBy={`tab-${activeDraft.id}`} fill>
+                <div className="visual-draft-pane">
+                  <TaskComposer
+                    key={activeDraft.id}
+                    projects={projects.projects}
+                    config={config}
+                    configProblems={configProblems}
+                    profiles={profiles}
+                    chatDrivers={chatCapabilities.drivers.map((driver) => driver.kind)}
+                    capabilitiesReady={chatCapabilities.loaded}
+                    draft={activeDraft.composer}
+                    onDraftChange={updateDraft}
+                    onCreate={createTask}
+                    onCancel={hideDraft}
+                    onSetPinned={setProjectPinned}
+                    loadBaseRefs={loadBaseRefs}
+                    focusRequest={focusRequest}
+                    onModalChange={setComposerModal}
+                    creating={creating}
+                    failure={createError}
+                  />
+                </div>
+              </VisualTabPanel>
+              {appearance.tabPosition === "bottom" && draftStrip}
+            </>
           ) : selectedTask === undefined ? undefined : (
             taskWorkspace.main
           )
         }
         taskHeader={
-          draft === undefined && selectedTask !== undefined && selectedRow !== undefined ? (
+          activeDraft === undefined && selectedTask !== undefined && selectedRow !== undefined ? (
             <TaskMain row={selectedRow} compact />
           ) : undefined
         }
         workingNotice={
-          draft === undefined && selectedTask !== undefined ? taskWorkspace.notice : undefined
+          activeDraft === undefined && selectedTask !== undefined ? taskWorkspace.notice : undefined
         }
         chrome={
-          draft === undefined && selectedTask !== undefined ? taskWorkspace.chrome : undefined
+          activeDraft !== undefined
+            ? appearance.tabPosition === "top"
+              ? draftStrip
+              : undefined
+            : selectedTask !== undefined
+              ? taskWorkspace.chrome
+              : undefined
         }
         companion={
-          draft === undefined && selectedTask !== undefined ? taskWorkspace.companion : undefined
+          activeDraft === undefined && selectedTask !== undefined
+            ? taskWorkspace.companion
+            : undefined
         }
-        mainFill={draft === undefined && selectedTask !== undefined}
+        mainFill={activeDraft !== undefined || selectedTask !== undefined}
         prefixExtra={
-          draft === undefined && selectedTask !== undefined ? taskWorkspace.prefix : undefined
+          activeDraft !== undefined
+            ? draftPrefix
+            : selectedTask !== undefined
+              ? taskWorkspace.prefix
+              : undefined
         }
         prefixEnabled={
           active &&
@@ -490,7 +624,7 @@ export function VisualWorkspace({
       {projectChoice && (
         <ProjectChoiceDialog
           projects={projects.projects}
-          onChoose={startDraft}
+          onChoose={openDraft}
           onSetPinned={setProjectPinned}
           // A chosen project hands the keyboard to the prompt, which the composer focuses on mount;
           // `false` tells the dialog not to restore its opener on top of it. A cancelled picker

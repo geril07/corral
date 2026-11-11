@@ -30,15 +30,3 @@ export function emptyTaskComposerDraft(projectId: string | null): TaskComposerDr
     baseBranch: undefined,
   };
 }
-
-/** A draft moved to another project: the user's text and picks stay; only the project changes. */
-export function switchComposerProject(
-  draft: TaskComposerDraft,
-  projectId: string | null,
-): TaskComposerDraft {
-  return {
-    ...draft,
-    projectId,
-    baseBranch: draft.projectId === projectId ? draft.baseBranch : undefined,
-  };
-}

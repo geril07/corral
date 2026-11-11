@@ -25,7 +25,7 @@ See [Model catalogs](model-catalog.md) for the policy and adapter limits.
 
 What a user does. Everything below is built and verified end to end, chat views and the handoff included. Keys listed here are the effective defaults.
 
-1. A draft opens in the main area (the task composer) from the New task button or a direct command. `Mod+N` chooses a project first, skipping the question when exactly one exists; `Mod+Shift+N` uses the selected task's project, and asks instead of guessing when no project is current; `Mod+Alt+N` starts a No project (scratch) draft. `Mod` is Cmd on macOS and Ctrl elsewhere, and `prefix t` still opens the same project choice. The composer is a prompt with attach, instance/model and reasoning on the bottom-left and Send on the right; one left-aligned context row below it names the project, the workspace and its branch. The project name opens the same project picker as project selection, pins included, and returns focus to the prompt. `Current checkout` is a read-only fact; `New worktree` shows `from <branch>` with a base-ref picker (local branches another worktree holds included, plus remote-tracking refs), and only that choice sends a base branch. A draft whose project was removed shows `Project unavailable`, keeps its prompt and cannot create until another project or No project is chosen. Opening a draft creates nothing and starts no agent; Enter or Send calls `tasks.create`. A scratch task has a server-owned directory and no Git controls.
+1. A draft opens in the main area as a tab in the working area's main group (the task composer) from the New task button or a direct command. `Mod+N` chooses a project first, skipping the question when exactly one exists; `Mod+Shift+N` uses the selected task's project, and asks instead of guessing when no project is current; `Mod+Alt+N` starts a No project (scratch) draft. `Mod` is Cmd on macOS and Ctrl elsewhere, and `prefix t` still opens the same project choice. A project keeps one draft and New task returns to it; a No project draft is its own. The draft is device-local: its prompt, project, agent/model, workspace mode and base branch are written 300 ms after the last edit and before unload, so Escape keeps it and a reload restores it, while closing the draft's tab discards it. The composer is a prompt with attach, instance/model and reasoning on the bottom-left and Send on the right; one left-aligned context row below it names the project, the workspace and its branch. The project name opens the same project picker as project selection, pins included, and returns focus to the prompt. `Current checkout` is a read-only fact; `New worktree` shows `from <branch>` with a base-ref picker (local branches another worktree holds included, plus remote-tracking refs), and only that choice sends a base branch. A draft whose project was removed shows `Project unavailable`, keeps its prompt and cannot create until another project or No project is chosen. Opening a draft creates nothing and starts no agent; Enter or Send calls `tasks.create`. A scratch task has a server-owned directory and no Git controls.
 2. The task appears in the sidebar at once under the prompt-derived seed title, which the generated title replaces. Its primary agent opens in the chosen view, already working on the prompt. No shell opens on its own.
 3. Inside a task (`layout.md`, **Working area**), one working area has two tab groups. The main group always shows the task's **primary** agent session first; that role is `Task.primarySessionId`, not a tab position. Chat and Terminal are two views of that one tab, not two tabs. A shell, another agent and the task's `Changes` are other tabs; a file tab promoted from a preview is not built yet. The companion group is hidden until it has a tab, and opening an empty companion adds `Changes`; there is no empty half. `prefix c` adds a shell and `prefix s` an agent, both in the main group; `prefix n`/`p` and `prefix 1`–`9` move inside the focused group. Closing a session tab closes the view (`prefix q`), not the session; every closed view reopens with `prefix shift+q` in its old group and order, and only `Remove session…` forgets the session. Selection and layout are device-local per task; the route keeps naming the task. `prefix shift+c` opens `Changes` in the companion group — what the task changed, and, under the summary row, staging, a commit message and commit, then push and create-pull-request behind one confirmation each, with no number hint and no status glyph. Opening it leaves the current main-group session where it was; `prefix shift+b` toggles the group, `prefix shift+o` moves the focused tab beside or back (never the primary), and `prefix shift+w` toggles the focus between the groups.
 4. `prefix v` hands the current agent session over between chat and terminal: one frontend is
@@ -97,14 +97,15 @@ What a user does. Everything below is built and verified end to end, chat views 
   keeps the main group's current session and a `+N −M` count sits in the sidebar row when the task
   changed something; a linked pull request's name and state sit beside the count, and a merged one
   offers settle in the `Changes` finish bar.
-- The main area shows the open draft; otherwise the selected task's working area or an empty
-  state. A draft has no URL of its own and no sidebar row: while it is open no task row is
-  current, and Escape (with no failure on screen) returns to the selection the URL still names.
-  The prompt and its focus survive a project/No project switch, a cancelled project or model
-  picker, and a failed create; a failed create keeps Escape in the composer so its `role="alert"`
-  cannot be hidden. Until the projects, tasks, sessions and terminals lists have each delivered
-  once, the main area says it is loading; a list the server refuses is one muted line naming
-  that list with a Retry, never a draft over unknown data.
+- The main area shows the open draft as a tab in the main group; otherwise the selected task's
+  working area or an empty state. A draft has no URL of its own and no sidebar row: while it is
+  open no task row is current. Closing the draft's tab discards it, while Escape (with no failure
+  on screen) returns to the selection the URL still names and keeps the draft for the next New
+  task. The prompt and its focus survive a project/No project switch, a cancelled project or model
+  picker, a failed create and a reload; a failed create keeps Escape in the composer so its
+  `role="alert"` cannot be hidden. Until the projects, tasks, sessions and terminals lists have
+  each delivered once, the main area says it is loading; a list the server refuses is one muted
+  line naming that list with a Retry, never a draft over unknown data.
 - Clicking navigation, tabs or the task header must not take the keyboard from the terminal; a
   dialog returns focus to its opener and, failing that, to the terminal (see **Focus, keyboard
   and errors**).
@@ -210,12 +211,13 @@ What a user does. Everything below is built and verified end to end, chat views 
   still opens its task menu.
 - Errors stay with the form at `role="alert"`; failed submissions preserve input. The composer
   is a view, so it holds no opener: Enter submits, Shift+Enter is a newline in the prompt, Escape
-  returns to the previously selected task, and a create that waits for naming (worktree mode)
-  shows "Creating…" with the prompt still editable. While a failed create is on screen, Escape
-  stays in the composer: leaving would hide what went wrong, so the user fixes it or picks another
-  task in the sidebar, and the draft is kept either way. The draft (prompt, agent and workspace)
-  lives in the workspace, so a project/No project switch, a cancelled picker or a failed create
-  keeps it. The agent is pinned when the draft opens: a later config edit shows the invalidation
+  returns to the previously selected task and keeps the draft, and a create that waits for naming
+  (worktree mode) shows "Creating…" with the prompt still editable. While a failed create is on
+  screen, Escape stays in the composer: leaving would hide what went wrong, so the user fixes it
+  or picks another task in the sidebar, and the draft is kept either way. The draft (prompt, agent
+  and workspace) is device-local and one per project, so a project/No project switch, a cancelled
+  picker or a failed create keeps it, and closing its tab is the only way to discard it. The agent
+  is pinned when the draft opens: a later config edit shows the invalidation
   instead of silently swapping the runtime. An Enter that confirms an IME composition is never a
   submission, whichever order the platform reports the keydown and the composition end; the
   user's next plain Enter submits normally.
