@@ -6,6 +6,7 @@ import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import type { AgentKind } from "@corral/protocol/rpc";
 import { AgentIcon } from "./agent-icon.tsx";
 import { Button } from "./button.tsx";
+import { Hint } from "./hint.tsx";
 import { Icon } from "./icon.tsx";
 import { FormError, TaskDialog, useTaskFinalFocus } from "./task-dialog.tsx";
 import { Dialog, DialogContent, DialogTitle } from "./dialog.tsx";
@@ -301,25 +302,28 @@ function PickerContent({
             estimatedListSize={{ width: 44, height: 340 }}
             className="model-picker-rail-list"
             renderItem={({ item, index }: { item: PickerInstance; index: number }) => (
-              <button
-                type="button"
-                role="radio"
-                id={`${id}-instance-${index}`}
-                aria-checked={item.key === instance}
-                aria-label={item.name}
-                title={[item.name, item.detail].filter(Boolean).join(" · ")}
-                disabled={busy}
-                tabIndex={item.key === tabStop ? 0 : -1}
-                className="model-picker-instance"
-                onClick={() => onInstance(item.key)}
-              >
-                <AgentIcon kind={item.kind} size="chrome" />
-                {item.badge && (
-                  <span aria-hidden="true" className="model-picker-badge">
-                    {item.badge}
-                  </span>
-                )}
-              </button>
+              // The rail shows a glyph and a badge, so the instance's name and detail are a hint:
+              // hover and keyboard focus both reveal it, unlike a native `title`.
+              <Hint content={[item.name, item.detail].filter(Boolean).join(" · ")} side="right">
+                <button
+                  type="button"
+                  role="radio"
+                  id={`${id}-instance-${index}`}
+                  aria-checked={item.key === instance}
+                  aria-label={item.name}
+                  disabled={busy}
+                  tabIndex={item.key === tabStop ? 0 : -1}
+                  className="model-picker-instance"
+                  onClick={() => onInstance(item.key)}
+                >
+                  <AgentIcon kind={item.kind} size="chrome" />
+                  {item.badge && (
+                    <span aria-hidden="true" className="model-picker-badge">
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              </Hint>
             )}
           />
         </div>
@@ -416,9 +420,6 @@ function PickerContent({
                     .filter(Boolean)
                     .join(" · ")}
                   aria-current={item.model.current ? "true" : undefined}
-                  title={[item.model.name, item.model.provider, item.model.detail]
-                    .filter(Boolean)
-                    .join(" · ")}
                   className="model-picker-option"
                   data-active={item.model.key === visible[active]?.key || undefined}
                   onMouseMove={() => setHighlight(item.model.key)}
