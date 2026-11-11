@@ -172,7 +172,8 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
   the pencil glyph says it is a draft, the visible number is the chord that selects it under the
   default bindings (`prefix 1`–`9`), and the accessible name and tooltip still begin with
   `New task`. The task header is absent while a draft owns the main area.
-- Prompt and agent/model, Chat/Terminal and Create controls share the composer. One left-aligned
+- Prompt, agent/model and Create controls share the composer. Launch view follows settings; there is
+  no per-draft Chat/Terminal switch. One left-aligned
   context row below it names the project, the workspace mode and the branch; setup never sits in
   ongoing chat. The project name reuses the shared project picker, and choosing a project returns
   focus to the prompt. `Current checkout` shows the project's default base as a read-only fact;
