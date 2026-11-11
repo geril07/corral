@@ -49,8 +49,8 @@
   padding: 0;
   border: 0;
   background: transparent;
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
 }
 
 /* The caret is the field's focus indicator; the wrapper and input carry no ring. */
@@ -94,8 +94,8 @@
   margin: 0;
   padding-inline: 8px;
   color: var(--visual-text-faint);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 0.75rem;
+  line-height: 1rem;
   font-weight: 530;
 }
 
@@ -116,8 +116,8 @@
   border-radius: 8px;
   background: transparent;
   color: var(--visual-text-muted);
-  font-size: 14px;
-  line-height: 20px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
   font-weight: 530;
   text-align: left;
   transition: none;
@@ -175,7 +175,7 @@
 }
 
 .settings-result [data-slot="button"]:hover,
-.settings-result [data-slot="button"][aria-selected="true"] {
+.settings-result[aria-selected="true"] [data-slot="button"] {
   background: var(--visual-hover);
 }
 
@@ -189,8 +189,8 @@
 .settings-result-title {
   overflow: hidden;
   color: var(--visual-text-base);
-  font-size: 13px;
-  line-height: 16px;
+  font-size: 0.8125rem;
+  line-height: 1rem;
   font-weight: 440;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -199,8 +199,8 @@
 .settings-result-section {
   overflow: hidden;
   color: var(--visual-text-faint);
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 0.6875rem;
+  line-height: 1rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -208,8 +208,8 @@
 .settings-results-empty {
   padding: 8px;
   color: var(--visual-text-faint);
-  font-size: 13px;
-  line-height: 16px;
+  font-size: 0.8125rem;
+  line-height: 1rem;
 }
 
 /* ── Content ─────────────────────────────────────────────────────────────── */
@@ -220,9 +220,10 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  /* The dialog's one scroller. Its lane and scrollbar are the kit's `visual-scrollbar`; the end
-     margin keeps the bar off the dialog's rounded edge, and the stable both-edges gutter keeps the
-     centered page still when a section stops overflowing (the reference's settings rule). */
+  /* The dialog's one scroller. Its lane and bar come from the one scrollbar recipe in
+     `app/global.css`; the end margin keeps the bar off the dialog's rounded edge, and the stable
+     both-edges gutter keeps the centered page still when a section stops overflowing (the
+     reference's settings rule). */
   margin-inline-end: 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -264,8 +265,8 @@
 .settings-section-title {
   margin: 0;
   color: var(--visual-text-base);
-  font-size: 15px;
-  line-height: 20px;
+  font-size: 0.9375rem;
+  line-height: 1.25rem;
   font-weight: 670;
   letter-spacing: -0.04px;
   outline: none;
@@ -279,8 +280,8 @@
 .settings-section-description {
   margin: 0;
   color: var(--visual-text-muted);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
 }
 
 .settings-card {
@@ -302,16 +303,16 @@
 .settings-card-title {
   margin: 0;
   color: var(--visual-text-muted);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 0.75rem;
+  line-height: 1rem;
   font-weight: 530;
 }
 
 .settings-card-note {
   margin: 0;
   color: var(--visual-text-faint);
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 0.6875rem;
+  line-height: 1rem;
 }
 
 .settings-row {
@@ -354,16 +355,16 @@
 
 .settings-row-title {
   color: var(--visual-text-base);
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
   font-weight: 530;
 }
 
 .settings-row-description {
   margin: 0;
   color: var(--visual-text-muted);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 0.75rem;
+  line-height: 1rem;
   overflow-wrap: anywhere;
 }
 
@@ -384,12 +385,6 @@
   width: 100%;
 }
 
-/* A select row opens at the trigger's width, not the stock search popup's readable width. */
-.settings-select [data-slot="combobox-content"] {
-  width: var(--anchor-width);
-  min-width: var(--anchor-width);
-}
-
 .settings-value-box {
   min-width: 48px;
   padding: 4px 8px;
@@ -397,8 +392,8 @@
   background: var(--visual-bg-layer-03);
   color: var(--visual-text-base);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 0.75rem;
+  line-height: 1rem;
   font-weight: 530;
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -408,8 +403,8 @@
   min-width: 0;
   color: var(--visual-text-muted);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 0.75rem;
+  line-height: 1rem;
   overflow-wrap: anywhere;
   text-align: end;
 }
@@ -418,8 +413,8 @@
   margin: 0;
   color: var(--visual-text-muted);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 0.75rem;
+  line-height: 1rem;
   overflow-wrap: anywhere;
   outline: none;
 }
@@ -435,8 +430,8 @@
   border-radius: 4px;
   background: var(--visual-bg-layer-03);
   color: var(--visual-text-faint);
-  font-size: 11px;
-  line-height: 14px;
+  font-size: 0.6875rem;
+  line-height: 0.875rem;
   font-weight: 440;
 }
 
@@ -447,14 +442,14 @@
 .settings-note {
   margin: 0;
   color: var(--visual-text-faint);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: 0.75rem;
+  line-height: 1.125rem;
 }
 
 .settings-note code,
 .settings-row-description code {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 
 .settings-problems {
@@ -478,8 +473,8 @@
 
 .settings-problem-severity {
   color: var(--visual-text-muted);
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 0.6875rem;
+  line-height: 1rem;
   font-weight: 530;
 }
 
@@ -491,16 +486,16 @@
   min-width: 0;
   color: var(--visual-text-faint);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 0.6875rem;
+  line-height: 1rem;
   overflow-wrap: anywhere;
 }
 
 .settings-problem-message {
   margin: 0;
   color: var(--visual-text-base);
-  font-size: 13px;
-  line-height: 18px;
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
   overflow-wrap: anywhere;
 }
 
@@ -553,8 +548,8 @@
 .settings-picker-name {
   overflow: hidden;
   color: var(--visual-text-base);
-  font-size: 13px;
-  line-height: 18px;
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
   font-weight: 530;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -564,8 +559,8 @@
   overflow: hidden;
   color: var(--visual-text-faint);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
-  line-height: 16px;
+  font-size: 0.6875rem;
+  line-height: 1rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

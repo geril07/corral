@@ -29,6 +29,11 @@ const FOCUSABLE =
 
 const panelId = (id: SettingsSectionId) => `settings-panel-${id}`;
 
+// Attached only to the highlighted result, so it runs whenever the highlight lands on a row.
+function revealResult(row: HTMLLIElement | null) {
+  row?.scrollIntoView({ block: "nearest" });
+}
+
 function firstPanelControl(id: SettingsSectionId) {
   return document.getElementById(panelId(id))?.querySelector<HTMLElement>(FOCUSABLE) ?? null;
 }
@@ -314,6 +319,7 @@ export function SettingsScreen({
                     <li
                       key={item.id}
                       id={`settings-result-${item.id}`}
+                      ref={index === activeIndex ? revealResult : undefined}
                       role="option"
                       aria-selected={index === activeIndex}
                       className="settings-result"
@@ -370,7 +376,7 @@ export function SettingsScreen({
             )}
           </div>
         </nav>
-        <div ref={content} className="settings-content visual-scrollbar">
+        <div ref={content} className="settings-content">
           <div className="settings-page">
             <SettingsSection id="appearance" current={current}>
               <AppearanceSection />
