@@ -905,7 +905,8 @@
 /* A settings category row: 32 px, 8 px radius, 10 px inline padding, a 16 px icon with an 8 px gap
    and a muted 14/20 label that takes the hover overlay; the current section sits on layer 03
    (`ui-kit.md`, **Compositions** — Settings). Geometry stays px so the rail keeps T3's metrics at
-   every interface text scale, while the label's rem type follows it. */
+   every interface text scale, while the label's rem type follows it. This block is unlayered, so
+   it outranks the variant and size utilities `button.tsx` composes with it. */
 .visual-settings-category {
   height: 32px;
   gap: 8px;
@@ -927,8 +928,9 @@
   color: var(--visual-text-base);
 }
 
-/* A settings search result: a two-line row that fills the rail's results list. The option owns the
-   highlight, so the row paints the shared overlay from its `data-highlighted`. */
+/* A settings search result: a two-line row that fills the rail's results list. The highlight is
+   caller-driven — `settings-screen.tsx` sets `data-highlighted` on the button, which is why a plain
+   button carries a library attribute — and the row paints the shared overlay from it. */
 .visual-settings-result {
   height: auto;
   min-height: 40px;

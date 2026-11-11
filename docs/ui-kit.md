@@ -76,7 +76,7 @@ import Base UI, cmdk or Lucide directly. Keep `scripts/check-web-ui.mjs` and the
 layer boundaries and raw DOM controls enabled. Its class-string gates cover arbitrary values,
 palette, retired tokens, kit props and spreads, and the **Spine** ramps — spacing steps, type,
 radius and shadow, the focus ring and motion — and the kit itself answers the type, surface, focus
-and motion rules.
+and motion rules. A module stylesheet may not select on the kit's `data-slot` marker.
 
 A kit control cannot receive `className`, `style`, `render`, color/dimensions or opaque prop
 spreads from a module. Add a named variant for a demonstrated need. Modules own plain structural
@@ -99,7 +99,7 @@ context-menu dispatcher.
   `size="row"`: the two-line task; `size="row-sm"`: a dense single-line list row (the Changes
   file list). `layout="navigation"` fills a compact rail row's width without vertically stretching
   it (the model editor's provider rail). `layout="category"` is the settings category row: 32 px,
-  8 px radius, 10 px inline padding, a muted 13/16 label that takes the hover overlay, and the
+  8 px radius, 10 px inline padding, a muted 14/20 label that takes the hover overlay, and the
   current section on `bg-layer-03`. `layout="result"` is a settings search result row, and
   `layout="picker-row"` a settings card list row. `layout="tab"` fills the tabstrip's height and
   uses content width up to a maximum. `layout="model"` bounds a model trigger so long native IDs

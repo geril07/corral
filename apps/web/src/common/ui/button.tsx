@@ -25,17 +25,17 @@ const buttonVariants = cva(
         navigation:
           "w-full min-w-0 justify-start overflow-hidden text-left focus-visible:ring-inset",
         // A settings category row: the rail's 32 px row recipe, full width (`ui-kit.md`,
-        // **Compositions** — Settings).
+        // **Compositions** — Settings). `text-align` is the unlayered stylesheet's; the flex
+        // alignment stays here because that block sets no `justify-content`.
         category:
-          "visual-settings-category w-full min-w-0 justify-start overflow-hidden text-left focus-visible:ring-inset",
+          "visual-settings-category w-full min-w-0 justify-start overflow-hidden focus-visible:ring-inset",
         // A settings search result: a two-line row filling the rail's results list; the option
         // owns the highlight and passes it as `data-highlighted`.
-        result:
-          "visual-settings-result w-full min-w-0 justify-start overflow-hidden text-left whitespace-normal focus-visible:ring-inset",
+        result: "visual-settings-result w-full min-w-0 overflow-hidden focus-visible:ring-inset",
         // A settings card list row: a two-line row filling its card, divided by the caller; its
         // focus is the shell's inset outline, not the stock ring.
         "picker-row":
-          "visual-settings-picker-row w-full min-w-0 justify-start overflow-hidden text-left whitespace-normal focus-visible:ring-0",
+          "visual-settings-picker-row w-full min-w-0 overflow-hidden focus-visible:ring-0",
         model: "min-w-0 max-w-64 justify-start overflow-hidden text-left",
         // A plain text control in a context row: content width up to a readable bound, then truncates.
         text: "min-w-0 max-w-64 justify-start overflow-hidden text-left",
