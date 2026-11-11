@@ -1083,6 +1083,70 @@ test("the text scale is a slider with a value box and a conditional reset", asyn
   await expect.element(reset).not.toBeInTheDocument();
 });
 
+test("settings typography follows the interface text scale", async () => {
+  const client = newClient();
+  await renderSettings(client);
+  const rowTitle = page.getByText("Interface text scale", { exact: true }).element();
+  const navLabel = settingsRailButton("Appearance").element();
+  expect(getComputedStyle(rowTitle).fontSize).toBe("13px");
+  expect(getComputedStyle(navLabel).fontSize).toBe("14px");
+
+  const scale = page.getByRole("slider", { name: "Interface text scale" });
+  scale.element().focus();
+  for (let step = 0; step < 4; step += 1) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- one real key press per step
+    await userEvent.keyboard("{ArrowRight}");
+  }
+  await expect.element(page.getByText("140%", { exact: true })).toBeVisible();
+  expect(document.documentElement.style.fontSize).toBe("140%");
+  // The row and the nav label are the same roles at 140%: 13 × 1.4 and 14 × 1.4.
+  await vi.waitFor(() => {
+    expect(getComputedStyle(rowTitle).fontSize).toBe("18.2px");
+    expect(getComputedStyle(navLabel).fontSize).toBe("19.6px");
+  });
+
+  await page.getByRole("button", { name: "Reset interface text scale to default" }).click();
+  await vi.waitFor(() => {
+    expect(getComputedStyle(rowTitle).fontSize).toBe("13px");
+    expect(getComputedStyle(navLabel).fontSize).toBe("14px");
+  });
+});
+
+test("one scrollbar recipe covers the settings column and its navigation", async () => {
+  const original = { width: window.innerWidth, height: window.innerHeight };
+  const client = newClient();
+  try {
+    await page.viewport(1024, 640);
+    await renderSettings(client);
+    const content = document.querySelector<HTMLElement>(".settings-content");
+    const nav = document.querySelector<HTMLElement>(".settings-nav-scroll");
+    if (content === null || nav === null) throw new Error("a settings scroller is missing");
+    for (const scroller of [content, nav]) {
+      expect(getComputedStyle(scroller, "::-webkit-scrollbar").width).toBe("8px");
+      expect(getComputedStyle(scroller, "::-webkit-scrollbar-thumb").borderWidth).toBe("2px");
+      // At rest the thumb is still there, low-contrast, so the lane is discoverable un-hovered.
+      expect(getComputedStyle(scroller, "::-webkit-scrollbar-thumb").backgroundColor).not.toBe(
+        "rgba(0, 0, 0, 0)",
+      );
+    }
+  } finally {
+    await page.viewport(original.width, original.height);
+  }
+});
+
+test("a select row's popup opens at the trigger's width", async () => {
+  const client = newClient();
+  await renderSettings(client);
+  const trigger = page.getByRole("combobox", { name: "Session tab position" });
+  // The dialog's open animation scales everything; measure the settled trigger.
+  await vi.waitFor(() => expect(trigger.element().getBoundingClientRect().width).toBeCloseTo(160));
+  const width = trigger.element().getBoundingClientRect().width;
+  await trigger.click();
+  const popup = document.querySelector<HTMLElement>('[data-slot="combobox-content"]');
+  if (popup === null) throw new Error("the select popup did not open");
+  await vi.waitFor(() => expect(popup.getBoundingClientRect().width).toBeCloseTo(width, 0));
+});
+
 test("copy feedback clears, re-announces on a second copy, and does not survive a category change", async () => {
   const client = newClient();
   await writeConfig(null);
@@ -1180,6 +1244,42 @@ test("a search result navigates to its row, clears the query and highlights it",
   expect(row).not.toBeNull();
   await vi.waitFor(() => expect(row?.getAttribute("data-highlight")).toBe("true"));
   expect(document.activeElement).toBe(row);
+});
+
+test("keyboard search selection is painted and revealed at a short window", async () => {
+  const original = { width: window.innerWidth, height: window.innerHeight };
+  const client = newClient();
+  try {
+    await page.viewport(1024, 640);
+    await renderSettings(client);
+    const search = page.getByRole("combobox", { name: "Search settings" });
+    await search.click();
+    await userEvent.keyboard("a");
+    await expect.element(page.getByRole("listbox", { name: "Settings results" })).toBeVisible();
+    const options = page.getByRole("option").elements().length;
+    expect(options).toBeGreaterThan(12);
+
+    // Moving the highlight with the arrows lands the selection in the visible part of the rail.
+    for (let step = 0; step < 12; step += 1) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- one real key press per step
+      await userEvent.keyboard("{ArrowDown}");
+    }
+    const scroller = document.querySelector<HTMLElement>(".settings-nav-scroll");
+    if (scroller === null) throw new Error("no settings navigation scroller");
+    const selected = document.querySelector<HTMLElement>('.settings-result[aria-selected="true"]');
+    if (selected === null) throw new Error("no selected search result");
+    const row = selected.getBoundingClientRect();
+    const visible = scroller.getBoundingClientRect();
+    expect(row.top).toBeGreaterThanOrEqual(visible.top - 1);
+    expect(row.bottom).toBeLessThanOrEqual(visible.bottom + 1);
+
+    // The highlight belongs to the option the selection lives on, not a child button's own state.
+    const button = selected.querySelector<HTMLElement>('[data-slot="button"]');
+    if (button === null) throw new Error("the selected result has no button");
+    expect(getComputedStyle(button).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+  } finally {
+    await page.viewport(original.width, original.height);
+  }
 });
 
 test("an empty search says No settings found in one row", async () => {

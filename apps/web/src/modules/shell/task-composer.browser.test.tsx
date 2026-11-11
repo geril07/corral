@@ -95,6 +95,51 @@ test("the New task button creates a project task through the real server and sel
   await screen.unmount();
 });
 
+test("choosing a project in the first picker puts the keyboard in the prompt", async () => {
+  const { client, project, screen } = await appWithProject("composer-first-choice");
+  const secondRepo = await createGitRepo("composer-first-choice-two");
+  const second = await client.connection.api.projects.add({ path: secondRepo });
+  await vi.waitFor(() =>
+    expect(client.projects.getSnapshot().projects.some((each) => each.id === second.id)).toBe(true),
+  );
+
+  // Pointer: the chosen project's draft owns the keyboard, not the sidebar button that opened it.
+  await newTaskButton().click();
+  await expect.element(projectChoice()).toBeVisible();
+  await page.getByRole("option", { name: project.name, exact: true }).click();
+  await expect.element(projectChoice()).not.toBeInTheDocument();
+  await expect.element(promptField()).toHaveFocus();
+  await userEvent.keyboard("Typed straight after the picker");
+  await expect.element(promptField()).toHaveValue("Typed straight after the picker");
+
+  // Keyboard: ArrowDown and Enter choose the first row, and the prompt takes the same keyboard.
+  await userEvent.keyboard("{Escape}");
+  await expect.element(composer()).not.toBeInTheDocument();
+  await newTaskButton().click();
+  await expect.element(page.getByRole("combobox", { name: "Search projects" })).toHaveFocus();
+  await userEvent.keyboard("{ArrowDown}{Enter}");
+  await expect.element(projectChoice()).not.toBeInTheDocument();
+  await expect.element(promptField()).toHaveFocus();
+  await screen.unmount();
+});
+
+test("a cancelled first picker returns the keyboard to the New task button", async () => {
+  const { client, screen } = await appWithProject("composer-first-cancel");
+  const secondRepo = await createGitRepo("composer-first-cancel-two");
+  const second = await client.connection.api.projects.add({ path: secondRepo });
+  await vi.waitFor(() =>
+    expect(client.projects.getSnapshot().projects.some((each) => each.id === second.id)).toBe(true),
+  );
+
+  await newTaskButton().click();
+  await expect.element(projectChoice()).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(projectChoice()).not.toBeInTheDocument();
+  await expect.element(composer()).not.toBeInTheDocument();
+  await expect.element(newTaskButton()).toHaveFocus();
+  await screen.unmount();
+});
+
 test("the prompt has no focus ring and cannot be resized by dragging", async () => {
   const { screen } = await appWithProject("composer-prompt-chrome");
   await ctrl("n");

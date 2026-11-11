@@ -319,6 +319,31 @@ test("settings suspension retains search and restores search focus", async () =>
   await expect.element(page.getByRole("combobox", { name: "Search models" })).toHaveValue("Alpha");
 });
 
+test("the instance rail names an instance on focus as well as hover", async () => {
+  await render(
+    <ModelPicker
+      title="Models"
+      instances={[
+        { key: "native:pi", kind: "pi", name: "pi", detail: "Native defaults" },
+        { key: "native:claude", kind: "claude", name: "claude", detail: "Native defaults" },
+      ]}
+      instance="native:pi"
+      onInstance={() => {}}
+      models={[{ key: "a", name: "Alpha", current: true }]}
+      onModel={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  const rail = page.getByRole("radiogroup", { name: "Instances" });
+  rail.element().focus();
+  await userEvent.keyboard("{Tab}");
+  const checked = page.getByRole("radio", { name: "pi" });
+  await expect.element(checked).toHaveFocus();
+  // The name and its detail are a hint, so the focused instance explains itself without a pointer.
+  await expect.element(page.getByRole("tooltip")).toHaveTextContent("pi · Native defaults");
+  expect(checked.element().getAttribute("title")).toBeNull();
+});
+
 test("a favorite row keeps its star and instance identity in the scoped list", async () => {
   await render(
     <ModelPicker
