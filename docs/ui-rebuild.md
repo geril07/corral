@@ -80,11 +80,14 @@ it — without meeting a single invented screen.
 
 ### In progress
 
-- **Draft tasks** (`feat/263-drafts`) — a draft is a tab, device-local, one per project and reused,
-  with the prompt and the composer's choices surviving close and reload; a successful create clears
-  only the draft that sent it.
-- **Settings control recipes** (`feat/263-kit-settings`) — the last ownership finding: module CSS in
-  `settings.css` restyles kit controls; the recipes move into named kit variants.
+- **Draft tasks** (`feat/263-drafts`, committed `d0084be`) — a draft is a tab in the main group,
+  device-local, one per project and reused, with the prompt and the composer's choices surviving
+  Escape and reload; closing the tab discards it, a successful create clears only the draft that
+  sent it. Under UI/UX review.
+- **Settings control recipes** (`feat/263-kit-settings`, committed `0974096`) — the last ownership
+  finding: module CSS in `settings.css` restyled kit controls; the recipes now live in named kit
+  variants (`Button layout="category"|"result"|"picker-row"`, `Input frame="bare"`) and the module
+  keeps only layout. Under UI/UX review.
 
 ### Queued, research done
 
