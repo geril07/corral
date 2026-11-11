@@ -25,12 +25,12 @@ export function VisualReview() {
     renameBinding === null ? undefined : { prefix: config.keys.prefix, binding: renameBinding };
   const removeShortcut =
     removeBinding === null ? undefined : { prefix: config.keys.prefix, binding: removeBinding };
-  // The host has no task store: the menu is here to review, so its actions are inert.
+  // The host has no task store: the menu is here to review, so its actions are inert, and with no
+  // settle action the card and menu show the documented no-store variant instead of a dead control.
   const actions: VisualTaskActions = {
     onRename: () => undefined,
     onRemove: () => undefined,
     onViewSource: () => undefined,
-    onToggleSettle: () => undefined,
   };
 
   if (!import.meta.env.DEV) {

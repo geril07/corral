@@ -61,7 +61,7 @@ export interface VisualTaskRow {
   hasSource: boolean;
   /** The recorded branch when it is a real branch name to copy; a detached create has none. */
   copyBranch?: string | undefined;
-  /** The server-owned task state: a settled task is history and shows the shelf's quieter row. */
+  /** The server-owned task state: a settled row names `Unsettle task` in its menu and action. */
   settled?: boolean | undefined;
   status?: VisualCardStatus | undefined;
   metadata: VisualTaskMetadata;

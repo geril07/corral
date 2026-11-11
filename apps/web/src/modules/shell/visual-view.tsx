@@ -45,8 +45,12 @@ export interface VisualTaskActions {
   onRename: (id: string) => void;
   onRemove: (id: string) => void;
   onViewSource: (id: string) => void;
-  /** Settle an active task, or continue a settled one; the server stops or resumes its sessions. */
-  onToggleSettle: (id: string) => void;
+  /**
+   * Settle an active task, or continue a settled one; the server stops or resumes its sessions.
+   * Resolves false when the server refuses it. Absent in a host with no task store, which then
+   * offers no settle control at all.
+   */
+  onToggleSettle?: ((id: string) => Promise<boolean>) | undefined;
 }
 
 /** The list's mounted rows, for a closing dialog that has to name where the keyboard goes. */
@@ -74,25 +78,32 @@ function shortcutChord(shortcut: VisualShortcut | undefined): string | undefined
 }
 
 /**
- * One row's menu: copy and rename, then read-only context, then the destructive action. The source
- * item exists only when the task has a source; the branch item only when it has a branch.
+ * One row's menu: copy and rename, then state, then read-only context, then the destructive
+ * action. The source item exists only when the task has a source; the branch item only when it has
+ * a branch; settle only when the host has a task store.
  */
 function TaskRowMenu({
   row,
   actions,
+  onToggleSettle,
   renameShortcut,
   removeShortcut,
+  settleShortcut,
   onCopy,
 }: {
   row: VisualTaskRow;
   actions: VisualTaskActions;
+  /** Row-originated settle, so the moved row's new home can take the keyboard back. */
+  onToggleSettle: ((id: string) => void) | undefined;
   renameShortcut: VisualShortcut | undefined;
   removeShortcut: VisualShortcut | undefined;
+  settleShortcut: VisualShortcut | undefined;
   onCopy: (text: string, copied: string) => void;
 }) {
   const branch = row.copyBranch;
   const renameChord = shortcutChord(renameShortcut);
   const removeChord = shortcutChord(removeShortcut);
+  const settleChord = shortcutChord(settleShortcut);
   return (
     <>
       <DropdownMenuSub>
@@ -136,12 +147,18 @@ function TaskRowMenu({
           <DropdownMenuShortcut aria-hidden="true">{renameChord}</DropdownMenuShortcut>
         )}
       </DropdownMenuItem>
-      <DropdownMenuItem
-        icon={row.settled === true ? "unsettle" : "settle"}
-        onClick={() => actions.onToggleSettle(row.id)}
-      >
-        {row.settled === true ? "Unsettle task" : "Settle task"}
-      </DropdownMenuItem>
+      {onToggleSettle !== undefined && (
+        <DropdownMenuItem
+          icon={row.settled === true ? "unsettle" : "settle"}
+          aria-keyshortcuts={settleChord}
+          onClick={() => onToggleSettle(row.id)}
+        >
+          {row.settled === true ? "Unsettle task" : "Settle task"}
+          {settleChord !== undefined && (
+            <DropdownMenuShortcut aria-hidden="true">{settleChord}</DropdownMenuShortcut>
+          )}
+        </DropdownMenuItem>
+      )}
       <DropdownMenuSeparator />
       {row.hasSource && (
         <DropdownMenuItem icon="source" onClick={() => actions.onViewSource(row.id)}>
@@ -500,6 +517,8 @@ export function VisualShellView({
         bindings[renameShortcut.binding] = "rename-task";
       if (removeShortcut?.binding !== null && removeShortcut?.binding !== undefined)
         bindings[removeShortcut.binding] = "remove-task";
+    }
+    if (taskActions?.onToggleSettle !== undefined) {
       if (settleShortcut?.binding !== null && settleShortcut?.binding !== undefined)
         bindings[settleShortcut.binding] = "settle-task";
     }
@@ -592,17 +611,37 @@ export function VisualShellView({
     },
     [selectRow, stops],
   );
+  const settle = taskActions?.onToggleSettle;
+  // Every row-originated settle: the row is about to move between two lists and remount, so its
+  // new home takes the keyboard back. A menu item lives in a portal, so this path cannot ask
+  // whether the sidebar held focus; `prefix d` asks that in `toggleSettle`.
+  const settleRow = useCallback(
+    (id: string) => {
+      if (settle === undefined) return;
+      settleFocus.current = { id, settled: settled.some((row) => row.id === id) };
+      void settle(id).then(
+        (accepted) => {
+          // A refused settle moves nothing; drop the intent instead of letting it fire later.
+          if (!accepted && settleFocus.current?.id === id) settleFocus.current = undefined;
+        },
+        () => {
+          if (settleFocus.current?.id === id) settleFocus.current = undefined;
+        },
+      );
+    },
+    [settle, settled],
+  );
   const toggleSettle = useCallback(
     (id: string) => {
-      if (taskActions === undefined) return;
-      // The row moves between two lists, so it remounts: remember where it was and hand the
-      // keyboard back once its new home is rendered.
+      if (settle === undefined) return;
       if (sidebarFrame.current?.contains(document.activeElement) === true) {
-        settleFocus.current = { id, settled: settled.some((row) => row.id === id) };
+        settleRow(id);
+        return;
       }
-      taskActions.onToggleSettle(id);
+      // `prefix d` from the terminal or the main area: the row moves, the keyboard stays put.
+      void settle(id);
     },
-    [settled, taskActions],
+    [settle, settleRow],
   );
   useLayoutEffect(() => {
     const pending = settleFocus.current;
@@ -611,6 +650,7 @@ export function VisualShellView({
     if (home === pending.settled) return;
     settleFocus.current = undefined;
     const row = rowElement(pending.id);
+    // The row went into a collapsed shelf and is not mounted: its disclosure now names it.
     if (row !== null) row.focus();
     else if (home) shelfToggle.current?.focus();
   }, [rowElement, settled]);
@@ -756,14 +796,16 @@ export function VisualShellView({
           selected={currentTaskId === row.id}
           onSelect={selectRow}
           onNavigate={navigate}
-          onToggleSettle={taskActions === undefined ? undefined : () => toggleSettle(row.id)}
+          onToggleSettle={settle === undefined ? undefined : () => settleRow(row.id)}
           menu={
             taskActions === undefined ? undefined : (
               <TaskRowMenu
                 row={row}
                 actions={taskActions}
+                onToggleSettle={settle === undefined ? undefined : settleRow}
                 renameShortcut={renameShortcut}
                 removeShortcut={removeShortcut}
+                settleShortcut={settleShortcut}
                 onCopy={copy}
               />
             )
@@ -780,8 +822,10 @@ export function VisualShellView({
       removeShortcut,
       renameShortcut,
       selectRow,
+      settle,
+      settleRow,
+      settleShortcut,
       taskActions,
-      toggleSettle,
     ],
   );
   const shelfElement =

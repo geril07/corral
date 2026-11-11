@@ -71,7 +71,8 @@ What a user does. Everything below is built and verified end to end, chat views 
   the keyboard to where it came from.
 - Project grouping is the default (`prefix l` switches to status groups and the device keeps
   the choice). Settled tasks sit in the bottom shelf with one order across projects
-  (`layout.md`, **Sidebar**); selecting older history reveals it without resuming it. Rows are two-line tasks;
+  (`layout.md`, **Visual shell (routed workspace)**); selecting older history reveals it without
+  resuming it. Rows are two-line tasks;
   selection uses secondary appearance plus `aria-current` on exactly one task or loose terminal;
   a project or Scratch container row never carries it, and no row is current while a project's
   composer is open — not a bespoke colored left bar. Titles and paths truncate without losing
@@ -119,9 +120,9 @@ What a user does. Everything below is built and verified end to end, chat views 
   Copy ▸ Path, Branch when the task has one, and Task ID; Rename task…; `Settle task`, or
   `Unsettle task` for a settled one; View issue source… only for a task imported from an issue; and
   Remove task… with the same two-stage confirmation. Its
-  shortcut cells name the `prefix e` and `prefix shift+t` actions that really run; row chords stay
-  silent while the composer draft is open. The card's hover action is the same settle command,
-  named for the state it leaves. A copy confirms in the sidebar's
+  shortcut cells name the `prefix e`, `prefix d` and `prefix shift+t` actions that really run; row
+  chords stay silent while the composer draft is open. The card's hover action is the same settle
+  command, named for the state it leaves. A copy confirms in the sidebar's
   notice row above the footer and clears on the next interaction; a refused action keeps its
   sentence there. The menu opens by right-click, the menu key and Shift+F10.
 - One scrolling region per pane. At 1024×640 and above all controls must be reachable. Long

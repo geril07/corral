@@ -47,7 +47,7 @@ function menuActions() {
     onRename: vi.fn<(id: string) => void>(),
     onRemove: vi.fn<(id: string) => void>(),
     onViewSource: vi.fn<(id: string) => void>(),
-    onToggleSettle: vi.fn<(id: string) => void>(),
+    onToggleSettle: vi.fn<(id: string) => Promise<boolean>>(() => Promise.resolve(true)),
   };
 }
 
@@ -647,13 +647,16 @@ test("the row menu is copy, rename, settle, source, remove, with live shortcut c
     "View issue source…",
     "Remove task…",
   ]);
-  expect(shortcutCells()).toEqual(["alt+a e", "alt+a shift+t"]);
+  expect(shortcutCells()).toEqual(["alt+a e", "alt+a d", "alt+a shift+t"]);
   expect(
     page
       .getByRole("menuitem", { name: "Rename task…" })
       .element()
       .getAttribute("aria-keyshortcuts"),
   ).toBe("alt+a e");
+  expect(
+    page.getByRole("menuitem", { name: "Settle task" }).element().getAttribute("aria-keyshortcuts"),
+  ).toBe("alt+a d");
 
   // The menu refuses the reference features whose contracts do not exist.
   for (const absent of [
@@ -665,6 +668,26 @@ test("the row menu is copy, rename, settle, source, remove, with live shortcut c
   ]) {
     expect(page.getByRole("menuitem", { name: absent }).elements()).toHaveLength(0);
   }
+  await unmount();
+});
+
+test("a host with no settle action offers no item and no card action", async () => {
+  const actions = menuActions();
+  const withoutStore: VisualTaskActions = {
+    onRename: actions.onRename,
+    onRemove: actions.onRemove,
+    onViewSource: actions.onViewSource,
+  };
+  const { container, unmount } = await render(
+    <MenuHarness actions={withoutStore} rows={[FIRST]} />,
+  );
+
+  await openRowMenu(FIRST.title);
+  expect(page.getByRole("menuitem", { name: /Settle task|Unsettle task/ }).elements()).toHaveLength(
+    0,
+  );
+  await userEvent.keyboard("{Escape}");
+  expect(container.querySelector(".visual-task-action")).toBeNull();
   await unmount();
 });
 
@@ -948,6 +971,91 @@ test("the settle action is a real command: the card and prefix d call it, and no
   expect(actions.onToggleSettle).toHaveBeenLastCalledWith(FIRST.id);
   expect(page.getByRole("alertdialog").elements()).toHaveLength(0);
   await unmount();
+});
+
+/** No moved rows, as one stable value: an inline `[]` default would change on every render. */
+const NO_MOVED_ROWS: readonly string[] = [];
+
+/**
+ * The shelf's real mechanics for one device: the host moves the row between the two lists and
+ * reports the server's answer. `refuse` keeps the state where it is, as a server refusal does;
+ * `moved` is a change made elsewhere (another client, a restart).
+ */
+function ShelfHarness({
+  refuse = false,
+  moved = NO_MOVED_ROWS,
+}: {
+  refuse?: boolean;
+  moved?: readonly string[];
+}) {
+  const [settledIds, setSettledIds] = useState<readonly string[]>([]);
+  const [selected, setSelected] = useState<string | null>(VISUAL_REVIEW_ROWS[0]!.id);
+  const settledNow = new Set([...settledIds, ...moved]);
+  const actions: VisualTaskActions = {
+    onRename: () => undefined,
+    onRemove: () => undefined,
+    onViewSource: () => undefined,
+    onToggleSettle: async (id) => {
+      if (refuse) return false;
+      setSettledIds((current) =>
+        current.includes(id) ? current.filter((each) => each !== id) : [...current, id],
+      );
+      return true;
+    },
+  };
+  return (
+    <VisualShellView
+      rows={VISUAL_REVIEW_ROWS.filter((row) => !settledNow.has(row.id))}
+      settledRows={VISUAL_REVIEW_ROWS.filter((row) => settledNow.has(row.id))}
+      selectedId={selected}
+      projectsLoaded
+      tasksLoaded
+      failure={undefined}
+      shortcut={SHORTCUT}
+      settleShortcut={SETTLE_SHORTCUT}
+      taskActions={actions}
+      onSelectTask={setSelected}
+    />
+  );
+}
+
+test("settling from the row menu hands the keyboard to the row in its new home", async () => {
+  const { container, unmount } = await render(<ShelfHarness />);
+  const hit = container.querySelector<HTMLElement>(`[data-task-id="${FIRST.id}"]`);
+  if (hit === null) throw new Error("the card is missing");
+
+  hit.focus();
+  await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+  await page.getByRole("menuitem", { name: "Settle task" }).click();
+
+  // The menu lives in a portal, so this path must record the move without asking where focus was.
+  await expect.element(page.getByRole("button", { name: "Settled (1)" })).toBeVisible();
+  await vi.waitFor(() =>
+    expect(document.activeElement?.getAttribute("data-task-id")).toBe(FIRST.id),
+  );
+  expect(document.activeElement?.closest(".visual-shelf")).not.toBeNull();
+  await unmount();
+});
+
+test("a refused settle leaves no focus intent behind", async () => {
+  const screen = await render(<ShelfHarness refuse />);
+  const hit = screen.container.querySelector<HTMLElement>(`[data-task-id="${FIRST.id}"]`);
+  if (hit === null) throw new Error("the card is missing");
+
+  hit.focus();
+  await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+  await page.getByRole("menuitem", { name: "Settle task" }).click();
+  await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+
+  // The user moves on, then the row moves for another reason: the keyboard must stay put.
+  const elsewhere = page.getByRole("button", { name: "Hide sidebar" }).element();
+  if (!(elsewhere instanceof HTMLElement)) throw new Error("the toggle is missing");
+  elsewhere.focus();
+  await screen.rerender(<ShelfHarness refuse moved={[FIRST.id]} />);
+  await nextFrame();
+  expect(document.activeElement).toBe(elsewhere);
+  await expect.element(page.getByRole("button", { name: "Settled (1)" })).toBeVisible();
+  await screen.unmount();
 });
 
 test("a copy confirmation clears on the next interaction", async () => {
