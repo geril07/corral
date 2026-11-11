@@ -89,13 +89,13 @@ it — without meeting a single invented screen.
 
 ### In progress
 
-- **Chat transcript** (`feat/263-chat-transcript`) — turn folding, verb summaries, working/thinking
-  rows, hover actions and quote from selection, inside the chat pane the tabs slice mounted.
-  Timestamps and forks stay out; they need protocol work.
-- **Settled shelf** (`feat/263-settled-shelf`, `f35972f`) — a collapsed `Settled (N)` group at the
+- **Chat transcript** (`feat/263-chat-transcript`, `92b4c17`) — turn folding that keeps only the
+  turn's last message, verb summaries, working/thinking rows, copy on hover and focus, quote from a
+  selection, and per-session folds and reading position. Timestamps and forks stay out; they need
+  protocol work. UI/UX review done and its findings fixed; technical review in progress.
+- **Settled shelf** (`feat/263-settled-shelf`, `c632d16`) — a collapsed `Settled (N)` group at the
   end of the same list, Settle/Unsettle back in the row menu and on the card, and a settled task
-  stays selectable with its tabs. UI/UX review done and its findings fixed; technical review in
-  progress.
+  stays selectable with its tabs. Both reviews done and merged.
 
 ### Queued, research done
 
@@ -143,8 +143,8 @@ Per `docs/delivery.md`, each slice gets a UI/UX review and then a technical revi
 | Tabs (`feat/263-tabs`)                            | done; two P1s and eight P2s fixed in `d149684`           | done; merged in `0150b3b`                  |
 | Settings recipes (`feat/263-kit-settings`)        | done; visually neutral, two claimed differences          | done; merged in `e13a482`                  |
 | Drafts (`feat/263-drafts`)                        | done; one P1 and three P2s fixed in `cdf010f`            | done; merged in `8263d43`                  |
-| Settled shelf (`feat/263-settled-shelf`)          | done; one P1 and two P2s fixed in `f35972f`              | in progress                                |
-| Chat transcript (`feat/263-chat-transcript`)      | in progress                                              | after UI/UX                                |
+| Settled shelf (`feat/263-settled-shelf`)          | done; one P1 and two P2s fixed in `f35972f`              | done; merged in `c632d16`                  |
+| Chat transcript (`feat/263-chat-transcript`)      | done; one P1, three P2s and six P3s fixed in `92b4c17`   | in progress                                |
 | Task menu (`feat/263-task-menu`)                  | done; two P1s fixed (Settle removed, focus after remove) | done; merged `0490416`                     |
 
 ### Technical review triage
