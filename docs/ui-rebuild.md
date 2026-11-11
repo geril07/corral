@@ -63,6 +63,11 @@ it — without meeting a single invented screen.
   Terminal as one tab, Changes in the companion group, close ≠ delete with a closed stack,
   device-local layout, a compact task row above the strip and an actionable empty pane. Mounts the
   real chat, terminal and changes panes.
+- **Draft tasks** (#263, `8263d43`) — a draft is a tab in the main group, device-local, one per
+  project and reused, with the prompt and the composer's choices surviving Escape and reload.
+  Closing the tab discards it with T3's `Discarded`/`Undo`, a project switch never drops a draft
+  that has text, an idle window writes nothing, and a successful create clears only the draft that
+  sent it.
 - **Settings control recipes** (#263, `e13a482`) — the module no longer restyles kit controls: the
   recipes are `Button layout="category"|"result"|"picker-row"` and `Input frame="bare"`, laid out by
   `settings.css` only. The UI gate now rejects a module stylesheet that selects on the kit's
@@ -84,10 +89,9 @@ it — without meeting a single invented screen.
 
 ### In progress
 
-- **Draft tasks** (`feat/263-drafts`, committed `d0084be`) — a draft is a tab in the main group,
-  device-local, one per project and reused, with the prompt and the composer's choices surviving
-  Escape and reload; closing the tab discards it, a successful create clears only the draft that
-  sent it. Under UI/UX review.
+- **Chat transcript** (`feat/263-chat-transcript`) — turn folding, verb summaries, working/thinking
+  rows, hover actions and quote from selection, inside the chat pane the tabs slice mounted.
+  Timestamps and forks stay out; they need protocol work.
 
 ### Queued, research done
 
@@ -143,7 +147,7 @@ Per `docs/delivery.md`, each slice gets a UI/UX review and then a technical revi
 | Merged #263 surface (composer, settings, pickers) | done; its P2/P3 fixes merged in `d3b8f5b`                | done; merged in `88444cd`, copy still open |
 | Tabs (`feat/263-tabs`)                            | done; two P1s and eight P2s fixed in `d149684`           | done; merged in `0150b3b`                  |
 | Settings recipes (`feat/263-kit-settings`)        | done; visually neutral, two claimed differences          | done; merged in `e13a482`                  |
-| Drafts (`feat/263-drafts`)                        | done; one P1 and three P2s fixed in `cdf010f`            | in progress                                |
+| Drafts (`feat/263-drafts`)                        | done; one P1 and three P2s fixed in `cdf010f`            | done; merged in `8263d43`                  |
 | Task menu (`feat/263-task-menu`)                  | done; two P1s fixed (Settle removed, focus after remove) | done; merged `0490416`                     |
 
 ### Technical review triage
@@ -174,8 +178,8 @@ gate rule that rejects a module stylesheet selecting on a kit `data-slot`.
 ## Open decisions
 
 1. Favorites: extend the entry with a display name and apply it across instances?
-2. Drafts: one per project, reused (T3) or a new one each time (OpenCode); does closing delete it;
-   device-only or shared?
+2. ~~Drafts~~ — resolved: one per project and reused (T3), device-local, closing the tab discards
+   with `Discarded`/`Undo`, Escape keeps, and a reload restores the text on the next New task.
 3. Attachments and pre-launch reasoning: separate issues, or extend the protocol inside #263?
 4. Title-only creation: add the control or document that a prompt is required.
 5. What happens to the 21 failing legacy browser files: port them to the new shell, delete the ones
