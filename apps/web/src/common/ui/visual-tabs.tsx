@@ -16,7 +16,7 @@ import { RowMenu } from "./row-menu.tsx";
 import { StatusGlyph } from "./status-glyph.tsx";
 
 /** The tab's kind decides its glyph and whether it carries a number or status. */
-export type VisualTabKind = "session" | "changes" | "file";
+export type VisualTabKind = "session" | "changes" | "file" | "draft";
 
 export interface VisualTabItem {
   id: string;
@@ -44,6 +44,7 @@ export interface VisualTabItem {
 const GLYPH: Readonly<Record<Exclude<VisualTabKind, "session">, IconName>> = {
   changes: "changes",
   file: "file",
+  draft: "task",
 };
 
 function TabGlyph({ item }: { item: VisualTabItem }) {

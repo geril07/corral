@@ -1,4 +1,5 @@
 import type { Session, Task } from "@corral/protocol/rpc";
+import { recordOf } from "./json-record.ts";
 
 /**
  * A task's working area is one layout with two groups (`docs/layout.md`, **Working area**). The
@@ -503,14 +504,6 @@ function asGroup(value: unknown): TaskTabGroup | undefined {
 
 function asKind(value: unknown): TaskTabKind | undefined {
   return value === "session" || value === "changes" || value === "file" ? value : undefined;
-}
-
-/** A plain record view of parsed JSON without a narrowing assertion. */
-function recordOf(value: unknown): Record<string, unknown> | undefined {
-  if (value === null || typeof value !== "object") return undefined;
-  const record: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value)) record[key] = entry;
-  return record;
 }
 
 function readStoredTab(value: unknown): ClosedTaskTab | undefined {

@@ -1345,6 +1345,16 @@
   min-height: 0;
 }
 
+/* The draft pane keeps the composer's content inset and scroll inside the fill working area. */
+.visual-draft-pane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: 24px 28px;
+  overflow-y: auto;
+}
+
 .visual-workspace-alert {
   flex: 0 0 auto;
   margin: 0;

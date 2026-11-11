@@ -159,14 +159,23 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
 
 ## New task view
 
-- Still a main-area composer, not a dialog. `prefix t` opens it; Escape returns to the
-  selected task. The task header and draft session row remain visible.
-- A project's composer is the main area while it is open, and the sidebar reads the same value:
-  no task, project or loose-terminal row is current. A composer opened over a selection opens its
-  project's group, and Escape returns to the selection the URL still names. A URL that names a
-  zero-task project is itself the composer state: its group follows the collapse state, and Escape
-  has no earlier selection to return to. The composer has no URL of its own and no draft row in the
-  sidebar.
+- Still a main-area composer, not a dialog. `prefix t` opens it; Escape returns to the selected
+  task and keeps the draft.
+- The open draft is a tab in the working area's main group, in the same 40 px strip as a task's
+  tabs and with the same close control; its pane is the composer. Opening New task for a project
+  that already has a draft selects that draft instead of creating a second one, and a No project
+  draft is its own. Closing the draft's tab discards it (OpenCode's close is destructive for a
+  draft); Escape and a task selection only put it away.
+- Drafts are device-local: one versioned record, `corral.task-drafts`, holds the drafts with
+  something typed — prompt, project, agent/model, workspace mode and base branch — written 300 ms
+  after the last edit and flushed before unload. A draft with nothing typed is never written and
+  disappears when it is closed or the page reloads; reopening New task restores the text, the
+  choices and the prompt's focus. There is no server draft, no protocol type and no draft URL, and
+  no draft row in the sidebar: while a draft is open no task, project or loose-terminal row is
+  current.
+- The strip names every draft tab `New task`; the project it belongs to (or `No project`, or
+  `Project unavailable`) is in the tab's accessible name and tooltip. The task header is absent
+  while a draft owns the main area.
 - Prompt and agent/model, Chat/Terminal and Create controls share the composer. One left-aligned
   context row below it names the project, the workspace mode and the branch; setup never sits in
   ongoing chat. The project name reuses the shared project picker, and choosing a project returns

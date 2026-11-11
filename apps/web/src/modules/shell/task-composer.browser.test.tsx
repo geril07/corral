@@ -691,12 +691,14 @@ test("a create that lands after its draft closed leaves the next draft alone", a
   await newTaskButton().click();
   await expect.element(promptField()).toHaveFocus();
   await promptField().fill("First draft");
-  // Enter submits from the prompt, which keeps the keyboard there for the Escape below.
+  // Enter submits from the prompt, which keeps the keyboard there for the close below.
   await userEvent.keyboard("{Enter}");
   await expect.element(composer()).toHaveAttribute("aria-busy", "true");
 
-  // Escape closes the draft while its create is still running; New task opens another one.
-  await userEvent.keyboard("{Escape}");
+  // Closing the draft's tab discards it while its create is still running; New task opens a new
+  // draft for the project, not the discarded one.
+  await userEvent.hover(page.getByRole("tab", { name: /^New task / }));
+  await page.getByRole("button", { name: "Close New task tab" }).click();
   await expect.element(composer()).not.toBeInTheDocument();
   await newTaskButton().click();
   await expect.element(composer()).toBeVisible();

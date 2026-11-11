@@ -11,8 +11,4 @@ export { emptyDraft, movedDraft, type ComposerDraft } from "./new-task-draft.ts"
 export { NewTaskView, type NewTaskViewProps } from "./new-task-view.tsx";
 export { TaskSourceDialog } from "./task-source.tsx";
 export { TaskComposer } from "./task-composer.tsx";
-export {
-  emptyTaskComposerDraft,
-  switchComposerProject,
-  type TaskComposerDraft,
-} from "./task-composer-draft.ts";
+export { emptyTaskComposerDraft, type TaskComposerDraft } from "./task-composer-draft.ts";
