@@ -249,7 +249,7 @@ function SidebarList({
 
   if (failure !== undefined) {
     return (
-      <div className="visual-task-scroll visual-scrollbar">
+      <div className="visual-task-scroll">
         <div className="visual-list-state" role="alert">
           <span className="visual-list-state-title">The workspace could not load.</span>
           <span className="visual-list-state-detail">{failure}</span>
@@ -259,7 +259,7 @@ function SidebarList({
   }
   if (!projectsLoaded || !tasksLoaded) {
     return (
-      <div className="visual-task-scroll visual-scrollbar">
+      <div className="visual-task-scroll">
         <div className="visual-list-state" aria-live="polite">
           <span className="visual-list-state-title">Loading tasks…</span>
         </div>
@@ -268,7 +268,7 @@ function SidebarList({
   }
   if (rows.length === 0) {
     return (
-      <div className="visual-task-scroll visual-scrollbar">
+      <div className="visual-task-scroll">
         <div className="visual-list-state">
           <span className="visual-list-state-title">No active tasks.</span>
           <span className="visual-list-state-detail">
@@ -281,7 +281,7 @@ function SidebarList({
     );
   }
   return (
-    <div className="visual-task-scroll visual-scrollbar" ref={list}>
+    <div className="visual-task-scroll" ref={list}>
       <ul className="visual-task-list" aria-label="Tasks">
         {rows.map((row) => (
           <li key={row.id}>
