@@ -59,6 +59,10 @@ it — without meeting a single invented screen.
   a visible and revealed keyboard selection in Settings search, Settings typography that follows the
   interface scale, model reset for a non-default instance, one scrollbar recipe, shared tooltips on
   the instance rail, and a select popup at its trigger's width.
+- **Tabs and working area** (#263, `0150b3b`) — two groups per task, primary agent first, Chat and
+  Terminal as one tab, Changes in the companion group, close ≠ delete with a closed stack,
+  device-local layout, a compact task row above the strip and an actionable empty pane. Mounts the
+  real chat, terminal and changes panes.
 - **Technical fixes** (#263, `88444cd`) — protocol 14, `projects.baseRefs` with grouped local/remote
   refs and the main tree's `currentBranch`, disabled instances refused, one owner for saved
   preferences, a missing project cannot be submitted, the checkout row shows the real branch, the
@@ -69,11 +73,7 @@ it — without meeting a single invented screen.
 
 ### In progress
 
-- **Tabs and working area** (`feat/263-tabs`, `d149684`) — two groups per task, primary agent first,
-  Chat and Terminal as one tab, Changes in the companion group, close ≠ delete with a closed stack,
-  device-local layout. Mounts the real chat, terminal and changes panes, a compact task row above the
-  strip and an actionable empty pane. UI/UX review done and its findings fixed; technical review in
-  progress.
+Nothing is in flight. The next slice starts from `docs/ui-rebuild.md` and `docs/delivery.md`.
 
 ### Queued, research done
 
@@ -108,9 +108,12 @@ behaviour and the open questions; the slice brief is written from it.
 
 ## Known debt
 
-- **Prefix bindings are missing in the new shell**, so about 31 browser tests across five files fail
-  before they reach their subject. Every slice currently verifies with focused suites. This is the
-  one piece of test infrastructure that should be restored before the rebuild expands further.
+- **The browser suite is mostly red, and the number is bigger than this document used to say.**
+  Measured on `197be6f`: 26 of 47 files pass, **21 files and 245 of 662 tests fail**. The failures
+  are the legacy surfaces the rebuild replaced (old workspace screens, prefix bindings that no longer
+  exist in the routed shell, helpers that still drive the previous UI); the rebuild's own suites —
+  composer, settings, pickers, tabs, workspace, chat, terminal — pass. Every slice therefore verifies
+  with focused suites, and the full suite is not evidence of anything until this is resolved.
 - **Stale docs**: `docs/ux.md` and `docs/layout.md` still describe sessions as equal tabs in places;
   the tabs slice replaces those statements. `docs/ui-kit.md` still mentions one easing token that no
   longer exists.
@@ -150,12 +153,10 @@ The technical pass on the merged surface returned no P0, five P1 and eight P2. D
 | Directory truncation warning dropped in Add project      | P2  | Fix now                                                                           |
 | Show all / Hide all erase saved ordering                 | P2  | Fix now                                                                           |
 
-Status: the protocol, disabled-instance, saved-state, removed-project, base-ref, base-leak,
-truncation, ordering and restored-test rows are implemented on `feat/263-tech-fixes` (eight commits,
-protocol now 14) and are in UI/UX review. The remaining three — create completion versus draft
-ownership, duplicate virtual keys, and roving focus in the instance rail — go to
-`feat/263-tech-fixes-b` because they share files with `feat/263-review-fixes`, which is still in
-flight.
+Status: every row except three is merged on the feature branch (`88444cd`). Still open, and being
+fixed on `feat/263-tech-fixes-b`: create completion versus draft ownership (P1), duplicate virtual
+keys when favorites span providers (P2), and roving focus in the instance rail (P2). The settings
+control recipes stay a queued slice of their own.
 
 ## Open decisions
 
@@ -164,10 +165,16 @@ flight.
    device-only or shared?
 3. Attachments and pre-launch reasoning: separate issues, or extend the protocol inside #263?
 4. Title-only creation: add the control or document that a prompt is required.
-5. Which remaining Corral-only strings stay. The UI/UX review of the merged surface flagged these as
+5. What happens to the 21 failing legacy browser files: port them to the new shell, delete the ones
+   whose surface no longer exists, or keep them red. This is the largest remaining risk to every
+   later slice's evidence.
+6. Which remaining Corral-only strings stay. The UI/UX review of the merged surface flagged these as
    authored copy with no reference match, and left them unchanged pending your word:
    `settings-sections.ts:20,25,30,60` (the four settings section descriptions),
    `model-management.tsx:583` (the model-ordering paragraph), `task-composer.tsx:229` (placeholder
    `What should the agent do?`), and `task-composer.tsx:249,281` (the disabled attach/reasoning
    hints). Reference wording exists for the placeholder (`Ask anything…`, OpenCode
-   `packages/app/src/runtime/i18n/en.ts:351`) but not for the hints.
+   `packages/app/src/runtime/i18n/en.ts:351`) but not for the hints. The tabs slice added
+   `Companion tabs`, `Resize companion group` and four refusal lines: "The primary session is not a
+   closable view; remove it with Remove session.", "The primary session is not moved between
+   groups.", "Changes stays in the companion group.", "The main group keeps its only tab."
