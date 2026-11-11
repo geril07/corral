@@ -583,10 +583,15 @@ test("one toggle travels with the sidebar edge and keeps focus across hide and s
   expect(Math.round(surface.getBoundingClientRect().width)).toBe(320);
   expect(toggles()).toHaveLength(1);
   expect(toggles()[0]?.getAttribute("aria-expanded")).toBe("true");
-  const openBox = openSlot.getBoundingClientRect();
-  const shownBox = toggles()[0]!.getBoundingClientRect();
-  expect(Math.abs(shownBox.left - openBox.left)).toBeLessThan(1);
-  expect(Math.abs(shownBox.top - openBox.top)).toBeLessThan(1);
+  // The frame's rounded width can reach 320 before ResizeObserver positions the toggle.
+  await expect
+    .poll(() =>
+      Math.abs(toggles()[0]!.getBoundingClientRect().left - openSlot.getBoundingClientRect().left),
+    )
+    .toBeLessThan(1);
+  expect(
+    Math.abs(toggles()[0]!.getBoundingClientRect().top - openSlot.getBoundingClientRect().top),
+  ).toBeLessThan(1);
   await unmount();
 });
 

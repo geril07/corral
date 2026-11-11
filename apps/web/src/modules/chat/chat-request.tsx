@@ -15,7 +15,7 @@ function answerLabel(item: ChatUserRequest): string {
 }
 
 /**
- * A request the agent is blocked on (`layout.md`, **Chat**: it is the last timeline item and takes
+ * A request the agent is blocked on (`layout.md`, **Chat**: the selected pending request takes
  * the keyboard). Every kind is answerable without a pointer: arrows and Enter for `select` and
  * `confirm`, Enter for `input`, Ctrl/Cmd+Enter for `editor`, and Escape dismisses any of them with
  * `null` (`chat.respond`).
@@ -24,10 +24,12 @@ export function ChatRequestItem({
   item,
   onRespond,
   onAnswered,
+  selected,
 }: {
   item: ChatUserRequest;
   onRespond: (value: ChatAnswer) => Promise<void>;
   onAnswered: () => void;
+  selected: boolean;
 }) {
   const [active, setActive] = useState(0);
   const [text, setText] = useState(item.prefill ?? "");
@@ -45,11 +47,16 @@ export function ChatRequestItem({
   // on its first choice and moves with the arrow keys. A choice-less request has no radio to focus,
   // so its explicit Dismiss button takes the keyboard instead of leaving the request unreachable.
   useEffect(() => {
-    if (!pending) return;
-    if (item.request === "input" || item.request === "editor") fieldRef.current?.focus();
-    else if (choiceCount === 0) dismissRef.current?.focus();
-    else optionRefs.current[active]?.focus();
-  }, [pending, item.request, active, choiceCount]);
+    if (!pending || !selected) return;
+    const control =
+      item.request === "input" || item.request === "editor"
+        ? fieldRef.current
+        : choiceCount === 0
+          ? dismissRef.current
+          : optionRefs.current[active];
+    control?.focus({ preventScroll: true });
+    control?.scrollIntoView({ block: "center" });
+  }, [pending, selected, item.request, active, choiceCount]);
 
   const answer = async (value: ChatAnswer) => {
     if (!pending || busy) return;

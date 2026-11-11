@@ -912,6 +912,85 @@ test.each([
   },
 );
 
+test.each(["working", "settled"] as const)(
+  "answering the newest request reveals an older pending request in a %s transcript",
+  async (turn) => {
+    const older = {
+      kind: "user-request" as const,
+      id: "older-request",
+      request: "confirm" as const,
+      title: "Older permission",
+      body: null,
+      options: [],
+      placeholder: null,
+      prefill: null,
+      expiresAt: null,
+      status: "pending" as const,
+    };
+    const newest = { ...older, id: "newer-request", title: "Newer permission" };
+    const items: ChatItem[] = [
+      { kind: "user-message", id: "old-prompt", text: "Start" },
+      READ("fold-work", "older.ts"),
+      ...Array.from({ length: 35 }, (_, index): ChatItem => ({
+        kind: "notice",
+        id: `old-before-${index}`,
+        text: `Before permission ${index}`,
+      })),
+      older,
+      ...Array.from({ length: 35 }, (_, index): ChatItem => ({
+        kind: "notice",
+        id: `old-after-${index}`,
+        text: `After permission ${index}`,
+      })),
+      ...Array.from({ length: 40 }, (_, index): ChatItem => ({
+        kind: "user-message",
+        id: `later-${index}`,
+        text: `Later prompt ${index}`,
+      })),
+      newest,
+    ];
+    const chat = await renderChat(recorded([], { state: { ...IDLE_CHAT, turn }, items }));
+    const newerYes = page
+      .getByRole("radiogroup", { name: "Newer permission" })
+      .getByRole("radio", { name: "Yes" });
+    await expect.element(newerYes).toHaveFocus();
+    expect(page.getByRole("radiogroup", { name: "Older permission" }).elements()).toHaveLength(0);
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() =>
+      expect(chat.responded).toEqual([{ requestId: "newer-request", value: true }]),
+    );
+    chat.script.push({
+      type: "event",
+      sequence: 1,
+      event: { type: "item", item: { ...newest, status: "answered", answer: true } },
+    });
+    const olderYes = page
+      .getByRole("radiogroup", { name: "Older permission" })
+      .getByRole("radio", { name: "Yes" });
+    await expect.element(olderYes).toHaveFocus();
+    await vi.waitFor(() => {
+      const control = olderYes.element().getBoundingClientRect();
+      expect(control.top).toBeGreaterThanOrEqual(scrollNode().getBoundingClientRect().top);
+      expect(control.bottom).toBeLessThanOrEqual(
+        page.getByRole("textbox", { name: "Message" }).element().getBoundingClientRect().top,
+      );
+    });
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() =>
+      expect(chat.responded).toEqual([
+        { requestId: "newer-request", value: true },
+        { requestId: "older-request", value: true },
+      ]),
+    );
+    chat.script.push({
+      type: "event",
+      sequence: 2,
+      event: { type: "item", item: { ...older, status: "answered", answer: true } },
+    });
+    await expect.element(page.getByRole("textbox", { name: "Message" })).toHaveFocus();
+  },
+);
+
 test("expanding a fold near the end does not drag the tail back into view", async () => {
   const items: ChatItem[] = Array.from({ length: 40 }, (_, index) => ({
     kind: "assistant-message" as const,

@@ -273,8 +273,8 @@ What a user does. Everything below is built and verified end to end, chat views 
 - The composer has no per-draft view switch in this slice: the launch view follows `[tasks] view`
   (or the project's) and opens in the terminal when the agent has no `chat.capabilities` driver;
   the server's config warning is the durable explanation. While capabilities are still loading,
-  Send waits instead of guessing a view. A user request
-  arrives as the last timeline item with the keyboard: arrows and Enter answer `select` and
+  Send waits instead of guessing a view. The newest pending user request takes the keyboard:
+  arrows and Enter answer `select` and
   `confirm`, Enter answers `input`, Ctrl/Cmd+Enter answers `editor`, and Escape dismisses any of
   them. Prefix mode is the window capture-phase handler, so it works while the composer, the chat
   and the terminal have the keyboard; plain keys stay in the field, and Tab, Shift+Tab, Escape, F6
@@ -283,7 +283,8 @@ What a user does. Everything below is built and verified end to end, chat views 
   End takes it again. A fold that expands while the user reads above the end does not drag the
   view back to the tail. Opening a fold at the end can release following to keep the clicked row
   in place; reaching the end again re-arms it. A pending request is the exception to history
-  preservation: it reveals the tail and takes the keyboard even when the user was reading above it.
+  preservation: it reveals the request and takes the keyboard even when the user was reading elsewhere.
+  Answering it reveals the next pending request, if one remains.
 
 ### The chat transcript
 
