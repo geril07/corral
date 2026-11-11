@@ -107,6 +107,18 @@ context-menu dispatcher.
 - Button `layout="status"` keeps the footer's connection opener in its row; the visible label is
   the connection state word, shortened when the row cannot hold it, and the sentence with attempt
   and elapsed is its `Hint` and the recovery dialog. It opens that dialog.
+- Button `layout="activity"` + `size="activity"` is the chat transcript's 24 px row: the whole
+  lane's width, an icon slot, a truncating label and a trailing disclosure, with an inset ring
+  because it sits in the timeline's scroll container. A row without an icon is a turn-level row —
+  the fold's `Worked` and the live `Working` — and starts at the lane's edge. The kit's icon set
+  carries the transcript's verbs (`read`, `edit`, `run`'s terminal, `find`, `diagnostics`,
+  `hammer` for a mixed group, `thinking`) and `quote`.
+- `SelectionAction` is the floating action a text selection raises: it offers itself only for a
+  selection that starts and ends inside an element carrying `data-selection-action`, inside the
+  scope the module names, and the module supplies the words and the action. Tab reaches it while
+  the selection is up, Escape dismisses it, and pressing it does not clear the selection first.
+- `bg-canvas` and `bg-layer-01` name the visual shell's base and its first raised layer for
+  modules; a chat pane sits on the canvas and a user message on layer-01.
 - Alert `size="compact"`: the message keeps its own width in a chrome row; a sentence that does
   not fit wraps and the status surface grows for it, so the row's dismiss control sits beside the
   message rather than at the surface's far edge.
@@ -260,6 +272,12 @@ context-menu dispatcher.
 Markdown stays Streamdown, UI off, backed by `@pierre/diffs`' shared highlighter. Code blocks and
 tables are capped. DiffView is unified and folds long hunks. The timeline remains virtualized with `@legendapp/list`. No second rendering engine or
 provider protocol belongs in the browser.
+
+The transcript's rows are a projection of the session's items (`modules/chat/chat-rows.ts`), not a
+second renderer: a finished turn becomes one `Worked` row that carries the rows it hides, a run of
+finished calls becomes one verb summary that carries its calls, and the live turn keeps its rows
+plus the `Working` tail. The list renders those rows and nothing else; the fold's own disclosure
+state lives outside its data, so it is passed as the list's `extraData`.
 
 The prototype's model catalog, context consumption and Full access row are examples only.
 Production controls use driver-reported capabilities; launch reasoning/context require explicit

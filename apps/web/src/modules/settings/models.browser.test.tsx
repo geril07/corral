@@ -11,7 +11,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { App as RootApp } from "../../../src/app/app.tsx";
 import { AppProviders } from "../../../src/app/providers.tsx";
-import { ChatChoiceDialog, ChatView } from "../chat/index.ts";
+import { ChatChoiceDialog, ChatView, chatTranscriptStore } from "../chat/index.ts";
 import { renderApp } from "../../../test/render-app.tsx";
 import { createGitRepo } from "../../../test/git-repo.ts";
 import { writeFilesIn } from "../../../test/files-client.ts";
@@ -114,11 +114,13 @@ function LiveChat({
   const [draft, setDraft] = useState("");
   const [kind, setKind] = useState<"model" | "reasoning">();
   const anchor = useRef<HTMLButtonElement>(null);
+  const [memory] = useState(chatTranscriptStore);
   return (
     <AppProviders client={client}>
       <div className="h-screen w-full">
         <ChatView
           store={chat}
+          memory={memory}
           draft={draft}
           onDraftChange={setDraft}
           agent={session.kind === "shell" ? "pi" : session.kind}

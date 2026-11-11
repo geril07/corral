@@ -283,6 +283,37 @@ What a user does. Everything below is built and verified end to end, chat views 
   End takes it again. A fold that expands while the user reads above the end does not drag the
   view back to the tail.
 
+### The chat transcript
+
+- A finished turn folds to one `Worked` row. Its work — the calls it made and what it thought —
+  sits behind that row and expands in place; the prompt above it and the answer below it stay
+  visible. The turn that is still running never folds, and neither does one the user stopped or
+  one that failed, so the work that stopped is what the user sees.
+- A turn's finished calls fold into one verb summary — `Read 4 files and ran 2 commands` — that
+  expands to the calls themselves. A single finished call keeps its own row, and a running call
+  keeps its own row because its output is still arriving.
+- A call's row reads the call's shape, never the driver's name for its tool: a read shows its
+  path, a search its query and target, an edit `Changed 1 file`, and a command the command it ran
+  (a running one says `Running <program>`). A failed call keeps its own glyph in the error colour
+  and says `tool call failed` in its accessible name. Expanding a call shows its input and its
+  output or diff, bounded.
+- While a turn runs the transcript's tail says `Working`; reasoning is `Thinking` while it streams
+  and `Thought` once it is done. Both shimmer, and not under reduced motion. Neither claims a
+  duration and the fold claims no time either: the chat contract carries no timestamps.
+- A message's actions sit under it: `Copy message` on the user's message and on the agent's. They
+  are mounted and tabbable in every state and revealed by hovering the message or by the keyboard
+  reaching them. Copy writes the message's own text and answers with a check for a moment, with no
+  toast; a refused clipboard says why in the pane's failure line above the composer.
+- Selecting text inside an agent message raises a floating `Quote`. Tab reaches it from the
+  transcript, Escape dismisses it, and activating it inserts the selection as a Markdown
+  blockquote at the composer's caret, leaves the caret on the line below for the user's comment,
+  and returns the keyboard to the composer. A selection anywhere else raises nothing. Timestamps,
+  forks and edit-from-here are absent because the contract and the RPC have nothing to offer them.
+- Each session keeps its reading position and its open folds while the session is open: closing
+  the tab and coming back reopens the transcript on the row the user was reading with the same
+  folds open, not at the tail. Scroll stays inside the pane; the composer overlays the lane's end
+  and the transcript keeps a matching space below its last row.
+
 ### Local links in chat
 
 - A path an agent writes in an answer is actionable when the task's workspace actually holds it:

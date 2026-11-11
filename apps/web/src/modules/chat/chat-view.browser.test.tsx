@@ -7,12 +7,15 @@ import {
 } from "@corral/protocol/config";
 import type { ChatSendMode } from "@corral/protocol/rpc";
 import { createConfigKeymap } from "@corral/client/prefix-keymap";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { afterEach, expect, test, vi } from "vite-plus/test";
-import { page, userEvent } from "vite-plus/test/browser";
+import { cdp, page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { ChatViewHarness as ChatView } from "../../../test/chat-view-harness.tsx";
+import { stubClipboard } from "../../../test/clipboard.ts";
 import type { ChatFiles } from "./local-links.tsx";
+import { chatTranscriptStore, type ChatTranscriptStore } from "./chat-transcript.ts";
+import { TranscriptRow } from "./chat-items.tsx";
 import { usePrefixMode } from "../keymap/index.ts";
 import { prefixThen } from "../../../test/real-client.ts";
 import {
@@ -36,10 +39,19 @@ const NO_FILES: ChatFiles = {
   open: async () => undefined,
 };
 
+/** Chromium's media emulation is the only way to change what a CSS media query sees. */
+async function emulateMotion(reducedMotion: "no-preference" | "reduce") {
+  await cdp().send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-reduced-motion", value: reducedMotion }],
+  });
+}
+
 /** Every scripted watch this file opened; closing them ends the iterators before the next file. */
 const chats: Array<ReturnType<typeof scriptedChat>> = [];
-afterEach(() => {
+afterEach(async () => {
   for (const chat of chats.splice(0)) chat.close();
+  // Clearing the feature list restores the host preference instead of emulating the default.
+  await cdp().send("Emulation.setEmulatedMedia", { features: [] });
 });
 
 interface Sent {
@@ -55,7 +67,7 @@ interface ChatActionHooks {
 async function renderChat(
   messages: readonly ChatStreamMessage[] = RECORDED_CHAT,
   hooks: ChatActionHooks = {},
-  options: { followUp?: boolean | undefined } = { followUp: true },
+  options: { followUp?: boolean | undefined; memory?: ChatTranscriptStore } = { followUp: true },
 ) {
   const script = scriptedChat(messages);
   chats.push(script);
@@ -72,6 +84,7 @@ async function renderChat(
         followUp={options.followUp}
         files={NO_FILES}
         abortHint={ABORT_HINT}
+        {...(options.memory === undefined ? {} : { memory: options.memory })}
         onSend={async (text, mode) => {
           sent.push({ text, mode });
           await hooks.onSend?.(text, mode);
@@ -120,13 +133,12 @@ test("renders a recorded stream: text, reasoning, folded tools, a diff, a notice
     )
     .not.toBeInTheDocument();
 
-  // Three consecutive finished calls fold into one line; expanding shows each call.
-  await expect.element(page.getByRole("button", { name: "3 tool calls" })).toBeVisible();
-  await userEvent.click(page.getByRole("button", { name: "3 tool calls" }));
-  await expect
-    .element(page.getByRole("button", { name: /^edit src\/auth\.test\.ts/ }))
-    .toBeVisible();
-  await userEvent.click(page.getByRole("button", { name: /^edit src\/auth\.test\.ts/ }));
+  // Three consecutive finished calls fold into one verb summary; expanding shows each call.
+  const group = page.getByRole("button", { name: /^Ran 1 command, changed 1 file/ });
+  await expect.element(group).toBeVisible();
+  await userEvent.click(group);
+  await expect.element(page.getByRole("button", { name: /^Changed 1 file$/ })).toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: /^Changed 1 file$/ }));
   await expect.element(page.getByText("src/auth.test.ts").last()).toBeVisible();
   // The diff is a real rendered diff, not just a `diffs-container` error shell: the shadow root
   // carries the addition and deletion rows with their `+`/`-` gutter markers.
@@ -737,6 +749,7 @@ function PrefixHarness({
     [onAbort, onAction],
   );
   usePrefixMode(keymap, handle, true);
+  const [memory] = useState(chatTranscriptStore);
   return (
     // Swallow keydown at the bubble phase: only a capture-phase handler can still see the chord.
     <div className="h-screen w-full" onKeyDown={(event) => event.stopPropagation()}>
@@ -746,6 +759,7 @@ function PrefixHarness({
         followUp={true}
         files={NO_FILES}
         abortHint={ABORT_HINT}
+        memory={memory}
         onSend={async () => {}}
         onAbort={onAbort}
         onRespond={async () => {}}
@@ -799,6 +813,15 @@ function scrollNode(): HTMLElement {
 }
 
 const atEnd = (node: HTMLElement) => node.scrollTop + node.clientHeight >= node.scrollHeight - 12;
+
+/** The row under the top edge of the transcript: the one the user was reading. */
+function topRowKey(): string | undefined {
+  const node = scrollNode();
+  const box = node.getBoundingClientRect();
+  return [...node.querySelectorAll<HTMLElement>("[data-row-key]")].find(
+    (row) => row.getBoundingClientRect().bottom > box.top + 1,
+  )?.dataset["rowKey"];
+}
 
 test("auto-scroll follows the stream at the end and stays put after the user scrolls up", async () => {
   const chat = await renderChat(longChat(80));
@@ -878,7 +901,7 @@ test("expanding a fold near the end does not drag the tail back into view", asyn
   await userEvent.wheel(page.getByTestId("chat-timeline"), { delta: { y: -20 } });
   await vi.waitFor(() => expect(scrollNode().scrollTop).toBeLessThan(end - 10));
   const before = scrollNode().scrollTop;
-  const group = page.getByRole("button", { name: "2 tool calls" });
+  const group = page.getByRole("button", { name: "Read 2 files" });
   await expect.element(group).toBeVisible();
   // A native click: `userEvent.click` scrolls the row into view first, which would move the list.
   const groupElement = group.element();
@@ -887,6 +910,279 @@ test("expanding a fold near the end does not drag the tail back into view", asyn
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   // A layout change is not a data append: the tail must not re-pin over the user's position.
   expect(Math.abs(scrollNode().scrollTop - before)).toBeLessThan(2);
+});
+
+/** A fresh transcript per test: the list's item identities must not outlive one render. */
+const userAndAnswer = (): ChatItem[] => [
+  { kind: "user-message", id: "u1", text: "Fix the auth test." },
+  { kind: "assistant-message", id: "a1", streaming: false, text: "Done." },
+];
+
+const READ = (id: string, path: string): ChatItem => ({
+  kind: "tool-call",
+  id,
+  name: "read",
+  arguments: `{"path":"${path}"}`,
+  status: "done",
+  output: "contents",
+  diff: null,
+});
+
+test("a finished turn folds to one row and expands back to its work", async () => {
+  const items: ChatItem[] = [
+    { kind: "user-message", id: "u1", text: "Fix the auth test." },
+    READ("t1", "src/a.ts"),
+    READ("t2", "src/b.ts"),
+    { kind: "assistant-message", id: "a1", streaming: false, text: "Done." },
+  ];
+  const chat = await renderChat(recorded([], { state: { ...IDLE_CHAT, turn: "settled" }, items }));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  const fold = page.getByRole("button", { name: "Worked" });
+  await expect.element(fold).toBeVisible();
+  await expect.element(fold).toHaveAttribute("aria-expanded", "false");
+  // The prompt and the answer stay outside the fold; only the turn's work is behind it.
+  await expect.element(page.getByText("Fix the auth test.")).toBeVisible();
+  await expect.element(page.getByText("Done.")).toBeVisible();
+  expect(page.getByRole("button", { name: "Read 2 files" }).elements()).toHaveLength(0);
+
+  await userEvent.click(fold);
+  await expect.element(fold).toHaveAttribute("aria-expanded", "true");
+  const group = page.getByRole("button", { name: "Read 2 files" });
+  await expect.element(group).toBeVisible();
+  await userEvent.click(group);
+  await expect.element(page.getByRole("button", { name: "Read src/a.ts" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Read src/b.ts" })).toBeVisible();
+
+  // Closing the fold hides the work again without losing the group's own disclosure.
+  await userEvent.click(fold);
+  expect(page.getByRole("button", { name: "Read 2 files" }).elements()).toHaveLength(0);
+  await userEvent.click(fold);
+  await expect.element(page.getByRole("button", { name: "Read src/a.ts" })).toBeVisible();
+});
+
+test("the working row becomes the turn's fold when the turn ends", async () => {
+  const items: ChatItem[] = [
+    { kind: "user-message", id: "u1", text: "Fix the auth test." },
+    READ("t1", "src/a.ts"),
+  ];
+  const chat = await renderChat(recorded([], { state: workingChat(), items }));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  // While the turn runs its work is visible and the tail says what is happening.
+  await expect.element(page.getByText("Working", { exact: true })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Read src/a.ts" })).toBeVisible();
+  expect(page.getByRole("button", { name: "Worked" }).elements()).toHaveLength(0);
+
+  chat.script.push({
+    type: "event",
+    sequence: 1,
+    event: { type: "state", state: { ...IDLE_CHAT, turn: "settled" } },
+  });
+
+  // The turn ended: the live row is gone and the same work is behind the turn's fold.
+  await expect.element(page.getByRole("button", { name: "Worked" })).toBeVisible();
+  expect(page.getByText("Working", { exact: true }).elements()).toHaveLength(0);
+  expect(page.getByRole("button", { name: "Read src/a.ts" }).elements()).toHaveLength(0);
+});
+
+test("a message's copy action is mounted, tabbable and revealed by hover or focus", async () => {
+  const chat = await renderChat(
+    recorded([], { state: { ...IDLE_CHAT, turn: "settled" }, items: userAndAnswer() }),
+  );
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  const copies = page.getByRole("button", { name: "Copy message" });
+  await vi.waitFor(() => expect(copies.elements()).toHaveLength(2));
+  const userRow = copies.first().element().parentElement;
+  if (userRow === null) throw new Error("the copy action has no row");
+  // Mounted but quiet until the message is hovered or the keyboard reaches the action.
+  expect(getComputedStyle(userRow).opacity).toBe("0");
+  await expect.element(copies.first()).toHaveAttribute("tabindex", "0");
+
+  await userEvent.hover(page.getByRole("article", { name: "Your message" }));
+  await vi.waitFor(() => expect(getComputedStyle(userRow).opacity).toBe("1"));
+
+  // Keyboard focus reveals the same row, so a hover-only action is never the only way in.
+  page.getByRole("article", { name: "Agent message" }).element().focus();
+  copies.last().element().focus();
+  const answerRow = copies.last().element().parentElement;
+  if (answerRow === null) throw new Error("the answer's copy action has no row");
+  await vi.waitFor(() => expect(getComputedStyle(answerRow).opacity).toBe("1"));
+  await expect.element(copies.last()).toHaveFocus();
+});
+
+test("copy writes the message's own text and answers with a check", async () => {
+  const clipboard = stubClipboard(async () => undefined);
+  const chat = await renderChat(
+    recorded([], { state: { ...IDLE_CHAT, turn: "settled" }, items: userAndAnswer() }),
+  );
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  const answerCopy = page.getByRole("button", { name: "Copy message" }).last();
+  expect(answerCopy.element().querySelector("svg")?.getAttribute("class") ?? "").toContain(
+    "lucide-copy",
+  );
+  await userEvent.click(answerCopy);
+  await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenCalledWith("Done."));
+  await expect
+    .poll(() => answerCopy.element().querySelector("svg")?.getAttribute("class") ?? "")
+    .toContain("lucide-check");
+  clipboard.restore();
+});
+
+test("a refused copy says why above the composer", async () => {
+  const clipboard = stubClipboard(() =>
+    Promise.reject(new Error("The system denied clipboard access.")),
+  );
+  const chat = await renderChat(
+    recorded([], { state: { ...IDLE_CHAT, turn: "settled" }, items: userAndAnswer() }),
+  );
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  await userEvent.click(page.getByRole("button", { name: "Copy message" }).last());
+  await expect
+    .element(page.getByRole("alert"))
+    .toHaveTextContent("The system denied clipboard access.");
+  clipboard.restore();
+});
+
+test("quoting a selection puts a blockquote at the composer's caret", async () => {
+  const chat = await renderChat();
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(RECORDED_SEQUENCE));
+
+  const article = page.getByRole("article", { name: "Agent message" }).element();
+  const paragraph = article.querySelector("p");
+  if (paragraph === null) throw new Error("the answer has no paragraph");
+  const range = document.createRange();
+  range.selectNodeContents(paragraph);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  document.dispatchEvent(new Event("selectionchange"));
+
+  // Only a selection inside an assistant message raises the action.
+  const quote = page.getByRole("button", { name: "Quote selection" });
+  await expect.element(quote).toBeVisible();
+  await userEvent.click(quote);
+
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await expect
+    .element(composer)
+    .toHaveValue("> Waits on the condition instead of a fixed delay.\n\n");
+  await expect.element(composer).toHaveFocus();
+  // The caret is on the line below the quote, where the comment goes.
+  await vi.waitFor(() => {
+    const field = composer.element();
+    if (!(field instanceof HTMLTextAreaElement)) throw new Error("the composer is not a textarea");
+    expect(field.selectionStart).toBe(field.value.length);
+  });
+});
+
+test("a selection outside an assistant message raises no quote action", async () => {
+  const chat = await renderChat();
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(RECORDED_SEQUENCE));
+
+  const range = document.createRange();
+  range.selectNodeContents(page.getByRole("article", { name: "Your message" }).element());
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  document.dispatchEvent(new Event("selectionchange"));
+
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  expect(page.getByRole("button", { name: "Quote selection" }).elements()).toHaveLength(0);
+});
+
+test("a session's own memory opens its folds", async () => {
+  // The workspace keeps one memory per session; a tab switch mounts the pane again with it.
+  const memory = chatTranscriptStore();
+  memory.toggle("group:t1");
+  const chat = await renderChat(RECORDED_CHAT, {}, { memory });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  await expect.element(page.getByRole("button", { name: "Changed 1 file" })).toBeVisible();
+});
+
+test("another session's memory leaves the same transcript closed", async () => {
+  const chat = await renderChat(RECORDED_CHAT, {}, { memory: chatTranscriptStore() });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  await expect.element(page.getByRole("button", { name: /^Ran 1 command/ })).toBeVisible();
+  expect(page.getByRole("button", { name: "Changed 1 file" }).elements()).toHaveLength(0);
+});
+
+test("a session's memory reopens the transcript on the row it was reading", async () => {
+  // A tab switch unmounts the pane; the workspace hands the new mount the row it was left on.
+  const memory = chatTranscriptStore();
+  memory.remember({ key: "turn:long-100" });
+  const chat = await renderChat(longChat(160), {}, { memory });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  await vi.waitFor(() => expect(topRowKey()).toBe("turn:long-100"));
+  // It is neither the tail nor the start: the end follow was not re-armed by the mount.
+  expect(atEnd(scrollNode())).toBe(false);
+  expect(scrollNode().scrollTop).toBeGreaterThan(0);
+});
+
+test("closing the tab and coming back keeps this session's scroll position", async () => {
+  const memory = chatTranscriptStore();
+  const first = await renderChat(longChat(160), {}, { memory });
+  await vi.waitFor(() => expect(first.script.store.getSnapshot().loaded).toBe(true));
+
+  // Read somewhere above the end.
+  await userEvent.wheel(page.getByTestId("chat-timeline"), { delta: { y: -1200 } });
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(false));
+  const reading = topRowKey();
+  expect(reading).toBeDefined();
+  expect(scrollNode().scrollTop).toBeGreaterThan(0);
+  await first.unmount();
+
+  // The pane mounts again on the way back to this tab, with this session's memory: the same row is
+  // under the top edge, and the end follow was not re-armed by the mount.
+  const second = await renderChat(longChat(160), {}, { memory });
+  await vi.waitFor(() => expect(topRowKey()).toBe(reading));
+  expect(atEnd(scrollNode())).toBe(false);
+  await second.unmount();
+});
+
+test("the live rows shimmer only when motion is allowed", async () => {
+  await emulateMotion("reduce");
+  // The live rows are rendered on their own: the shimmer is the kit's media query, and the list
+  // that mounts them is the other tests' subject.
+  await render(
+    <div className="h-screen w-full">
+      <TranscriptRow
+        row={{ kind: "working", key: "working" }}
+        expanded={new Set()}
+        onToggleFold={() => {}}
+        onRespond={async () => {}}
+        onAnswered={() => {}}
+        onFailure={() => {}}
+      />
+      <TranscriptRow
+        row={{
+          kind: "item",
+          key: "r-shimmer",
+          item: { kind: "reasoning", id: "r-shimmer", text: "The race.", streaming: true },
+        }}
+        expanded={new Set()}
+        onToggleFold={() => {}}
+        onRespond={async () => {}}
+        onAnswered={() => {}}
+        onFailure={() => {}}
+      />
+    </div>,
+  );
+
+  const working = page.getByText("Working", { exact: true }).element();
+  const thinking = page.getByText("Thinking", { exact: true }).element();
+  expect(getComputedStyle(working).animationName).toBe("none");
+  expect(getComputedStyle(thinking).animationName).toBe("none");
+
+  await emulateMotion("no-preference");
+  await vi.waitFor(() => expect(getComputedStyle(working).animationName).toBe("tw-shimmer"));
+  expect(getComputedStyle(thinking).animationName).toBe("tw-shimmer");
 });
 
 test("the transcript scrolls from the keyboard and the end follow is released and re-taken", async () => {
@@ -1096,6 +1392,7 @@ test("a refused watch shows the store's failure and the view does not retry it i
     },
   };
   const store = createChatStore(source, "session-refused");
+  const memory = chatTranscriptStore();
   await render(
     <div className="h-screen w-full">
       <ChatView
@@ -1104,6 +1401,7 @@ test("a refused watch shows the store's failure and the view does not retry it i
         followUp={true}
         files={NO_FILES}
         abortHint={ABORT_HINT}
+        memory={memory}
         onSend={async () => {}}
         onAbort={async () => {}}
         onRespond={async () => {}}

@@ -137,8 +137,14 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
 - Terminal keeps its own padding, native xterm rendering, and monospace text that does not follow
   the interface text scale. It fits its own pane on attach, reconnect, focus and a settled resize,
   then asks the shared PTY to follow; the PTY's grid stays authoritative for every client.
-- Chat keeps its centered lane, right-aligned user bubble and unboxed assistant text.
-  Reasoning and tool calls keep their folds and independently bounded output/diffs.
+- Chat keeps its centered lane, right-aligned user bubble and unboxed assistant text. A finished
+  turn folds to one `Worked` row over the calls and reasoning it hid; a run of finished calls
+  folds to one verb summary over the calls it hid; a single finished call and a running one keep
+  their own rows, and their input and output or diff expand under the row with their own bounds.
+  The live turn ends in a `Working` row, and the transcript keeps a space below its last row for
+  the composer that overlays the lane's end. Scroll belongs to the pane: the transcript's `log`
+  owns it, the fold disclosures never move it, and each session keeps its reading row and open
+  folds while the session is open.
 - New-task and chat prompts share the bordered composer surface and wrapping control row.
   Send/steer, abort and IME protection retain their existing semantics; follow-up is offered only
   where the driver declares it. The prompt's caret is its focus indicator, and its textarea has no
