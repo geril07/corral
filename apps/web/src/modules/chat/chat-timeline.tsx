@@ -9,6 +9,7 @@ export interface ChatTimelineProps {
   items: readonly ChatItem[];
   /** The session's turn: a working one keeps its newest work unfolded and shows the live tail. */
   turn: ChatTurnState;
+  steering: readonly string[];
   /** The agent is waiting on the user, so no work is happening and the live tail is not shown. */
   waiting: boolean;
   /** The pending request, when one needs the keyboard and must be scrolled into view. */
@@ -41,6 +42,7 @@ function atEnd(node: HTMLElement): boolean {
 export function ChatTimeline({
   items,
   turn,
+  steering,
   waiting,
   requestId,
   endSpace,
@@ -51,7 +53,10 @@ export function ChatTimeline({
   onAnswered,
   onFailure,
 }: ChatTimelineProps) {
-  const rows = useMemo(() => chatRows({ items, turn, waiting }), [items, turn, waiting]);
+  const rows = useMemo(
+    () => chatRows({ items, turn, waiting, steering }),
+    [items, turn, waiting, steering],
+  );
   const list = useRef<LegendListRef>(null);
   /** What this session was left with; read once, because a later mount is not a restore. */
   const [restored] = useState(() => memory.read());
@@ -164,9 +169,9 @@ export function ChatTimeline({
 
   // A new request is the last item and takes focus; make sure virtualization made it visible.
   useEffect(() => {
-    if (requestId === undefined) return;
+    if (requestId === undefined || !follow) return;
     void list.current?.scrollToEnd({ animated: false });
-  }, [requestId]);
+  }, [requestId, follow]);
 
   const renderItem = useCallback(
     ({ item }: { item: ChatRow }) => (

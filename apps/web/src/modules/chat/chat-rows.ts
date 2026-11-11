@@ -9,7 +9,26 @@ import type { ChatItem, ChatToolCall, ChatTurnState } from "@corral/protocol/cha
  */
 export type ChatRow =
   | { kind: "item"; key: string; item: ChatItem }
-  | { kind: "group"; key: string; items: readonly ChatToolCall[] }
+  /**
+   * One call, with the words and the action its row shows. Both are computed here, where the call
+   * is read once, rather than in the renderer, which runs again for every streamed delta.
+   */
+  | {
+      kind: "tool";
+      key: string;
+      call: ChatToolCall;
+      label: string;
+      action: ChatToolAction;
+    }
+  /** A run of finished calls, summarised once, for the same reason. */
+  | {
+      kind: "group";
+      key: string;
+      items: readonly ChatToolCall[];
+      label: string;
+      action: ChatToolAction | "mixed";
+      failed: boolean;
+    }
   /**
    * A finished turn: `rows` are all of its rows, and `hidden` names the ones its fold hides until
    * it is expanded. The set is the projection's, not the renderer's: what a fold covers is a
@@ -25,11 +44,18 @@ export interface ChatRowInput {
   readonly turn: ChatTurnState;
   /** The agent is waiting on the user, so the working row would claim work that is not happening. */
   readonly waiting: boolean;
+  /**
+   * The messages the agent is being steered with (`ChatSessionState.steering`). A steer is a
+   * `user-message` item inside the running turn (`apps/server/src/chat/chat-rpc.test.ts:773`), so
+   * it must not start a second turn: the turn it steered would fold mid-stream.
+   */
+  readonly steering?: readonly string[];
 }
 
 /** What one row of the transcript is. */
-export function chatRows({ items, turn, waiting }: ChatRowInput): ChatRow[] {
+export function chatRows({ items, turn, waiting, steering = [] }: ChatRowInput): ChatRow[] {
   const rows: ChatRow[] = [];
+  const steers = steerIds(items, turn, steering);
   const firstTurn = items.findIndex((item) => item.kind === "user-message");
   const start = firstTurn === -1 ? items.length : firstTurn;
   // A notice or an error before the first prompt belongs to no turn, but a run of calls still groups.
@@ -41,7 +67,7 @@ export function chatRows({ items, turn, waiting }: ChatRowInput): ChatRow[] {
       index += 1;
       continue;
     }
-    const end = nextTurnStart(items, index + 1);
+    const end = nextTurnStart(items, index + 1, steers);
     const segment = items.slice(index, end);
     const [prompt, ...work] = segment;
     // The prompt is never hidden: the fold covers the turn's work, not what asked for it.
@@ -63,11 +89,42 @@ export function chatRows({ items, turn, waiting }: ChatRowInput): ChatRow[] {
   return rows;
 }
 
-function nextTurnStart(items: readonly ChatItem[], from: number): number {
+function nextTurnStart(
+  items: readonly ChatItem[],
+  from: number,
+  steers: ReadonlySet<string>,
+): number {
   for (let index = from; index < items.length; index += 1) {
-    if (items[index]?.kind === "user-message") return index;
+    const item = items[index];
+    if (item?.kind === "user-message" && !steers.has(item.id)) return index;
   }
   return items.length;
+}
+
+/**
+ * The user messages that steered the running turn rather than starting one. `steering` is in send
+ * order, so each entry is matched to the last unclaimed prompt with its text; a steer and a prompt
+ * that read the same therefore still map one-to-one, newest first.
+ */
+function steerIds(
+  items: readonly ChatItem[],
+  turn: ChatTurnState,
+  steering: readonly string[],
+): ReadonlySet<string> {
+  const ids = new Set<string>();
+  if (turn !== "working" || steering.length === 0) return ids;
+  let before = items.length;
+  for (let steer = steering.length - 1; steer >= 0; steer -= 1) {
+    const text = steering[steer];
+    for (let index = before - 1; index >= 0; index -= 1) {
+      const item = items[index];
+      if (item?.kind !== "user-message" || item.text !== text) continue;
+      ids.add(item.id);
+      before = index;
+      break;
+    }
+  }
+  return ids;
 }
 
 /**
@@ -90,18 +147,36 @@ function projectRows(items: readonly ChatItem[]): ChatRow[] {
   for (let index = 0; index < items.length; index += 1) {
     const item = items[index];
     if (item === undefined) continue;
-    if (item.kind === "tool-call" && item.status !== "running") {
-      const run: ChatToolCall[] = [item];
-      while (true) {
-        const next = items[index + run.length];
-        if (next?.kind !== "tool-call" || next.status === "running") break;
-        run.push(next);
+    if (item.kind === "tool-call") {
+      if (item.status !== "running") {
+        const run: ChatToolCall[] = [item];
+        while (true) {
+          const next = items[index + run.length];
+          if (next?.kind !== "tool-call" || next.status === "running") break;
+          run.push(next);
+        }
+        if (run.length > 1) {
+          const summary = toolGroupSummary(run);
+          rows.push({
+            kind: "group",
+            key: `group:${item.id}`,
+            items: run,
+            label: summary.label,
+            action: summary.action,
+            failed: run.some((call) => call.status === "error"),
+          });
+          index += run.length - 1;
+          continue;
+        }
       }
-      if (run.length > 1) {
-        rows.push({ kind: "group", key: `group:${item.id}`, items: run });
-        index += run.length - 1;
-        continue;
-      }
+      rows.push({
+        kind: "tool",
+        key: item.id,
+        call: item,
+        label: toolLabel(item),
+        action: toolAction(item),
+      });
+      continue;
     }
     rows.push({ kind: "item", key: item.id, item });
   }
@@ -122,7 +197,7 @@ function hiddenKeys(rows: readonly ChatRow[]): ReadonlySet<string> {
   const hidden = new Set<string>();
   for (const row of rows) {
     if (row.key === terminal?.key) continue;
-    if (row.kind === "group") {
+    if (row.kind === "group" || row.kind === "tool") {
       hidden.add(row.key);
       continue;
     }
@@ -150,6 +225,13 @@ export type ChatToolAction = "read" | "search" | "edit" | "run" | "other";
 const SEARCH_KEYS = ["pattern", "query", "regex", "grep", "glob", "include", "filePattern"];
 const READ_KEYS = ["path", "file_path", "filePath", "file", "filename"];
 const EDIT_KEYS = ["edits", "oldText", "newText", "old_string", "new_string", "patch"];
+/**
+ * A write carries the file's new text next to its path. Claude's `Write` is `{file_path, content}`
+ * and a create has no patch to carry, so its diff is `null` (`claude-projection.ts:648-658`) and
+ * without these keys the call reads as a read. The path is required: a bare `text` belongs to
+ * tools that are not about files.
+ */
+const WRITE_KEYS = ["content", "contents", "text"];
 const RUN_KEYS = ["command", "cmd", "script"];
 const SEARCH_TARGET_KEYS = ["path", "directory", "cwd", "root"];
 
@@ -188,14 +270,37 @@ function hasKey(record: Record<string, unknown> | undefined, keys: readonly stri
   return keys.some((key) => record[key] !== undefined);
 }
 
+/**
+ * One call's action and label, remembered per call object: the timeline re-projects on every
+ * streamed delta, and a call's arguments are the same string until the call itself changes.
+ */
+const READ_CALLS = new WeakMap<ChatToolCall, { action: ChatToolAction; label: string }>();
+
+/** What a call did, read from its shape: the protocol's names change with the agent. */
 export function toolAction(call: ChatToolCall): ChatToolAction {
+  return readCall(call).action;
+}
+
+function readCall(call: ChatToolCall): { action: ChatToolAction; label: string } {
+  const known = READ_CALLS.get(call);
+  if (known !== undefined) return known;
+  const record = argumentRecord(call.arguments);
+  const action = classify(call, record);
+  const label = labelFor(call, action, record);
+  const read = { action, label };
+  READ_CALLS.set(call, read);
+  return read;
+}
+
+function classify(call: ChatToolCall, record: Record<string, unknown> | undefined): ChatToolAction {
   // A call that carries a change is an edit whatever else its arguments say.
   if (call.diff !== null) return "edit";
-  const record = argumentRecord(call.arguments);
   if (hasKey(record, RUN_KEYS)) return "run";
   // A search carries a path too, so it is asked before a read.
   if (hasKey(record, SEARCH_KEYS)) return "search";
   if (hasKey(record, EDIT_KEYS)) return "edit";
+  // A write names a path and the file's new text; a read names a path and nothing to write.
+  if (hasKey(record, WRITE_KEYS) && hasKey(record, READ_KEYS)) return "edit";
   if (hasKey(record, READ_KEYS)) return "read";
   return "other";
 }
@@ -207,8 +312,14 @@ export function toolAction(call: ChatToolCall): ChatToolAction {
  * `Running <program>` instead (`MessagesTimeline.logic.ts:253`).
  */
 export function toolLabel(call: ChatToolCall): string {
-  const action = toolAction(call);
-  const record = argumentRecord(call.arguments);
+  return readCall(call).label;
+}
+
+function labelFor(
+  call: ChatToolCall,
+  action: ChatToolAction,
+  record: Record<string, unknown> | undefined,
+): string {
   if (action === "read") {
     const path = firstString(record, READ_KEYS);
     return path === undefined ? "Read file" : `Read ${path}`;
@@ -221,8 +332,8 @@ export function toolLabel(call: ChatToolCall): string {
   if (action === "edit") return changedFilesLabel(1);
   // T3's search sentence answers nothing when the call named neither a query nor a glob
   // (`toolActivity.ts:358-384` returns `undefined`), so the argument hint answers instead.
-  if (action === "search") return searchLabel(record) ?? toolSummary(call.arguments);
-  return toolSummary(call.arguments);
+  if (action === "search") return searchLabel(record) ?? summaryFor(call.arguments, record);
+  return summaryFor(call.arguments, record);
 }
 
 function changedFilesLabel(count: number): string {
@@ -257,7 +368,10 @@ function searchTargetName(path: string | undefined): string | undefined {
  * shape, not the driver's tool name: the first string a JSON object carries or the raw text.
  */
 export function toolSummary(argumentsText: string): string {
-  const record = argumentRecord(argumentsText);
+  return summaryFor(argumentsText, argumentRecord(argumentsText));
+}
+
+function summaryFor(argumentsText: string, record: Record<string, unknown> | undefined): string {
   if (record !== undefined) {
     for (const value of Object.values(record)) {
       if (typeof value === "string" && value.trim() !== "") return oneLine(value);
