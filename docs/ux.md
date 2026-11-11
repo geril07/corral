@@ -162,7 +162,7 @@ and Electron gates remain red; individual descriptions are not a claim of end-to
   dialog puts its capability field first; Enter submits and Escape closes it.
 - First input receives focus; destructive confirmation starts on Cancel. Escape and
   outside interaction use Base UI behavior; destructive outside clicks do not close.
-- Menus, dialogs, popups and the palette keep the shared focus ring and the declared enter
+- Menus, dialogs and popups keep the shared focus ring and the declared enter
   transition, but close immediately: a closing popup must not hold the keyboard, so
   no exit animation delays its unmount. Tests then assert one live popup or the
   terminal's first character instead of waiting for a transition. The prefix never
@@ -215,12 +215,11 @@ and Electron gates remain red; individual descriptions are not a claim of end-to
 - Chat keeps the composer semantics of the new-task view: Enter sends, Shift+Enter is a newline,
   and while a turn runs Enter steers and Ctrl/Cmd+Enter queues a follow-up where the driver
   declares one (the composer says which). Without that declaration both keys steer, Queue is
-  absent, and the hint names only steer and abort. `prefix .` aborts the working turn and the
-  palette lists the same action. While an abort is pending the control says it is stopping,
-  whether the button, `prefix .` or the palette started it.
+  absent, and the hint names only steer and abort. `prefix .` aborts the working turn. While an
+  abort is pending the control says it is stopping, whether the button or `prefix .` started it.
 - The chat control row shows the driver-reported model and thinking level. Either opens the
-  same tool/profile → model → thinking picker; `prefix m` / `prefix shift+m` and palette actions
-  open it too. Type filters real models; Ctrl/Meta+1–9 selects visible offered rows. A model
+  same tool/profile → model → thinking picker; `prefix m` / `prefix shift+m` open it too. Type
+  filters real models; Ctrl/Meta+1–9 selects visible offered rows. A model
   applies without closing; old thinking levels disappear until that model is reported. Choosing
   thinking applies and closes. A refused choice stays open with its error. Another tool/profile
   starts a distinct session, never mutates the current launch or moves its unsent draft.
@@ -304,8 +303,9 @@ and Electron gates remain red; individual descriptions are not a claim of end-to
 - A path is an **action, not a URL**: it is drawn like a link but it is a button, so ctrl/cmd-click
   does not open a meaningless tab and "copy link" offers no `#corral-file…` token. It opens in the
   editor: `[editor] command`, else `$VISUAL`, else `$EDITOR` (`agent-profiles.md`, **The editor for
-  local file links**), run as a terminal in the task's workspace, which is then selected. The line
-  and column the message named travel only through a `{line}`/`{column}` placeholder. A refusal
+  local file links**), run as a terminal in the task's workspace. It should then be visible, but
+  the current routed shell cannot show that loose terminal (`ui-rebuild.md`). The line and column
+  the message named travel only through a `{line}`/`{column}` placeholder. A refusal
   (nothing configured, the executable is missing) is a sentence above the composer, not silence.
 - Images and videos in the workspace preview inline, bounded by size and type (4 MB images,
   8 MB video). The preview is a button: Enter or Space opens a lightbox, Escape closes it, and the
@@ -335,17 +335,13 @@ and Electron gates remain red; individual descriptions are not a claim of end-to
 - Status is a named state plus a distinct glyph, with stock semantic theme colors.
   No custom status or terminal palette is added.
 
-## Palette, search and settings
+## Search and settings
 
-- The palette lists every effective binding in fixed Sessions, Tasks, Projects,
-  Navigation and General groups, using official CommandDialog/Command components. An action that
-  cannot run now is shown disabled with the reason it cannot (e.g. "The claude agent has no chat
-  driver in this build.").
+- The former command palette and task search are not mounted in the routed shell. Their component
+  tests and server contracts are not evidence that those entry points are available.
 - A new default binding can take a chord an existing `config.toml` gave to another action:
   the file's entry is dropped, that action falls back to its own default, and Settings reports
   the conflict.
-- Task search shares cmdk and the watched client task set. Enter inspects a result;
-  inspecting settled history does not continue it. Continue is explicit.
 - Settings is a large categorized modal over the mounted workspace, so drafts, selection, scroll,
   terminal attachment and focus survive. Background prefix actions and seen marks pause while it
   is open. Device-local Appearance controls tab position and interface text scale. Server settings
@@ -354,8 +350,8 @@ and Electron gates remain red; individual descriptions are not a claim of end-to
   (`[agents.<kind>]`: enabled, the command a launch runs, whether it is found, and whether this
   build has a chat driver).
   `config.toml` remains the source of truth; no server-config write controls are added. The Models
-  category edits separate SQLite-backed menu preferences, shared across this server’s clients,
-  with revision-checked saves and explicit draft discard. It never edits native config.
+  category edits `models.toml` menu preferences, shared across this server’s clients, with
+  revision-checked saves and explicit draft discard. It never edits native config.
   Composer defaults (Target flow 7) are config entries too, overridable per project
   (`design.md` decision 17); Settings shows each effective value and where it came from
   (`default`, `global`, `project`), shows only the keys a project overrides, and says so
