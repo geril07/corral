@@ -396,6 +396,37 @@ test("an override shows the footer reset, which returns to the configured model"
   );
 });
 
+test("an override on another instance resets to that instance's native default", async () => {
+  const config = configWith({
+    agent: { value: "pi", source: "global" },
+    model: { value: "openai/model-x", source: "global" },
+  });
+  const { rendered, onCreate } = renderView({ config });
+  await rendered;
+
+  await picker(/^Agent /).click();
+  const popup = page.getByRole("dialog", { name: "Agent and model" });
+  const reset = popup.getByRole("button", { name: "Use configured default" });
+  // The configured model belongs to pi; claude starts from its own native default, so it has none.
+  await popup.getByRole("radio", { name: "claude" }).click();
+  await expect.element(reset).not.toBeInTheDocument();
+  await popup.getByRole("textbox", { name: "Model override" }).fill("claude-sonnet-4-5");
+  await expect.element(reset).toBeVisible();
+  await reset.click();
+
+  await expect.element(popup).not.toBeInTheDocument();
+  await prompt().fill("Reset to the native default");
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() =>
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith({
+      projectId: "p1",
+      prompt: "Reset to the native default",
+      agent: { kind: "claude", view: "terminal" },
+      workspace: { type: "main-worktree" },
+    }),
+  );
+});
+
 test("an IME Enter in the Chrome order leaves the next Enter free to submit", async () => {
   const { rendered, onCreate } = renderView();
   await rendered;
