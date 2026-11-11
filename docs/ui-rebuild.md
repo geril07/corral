@@ -98,12 +98,6 @@ it — without meeting a single invented screen.
 Each queued slice has a report in `.review/research/` with the reference paths, the current Corral
 behaviour and the open questions; the slice brief is written from it.
 
-- **Chat transcript** — turn folding, verb summaries, working/thinking rows, hover actions, quote
-  from selection. Starts after tabs because the new shell does not render a conversation yet.
-  Timestamps and forks need protocol work and stay out.
-- **Draft tasks** — New task keeps what was typed, survives reload, returns where it was. References
-  store drafts client-side with a route id and a promotion pointer. Starts after tabs, since a draft
-  is a tab in both references.
 - **Favorites across instances** — the model-picker rail needs a favorite entry that carries a
   display name, and a rule for applying a favorite from another instance. Blocked on that decision.
 - **Chat start polish** — one focus intent, a device-local last-used model layer, the hero headline,
