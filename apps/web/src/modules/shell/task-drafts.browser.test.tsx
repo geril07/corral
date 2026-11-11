@@ -6,7 +6,7 @@ import { prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { renderApp } from "../../../test/render-app.tsx";
 import { recordOf } from "./json-record.ts";
 import { TASK_DRAFT_STORAGE_KEY } from "./task-drafts.ts";
-import { DRAFT_STORAGE_NOTICE, DRAFT_WRITE_DELAY } from "./use-task-drafts.ts";
+import { DRAFT_STORAGE_NOTICE } from "./use-task-drafts.ts";
 
 const { newClient } = realServerClients();
 
@@ -460,7 +460,6 @@ test("typing is written after the debounce, not on the keystroke", async () => {
     });
   try {
     await startNewTask();
-    // Opening a draft schedules its own write; the fill below replaces that timer.
     const started = performance.now();
     await promptField().fill("Wait for the debounce");
     const written = await vi.waitFor(() => {
@@ -468,9 +467,9 @@ test("typing is written after the debounce, not on the keystroke", async () => {
       if (at === undefined) throw new Error("the draft is not written yet");
       return at;
     });
-    // The record waits for the delay instead of being written per keystroke, and it is written
-    // before the unmount the other tests end with.
-    expect(written - started).toBeGreaterThanOrEqual(DRAFT_WRITE_DELAY);
+    // A literal floor, not the imported delay: shrinking the debounce to zero cannot keep this
+    // green. The write happens before the unmount the other tests end with.
+    expect(written - started).toBeGreaterThanOrEqual(250);
     expect(writes.filter((time) => time >= started)).toHaveLength(1);
   } finally {
     setItem.mockRestore();
@@ -488,8 +487,100 @@ test("closing a window that never edited writes nothing", async () => {
   expect(writes).toHaveLength(0);
 });
 
+test("opening New task without typing writes nothing", async () => {
+  const { screen } = await appWithProjects(["drafts-empty-open"]);
+  const setItem = vi.spyOn(Storage.prototype, "setItem");
+  await startNewTask();
+  await screen.unmount();
+  const writes = setItem.mock.calls.filter(([key]) => key === TASK_DRAFT_STORAGE_KEY);
+  setItem.mockRestore();
+  // An empty draft is not part of the record, so opening one must not schedule a write of the
+  // older snapshot this window mounted with.
+  expect(writes).toHaveLength(0);
+});
+
+test("closing right after typing flushes the draft", async () => {
+  const { screen } = await appWithProjects(["drafts-flush"]);
+  const setItem = vi.spyOn(Storage.prototype, "setItem");
+  const writes = () => setItem.mock.calls.filter(([key]) => key === TASK_DRAFT_STORAGE_KEY).length;
+  const prompt = "Flush me on close";
+  await startNewTask();
+  await promptField().fill(prompt);
+  // The debounce has not run yet: the close is what writes the record.
+  const before = writes();
+  await screen.unmount();
+  const after = writes();
+  setItem.mockRestore();
+  expect(before).toBe(0);
+  expect(after).toBe(1);
+  expect(storedDrafts()).toHaveLength(1);
+  expect(recordOf(recordOf(storedDrafts()[0])?.["composer"])?.["prompt"]).toBe(prompt);
+});
+
+test("a page that could not read the record writes nothing", async () => {
+  const original = window.localStorage.getItem.bind(window.localStorage);
+  const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation((key: string) => {
+    if (key === TASK_DRAFT_STORAGE_KEY) throw new DOMException("Denied", "SecurityError");
+    return original(key);
+  });
+  try {
+    const { screen } = await appWithProjects(["drafts-unreadable"]);
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    await startNewTask();
+    await promptField().fill("Typed but the record was unreadable");
+    // The debounce window passes without a write, and the close writes nothing either.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    await screen.unmount();
+    const writes = setItem.mock.calls.filter(([key]) => key === TASK_DRAFT_STORAGE_KEY);
+    setItem.mockRestore();
+    expect(writes).toHaveLength(0);
+  } finally {
+    getItem.mockRestore();
+  }
+});
+
 test("a refused write says so and keeps the draft in the page", async () => {
   const { screen } = await appWithProjects(["drafts-quota"]);
+  const original = window.localStorage.setItem.bind(window.localStorage);
+  let refusing = true;
+  const setItem = vi
+    .spyOn(Storage.prototype, "setItem")
+    .mockImplementation((key: string, value: string) => {
+      if (refusing && key === TASK_DRAFT_STORAGE_KEY)
+        throw new DOMException("Quota exceeded", "QuotaExceededError");
+      original(key, value);
+    });
+  try {
+    await startNewTask();
+    await promptField().fill("Too big for this device");
+    await expect.element(page.getByText(DRAFT_STORAGE_NOTICE, { exact: true })).toBeVisible();
+    await expect.element(promptField()).toHaveValue("Too big for this device");
+
+    // A write that lands clears the sentence instead of leaving it for the rest of the session.
+    refusing = false;
+    await promptField().fill("Too big for this device, then it fits");
+    await expect
+      .element(page.getByText(DRAFT_STORAGE_NOTICE, { exact: true }))
+      .not.toBeInTheDocument();
+  } finally {
+    setItem.mockRestore();
+  }
+  await screen.unmount();
+  expect(storedDrafts()).toHaveLength(1);
+});
+
+test("dismissing another notice leaves a later write failure reportable", async () => {
+  const { projects, screen } = await appWithProjects(["drafts-dismiss"]);
+  const project = projects[0]!;
+
+  // A discard notice is dismissed; that must not silence the storage sentence for good.
+  await startNewTask();
+  await promptField().fill("Discard me");
+  await discardDraftTab(project.name);
+  await expect.element(noticeMessage()).toBeVisible();
+  await dismissNotice().click();
+  await expect.element(undoButton()).not.toBeInTheDocument();
+
   const original = window.localStorage.setItem.bind(window.localStorage);
   const setItem = vi
     .spyOn(Storage.prototype, "setItem")
@@ -500,14 +591,34 @@ test("a refused write says so and keeps the draft in the page", async () => {
     });
   try {
     await startNewTask();
-    await promptField().fill("Too big for this device");
+    await promptField().fill("Still cannot be saved");
     await expect.element(page.getByText(DRAFT_STORAGE_NOTICE, { exact: true })).toBeVisible();
-    await expect.element(promptField()).toHaveValue("Too big for this device");
   } finally {
     setItem.mockRestore();
   }
   await screen.unmount();
-  expect(storedDrafts()).toHaveLength(0);
+});
+
+test("Undo after New task reopens the restored draft", async () => {
+  const { projects, screen } = await appWithProjects(["drafts-undo-reopen"]);
+  const project = projects[0]!;
+  const prompt = "Restore me over the fresh draft";
+
+  await startNewTask();
+  await promptField().fill(prompt);
+  await discardDraftTab(project.name);
+  await expect.element(noticeMessage()).toBeVisible();
+
+  // New task reopens the project with a fresh empty draft, which the restore replaces.
+  await startNewTask();
+  await expect.element(promptField()).toHaveValue("");
+  await undoButton().click();
+
+  await expect.element(promptField()).toHaveValue(prompt);
+  await expect.element(draftTab(project.name)).toHaveAttribute("aria-selected", "true");
+  expect(draftTabs().getByRole("tab").elements()).toHaveLength(1);
+  await expect.element(undoButton()).not.toBeInTheDocument();
+  await screen.unmount();
 });
 
 test("a create of the discarded draft's project drops its Undo", async () => {
