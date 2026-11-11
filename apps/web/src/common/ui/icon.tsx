@@ -140,3 +140,22 @@ export function Icon({
   const Glyph = ICONS[name];
   return <Glyph aria-hidden className={cn("shrink-0", SIZES[size], className)} />;
 }
+
+/**
+ * The one disclosure chevron: it points right when the row is closed and turns a quarter turn
+ * when it opens, over the kit's one 200 ms motion, and does not move under reduced motion. T3
+ * rotates a single chevron the same way (`MessagesTimeline.tsx:1660-1668`) rather than swapping two
+ * glyphs, so the two states share one shape.
+ */
+export function DisclosureIcon({ open, size = "row" }: { open: boolean; size?: IconSize }) {
+  return (
+    <Icon
+      name="expand"
+      size={size}
+      className={cn(
+        "transition-transform duration-200 motion-reduce:transition-none",
+        open && "rotate-90",
+      )}
+    />
+  );
+}

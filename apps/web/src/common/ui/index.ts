@@ -39,7 +39,7 @@ export { FormField, RadioChoice } from "./form-field.tsx";
 export { Hint } from "./hint.tsx";
 export { SelectionAction } from "./selection-action.tsx";
 export { TooltipProvider } from "./tooltip.tsx";
-export { Icon, type IconName, type IconSize } from "./icon.tsx";
+export { DisclosureIcon, Icon, type IconName, type IconSize } from "./icon.tsx";
 export { IconButton } from "./icon-button.tsx";
 export { Input } from "./input.tsx";
 export { Slider } from "./slider.tsx";

@@ -143,7 +143,8 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
   their own rows, and their input and output or diff expand under the row with their own bounds.
   The live turn ends in a `Working` row, and the transcript keeps a space below its last row for
   the composer that overlays the lane's end. Scroll belongs to the pane: the transcript's `log`
-  owns it, the fold disclosures never move it, and each session keeps its reading row and open
+  owns it, opening or closing a fold leaves the row that was clicked where it is (the list's end
+  follow is released for that layout change), and each session keeps its reading row and open
   folds while the session is open.
 - New-task and chat prompts share the bordered composer surface and wrapping control row.
   Send/steer, abort and IME protection retain their existing semantics; follow-up is offered only

@@ -35,6 +35,13 @@ const runCall = (id: string): ChatToolCall =>
 const editCall = (id: string): ChatToolCall =>
   call(id, "done", { diff: { path: "src/a.ts", text: "--- a\n+++ b\n" } });
 
+const message = (id: string, text: string): ChatItem => ({
+  kind: "assistant-message",
+  id,
+  text,
+  streaming: false,
+});
+
 const settled = { turn: "settled", waiting: false } as const;
 const working = { turn: "working", waiting: false } as const;
 
@@ -56,7 +63,7 @@ test("a single finished call is not a group", () => {
   ]);
 });
 
-test("a finished turn folds its work behind one row and keeps the answer outside it", () => {
+test("a finished turn folds its work behind one row and keeps its terminal message", () => {
   const answer: ChatItem = {
     kind: "assistant-message",
     id: "a1",
@@ -68,11 +75,58 @@ test("a finished turn folds its work behind one row and keeps the answer outside
     ...settled,
   });
   expect(rows.map((row) => row.key)).toEqual(["u1", "turn:u1", "u2"]);
-  expect(rows[1]).toMatchObject({ kind: "turn", key: "turn:u1" });
   const fold = rows[1];
   if (fold?.kind !== "turn") throw new Error("the turn did not fold");
-  // The answer stays visible; only the turn's own work is hidden.
   expect(fold.rows.map((row) => row.key)).toEqual(["group:t1", "a1"]);
+  // The turn's terminal message is the one row the fold leaves in place (T3 hides every other
+  // entry of the run, `MessagesTimeline.logic.ts:1118-1145`).
+  expect([...fold.hidden]).toEqual(["group:t1"]);
+});
+
+test("a narrating turn folds its intermediate messages and keeps only the last one", () => {
+  const rows = chatRows({
+    items: [
+      user("u1"),
+      message("a1", "Let me read the test first."),
+      call("t1", "done"),
+      message("a2", "Now the module it exercises."),
+      call("t2", "done"),
+      message("a3", "Fixed."),
+      user("u2"),
+    ],
+    ...settled,
+  });
+  const fold = rows[1];
+  if (fold?.kind !== "turn") throw new Error("the turn did not fold");
+  // Every text block is its own item (`pi-projection.test.ts:311-320`), so a turn normally has
+  // several; only the terminal one survives the fold.
+  expect(fold.rows.map((row) => row.key)).toEqual(["a1", "t1", "a2", "t2", "a3"]);
+  expect([...fold.hidden]).toEqual(["a1", "t1", "a2", "t2"]);
+});
+
+test("a notice, an error and a request inside a turn are never hidden", () => {
+  const notice: ChatItem = { kind: "notice", id: "n1", text: "Compacted." };
+  const error: ChatItem = { kind: "error", id: "e1", text: "The retry failed." };
+  const request: ChatItem = {
+    kind: "user-request",
+    id: "q1",
+    request: "confirm",
+    title: "Proceed?",
+    body: null,
+    options: [],
+    placeholder: null,
+    prefill: null,
+    expiresAt: null,
+    status: "answered",
+    answer: true,
+  };
+  const rows = chatRows({
+    items: [user("u1"), call("t1", "done"), notice, error, request, user("u2")],
+    ...settled,
+  });
+  const fold = rows[1];
+  if (fold?.kind !== "turn") throw new Error("the turn did not fold");
+  expect([...fold.hidden]).toEqual(["t1"]);
 });
 
 test("a turn with nothing to hide, and the live turn, stay unfolded", () => {
@@ -187,7 +241,9 @@ test("a search sentence names the query, the glob and the target it has", () => 
   expect(searchLabel({ pattern: "cookie", path: "src/lib/x.ts" })).toBe("Searched cookie in x.ts");
   expect(searchLabel({ glob: "**/*.ts" })).toBe("Searched files **/*.ts");
   expect(searchLabel({ query: "cookie", glob: "**/*.ts" })).toBe("Searched files **/*.ts");
-  expect(searchLabel({})).toBe("Searched files");
+  // A call that named no query, glob or target has no sentence; the caller falls through to the
+  // argument hint, as T3's `formatSearchToolLabel` answers `undefined` there.
+  expect(searchLabel({})).toBeUndefined();
 });
 
 test("the argument hint reads the first string of the shape, not the tool name", () => {

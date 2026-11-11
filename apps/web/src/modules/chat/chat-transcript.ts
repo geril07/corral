@@ -8,6 +8,8 @@ export interface ChatTranscriptMemory {
   /** Where the user was reading. A remount restores this row rather than a pixel offset: the rows
    * are measured again, so the same pixel would land on a different line. */
   anchor: ChatTranscriptAnchor | undefined;
+  /** Whether the view was at the end when it was left, so coming back resumes the end follow. */
+  atEnd: boolean;
   /** Keys of the folds the user opened (`turn:<id>`, `group:<id>`, and a row's own id). */
   expanded: ReadonlySet<string>;
 }
@@ -15,6 +17,8 @@ export interface ChatTranscriptMemory {
 /** The row under the top edge of the viewport: the one the user was reading. */
 export interface ChatTranscriptAnchor {
   key: string;
+  /** The row's index when it was remembered, so a row that no longer exists restores near it. */
+  index: number;
 }
 
 /**
@@ -24,18 +28,18 @@ export interface ChatTranscriptAnchor {
  */
 export interface ChatTranscriptStore {
   read(): ChatTranscriptMemory;
-  /** Remembers the row at the top edge; called on every scroll. */
-  remember(anchor: ChatTranscriptAnchor): void;
+  /** Remembers the row at the top edge and whether the view was at the end; called on scroll. */
+  remember(anchor: ChatTranscriptAnchor, atEnd: boolean): void;
   /** Opens or closes one fold and answers the set of open folds. */
   toggle(key: string): ReadonlySet<string>;
 }
 
 export function chatTranscriptStore(): ChatTranscriptStore {
-  let memory: ChatTranscriptMemory = { anchor: undefined, expanded: new Set() };
+  let memory: ChatTranscriptMemory = { anchor: undefined, atEnd: false, expanded: new Set() };
   return {
     read: () => memory,
-    remember: (anchor) => {
-      memory = { ...memory, anchor };
+    remember: (anchor, atEnd) => {
+      memory = { ...memory, anchor, atEnd };
     },
     toggle: (key) => {
       const expanded = new Set(memory.expanded);

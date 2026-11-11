@@ -10,8 +10,12 @@ import type { ChatItem, ChatToolCall, ChatTurnState } from "@corral/protocol/cha
 export type ChatRow =
   | { kind: "item"; key: string; item: ChatItem }
   | { kind: "group"; key: string; items: readonly ChatToolCall[] }
-  /** A finished turn: `rows` is the work the fold hides until it is expanded. */
-  | { kind: "turn"; key: string; rows: readonly ChatRow[] }
+  /**
+   * A finished turn: `rows` are all of its rows, and `hidden` names the ones its fold hides until
+   * it is expanded. The set is the projection's, not the renderer's: what a fold covers is a
+   * question about the turn, not about an item's kind.
+   */
+  | { kind: "turn"; key: string; rows: readonly ChatRow[]; hidden: ReadonlySet<string> }
   /** The live tail while the turn runs; it becomes the turn's fold when the turn ends. */
   | { kind: "working"; key: string };
 
@@ -43,7 +47,13 @@ export function chatRows({ items, turn, waiting }: ChatRowInput): ChatRow[] {
     // The prompt is never hidden: the fold covers the turn's work, not what asked for it.
     if (prompt !== undefined) rows.push({ kind: "item", key: prompt.id, item: prompt });
     if (folds(work, end === items.length ? turn : "settled")) {
-      rows.push({ kind: "turn", key: `turn:${item.id}`, rows: projectRows(work) });
+      const turnRows = projectRows(work);
+      rows.push({
+        kind: "turn",
+        key: `turn:${item.id}`,
+        rows: turnRows,
+        hidden: hiddenKeys(turnRows),
+      });
     } else {
       rows.push(...projectRows(work));
     }
@@ -99,13 +109,30 @@ function projectRows(items: readonly ChatItem[]): ChatRow[] {
 }
 
 /**
- * Whether a row is the turn's own work, which the turn's fold hides. A message, a notice and an
- * error always stay visible: the fold covers what the agent did, not what it said.
+ * What a finished turn's fold hides: its work rows and every assistant message but the turn's
+ * terminal one. T3 hides every entry of the run except `group.terminalEntry`
+ * (`MessagesTimeline.logic.ts:1118-1145`), and a Corral turn normally carries several messages
+ * because each text block is its own item (`apps/server/src/chat/pi-projection.test.ts:311-320`).
+ * A notice, an error and a request are never hidden: a request owns the keyboard.
  */
-export function isWorkRow(row: ChatRow): boolean {
-  if (row.kind === "group") return true;
-  if (row.kind === "item") return row.item.kind === "tool-call" || row.item.kind === "reasoning";
-  return false;
+function hiddenKeys(rows: readonly ChatRow[]): ReadonlySet<string> {
+  const terminal = rows.findLast(
+    (row) => row.kind === "item" && row.item.kind === "assistant-message",
+  );
+  const hidden = new Set<string>();
+  for (const row of rows) {
+    if (row.key === terminal?.key) continue;
+    if (row.kind === "group") {
+      hidden.add(row.key);
+      continue;
+    }
+    if (row.kind !== "item") continue;
+    const kind = row.item.kind;
+    if (kind === "tool-call" || kind === "reasoning" || kind === "assistant-message") {
+      hidden.add(row.key);
+    }
+  }
+  return hidden;
 }
 
 /** The pending request the agent waits on, if any; the last one wins if a driver appends two. */
@@ -192,7 +219,9 @@ export function toolLabel(call: ChatToolCall): string {
     return command;
   }
   if (action === "edit") return changedFilesLabel(1);
-  if (action === "search") return searchLabel(record);
+  // T3's search sentence answers nothing when the call named neither a query nor a glob
+  // (`toolActivity.ts:358-384` returns `undefined`), so the argument hint answers instead.
+  if (action === "search") return searchLabel(record) ?? toolSummary(call.arguments);
   return toolSummary(call.arguments);
 }
 
@@ -200,8 +229,12 @@ function changedFilesLabel(count: number): string {
   return `Changed ${count} ${count === 1 ? "file" : "files"}`;
 }
 
-/** T3's search sentence, from whatever the call named: a query, a glob, or only a target. */
-export function searchLabel(record: Record<string, unknown> | undefined): string {
+/**
+ * T3's search sentence, from whatever the call named: a query, a glob, or only a target. A call
+ * that named none of them has no sentence — T3 answers `undefined` there too — and the caller
+ * falls through to the argument hint.
+ */
+export function searchLabel(record: Record<string, unknown> | undefined): string | undefined {
   const query = firstString(record, ["pattern", "query", "regex", "grep"]);
   const glob = firstString(record, ["glob", "include", "filePattern"]);
   const target = searchTargetName(firstString(record, SEARCH_TARGET_KEYS));
@@ -210,7 +243,7 @@ export function searchLabel(record: Record<string, unknown> | undefined): string
   if (glob !== undefined) return `Searched files ${glob}`;
   if (query !== undefined) return `Searched ${query}`;
   if (target !== undefined) return `Searched in ${target}`;
-  return "Searched files";
+  return undefined;
 }
 
 function searchTargetName(path: string | undefined): string | undefined {
@@ -335,6 +368,9 @@ const ACTION_LABELS: Readonly<Record<ChatToolAction, (count: number) => string>>
   read: (count) => `Read ${count} ${count === 1 ? "file" : "files"}`,
   edit: changedFilesLabel,
   run: (count) => `Ran ${count} ${count === 1 ? "command" : "commands"}`,
+  // T3 keeps a web search and a code search apart by tool name (`search` vs `code-search`,
+  // `presentation.ts:471-474`); the contract's shape says only that a search happened, so the one
+  // noun covers both. `docs/ux.md`, **Known limits** states the same.
   search: (count) => `Searched code ${count} ${count === 1 ? "time" : "times"}`,
   other: (count) => `Used ${count} ${count === 1 ? "tool" : "tools"}`,
 };

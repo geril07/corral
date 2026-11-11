@@ -34,13 +34,22 @@ test("a session's store keeps its folds and its reading row, and another session
   expect([...mine.toggle("group:t1")]).toEqual(["turn:u1", "group:t1"]);
   expect([...mine.toggle("turn:u1")]).toEqual(["group:t1"]);
 
-  mine.remember({ key: "turn:u2" });
-  expect(mine.read()).toEqual({ anchor: { key: "turn:u2" }, expanded: new Set(["group:t1"]) });
+  mine.remember({ key: "turn:u2", index: 4 }, false);
+  expect(mine.read()).toEqual({
+    anchor: { key: "turn:u2", index: 4 },
+    atEnd: false,
+    expanded: new Set(["group:t1"]),
+  });
 
   // The store answers new snapshots, so a reader holding an old one never sees it change.
   const before = mine.read();
-  mine.remember({ key: "turn:u3" });
-  expect(before.anchor).toEqual({ key: "turn:u2" });
+  mine.remember({ key: "turn:u3", index: 9 }, true);
+  expect(before.anchor).toEqual({ key: "turn:u2", index: 4 });
+  expect(before.atEnd).toBe(false);
 
-  expect(chatTranscriptStore().read()).toEqual({ anchor: undefined, expanded: new Set() });
+  expect(chatTranscriptStore().read()).toEqual({
+    anchor: undefined,
+    atEnd: false,
+    expanded: new Set(),
+  });
 });
