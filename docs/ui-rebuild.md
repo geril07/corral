@@ -80,7 +80,11 @@ it — without meeting a single invented screen.
 
 ### In progress
 
-Nothing is in flight. The next slice starts from `docs/ui-rebuild.md` and `docs/delivery.md`.
+- **Draft tasks** (`feat/263-drafts`) — a draft is a tab, device-local, one per project and reused,
+  with the prompt and the composer's choices surviving close and reload; a successful create clears
+  only the draft that sent it.
+- **Settings control recipes** (`feat/263-kit-settings`) — the last ownership finding: module CSS in
+  `settings.css` restyles kit controls; the recipes move into named kit variants.
 
 ### Queued, research done
 
