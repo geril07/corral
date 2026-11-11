@@ -175,6 +175,8 @@ test("Escape closes a context picker without leaving the draft", async () => {
   await workspaceButton("Current checkout").click();
   await expect.element(page.getByRole("option", { name: "New worktree" })).toBeVisible();
 
+  // The trigger can hold the keyboard while the popup is open; Escape still belongs to the popup.
+  workspaceButton("Current checkout").element().focus();
   await userEvent.keyboard("{Escape}");
   await expect.element(page.getByRole("option", { name: "New worktree" })).not.toBeInTheDocument();
   await expect.element(composer()).toBeVisible();
