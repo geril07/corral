@@ -96,6 +96,30 @@ test("the companion keeps its contents mounted while it is shut, with a 1 px spl
   expect(handle.getBoundingClientRect().width).toBe(8);
   expect(container.querySelector('[data-testid="kept"]')).not.toBeNull();
 
+  Object.defineProperties(handle, {
+    setPointerCapture: { configurable: true, value: () => undefined },
+    releasePointerCapture: { configurable: true, value: () => undefined },
+    hasPointerCapture: { configurable: true, value: () => true },
+  });
+  handle.dispatchEvent(
+    new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      clientX: 0,
+    }),
+  );
+  await expect.poll(() => companion.getAttribute("data-resizing")).toBe("true");
+  handle.dispatchEvent(
+    new PointerEvent("pointerup", {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      clientX: 0,
+    }),
+  );
+  await expect.poll(() => companion.getAttribute("data-resizing")).toBeNull();
+
   await userEvent.click(page.getByRole("button", { name: "Shut the companion" }));
   // A transparent 1 px border can survive the zero width; no pane is visible either way.
   await expect.poll(() => companion.getBoundingClientRect().width).toBeLessThanOrEqual(1);

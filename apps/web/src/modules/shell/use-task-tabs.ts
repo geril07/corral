@@ -1,5 +1,5 @@
 import type { Session, Task } from "@corral/protocol/rpc";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   defaultLayout,
   parseLayout,
@@ -56,7 +56,7 @@ export function useTaskTabLayout(task: Task | undefined, sessions: readonly Sess
   );
   const sessionsRef = useRef(sessions);
   const taskRef = useRef(taskKey);
-  useEffect(() => {
+  useLayoutEffect(() => {
     sessionsRef.current = sessions;
     taskRef.current = taskKey;
   }, [sessions, taskKey]);
@@ -84,13 +84,31 @@ export function useTaskTabLayout(task: Task | undefined, sessions: readonly Sess
     [base, taskKey, layoutSessions],
   );
 
+  useEffect(() => {
+    const id = taskKey?.id;
+    if (id === undefined) return undefined;
+    const key = `${TASK_TAB_STORAGE_PREFIX}${id}`;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== key) return;
+      const parsed = parseLayout(event.newValue);
+      if (parsed === undefined) return;
+      setLayouts((previous) => {
+        const map = new Map(previous);
+        map.set(id, parsed);
+        return map;
+      });
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [taskKey?.id]);
+
   const change = useCallback((update: (current: TaskTabLayout) => TaskTabLayout) => {
     const currentTask = taskRef.current;
     if (currentTask === undefined) return;
     setLayouts((previous) => {
       const storedBase =
-        previous.get(currentTask.id) ??
         readLayout(currentTask.id) ??
+        previous.get(currentTask.id) ??
         defaultLayout(currentTask, sessionsRef.current);
       const current = reconcileLayout(storedBase, currentTask, sessionsRef.current);
       const next = update(current);

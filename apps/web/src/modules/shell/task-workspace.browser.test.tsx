@@ -169,6 +169,26 @@ test("the session tab menu reaches Chat and Terminal without a second tab", asyn
   expect(sessionTabs().getByRole("tab").elements()).toHaveLength(before);
 });
 
+test("a non-active chat asks before its view switches", async () => {
+  const seeded = await seed();
+  await seeded.client.connection.api.sessions.start({
+    taskId: seeded.task.id,
+    kind: "pi",
+    view: "chat",
+    size: SIZE,
+  });
+  const screen = await open(seeded);
+  await expect.poll(() => sessionTabs().getByRole("tab").elements().length).toBe(3);
+
+  const second = sessionTabs().getByRole("tab").elements()[2]!;
+  await userEvent.click(second, { button: "right" });
+  await page.getByRole("menuitem", { name: "Switch to terminal" }).click();
+  await expect.element(page.getByRole("alertdialog")).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect.element(page.getByRole("alertdialog")).not.toBeInTheDocument();
+  await screen.unmount();
+});
+
 test("Changes opens in the companion group without moving the main session", async () => {
   const seeded = await seed();
   await open(seeded);
@@ -181,7 +201,9 @@ test("Changes opens in the companion group without moving the main session", asy
     .toHaveAttribute("aria-selected", "true");
   await expect.element(sessionTab(/^pi/)).toHaveAttribute("aria-selected", "true");
 
-  // Changes belongs to the companion group; the refused move says so.
+  // Changes belongs to the companion group; selecting it puts the keyboard there and the
+  // refused move says so.
+  await userEvent.click(companionTabs().getByRole("tab", { name: "Changes" }));
   await prefixShifted("o");
   await expect
     .element(page.getByRole("alert"))
@@ -223,12 +245,18 @@ test("closing a session tab keeps the session, and reopen brings the view back",
 
   await prefixThen("q");
   await expect.element(sessionTab(/^shell/)).not.toBeInTheDocument();
+  await expect
+    .poll(() => document.activeElement?.getAttribute("data-tab-id"))
+    .toBe(`session:${seeded.primary.id}`);
   expect(
     seeded.client.sessions.getSnapshot().sessions.some((session) => session.id === seeded.shell.id),
   ).toBe(true);
 
   await prefixShifted("q");
   await expect.element(sessionTab(/^shell/)).toBeVisible();
+  await expect
+    .poll(() => document.activeElement?.getAttribute("data-tab-id"))
+    .toBe(`session:${seeded.shell.id}`);
 });
 
 test("the focused group does not leak into another task", async () => {
@@ -334,18 +362,42 @@ test("number, step, focus and move keys reach both groups", async () => {
   await expect.element(sessionTab(/^pi/)).toHaveAttribute("aria-selected", "true");
 });
 
-test("the splitter stores the width the frame can show", async () => {
-  window.localStorage.setItem("corral.companion-width", "600");
+test("the splitter stores the width the frame can show in both directions", async () => {
+  // A narrow sidebar leaves room for a real range: 320..348 at 1024.
+  window.localStorage.setItem("corral.visual-sidebar-width", "100");
+  window.localStorage.setItem("corral.companion-width", "320");
   const seeded = await seed();
   await open(seeded);
   await prefixShifted("c");
   await expect.element(companionTabs()).toBeVisible();
   const handle = page.getByRole("separator", { name: "Resize companion group" });
   await expect.element(handle).toHaveAttribute("aria-valuenow", "320");
-  handle.element().focus();
-  await userEvent.keyboard("{ArrowLeft}");
-  await userEvent.keyboard("{ArrowRight}");
+  const press = (key: string) =>
+    handle
+      .element()
+      .dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  press("ArrowLeft");
+  await expect.element(handle).toHaveAttribute("aria-valuenow", "336");
+  await expect.poll(() => window.localStorage.getItem("corral.companion-width")).toBe("336");
+  press("ArrowRight");
+  await expect.element(handle).toHaveAttribute("aria-valuenow", "320");
   await expect.poll(() => window.localStorage.getItem("corral.companion-width")).toBe("320");
+  window.localStorage.setItem("corral.visual-sidebar-width", "320");
+});
+
+test("a bottom strip replaces the chrome row instead of leaving an empty band", async () => {
+  window.localStorage.setItem(
+    "corral.appearance",
+    JSON.stringify({ scale: 100, tabPosition: "bottom" }),
+  );
+  const seeded = await seed();
+  const screen = await open(seeded);
+  await expect.element(sessionTabs()).toBeVisible();
+  expect(screen.container.querySelector(".visual-main-chrome")).toBeNull();
+  expect(
+    screen.container.querySelector<HTMLElement>(".visual-tab-band")?.getAttribute("data-position"),
+  ).toBe("bottom");
+  window.localStorage.removeItem("corral.appearance");
 });
 
 test("closing the last companion tab collapses it but leaves the main strip alone", async () => {

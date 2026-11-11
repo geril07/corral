@@ -1301,6 +1301,10 @@
   border-left-color: transparent;
 }
 
+.visual-companion[data-resizing] {
+  transition: none;
+}
+
 .visual-companion-clip {
   display: flex;
   flex: 1 1 auto;

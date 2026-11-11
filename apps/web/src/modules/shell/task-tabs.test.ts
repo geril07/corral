@@ -113,13 +113,14 @@ describe("closing and reopening views", () => {
     expect(ids(reopened)).toEqual(["session:s1", "session:s3"]);
   });
 
-  test("the closed stack keeps the last twenty views", () => {
+  test("every closed view stays in the stack, so a running session never strands", () => {
     let l = layout();
     for (let index = 0; index < 25; index += 1) {
       l = addTab(l, { kind: "session", sessionId: `extra-${index}`, group: "main" });
       l = closeTab(l, `session:extra-${index}`, "s1");
     }
-    expect(l.closed).toHaveLength(20);
+    expect(l.closed).toHaveLength(25);
+    expect(tabId(l.closed[0]!.tab)).toBe("session:extra-0");
     expect(tabId(l.closed.at(-1)!.tab)).toBe("session:extra-24");
   });
 });
@@ -214,6 +215,28 @@ describe("reconciling with the server", () => {
   test("a task never opened on this device gets the default layout", () => {
     expect(reconcileLayout(undefined, task("s1"), SESSIONS)).toEqual(layout());
   });
+
+  test("a stored primary in the companion is normalised to the first main tab", () => {
+    const stored: TaskTabLayout = {
+      tabs: [
+        { kind: "session", sessionId: "s1", group: "companion" },
+        { kind: "session", sessionId: "s2", group: "main" },
+      ],
+      active: { main: "session:s2", companion: "session:s1" },
+      companionOpen: true,
+      closed: [],
+      seenSessions: ["s1", "s2"],
+    };
+    const next = reconcileLayout(stored, task("s1"), SESSIONS);
+    expect(tabsInGroup(next, "main").map(tabId)).toEqual([
+      "session:s1",
+      "session:s2",
+      "session:s3",
+    ]);
+    expect(tabsInGroup(next, "companion")).toEqual([]);
+    expect(next.active.main).toBe("session:s2");
+    expect(next.companionOpen).toBe(false);
+  });
 });
 
 describe("the device-local record", () => {
@@ -229,6 +252,15 @@ describe("the device-local record", () => {
     expect(parseLayout(null)).toBeUndefined();
     expect(parseLayout("{")).toBeUndefined();
     expect(parseLayout(JSON.stringify({ version: 2, tabs: [] }))).toBeUndefined();
+    expect(
+      parseLayout('{"version":1,"tabs":[{"kind":"changes","group":"companion","order":1e999}]}'),
+    ).toEqual({
+      tabs: [],
+      active: {},
+      companionOpen: false,
+      closed: [],
+      seenSessions: [],
+    });
     expect(
       parseLayout(JSON.stringify({ version: 1, tabs: [{ kind: "unknown", group: "main" }] })),
     ).toEqual({

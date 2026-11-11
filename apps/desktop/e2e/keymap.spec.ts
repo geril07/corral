@@ -17,12 +17,12 @@ test("a config file rebinds an action before launch, and the old key does nothin
   launchApp,
   stateDir,
 }) => {
-  writeConfig(stateDir, '[keys.bindings]\nnew-terminal = "q"\n');
+  writeConfig(stateDir, '[keys.bindings]\nnew-terminal = "z"\n');
   const window = await openedWindow(await launchApp());
   await expect(window.getByText("Add a repository to start")).toBeVisible();
 
   await window.keyboard.press("Alt+KeyA");
-  await window.keyboard.press("KeyQ");
+  await window.keyboard.press("KeyZ");
   await expect(terminalButtons(window)).toHaveCount(1);
 
   await window.keyboard.press("Alt+KeyA");

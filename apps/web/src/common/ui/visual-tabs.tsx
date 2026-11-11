@@ -220,6 +220,7 @@ export function VisualTabStrip({
                   className="visual-tab-close"
                   aria-label={`Close ${item.label} tab`}
                   title={`Close ${item.label} tab`}
+                  tabIndex={-1}
                   onClick={() => onClose(item.id)}
                 >
                   <Icon name="close" />
@@ -281,12 +282,16 @@ export function VisualSplitHandle({
   min,
   max,
   onResize,
+  onResizeStart,
+  onResizeEnd,
   label,
 }: {
   width: number;
   min: number;
   max: number;
   onResize: (width: number) => void;
+  onResizeStart?: (() => void) | undefined;
+  onResizeEnd?: (() => void) | undefined;
   label: string;
 }) {
   const keyStep = 16;
@@ -302,6 +307,7 @@ export function VisualSplitHandle({
       className="visual-split-handle"
       onPointerDown={(event) => {
         event.preventDefault();
+        onResizeStart?.();
         const handle = event.currentTarget;
         const startX = event.clientX;
         const startWidth = width;
@@ -313,6 +319,7 @@ export function VisualSplitHandle({
           handle.removeEventListener("lostpointercapture", stop);
           if (handle.hasPointerCapture(event.pointerId))
             handle.releasePointerCapture(event.pointerId);
+          onResizeEnd?.();
         };
         handle.setPointerCapture(event.pointerId);
         handle.addEventListener("pointermove", move);
@@ -356,14 +363,24 @@ export function VisualCompanion({
   label: string;
   children: ReactNode;
 }) {
+  const [resizing, setResizing] = useState(false);
   return (
     <aside
       className="visual-companion"
       data-open={open ? "true" : undefined}
+      data-resizing={resizing ? "true" : undefined}
       style={open ? { width } : undefined}
     >
       {open && (
-        <VisualSplitHandle width={width} min={min} max={max} onResize={onResize} label={label} />
+        <VisualSplitHandle
+          width={width}
+          min={min}
+          max={max}
+          onResize={onResize}
+          onResizeStart={() => setResizing(true)}
+          onResizeEnd={() => setResizing(false)}
+          label={label}
+        />
       )}
       <div className="visual-companion-clip">
         <div

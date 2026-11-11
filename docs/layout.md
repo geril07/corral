@@ -81,10 +81,11 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
   `Changes`. There is never an empty half. The strip band is **40** high inside the main
   surface's **8** inset and **10** radius.
 - A tab is **28** high, radius **6**, inline padding **6** with **26** reserved at the end for the
-  close/status slot, gap **6**, icon **16**, title **13/16** weight **530**, maximum **200**. Hover takes the one
-  hover overlay, the selected tab the pressed overlay, and neither adds a border. The close
-  control is **20×20** at inset **4** and appears on hover or keyboard focus only. Two inactive
-  neighbours share a **1.5×12** separator.
+  close control, gap **6**, icon **16**, title **13/16** weight **530**, maximum **200**. The
+  status glyph leads the title; the primary tab has no close control. Hover takes the one hover
+  overlay, the selected tab the pressed overlay, and neither adds a border. The close control is
+  **20×20** at inset **4** and appears on hover or keyboard focus only. Two inactive neighbours
+  share a **1.5×12** separator.
 - Tabs keep a **72** px minimum and then scroll horizontally with **24** px edge fades; the active
   tab is scrolled into view. The trailing `+` and the `Changes` action do not scroll away.
 - The first tab of the main group is the task's **primary** session: `Task.primarySessionId`,
@@ -107,7 +108,7 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
   tab collapses the group; toggling it shut keeps the pane mounted. The companion width and the
   strip's top/bottom position are device-local.
 - Selection, order, group and the active tab are stored per task and device under
-  `corral.task-tabs.<task id>`, with a closed stack of 20 views. Closing a session tab closes the
+  `corral.task-tabs.<task id>`, with a closed stack of every closed view. Closing a session tab closes the
   view, not the session; reopening restores its group and order. The route keeps naming the task.
 - `prefix c` and `prefix s` add a shell or an agent and focus the new main-group tab;
   `prefix shift+c` opens `Changes` in the companion group without changing the current session.
@@ -144,8 +145,8 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
 ## Changes (stage C)
 
 - A `Changes` tab per task belongs to the companion group. It has no session behind it: no number hint, no status glyph, and selecting it does not change which session is current in the main group.
-- Full main-area width with the Terminal's padding, not the chat lane: diffs are wide and get
-  horizontal scroll rather than wrapping.
+- The companion pane's width with the Terminal's padding, not the chat lane: diffs are wide and
+  get horizontal scroll rather than wrapping.
 - A summary row at the top ("12 files, +340 −87", `text-sm`, muted), then compact file rows: status letter (`M`/`A`/`D`/`R`), path in mono truncated from the left, `+N −M` right-aligned. Changed files sort by path; a renamed file shows `old → new`.
 - The diff pane under the list: unified hunks, muted hunk headers, monospace on a compact line
   height, unchanged regions folded with "Show N more lines". Binary files show one row ("Binary

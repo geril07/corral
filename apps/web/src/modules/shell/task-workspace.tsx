@@ -1,4 +1,4 @@
-import { sessionStatus } from "@corral/client/agent-status";
+import { describeStatus, sessionStatus } from "@corral/client/agent-status";
 import type { CorralClient } from "@corral/client/corral-client";
 import { describeError, SETTLED_TASK_MESSAGE } from "@corral/client/rpc-errors";
 import { describeSessionState } from "@corral/client/session-state";
@@ -19,7 +19,6 @@ import type {
 } from "@corral/protocol/rpc";
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -154,7 +153,7 @@ export function useTaskWorkspace({
   // dialog or failure still holding the keyboard. The setters stay one identity; the ref is
   // updated before any handler can run with the new task.
   const taskIdRef = useRef(taskId);
-  useEffect(() => {
+  useLayoutEffect(() => {
     taskIdRef.current = taskId;
   }, [taskId]);
   const [focusState, setFocusState] = useState<{
@@ -188,8 +187,10 @@ export function useTaskWorkspace({
   const fitSize = useRef<TerminalSize>(DEFAULT_SIZE);
   const mainPane = useRef<HTMLDivElement>(null);
   const companionPane = useRef<HTMLDivElement>(null);
-  const modelAnchor = useRef<HTMLButtonElement>(null);
-  const reasoningAnchor = useRef<HTMLButtonElement>(null);
+  const mainModelAnchor = useRef<HTMLButtonElement>(null);
+  const mainReasoningAnchor = useRef<HTMLButtonElement>(null);
+  const companionModelAnchor = useRef<HTMLButtonElement>(null);
+  const companionReasoningAnchor = useRef<HTMLButtonElement>(null);
   const [available, setAvailable] = useState(() => Math.max(0, window.innerWidth - 336));
 
   const sessionById = useMemo(
@@ -281,6 +282,16 @@ export function useTaskWorkspace({
     });
   }, []);
 
+  const focusAddSession = useCallback(() => {
+    requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLButtonElement>(
+          '.visual-tab-trailing [aria-label="Add session"], .visual-workspace-empty [aria-label="Add session"]',
+        )
+        ?.focus();
+    });
+  }, []);
+
   const addSession = useCallback(
     (session: Session) => {
       change((current) =>
@@ -352,8 +363,9 @@ export function useTaskWorkspace({
     setFailure(undefined);
     change((current) => addTab(current, { kind: "changes", group: "companion" }));
     setFocusGroup("companion");
-    focusPane("companion");
-  }, [change, focusPane, setFailure, setFocusGroup]);
+    // Changes has no composer or terminal input; the tab itself is the deterministic focus point.
+    focusTab("changes");
+  }, [change, focusTab, setFailure, setFocusGroup]);
 
   const closeFocused = useCallback(() => {
     if (layout === undefined || task === undefined) return;
@@ -368,13 +380,17 @@ export function useTaskWorkspace({
       return;
     }
     change((current) => closeTab(current, id, task.primarySessionId));
-    const remaining = activeTab(after, focusGroup);
-    if (remaining !== undefined) focusTab(tabId(remaining));
-    else {
-      setFocusGroup("main");
-      focusPane("main");
+    const remaining = activeTab(after, tab.group);
+    if (remaining !== undefined) {
+      setFocusGroup(tab.group);
+      focusTab(tabId(remaining));
+      return;
     }
-  }, [change, focusGroup, focusPane, focusTab, layout, setFailure, setFocusGroup, task]);
+    setFocusGroup("main");
+    const main = activeTab(after, "main");
+    if (main !== undefined) focusTab(tabId(main));
+    else focusAddSession();
+  }, [change, focusAddSession, focusGroup, focusTab, layout, setFailure, setFocusGroup, task]);
 
   const reopen = useCallback(() => {
     if (layout === undefined || task === undefined) return;
@@ -387,8 +403,8 @@ export function useTaskWorkspace({
     setFocusGroup(group);
     const tab = activeTab(after, group);
     if (tab !== undefined) focusTab(tabId(tab));
-    focusPane(group);
-  }, [change, focusPane, focusTab, layout, ofTask, setFailure, setFocusGroup, task]);
+    else focusAddSession();
+  }, [change, focusAddSession, focusTab, layout, ofTask, setFailure, setFocusGroup, task]);
 
   const select = useCallback(
     (id: string) => {
@@ -412,16 +428,18 @@ export function useTaskWorkspace({
       const after = closeTab(layout, id, task.primarySessionId);
       if (after === layout) return;
       change((current) => closeTab(current, id, task.primarySessionId));
-      if (tab.group === focusGroup) {
-        const remaining = activeTab(after, focusGroup);
-        if (remaining !== undefined) focusTab(tabId(remaining));
-        else {
-          setFocusGroup("main");
-          focusPane("main");
-        }
+      const remaining = activeTab(after, tab.group);
+      if (remaining !== undefined) {
+        setFocusGroup(tab.group);
+        focusTab(tabId(remaining));
+        return;
       }
+      setFocusGroup("main");
+      const main = activeTab(after, "main");
+      if (main !== undefined) focusTab(tabId(main));
+      else focusAddSession();
     },
-    [change, focusGroup, focusPane, focusTab, layout, setFailure, setFocusGroup, task],
+    [change, focusAddSession, focusTab, layout, setFailure, setFocusGroup, task],
   );
 
   const move = useCallback(() => {
@@ -443,8 +461,10 @@ export function useTaskWorkspace({
     change((current) => moveTab(current, tabId(tab), task.primarySessionId));
     const group: TaskTabGroup = tab.group === "main" ? "companion" : "main";
     setFocusGroup(group);
-    focusPane(group);
-  }, [change, focusGroup, focusPane, layout, setFailure, setFocusGroup, task]);
+    const moved = activeTab(after, group);
+    if (moved !== undefined) focusTab(tabId(moved));
+    else focusAddSession();
+  }, [change, focusAddSession, focusTab, focusGroup, layout, setFailure, setFocusGroup, task]);
 
   const step = useCallback(
     (direction: 1 | -1) => {
@@ -496,9 +516,13 @@ export function useTaskWorkspace({
           : session.id === companionSession?.id
             ? companionChat
             : undefined;
+      // Only the active tab in each group has an open chat store. A menu action on another
+      // running chat cannot know its turn, so it asks instead of claiming the turn is idle.
+      const unknownChat =
+        session.view === "chat" && session.state === "running" && chat === undefined;
       const working =
         session.view === "chat"
-          ? (chat?.store.getSnapshot().state.turn ?? "idle") === "working"
+          ? chat !== undefined && chat.store.getSnapshot().state.turn === "working"
           : ["working", "blocked"].includes(sessionStatus(session)?.state ?? "");
       const waiting =
         session.view === "chat"
@@ -507,13 +531,13 @@ export function useTaskWorkspace({
               .items.some((item) => item.kind === "user-request" && item.status === "pending") ??
             false)
           : sessionStatus(session)?.state === "blocked";
-      if (!offer.live && (working || waiting)) {
+      if (!offer.live && (unknownChat || working || waiting)) {
         setDialog({
           kind: "switch-view",
           session,
           target: offer.target,
-          working,
-          waiting,
+          working: unknownChat ? false : working,
+          waiting: unknownChat ? false : waiting,
         });
         return;
       }
@@ -573,11 +597,16 @@ export function useTaskWorkspace({
       setFailure(undefined);
       await client.connection.api.sessions.remove({ id: session.id });
       setDialog(undefined);
+      const after = layout === undefined ? undefined : removeSession(layout, session.id);
       change((current) => removeSession(current, session.id));
-      if (tabsInGroup({ tabs: layout?.tabs ?? [] }, "companion").length === 0)
+      if (after !== undefined && tabsInGroup(after, "companion").length === 0) {
         setFocusGroup("main");
+        const main = activeTab(after, "main");
+        if (main !== undefined) focusTab(tabId(main));
+        else focusAddSession();
+      }
     },
-    [change, client, layout, setDialog, setFailure, setFocusGroup],
+    [change, client, focusAddSession, focusTab, layout, setDialog, setFailure, setFocusGroup],
   );
 
   const toggleGroup = useCallback(() => {
@@ -621,20 +650,42 @@ export function useTaskWorkspace({
     }
   }, [focusedChat, report, setFailure]);
 
-  const openModelPicker = useCallback(() => {
-    if (focusedSession === undefined || focusedChat === undefined) {
-      setFailure("Only a running chat session has a model control.");
-      return;
-    }
-    setDialog({ kind: "chat-model", session: focusedSession });
-  }, [focusedChat, focusedSession, setDialog, setFailure]);
-  const openReasoningPicker = useCallback(() => {
-    if (focusedSession === undefined || focusedChat === undefined) {
-      setFailure("Only a running chat session has a reasoning control.");
-      return;
-    }
-    setDialog({ kind: "chat-reasoning", session: focusedSession });
-  }, [focusedChat, focusedSession, setDialog, setFailure]);
+  const openModelPicker = useCallback(
+    (session: Session | undefined) => {
+      const chat =
+        session === undefined
+          ? undefined
+          : session.id === mainSession?.id
+            ? mainChat
+            : session.id === companionSession?.id
+              ? companionChat
+              : undefined;
+      if (session === undefined || chat === undefined) {
+        setFailure("Only a running chat session has a model control.");
+        return;
+      }
+      setDialog({ kind: "chat-model", session });
+    },
+    [companionChat, companionSession?.id, mainChat, mainSession?.id, setDialog, setFailure],
+  );
+  const openReasoningPicker = useCallback(
+    (session: Session | undefined) => {
+      const chat =
+        session === undefined
+          ? undefined
+          : session.id === mainSession?.id
+            ? mainChat
+            : session.id === companionSession?.id
+              ? companionChat
+              : undefined;
+      if (session === undefined || chat === undefined) {
+        setFailure("Only a running chat session has a reasoning control.");
+        return;
+      }
+      setDialog({ kind: "chat-reasoning", session });
+    },
+    [companionChat, companionSession?.id, mainChat, mainSession?.id, setDialog, setFailure],
+  );
 
   const runAction = useCallback(
     (action: string) => {
@@ -654,8 +705,8 @@ export function useTaskWorkspace({
       else if (action === "restart-session" && focusedSession !== undefined)
         void restartSession(focusedSession);
       else if (action === "abort-turn") void abort();
-      else if (action === "change-model") openModelPicker();
-      else if (action === "change-reasoning") openReasoningPicker();
+      else if (action === "change-model") openModelPicker(focusedSession);
+      else if (action === "change-reasoning") openReasoningPicker(focusedSession);
       else if (action === "remove-session" && focusedSession !== undefined)
         setDialog({ kind: "remove-session", session: focusedSession });
       else if (action === "rename-session" && focusedSession !== undefined)
@@ -697,7 +748,7 @@ export function useTaskWorkspace({
   );
 
   const runActionRef = useRef(runAction);
-  useEffect(() => {
+  useLayoutEffect(() => {
     runActionRef.current = runAction;
   }, [runAction]);
   const stableOnAction = useCallback((action: string) => runActionRef.current(action), []);
@@ -782,6 +833,7 @@ export function useTaskWorkspace({
             : status;
         const label = labels.get(session.id) ?? session.kind;
         const badge = described.badge === undefined ? undefined : described.badge;
+        const stateWord = badge ?? (shown === undefined ? undefined : describeStatus(shown));
         const offer = viewOffer(session, drivers, capabilitiesReady);
         const viewLabel =
           "target" in offer
@@ -794,7 +846,7 @@ export function useTaskWorkspace({
             id,
             kind: "session" as const,
             label,
-            ariaLabel: [label, badge].filter(Boolean).join(" "),
+            ariaLabel: [label, stateWord].filter(Boolean).join(" "),
             menuLabel: `Session actions for ${label}`,
             number: tabNumber(layout, id),
             agentKind: session.kind,
@@ -917,7 +969,7 @@ export function useTaskWorkspace({
     />
   );
 
-  const sessionPane = (session: Session | undefined): ReactNode => {
+  const sessionPane = (session: Session | undefined, group: TaskTabGroup): ReactNode => {
     if (session === undefined) return null;
     const chat = chatFor(session);
     const terminal = terminals.find((candidate) => candidate.id === session.terminalId);
@@ -948,16 +1000,16 @@ export function useTaskWorkspace({
           files={chatFiles}
           agent={session.kind}
           followUp={driver?.followUp}
-          modelPickerAnchor={modelAnchor}
-          reasoningPickerAnchor={reasoningAnchor}
+          modelPickerAnchor={group === "main" ? mainModelAnchor : companionModelAnchor}
+          reasoningPickerAnchor={group === "main" ? mainReasoningAnchor : companionReasoningAnchor}
           canChooseAgent={Object.values(config.agents).some((agent) => agent.enabled.value)}
           abortHint={formatBinding(config, "abort-turn")}
           aborting={chat.aborting}
           onSend={chat.send}
           onAbort={chat.abort}
           onRespond={chat.respond}
-          onChangeModel={openModelPicker}
-          onChangeReasoning={openReasoningPicker}
+          onChangeModel={() => openModelPicker(session)}
+          onChangeReasoning={() => openReasoningPicker(session)}
         />
       );
     }
@@ -999,10 +1051,10 @@ export function useTaskWorkspace({
         fill
         panelRef={mainPane}
       >
-        <div className="visual-workspace-pane">
+        <div className="visual-workspace-pane" onFocusCapture={() => setFocusGroup("main")}>
           {tabsInGroup(layout, "main").some((tab) => tab.kind === "session") ? (
             // oxlint-disable-next-line react/refs -- the anchors are passed to ChatView, not read here
-            sessionPane(mainSession)
+            sessionPane(mainSession, "main")
           ) : (
             <div className="visual-main-empty visual-workspace-empty">{addSessionControl}</div>
           )}
@@ -1027,29 +1079,31 @@ export function useTaskWorkspace({
           fill
           panelRef={companionPane}
         >
-          {companionTab?.kind === "changes" &&
-          task !== undefined &&
-          changesActions !== undefined ? (
-            <ChangesView
-              key={task.id}
-              task={task}
-              changes={changes.byTask.get(task.id)}
-              failed={changes.failed}
-              store={client.changes}
-              actions={changesActions}
-              pullRequest={pullRequests.byTask.get(task.id)}
-              onPullRequest={(request) => pullRequests.remember(request)}
-              onSettle={() => {
-                void client.connection.api.tasks.setState({
-                  id: task.id,
-                  state: task.state === "active" ? "settled" : "active",
-                });
-              }}
-            />
-          ) : (
-            // oxlint-disable-next-line react/refs -- the anchors are passed to ChatView, not read here
-            sessionPane(companionSession)
-          )}
+          <div className="visual-workspace-pane" onFocusCapture={() => setFocusGroup("companion")}>
+            {companionTab?.kind === "changes" &&
+            task !== undefined &&
+            changesActions !== undefined ? (
+              <ChangesView
+                key={task.id}
+                task={task}
+                changes={changes.byTask.get(task.id)}
+                failed={changes.failed}
+                store={client.changes}
+                actions={changesActions}
+                pullRequest={pullRequests.byTask.get(task.id)}
+                onPullRequest={(request) => pullRequests.remember(request)}
+                onSettle={() => {
+                  void client.connection.api.tasks.setState({
+                    id: task.id,
+                    state: task.state === "active" ? "settled" : "active",
+                  });
+                }}
+              />
+            ) : (
+              // oxlint-disable-next-line react/refs -- the anchors are passed to ChatView, not read here
+              sessionPane(companionSession, "companion")
+            )}
+          </div>
         </VisualTabPanel>
         {position === "bottom" && strip("companion")}
       </VisualCompanion>
@@ -1105,7 +1159,15 @@ export function useTaskWorkspace({
                 agents={config.agents}
                 settings={taskSettingsFor(config, projectPath ?? "")}
                 chatDrivers={drivers.map((driver) => driver.kind)}
-                anchor={dialog.kind === "chat-model" ? modelAnchor : reasoningAnchor}
+                anchor={
+                  dialog.session.id === companionSession?.id
+                    ? dialog.kind === "chat-model"
+                      ? companionModelAnchor
+                      : companionReasoningAnchor
+                    : dialog.kind === "chat-model"
+                      ? mainModelAnchor
+                      : mainReasoningAnchor
+                }
                 onStart={async (choice) => {
                   const started = await launch(choice.kind, choice, choice.view);
                   addSession(started);
@@ -1146,7 +1208,7 @@ export function useTaskWorkspace({
           {failure}
         </p>
       ),
-    chrome: position === "top" ? strip("main") : null,
+    chrome: position === "top" ? strip("main") : undefined,
     main: (
       <>
         {mainPaneContent}

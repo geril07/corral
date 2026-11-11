@@ -230,12 +230,12 @@ test("a settled result shows its project and state; Enter inspects it, Continue 
 test("the find-task binding is configurable and in the palette, and unbinding it keeps the visible entry", async () => {
   const client = newClient();
   await render(<App client={client} />);
-  await writeConfig('[keys.bindings]\nfind-task = "q"\n');
+  await writeConfig('[keys.bindings]\nfind-task = "z"\n');
   await vi.waitFor(() =>
-    expect(client.config.getSnapshot().config.keys.bindings["find-task"]).toBe("q"),
+    expect(client.config.getSnapshot().config.keys.bindings["find-task"]).toBe("z"),
   );
 
-  await prefixThen("q");
+  await prefixThen("z");
   await expect.element(findDialog()).toBeVisible();
   await userEvent.keyboard("{Escape}");
   await expect.element(findDialog()).not.toBeInTheDocument();
@@ -244,7 +244,7 @@ test("the find-task binding is configurable and in the palette, and unbinding it
   const palette = page.getByRole("dialog", { name: "Command palette" });
   await expect
     .element(palette.getByRole("option", { name: /Find task/ }))
-    .toMatchTextContent("alt+a q");
+    .toMatchTextContent("alt+a z");
   await userEvent.keyboard("{Escape}");
   await expect.element(palette).not.toBeInTheDocument();
 
@@ -253,7 +253,7 @@ test("the find-task binding is configurable and in the palette, and unbinding it
     expect(client.config.getSnapshot().config.keys.bindings["find-task"]).toBeNull(),
   );
 
-  await prefixThen("q");
+  await prefixThen("z");
   await expect.element(findDialog()).not.toBeInTheDocument();
 
   await workspace().getByRole("button", { name: "Search tasks" }).click();
