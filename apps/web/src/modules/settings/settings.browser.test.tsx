@@ -1026,6 +1026,8 @@ test("the search field is a borderless Search field with a caret-only focus", as
 test("a pointer click leaves no focus ring, while Tab still shows one", async () => {
   const client = newClient();
   await renderSettings(client);
+  // The dialog's enter animation moves every box inside it; let it settle before pointing.
+  await vi.waitFor(() => expect(settingsDialog().element().getAnimations()).toHaveLength(0));
   const rowTitle = page.getByText("Interface text scale", { exact: true });
   await rowTitle.click();
   const row = rowTitle.element().closest<HTMLElement>(".settings-row");
@@ -1037,11 +1039,23 @@ test("a pointer click leaves no focus ring, while Tab still shows one", async ()
   const position = page.getByRole("combobox", { name: "Session tab position" });
   await position.click();
   expect(getComputedStyle(position.element()).boxShadow).toBe("none");
+  // The open popup owns Escape. Wait until it has finished opening, so its dismissal layer is
+  // mounted before the key press, then check that only the popup closed.
+  const option = page.getByRole("option", { name: "Bottom", exact: true });
+  await expect.element(option).toBeVisible();
+  const popup = document.querySelector<HTMLElement>('[data-slot="combobox-content"]');
+  if (popup === null) throw new Error("the select popup did not open");
+  await vi.waitFor(() => expect(popup.getAnimations({ subtree: true })).toHaveLength(0));
   await userEvent.keyboard("{Escape}");
+  await expect.element(option).not.toBeInTheDocument();
+  await expect.element(settingsHeading()).toBeVisible();
 
   const scale = page.getByRole("slider", { name: "Interface text scale" });
   await scale.click();
   expect(scale.element().matches(":focus-visible")).toBe(false);
+  // A scale change re-lays out the dialog at once; its geometry never animates (`ui-kit.md`,
+  // **Motion**), so no transition may start on it.
+  expect(settingsDialog().element().getAnimations()).toHaveLength(0);
 
   const keyboard = settingsRailButton("Keyboard");
   await keyboard.click();
