@@ -23,7 +23,8 @@ See [Model catalogs](model-catalog.md) for the policy and adapter limits.
 
 ## Target flow (stages A and B built)
 
-What a user does. Everything below is built and verified end to end, chat views and the handoff included. Keys listed here are the effective defaults.
+What a user does. Keys listed here are the effective defaults. The routed rebuild's full browser
+and Electron gates remain red; individual descriptions are not a claim of end-to-end verification.
 
 1. A draft opens in the main area as a tab in the working area's main group (the task composer) from the New task button or a direct command. `Mod+N` chooses a project first, skipping the question when exactly one exists; `Mod+Shift+N` uses the selected task's project, and asks instead of guessing when no project is current; `Mod+Alt+N` starts a No project (scratch) draft. `Mod` is Cmd on macOS and Ctrl elsewhere, and `prefix t` still opens the same project choice. A project keeps one draft and New task returns to it; a No project draft is its own. The draft is device-local: its prompt, project, agent/model, workspace mode and base branch are written 300 ms after the last edit and before unload, so Escape keeps it and reopening New task restores the text and the choices, while closing the draft's tab discards it with Undo in the sidebar notice. The composer is a prompt with attach, instance/model and reasoning on the bottom-left and Send on the right; one left-aligned context row below it names the project, the workspace and its branch. The project name opens the same project picker as project selection, pins included, and returns focus to the prompt. `Current checkout` is a read-only fact; `New worktree` shows `from <branch>` with a base-ref picker (local branches another worktree holds included, plus remote-tracking refs), and only that choice sends a base branch. A draft whose project was removed shows `Project unavailable`, keeps its prompt and cannot create until another project or No project is chosen. Opening a draft creates nothing and starts no agent; Enter or Send calls `tasks.create`. A scratch task has a server-owned directory and no Git controls.
 2. The task appears in the sidebar at once under the prompt-derived seed title, which the generated title replaces. Its primary agent opens in the chosen view, already working on the prompt. No shell opens on its own.
@@ -46,7 +47,7 @@ What a user does. Everything below is built and verified end to end, chat views 
    asked for a busy agent (stage C). Whether Codex's terminal is view-only while chat writes is
    measured when its driver starts.
 5. The visual shell lists active tasks flat, with no project/status headers, and the settled ones in one **Settled** shelf below them. A task's status is its **primary** session's, ordered: blocked/error, completed and unseen, working, then neutral; the newest report comes first inside a group. "Completed and unseen" clears when the task is opened or its status changes while it is selected. Settling moves a task into the shelf and stops its running sessions; the shelf names the count (`Settled (5)`), is collapsed by default, keeps its collapsed state per device, and collapsed it shows only the current task's row. `prefix d`, the card's hover action and the row menu's `Settle task` / `Unsettle task` settle and continue a task; a settled task stays selectable, and its working area keeps its tabs and says that continuing resumes the sessions that were running. Restarting a stopped session of a settled task, or continuing it, makes the task active in the same step: the sessions that were running resume once, nothing starts while the task still reads settled, and the board includes it. Starting a shell or agent in a settled task is refused with "This task is settled. Continue it first."; `prefix v` on its stopped session only chooses the next view; on a running session created by an older daemon it refuses before a handoff. `prefix w` gives the list the keyboard: arrows walk the active rows and then the shelf's disclosure, and Enter opens the shelf. Search and project filters remain deferred. The task composer, its direct creation commands, Settings and the task's working area are connected in the production shell.
-6. `prefix f` finds a task, `prefix j`/`k` steps through tasks, `prefix e` renames the task (session rename stays `prefix shift+r`), `prefix d` settles the task or continues a settled one.
+6. Search is deferred in the routed shell. `prefix e` renames the task (session rename stays `prefix shift+r`), and `prefix d` settles the task or continues a settled one.
 7. Settings reuses the existing Settings screen as a route over the mounted shell; its close returns to the same selection. It carries the defaults the composer uses: view (global, overridable per project), workspace mode, worktree root, branch prefix, slug mode, naming agent/model; the agents, whether each is found and which have a chat driver; and the three direct command chords under `[keys.direct]`. A disabled instance is absent from new-choice rails, and a selected one that becomes disabled keeps its identity and is refused with the reason rather than swapped silently.
 
 ## Layout and navigation
@@ -54,34 +55,13 @@ What a user does. Everything below is built and verified end to end, chat views 
 - Three places: the sidebar of tasks, the main area's working-area tab strip, and the pane below
   it (`layout.md`, **Working area**). The sidebar is a fixed pane the user resizes; the working
   area takes the rest. There is no title bar of our own and no global status bar.
-- The sidebar lists tasks only. A wordmark header has the sidebar toggle opposite it; the next
-  row has Search, grouping and New task. Its footer carries Settings, Add project, the prefix
-  hint while disarmed, and the shell status: connection state, config problems, the armed-prefix
-  badge and the current failure. The disarmed hint yields while the connection is not connected,
-  so the state word keeps the row's width; it returns when connected, and the armed badge still
-  replaces it. When the sidebar is hidden the same status sits in a strip above
-  the main content, so hiding the pane cannot remove it; only the visible placement is mounted,
-  so no live region or connection opener is duplicated, and without a failure that strip keeps
-  its fixed row, so arming the prefix does not resize the terminal under it; a failure's sentence
-  wraps and the strip grows for it, then returns to the row when dismissed. The sidebar has a
-  default and a narrow-window width, dragged between its limits with the edge handle, leaving the
-  main area its minimum at and above the supported 1024 px floor — kept per device, reset by a
-  double click, and hidden or shown by `prefix \`. `prefix w` gives the list the keyboard, showing
-  the sidebar first if it was hidden: arrows walk its rows, Enter opens one, and Escape returns
-  the keyboard to where it came from.
-- Project grouping is the default (`prefix l` switches to status groups and the device keeps
-  the choice). Settled tasks sit in the bottom shelf with one order across projects
-  (`layout.md`, **Visual shell (routed workspace)**); selecting older history reveals it without
-  resuming it. Rows are two-line tasks;
-  selection uses secondary appearance plus `aria-current` on exactly one task or loose terminal;
-  a project or Scratch container row never carries it, and no row is current while a project's
-  composer is open — not a bespoke colored left bar. Titles and paths truncate without losing
-  accessible names: a row names its title, attention word or age, second line and unseen mark,
-  and its status message is the description and a tooltip line. Change counts and a linked
-  request sit in a non-shrinking tail that keeps normal values whole at the narrow width;
-  container names carry their counts, a clipped project row names its absolute path, and an
-  exited loose terminal names its code. A focused row keeps focus and its ring across a sidebar
-  resize. Loose terminals sit in the Scratch section, one line each, and only while some exist.
+- The sidebar lists tasks flat, with Search and New task above and Settings and Add project in the
+  footer. Search and grouping are not connected. Its width and visibility are device-local;
+  `prefix \` toggles it. `prefix w` gives the list the keyboard. Settled tasks sit in the bottom
+  shelf (`layout.md`, **Visual shell (routed workspace)**); selecting one does not resume it.
+  The selected card carries `aria-current`; the open draft has no selected task row. Loose
+  terminals have no routed-shell navigation, including the editor-terminal limitation recorded in
+  `ui-rebuild.md`.
 - The main area is the selected task's working area: a **40** px strip above the main group, and
   the optional companion group beside it. The main group is always present; the companion group
   is hidden until it has a tab. Tabs may sit above or below their pane (device preference). A
@@ -94,9 +74,8 @@ What a user does. Everything below is built and verified end to end, chat views 
   companion group's `Changes` tab holds the task's changed files and finishes the task
   (`layout.md`, **Changes**): stage, commit, push to the named remote and open a pull request
   through the user's own `gh`/`glab`, every remote write confirmed by name and URL. Opening it
-  keeps the main group's current session and a `+N −M` count sits in the sidebar row when the task
-  changed something; a linked pull request's name and state sit beside the count, and a merged one
-  offers settle in the `Changes` finish bar.
+  keeps the main group's current session. The Changes pane shows the request and offers settle
+  in its finish bar when it merged.
 - The main area shows the open draft as a tab in the main group; otherwise the selected task's
   working area or an empty state. A draft has no URL of its own and no sidebar row: while it is
   open no task row is current. Closing the draft's tab discards it, while Escape (with no failure
@@ -113,9 +92,8 @@ What a user does. Everything below is built and verified end to end, chat views 
 - Clicking navigation, tabs or the task header must not take the keyboard from the terminal; a
   dialog returns focus to its opener and, failing that, to the terminal (see **Focus, keyboard
   and errors**).
-- Secondary task/session actions use context menus and the palette; the task header keeps a
-  discoverable overflow menu, and the tab row keeps its add-session menu; renaming a session keeps `prefix shift+r`, removing it
-  asks first. Icons are Lucide's standard glyphs.
+- Secondary task/session actions use context menus; the tab row keeps its add-session menu.
+  Renaming a session keeps `prefix shift+r`, and removing it asks first.
 - A visual-shell task row's menu orders identity before state before context before destruction:
   Copy ▸ Path, Branch when the task has one, and Task ID; Rename task…; `Settle task`, or
   `Unsettle task` for a settled one; View issue source… only for a task imported from an issue; and
@@ -169,22 +147,10 @@ What a user does. Everything below is built and verified end to end, chat views 
 - A session started after its workspace was deleted outside Corral does not show the OS `chdir`
   line: the failed pane names the sentence with the path, the Changes tab shows the same sentence,
   and Remove is the recovery.
-- Remove project is a project row's destructive action: its confirmation names the project and,
-  when it has any, how many tasks it forgets (a zero-task project is named without a count), and
-  says the worktrees and branches stay on disk. A project with a
-  task whose terminal runs is refused and nothing changes; Cancel and Escape return the keyboard
-  to the row. Because the removed project named the selection, the main area lands on the
-  resolver's fallback — the URL, the Changes tab and the composer follow it — never on a blank one.
-- Rename is a focused dialog, the same one for a task's title, a session label and a loose
-  terminal label. Every loose terminal row offers it, not only the current one, and naming a row
-  does not select it. Enter closes the dialog before the save; a failed save is a workspace
-  notice, not a reopened dialog. Session labels persist; loose terminal labels survive only for
-  their terminal's lifetime. The historical first-character risk remains unexplained; changing kits
-  is not evidence of a fix.
-- An exited loose terminal also offers Restart: a new terminal with the same command, arguments,
-  folder and label at the current size, selected, and the dead row closed. A restart the server
-  refuses leaves the dead row and its label and shows the failure; the exit badge and the pane's
-  exit line stay until then.
+- Project removal and loose-terminal rename/restart have no routed-shell entry point. The server
+  contracts still exist; the removed sidebar's interactions are not current UI promises.
+- Rename is a focused dialog for task titles and session labels. Session labels persist; the
+  historical first-character risk remains unexplained, and changing kits is not evidence of a fix.
 - Imported source is immutable original title/body/link context, displayed as escaped
   text. Pending/cancel/project-switch guards and manual-title preservation remain.
 
