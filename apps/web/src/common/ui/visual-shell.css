@@ -1211,38 +1211,9 @@
   color: var(--visual-status-error);
 }
 
-/* ── Scrollbar (fine pointers only; touch keeps the platform bar) ────────── */
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
 
-/* The one kit bar: an 8 px lane, a transparent track and a pill thumb inset by its 2 px transparent
-   border, revealed while the scroller is hovered. A scroller opts in with `visual-scrollbar`; the
-   settings content column is the dialog's scroller and uses the same bar as the shell's lists. */
-@media (hover: hover) and (pointer: fine) {
-  .visual-scrollbar::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  .visual-scrollbar::-webkit-scrollbar-track,
-  .visual-scrollbar::-webkit-scrollbar-corner {
-    background: transparent;
-  }
-
-  .visual-scrollbar::-webkit-scrollbar-thumb {
-    min-height: 32px;
-    border: 2px solid transparent;
-    border-radius: 9999px;
-    background-color: transparent;
-    background-clip: padding-box;
-  }
-
-  .visual-scrollbar:hover::-webkit-scrollbar-thumb {
-    background-color: var(--visual-border-muted);
-  }
-
-  .visual-scrollbar::-webkit-scrollbar-thumb:hover,
-  .visual-scrollbar::-webkit-scrollbar-thumb:active {
-    background-color: var(--visual-text-faint);
-  }
-}
+/* Every native scroller takes the one bar in `app/global.css`; there is no opt-in class. */
 
 /* Review host only: a small theme switch outside the production shell. */
 .visual-review-theme {
