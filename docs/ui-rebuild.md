@@ -127,6 +127,9 @@ behaviour and the open questions; the slice brief is written from it.
   exist in the routed shell, helpers that still drive the previous UI); the rebuild's own suites —
   composer, settings, pickers, tabs, workspace, chat, terminal — pass. Every slice therefore verifies
   with focused suites, and the full suite is not evidence of anything until this is resolved.
+- **The open Settled shelf mounts every settled row** in the sidebar's one scroller; the prior
+  sidebar paged its measured box (`SHELF_MAX_PAGES`, `Show more`). A very long settled history costs
+  one card per row until paging or virtualisation is built.
 - **`Project settings…`** lives only in the old sidebar and is unreachable until the new shell has
   project rows.
 - **Legacy sweep flow** — `.review/orchestrator.md`, `.review/contract.md`, `.review/goal.md`, the
