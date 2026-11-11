@@ -144,7 +144,7 @@ function ProjectPicker({
             <li key={entry.key} className="settings-picker-item">
               <Button
                 variant="ghost"
-                layout="navigation"
+                layout="picker-row"
                 aria-label={`Project settings for ${entry.name}`}
                 onClick={() => onSelect(entry.path)}
               >

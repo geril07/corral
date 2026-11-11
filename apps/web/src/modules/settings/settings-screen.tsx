@@ -276,6 +276,7 @@ export function SettingsScreen({
             <Icon name="find" />
             <Input
               ref={searchField}
+              frame="bare"
               type="text"
               aria-label="Search settings"
               placeholder="Search"
@@ -326,7 +327,9 @@ export function SettingsScreen({
                     >
                       <Button
                         variant="ghost"
+                        layout="result"
                         tabIndex={-1}
+                        data-highlighted={index === activeIndex ? true : undefined}
                         onMouseMove={() => setActiveResult(index)}
                         onClick={() => selectResult(item)}
                       >
@@ -359,7 +362,7 @@ export function SettingsScreen({
                             id={`settings-nav-${id}`}
                             data-settings-nav-item
                             variant="ghost"
-                            layout="navigation"
+                            layout="category"
                             aria-current={current === id ? "page" : undefined}
                             aria-controls={panelId(id)}
                             onClick={() => visit(id)}

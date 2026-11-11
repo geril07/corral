@@ -900,6 +900,80 @@
   background: var(--visual-border-muted);
 }
 
+/* ── Settings rows ───────────────────────────────────────────────────────── */
+
+/* A settings category row: 32 px, 8 px radius, 10 px inline padding, a 16 px icon with an 8 px gap
+   and a muted 14/20 label that takes the hover overlay; the current section sits on layer 03
+   (`ui-kit.md`, **Compositions** — Settings). Geometry stays px so the rail keeps T3's metrics at
+   every interface text scale, while the label's rem type follows it. */
+.visual-settings-category {
+  height: 32px;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--visual-text-muted);
+  font-weight: 530;
+  text-align: left;
+}
+
+.visual-settings-category:hover {
+  background: var(--visual-hover);
+  color: var(--visual-text-base);
+}
+
+.visual-settings-category[aria-current="page"] {
+  background: var(--visual-bg-layer-03);
+  color: var(--visual-text-base);
+}
+
+/* A settings search result: a two-line row that fills the rail's results list. The option owns the
+   highlight, so the row paints the shared overlay from its `data-highlighted`. */
+.visual-settings-result {
+  height: auto;
+  min-height: 40px;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--visual-text-base);
+  text-align: left;
+  white-space: normal;
+}
+
+.visual-settings-result:hover,
+.visual-settings-result[data-highlighted] {
+  background: var(--visual-hover);
+}
+
+/* A settings card list row: a two-line row that fills its card and is divided from its neighbours
+   by the caller. Its focus is the shell's inset outline, so the stock ring is not added on top. */
+.visual-settings-picker-row {
+  height: auto;
+  min-height: 48px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  text-align: left;
+  white-space: normal;
+}
+
+.visual-settings-picker-row:hover {
+  background: var(--visual-hover);
+}
+
+.visual-settings-picker-row:focus-visible {
+  outline: 2px solid var(--visual-border-focus);
+  outline-offset: -2px;
+}
+
 /* ── Main surface ────────────────────────────────────────────────────────── */
 
 .visual-shell-main {
