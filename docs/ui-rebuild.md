@@ -55,6 +55,14 @@ it — without meeting a single invented screen.
   window.
 - **Kit cleanup** — standardized input and prompt padding (16 inline for the prompt, 12 for fields),
   press translate removed from every button, `No project` icon matches the picker.
+- **Review fixes on the merged surface** (#263, `d3b8f5b`) — focus after the first project choice,
+  a visible and revealed keyboard selection in Settings search, Settings typography that follows the
+  interface scale, model reset for a non-default instance, one scrollbar recipe, shared tooltips on
+  the instance rail, and a select popup at its trigger's width.
+- **Technical fixes** (#263, `88444cd`) — protocol 14, `projects.baseRefs` with grouped local/remote
+  refs and the main tree's `currentBranch`, disabled instances refused, one owner for saved
+  preferences, a missing project cannot be submitted, the checkout row shows the real branch, the
+  truncation notice no longer instructs the impossible, and visibility actions keep saved ordering.
 - **Task context menu** (#263, merged `0490416`) — Copy ▸ path / branch / task ID, rename, issue
   source only when present, remove. Settle stays out until the shelf exists. Pinning lives in the
   project picker; the shell has no project row to hang a menu on.
@@ -116,11 +124,11 @@ behaviour and the open questions; the slice brief is written from it.
 
 Per `docs/delivery.md`, each slice gets a UI/UX review and then a technical review.
 
-| Surface                                           | UI/UX                                                                               | Technical              |
-| ------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------- |
-| Merged #263 surface (composer, settings, pickers) | done; no P0/P1, six P2/P3 fixes in `feat/263-review-fixes`, copy left for the owner | in progress            |
-| Tabs (`feat/263-tabs`)                            | done; two P1s and eight P2s fixed in `d149684`                                      | in progress            |
-| Task menu (`feat/263-task-menu`)                  | done; two P1s fixed (Settle removed, focus after remove)                            | done; merged `0490416` |
+| Surface                                           | UI/UX                                                    | Technical                                  |
+| ------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------ |
+| Merged #263 surface (composer, settings, pickers) | done; its P2/P3 fixes merged in `d3b8f5b`                | done; merged in `88444cd`, copy still open |
+| Tabs (`feat/263-tabs`)                            | done; two P1s and eight P2s fixed in `d149684`           | in progress                                |
+| Task menu (`feat/263-task-menu`)                  | done; two P1s fixed (Settle removed, focus after remove) | done; merged `0490416`                     |
 
 ### Technical review triage
 
