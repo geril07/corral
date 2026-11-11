@@ -53,10 +53,10 @@ export function ChatTimeline({
 }: ChatTimelineProps) {
   const rows = useMemo(() => chatRows({ items, turn, waiting }), [items, turn, waiting]);
   const list = useRef<LegendListRef>(null);
+  /** What this session was left with; read once, because a later mount is not a restore. */
+  const [restored] = useState(() => memory.read());
   /** False after the user moved up, so a layout change below does not drag the view back. */
-  /** The row this session was left on; read once, because a later mount is not a restore. */
-  const [restored] = useState(() => memory.read().anchor);
-  const [follow, setFollow] = useState(() => restored === undefined);
+  const [follow, setFollow] = useState(() => restored.anchor === undefined || restored.atEnd);
   const followConfig = useMemo(() => ({ on: { dataAppend: true, dataChange: true } }), []);
 
   const scrollNode = useCallback((): HTMLElement | null => {
@@ -82,8 +82,34 @@ export function ChatTimeline({
       (row) => row.getBoundingClientRect().bottom > box.top + 1,
     );
     const key = reading?.dataset["rowKey"];
-    if (key !== undefined) memory.remember({ key });
-  }, [memory, scrollNode]);
+    if (key === undefined) return;
+    memory.remember(
+      { key, index: rows.findIndex((row) => row.key === key) },
+      state?.isAtEnd ?? atEnd(node),
+    );
+  }, [memory, rows, scrollNode]);
+
+  /**
+   * Opens or closes a fold without letting the list drag the view to it. A list that is following
+   * its end ignores a held anchor ("returns the anchor without interrupting end following"), so
+   * that follow is released before the layout changes; two frames later the latch is taken from
+   * where the layout actually left the view, which keeps the end following after a disclosure that
+   * closed and releases it after one that grew the content under the user. T3 suspends its
+   * end-scroll maintenance for a disclosure for the same reason (`MessagesTimeline.tsx:490-536`).
+   */
+  const toggleFold = useCallback(
+    (key: string) => {
+      if (list.current?.getState().isFollowingEnd === true) list.current.cancelScroll();
+      onToggleFold(key);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const node = scrollNode();
+          if (node !== null) setFollow(atEnd(node));
+        });
+      });
+    },
+    [onToggleFold, scrollNode],
+  );
 
   /** Keyboard scrolling: a move up releases the end follow, reaching the end takes it again. */
   const scrollBy = async (delta: number) => {
@@ -149,19 +175,31 @@ export function ChatTimeline({
         <TranscriptRow
           row={item}
           expanded={expanded}
-          onToggleFold={onToggleFold}
+          onToggleFold={toggleFold}
           onRespond={onRespond}
           onAnswered={onAnswered}
           onFailure={onFailure}
+          waiting={waiting}
         />
       </div>
     ),
-    [expanded, onToggleFold, onRespond, onAnswered, onFailure],
+    [expanded, toggleFold, onRespond, onAnswered, onFailure, waiting],
   );
 
-  // A session that was scrolled before opens on the row it was reading; a fresh one at the tail.
+  /**
+   * A session that was scrolled before opens on the row it was reading, and one that was at the
+   * end opens at the end. A remembered row that no longer exists — the fold that held it is
+   * closed again — falls back to the row at the same index, then to the end.
+   */
+  const remembered = restored.anchor;
   const anchorIndex =
-    restored === undefined ? -1 : rows.findIndex((row) => row.key === restored.key);
+    remembered === undefined ? -1 : rows.findIndex((row) => row.key === remembered.key);
+  const startIndex =
+    remembered === undefined
+      ? -1
+      : anchorIndex >= 0
+        ? anchorIndex
+        : Math.min(remembered.index, rows.length - 1);
   return (
     <LegendList
       ref={list}
@@ -172,15 +210,13 @@ export function ChatTimeline({
       renderItem={renderItem}
       estimatedItemSize={96}
       estimatedListSize={{ width: 720, height: 480 }}
-      {...(anchorIndex >= 0
-        ? { initialScrollIndex: { index: anchorIndex } }
-        : restored === undefined
-          ? { initialScrollAtEnd: true }
-          : {})}
+      {...(remembered === undefined || restored.atEnd || startIndex < 0
+        ? { initialScrollAtEnd: true }
+        : { initialScrollIndex: { index: startIndex } })}
       alignItemsAtEnd
       maintainScrollAtEnd={follow ? followConfig : false}
       recycleItems={false}
-      className="h-full"
+      className="h-full overflow-anchor-none"
       data-testid="chat-timeline"
       tabIndex={0}
       role="log"

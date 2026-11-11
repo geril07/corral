@@ -107,16 +107,21 @@ context-menu dispatcher.
 - Button `layout="status"` keeps the footer's connection opener in its row; the visible label is
   the connection state word, shortened when the row cannot hold it, and the sentence with attempt
   and elapsed is its `Hint` and the recovery dialog. It opens that dialog.
-- Button `layout="activity"` + `size="activity"` is the chat transcript's 24 px row: the whole
-  lane's width, an icon slot, a truncating label and a trailing disclosure, with an inset ring
-  because it sits in the timeline's scroll container. A row without an icon is a turn-level row —
+- Button `layout="activity"` + `size="activity"` is the chat transcript's activity row: the whole
+  lane's width, a 24 px slot holding a 16 px glyph, a truncating label and a trailing disclosure,
+  with an inset ring because it sits in the timeline's scroll container. Its minimum is T3's
+  24 px (`WorkLog.tsx:51`); the rendered height is **29.75** px at the default interface scale, so
+  the minimum is a floor, not the metric. A row without an icon is a turn-level row —
   the fold's `Worked` and the live `Working` — and starts at the lane's edge. The kit's icon set
   carries the transcript's verbs (`read`, `edit`, `run`'s terminal, `find`, `diagnostics`,
-  `hammer` for a mixed group, `thinking`) and `quote`.
+  `hammer` for a mixed group, `thinking`) and `quote`; `DisclosureIcon` is its one rotating
+  chevron (12 px, a quarter turn over 200 ms, still under reduced motion).
 - `SelectionAction` is the floating action a text selection raises: it offers itself only for a
   selection that starts and ends inside an element carrying `data-selection-action`, inside the
-  scope the module names, and the module supplies the words and the action. Tab reaches it while
-  the selection is up, Escape dismisses it, and pressing it does not clear the selection first.
+  scope the module names, and the module supplies the words and the action. It hangs under the
+  last line of the selection and appears when the gesture that made it ends, not mid-drag. Tab
+  reaches it while the selection is up, Escape dismisses it, and pressing it does not clear the
+  selection first.
 - `bg-canvas` and `bg-layer-01` name the visual shell's base and its first raised layer for
   modules; a chat pane sits on the canvas and a user message on layer-01.
 - Alert `size="compact"`: the message keeps its own width in a chrome row; a sentence that does

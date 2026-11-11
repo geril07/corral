@@ -38,12 +38,22 @@ export function SelectionAction({
 }) {
   const [selection, setSelection] = useState<SelectionActionState>();
   const buttonRef = useRef<HTMLButtonElement>(null);
+  /** True while a pointer is still choosing the text, so the pill waits for the release. */
+  const dragging = useRef(false);
+  /** The frame the release's selection is read on. */
+  const releaseFrame = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const element = scope.current;
     if (element === null) return undefined;
     const clear = () => setSelection(undefined);
     const update = () => {
+      // A drag has not chosen its text yet: the pill appears when the gesture ends, as T3's
+      // `observeSelectionActions` does (`lib/selectionActions.ts:139-147,186-193`).
+      if (dragging.current) {
+        clear();
+        return;
+      }
       const selected = window.getSelection();
       if (selected === null || selected.isCollapsed || selected.rangeCount === 0) {
         clear();
@@ -76,6 +86,28 @@ export function SelectionAction({
       }
       setSelection({ text, rect });
     };
+    const onPointerDown = (event: PointerEvent) => {
+      if (!event.isPrimary) return;
+      // Pressing the pill is the action, not a new selection gesture (T3 skips its own action
+      // targets the same way, `lib/selectionActions.ts:118-123`).
+      const button = buttonRef.current;
+      if (button !== null && event.target instanceof Node && button.contains(event.target)) return;
+      dragging.current = event.button === 0;
+      if (dragging.current) clear();
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      if (!event.isPrimary || event.button !== 0) return;
+      dragging.current = false;
+      // The selection is final on the next frame, after the browser has applied the release.
+      if (releaseFrame.current !== undefined) cancelAnimationFrame(releaseFrame.current);
+      releaseFrame.current = requestAnimationFrame(() => {
+        releaseFrame.current = undefined;
+        update();
+      });
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
     document.addEventListener("selectionchange", update);
     // Scrolling moves the selection's rectangle without a selection change.
     element.addEventListener("scroll", update, true);
@@ -107,6 +139,10 @@ export function SelectionAction({
     };
     document.addEventListener("keydown", focusOnTab, true);
     return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+      if (releaseFrame.current !== undefined) cancelAnimationFrame(releaseFrame.current);
       document.removeEventListener("selectionchange", update);
       document.removeEventListener("keydown", focusOnTab, true);
       element.removeEventListener("scroll", update, true);
@@ -119,7 +155,9 @@ export function SelectionAction({
     if (button === null || selection === undefined) return;
     const box = button.getBoundingClientRect();
     button.style.left = `${Math.max(EDGE, Math.min(selection.rect.right - box.width, window.innerWidth - box.width - EDGE))}px`;
-    button.style.top = `${Math.max(EDGE, Math.min(selection.rect.top - box.height - EDGE, window.innerHeight - box.height - EDGE))}px`;
+    // Below the last line, not over the row above it (T3 anchors at `selectionRect.bottom + 4`,
+    // `lib/selectionActions.ts:24`).
+    button.style.top = `${Math.max(EDGE, Math.min(selection.rect.bottom + EDGE, window.innerHeight - box.height - EDGE))}px`;
   }, [selection]);
 
   if (selection === undefined) return null;

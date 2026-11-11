@@ -80,6 +80,13 @@
   }
 }
 
+/* A virtualized list owns its own position: the browser's scroll anchoring would move the view
+   when a row above or below the anchor changes height, which is what `maintainVisibleContentPosition`
+   is for. T3 sets the same property on its timeline (`MessagesTimeline.tsx:1347`). */
+@utility overflow-anchor-none {
+  overflow-anchor: none;
+}
+
 @utility no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;

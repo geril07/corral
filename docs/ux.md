@@ -286,9 +286,12 @@ What a user does. Everything below is built and verified end to end, chat views 
 ### The chat transcript
 
 - A finished turn folds to one `Worked` row. Its work — the calls it made and what it thought —
-  sits behind that row and expands in place; the prompt above it and the answer below it stay
-  visible. The turn that is still running never folds, and neither does one the user stopped or
-  one that failed, so the work that stopped is what the user sees.
+  and every message it wrote but the last sit behind that row and expand in place; the prompt
+  above it and the turn's terminal message below it stay visible, which is T3's shape for a run.
+  A turn normally writes several messages because each text block is its own item. The turn that
+  is still running never folds, and neither does one the user stopped or one that failed, so the
+  work that stopped is what the user sees. A notice, an error and a request inside a turn are
+  never hidden: a request owns the keyboard.
 - A turn's finished calls fold into one verb summary — `Read 4 files and ran 2 commands` — that
   expands to the calls themselves. A single finished call keeps its own row, and a running call
   keeps its own row because its output is still arriving.
@@ -297,21 +300,25 @@ What a user does. Everything below is built and verified end to end, chat views 
   (a running one says `Running <program>`). A failed call keeps its own glyph in the error colour
   and says `tool call failed` in its accessible name. Expanding a call shows its input and its
   output or diff, bounded.
-- While a turn runs the transcript's tail says `Working`; reasoning is `Thinking` while it streams
-  and `Thought` once it is done. Both shimmer, and not under reduced motion. Neither claims a
-  duration and the fold claims no time either: the chat contract carries no timestamps.
+- While a turn runs the transcript's tail says `Working` and shimmers, and not under reduced
+  motion. Reasoning is `Thinking` while it streams and `Thought` once it is done; only the live
+  state shimmers, so a finished `Thought` is quiet. A request the agent waits on ends both live
+  states, because nothing is being worked on while it waits. Neither claims a duration and the
+  fold claims no time either: the chat contract carries no timestamps.
 - A message's actions sit under it: `Copy message` on the user's message and on the agent's. They
   are mounted and tabbable in every state and revealed by hovering the message or by the keyboard
   reaching them. Copy writes the message's own text and answers with a check for a moment, with no
   toast; a refused clipboard says why in the pane's failure line above the composer.
-- Selecting text inside an agent message raises a floating `Quote`. Tab reaches it from the
+- Selecting text inside an agent message raises a floating `Quote` under the last line of the
+  selection, once the gesture that made it has ended rather than mid-drag. Tab reaches it from the
   transcript, Escape dismisses it, and activating it inserts the selection as a Markdown
   blockquote at the composer's caret, leaves the caret on the line below for the user's comment,
   and returns the keyboard to the composer. A selection anywhere else raises nothing. Timestamps,
   forks and edit-from-here are absent because the contract and the RPC have nothing to offer them.
 - Each session keeps its reading position and its open folds while the session is open: closing
   the tab and coming back reopens the transcript on the row the user was reading with the same
-  folds open, not at the tail. Scroll stays inside the pane; the composer overlays the lane's end
+  folds open, not at the tail, and a session left at the end comes back following it. A row that
+  no longer exists — its fold was closed again — reopens at the row now at the same place. Scroll stays inside the pane; the composer overlays the lane's end
   and the transcript keeps a matching space below its last row.
 
 ### Local links in chat
@@ -392,6 +399,9 @@ What a user does. Everything below is built and verified end to end, chat views 
   needs every configured instance's catalog, which would make one picker open discover all of
   them; it waits for either a protocol change or an approved eager discovery decision.
 - Long values may truncate; names and effective summaries retain their full meaning.
+- A folded run's summary says `Searched code N times` for every search, because the chat contract
+  carries a call's argument shape and not the tool that made it: a web search and a code search
+  are one action here, where T3 keeps two nouns. The call's own row still shows what it searched.
 - Interface text scale is adjustable per device (80–140%, relative to OS/browser scale).
   Terminal text stays fixed and independent of the interface text scale; terminal font controls
   are separate scope.

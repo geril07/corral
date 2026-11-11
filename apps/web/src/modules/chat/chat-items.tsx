@@ -12,6 +12,7 @@ import { describeError } from "@corral/client/rpc-errors";
 import {
   Button,
   DiffView,
+  DisclosureIcon,
   Icon,
   IconButton,
   Markdown,
@@ -19,7 +20,6 @@ import {
 } from "../../common/ui/index.ts";
 import { ChatRequestItem } from "./chat-request.tsx";
 import {
-  isWorkRow,
   toolAction,
   toolGroupSummary,
   toolLabel,
@@ -74,7 +74,7 @@ function ActivityRow({
             failed ? "text-destructive" : live ? "text-foreground" : "text-muted-foreground",
           ].join(" ")}
         >
-          <Icon name={icon} size="row" />
+          <Icon name={icon} />
         </span>
       )}
       <span
@@ -86,7 +86,7 @@ function ActivityRow({
       >
         {label}
       </span>
-      {expanded !== undefined && <Icon name={expanded ? "collapse" : "expand"} size="row" />}
+      {expanded !== undefined && <DisclosureIcon open={expanded} />}
     </>
   );
   if (onClick === undefined) {
@@ -197,30 +197,35 @@ export function AssistantMessageItem({
 
 /**
  * Reasoning is one muted row, collapsed by default. While it streams the row is T3's live
- * `Thinking`; when the turn moves on it is `Thought` (`TimelineWorkGroupRows.tsx:361`). The
- * contract carries no timestamps, so no duration is claimed.
+ * `Thinking`; when the turn moves on it is `Thought` (`TimelineWorkGroupRows.tsx:361`). A request
+ * the agent waits on ends the live state, because nothing is being thought then
+ * (`TimelineWorkGroupRows.tsx:366`). The contract carries no timestamps, so no duration is claimed.
  */
 export function ReasoningItem({
   item,
   expanded,
   onToggle,
+  waiting,
 }: {
   item: ChatReasoning;
   expanded: boolean;
   onToggle: () => void;
+  /** The agent is blocked on the user, so a stream that is still open is not work in progress. */
+  waiting: boolean;
 }) {
+  const live = item.streaming && !waiting;
   return (
     <div className="flex flex-col">
       <ActivityRow
         icon="thinking"
-        label={item.streaming ? "Thinking" : "Thought"}
+        label={live ? "Thinking" : "Thought"}
         expanded={expanded}
-        live={item.streaming}
-        shimmer={item.streaming}
+        live={live}
+        shimmer={live}
         onClick={onToggle}
       />
       {expanded && (
-        <p className="m-0 pl-6 text-sm whitespace-pre-wrap text-muted-foreground italic">
+        <p className="m-0 ms-7 text-sm whitespace-pre-wrap text-muted-foreground italic">
           {item.text}
         </p>
       )}
@@ -264,15 +269,11 @@ function ToolCallBody({ item }: { item: ChatToolCall }) {
   const argumentsText = item.arguments.trim();
   const output = item.output?.trim() ?? "";
   return (
-    <div className="flex flex-col gap-2 pl-6">
+    <div className="flex flex-col gap-2 ms-7">
       {argumentsText !== "" && (
-        <div className="flex flex-col gap-1">
-          {/* T3's expanded tool body labels its JSON with this line (`TimelineWorkEntryRow.logic.ts:100`). */}
-          <p className="m-0 text-xs text-muted-foreground">Tool input</p>
-          <pre className="m-0 max-h-64 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap">
-            {argumentsText}
-          </pre>
-        </div>
+        <pre className="m-0 max-h-64 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap">
+          {argumentsText}
+        </pre>
       )}
       {item.diff !== null ? (
         <DiffView text={item.diff.text} path={item.diff.path} />
@@ -306,13 +307,15 @@ export function ToolGroupItem({
   onToggleFold: (key: string) => void;
 }) {
   const summary = toolGroupSummary(items);
+  const failed = items.some((item) => item.status === "error");
   return (
     <div className="flex flex-col">
       <ActivityRow
         icon={ACTION_ICON[summary.action]}
         label={summary.label}
         expanded={expanded}
-        failed={items.some((item) => item.status === "error")}
+        failed={failed}
+        ariaLabel={failed ? `${summary.label}, tool call failed` : summary.label}
         onClick={onToggle}
       />
       {expanded &&
@@ -330,8 +333,9 @@ export function ToolGroupItem({
 
 /**
  * A finished turn folds to one line: T3's `Worked` is the label it uses when the contract carries
- * no timestamps (`MessagesTimeline.logic.ts:1181`). The rows it hides are its own work — the
- * assistant's answer stays outside.
+ * no timestamps (`MessagesTimeline.logic.ts:1181`). What it hides is the projection's answer
+ * (`chat-rows.ts`, `hiddenKeys`): the turn's work and its intermediate messages, while the turn's
+ * terminal message stays in place below the fold.
  */
 export function TurnFoldItem({
   expanded,
@@ -347,7 +351,6 @@ export function TurnFoldItem({
       <div className="border-b border-border/60">
         <ActivityRow label="Worked" expanded={expanded} onClick={onToggle} />
       </div>
-      {/* The caller keeps the answer here; only the turn's own work is hidden while closed. */}
       {children}
     </div>
   );
@@ -388,6 +391,8 @@ export interface TranscriptRowProps {
   onAnswered: () => void;
   /** A message action that failed says so in the pane's one failure line. */
   onFailure: (message: string) => void;
+  /** The agent is blocked on the user, so a streaming reasoning row is not live work. */
+  waiting: boolean;
 }
 
 /**
@@ -401,6 +406,7 @@ export function TranscriptRow({
   onRespond,
   onAnswered,
   onFailure,
+  waiting,
 }: TranscriptRowProps) {
   if (row.kind === "working") return <WorkingItem />;
   if (row.kind === "turn") {
@@ -408,8 +414,8 @@ export function TranscriptRow({
     return (
       <TurnFoldItem expanded={open} onToggle={() => onToggleFold(row.key)}>
         {row.rows.map((inner) =>
-          // Collapsed, only the work is hidden; the answer keeps its place after the fold.
-          open || !isWorkRow(inner) ? (
+          // Closed, the fold hides what the projection named; everything else keeps its place.
+          open || !row.hidden.has(inner.key) ? (
             <TranscriptRow
               key={inner.key}
               row={inner}
@@ -418,6 +424,7 @@ export function TranscriptRow({
               onRespond={onRespond}
               onAnswered={onAnswered}
               onFailure={onFailure}
+              waiting={waiting}
             />
           ) : null,
         )}
@@ -447,6 +454,7 @@ export function TranscriptRow({
           item={item}
           expanded={expanded.has(item.id)}
           onToggle={() => onToggleFold(item.id)}
+          waiting={waiting}
         />
       );
     case "tool-call":
