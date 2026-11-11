@@ -250,6 +250,8 @@ What a user does. Everything below is built and verified end to end, chat views 
   `Current · hidden by filter` when the model filter hides it), supported native model IDs and
   reported pi/OpenCode catalogs, never a stock catalog or invented thinking levels; with no model
   configured there is no default row at all, and a typed override's reset sits in the footer.
+  The reset returns to the configured model when the configured launch names this instance, and to
+  the instance's native default when it does not.
   Discovery does not imply the adapter can select every entry; incompatible rows explain their
   disabled state. The three regions are the instance rail, the searchable list (models grouped
   under provider headings) and the fixed thinking column; the footer carries the status, the
