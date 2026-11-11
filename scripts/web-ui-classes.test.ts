@@ -493,6 +493,45 @@ describe("guard CLI", () => {
     expect(result.stderr).toContain("apps/web/src/modules/tasks/broken.tsx:2: cannot parse");
   });
 
+  it("rejects a module stylesheet that selects on the kit's data-slot, and passes a clean one", () => {
+    const stylesheet = "apps/web/src/modules/settings/panel.css";
+    const root = fixture({
+      [stylesheet]: [
+        ".settings-panel { padding: 8px; }",
+        '.settings-panel [data-slot="button"] { padding: 0; }',
+      ].join("\n"),
+    });
+    const flagged = guard(root);
+    expect(flagged.status).toBe(1);
+    expect(flagged.stderr).toContain(
+      `apps/web/src/modules/settings/panel.css:2: module stylesheet selects on the kit's data-slot: [data-slot="button"]`,
+    );
+
+    // The unquoted form names the same marker, so the selector text is the violation, not one spelling.
+    writeFileSync(
+      path.join(root, stylesheet),
+      ".settings-panel [data-slot=button] { padding: 0; }\n",
+    );
+    expect(guard(root).stderr).toContain(
+      "module stylesheet selects on the kit's data-slot: [data-slot=button]",
+    );
+
+    writeFileSync(path.join(root, stylesheet), ".settings-panel { padding: 8px; }\n");
+    const clean = guard(root);
+    expect(clean.status).toBe(0);
+    expect(clean.stderr).toBe("");
+  });
+
+  it("lets the kit's own stylesheet select on its data-slot", () => {
+    const root = fixture({
+      "apps/web/src/common/ui/visual-shell.css":
+        '.visual-menu [data-slot="dropdown-menu-item"] { padding: 0; }\n',
+    });
+    const result = guard(root);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+  });
+
   it("passes on the checked-in web source", () => {
     const result = guard(repository);
     expect(result.status).toBe(0);
