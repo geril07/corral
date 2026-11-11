@@ -13,7 +13,8 @@ import { writeConfig } from "../../../test/config-command.ts";
 import { realServerClients } from "../../../test/real-client.ts";
 import { IDLE_CHAT } from "../../../test/recorded-chat.ts";
 import { writeRepoFile } from "../../../test/repo-file-command.ts";
-import { appWithProject } from "../../../test/task-flows.tsx";
+import { createGitRepo } from "../../../test/git-repo.ts";
+import { renderApp } from "../../../test/render-app.tsx";
 import { ChatViewHarness as ChatView } from "../../../test/chat-view-harness.tsx";
 import type { ChatFiles } from "./local-links.tsx";
 
@@ -124,12 +125,9 @@ async function laneWith(text: string, prepare?: (repo: string) => Promise<void>)
     },
     openChat: () => chatStore,
   };
-  const { repo } = await appWithProject(client);
-  const project = await vi.waitFor(() => {
-    const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
-    if (found === undefined) throw new Error("the project is not in the list yet");
-    return found;
-  });
+  await expect.poll(() => real.connection.state.getSnapshot().status).toBe("connected");
+  const repo = await createGitRepo("repo");
+  const project = await real.connection.api.projects.add({ path: repo });
   const created = await real.connection.api.tasks.create({
     projectId: project.id,
     title: "Local links",
@@ -143,12 +141,8 @@ async function laneWith(text: string, prepare?: (repo: string) => Promise<void>)
     tasks: [{ ...seededTask(project.id, created.workspacePath), id: created.id }],
   });
   sessions.set({ loaded: true, sessions: [seededSession(created.id)] });
-  // Adding the project left its composer open over the URL's project; choosing the seeded task
-  // is the navigation to its chat lane.
-  await page
-    .getByRole("navigation", { name: "workspace" })
-    .getByRole("button", { name: /^Local links/ })
-    .click();
+  const rendered = await renderApp(client, [`/?task=${created.id}`]);
+  rendered.container.style.height = "100vh";
   await expect.element(page.getByRole("log", { name: "Chat transcript" })).toBeVisible();
   return { real, repo, task: created };
 }

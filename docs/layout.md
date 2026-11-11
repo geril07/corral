@@ -56,37 +56,8 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   and status; branch, agent and prompt are in the card's metadata tooltip. The panes carry the
   conversation and work.
 
-The sections below describe the prior workspace composition. Those modules and their tests remain
-in the tree for the parts that are still useful (chat, changes, terminal, dialogs), but the
-workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
-
-## Task header
-
-- Read-only repository/worktree-branch context, separator, task title; both truncate with their
-  complete accessible name and a tooltip. A draft has no task header: its tab in the strip names
-  the project. The branch is the task's recorded create-time fact, shown as `<branch> (recorded)`
-  and recorded at create in the accessible name; a detached create shows `detached`, never `HEAD`.
-  The header does not claim it is the current checkout: Changes names the live branch when it
-  differs.
-- The task's status sits after the change counts and linked-request badge, before the overflow
-  menu. This legacy header still uses the most urgent of all sessions; the routed shell's card uses
-  the primary session only. In the sidebar's vocabulary: a glyph alone
-  for working, a muted glyph and no word for idle, the glyph with its attention word (`needs
-  approval`, `needs input`, `needs auth`, `error`, `blocked`) when the task needs the user, and a
-  `done` glyph that is muted once seen. Nothing renders when no session reports a status. A settled
-  task shows it as the sidebar does. It also carries the sidebar's word `Settled` in the trailing
-  group: muted text outside the status slot, before the change counts, with no glyph or colour of
-  its own. The word is derived from the task's state and gone when the task is active.
-- The context and title are text: a mouse drag selects them, while the row's controls keep
-  `mousedown` cancelled so clicking one does not take the keyboard from the terminal.
-- The repository label never secretly copies a path.
-- Keep existing nonzero change counts and linked pull-request badge; Changes is not redesigned.
-- A discoverable task overflow menu holds settle/unsettle, rename, explicit Copy workspace path,
-  Copy branch when the task has a recorded branch, imported issue source when present, and remove.
-  No duplicate model or unexplained sync badge.
-- Each copy names its outcome in one `role="status"` line inside the header: "Workspace path
-  copied", "Branch copied", or the clipboard's own refusal sentence. The line is a polite live
-  region, is reachable by the menu's keyboard path, and the next header action clears it.
+The routed shell replaces the former workspace and sidebar composition. Shared chat, changes,
+terminal and dialog modules remain; old-screen tests can still contain live behavior coverage.
 
 ## Working area
 
@@ -174,7 +145,6 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
   height, unchanged regions folded with "Show N more lines". Binary files show one row ("Binary
   file, 12 KB") and no diff. At the minimum viewport the list collapses to the top third and the
   selected file's diff takes the rest.
-- The task header shows `+N −M` right-aligned next to the status when non-zero, and a linked pull request's badge (`PR #7 open`) before the status; the sidebar row shows the same compact numbers, and the request's name and state, only when they exist.
 - Refreshed with a debounce when the workspace changes: loading shows skeleton rows, a clean tree shows "No changes yet".
 - Below the summary row, the finish controls, one line each and all keyboard-reachable: `Stage all` / `Unstage all` / stage-or-unstage the selected file with the staged count, then a one-line commit-message field and `Commit`, then `Push…` and `Create pull request…` (each behind a dialog naming the remote's push URL and the branch; creating also names the base branch and the provider) and the linked request's badge with its check line, or a `Settle task` button once it merged. A refusal shows its sentence under the row and keeps the message and the selection.
 - When both the live checkout and the task's recorded value name a branch and they differ, the controls name both: `Checked out now: <live> · the task was created on <recorded>.` No line appears when they agree, the live checkout is detached, or the recorded value is not a branch. The reason `Push…` and `Create pull request…` are unavailable is visible under the controls (`This task has no branch checked out.` for a detached HEAD, no remote, or no remote that would take the branch), never only in a `title`.
@@ -207,11 +177,10 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
   ongoing chat. The project name reuses the shared project picker, and choosing a project returns
   focus to the prompt. `Current checkout` shows the project's default base as a read-only fact;
   `New worktree` shows `from <branch>` and opens the branch picker. No workspace path or summary
-  line sits at the right. Prompt starts the primary agent; a title-only task starts no session.
-  Optional title stays.
+  line sits at the right. The routed composer currently requires a prompt and starts the primary
+  agent; title-only creation and issue import are not exposed there.
 - Chat is the built-in default; explicit global/project/view choices win and unsupported chat
-  falls back to terminal. Capability loading blocks prompt launches, not title-only creation.
-- From issue is a secondary Task setup actions menu entry, not an everyday creation control.
+  falls back to terminal. Capability loading blocks prompt launches.
 
 ## Settings
 
@@ -240,11 +209,3 @@ workspace route no longer mounts the old `WorkspaceScreen` or `Sidebar`.
   and Back return to the same task and URL; closing restores the keyboard. Drafts, collapsed
   groups, list scroll and terminal attachment survive the visit, and the workspace prefix is paused
   while it is open.
-
-## Empty states and scope
-
-- No repository (the project list has loaded and is empty): Add a repository to start with an
-  inline path field and Add.
-- A project with no tasks opens its composer — from Add project, from its New task action, or on
-  its URL — never a loose terminal.
-- Task without sessions: No sessions with Start agent / Open shell; its tab row still offers +. A settled task keeps both starts disabled, hides their key hints and shows `This task is settled. Continue it first.`
