@@ -111,6 +111,8 @@ export function TaskComposer({
   const [pickingAgent, setPickingAgent] = useState(false);
   const [pickingProject, setPickingProject] = useState(false);
   const [baseRefs, setBaseRefs] = useState<BaseRefState>();
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [branchOpen, setBranchOpen] = useState(false);
   const guard = useEnterGuard();
 
   useEffect(() => {
@@ -231,7 +233,15 @@ export function TaskComposer({
         onCompositionEnd={guard.end}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
-            if (pickingAgent || pickingProject || event.defaultPrevented) return;
+            // An open context popup owns Escape; the draft behind it must survive.
+            if (
+              pickingAgent ||
+              pickingProject ||
+              workspaceOpen ||
+              (workspace.key === WORKTREE && branchOpen) ||
+              event.defaultPrevented
+            )
+              return;
             event.preventDefault();
             event.stopPropagation();
             if (failure === undefined) onCancel();
@@ -358,6 +368,7 @@ export function TaskComposer({
               <Combobox
                 items={COMPOSER_WORKSPACES.map((choice) => choice.key)}
                 value={workspace.key}
+                onOpenChange={setWorkspaceOpen}
                 onValueChange={(next) => {
                   if (next === null || !COMPOSER_WORKSPACES.some((choice) => choice.key === next))
                     return;
@@ -369,6 +380,7 @@ export function TaskComposer({
                         ? (draft.baseBranch ?? project.defaultBaseBranch)
                         : draft.baseBranch,
                   });
+                  setBranchOpen(false);
                   focusPromptSoon();
                 }}
                 autoHighlight
@@ -411,6 +423,7 @@ export function TaskComposer({
                     onDraftChange({ ...draft, baseBranch: branch });
                     focusPromptSoon();
                   }}
+                  onOpenChange={setBranchOpen}
                 />
               ) : checkoutBranch !== undefined ? (
                 <span className="task-composer-branch">
@@ -505,6 +518,7 @@ function BranchControl({
   error,
   value,
   onChange,
+  onOpenChange,
 }: {
   names: readonly string[];
   remote: ReadonlySet<string>;
@@ -512,11 +526,13 @@ function BranchControl({
   error: string | undefined;
   value: string;
   onChange: (branch: string) => void;
+  onOpenChange: (open: boolean) => void;
 }) {
   return (
     <Combobox
       items={names}
       value={value}
+      onOpenChange={onOpenChange}
       onValueChange={(next) => {
         if (next === null) return;
         onChange(next);
