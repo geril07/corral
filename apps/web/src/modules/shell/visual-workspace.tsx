@@ -252,15 +252,20 @@ export function VisualWorkspace({
         const task = findTask(id);
         if (task?.source !== undefined) setSource(task);
       },
-      onToggleSettle: (id) => {
+      onToggleSettle: async (id) => {
         const task = findTask(id);
-        if (task === undefined) return;
+        if (task === undefined) return false;
         setNotice(undefined);
+        const state = task.state === "active" ? "settled" : "active";
         // The server owns the state: settling stops the running sessions, continuing resumes the
         // ones that were running (`design.md`, **Domain model** — Task).
-        void client.connection.api.tasks
-          .setState({ id, state: task.state === "active" ? "settled" : "active" })
-          .catch((error: unknown) => setNotice({ message: describeError(error), tone: "error" }));
+        try {
+          const updated = await client.connection.api.tasks.setState({ id, state });
+          return updated.state === state;
+        } catch (error) {
+          setNotice({ message: describeError(error), tone: "error" });
+          return false;
+        }
       },
     }),
     [client, findTask],

@@ -318,6 +318,10 @@
   user-select: none;
 }
 
+.visual-sidebar-row[data-tone="muted"] {
+  color: var(--visual-text-muted);
+}
+
 .visual-sidebar-row:hover,
 .visual-sidebar-row:focus-visible {
   background: var(--visual-hover);
@@ -327,10 +331,6 @@
 .visual-sidebar-row:focus-visible {
   outline: 2px solid var(--visual-border-focus);
   outline-offset: 2.5px;
-}
-
-.visual-sidebar-row[data-tone="muted"] {
-  color: var(--visual-text-muted);
 }
 
 .visual-sidebar-row[aria-disabled="true"] {
@@ -541,15 +541,6 @@
 
 .visual-task-card[data-selected="true"] .visual-task-title {
   color: var(--visual-text-base);
-}
-
-/* A settled row is history: the shelf names its state, so the title stays quiet (`design.md`). */
-.visual-task-card[data-settled="true"] .visual-task-title {
-  color: var(--visual-text-faint);
-}
-
-.visual-task-card[data-settled="true"][data-selected="true"] .visual-task-title {
-  color: var(--visual-text-muted);
 }
 
 .visual-task-slot {

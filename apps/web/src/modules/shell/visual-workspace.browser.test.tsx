@@ -20,6 +20,12 @@ const rows = () => [...document.querySelectorAll<HTMLElement>("[data-task-id]")]
 const rowIds = () => rows().map((element) => element.getAttribute("data-task-id") ?? "");
 const rowFor = (title: string) => page.getByRole("button", { name: new RegExp(title) });
 const shelfToggleButton = () => page.getByRole("button", { name: /^Settled \(/ });
+/** Each active row's id and its top edge, for the one check that settling moves nothing above it. */
+const activeTops = () =>
+  activeIds().map((id) => {
+    const element = document.querySelector(`[data-task-id="${CSS.escape(id)}"]`);
+    return { id, top: element?.getBoundingClientRect().top ?? 0 };
+  });
 
 /** The cards inside the Settled shelf; the active list is the same query outside it. */
 const shelfIds = () =>
@@ -236,6 +242,9 @@ test("a task's settled state moves it between the active list and the shelf, bot
   await expect.element(shelfToggleButton()).toMatchTextContent("Settled (1)");
   await expect.element(shelfToggleButton()).toHaveAttribute("aria-expanded", "false");
   expect(shelfIds()).toEqual([]);
+  // The menu is a portal, so the command still hands the keyboard to the row's new home: the
+  // disclosure that names it, never `<body>` or a pane control.
+  await vi.waitFor(() => expect(document.activeElement?.textContent).toContain("Settled (1)"));
 
   await shelfToggleButton().click();
   await expect.element(shelfToggleButton()).toHaveAttribute("aria-expanded", "true");
@@ -350,27 +359,25 @@ test("the shelf's collapsed state is device-local and survives a reload", async 
   await unmount();
 });
 
-test("settling one task leaves the active rows where they were", async () => {
+test("settling a middle task leaves the active rows above it where they were", async () => {
   const client = await connectedClient();
   await projectWithTasks(client, ["One task", "Two task", "Three task"]);
   const { unmount } = await render(<App client={client} />);
   await waitForActiveRows(3);
 
-  const tops = () =>
-    activeIds().map((id) => {
-      const element = document.querySelector(`[data-task-id="${CSS.escape(id)}"]`);
-      return { id, top: element?.getBoundingClientRect().top ?? 0 };
-    });
-  const before = tops();
-  const last = rowIds()[2]!;
-  await rowFor(titleOf(client, last)).click({ button: "right" });
+  const before = activeTops();
+  const middle = rowIds()[1]!;
+  await rowFor(titleOf(client, middle)).click({ button: "right" });
   await page.getByRole("menuitem", { name: "Settle task" }).click();
   await waitForActiveRows(2);
 
-  expect(tops()).toEqual(before.slice(0, 2));
+  const after = activeTops();
+  // The row above keeps its place; only the row below closes the gap.
+  expect(after[0]).toEqual(before[0]);
+  expect(after.map((row) => row.id)).toEqual([before[0]!.id, before[2]!.id]);
   // The shelf rests below the active rows.
   const toggle = page.getByRole("button", { name: "Settled (1)" }).element();
-  const lastActive = document.querySelector(`[data-task-id="${CSS.escape(activeIds()[1]!)}"]`);
+  const lastActive = document.querySelector(`[data-task-id="${CSS.escape(after[1]!.id)}"]`);
   expect(toggle.getBoundingClientRect().top).toBeGreaterThan(
     lastActive?.getBoundingClientRect().bottom ?? 0,
   );
