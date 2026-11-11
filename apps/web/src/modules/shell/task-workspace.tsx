@@ -174,17 +174,20 @@ export function useTaskWorkspace({
   );
   const [chatDrafts, setChatDrafts] = useState<ReadonlyMap<string, string>>(() => new Map());
   // Scroll offset and open folds per session, beside the draft: a tab switch unmounts the pane.
-  const [transcriptMemory] = useState<Map<string, ChatTranscriptStore>>(() => new Map());
-  const memoryFor = useCallback(
-    (sessionId: string) => {
-      const existing = transcriptMemory.get(sessionId);
-      if (existing !== undefined) return existing;
-      const created = chatTranscriptStore();
-      transcriptMemory.set(sessionId, created);
-      return created;
-    },
-    [transcriptMemory],
-  );
+  const [transcriptMemory, setTranscriptMemory] = useState<
+    ReadonlyMap<string, ChatTranscriptStore>
+  >(() => new Map());
+  const sessionIds = new Set(sessions.map((session) => session.id));
+  let memories = transcriptMemory;
+  if (
+    sessionIds.size !== transcriptMemory.size ||
+    [...sessionIds].some((id) => !transcriptMemory.has(id))
+  ) {
+    memories = new Map(
+      [...sessionIds].map((id) => [id, transcriptMemory.get(id) ?? chatTranscriptStore()]),
+    );
+    setTranscriptMemory(memories);
+  }
   const [dialogState, setDialogState] = useState<
     { taskId: string | undefined; dialog: DialogState | undefined } | undefined
   >();
@@ -1004,7 +1007,7 @@ export function useTaskWorkspace({
         <ChatView
           key={session.id}
           store={chat.store}
-          memory={memoryFor(session.id)}
+          memory={memories.get(session.id) ?? chatTranscriptStore()}
           draft={chatDrafts.get(session.id) ?? ""}
           onDraftChange={(update) => {
             setChatDrafts((previous) => {

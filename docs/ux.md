@@ -281,23 +281,27 @@ What a user does. Everything below is built and verified end to end, chat views 
   and Ctrl+Tab stay in the PTY (see **Focus, keyboard and errors**). The transcript is a focusable `log`: PageUp/PageDown,
   Home/End and the arrow keys scroll it without a pointer; moving up releases the end follow and
   End takes it again. A fold that expands while the user reads above the end does not drag the
-  view back to the tail.
+  view back to the tail. Opening a fold at the end can release following to keep the clicked row
+  in place; reaching the end again re-arms it. A request arriving while history is being read does
+  not move the transcript to the tail.
 
 ### The chat transcript
 
 - A finished turn folds to one `Worked` row. Its work — the calls it made and what it thought —
   and every message it wrote but the last sit behind that row and expand in place; the prompt
   above it and the turn's terminal message below it stay visible, which is T3's shape for a run.
-  A turn normally writes several messages because each text block is its own item. The turn that
-  is still running never folds, and neither does one the user stopped or one that failed, so the
-  work that stopped is what the user sees. A notice, an error and a request inside a turn are
+  A turn normally writes several messages because each text block is its own item. A queued steer
+  is kept in the live turn when it can be matched to its user message; the contract does not carry
+  durable turn membership, so a delivered steer may still be mistaken for a new turn. The newest turn stays open if the user stopped it or it failed;
+  an older stopped or failed turn can fold after a later prompt. A notice, an error and a request inside a turn are
   never hidden: a request owns the keyboard.
 - A turn's finished calls fold into one verb summary — `Read 4 files and ran 2 commands` — that
   expands to the calls themselves. A single finished call keeps its own row, and a running call
   keeps its own row because its output is still arriving.
 - A call's row reads the call's shape, never the driver's name for its tool: a read shows its
   path, a search its query and target, an edit `Changed 1 file`, and a command the command it ran
-  (a running one says `Running <program>`). A failed call keeps its own glyph in the error colour
+  (a running one says `Running <program>`). Running calls also have the working status glyph and
+  accessible name. A failed call keeps its own glyph in the error colour
   and says `tool call failed` in its accessible name. Expanding a call shows its input and its
   output or diff, bounded.
 - While a turn runs the transcript's tail says `Working` and shimmers, and not under reduced

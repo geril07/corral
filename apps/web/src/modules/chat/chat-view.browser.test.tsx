@@ -859,6 +859,37 @@ test("auto-scroll follows the stream at the end and stays put after the user scr
   await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
 });
 
+test("a request arriving while reading history does not move the transcript to the end", async () => {
+  const chat = await renderChat(longChat(80));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+  await userEvent.wheel(page.getByTestId("chat-timeline"), { delta: { y: -1200 } });
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(false));
+  const before = topRowKey();
+  chat.script.push({
+    type: "event",
+    sequence: 1,
+    event: {
+      type: "item",
+      item: {
+        kind: "user-request",
+        id: "history-request",
+        request: "confirm",
+        title: "Proceed?",
+        body: null,
+        options: [],
+        placeholder: null,
+        prefill: null,
+        expiresAt: null,
+        status: "pending",
+      },
+    },
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(1));
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  expect(atEnd(scrollNode())).toBe(false);
+  expect(topRowKey()).toBe(before);
+});
+
 test("expanding a fold near the end does not drag the tail back into view", async () => {
   const items: ChatItem[] = Array.from({ length: 40 }, (_, index) => ({
     kind: "assistant-message" as const,

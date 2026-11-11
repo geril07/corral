@@ -52,14 +52,14 @@ test("consecutive finished tool calls fold; a running call stays its own row", (
       ...settled,
     }),
   ).toEqual([
-    { kind: "group", key: "group:a", items: [call("a", "done"), call("b", "error")] },
-    { kind: "item", key: "c", item: call("c", "running") },
+    expect.objectContaining({ kind: "group", key: "group:a" }),
+    expect.objectContaining({ kind: "tool", key: "c" }),
   ]);
 });
 
 test("a single finished call is not a group", () => {
   expect(chatRows({ items: [call("a", "done")], ...settled })).toEqual([
-    { kind: "item", key: "a", item: call("a", "done") },
+    expect.objectContaining({ kind: "tool", key: "a" }),
   ]);
 });
 
@@ -138,7 +138,7 @@ test("a turn with nothing to hide, and the live turn, stay unfolded", () => {
   // The newest turn is the one running, so its work is what the user is watching.
   expect(
     chatRows({ items: [user("u1"), call("t1", "done")], ...working }).map((row) => row.kind),
-  ).toEqual(["item", "item", "working"]);
+  ).toEqual(["item", "tool", "working"]);
 });
 
 test("an aborted or failed turn does not fold, so the stopped work stays visible", () => {
@@ -147,7 +147,7 @@ test("an aborted or failed turn does not fold, so the stopped work stays visible
       chatRows({ items: [user("u1"), call("t1", "done")], turn, waiting: false }).map(
         (row) => row.kind,
       ),
-    ).toEqual(["item", "item"]);
+    ).toEqual(["item", "tool"]);
   }
 });
 
@@ -156,7 +156,32 @@ test("the live tail is absent while the agent waits on the user", () => {
     chatRows({ items: [user("u1"), call("t1", "running")], turn: "working", waiting: true }).map(
       (row) => row.kind,
     ),
-  ).toEqual(["item", "item"]);
+  ).toEqual(["item", "tool"]);
+});
+
+test("a queued steer does not fold the work of the running turn", () => {
+  const steer: ChatItem = { kind: "user-message", id: "steer", text: "change direction" };
+  const rows = chatRows({
+    items: [
+      user("old"),
+      call("old-work", "done"),
+      user("current"),
+      call("work", "done"),
+      steer,
+      call("live", "running"),
+    ],
+    ...working,
+    steering: ["change direction"],
+  });
+  expect(rows.map((row) => row.key)).toEqual([
+    "old",
+    "turn:old",
+    "current",
+    "work",
+    "steer",
+    "live",
+    "working",
+  ]);
 });
 
 test("an action is read from the call's shape, never its name", () => {
@@ -185,6 +210,12 @@ test("an action is read from the call's shape, never its name", () => {
   expect(toolAction(call("f", "done", { name: "think", arguments: '{"thought":"hmm"}' }))).toBe(
     "other",
   );
+  const write = call("write", "done", {
+    name: "Write",
+    arguments: '{"file_path":"new.ts","content":"hello"}',
+  });
+  expect(toolAction(write)).toBe("edit");
+  expect(toolLabel(write)).toBe("Changed 1 file");
 });
 
 test("a call's row says what it did, in the reference's words", () => {

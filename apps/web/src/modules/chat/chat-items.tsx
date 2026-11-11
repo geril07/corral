@@ -16,16 +16,12 @@ import {
   Icon,
   IconButton,
   Markdown,
+  StatusGlyph,
+  buttonVariants,
   type IconName,
 } from "../../common/ui/index.ts";
 import { ChatRequestItem } from "./chat-request.tsx";
-import {
-  toolAction,
-  toolGroupSummary,
-  toolLabel,
-  type ChatRow,
-  type ChatToolAction,
-} from "./chat-rows.ts";
+import { toolAction, toolLabel, type ChatRow, type ChatToolAction } from "./chat-rows.ts";
 import { useMarkdownLinks } from "./local-links.tsx";
 
 /** How long a copied message shows the check, as T3's copy state does (~1.2 s, no toast). */
@@ -52,6 +48,7 @@ function ActivityRow({
   expanded,
   live = false,
   failed = false,
+  running = false,
   shimmer = false,
   ariaLabel,
   onClick,
@@ -61,6 +58,8 @@ function ActivityRow({
   expanded?: boolean | undefined;
   live?: boolean;
   failed?: boolean;
+  /** A call still running: the row keeps a status glyph, not only a colour. */
+  running?: boolean;
   shimmer?: boolean;
   ariaLabel?: string | undefined;
   onClick?: (() => void) | undefined;
@@ -86,12 +85,15 @@ function ActivityRow({
       >
         {label}
       </span>
+      {running && <StatusGlyph state="working" />}
       {expanded !== undefined && <DisclosureIcon open={expanded} />}
     </>
   );
   if (onClick === undefined) {
+    // The same recipe as the button below, so a row that cannot be clicked is not a second skin:
+    // one kit change reaches both.
     return (
-      <div className="flex min-h-6 min-w-0 items-center gap-1.5 px-0.5 py-0.5 text-sm leading-relaxed">
+      <div className={buttonVariants({ variant: "ghost", layout: "activity", size: "activity" })}>
         {content}
       </div>
     );
@@ -239,28 +241,42 @@ export function ReasoningItem({
  * (`TimelineWorkGroupRows.tsx:449`).
  */
 export function ToolCallItem({
-  item,
+  call,
+  label,
+  action,
   expanded,
   onToggle,
 }: {
-  item: ChatToolCall;
+  call: ChatToolCall;
+  /** The projection's words for this call, computed once where the row is built. */
+  label: string;
+  action: ChatToolAction;
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const label = toolLabel(item);
-  const failed = item.status === "error";
+  const failed = call.status === "error";
+  const running = call.status === "running";
   return (
     <div className="flex flex-col">
       <ActivityRow
-        icon={ACTION_ICON[toolAction(item)]}
+        icon={ACTION_ICON[action]}
         label={label}
         expanded={expanded}
-        live={item.status === "running"}
+        live={running}
         failed={failed}
-        ariaLabel={failed ? `${label}, tool call failed` : label}
+        running={running}
+        // A command's own words already say `Running …`; every other action needs the state in its
+        // name, because a running read, search or edit would otherwise read as finished.
+        ariaLabel={
+          failed
+            ? `${label}, tool call failed`
+            : running && action !== "run"
+              ? `${label}, running`
+              : label
+        }
         onClick={onToggle}
       />
-      {expanded && <ToolCallBody item={item} />}
+      {expanded && <ToolCallBody item={call} />}
     </div>
   );
 }
@@ -295,34 +311,41 @@ function ToolCallBody({ item }: { item: ChatToolCall }) {
  */
 export function ToolGroupItem({
   items,
+  label,
+  action,
+  failed,
   expanded,
   onToggle,
   expandedFolds,
   onToggleFold,
 }: {
   items: readonly ChatToolCall[];
+  /** The projection's summary of the run, computed once where the row is built. */
+  label: string;
+  action: ChatToolAction | "mixed";
+  failed: boolean;
   expanded: boolean;
   onToggle: () => void;
   expandedFolds: ReadonlySet<string>;
   onToggleFold: (key: string) => void;
 }) {
-  const summary = toolGroupSummary(items);
-  const failed = items.some((item) => item.status === "error");
   return (
     <div className="flex flex-col">
       <ActivityRow
-        icon={ACTION_ICON[summary.action]}
-        label={summary.label}
+        icon={ACTION_ICON[action]}
+        label={label}
         expanded={expanded}
         failed={failed}
-        ariaLabel={failed ? `${summary.label}, tool call failed` : summary.label}
+        ariaLabel={failed ? `${label}, tool call failed` : label}
         onClick={onToggle}
       />
       {expanded &&
         items.map((item) => (
           <ToolCallItem
             key={item.id}
-            item={item}
+            call={item}
+            label={toolLabel(item)}
+            action={toolAction(item)}
             expanded={expandedFolds.has(item.id)}
             onToggle={() => onToggleFold(item.id)}
           />
@@ -435,10 +458,24 @@ export function TranscriptRow({
     return (
       <ToolGroupItem
         items={row.items}
+        label={row.label}
+        action={row.action}
+        failed={row.failed}
         expanded={expanded.has(row.key)}
         onToggle={() => onToggleFold(row.key)}
         expandedFolds={expanded}
         onToggleFold={onToggleFold}
+      />
+    );
+  }
+  if (row.kind === "tool") {
+    return (
+      <ToolCallItem
+        call={row.call}
+        label={row.label}
+        action={row.action}
+        expanded={expanded.has(row.key)}
+        onToggle={() => onToggleFold(row.key)}
       />
     );
   }
@@ -460,7 +497,9 @@ export function TranscriptRow({
     case "tool-call":
       return (
         <ToolCallItem
-          item={item}
+          call={item}
+          label={toolLabel(item)}
+          action={toolAction(item)}
           expanded={expanded.has(item.id)}
           onToggle={() => onToggleFold(item.id)}
         />
