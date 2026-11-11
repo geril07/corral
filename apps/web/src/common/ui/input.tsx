@@ -10,7 +10,8 @@ const inputVariants = cva(
       frame: {
         // The field of a hover row (Settings search): no border, background or block padding, the
         // row's 30 px height, and the row's free width. No ring either — the caret is the field's
-        // focus indicator (`ui-kit.md`, **Focus**).
+        // focus indicator (`ui-kit.md`, **Focus**). The height and flex belong to Settings, so a
+        // second bare field moves them to a `size` axis instead of reusing this frame.
         bare: "h-[30px] flex-auto border-0 bg-transparent px-0 py-0 dark:bg-transparent",
       },
     },
@@ -33,4 +34,4 @@ function Input({
   );
 }
 
-export { Input, inputVariants };
+export { Input };

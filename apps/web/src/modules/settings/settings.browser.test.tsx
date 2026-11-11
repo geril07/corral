@@ -449,11 +449,14 @@ branch-prefix = "nope/"
     .element(projects.getByRole("button", { name: "Project settings for not-added" }))
     .toBeVisible();
   // Keyboard focus on a project row is the shell's inset outline, not the stock ring on top of it.
+  // A programmatic `.focus()` only matches `:focus-visible` after a keyboard interaction, so the
+  // Shift press switches the input modality before focusing.
   await userEvent.keyboard("{Shift}");
   picker.element().focus();
   expect(picker.element().matches(":focus-visible")).toBe(true);
-  expect(getComputedStyle(picker.element()).outlineStyle).toBe("solid");
-  expect(getComputedStyle(picker.element()).outlineWidth).toBe("2px");
+  // The base button's `focus-visible:outline-hidden` already draws a 2 px transparent outline, so
+  // the colour is what separates this row's inset focus from the stock ring.
+  expect(getComputedStyle(picker.element()).outlineColor).toBe("rgb(118, 152, 253)");
   expect(getComputedStyle(picker.element()).boxShadow).not.toContain("inset");
   await picker.click();
 
@@ -1024,6 +1027,9 @@ test("the search field is a borderless Search field with a caret-only focus", as
   const wrapper = search.element().closest(".settings-search");
   if (!(wrapper instanceof HTMLElement)) throw new Error("search wrapper missing");
   expect(getComputedStyle(wrapper).borderTopWidth).toBe("0px");
+  // `frame="bare"` keeps the field's own border-0 and the row's 30 px height.
+  expect(getComputedStyle(search.element()).borderTopWidth).toBe("0px");
+  expect(getComputedStyle(search.element()).height).toBe("30px");
   await userEvent.keyboard("/");
   await expect.element(search).toHaveFocus();
   expect(getComputedStyle(search.element()).boxShadow).toBe("none");
@@ -1301,7 +1307,7 @@ test("keyboard search selection is painted and revealed at a short window", asyn
     expect(row.top).toBeGreaterThanOrEqual(visible.top - 1);
     expect(row.bottom).toBeLessThanOrEqual(visible.bottom + 1);
 
-    // The highlight belongs to the option the selection lives on, not a child button's own state.
+    // The option hands the highlight down to its row as `data-highlighted`; the button paints it.
     const button = selected.querySelector<HTMLElement>('[data-slot="button"]');
     if (button === null) throw new Error("the selected result has no button");
     expect(getComputedStyle(button).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
