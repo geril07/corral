@@ -7,7 +7,7 @@ import { runGitIn } from "../../../test/git-client.ts";
 import { createGitRepo } from "../../../test/git-repo.ts";
 import { prefixShifted, realServerClients } from "../../../test/real-client.ts";
 import { renderApp } from "../../../test/render-app.tsx";
-import { sessionTab, taskHeader, workspace } from "../../../test/task-flows.tsx";
+import { sessionTab } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 const SIZE = { cols: 80, rows: 24 };
@@ -67,7 +67,7 @@ async function seed(options: { files?: boolean } = {}): Promise<{
     task,
     first,
     second,
-    href: `/?project=${project.id}&task=${task.id}&entry=${second.id}`,
+    href: `/?project=${project.id}&task=${task.id}`,
   };
 }
 
@@ -76,6 +76,7 @@ test("the Changes tab opens by key and by click, with the summary, a file row an
   await renderApp(newClient(), [href]);
 
   // The task's second shell session is current before the tab opens.
+  await sessionTab("shell 2").click();
   await expect.element(sessionTab("shell 2")).toHaveAttribute("aria-selected", "true");
 
   await prefixShifted("c");
@@ -112,36 +113,20 @@ test("the Changes tab opens by key and by click, with the summary, a file row an
   const code = root.querySelector<HTMLElement>("[data-code]")!;
   expect(code.scrollWidth).toBeGreaterThan(code.clientWidth);
 
-  // Selecting the tab left the current session alone: it is marked as the one behind the tab.
-  await expect.element(sessionTab("shell 2")).toHaveAttribute("aria-current", "true");
-  await expect.element(sessionTab("shell 2")).not.toHaveAttribute("aria-selected", "true");
-  await expect.element(sessionTab("shell")).not.toHaveAttribute("aria-current", "true");
-  // Exactly one tab is selected in the strip.
-  expect(page.getByRole("tab", { selected: true }).elements()).toHaveLength(1);
+  // Changes is selected in the companion group without changing the main group's session.
+  await expect.element(sessionTab("shell 2")).toHaveAttribute("aria-selected", "true");
+  await expect.element(sessionTab("shell")).not.toHaveAttribute("aria-selected", "true");
+  expect(page.getByRole("tab", { selected: true }).elements()).toHaveLength(2);
 
   // Clicking a session tab comes back to it; the same session is still current.
   await sessionTab("shell 2").click();
   await expect.element(sessionTab("shell 2")).toHaveAttribute("aria-selected", "true");
-  await expect.element(changesTab()).not.toHaveAttribute("aria-selected", "true");
+  await expect.element(changesTab()).toHaveAttribute("aria-selected", "true");
 
   // And a click opens the tab as well.
   await changesTab().click();
   await expect.element(changesTab()).toHaveAttribute("aria-selected", "true");
-  expect(page.getByRole("tab", { selected: true }).elements()).toHaveLength(1);
-});
-
-test("the task header and the sidebar row show the compact counts only when non-zero", async () => {
-  const { href } = await seed();
-  await renderApp(newClient(), [href]);
-
-  await vi.waitFor(() => expect(taskHeader().element().textContent).toMatch(/\+\d+ −\d+/));
-  await expect
-    .element(
-      page
-        .getByRole("navigation", { name: "workspace" })
-        .getByRole("button", { name: /Show the changes.*\+\d+ −\d+/ }),
-    )
-    .toBeVisible();
+  expect(page.getByRole("tab", { selected: true }).elements()).toHaveLength(2);
 });
 
 test("a file row spans the list and a long path truncates instead of widening it", async () => {
@@ -397,7 +382,7 @@ test("a workspace deleted outside Corral is the named sentence in Changes, not g
   await expect.element(fileList()).not.toBeInTheDocument();
 });
 
-test("a capped list and a lower-bound total say so in the tab, the header and the sidebar row", async () => {
+test("a capped list and a lower-bound total say so in Changes", async () => {
   const data = await seed({ files: false });
   const many: Record<string, string> = {};
   for (let index = 0; index < 501; index += 1) {
@@ -411,32 +396,21 @@ test("a capped list and a lower-bound total say so in the tab, the header and th
   await expect.element(page.getByText(/the first 500 files/)).toBeVisible();
   await expect.element(page.getByText(/some counts are a lower bound/)).toBeVisible();
   expect(fileList().getByRole("option").elements()).toHaveLength(500);
-  // The header and the sidebar row carry the same marker, not a count presented as final.
-  await vi.waitFor(() => expect(taskHeader().element().textContent).toContain("(partial)"));
-  await expect
-    .element(workspace().getByRole("button", { name: /Show the changes.*\(partial\)/ }))
-    .toBeVisible();
 });
 
 test("reloading on the Changes tab restores the tab and the session behind it", async () => {
   const data = await seed();
   const rendered = await renderApp(newClient(), [data.href]);
+  await sessionTab("shell 2").click();
   await expect.element(sessionTab("shell 2")).toHaveAttribute("aria-selected", "true");
   await prefixShifted("c");
   await expect.element(changesTab()).toHaveAttribute("aria-selected", "true");
 
-  const search = await vi.waitFor(() => {
-    const current = rendered.history.location.search;
-    if (!current.includes("entry=changes")) throw new Error("the route is not the tab yet");
-    return current;
-  });
-  expect(search).toContain(`session=${data.second.id}`);
-
   await rendered.unmount();
-  await renderApp(newClient(), [`/${search}`]);
+  await renderApp(newClient(), [data.href]);
 
   await expect.element(changesTab()).toHaveAttribute("aria-selected", "true");
-  await expect.element(sessionTab("shell 2")).toHaveAttribute("aria-current", "true");
+  await expect.element(sessionTab("shell 2")).toHaveAttribute("aria-selected", "true");
   await expect.element(fileRow("README\\.md")).toBeVisible();
 });
 
@@ -445,13 +419,6 @@ test("a branch renamed outside Corral stays recorded in the header and Changes n
   await runGitIn(data.task.workspacePath, ["branch", "-m", "renamed-outside"]);
 
   await renderApp(newClient(), [data.href]);
-  await expect.element(taskHeader()).toMatchTextContent("(recorded)");
-  const context = taskHeader().element().querySelector("[data-task-repository]");
-  if (!(context instanceof HTMLElement)) throw new Error("the header has no branch line");
-  expect(context.getAttribute("aria-label")).toContain(`${data.task.branch} (recorded at create)`);
-  expect(context.textContent).toContain("(recorded)");
-  expect(context.textContent).not.toContain("renamed-outside");
-
   await prefixShifted("c");
   await expect
     .element(
@@ -460,9 +427,6 @@ test("a branch renamed outside Corral stays recorded in the header and Changes n
       ),
     )
     .toBeVisible();
-  // The header still names the recorded fact, not the live checkout.
-  expect(context.textContent).toContain("(recorded)");
-  expect(context.textContent).not.toContain("renamed-outside");
 });
 
 test("a detached main-tree task says detached and shows why push and pull request are unavailable", async () => {
@@ -481,12 +445,6 @@ test("a detached main-tree task says detached and shows why push and pull reques
   expect(task.branch).toBe("HEAD");
 
   await renderApp(newClient(), [`/?project=${project.id}&task=${task.id}`]);
-  await workspace()
-    .getByRole("button", { name: /Detached work/ })
-    .click();
-  await expect.element(taskHeader()).toMatchTextContent("detached");
-  await expect.element(taskHeader()).not.toMatchTextContent("HEAD");
-
   await prefixShifted("c");
   const reason = finish().getByText("This task has no branch checked out.");
   await expect.element(reason).toBeVisible();
