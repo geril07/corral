@@ -182,9 +182,9 @@ gate rule that rejects a module stylesheet selecting on a kit `data-slot`.
    with `Discarded`/`Undo`, Escape keeps, and a reload restores the text on the next New task.
 3. Attachments and pre-launch reasoning: separate issues, or extend the protocol inside #263?
 4. Title-only creation: add the control or document that a prompt is required.
-5. What happens to the 21 failing legacy browser files: port them to the new shell, delete the ones
-   whose surface no longer exists, or keep them red. This is the largest remaining risk to every
-   later slice's evidence.
+5. ~~The failing legacy browser files~~ — decided: they are not needed. The ones that drive a
+   surface the routed shell replaced are deleted; a test whose subject still ships is ported rather
+   than dropped. The full suite becomes evidence again once the removal lands.
 6. Which remaining Corral-only strings stay. The UI/UX review of the merged surface flagged these as
    authored copy with no reference match, and left them unchanged pending your word:
    `settings-sections.ts:20,25,30,60` (the four settings section descriptions),
