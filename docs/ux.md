@@ -290,9 +290,10 @@ What a user does. Everything below is built and verified end to end, chat views 
 - A finished turn folds to one `Worked` row. Its work — the calls it made and what it thought —
   and every message it wrote but the last sit behind that row and expand in place; the prompt
   above it and the turn's terminal message below it stay visible, which is T3's shape for a run.
-  A turn normally writes several messages because each text block is its own item. A queued steer
-  is kept in the live turn when it can be matched to its user message; the contract does not carry
-  durable turn membership, so a delivered steer may still be mistaken for a new turn. The newest turn stays open if the user stopped it or it failed;
+  A turn normally writes several messages because each text block is its own item. While a turn is
+  working, no turns fold, including historical ones: the contract does not carry durable turn
+  membership, and a delivered steer cannot safely be distinguished from a new prompt. Normal
+  folding resumes when work ends. The newest turn stays open if the user stopped it or it failed;
   an older stopped or failed turn can fold after a later prompt. A notice, an error and a request inside a turn are
   never hidden: a request owns the keyboard.
 - A turn's finished calls fold into one verb summary — `Read 4 files and ran 2 commands` — that

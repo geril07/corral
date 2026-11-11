@@ -51,6 +51,16 @@ export function chatTranscriptStore(): ChatTranscriptStore {
   };
 }
 
+/** Keep memory only for sessions that still exist, without mutating the previous render's map. */
+export function reconcileTranscriptMemory(
+  previous: ReadonlyMap<string, ChatTranscriptStore>,
+  sessionIds: ReadonlySet<string>,
+): ReadonlyMap<string, ChatTranscriptStore> {
+  if (sessionIds.size === previous.size && [...sessionIds].every((id) => previous.has(id)))
+    return previous;
+  return new Map([...sessionIds].map((id) => [id, previous.get(id) ?? chatTranscriptStore()]));
+}
+
 /**
  * A quoted selection as Markdown: every line of it as a blockquote, then the blank line the user
  * writes their comment on. Corral v1 sends the quote as plain Markdown rather than a citation

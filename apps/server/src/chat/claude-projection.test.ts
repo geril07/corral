@@ -4,6 +4,7 @@ import { ClaudeProjection, diffOf } from "./claude-projection.ts";
 import { ChatTimeline } from "./timeline.ts";
 import {
   assistantText,
+  assistantToolUse,
   replayOf,
   streamText,
   toolResult,
@@ -43,6 +44,16 @@ test("a file tool's structuredPatch becomes the unified diff the contract promis
   // A result with neither shape has no diff, and a read has none either.
   expect(diffOf({ filePath: "notes.txt" })).toBeNull();
   expect(diffOf("plain output")).toBeNull();
+});
+
+test("Claude Write without a structured patch retains its input and has no diff", () => {
+  const { projection: map, timeline } = projection();
+  map.apply(assistantToolUse("m", "write-1", "Write", { file_path: "new.ts", content: "hello" }));
+  map.apply(toolResult("write-1", "File created", { toolUseResult: { filePath: "new.ts" } }));
+  const call = timeline.snapshot().items.find((item) => item.kind === "tool-call");
+  expect(call).toMatchObject({ name: "Write", status: "done", diff: null });
+  if (call?.kind !== "tool-call") throw new Error("Write call missing");
+  expect(JSON.parse(call.arguments)).toEqual({ file_path: "new.ts", content: "hello" });
 });
 
 test("a streamed block is not consumed by an assistant frame of another message", () => {
