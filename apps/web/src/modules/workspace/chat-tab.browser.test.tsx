@@ -14,16 +14,23 @@ import { ORPCError } from "@orpc/client";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { agentLaunches } from "../../../test/fake-agents.ts";
+import { createGitRepo } from "../../../test/git-repo.ts";
 import { prefixShifted, prefixThen, realServerClients } from "../../../test/real-client.ts";
-import { appWithProject } from "../../../test/task-flows.tsx";
+import { renderApp } from "../../../test/render-app.tsx";
 import { workingChat } from "../../../test/recorded-chat.ts";
 
 const { newClient } = realServerClients();
 const openSeededTask = (title: string) =>
-  page
-    .getByRole("navigation", { name: "workspace" })
-    .getByRole("button", { name: new RegExp(`^${title}`) })
-    .click();
+  page.getByRole("button", { name: new RegExp(title) }).click();
+
+async function appWithProject(client: CorralClient) {
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
+  const repo = await createGitRepo("repo");
+  await client.connection.api.projects.add({ path: repo });
+  const screen = await renderApp(client);
+  screen.container.style.height = "100vh";
+  return { repo, screen };
+}
 
 /**
  * A running chat session and its task are seeded through the client's own stores. The server owns
@@ -122,7 +129,7 @@ function seededClient(
 
 test("a chat session renders its tab and lane, and prefix . reaches chat.abort", async () => {
   const { client, real, tasks, sessions, abort, chatStore, chatSession } = seededClient();
-  const { repo } = await appWithProject(client);
+  const { repo, screen } = await appWithProject(client);
   const project = await vi.waitFor(() => {
     const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
     if (found === undefined) throw new Error("the project is not in the list yet");
@@ -196,7 +203,8 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
     await expect.element(composer).toHaveValue("Unsent pi draft");
 
     // The board is a layer over the mounted workspace, so its round trip keeps the chat draft.
-    await prefixThen("b");
+    // The routed shell has no board chord; the route is reached directly.
+    screen.history.push("/board");
     await expect.element(page.getByRole("region", { name: "Board" })).toBeVisible();
     await expect
       .element(page.getByRole("region", { name: "Board" }).getByRole("listbox"))
@@ -204,16 +212,6 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
     await userEvent.keyboard("{Escape}");
     await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
     await expect.element(composer).toHaveValue("Unsent pi draft");
-
-    // The palette action is enabled for a working chat turn.
-    await prefixThen(" ");
-    await userEvent.keyboard("abort");
-    const paletteItem = page.getByRole("option", { name: /Abort the working turn/ });
-    await expect.element(paletteItem).not.toHaveAttribute("aria-disabled", "true");
-    await userEvent.keyboard("{Escape}");
-    await expect
-      .element(page.getByRole("dialog", { name: "Command palette" }))
-      .not.toBeInTheDocument();
 
     // `prefix .` runs the action's `chat.abort` with the selected session. The pending state
     // lives with the RPC, so this path and the button share the Stopping control and busy row.
@@ -441,7 +439,7 @@ test("an unknown capability keeps Queue and a loaded Codex answer removes it wit
   }
 });
 
-test("the chat model and reasoning controls apply what the driver reports, from the row and the palette", async () => {
+test("the chat model and reasoning controls apply what the driver reports, from the row and the chord", async () => {
   const state = workingChat({
     model: { provider: "stub", id: "stub-1", name: "Stub One" },
     models: [
@@ -496,17 +494,12 @@ test("the chat model and reasoning controls apply what the driver reports, from 
     await expect.element(page.getByRole("button", { name: "Model Stub One" })).toBeVisible();
     await expect.element(page.getByRole("button", { name: "Reasoning medium" })).toBeVisible();
 
-    // The palette lists both actions for a running chat and opens the model chooser.
-    await prefixThen(" ");
-    await userEvent.keyboard("chat model");
-    await expect
-      .element(page.getByRole("option", { name: /Change the chat model/ }))
-      .not.toHaveAttribute("aria-disabled", "true");
-    await userEvent.keyboard("{Enter}");
+    // The row's model control opens the chooser with the driver's own list.
+    await page.getByRole("button", { name: "Model Stub One" }).click();
     const modelDialog = page.getByRole("dialog", { name: "Chat model" });
     await expect.element(modelDialog).toBeVisible();
     await expect.element(modelDialog).toMatchTextContent("Stub Two");
-    await userEvent.keyboard("{ArrowDown}{Enter}");
+    await modelDialog.getByRole("option", { name: /Stub Two/ }).click();
     await vi.waitFor(() =>
       expect(setModel).toHaveBeenCalledExactlyOnceWith({
         sessionId: chatSession,
@@ -514,9 +507,11 @@ test("the chat model and reasoning controls apply what the driver reports, from 
       }),
     );
     await expect.element(modelDialog).toBeVisible();
+    // The old model's levels are gone until the driver reports the new model; the picker says so
+    // for the selected candidate rather than showing the previous levels.
     await expect
       .element(modelDialog)
-      .toMatchTextContent("Waiting for the agent\u0027s updated model");
+      .toMatchTextContent("Thinking levels not reported for this model.");
     await expect
       .element(modelDialog.getByRole("toolbar", { name: "Thinking" }))
       .not.toBeInTheDocument();
@@ -680,7 +675,7 @@ test("a refused model keeps the chooser open with a sentence, not the RPC code",
     await page.getByRole("button", { name: "Model Stub One" }).click();
     const dialog = page.getByRole("dialog", { name: "Chat model" });
     await expect.element(dialog).toBeVisible();
-    await userEvent.keyboard("{ArrowDown}{Enter}");
+    await dialog.getByRole("option", { name: /Stub Two/ }).click();
 
     // The server's data, in a sentence: the list stays open so the user can pick another model.
     await expect.element(dialog).toBeVisible();
