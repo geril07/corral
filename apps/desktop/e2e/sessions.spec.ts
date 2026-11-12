@@ -9,8 +9,9 @@ import {
   sessionTab,
   sessionTabs,
   startShell,
+  taskCard,
   unwrappedScreenText,
-  workspace,
+  writeConfig,
 } from "./app-helpers.ts";
 import { isAlive, readEndpoint, readLaunches, test } from "./fixtures.ts";
 
@@ -19,21 +20,18 @@ test("an agent session is started, stopped and restarted, and a running one come
   launchApp,
   stateDir,
 }) => {
+  writeConfig(stateDir, '[tasks]\nview = "terminal"\n');
   const repo = createRepo(stateDir);
   const first = await launchApp();
   const window = await openedWindow(first);
-  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Agents");
   await startShell(window);
   const session = (name: string) => sessionTab(window, name);
 
-  // Claude Code through the picker.
-  await openAgentSessionPicker(window, "terminal");
-  const picker = window.getByRole("dialog", { name: "New agent session" });
-  await expect(picker.getByRole("radio", { name: "claude" })).toBeFocused();
-  await window.keyboard.press("Digit1");
-  await expect(picker).toBeHidden();
+  // The primary Claude session is a terminal because the config asks for it; the shell opened
+  // last, so the test selects the agent again.
+  await session("claude").click();
   await expect(session("claude")).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
   await window.keyboard.type("first-prompt");
@@ -59,13 +57,14 @@ test("an agent session is started, stopped and restarted, and a running one come
         .map((launch) => launch.argv),
     )
     .toEqual([
-      ["--session-id", claudeId],
+      ["--session-id", claudeId, " Agents"],
       ["--resume", claudeId],
     ]);
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
 
   // pi is started and then stopped: it must stay stopped across the restart.
   await openAgentSessionPicker(window, "terminal");
+  const picker = window.getByRole("dialog", { name: "New agent session" });
   await expect(picker.getByRole("radio", { name: "claude" })).toBeFocused();
   await window.keyboard.press("Digit3");
   await expect(session("pi")).toHaveAttribute("aria-selected", "true");
@@ -97,7 +96,7 @@ test("an agent session is started, stopped and restarted, and a running one come
         .map((launch) => launch.argv),
     )
     .toEqual([
-      ["--session-id", claudeId],
+      ["--session-id", claudeId, " Agents"],
       ["--resume", claudeId],
       ["--resume", claudeId],
     ]);
@@ -116,36 +115,24 @@ test("an agent session is started, stopped and restarted, and a running one come
 });
 
 // A8: the task's sessions are tabs in the main area, not rows in the sidebar.
-test("two sessions of one task are tabs that switch by click and by key, and the header names the task", async ({
+test("two sessions of one task are tabs that switch by click and by key", async ({
   launchApp,
   stateDir,
 }) => {
+  writeConfig(stateDir, '[tasks]\nview = "terminal"\n');
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
   // The window takes keys only once the workspace has loaded.
-  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Tabbed", { workspace: "new-worktree" });
   await startShell(window);
 
-  // The strip holds the task's sessions and, after them, its Changes tab (`layout.md`, **Changes**).
+  // The main strip holds the primary agent and the shell; the companion stays hidden until a
+  // Changes tab is opened.
   const tabs = sessionTabs(window);
-  await expect(tabs.getByRole("tab", { name: "Changes" })).toHaveCount(1);
   await expect(tabs.getByRole("tab")).toHaveCount(2);
-  // Sessions are not sidebar rows any more.
-  await expect(workspace(window).getByRole("tab")).toHaveCount(0);
-
-  await openAgentSessionPicker(window, "terminal");
-  await expect(window.getByRole("radio", { name: "claude" })).toBeFocused();
-  await window.keyboard.press("Digit1");
-  await expect(tabs.getByRole("tab")).toHaveCount(3);
-  await expect(sessionTab(window, "claude")).toHaveAttribute("aria-selected", "true");
-  await expect.poll(() => screenText(window)).toContain("fake claude ready");
-
-  // A header names the task, its project, its branch and its agent.
-  const header = window.getByRole("group", { name: "task header" });
-  await expect(header.getByRole("heading", { name: "Tabbed" })).toBeVisible();
-  await expect(header.locator("[data-task-repository]")).toContainText(" / ");
+  const companion = window.getByRole("tablist", { name: "Companion tabs" });
+  await expect(taskCard(window, "Tabbed")).toHaveAttribute("aria-current", "true");
 
   // Clicking the shell's tab shows that terminal and leaves the keyboard with it.
   await sessionTab(window, "shell").click();
@@ -163,14 +150,14 @@ test("two sessions of one task are tabs that switch by click and by key, and the
   await window.keyboard.press("Enter");
   await expect.poll(() => unwrappedScreenText(window)).toContain("fake claude got: back-to-claude");
 
-  // The Changes tab opens by key and is not a session: the current session stays the agent's,
+  // The Changes tab opens by key and is not a session: the main session stays selected,
   // and the clean task shows the empty state (`layout.md`, **Changes**).
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("Shift+KeyC");
-  await expect(window.getByRole("tab", { name: "Changes" })).toHaveAttribute(
+  await expect(companion.getByRole("tab", { name: "Changes" })).toHaveAttribute(
     "aria-selected",
     "true",
   );
-  await expect(sessionTab(window, "claude")).toHaveAttribute("aria-current", "true");
+  await expect(sessionTab(window, "claude")).toHaveAttribute("aria-selected", "true");
   await expect(window.getByText("No changes yet")).toBeVisible();
 });

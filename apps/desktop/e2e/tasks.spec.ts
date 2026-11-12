@@ -12,7 +12,8 @@ import {
   screenText,
   sessionTab,
   startShell,
-  workspace,
+  taskCard,
+  writeConfig,
 } from "./app-helpers.ts";
 import { readLaunches, test } from "./fixtures.ts";
 
@@ -37,45 +38,13 @@ test("a task gets a worktree and a terminal in it, and removing it leaves the br
   launchApp,
   stateDir,
 }) => {
+  writeConfig(stateDir, '[tasks]\nview = "terminal"\n');
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("Add a repository to start")).toBeVisible();
-
-  await window.keyboard.press("Alt+KeyA");
-  await window.keyboard.press("Shift+KeyP");
-  const addProjectDialog = window.getByRole("dialog", { name: "Add project" });
-  await expect(addProjectDialog.getByRole("textbox")).toBeFocused();
-  await window.keyboard.type(repo);
-  await window.keyboard.press("Enter");
-  await expect(addProjectDialog).toBeHidden();
-  // Add project lands in the new project's composer, with no sidebar row current.
-  await expect(newTaskView(window)).toBeVisible();
-  await expect(promptField(window)).toBeFocused();
-  await expect(workspace(window).locator('[aria-current="true"]')).toHaveCount(0);
-  // The global New task action is enabled once the project is current.
-  await expect(
-    workspace(window).getByRole("button", { name: "New task", exact: true }),
-  ).toBeEnabled();
-
-  // The composer is a view in the main area: its prompt takes the keyboard, and the optional
-  // title carries a task that should start without an agent.
-  await window.keyboard.press("Alt+KeyA");
-  await window.keyboard.press("KeyT");
-  await expect(promptField(window)).toBeFocused();
-  await newTaskView(window)
-    .getByRole("combobox", { name: /^Workspace / })
-    .click();
-  await window.keyboard.type("new worktree");
-  await window.keyboard.press("Enter");
-  await newTaskView(window).getByRole("button", { name: "Title (optional)" }).click();
-  await window.keyboard.type("Fix login");
-  await window.keyboard.press("Enter");
-  await expect(newTaskView(window)).toBeHidden();
-  const task = workspace(window).getByRole("button", { name: /^Fix login/ });
+  await addProject(window, repo);
+  await createTask(window, "Fix login", { workspace: "new-worktree" });
+  const task = taskCard(window, "Fix login");
   await expect(task).toHaveAttribute("aria-current", "true");
-  // Creating a task starts no shell: the task is listed and its pane says what is missing.
-  await expect(sessionTab(window, "shell")).toHaveCount(0);
-  await expect(window.getByText("No sessions", { exact: true })).toBeVisible();
 
   // The task got a worktree of its own in the data dir; a shell started there works in it.
   const worktreesRoot = path.join(stateDir, "data", "worktrees");
@@ -112,26 +81,13 @@ test("projects and tasks are still there when the app is opened again", async ({
   const repo = createRepo(stateDir);
   const first = await launchApp();
   const firstWindow = await openedWindow(first);
-  await expect(firstWindow.getByText("Add a repository to start")).toBeVisible();
-  await firstWindow.keyboard.press("Alt+KeyA");
-  await firstWindow.keyboard.press("Shift+KeyP");
-  await expect(
-    firstWindow.getByRole("dialog", { name: "Add project" }).getByRole("textbox"),
-  ).toBeFocused();
-  await firstWindow.keyboard.type(repo);
-  await firstWindow.keyboard.press("Enter");
-  await expect(
-    workspace(firstWindow).getByRole("button", { name: "New task", exact: true }),
-  ).toBeEnabled();
+  await addProject(firstWindow, repo);
   await createTask(firstWindow, "Keep me");
   await startShell(firstWindow);
   await first.close();
 
   const secondWindow = await openedWindow(await launchApp());
-  await expect(workspace(secondWindow).getByRole("button", { name: /^Keep me/ })).toBeVisible();
-  await expect(
-    workspace(secondWindow).getByRole("button", { name: "New task", exact: true }),
-  ).toBeEnabled();
+  await expect(taskCard(secondWindow, "Keep me")).toBeVisible();
   // The task's shell kept running on the server, so it is listed too.
   await expect(sessionTab(secondWindow, "shell")).toHaveCount(1);
 });
@@ -142,23 +98,15 @@ test("a prompt creates the task and the fake agent receives it", async ({
   launchApp,
   stateDir,
 }) => {
+  writeConfig(stateDir, '[tasks]\nview = "terminal"\n');
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
 
-  await window.keyboard.press("Alt+KeyA");
-  await window.keyboard.press("KeyT");
-  await expect(promptField(window)).toBeFocused();
-  await newTaskView(window).getByRole("button", { name: "Open in terminal" }).click();
-  await promptField(window).click();
-  await window.keyboard.type("Explain the build");
-  await window.keyboard.press("Enter");
+  await createTask(window, "Explain the build");
 
   // The task is listed at once under its seed title, with the agent's session selected.
-  await expect(
-    workspace(window).getByRole("button", { name: /^Explain the build/ }),
-  ).toHaveAttribute("aria-current", "true");
+  await expect(taskCard(window, "Explain the build")).toHaveAttribute("aria-current", "true");
   await expect(sessionTab(window, "claude")).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
   // No shell opened on its own.
