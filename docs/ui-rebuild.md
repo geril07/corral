@@ -39,7 +39,9 @@ implementation per shared pattern and no invented user-visible copy. See `delive
 - The open Settled shelf mounts every settled row in one scroller; a very long history has a
   corresponding rendering cost. `Project settings…`, project removal and loose-terminal controls
   have no routed-shell entry point. The `/board` route still mounts the earlier board and its
-  most-urgent-session aggregate, but the routed shell has no entry point to it.
+  most-urgent-session aggregate, but the routed shell has no entry point to it. The routed shell
+  also does not mount the connection status/recovery opener; a refused capability reaches the
+  terminal's own notice, not a capability field over a running workspace.
 - The composer does not support real attachments or pre-launch reasoning. A scratch task has no Git
   controls; mobile remains out of scope.
 - The transcript keeps all turn folds open while the session is working because the protocol does
