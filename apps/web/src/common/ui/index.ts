@@ -59,7 +59,6 @@ export {
   SidebarPanel,
   TaskContent,
 } from "./layout.tsx";
-export { OverflowMenu } from "./overflow-menu.tsx";
 export { RowMenu } from "./row-menu.tsx";
 export { AgentIcon } from "./agent-icon.tsx";
 export {

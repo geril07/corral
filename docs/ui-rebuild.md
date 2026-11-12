@@ -41,7 +41,10 @@ implementation per shared pattern and no invented user-visible copy. See `delive
   have no routed-shell entry point. The `/board` route still mounts the earlier board and its
   most-urgent-session aggregate, but the routed shell has no entry point to it. The routed shell
   also does not mount the connection status/recovery opener; a refused capability reaches the
-  terminal's own notice, not a capability field over a running workspace.
+  terminal's own notice, not a capability field over a running workspace. The routed shell never
+  calls `tasks.seen`, so a completed card stays unseen after its task is opened. The composer
+  offers `Current checkout` and a new worktree only; creating a task on an existing branch remains
+  a server contract with no routed control.
 - The composer does not support real attachments or pre-launch reasoning. A scratch task has no Git
   controls; mobile remains out of scope.
 - The transcript keeps all turn folds open while the session is working because the protocol does
