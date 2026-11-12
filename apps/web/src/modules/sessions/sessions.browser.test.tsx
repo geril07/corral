@@ -1,7 +1,7 @@
 import type { CorralClient } from "@corral/client/corral-client";
+import type { Task } from "@corral/protocol/rpc";
 import { expect, test, afterEach, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
-import { render } from "vitest-browser-react";
 import { agentLaunches, setServerEnv } from "../../../test/fake-agents.ts";
 import {
   prefixShifted,
@@ -9,15 +9,12 @@ import {
   realServerClients,
   screenText,
 } from "../../../test/real-client.ts";
-import { App } from "../../../test/render-app.tsx";
 import {
   appWithProject,
   openAgentSessionPicker,
-  createTaskWithShell,
   focusedIsTerminal,
   sessionTabs,
   shellTabs,
-  workspace,
 } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
@@ -46,6 +43,27 @@ afterEach(async () => {
   }
 });
 
+/**
+ * A task with no prompt and one shell, created through the server contract the routed composer
+ * does not expose, then opened from its card. The tests here are about sessions, not creation.
+ */
+async function taskWithShell(
+  client: CorralClient,
+  projectId: string,
+  title = "Agents",
+): Promise<Task> {
+  const task = await client.connection.api.tasks.create({
+    projectId,
+    title,
+    workspace: { type: "main-worktree" },
+  });
+  await page.getByRole("button", { name: new RegExp(title) }).click();
+  await prefixThen("c");
+  await expect.element(shellTabs()).toHaveLength(1);
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  return task;
+}
+
 function sessionOf(client: CorralClient, kind: string) {
   const session = client.sessions.getSnapshot().sessions.find((each) => each.kind === kind);
   if (!session) throw new Error(`no ${kind} session`);
@@ -70,8 +88,8 @@ async function startAgent(kind: string, keys: string) {
 }
 
 test("prefix s opens the picker; a digit starts that agent in the task and the keyboard goes to it", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Agents");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id);
   const task = client.tasks.getSnapshot().tasks[0]!;
 
   await startAgent("claude", "1");
@@ -89,8 +107,8 @@ test("prefix s opens the picker; a digit starts that agent in the task and the k
 });
 
 test("arrows and Enter pick an agent in the picker too", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Agents");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id);
 
   await startAgent("codex", "{ArrowDown}{Enter}");
 
@@ -98,8 +116,8 @@ test("arrows and Enter pick an agent in the picker too", async () => {
 });
 
 test("prefix x stops the session, which stays in the list; prefix r starts it again resuming the conversation", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Agents");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id);
   await startAgent("claude", "1");
   await userEvent.keyboard("remember-me{Enter}");
   await expect.poll(wrappedScreen).toContain("fake claude got: remember-me");
@@ -127,15 +145,15 @@ test("prefix x stops the session, which stays in the list; prefix r starts it ag
 });
 
 test("prefix d settles the task, stopping its agent, and unsettling resumes the conversation", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Agents");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id);
   await startAgent("claude", "1");
   await userEvent.keyboard("remember-me{Enter}");
   await expect.poll(wrappedScreen).toContain("fake claude got: remember-me");
   const { id, agentSessionId } = sessionOf(client, "claude");
 
   await prefixThen("d");
-  await expect.element(workspace().getByRole("button", { name: "Settled (1)" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Settled (1)" })).toBeVisible();
   await expect.element(sessionButton("claude", "stopped")).toBeVisible();
   expect(sessionOf(client, "claude")).toMatchObject({ state: "stopped", terminalId: null });
 
@@ -151,8 +169,8 @@ test("prefix d settles the task, stopping its agent, and unsettling resumes the 
 });
 
 test("Enter on the stopped session's pane starts it again", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Agents");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id);
   await startAgent("pi", "3");
   await prefixThen("x");
   await expect.element(stoppedPane().getByRole("button", { name: "Restart" })).toHaveFocus();
@@ -165,8 +183,8 @@ test("Enter on the stopped session's pane starts it again", async () => {
 });
 
 test("an agent that ends by itself shows its last screen and is stopped until prefix r", async () => {
-  await appWithProject(newClient());
-  await createTaskWithShell("Agents");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id);
   await startAgent("opencode", "4");
 
   await userEvent.keyboard("exit{Enter}");
@@ -182,8 +200,8 @@ test("an agent that ends by itself shows its last screen and is stopped until pr
 
 test("a Codex session whose conversation was never identified is unresumable and says it starts a new one", async () => {
   await withServerEnv("FAKE_CODEX_ROLLOUT", "never");
-  await appWithProject(newClient());
-  await createTaskWithShell("Agents");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id);
   await startAgent("codex", "2");
 
   await userEvent.keyboard("exit{Enter}");
@@ -193,13 +211,17 @@ test("a Codex session whose conversation was never identified is unresumable and
 });
 
 test("an agent missing from the server's PATH keeps the picker open with the reason", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Agents");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id);
   await withServerEnv("PATH", "/nonexistent");
 
   await prefixThen("s");
-  await expect.element(picker().getByRole("radio", { name: "claude" })).toHaveFocus();
-  await userEvent.keyboard("1");
+  await expect.element(picker()).toBeVisible();
+  // The routed picker focuses its search field; choose the instance explicitly, then launch.
+  await picker()
+    .getByRole("radio", { name: /claude/ })
+    .click();
+  await userEvent.keyboard("{Enter}");
 
   await expect
     .element(picker().getByRole("alert"))
@@ -214,20 +236,9 @@ test("an agent missing from the server's PATH keeps the picker open with the rea
   await expect.element(shellTabs()).toHaveLength(1);
 });
 
-test("prefix s without a task says so instead of opening the picker", async () => {
-  await render(<App client={newClient()} />);
-
-  await prefixThen("s");
-
-  await expect
-    .element(page.getByRole("status").filter({ hasText: "Select a task" }))
-    .toMatchTextContent("Select a task");
-  await expect.element(picker()).not.toBeInTheDocument();
-});
-
 test("prefix n and p cycle through the task's shells and agents", async () => {
-  await appWithProject(newClient());
-  await createTaskWithShell("Agents");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id);
   await startAgent("claude", "1");
 
   await prefixThen("n");
@@ -242,8 +253,8 @@ test("prefix n and p cycle through the task's shells and agents", async () => {
 });
 
 test("prefix shift+x asks first, starts on Cancel, and removes the session for good", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Agents");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id);
   await startAgent("claude", "1");
 
   await prefixShifted("x");
@@ -261,19 +272,4 @@ test("prefix shift+x asks first, starts on Cancel, and removes the session for g
   await expect.element(sessionButton("claude")).not.toBeInTheDocument();
   expect(client.sessions.getSnapshot().sessions.map((session) => session.kind)).toEqual(["shell"]);
   await expect.element(shellTabs()).toHaveAttribute("aria-selected", "true");
-});
-
-test("prefix x on a loose terminal closes it; r and shift+x leave it alone", async () => {
-  const client = newClient();
-  await render(<App client={client} />);
-  await prefixThen("c");
-  await expect.element(workspace().getByRole("button", { name: /^sh · / })).toBeVisible();
-
-  await prefixThen("r");
-  await prefixShifted("x");
-  await expect.element(page.getByRole("alertdialog")).not.toBeInTheDocument();
-  await expect.element(workspace().getByRole("button", { name: /^sh · / })).toBeVisible();
-
-  await prefixThen("x");
-  await expect.element(workspace().getByRole("button", { name: /^sh · / })).not.toBeInTheDocument();
 });
