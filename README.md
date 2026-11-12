@@ -6,5 +6,6 @@ Keyboard-first workspace for running coding agents in terminals. Design: [`docs/
 mise install && pnpm install
 pnpm check          # format, lint, types, Node tests
 pnpm test:browser   # component tests in Chromium
+pnpm test:perf      # isolated single-process timing suite
 pnpm test:e2e       # Electron end to end
 ```

@@ -30,21 +30,28 @@ implementation per shared pattern and no invented user-visible copy. See `delive
 
 ## Known limitations
 
-- Issue #265 tracks mixed old-interface tests. Live behavior, including Changes writes, links,
-  session lifecycle and handoff, must be ported rather than bulk-deleted. Electron helpers and
-  specs also need migration. No old or partial run is a green release gate.
-- Opening a local file in chat starts the configured editor in a loose terminal, but the routed
-  shell has no loose-terminal view. The editor-visibility assertion remains a failing live check;
-  its product fix is outside #265.
+- Issue #265 ported the live old-interface coverage to the routed shell and removed the unmounted
+  old screens and the `/board` route. Changes writes, links, session lifecycle, handoff, keymap,
+  status and connection recovery run against the routed shell. Electron helpers and specs are
+  migrated; no old or partial run is a green release gate.
+- **Editor terminal visibility (live blocker).** Opening a local file in chat calls
+  `files.openEditor`, which starts the configured editor as a loose terminal in the task's
+  workspace. The routed shell has no loose-terminal view, so the chat lane stays visible and the
+  editor's output is unreachable. Repro: configure `[editor] command = "/bin/cat {file}"`, open a
+  chat with a workspace path such as `src/app.ts:3`, and click the path button; the terminal is
+  created (`terminals.list` shows it with the resolved path and `taskId: null`) but the transcript
+  does not give way to it. The same failure is the last assertion in `apps/desktop/e2e/links.spec.ts`.
+  Desired future behavior: the opened editor terminal appears in the working area (or another
+  explicit loose-terminal surface) and takes the keyboard, or the editor opens without a Corral
+  terminal. Both assertions stay failing until that product decision; #265 does not weaken them.
 - The open Settled shelf mounts every settled row in one scroller; a very long history has a
   corresponding rendering cost. `Project settings…`, project removal and loose-terminal controls
-  have no routed-shell entry point. The `/board` route still mounts the earlier board and its
-  most-urgent-session aggregate, but the routed shell has no entry point to it. The routed shell
-  also does not mount the connection status/recovery opener; a refused capability reaches the
-  terminal's own notice, not a capability field over a running workspace. The routed shell never
-  calls `tasks.seen`, so a completed card stays unseen after its task is opened. The composer
-  offers `Current checkout` and a new worktree only; creating a task on an existing branch remains
-  a server contract with no routed control.
+  have no routed-shell entry point. The composer offers `Current checkout` and a new worktree only;
+  creating a task on an existing branch remains server-supported with no routed control.
+- The 10,000-item chat transcript timing case runs in its own single-process suite because shard
+  load made its p95 budget unrepresentative: `pnpm test:perf`. The normal browser gate keeps the
+  500/2,000/5,000-item cases and excludes `*.perf.browser.test.tsx`; the 10,000-item assertion and
+  its budget are unchanged.
 - The composer does not support real attachments or pre-launch reasoning. A scratch task has no Git
   controls; mobile remains out of scope.
 - The transcript keeps all turn folds open while the session is working because the protocol does
