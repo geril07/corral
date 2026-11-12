@@ -10,6 +10,7 @@
     "typecheck": "vp run -r typecheck",
     "test": "vp test run --project node",
     "test:browser": "vp run --concurrency-limit 4 browser-all",
+    "test:perf": "vp run -r test:perf",
     "test:e2e": "vp run -r test:e2e",
     "test:contracts": "vp run -r test:contracts",
     "dev": "node scripts/dev.mjs",

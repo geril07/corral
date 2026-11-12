@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vp dev",
     "build": "vp build",
+    "test:perf": "vp test run --config vite.perf.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

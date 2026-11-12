@@ -40,6 +40,9 @@ export default defineConfig({
   test: {
     name: "browser",
     include: ["src/**/*.browser.test.tsx"],
+    // The 10,000-item timing case runs alone in `vite.perf.config.ts`: shard load makes its
+    // p95 budget unrepresentative, not the assertion.
+    exclude: ["src/**/*.perf.browser.test.tsx"],
     setupFiles: ["./test/setup.ts"],
     globalSetup: ["test/real-server.ts"],
     // The files share one real server, and each test cleans up all of it afterwards.
