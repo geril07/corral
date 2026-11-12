@@ -1,5 +1,6 @@
 import { ORPCError } from "@orpc/client";
 import type { CorralClient } from "@corral/client/corral-client";
+import type { Task } from "@corral/protocol/rpc";
 import { expect, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { createGitRepo } from "./git-repo.ts";
@@ -144,6 +145,28 @@ export async function createTaskWithShell(
 ) {
   await createTask(title, options);
   await startShell(shellCount);
+}
+
+/**
+ * A task with no prompt and one shell, created through the server contract the routed composer
+ * does not expose, then opened from its card. Tests about sessions use this instead of the
+ * retired title-only composer.
+ */
+export async function taskWithShell(
+  client: CorralClient,
+  projectId: string,
+  title = "Agents",
+): Promise<Task> {
+  const task = await client.connection.api.tasks.create({
+    projectId,
+    title,
+    workspace: { type: "main-worktree" },
+  });
+  await page.getByRole("button", { name: new RegExp(title) }).click();
+  await prefixThen("c");
+  await expect.element(shellTabs()).toHaveLength(1);
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  return task;
 }
 
 /** Adds a shell session to the current task with prefix c. */

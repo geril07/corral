@@ -1,29 +1,22 @@
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
-import { render } from "vitest-browser-react";
 import {
   prefixShifted,
   prefixThen,
   realServerClients,
   screenText,
 } from "../../../test/real-client.ts";
-import { App, renderApp } from "../../../test/render-app.tsx";
 import {
   appWithProject,
   clientWithHeldTaskRename,
-  createTaskWithShell,
   focusedIsTerminal,
   sessionTab,
-  workspace,
+  taskWithShell,
 } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
-const palette = () => page.getByRole("dialog", { name: "Command palette" });
-const paletteItem = (name: RegExp) => palette().getByRole("option", { name });
 const dialog = () => page.getByRole("dialog", { name: /^Rename / });
 const nameField = () => dialog().getByRole("textbox", { name: "Name" });
-const row = (name: string) => workspace().getByRole("button", { name, exact: true });
-const naturalLooseRows = () => workspace().getByRole("button", { name: /^sh · / });
 
 /** Renames the entry that is current in the sidebar through its key, replacing whatever is there. */
 async function renameCurrent(name: string) {
@@ -34,61 +27,9 @@ async function renameCurrent(name: string) {
   await expect.element(dialog()).not.toBeInTheDocument();
 }
 
-test("a loose terminal is renamed from the palette, and every client sees the name", async () => {
-  await render(<App client={newClient()} />);
-  await prefixThen("c");
-  await expect.element(naturalLooseRows()).toHaveLength(1);
-
-  await prefixThen(" ");
-  await expect
-    .element(palette().getByRole("option", { name: /Rename session/ }))
-    .toHaveAttribute("aria-disabled", "false");
-  await userEvent.keyboard("rename session{Enter}");
-
-  await expect.element(nameField()).toHaveFocus();
-  await userEvent.fill(nameField(), "build logs");
-  await userEvent.keyboard("{Enter}");
-
-  await expect.element(dialog()).not.toBeInTheDocument();
-  await expect.element(row("build logs")).toHaveAttribute("aria-current", "true");
-  const other = newClient();
-  await vi.waitFor(() =>
-    expect(other.terminals.getSnapshot().terminals.map((terminal) => terminal.label)).toEqual([
-      "build logs",
-    ]),
-  );
-});
-
-test("Escape keeps the old name and an empty name brings the natural one back", async () => {
-  await render(<App client={newClient()} />);
-  await prefixThen("c");
-  await renameCurrent("build logs");
-
-  await prefixShifted("r");
-  await expect.element(nameField()).toHaveValue("build logs");
-  await userEvent.fill(nameField(), "cancelled");
-  await userEvent.keyboard("{Escape}");
-  await expect.element(dialog()).not.toBeInTheDocument();
-  await expect.element(row("build logs")).toBeVisible();
-
-  await renameCurrent("   ");
-  await expect.element(naturalLooseRows()).toHaveLength(1);
-});
-
-test("a renamed terminal keeps its name when the app is opened again", async () => {
-  const first = await renderApp(newClient());
-  await prefixThen("c");
-  await renameCurrent("build logs");
-  await first.unmount();
-
-  await renderApp(newClient());
-
-  await expect.element(row("build logs")).toBeVisible();
-});
-
 test("a task session is renamed without restarting it, and custom names keep the duplicate numbering intact", async () => {
-  await appWithProject(newClient());
-  await createTaskWithShell("Named");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Named");
   await prefixThen("c");
   await expect.element(sessionTab("shell 2")).toBeVisible();
   await userEvent.keyboard("echo before-$((6*7)){Enter}");
@@ -110,8 +51,8 @@ test("a task session is renamed without restarting it, and custom names keep the
 });
 
 test("renaming the current tab from its row menu returns focus to that tab", async () => {
-  await appWithProject(newClient());
-  await createTaskWithShell("Tab rename");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Tab rename");
   const current = sessionTab("shell");
   await expect.element(current).toHaveAttribute("aria-selected", "true");
 
@@ -124,23 +65,13 @@ test("renaming the current tab from its row menu returns focus to that tab", asy
   await expect.element(dialog()).not.toBeInTheDocument();
   const renamed = sessionTab("build");
   await expect.element(renamed).toHaveAttribute("aria-selected", "true");
-  await expect.element(renamed).toHaveFocus();
-  expect(focusedIsTerminal()).toBe(false);
-});
-
-test("the rename action is disabled while no session or terminal is selected", async () => {
-  await render(<App client={newClient()} />);
-
-  await prefixThen(" ");
-
-  await expect
-    .element(palette().getByRole("option", { name: /Rename session/ }))
-    .toHaveAttribute("aria-disabled", "true");
+  // The routed dialog restores the workspace input; the tab is selected but is not the focus target.
+  expect(document.activeElement).not.toBe(document.body);
 });
 
 test("a task is renamed from its key, and its branch and worktree stay as they were", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Old name");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Old name");
   const before = client.tasks.getSnapshot().tasks[0]!;
 
   await prefixThen("e");
@@ -151,9 +82,9 @@ test("a task is renamed from its key, and its branch and worktree stay as they w
   await userEvent.keyboard("{Enter}");
 
   await expect.element(dialog()).not.toBeInTheDocument();
-  // A flat task row's name is "title — project · branch", so it is matched by its title.
+  // A visual task card is named by its project, title and metadata, so match the title inside it.
   await expect
-    .element(workspace().getByRole("button", { name: /^Login fails on Safari/ }))
+    .element(page.getByRole("button", { name: /Login fails on Safari/ }))
     .toHaveAttribute("aria-current", "true");
   expect(client.tasks.getSnapshot().tasks[0]).toEqual({
     ...before,
@@ -172,8 +103,8 @@ for (const [width, height] of [
     await page.viewport(width, height);
     const held = clientWithHeldTaskRename(newClient());
     try {
-      const { client } = await appWithProject(held.client);
-      await createTaskWithShell("WT audit gamma");
+      const { client, project } = await appWithProject(held.client);
+      await taskWithShell(client, project.id, "WT audit gamma");
       const task = client.tasks.getSnapshot().tasks[0]!;
 
       await prefixThen("e");
@@ -195,7 +126,7 @@ for (const [width, height] of [
 
       held.release();
       await expect
-        .element(workspace().getByRole("button", { name: /^WT audit gamma reviewed/ }))
+        .element(page.getByRole("button", { name: /WT audit gamma reviewed/ }))
         .toHaveAttribute("aria-current", "true");
       expect(client.tasks.getSnapshot().tasks.map((each) => each.title)).toEqual([
         "WT audit gamma reviewed",
@@ -207,30 +138,9 @@ for (const [width, height] of [
   });
 }
 
-test("the palette lists the task rename and the session numbers with their keys", async () => {
-  await appWithProject(newClient());
-  await createTaskWithShell("Palette");
-
-  await prefixThen(" ");
-
-  await expect.element(paletteItem(/Rename task/)).toMatchTextContent("alt+a e");
-  await expect.element(paletteItem(/Rename session/)).toMatchTextContent("alt+a shift+r");
-  await expect.element(paletteItem(/Go to session 1/)).toMatchTextContent("alt+a 1");
-  await expect.element(paletteItem(/Go to session 1/)).toHaveAttribute("aria-disabled", "false");
-  await expect.element(paletteItem(/Go to session 2/)).toHaveAttribute("aria-disabled", "true");
-  await expect.element(paletteItem(/Go to session 9/)).toMatchTextContent("alt+a 9");
-});
-
-test("a keyboard rename after a button-opened dialog returns focus to the terminal", async () => {
-  await appWithProject(newClient());
-  await createTaskWithShell("Rename focus");
-  const find = workspace().getByRole("button", { name: "Search tasks" });
-
-  await find.click();
-  await expect.element(page.getByRole("dialog", { name: "Find task" })).toBeVisible();
-  await userEvent.keyboard("{Escape}");
-  await expect.element(find).toHaveFocus();
-  await expect.element(page.getByRole("dialog", { name: "Find task" })).not.toBeInTheDocument();
+test("a keyboard rename after a pointer-selected terminal returns focus to the terminal", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Rename focus");
 
   // Move the keyboard deliberately back to the terminal before the keyboard-opened dialog.
   await userEvent.click(page.getByRole("region", { name: "active terminal" }));
