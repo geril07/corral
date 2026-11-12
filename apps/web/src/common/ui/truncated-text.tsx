@@ -14,7 +14,7 @@ interface Truncated {
  * an ellipsis so the end stays visible. ResizeObserver keeps it honest when the pane changes.
  *
  * A **new text is shown at once, in full**, before anything is measured: the state a previous text
- * left behind must never stay on screen (`docs/ux.md`, **Task header** — switching tasks showed
+ * left behind must never stay on screen (switching tasks showed
  * the old task's branch). A measurement then narrows it; an element with no width yet (its first
  * paint, a hidden pane) gets measured when the observer reports a size, and a caller that never
  * attaches `observe` still renders the right text.

@@ -207,7 +207,7 @@ export function ChatView({
       // stays. Any other in-place edit keeps the whole draft instead of losing what was written.
       setDraft((current) => draftLeftAfterSend(current, submitted) ?? current);
     } catch (error) {
-      // A refused send keeps the text, so the user does not type it again (`ux.md`, errors).
+      // A refused send keeps the text, so the user does not type it again.
       setFailure(describeError(error));
     } finally {
       setSending(false);

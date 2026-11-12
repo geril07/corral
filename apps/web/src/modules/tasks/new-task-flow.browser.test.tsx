@@ -282,7 +282,7 @@ test("a branch taken since the list was read is refused by name and keeps the pr
   );
 
   // Escape is refused while the error is showing: leaving would throw the draft away, and
-  // `ux.md` promises that a failed submission preserves its input.
+  // A failed submission preserves its input.
   await userEvent.keyboard("{Escape}");
   await expect.element(newTaskView()).toBeVisible();
   await expect.element(newTaskView().getByRole("alert")).toBeVisible();

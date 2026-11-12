@@ -119,7 +119,7 @@ export function NewTaskView({
   const agentAnchor = useRef<HTMLButtonElement>(null);
   const [branches, setBranches] = useState<Branches>({ projectId, status: "loading" });
   const attempt = useAttempt();
-  // An IME commit is not a submission (`docs/ux.md`), in either platform ordering.
+  // An IME commit is not a submission, in either platform ordering.
   const guard = useEnterGuard();
 
   // `autoFocus` only runs on mount. `prefix t` must also hand the keyboard to the prompt of a
@@ -240,7 +240,7 @@ export function NewTaskView({
               if (pickingAgent) return;
               event.preventDefault();
               event.stopPropagation();
-              // A failed create keeps its error in view (`ux.md`: failed submissions preserve
+              // A failed create keeps its error in view (failed submissions preserve
               // input); leaving with Escape would hide what went wrong. The sidebar is the way out,
               // and the draft lives in the workspace, so it survives either path.
               if (attempt.failed) return;

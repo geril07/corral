@@ -4,7 +4,7 @@ import type { LaunchSelection } from "../sessions/index.ts";
  * A draft the production shell keeps outside the composer. The project can be `null`: that is a
  * scratch task, which the server owns and which has no Git workspace. Prompt and focus survive a
  * project/No project switch, a cancelled picker and a failed create because this value lives in
- * the workspace, not in a form that unmounts (`docs/ux.md`, **Task entry**).
+ * the workspace, not in a form that unmounts (`docs/layout.md`).
  */
 export interface TaskComposerDraft {
   /** `null` means No project: a scratch task under the server's data directory. */

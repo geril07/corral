@@ -448,7 +448,7 @@ const ACTION_LABELS: Readonly<Record<ChatToolAction, (count: number) => string>>
   run: (count) => `Ran ${count} ${count === 1 ? "command" : "commands"}`,
   // T3 keeps a web search and a code search apart by tool name (`search` vs `code-search`,
   // `presentation.ts:471-474`); the contract's shape says only that a search happened, so the one
-  // noun covers both. `docs/ux.md`, **Known limits** states the same.
+  // noun covers both.
   search: (count) => `Searched code ${count} ${count === 1 ? "time" : "times"}`,
   other: (count) => `Used ${count} ${count === 1 ? "tool" : "tools"}`,
 };

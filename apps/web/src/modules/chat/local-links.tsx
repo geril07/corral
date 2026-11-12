@@ -215,7 +215,7 @@ export function LocalLinksUnavailable() {
   );
 }
 
-/** The refusal of an editor launch, where the composer's own errors appear (`docs/ux.md`). */
+/** The refusal of an editor launch, where the composer's own errors appear (`docs/design.md`). */
 export function LocalLinkFailure() {
   const failure = useLocalLinks()?.failure;
   if (failure === undefined) return null;
@@ -301,7 +301,7 @@ export { openWebLink } from "../../common/lib/open-web-link.ts";
  * An image or video the message pointed at. Bytes come over RPC (`files.read`) and become a
  * `blob:` URL. Every way this can fail — past the bound, a refused read, bytes that do not decode
  * — ends as **one row with the editor**, never a broken frame or a stuck "Loading" line
- * (`docs/ux.md`, **Local links in chat**).
+ * (`docs/design.md`).
  */
 function FileMedia({ file, target }: { file: FileTarget; target: LocalTarget }) {
   const links = useLocalLinks();

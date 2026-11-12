@@ -74,7 +74,7 @@ export function isSeenDone(status: AgentStatus | undefined, unseen: boolean): bo
 
 /**
  * The word a flat sidebar row shows instead of the age while the task needs the user. The state
- * name stays visible next to its glyph (`ux.md`: no status by shape or color alone).
+ * name stays visible next to its glyph, rather than relying on shape or color alone.
  */
 export function attentionWord(status: AgentStatus | undefined): string | undefined {
   if (status?.state === "error") return "error";

@@ -114,7 +114,7 @@ function tokenColor(token: string): string {
 /**
  * The header where the workspace mounts it, with the pane width under the test's control: a task
  * switch can happen while the main area has no width yet (its first paint, a hidden pane), and the
- * branch line must follow the task anyway (`docs/ux.md`, **Task header**).
+ * branch line must follow the task anyway.
  */
 function Harness({
   node,

@@ -20,7 +20,7 @@ test("the 640 px main-area reserve holds at and above the supported 1024 px floo
 });
 
 test("below 848 px the sidebar floor wins, because smaller layouts are unsupported", () => {
-  // `ux.md` Known limits: desktop support begins at 1024×640; the reserve is a supported-floor
+  // `docs/layout.md`: desktop support begins at 1024×640; the reserve is a supported-floor
   // promise, not a claim that a 700 px window can show a 640 px main area beside a 208 px sidebar.
   expect(maxSidebarWidth(700)).toBe(SIDEBAR_MIN_WIDTH);
   expect(700 - maxSidebarWidth(700)).toBeLessThan(MAIN_AREA_MIN_WIDTH);

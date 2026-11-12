@@ -214,7 +214,7 @@ export interface VisualShellViewProps {
   companion?: ReactNode | undefined;
   /** The working area owns its pane's padding; empty states keep the content inset. */
   mainFill?: boolean | undefined;
-  /** While a draft is open no sidebar row is current (`docs/ux.md`, **Layout**). */
+  /** While a draft is open no sidebar row is current (`docs/layout.md`). */
   composerOpen?: boolean | undefined;
   onNewTask?: (() => void) | undefined;
   onOpenSettings?: (() => void) | undefined;

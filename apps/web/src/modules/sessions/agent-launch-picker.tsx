@@ -120,7 +120,7 @@ export function AgentLaunchPicker({
   });
   const currentModel = launchModel(selection);
   // The configured default names this instance; another instance has no configured model of its
-  // own, so its baseline is the native default (`docs/ux.md`, **Task entry**).
+  // own, so its baseline is the native default (`docs/layout.md`).
   const configured =
     defaultSelection !== undefined && launchKey(defaultSelection) === key
       ? defaultSelection
@@ -148,7 +148,7 @@ export function AgentLaunchPicker({
   const hidden = currentRow !== undefined && !modelVisible(menu.preferences.policy, currentRow);
   const overridden = currentModel !== undefined && currentModel !== defaultModel;
   // Another instance means another runtime and model space: the previous model text is not
-  // carried over, because doing so would switch the model silently (`docs/ux.md`, **Task entry**).
+  // carried over, because doing so would switch the model silently (`docs/layout.md`).
   // Re-picking the instance already shown changes nothing, so its configured model stays.
   const select = (option: LaunchSelection) =>
     onChange(
