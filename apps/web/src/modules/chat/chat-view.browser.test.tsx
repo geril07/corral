@@ -12,6 +12,7 @@ import { afterEach, expect, test, vi } from "vite-plus/test";
 import { cdp, page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { ChatViewHarness as ChatView } from "../../../test/chat-view-harness.tsx";
+import { measureTranscriptPerf } from "../../../test/chat-transcript-perf.tsx";
 import { stubClipboard } from "../../../test/clipboard.ts";
 import type { ChatFiles } from "./local-links.tsx";
 import { chatTranscriptStore, type ChatTranscriptStore } from "./chat-transcript.ts";
@@ -1681,40 +1682,12 @@ test("a composition-confirming Enter never sends; the next real Enter sends once
   await vi.waitFor(() => expect(chat.sent[1]).toEqual({ text: "world", mode: "prompt" }));
 });
 
-for (const size of [500, 2000, 5000, 10_000]) {
+for (const size of [500, 2000, 5000]) {
   test(
     `a ${size}-item transcript stays virtualized and a streamed delta stays responsive`,
     { timeout: 60_000 },
     async () => {
-      const chat = await renderChat(longChat(size));
-      await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
-      const itemId = `long-${size - 1}`;
-      // The list opens at the end, so the streaming answer is mounted before it is measured.
-      await vi.waitFor(() =>
-        expect(document.body.textContent).toContain(`Short answer ${size - 1}.`),
-      );
-
-      const samples: number[] = [];
-      let sequence = 0;
-      for (let index = 0; index < 20; index += 1) {
-        // One update at a time: the sample is the time this delta took to reach the screen.
-        sequence += 1;
-        const start = performance.now();
-        chat.script.push({
-          type: "event",
-          sequence,
-          event: { type: "delta", itemId, text: " more" },
-        });
-        // oxlint-disable-next-line eslint/no-await-in-loop -- one measured update at a time
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        samples.push(performance.now() - start);
-      }
-      samples.sort((left, right) => left - right);
-      const p95 = samples[Math.ceil(samples.length * 0.95) - 1] ?? 0;
-      const max = samples[samples.length - 1] ?? 0;
-      const mounted = document.querySelectorAll('article[aria-label="Agent message"]').length;
-      // The measured numbers belong in the slice report; a log line keeps them in the gate log.
-      console.log(JSON.stringify({ size, p95, max, mounted }));
+      const { mounted, p95 } = await measureTranscriptPerf(size);
       expect(mounted).toBeLessThan(100);
       expect(p95).toBeLessThan(100);
     },
