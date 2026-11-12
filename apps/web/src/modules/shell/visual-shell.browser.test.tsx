@@ -1,3 +1,5 @@
+import type { ConnectionState } from "@corral/client/connection-state";
+import { defaultClientConfig } from "@corral/protocol/config";
 import type { Task } from "@corral/protocol/rpc";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
@@ -6,13 +8,18 @@ import { render } from "vitest-browser-react";
 import type { VisualTaskRow } from "../../common/ui/index.ts";
 import { removeClipboard, stubClipboard } from "../../../test/clipboard.ts";
 import { prefixShifted, prefixThen } from "../../../test/real-client.ts";
+import { KeymapProvider } from "../keymap/index.ts";
 import { RemoveTaskDialog } from "../tasks/index.ts";
 import {
   VISUAL_REVIEW_ROWS,
   VISUAL_REVIEW_SELECTED,
   VISUAL_REVIEW_SETTLED_ROWS,
 } from "./visual-fixtures.ts";
-import { VisualShellView, type VisualTaskActions } from "./visual-view.tsx";
+import {
+  VisualShellView,
+  type VisualShellViewProps,
+  type VisualTaskActions,
+} from "./visual-view.tsx";
 
 const SHORTCUT = { prefix: "alt+a", binding: "\\" };
 const RENAME_SHORTCUT = { prefix: "alt+a", binding: "e" };
@@ -23,7 +30,7 @@ const FOCUS_SHORTCUT = { prefix: "alt+a", binding: "w" };
 const NO_SETTLED_ROWS: readonly VisualTaskRow[] = [];
 const FIRST = VISUAL_REVIEW_ROWS[0]!;
 
-function Harness() {
+function Harness({ status }: { status?: VisualShellViewProps["status"] } = {}) {
   const [selected, setSelected] = useState<string | null>(VISUAL_REVIEW_SELECTED);
   return (
     <VisualShellView
@@ -34,6 +41,7 @@ function Harness() {
       failure={undefined}
       shortcut={SHORTCUT}
       onSelectTask={setSelected}
+      status={status}
     />
   );
 }
@@ -251,11 +259,11 @@ test("only task-list hops warm; standalone and disabled controls stay cold", asy
   await expect.poll(tooltipText).toContain(VISUAL_REVIEW_ROWS[2]!.title);
 
   // A disabled explanation uses the same cold delay, not a special zero.
-  const search = page.getByRole("button", { name: /Search tasks/ });
-  await userEvent.hover(search);
+  const newTask = page.getByRole("button", { name: "New task" });
+  await userEvent.hover(newTask);
   await nextFrame();
-  expect(tooltipText() ?? "").not.toContain("Task search is not part of this visual slice.");
-  await expect.poll(tooltipText).toContain("Task search is not part of this visual slice.");
+  expect(tooltipText() ?? "").not.toContain("Creating tasks is unavailable here.");
+  await expect.poll(tooltipText).toContain("Creating tasks is unavailable here.");
   await unmount();
 });
 
@@ -345,10 +353,10 @@ test("keyboard focus opens metadata, Escape closes it, and a host with no action
 
 test("an unavailable action stacks its title over its reason instead of using columns", async () => {
   const { unmount } = await render(<Harness />);
-  const search = page.getByRole("button", { name: /Search tasks/ }).element();
-  if (!(search instanceof HTMLElement)) throw new Error("search row is missing");
+  const newTask = page.getByRole("button", { name: "New task" }).element();
+  if (!(newTask instanceof HTMLElement)) throw new Error("New task control is missing");
 
-  await userEvent.hover(search);
+  await userEvent.hover(newTask);
   await expect.element(page.getByRole("tooltip")).toBeVisible();
   const popup = document.querySelector<HTMLElement>(".visual-tooltip-explanation");
   const heading = popup?.querySelector<HTMLElement>(".visual-tooltip-heading");
@@ -366,10 +374,53 @@ test("an unavailable action stacks its title over its reason instead of using co
   expect(Math.abs(reasonBox.left - headingBox.left)).toBeLessThan(1);
   expect(reasonBox.height).toBeGreaterThanOrEqual(15);
 
-  const before = getComputedStyle(search).backgroundColor;
-  await userEvent.unhover(search);
-  await expect.poll(() => getComputedStyle(search).backgroundColor).not.toBe(before);
-  expect(getComputedStyle(search).cursor).toBe("not-allowed");
+  const before = getComputedStyle(newTask).backgroundColor;
+  await userEvent.unhover(newTask);
+  await expect.poll(() => getComputedStyle(newTask).backgroundColor).not.toBe(before);
+  expect(getComputedStyle(newTask).cursor).toBe("not-allowed");
+  await unmount();
+});
+
+const STATUS_CONFIG = {
+  loaded: true,
+  path: "",
+  exists: false,
+  config: defaultClientConfig("/tmp"),
+  profiles: [],
+  agents: [],
+  problems: [],
+};
+
+test("the routed shell mounts the connection status and recovery opener in both placements", async () => {
+  const opened: HTMLElement[] = [];
+  const disconnected: ConnectionState = {
+    status: "disconnected",
+    attempt: 2,
+    startedAt: Date.now(),
+  };
+  const { unmount } = await render(
+    <KeymapProvider config={STATUS_CONFIG}>
+      <Harness
+        status={{
+          connection: disconnected,
+          onOpenConnection: (opener) => opened.push(opener),
+          onOpenConfigProblems: () => undefined,
+        }}
+      />
+    </KeymapProvider>,
+  );
+
+  const opener = page.getByRole("button", { name: /^connection:/ });
+  await expect.element(opener).toBeVisible();
+  // The status footer keeps the two real actions in the same row.
+  await expect.element(page.getByRole("button", { name: "Settings" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Add project" })).toBeVisible();
+  await opener.click();
+  expect(opened).toEqual([opener.element()]);
+
+  // Hidden sidebar: the same status moves to the strip above the main surface.
+  await userEvent.click(page.getByRole("button", { name: "Hide sidebar" }));
+  await expect.element(page.getByRole("button", { name: /^connection:/ })).toBeVisible();
   await unmount();
 });
 
@@ -504,7 +555,6 @@ test("the sidebar can be dragged to 100, keeps essential controls reachable, and
 
   const controls = [
     toggle,
-    container.querySelector<HTMLElement>(".visual-sidebar-row"),
     container.querySelector<HTMLElement>('[aria-label="New task"]'),
     container.querySelector<HTMLElement>('[aria-label="Settings"]'),
     container.querySelector<HTMLElement>('[aria-label="Add project"]'),
@@ -631,12 +681,14 @@ test("the toggle hides the sidebar, stays available in the main surface, and its
 
 test("unavailable actions say why in the compact tooltip and never claim to run", async () => {
   const { unmount } = await render(<Harness />);
-  const search = page.getByRole("button", { name: /Search tasks/ });
-  await expect.element(search).toHaveAttribute("aria-disabled", "true");
-  await userEvent.hover(search);
+  // Search is hidden in the routed shell; its keymap and config action remain for a later slice.
+  expect(page.getByRole("button", { name: /Search tasks/ }).elements()).toHaveLength(0);
+  const newTask = page.getByRole("button", { name: "New task" });
+  await expect.element(newTask).toHaveAttribute("aria-disabled", "true");
+  await userEvent.hover(newTask);
   const tooltip = page.getByRole("tooltip");
   await expect.element(tooltip).toBeVisible();
-  await expect.element(tooltip).toMatchTextContent("Task search is not part of this visual slice.");
+  await expect.element(tooltip).toMatchTextContent("Creating tasks is unavailable here.");
 
   const hide = page.getByRole("button", { name: "Hide sidebar" });
   await userEvent.hover(hide);

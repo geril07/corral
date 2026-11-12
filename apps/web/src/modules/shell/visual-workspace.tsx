@@ -1,14 +1,20 @@
+import { hasUnseen } from "@corral/client/agent-status";
 import { describeError } from "@corral/client/rpc-errors";
 import { activeAfterClose } from "@corral/client/terminal-selection";
 import { taskSettingsFor, type ActionId } from "@corral/protocol/config";
 import type { CreateTaskInput, Task } from "@corral/protocol/rpc";
 import { workspaceMissingPath } from "@corral/protocol/workspace";
-import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
-import { VisualTabPanel, VisualTabStrip, type VisualTabItem } from "../../common/ui/index.ts";
+import {
+  useDialogFocus,
+  VisualTabPanel,
+  VisualTabStrip,
+  type VisualTabItem,
+} from "../../common/ui/index.ts";
 import { createChangesActions } from "../changes/index.ts";
-import { useCorralClient } from "../connection/index.ts";
-import { bindingOf, useConfig } from "../keymap/index.ts";
+import { ConnectionRecoveryDialog, useConnection, useCorralClient } from "../connection/index.ts";
+import { bindingOf, ConfigProblemsDialog, useConfig } from "../keymap/index.ts";
 import { AddProjectDialog, ProjectChoiceDialog } from "../projects/index.ts";
 import { defaultLaunch, describeLaunchError } from "../sessions/index.ts";
 import { useAppearance } from "../settings/index.ts";
@@ -36,7 +42,7 @@ import {
   type VisualShellNotice,
   type VisualTaskActions,
 } from "./visual-view.tsx";
-import { buildSettledRows, buildTaskRows } from "./visual-status.ts";
+import { buildSettledRows, buildTaskRows, primaryTaskStatus } from "./visual-status.ts";
 
 /** The open removal and its preflight answer. */
 interface RemoveState {
@@ -86,6 +92,8 @@ export function VisualWorkspace({
   active?: boolean;
 }) {
   const client = useCorralClient();
+  const connection = useConnection();
+  const dialogFocus = useDialogFocus();
   const { config, profiles, loaded: configLoaded, problems: configProblems } = useConfig();
   const { appearance } = useAppearance();
   const now = useNow(30_000);
@@ -139,6 +147,8 @@ export function VisualWorkspace({
   const [remove, setRemove] = useState<RemoveState>();
   const [source, setSource] = useState<Task>();
   const [notice, setNotice] = useState<VisualShellNotice>();
+  const [connectionOpen, setConnectionOpen] = useState(false);
+  const [configProblemsOpen, setConfigProblemsOpen] = useState(false);
   // A refused write keeps its one notice until the user dismisses it; it never takes the slot from
   // a notice that already says something about the action at hand.
   const [storageNoticeDismissed, setStorageNoticeDismissed] = useState(false);
@@ -563,6 +573,25 @@ export function VisualWorkspace({
 
   const selectedTask =
     selectedRow === undefined ? undefined : tasks.tasks.find((task) => task.id === selectedRow.id);
+  // The server owns `seenAt`, so opening a task or watching its status change clears the same
+  // completion on every client. One mark per task/seenAt/status update: the next watched task
+  // carries the new time, and a refused mark is retried on the next selection or status change.
+  const selectedStatus = primaryTaskStatus(
+    selectedTask ?? { primarySessionId: null },
+    sessions.sessions,
+  )?.status;
+  const seenRequest = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!active || selectedTask === undefined || !hasUnseen(selectedTask, selectedStatus)) return;
+    const key = [selectedTask.id, selectedTask.seenAt ?? "never", selectedStatus?.updatedAt].join(
+      ":",
+    );
+    if (seenRequest.current === key) return;
+    seenRequest.current = key;
+    client.connection.api.tasks.markSeen({ id: selectedTask.id }).catch(() => {
+      seenRequest.current = undefined;
+    });
+  }, [active, client, selectedStatus, selectedTask]);
   const selectedProject =
     selectedTask?.projectId === null || selectedTask === undefined
       ? undefined
@@ -748,8 +777,21 @@ export function VisualWorkspace({
           rename === undefined &&
           remove === undefined &&
           source === undefined &&
+          !connectionOpen &&
+          !configProblemsOpen &&
           taskWorkspace.prefixEnabled
         }
+        status={{
+          connection,
+          onOpenConnection: (opener) => {
+            dialogFocus?.remember(opener);
+            setConnectionOpen(true);
+          },
+          onOpenConfigProblems: (opener) => {
+            dialogFocus?.remember(opener);
+            setConfigProblemsOpen(true);
+          },
+        }}
       />
       {taskWorkspace.dialogs}
       {addingProject && (
@@ -811,6 +853,8 @@ export function VisualWorkspace({
           onClose={() => setSource(undefined)}
         />
       )}
+      {connectionOpen && <ConnectionRecoveryDialog onClose={() => setConnectionOpen(false)} />}
+      {configProblemsOpen && <ConfigProblemsDialog onClose={() => setConfigProblemsOpen(false)} />}
     </>
   );
 }
