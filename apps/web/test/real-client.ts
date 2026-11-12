@@ -4,6 +4,7 @@ import type { Backoff, CreateSocket } from "@corral/client/reconnecting-socket";
 import type { ServerTarget } from "@corral/protocol/server-target";
 import { afterEach, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
+import { cleanup } from "vitest-browser-react";
 import { writeConfig } from "./config-command.ts";
 import { serverTarget } from "./server-url.ts";
 
@@ -26,6 +27,9 @@ export function realServerClients() {
   const clients: CorralClient[] = [];
 
   afterEach(async () => {
+    // Unmount first: a watch or request still held by a component must abort while the socket is
+    // open. Closing clients before the component cleanup sends those cancels on a closed socket.
+    await cleanup();
     await writeConfig(null);
     const cleaner = newClient();
     const { api } = cleaner.connection;
