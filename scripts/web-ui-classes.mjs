@@ -172,7 +172,6 @@ function controlOverrides(program, diagnostics, line) {
     "SidebarPanel",
     "TreeIndent",
     "TreeRow",
-    "BoardList",
     "VisualResizeHandle",
     "VisualSidebar",
     "VisualCompanion",

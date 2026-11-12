@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as WorkspaceRouteImport } from './routes/_workspace'
 import { Route as VisualReviewRouteImport } from './routes/visual-review'
 import { Route as WorkspaceIndexRouteImport } from './routes/_workspace.index'
-import { Route as WorkspaceBoardRouteImport } from './routes/_workspace.board'
 import { Route as WorkspaceSettingsRouteImport } from './routes/_workspace.settings'
 
 const WorkspaceRoute = WorkspaceRouteImport.update({
@@ -29,11 +28,6 @@ const WorkspaceIndexRoute = WorkspaceIndexRouteImport.update({
   path: '/',
   getParentRoute: () => WorkspaceRoute,
 } as any)
-const WorkspaceBoardRoute = WorkspaceBoardRouteImport.update({
-  id: '/board',
-  path: '/board',
-  getParentRoute: () => WorkspaceRoute,
-} as any)
 const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -43,12 +37,10 @@ const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof WorkspaceIndexRoute
   '/visual-review': typeof VisualReviewRoute
-  '/board': typeof WorkspaceBoardRoute
   '/settings': typeof WorkspaceSettingsRoute
 }
 export interface FileRoutesByTo {
   '/visual-review': typeof VisualReviewRoute
-  '/board': typeof WorkspaceBoardRoute
   '/settings': typeof WorkspaceSettingsRoute
   '/': typeof WorkspaceIndexRoute
 }
@@ -56,20 +48,18 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_workspace': typeof WorkspaceRouteWithChildren
   '/visual-review': typeof VisualReviewRoute
-  '/_workspace/board': typeof WorkspaceBoardRoute
   '/_workspace/settings': typeof WorkspaceSettingsRoute
   '/_workspace/': typeof WorkspaceIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/visual-review' | '/board' | '/settings'
+  fullPaths: '/' | '/visual-review' | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/visual-review' | '/board' | '/settings' | '/'
+  to: '/visual-review' | '/settings' | '/'
   id:
     | '__root__'
     | '/_workspace'
     | '/visual-review'
-    | '/_workspace/board'
     | '/_workspace/settings'
     | '/_workspace/'
   fileRoutesById: FileRoutesById
@@ -102,13 +92,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspaceIndexRouteImport
       parentRoute: typeof WorkspaceRoute
     }
-    '/_workspace/board': {
-      id: '/_workspace/board'
-      path: '/board'
-      fullPath: '/board'
-      preLoaderRoute: typeof WorkspaceBoardRouteImport
-      parentRoute: typeof WorkspaceRoute
-    }
     '/_workspace/settings': {
       id: '/_workspace/settings'
       path: '/settings'
@@ -120,13 +103,11 @@ declare module '@tanstack/react-router' {
 }
 
 interface WorkspaceRouteChildren {
-  WorkspaceBoardRoute: typeof WorkspaceBoardRoute
   WorkspaceSettingsRoute: typeof WorkspaceSettingsRoute
   WorkspaceIndexRoute: typeof WorkspaceIndexRoute
 }
 
 const WorkspaceRouteChildren: WorkspaceRouteChildren = {
-  WorkspaceBoardRoute: WorkspaceBoardRoute,
   WorkspaceSettingsRoute: WorkspaceSettingsRoute,
   WorkspaceIndexRoute: WorkspaceIndexRoute,
 }

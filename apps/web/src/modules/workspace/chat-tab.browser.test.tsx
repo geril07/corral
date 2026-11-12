@@ -129,7 +129,7 @@ function seededClient(
 
 test("a chat session renders its tab and lane, and prefix . reaches chat.abort", async () => {
   const { client, real, tasks, sessions, abort, chatStore, chatSession } = seededClient();
-  const { repo, screen } = await appWithProject(client);
+  const { repo } = await appWithProject(client);
   const project = await vi.waitFor(() => {
     const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
     if (found === undefined) throw new Error("the project is not in the list yet");
@@ -200,17 +200,6 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
     await page.getByRole("tab", { name: /^codex/ }).click();
     await expect.element(composer).toHaveValue("Unsent codex draft");
     await page.getByRole("tab", { name: /^pi/ }).click();
-    await expect.element(composer).toHaveValue("Unsent pi draft");
-
-    // The board is a layer over the mounted workspace, so its round trip keeps the chat draft.
-    // The routed shell has no board chord; the route is reached directly.
-    screen.history.push("/board");
-    await expect.element(page.getByRole("region", { name: "Board" })).toBeVisible();
-    await expect
-      .element(page.getByRole("region", { name: "Board" }).getByRole("listbox"))
-      .toHaveFocus();
-    await userEvent.keyboard("{Escape}");
-    await expect.element(page.getByRole("region", { name: "Board" })).not.toBeInTheDocument();
     await expect.element(composer).toHaveValue("Unsent pi draft");
 
     // `prefix .` runs the action's `chat.abort` with the selected session. The pending state
