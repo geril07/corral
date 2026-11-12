@@ -197,17 +197,17 @@ test("a reload reconnects through the preload bridge and keeps the hash route", 
   await window.keyboard.press("KeyC");
   await expect(sessionTabs(window).getByRole("tab", { name: /^shell/ })).toHaveCount(1);
 
-  await window.evaluate("window.location.hash = '#/board'");
-  await expect(window).toHaveURL(/#\/board$/);
-  await expect(window.getByRole("region", { name: "Board" })).toBeVisible();
+  await window.evaluate("window.location.hash = '#/settings'");
+  await expect(window).toHaveURL(/#\/settings$/);
+  await expect(window.getByRole("dialog", { name: "Settings" })).toBeVisible();
   await window.reload();
   await window.waitForURL(/[?&]server=/);
 
-  await expect(window).toHaveURL(/#\/board$/);
-  await expect(window.getByRole("region", { name: "Board" })).toBeVisible();
+  await expect(window).toHaveURL(/#\/settings$/);
+  await expect(window.getByRole("dialog", { name: "Settings" })).toBeVisible();
   // Back on the task after the reload, the session list comes from the reconnected RPC.
   await window.evaluate("window.location.hash = '#/'");
-  await expect(window.getByRole("region", { name: "Board" })).toBeHidden();
+  await expect(window.getByRole("dialog", { name: "Settings" })).toBeHidden();
   await window.getByRole("button", { name: /Reload task/ }).click();
   await expect(sessionTabs(window).getByRole("tab", { name: /^shell/ })).toHaveCount(1);
 });
