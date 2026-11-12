@@ -327,21 +327,28 @@ test("a clean task shows the empty state, and the 1024x640 list takes the top th
   await rendered.unmount();
 
   const changed = await seed();
-  await renderApp(newClient(), [changed.href]);
-  await prefixShifted("c");
-  await expect.element(fileList()).toBeVisible();
+  const originalViewport = { width: window.innerWidth, height: window.innerHeight };
+  await page.viewport(1024, 640);
+  try {
+    await renderApp(newClient(), [changed.href]);
+    await prefixShifted("c");
+    await expect.element(fileList()).toBeVisible();
 
-  // The browser runs at the 1024×640 minimum, where the list collapses to the top third so the
-  // selected file's diff takes the rest (`layout.md`, **Changes**).
-  const list = fileList().element();
-  const pane = list.parentElement!;
-  const ratio = list.getBoundingClientRect().height / pane.getBoundingClientRect().height;
-  expect(ratio).toBeGreaterThan(0.28);
-  expect(ratio).toBeLessThan(0.4);
-  // The routed shell's identity row and tab strip reduce the height left for the pane, so the
-  // finish controls can take more than the diff at 640 px; the diff still owns its own pane.
-  const diff = document.querySelector<HTMLElement>('[aria-label="File diff"]')!;
-  expect(diff.getBoundingClientRect().height).toBeGreaterThan(100);
+    // The browser runs at the 1024×640 minimum, where the list collapses to the top third so the
+    // selected file's diff takes the rest (`layout.md`, **Changes**). Another file in the shard
+    // may have resized the page, so this test states the viewport it measures.
+    const list = fileList().element();
+    const pane = list.parentElement!;
+    const ratio = list.getBoundingClientRect().height / pane.getBoundingClientRect().height;
+    expect(ratio).toBeGreaterThan(0.28);
+    expect(ratio).toBeLessThan(0.4);
+    // The routed shell's identity row and tab strip reduce the height left for the pane, so the
+    // finish controls can take more than the diff at 640 px; the diff still owns its own pane.
+    const diff = document.querySelector<HTMLElement>('[aria-label="File diff"]')!;
+    expect(diff.getBoundingClientRect().height).toBeGreaterThan(100);
+  } finally {
+    await page.viewport(originalViewport.width, originalViewport.height);
+  }
 });
 
 test("a binary file is one row with its size and no diff", async () => {
