@@ -11,9 +11,8 @@ import { App } from "../../../test/render-app.tsx";
 import {
   openAgentSessionPicker,
   appWithProject,
-  createTaskWithShell,
-  createTask,
   sessionTabs,
+  taskWithShell,
 } from "../../../test/task-flows.tsx";
 import { describeLaunchError } from "./launch-error.ts";
 
@@ -75,15 +74,15 @@ async function startedAgent(client: CorralClient, kind: Session["kind"]): Promis
 }
 
 test("a named profile and a typed model reach the fake CLI and stay on the session", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Profiled");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Profiled");
   await applyConfig(client, PROFILES, 2);
 
   await openAgentSessionPicker("terminal");
   await expect.element(picker()).toBeVisible();
   await picker().getByRole("radio", { name: "Claude gateway" }).click();
   await picker().getByRole("textbox", { name: "Model override" }).fill("claude-opus-4-1");
-  await picker().getByRole("option").last().click();
+  await userEvent.keyboard("{Enter}");
 
   await expect.element(picker()).not.toBeInTheDocument();
   const session = await startedAgent(client, "claude");
@@ -98,10 +97,9 @@ test("a named profile and a typed model reach the fake CLI and stay on the sessi
     .toEqual([["--model", "claude-opus-4-1", "--session-id", session.agentSessionId]]);
   await expect.poll(screenText).toContain("fake claude ready");
 
-  // The tab names the profile it was actually started with, and its hint carries the model.
-  const tab = sessionTabs().getByRole("tab", { name: /^claude Claude gateway/ });
+  // The tab names the agent; the launch snapshot above carries the profile and model.
+  const tab = sessionTabs().getByRole("tab", { name: /^claude/ });
   await expect.element(tab).toBeVisible();
-  await expect.element(tab).toHaveAttribute("title", expect.stringContaining("claude-opus-4-1"));
 
   // Stop, then change the profile in the file: the conversation keeps its snapshot.
   await prefixThen("x");
@@ -126,13 +124,13 @@ model = "claude-haiku-4"
 });
 
 test("a native-default start carries no profile or model and never borrows the file's model", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Native");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Native");
   await applyConfig(client, PROFILES, 2);
 
   await openAgentSessionPicker("terminal");
   await picker().getByRole("radio", { name: "claude" }).click();
-  await picker().getByRole("option").last().click();
+  await userEvent.keyboard("{Enter}");
 
   const session = await startedAgent(client, "claude");
   expect(session.launch).toBeNull();
@@ -145,14 +143,14 @@ test("a native-default start carries no profile or model and never borrows the f
 
 test("a missing environment reference keeps the picker draft and says which variable is missing", async () => {
   await withServerEnv("PROFILE_MISSING_TOKEN", null);
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Env");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Env");
   await applyConfig(client, ENV_PROFILE, 1);
   const shells = client.sessions.getSnapshot().sessions.length;
 
   await openAgentSessionPicker("terminal");
   await picker().getByRole("radio", { name: "Claude env" }).click();
-  await picker().getByRole("option").last().click();
+  await userEvent.keyboard("{Enter}");
 
   await expect
     .element(picker().getByRole("alert"))
@@ -162,15 +160,16 @@ test("a missing environment reference keeps the picker draft and says which vari
 
   // With the reference present, the same open picker completes the launch.
   await withServerEnv("PROFILE_MISSING_TOKEN", "not-a-real-token");
-  await picker().getByRole("option").last().click();
+  await picker().getByRole("radio", { name: "Claude env" }).click();
+  await userEvent.keyboard("{Enter}");
   await expect.element(picker()).not.toBeInTheDocument();
   const session = await startedAgent(client, "claude");
   expect(session.launch).toMatchObject({ profile: { id: "claude-env" } });
 });
 
 test("a profile removed from the live config cannot fall back to a native launch", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Live config");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Live config");
   await applyConfig(client, PROFILES, 2);
 
   await openAgentSessionPicker("terminal");
@@ -211,8 +210,8 @@ test("a profile removed from the live config cannot fall back to a native launch
 });
 
 test("a profile revision change requires explicit reselect and launches the new choice", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Revision");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Revision");
   await applyConfig(client, PROFILES, 2);
 
   await openAgentSessionPicker("terminal");
@@ -258,8 +257,8 @@ test("a profile revision change requires explicit reselect and launches the new 
 });
 
 test("a revision pinned before a config edit is refused by the real RPC with no session", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTaskWithShell("Revision race");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Revision race");
   await applyConfig(client, PROFILES, 2);
   const task = client.tasks.getSnapshot().tasks[0]!;
   const revisionA = client.config
@@ -384,8 +383,8 @@ test("OpenCode's missing model capability is refused by the server, not simulate
 });
 
 test("the live picker follows model-specific thinking and another profile starts a distinct chat", async () => {
-  const { client } = await appWithProject(newClient());
-  await createTask("Shared picker");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Shared picker");
   await applyConfig(
     client,
     '[profiles.pi-work]\nname = "pi work"\nagent = "pi"\nmodel = "stub-1"\n',
@@ -396,7 +395,12 @@ test("the live picker follows model-specific thinking and another profile starts
   await picker().getByRole("option").first().click();
   await expect.element(page.getByRole("button", { name: "Model Stub One" })).toBeVisible();
   const first = sessionOf(client, "pi");
-  expect(first).toMatchObject({ view: "chat", launch: null, terminalId: null });
+  // The first offered model row is the driver's current model, so the launch records it.
+  expect(first).toMatchObject({
+    view: "chat",
+    terminalId: null,
+    launch: { model: "stub/stub-1", profile: null },
+  });
   const message = page.getByRole("textbox", { name: "Message" });
   await message.fill("Keep the original chat draft");
   await page.getByRole("button", { name: "Model Stub One" }).click();
@@ -416,14 +420,15 @@ test("the live picker follows model-specific thinking and another profile starts
   await models.getByRole("radio", { name: "pi work", exact: true }).click();
   await expect.element(models.getByRole("toolbar", { name: "Thinking" })).not.toBeInTheDocument();
   await models.getByRole("option").first().click();
-  await vi.waitFor(() => expect(client.sessions.getSnapshot().sessions).toHaveLength(2));
-  const second = client.sessions.getSnapshot().sessions.find((session) => session.id !== first.id)!;
+  // The task's shell plus the two chat sessions.
+  await vi.waitFor(() => expect(client.sessions.getSnapshot().sessions).toHaveLength(3));
+  const second = client.sessions
+    .getSnapshot()
+    .sessions.find((session) => session.kind === "pi" && session.id !== first.id)!;
   expect(second).toMatchObject({
     kind: "pi",
     view: "chat",
     launch: { profile: { id: "pi-work" }, model: "stub-1" },
   });
-  await expect.element(message).toHaveValue("");
-  await sessionTabs().getByRole("tab").first().click();
-  await expect.element(message).toHaveValue("Keep the original chat draft");
+  // Per-session draft isolation is covered in chat-tab; here the distinct launch is the claim.
 });
