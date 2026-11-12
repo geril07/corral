@@ -145,9 +145,8 @@ context-menu dispatcher.
   inset 24 px from the viewport (40 px at lg), with one content scroller and a 240 px settings
   sidebar. Its type takes the shared rem roles (15/20 title, 13/16 label, 11/16 meta), so the
   interface text scale moves it with the controls instead of leaving it fixed. It is a route-backed
-  modal over a mounted workspace, not a page that destroys drafts and terminal attachments. The
-  board is a full-screen route layer over the same parent, not a dialog: no scrim, and its close
-  returns the keyboard through the same fallback. Other dialogs keep their existing dimensions.
+  modal over a mounted workspace, not a page that destroys drafts and terminal attachments. Other
+  dialogs keep their existing dimensions.
 - Settings composes the settings-only primitives in `modules/settings`: a 240 px grouped sidebar
   whose category rows are the kit's `layout="category"` (32 px, 8 px radius, 10 px inline padding,
   16 px icon, 8 px icon-text gap; 16 px group gap, 4 px item gap, 12 px muted group headings), a
@@ -191,16 +190,16 @@ context-menu dispatcher.
   and color; its sizes match the tab's tool icon slot.
 - The workspace route now composes `VisualShellView`: a borderless 320 px (100–640) sidebar over
   `bg-deep`, an 8 px inset `bg-base` main surface with radius 10, a 40 px Corral header, the
-  Search/New-task row, a flat 52 px task card list, the Settled shelf and a footer. `VisualTaskCard`
-  keeps its title metrics in every state, swaps the fixed 88 px status slot for the settle action on
-  hover/focus (settle or unsettle, absent in a host with no task store), and opens its metadata
-  tooltip on hover and keyboard focus: title, then icon+value rows for
-  project, branch and the primary agent's known model/provider, with no workspace path or ordinary
-  status row. `VisualIconButton`, `VisualSearchAction`, `VisualShelfToggle`, `VisualResizeHandle`,
-  the dedicated row context menu, the compact tooltip/keycaps and the metadata tooltip are the only
-  controls the shell composes. Search and the shelf's disclosure share one wide ghost row recipe,
-  `visual-sidebar-row`. A row's menu is the task menu (a Copy submenu of Path, Branch and Task ID,
-  then rename, settle or unsettle, source when the task has one, and remove) on the same popup
+  New-task action row, a flat 52 px task card list, the Settled shelf and the `ShellStatus` footer.
+  `VisualTaskCard` keeps its title metrics in every state, swaps the fixed 88 px status slot for the
+  settle action on hover/focus (settle or unsettle, absent in a host with no task store), and opens
+  its metadata tooltip on hover and keyboard focus: title, then icon+value rows for project, branch
+  and the primary agent's known model/provider, with no workspace path or ordinary status row.
+  `VisualIconButton`, `VisualShelfToggle`, `VisualResizeHandle`, the dedicated row context menu,
+  the compact tooltip/keycaps and the metadata tooltip are the only controls the shell composes.
+  The shelf's disclosure is the one wide ghost row, `visual-sidebar-row`. A row's menu is the task
+  menu (a Copy submenu of Path, Branch and Task ID, then rename, settle or unsettle, source when
+  the task has one, and remove) on the same popup
   RowMenu uses; the visual host
   opts into the shell's floating-surface skin, while the stock kit keeps its own. A copy
   confirmation and a refused task action share the sidebar's notice row above the footer; the
@@ -225,12 +224,13 @@ context-menu dispatcher.
   width and the edge fades carry motion, both removed under reduced motion.
 - Unavailable shell actions stay focusable with `aria-disabled` and explain the reason in the
   compact tooltip; they never use an empty click handler. Add project opens the existing real
-  dialog; Search is deferred in this slice.
+  dialog. Search is hidden in the routed shell; its keymap and config action remain, but no control
+  or palette is mounted.
 - The workspace status slot follows the task's **primary** session only; auxiliary terminals do
   not contribute agent status, unread state or sort priority. Working shows no duration because
   `AgentStatus.updatedAt` is a report time, not a run start.
-- The board, chat, changes and the terminal panes still use the prior kit compositions until their
-  own rebuild; their controls do not become the source of new visual rules.
+- Chat, changes and the terminal panes still use the prior kit compositions until their own
+  rebuild; their controls do not become the source of new visual rules.
 - ComposerSurface and ComposerToolbar own the shared prompt frame and wrapping control row. The
   caret is the prompt's focus indicator: the frame adds no ring, and the textarea cannot be resized
   by dragging; it grows by its layout limits. Textarea `frame="composer"` removes its duplicate
@@ -257,8 +257,8 @@ context-menu dispatcher.
 - ComboboxButton `layout="bounded"` caps profile/workspace triggers and exposes the
   full text only on measured overflow, so valid long names cannot stretch Settings sideways.
 - DialogContent `padding="none"` tells its footer not to cancel nonexistent outer padding.
-- BoardRow, ChangeFileRow, DiffPane and DiffView retain their existing behavior. Changes UI is not
-  redesigned in this cleanup.
+- ChangeFileRow, DiffPane and DiffView retain their existing behavior. Changes UI is not redesigned
+  in this cleanup.
 
 ## Chat rendering
 

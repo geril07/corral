@@ -19,9 +19,9 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   an **8** px outer inset and radius **10**.
 - Sidebar insets are start **11**, end **3**, top **8**, bottom **10**. The header is **40** high:
   the wordmark is **15/20** weight **530**, and the toggle is an icon-only **28×28** ghost action.
-- The action row sits **4** below the header: Search is a **28**-high wide ghost row (inline padding
-  **8**, gap **8**, radius **6**, **13/16** text) and New task is a **28×28** icon action. The list
-  starts **16** after the row and scrolls independently; card gap is **3**.
+- The action row sits **4** below the header and holds New task, a **28×28** icon action. Search is
+  hidden in this shell; its keymap and config action remain for a later slice, but no control is
+  mounted. The list starts **16** after the row and scrolls independently; card gap is **3**.
 - A task card is **52** high: padding **8**, two **16**-high lines with **4** between, radius **6**,
   no border or shadow. The first line carries a **16** px project avatar/icon and the project at
   **11/16** weight **440**; the right slot carries status/time at **11/16** weight **530**. The
@@ -32,7 +32,7 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   unsettles a settled one, named `Settle task` / `Unsettle task`; a host with no task store keeps
   the status instead of offering an action that could not run, and its row menu has no settle item.
 - The Settled shelf is the last group of the same scroller, after the active rows: a **28**-high
-  wide ghost row (the Search row's recipe) with the disclosure chevron and `Settled (N)`, then the
+  wide ghost row with the disclosure chevron and `Settled (N)`, then the
   same **52** px cards in the shelf's one order: newest activity, then newest task, then id — the
   server records no settle time, and activity is the **primary** session's report the card shows,
   not the most urgent of all sessions the prior sidebar used. It is collapsed by default and kept
@@ -42,15 +42,19 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   when it is long, so settling a task never moves the active rows above it. Open, it mounts every
   settled row: the prior sidebar paged its measured box, and paging is not built here, so a very
   long settled history costs one card per row.
-- The footer is **28** high with **28×28** Settings and Add project actions, gap **4**, start
-  aligned. Both are icon-only with compact tooltips.
+- The footer is the `ShellStatus` row: connection state, the config-problem opener and the prefix
+  hint, with the **28×28** Settings and Add project actions beside them. It is **36** high with a
+  top border, grows for a failure or guidance sentence, and gives way to a strip above the main
+  surface while the sidebar is hidden. Settings and Add project stay icon-only with compact
+  tooltips. The connection state opens the capability-recovery dialog; a config problem opens the
+  problems dialog.
 - The status slot follows only the task's **primary** agent session. Working has no displayed
   duration; other states use compact ages (`<1m`, `12m`, `2h`) from the report time. Sort order is
   Blocked/Error, unseen Done, Working, then neutral, newest report first inside a group.
 - `prefix \` toggles the sidebar. When hidden, the same toggle floats at the main surface's
   top-start corner. Clicking a card selects it and updates the route's `task` search; the review
   host at `/visual-review` (development only) renders the same components with fixture rows for
-  rare states. Search is deferred; Settle, New task, Settings and Add project are connected to the
+  rare states. Search is hidden; Settle, New task, Settings and Add project are connected to the
   real surfaces.
 - The main surface is the selected task's working area: a compact **40** px task row (title,
   project, branch, status, and the word `Settled` for a settled task), the **40** px strip, and the
@@ -186,7 +190,8 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
   focus to the prompt. `Current checkout` shows the project's default base as a read-only fact;
   `New worktree` shows `from <branch>` and opens the branch picker. No workspace path or summary
   line sits at the right. The routed composer currently requires a prompt and starts the primary
-  agent; title-only creation and issue import are not exposed there.
+  agent; title-only creation, issue import and creating a task on an existing branch are not
+  exposed there. Existing-branch creation remains server-supported.
 - Chat is the built-in default; explicit global/project/view choices win and unsupported chat
   falls back to terminal. Capability loading blocks prompt launches.
 
@@ -195,8 +200,8 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
 - A large categorized modal, bounded by the viewport.
   Its left category list selects one panel at a time. Each panel retains its own scroll
   and disclosure state; Appearance does not mix editable device preferences with read-only config.
-- The route stays /settings, in the pathless workspace parent shared with the board: opening it
-  never destroys terminal attachment, chat/new-task draft, selection, caret or scroll. The covered
+- The route stays /settings, in the pathless workspace parent: opening it never destroys terminal
+  attachment, chat/new-task draft, selection, caret or scroll. The covered
   workspace is inert while the modal is open, so its terminal cannot take the keyboard. Closing
   restores focus. Background prefix bindings and completion seen marks pause while the modal is
   open.
