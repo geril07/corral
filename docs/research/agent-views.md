@@ -1,6 +1,8 @@
 # Agent research: launch profiles and conversation views
 
-Durable memo for launch profiles and for what a "chat" view of an agent session may promise. Decisions only; the newer research result overrides earlier claims. Implementation reference for profiles: [agent-profiles.md](../agent-profiles.md) (separate worker); this memo does not restate the schema. Verified 2026-10-30 against installed CLIs, no user config written.
+Historical technical research from 2026-10-30, not a feature plan or current UI authority. Native
+versions and implementation have changed since this probe. Current launch/security rules are in
+[agent-profiles.md](../agent-profiles.md), and chat ownership is in [design.md](../design.md).
 
 ## Installed-version context
 
@@ -11,7 +13,7 @@ Durable memo for launch profiles and for what a "chat" view of an agent session 
 | pi          | 1.4.0     | `--provider` + `--model provider/id`                                        | `--mode rpc` events + `get_messages`; no approval prompts by design        |
 | OpenCode    | 2.1.4     | `run -m provider/model#variant`, `--server`, `--session`; no root `--model` | HTTP `GET /session/:id/message`; latest docs show `attach`, 2.1.4 does not |
 
-## Decisions
+## Historical observations and proposals
 
 - A launch profile is agent + optional provider/model + environment references. Env entries are references (`fromEnv`), never literal values: the public descriptor — the watched config the server broadcasts and the session snapshot — carries names only, so Corral never resolves or seeds secret values into it. That is a ref-only public-descriptor guarantee, not a claim that an arbitrary user config file cannot contain a secret. A missing reference fails visibly and does not fall back to ambient credentials.
 - Provider and model are immutable for an existing session; a different profile means a new session (or a future fork). Store agent, provider, model, nonsecret fields and reference names; re-resolve at launch, never store resolved secrets. Old sessions stay `unknown` rather than being inferred.

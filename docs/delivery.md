@@ -1,8 +1,6 @@
 # Delivery and review
 
-How one UI change travels from brief to merge. This is the process for the interface rebuild that
-started with the OpenCode reference; the earlier full-interface sweep in `.review/` is legacy and is
-not the model to copy.
+How a UI slice travels from brief to merge in the owner-led rebuild (#258).
 
 ## Reference rule
 
