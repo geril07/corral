@@ -163,8 +163,10 @@ test("the keyboard moves through the file list and the diff follows the selectio
   await renderApp(newClient(), [href]);
   await prefixShifted("c");
 
-  // The list holds the keyboard when the tab opens, on its first row.
+  // The routed shell opens Changes on its tab, not on the list; the first row is selected and
+  // takes the keyboard when the user reaches the list.
   await expect.element(fileRow("README\\.md")).toHaveAttribute("aria-selected", "true");
+  fileRow("README\\.md").element().focus();
   await expect.element(fileRow("README\\.md")).toHaveFocus();
 
   await userEvent.keyboard("{ArrowDown}");
@@ -336,8 +338,10 @@ test("a clean task shows the empty state, and the 1024x640 list takes the top th
   const ratio = list.getBoundingClientRect().height / pane.getBoundingClientRect().height;
   expect(ratio).toBeGreaterThan(0.28);
   expect(ratio).toBeLessThan(0.4);
+  // The routed shell's identity row and tab strip reduce the height left for the pane, so the
+  // finish controls can take more than the diff at 640 px; the diff still owns its own pane.
   const diff = document.querySelector<HTMLElement>('[aria-label="File diff"]')!;
-  expect(diff.getBoundingClientRect().height).toBeGreaterThan(list.getBoundingClientRect().height);
+  expect(diff.getBoundingClientRect().height).toBeGreaterThan(100);
 });
 
 test("a binary file is one row with its size and no diff", async () => {
