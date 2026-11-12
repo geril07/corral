@@ -150,6 +150,7 @@ test("a disabled agent disappears from the pickers and the task starts one still
   await userEvent.keyboard("{Escape}");
   await userEvent.click(promptField());
   await userEvent.keyboard("Enabled agent only{Enter}");
+  await expect.element(card("Enabled agent only")).toHaveAttribute("aria-current", "true");
 
   await vi.waitFor(async () => {
     const fresh = (await agentLaunches()).slice(before);
