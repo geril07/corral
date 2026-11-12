@@ -27,9 +27,8 @@ test("below 848 px the sidebar floor wins, because smaller layouts are unsupport
 });
 
 test("the pure clamps keep the 208–420 preference and cap only the displayed width", () => {
-  // These cover the pure helpers only; the hook's real preference-vs-display state (a shrink
-  // leaving storage alone, ArrowRight at the display maximum) is in
-  // workspace-screen.browser.test.tsx.
+  // These cover the pure helpers only; the routed shell's sidebar controls are covered in
+  // visual-shell.browser.test.tsx.
   expect(clampSidebarPreference(100)).toBe(SIDEBAR_MIN_WIDTH);
   expect(clampSidebarPreference(400)).toBe(400);
   expect(clampSidebarPreference(999)).toBe(SIDEBAR_MAX_WIDTH);
