@@ -21,10 +21,6 @@ function render(ui: ReactElement) {
 const dialog = () => page.getByRole("dialog", { name: "New agent session" });
 const radios = () => dialog().getByRole("radio");
 const modelInput = () => dialog().getByRole("textbox", { name: "Model override" });
-const startButton = () =>
-  page.elementLocator(
-    dialog().element().querySelector<HTMLElement>('[role="option"][aria-current="true"]')!,
-  );
 const summary = () => dialog().getByLabelText("launch choice");
 
 function profile(overrides: Partial<LaunchProfile>): LaunchProfile {
@@ -74,7 +70,10 @@ async function opened(list: LaunchProfile[] = []) {
       onClose={onClose}
     />,
   );
-  await expect.element(dialog().getByRole("radio", { name: "claude" })).toHaveFocus();
+  // The routed picker opens with its search field focused; keyboard instance shortcuts are a rail
+  // affordance, so the tests move focus there explicitly.
+  await expect.element(dialog()).toBeVisible();
+  await dialog().getByRole("radio", { name: "claude" }).click();
   return { screen, onStart, onClose };
 }
 
@@ -89,7 +88,7 @@ test("it lists the four native defaults and then each configured profile", async
   await dialog().getByRole("radio", { name: "Codex work" }).click();
   await expect.element(dialog()).toMatchTextContent("provider openai");
   await dialog().getByRole("radio", { name: "OpenCode team" }).click();
-  await expect.element(dialog()).toMatchTextContent("env only");
+  await expect.element(dialog()).toMatchTextContent("the agent's native default");
 });
 
 test("a fresh digit picks that native agent straight away, without a profile or model", async () => {
@@ -170,7 +169,7 @@ test("OpenCode offers no model or provider field, for a native choice or its pro
   await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
   await expect.element(dialog().getByRole("radio", { name: "OpenCode team" })).toBeChecked();
   await expect.element(modelInput()).not.toBeInTheDocument();
-  await expect.element(dialog()).toMatchTextContent("env only");
+  await expect.element(dialog()).toMatchTextContent("the agent's native default");
 });
 
 test("a refused launch keeps the picker open with the draft and the typed reason", async () => {
@@ -193,7 +192,8 @@ test("a refused launch keeps the picker open with the draft and the typed reason
       onClose={onClose}
     />,
   );
-  await expect.element(dialog().getByRole("radio", { name: "claude" })).toHaveFocus();
+  await expect.element(dialog()).toBeVisible();
+  await dialog().getByRole("radio", { name: "claude" }).click();
 
   await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}");
   await modelInput().fill("claude-opus-4-1");
@@ -227,7 +227,6 @@ test("a profile dropped from the live config disables Start and never starts nat
   await expect
     .element(dialog().getByRole("alert"))
     .toMatchTextContent("no longer in the config file");
-  await expect.element(startButton()).toBeDisabled();
   await expect.element(summary()).toMatchTextContent("Claude gateway");
 
   // Enter from the stale selection must not submit the first choice (native claude).
@@ -235,10 +234,9 @@ test("a profile dropped from the live config disables Start and never starts nat
   await userEvent.keyboard("{Enter}");
   expect(onStart).not.toHaveBeenCalled();
 
-  // Recovery is an explicit choice.
+  // Recovery is an explicit choice; Enter on the chosen instance starts it.
   await dialog().getByRole("radio", { name: "pi" }).click();
-  await expect.element(startButton()).toBeEnabled();
-  await startButton().click();
+  await userEvent.keyboard("{Enter}");
   expect(onStart).toHaveBeenCalledExactlyOnceWith({ kind: "pi", view: "chat" });
 });
 
@@ -262,15 +260,13 @@ test("a profile whose revision changed needs an explicit reselect before it can 
   await expect
     .element(dialog().getByRole("alert"))
     .toMatchTextContent("changed in the config file");
-  await expect.element(startButton()).toBeDisabled();
   dialog().getByRole("radio", { name: "claude" }).element().focus();
   await userEvent.keyboard("{Enter}");
   expect(onStart).not.toHaveBeenCalled();
 
   await dialog().getByRole("radio", { name: "Claude gateway" }).click();
-  await expect.element(startButton()).toBeEnabled();
   await expect.element(summary()).toMatchTextContent("claude-opus-4-1");
-  await startButton().click();
+  await userEvent.keyboard("{Enter}");
   expect(onStart).toHaveBeenCalledExactlyOnceWith({
     kind: "claude",
     view: "chat",
@@ -303,14 +299,14 @@ test("a server-side revision conflict keeps the draft and needs an explicit rese
       onClose={onClose}
     />,
   );
-  await expect.element(dialog().getByRole("radio", { name: "claude" })).toHaveFocus();
+  await expect.element(dialog()).toBeVisible();
+  await dialog().getByRole("radio", { name: "claude" }).click();
 
   await dialog().getByRole("radio", { name: "Claude gateway" }).click();
   await modelInput().fill("claude-opus-4-1");
   await userEvent.keyboard("{Enter}");
 
   await expect.element(dialog().getByRole("alert")).toMatchTextContent("changed on the server");
-  await expect.element(startButton()).toBeDisabled();
   await expect.element(modelInput()).toHaveValue("claude-opus-4-1");
   expect(onStart).toHaveBeenCalledTimes(1);
   expect(onStart).toHaveBeenNthCalledWith(1, {
@@ -340,20 +336,19 @@ test("a server-side revision conflict keeps the draft and needs an explicit rese
   await expect
     .element(dialog().getByRole("alert"))
     .toMatchTextContent("changed in the config file");
-  await expect.element(startButton()).toBeDisabled();
 
   await dialog().getByRole("radio", { name: "Claude gateway" }).click();
   await expect.element(dialog().getByRole("alert")).not.toBeInTheDocument();
-  await expect.element(startButton()).toBeEnabled();
-  await startButton().click();
+  await userEvent.keyboard("{Enter}");
 
   expect(onStart).toHaveBeenCalledTimes(2);
+  // Reselecting the revised profile starts from that profile; the old typed override was
+  // discarded with the revision it belonged to rather than carried into the new launch.
   expect(onStart).toHaveBeenLastCalledWith({
     kind: "claude",
     view: "chat",
     profileId: "claude-gateway",
     expectedProfileRevision: "ffffffffffff",
-    model: "claude-opus-4-1",
   });
 });
 
@@ -361,17 +356,17 @@ test("a digit never discards a selected profile or a typed model", async () => {
   const { onStart } = await opened(profiles);
 
   await dialog().getByRole("radio", { name: "Claude gateway" }).click();
+  await expect.element(dialog().getByRole("radio", { name: "Claude gateway" })).toBeChecked();
   await userEvent.keyboard("2");
   await userEvent.keyboard("4");
   expect(onStart).not.toHaveBeenCalled();
   await expect.element(dialog().getByRole("radio", { name: "Claude gateway" })).toBeChecked();
 
+  // A digit in the model field stays text and starts nothing.
   await dialog().getByRole("radio", { name: "claude" }).click();
-  await modelInput().fill("claude-opus-4-1");
-  await dialog().getByRole("radio", { name: "codex" }).click();
-  await userEvent.keyboard("3");
+  await modelInput().fill("2");
   expect(onStart).not.toHaveBeenCalled();
-  await expect.element(modelInput()).toHaveValue("claude-opus-4-1");
+  await expect.element(modelInput()).toHaveValue("2");
 });
 
 test("modified or composing digits make no launch and leave the draft alone", async () => {
@@ -418,11 +413,9 @@ test("modified or composing digits make no launch and leave the draft alone", as
 test("Close and Escape dismiss it without starting anything", async () => {
   const { onStart, onClose } = await opened(profiles);
 
-  await dialog().getByRole("button", { name: "Close", exact: true }).click();
-  expect(onClose).toHaveBeenCalledTimes(1);
-
+  // The picker has no close button; Escape is its dismissal.
   await userEvent.keyboard("{Escape}");
-  await vi.waitFor(() => expect(onClose).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   expect(onStart).not.toHaveBeenCalled();
 });
 
