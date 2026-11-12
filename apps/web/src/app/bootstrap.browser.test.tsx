@@ -171,7 +171,7 @@ test("a stored capability is never sent to a different ?server= host", async () 
   const original = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   const storage = memoryStorage(target);
   try {
-    replacePage(`?server=${encodeURIComponent("ws://evil.example")}#/board`);
+    replacePage(`?server=${encodeURIComponent("ws://evil.example")}#/settings`);
 
     await expect(resolveServerTarget({ location: window.location, storage })).rejects.toThrow(
       "belongs to",

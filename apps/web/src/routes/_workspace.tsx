@@ -8,13 +8,11 @@ export const Route = createFileRoute("/_workspace")({
   component: WorkspaceRoute,
 });
 
-/** A pathless parent keeps the shell mounted underneath the board and /settings. */
+/** A pathless parent keeps the shell mounted underneath /settings. */
 function WorkspaceRoute() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
-  const active = useLocation({
-    select: (location) => location.pathname !== "/settings" && location.pathname !== "/board",
-  });
+  const active = useLocation({ select: (location) => location.pathname !== "/settings" });
   const selectedTaskId =
     search.task === undefined ? undefined : search.task === NO_TASK ? null : search.task;
   const openSettings = useCallback(() => {

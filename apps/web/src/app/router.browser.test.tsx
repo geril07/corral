@@ -13,10 +13,10 @@ test("hash navigation keeps the ?server= query before the hash", () => {
     const history = createHashHistory();
     expect(window.location.search).toBe("?server=ws%3A%2F%2F127.0.0.1%3A4317");
 
-    history.push("/board?task=t1&entry=e1");
+    history.push("/settings?task=t1&entry=e1");
     history.flush();
 
-    expect(window.location.hash).toBe("#/board?task=t1&entry=e1");
+    expect(window.location.hash).toBe("#/settings?task=t1&entry=e1");
     expect(window.location.search).toBe("?server=ws%3A%2F%2F127.0.0.1%3A4317");
     history.destroy();
   } finally {

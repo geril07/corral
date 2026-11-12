@@ -4,7 +4,6 @@
   "src/common/ui/diff-view.browser.test.tsx": 0.1,
   "src/common/ui/motion.browser.test.tsx": 0.2,
   "src/common/ui/truncated-text.browser.test.tsx": 0.05,
-  "src/modules/board/board.browser.test.tsx": 1.2,
   "src/modules/chat/chat-links.browser.test.tsx": 5.3,
   "src/modules/chat/chat-view.browser.test.tsx": 4.7,
   "src/modules/connection/connection-notice.browser.test.tsx": 2,
