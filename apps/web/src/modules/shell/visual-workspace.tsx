@@ -323,7 +323,7 @@ export function VisualWorkspace({
 
   /**
    * Escape and a task selection take the working area back; the drafts stay where they are and
-   * the next New task for the same project returns to one (`docs/ux.md`).
+   * the next New task for the same project returns to one (`docs/layout.md`).
    */
   const hideDraft = useCallback(() => setActiveDraftId(undefined), [setActiveDraftId]);
 
@@ -360,7 +360,7 @@ export function VisualWorkspace({
       setProjectChoice(false);
       if (existing === undefined) {
         // Pin the launch the draft opened with. A later config edit then shows an invalidation
-        // instead of silently swapping the runtime under the same prompt (`docs/ux.md`).
+        // instead of silently swapping the runtime under the same prompt (`docs/layout.md`).
         const opened = newTaskDraft(projectId, opening);
         changeDrafts((current) => [...current, opened]);
         setActiveDraftId(opened.id);

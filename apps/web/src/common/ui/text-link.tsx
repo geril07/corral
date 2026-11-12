@@ -61,7 +61,7 @@ export function LinkAnchor({
 
 /**
  * An inline, link-styled element for something that **does** work rather than goes somewhere — a
- * workspace file that opens the editor (`docs/ux.md`, **Local links in chat**). It is a button on
+ * workspace file that opens the editor (`docs/design.md`). It is a button on
  * purpose: an `href` would let ctrl/cmd-click or a copied link promise a URL that does not exist,
  * and the app's hash route is not a place to point at. A click in any form runs the action.
  */

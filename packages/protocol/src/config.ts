@@ -161,7 +161,7 @@ export const DEFAULT_BINDINGS: Readonly<Record<ActionId, string>> = {
 
 /**
  * A direct command: it fires without the prefix. The three creation commands mirror T3's
- * desktop/web semantics (`docs/ux.md`, **Task entry**). A chord is config syntax understood by
+ * desktop/web semantics (`docs/layout.md`). A chord is config syntax understood by
  * `parseModChord`; `mod` is Command on macOS and Control elsewhere.
  */
 export const DirectActionId = z.enum(["new-task", "new-task-in-project", "new-task-no-project"]);

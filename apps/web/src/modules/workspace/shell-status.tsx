@@ -124,7 +124,7 @@ function ArmedBadge({ prefix }: { prefix: string }) {
 
 /**
  * One failure. Its sentence wraps when the row is too narrow, and the surface grows for it: the
- * full sentence is on screen, never only in a tooltip (`docs/ux.md`). Dismiss sits beside the
+ * full sentence is on screen, never only in a tooltip. Dismiss sits beside the
  * message: a control at the far edge of the row reads as the surface's, not the message's.
  */
 function FailureMessage({ failure, onDismiss }: { failure: ShellFailure; onDismiss: () => void }) {

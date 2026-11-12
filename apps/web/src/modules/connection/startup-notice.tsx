@@ -363,7 +363,7 @@ const RECOVERY_PROBLEM = (connection: ConnectionState, serverUrl: string): Notic
   };
 };
 
-/** The same capability field as a dialog over a running workspace (`docs/ux.md`). */
+/** The same capability field as a dialog over a running workspace. */
 export function ConnectionRecoveryDialog({ onClose }: { onClose: () => void }) {
   const client = useCorralClient();
   const connection = useConnection();

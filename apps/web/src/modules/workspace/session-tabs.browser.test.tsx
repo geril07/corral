@@ -169,7 +169,7 @@ test("the strip's own keys move the selection and wrap", async () => {
   const { rendered } = renderTabs(undefined, "s2");
   await rendered;
 
-  // Focus stays where the keyboard was (`ux.md`); the keys bubble from the tab to the strip.
+  // Focus stays where the keyboard was; the keys bubble from the tab to the strip.
   tab("claude").element().focus();
   await userEvent.keyboard("{ArrowRight}");
   await expect.element(tab("codex stopped")).toHaveAttribute("aria-selected", "true");

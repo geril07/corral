@@ -180,7 +180,7 @@ export function AssistantMessageItem({
   item: ChatAssistantMessage;
   onFailure: (message: string) => void;
 }) {
-  // Local file paths and web links behave as the lane's `LocalLinks` resolved them; `docs/ux.md`.
+  // Local file paths and web links behave as the lane's `LocalLinks` resolved them; `docs/design.md`.
   const links = useMarkdownLinks();
   return (
     <div className="group/message flex flex-col gap-1">

@@ -20,7 +20,7 @@ const webDist = path.join(import.meta.dirname, "../../web/dist/index.html");
 const serverEntry = path.join(import.meta.dirname, "../../server/src/main.ts");
 const preload = path.join(import.meta.dirname, "preload.cjs");
 const SERVER_START_TIMEOUT_MS = 15_000;
-// `ux.md`, Known limits: desktop support begins at 1024×640. The window and its starting size
+// `docs/layout.md`: desktop support begins at 1024×640. The window and its starting size
 // share the floor, so neither the start nor a later resize can drop below it.
 const MIN_WINDOW_WIDTH = 1024;
 const MIN_WINDOW_HEIGHT = 640;

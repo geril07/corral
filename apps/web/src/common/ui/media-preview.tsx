@@ -11,7 +11,7 @@ export interface MediaSource {
 }
 
 /**
- * An image or video previewed in the message lane (`docs/ux.md`, **Local links in chat**). It is a
+ * An image or video previewed in the message lane (`docs/design.md`). It is a
  * button, not a bare element: Enter or Space opens the lightbox, and the media itself is not
  * interactive, so the keyboard flow stays one stop.
  */

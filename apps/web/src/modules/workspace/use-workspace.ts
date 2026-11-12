@@ -443,7 +443,7 @@ export function useWorkspace({
     onChange(changesSearch(chosenRef.current));
   };
 
-  // Chat's local links (`docs/ux.md`): the workspace is the allow-list, so every call carries the
+  // Chat's local links (`docs/design.md`): the workspace is the allow-list, so every call carries the
   // chat session's task. Stable while the session and connection are, or a streaming message would
   // restart its own candidate lookup on every delta.
   const chatTaskId = currentSession?.view === "chat" ? currentSession.taskId : undefined;

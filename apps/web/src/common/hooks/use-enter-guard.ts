@@ -27,7 +27,7 @@ export interface EnterGuard {
 }
 
 /**
- * The A5 IME guard, shared by every composer (`docs/ux.md`: an Enter that confirms a composition
+ * The A5 IME guard, shared by every composer (an Enter that confirms a composition
  * is never a submission, whichever order the platform reports the keydown and composition end).
  */
 export function useEnterGuard(): EnterGuard {

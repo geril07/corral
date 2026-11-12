@@ -54,7 +54,7 @@ export function formatChord(chord: Chord): string {
   return [...modifiers, codeToKey(chord.code)].join("+");
 }
 
-/** Which key `mod` means: Command on macOS, Control elsewhere (`ux.md`, **Keys**). */
+/** Which key `mod` means: Command on macOS, Control elsewhere (`docs/layout.md`). */
 export type ModifierPlatform = "mac" | "other";
 
 /**

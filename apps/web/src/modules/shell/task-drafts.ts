@@ -6,7 +6,7 @@ import { recordOf } from "./json-record.ts";
 /**
  * A New task draft: the composer's content and a tab in the working area's main group
  * (`docs/layout.md`, **New task view**). The server owns no draft and receives none; the app keeps
- * one per project on this device, so New task returns to what was typed (`docs/ux.md`).
+ * one per project on this device, so New task returns to what was typed (`docs/layout.md`).
  */
 export interface TaskDraft {
   /** Client-only identity. The draft never reaches the server and has no URL. */

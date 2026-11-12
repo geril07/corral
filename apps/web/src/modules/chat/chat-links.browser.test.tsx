@@ -157,7 +157,7 @@ test("a resolved path is a link that opens the editor; an unresolved one stays t
   // A file link is an action, not a URL: a button, so no `href` can be copied or opened.
   const link = page.getByRole("button", { name: "src/app.ts:3" });
   await expect.element(link).toBeVisible();
-  // `src/missing.ts` is not in the workspace, so resolution left it plain text (`docs/ux.md`).
+  // `src/missing.ts` is not in the workspace, so resolution left it plain text.
   await expect.element(page.getByRole("button", { name: /missing/ })).not.toBeInTheDocument();
 
   await link.click();

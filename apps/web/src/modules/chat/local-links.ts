@@ -102,7 +102,7 @@ function plausiblePath(raw: string): boolean {
  * The file an explicit Markdown link's destination names — `[label](/etc/passwd)`,
  * `[label](src/a.ts:12)` — or `undefined` when the destination is not a path this lane can own.
  * A scheme, a protocol-relative URL, an in-page anchor (`#/route`) and whitespace are not paths, so
- * they are never rewritten into a file token (`docs/ux.md`, **Local links in chat**).
+ * they are never rewritten into a file token (`docs/design.md`).
  */
 export function pathTargetOf(url: string): LocalTarget | undefined {
   const value = url.trim();
@@ -165,7 +165,7 @@ export function pathCandidates(text: string): string[] {
 /**
  * `#corral-file?path=…&line=…`: the token the remark transform puts on a link node so the anchor
  * knows which file it means. It is internal — the anchor never renders it as an `href`, because a
- * link that runs the editor is an action, not a URL (`docs/ux.md`, **Local links in chat**).
+ * link that runs the editor is an action, not a URL (`docs/design.md`).
  */
 export function fileLinkHref(target: LocalTarget): string {
   const params = new URLSearchParams({ path: target.path });
