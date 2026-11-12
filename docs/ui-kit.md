@@ -130,8 +130,6 @@ context-menu dispatcher.
   DropdownMenuItem uses the same underlying Base UI menu item in either kind of menu, and takes its
   glyph from the kit's `IconName` set; a menu's shortcut cell is a `DropdownMenuShortcut`, hidden
   from the accessible name because the item's label is the action.
-- OverflowMenu is the discoverable task-header and add-session menu, with one compact
-  minimum width.
 - Menus fit available width/height. Combo search popups default to a readable
   width, not the tiny trigger width, bounded by the available viewport; `layout="anchor"` is the
   opt-in for a select row that opens at its trigger's width, and it survives portalling because the
