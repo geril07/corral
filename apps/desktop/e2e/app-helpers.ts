@@ -25,7 +25,7 @@ export const taskCard = (page: Page, title: string) =>
   page.getByRole("button", { name: new RegExp(title) });
 /** The current task's session tabs (`layout.md`, **Session tabs**). */
 export const sessionTabs = (page: Page) => page.getByRole("tablist", { name: "Sessions" });
-export const sessionTab = (page: Page, name: string) =>
+export const sessionTab = (page: Page, name: string | RegExp) =>
   sessionTabs(page).getByRole("tab", { name, exact: true });
 
 export function git(cwd: string, ...args: string[]): string {
