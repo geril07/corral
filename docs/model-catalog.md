@@ -1,7 +1,6 @@
 # Model catalogs and menu preferences
 
-Approved direction: study A, a Models category in mounted Settings, linked from the ordinary
-model picker. The [research study](research/model-catalog.md) records the references and alternatives.
+Server-owned model preference and discovery contracts. This does not prescribe a UI design.
 
 ## Visibility, not permissions
 
@@ -16,28 +15,17 @@ the namespaces. This is not credential/account isolation.
 - **All except…** admits new reported models unless excluded.
 - **Only selected** admits exact allowed models or models of an allowed provider. An empty
   allowlist deliberately shows none.
-- A provider rule includes its future models. Selecting every current model individually does not;
-  that provider's checkbox remains mixed until its provider-wide rule is chosen.
+- A provider rule includes its future models. Selecting every current model individually does not
+  create a provider-wide rule.
 - Exclusions always win, including a provider exclusion over an exact model allowance.
-- Provider bulk actions cover the provider, not just search matches. Show clears that provider's
-  exclusions; Hide excludes it. Global Hide all makes an empty allowlist; Show all resets visibility.
-- Search (all terms across name, ID and provider), provider focus and All/Visible/Hidden/Favorites
-  views are temporary. Favorites are persisted, ordered first in pickers, and cannot bypass hiding.
+- Favorites are persisted and cannot bypass hiding.
 - Missing models/providers keep their rules and favorites. Incomplete discovery never deletes them.
 - Current selections and configured/native defaults are not rewritten. Hiding a working model does
-  not change the model, thinking, prompt, turn or session. A hidden current chat choice is retained
-  as a disabled, explicitly labeled row. The manager marks the row used by the configured default
-  launch for the selected scope and workspace as **Configured default**, and says when the draft
-  would hide it; hiding is not refused and the default is not edited. Native-ID entry remains an
-  expert launch override, not an access-policy bypass: there is no access policy here.
+  not change the model, thinking, prompt, turn or session. Native-ID entry remains an expert launch
+  override, not an access-policy bypass: there is no access policy here.
 
-The manager edits a draft with Preview, Save and Discard. A profile switch with unsaved edits is
-blocked; changing workspace does not discard rules. Closing asks whether to discard; an in-flight
-save must finish first. Each save uses an expected preference revision. Another client's save
-updates an idle editor, but conflicts never overwrite its draft. When a conflict makes the draft
-stale, Save is not offered; Discard loads the latest revision and drops the draft. While a save
-acknowledgement waits for the watch to catch up, Discard keeps that acknowledged revision: a
-watch snapshot of a revision the save replaced is not the latest revision, even when it is the
+Each save uses an expected preference revision; conflicting writes do not overwrite a draft.
+An acknowledged save is newer than a watch snapshot it replaced, even when that snapshot is the
 last event the client has seen.
 
 `models.toml` has one `[[preferences]]` entry per scope, with a `scope` table (`kind` and optional
@@ -52,10 +40,7 @@ without manually updating a counter still conflicts with an outstanding Settings
 unreadable, malformed or duplicate-scope config is an error, never permission to overwrite it.
 Settings normalizes this dedicated file's formatting and comments when saving.
 
-Creation, add-agent and live chat use the same visibility predicate. Managing preferences from
-a picker temporarily suspends that popup, not its owning selection/search state. Returning opens
-the original picker/profile/search. The workspace and composer stay mounted. Both routed Settings
-and picker-owned Settings pause background workspace actions and completion seen-marking.
+Creation, add-agent and live chat use the same visibility predicate.
 
 ## Discovery lifecycle
 

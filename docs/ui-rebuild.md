@@ -2,7 +2,7 @@
 
 The rebuild was merged in #264. This file records remaining decisions and limitations, not an
 authorization to start another slice. Product decisions are in `design.md`, current placement in
-`layout.md`, interaction in `ux.md`, and the review process in `delivery.md`. Git history and
+`layout.md`, and the rebuild review process in `delivery.md`. Git history and
 the issues own completed slice plans and review records.
 
 The visual direction remains T3 for structure and behavior, OpenCode for visual language, with one
@@ -38,7 +38,8 @@ implementation per shared pattern and no invented user-visible copy. See `delive
   its product fix is outside #265.
 - The open Settled shelf mounts every settled row in one scroller; a very long history has a
   corresponding rendering cost. `Project settings…`, project removal and loose-terminal controls
-  have no routed-shell entry point.
+  have no routed-shell entry point. The `/board` route still mounts the earlier board and its
+  most-urgent-session aggregate, but the routed shell has no entry point to it.
 - The composer does not support real attachments or pre-launch reasoning. A scratch task has no Git
   controls; mobile remains out of scope.
 - The transcript keeps all turn folds open while the session is working because the protocol does

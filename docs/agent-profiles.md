@@ -178,7 +178,8 @@ command = "/opt/pi/bin/pi" # absolute path replacing the PATH lookup; default th
 
 ### The editor for local file links
 
-A path in chat opens in the user's editor (`docs/ux.md`, **Local links in chat**). `[editor]` names
+A path in chat requests the user's editor (`design.md`, **Local trust boundary**); the routed shell
+cannot currently show the loose terminal it starts (`ui-rebuild.md`). `[editor]` names
 that editor. Like `[agents.<kind>]` it describes the machine, not a repository, so it has **no
 per-project layer**.
 
