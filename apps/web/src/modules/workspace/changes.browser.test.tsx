@@ -339,13 +339,17 @@ test("a clean task shows the empty state, and the 1024x640 list takes the top th
     // may have resized the page, so this test states the viewport it measures.
     const list = fileList().element();
     const pane = list.parentElement!;
+    // Another file in the shard can leave the first layout pass incomplete; wait for the pane to
+    // settle instead of measuring one frame before its rows and diff have their final height.
+    await expect
+      .poll(() => list.getBoundingClientRect().height / pane.getBoundingClientRect().height)
+      .toBeGreaterThan(0.28);
     const ratio = list.getBoundingClientRect().height / pane.getBoundingClientRect().height;
-    expect(ratio).toBeGreaterThan(0.28);
     expect(ratio).toBeLessThan(0.4);
     // The routed shell's identity row and tab strip reduce the height left for the pane, so the
     // finish controls can take more than the diff at 640 px; the diff still owns its own pane.
     const diff = document.querySelector<HTMLElement>('[aria-label="File diff"]')!;
-    expect(diff.getBoundingClientRect().height).toBeGreaterThan(100);
+    await expect.poll(() => diff.getBoundingClientRect().height).toBeGreaterThan(100);
   } finally {
     await page.viewport(originalViewport.width, originalViewport.height);
   }
