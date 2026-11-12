@@ -1,6 +1,6 @@
 import type { ConnectionState } from "@corral/client/connection-state";
 import type { ReactNode } from "react";
-import { Alert, Badge, IconButton, Kbd } from "../../common/ui/index.ts";
+import { Alert, Badge, Button, IconButton, Kbd } from "../../common/ui/index.ts";
 import { ConnectionNotice } from "../connection/index.ts";
 import { ConfigProblemsNotice, useConfig } from "../keymap/index.ts";
 
@@ -11,6 +11,8 @@ import { ConfigProblemsNotice, useConfig } from "../keymap/index.ts";
 export interface ShellFailure {
   message: string;
   tone: "error" | "notice";
+  /** One recoverable action, such as the discarded draft's Undo. */
+  action?: { label: string; run: () => void } | undefined;
 }
 
 export interface ShellStatusProps {
@@ -143,6 +145,11 @@ function FailureMessage({ failure, onDismiss }: { failure: ShellFailure; onDismi
         >
           {failure.message}
         </p>
+      )}
+      {failure.action !== undefined && (
+        <Button variant="ghost" size="xs" onClick={failure.action.run}>
+          {failure.action.label}
+        </Button>
       )}
       <IconButton label="Dismiss status" icon="close" size="icon-xs" onClick={onDismiss} />
       <span className="min-w-0 flex-1" />

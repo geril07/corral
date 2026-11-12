@@ -1,3 +1,4 @@
+import type { ConnectionState } from "@corral/client/connection-state";
 import { createDirectKeymap, createPrefixKeymap } from "@corral/client/prefix-keymap";
 import { DirectActionId } from "@corral/protocol/config";
 import {
@@ -25,7 +26,6 @@ import {
   TooltipProvider,
   VisualIconButton,
   VisualResizeHandle,
-  VisualSearchAction,
   VisualShelfToggle,
   VisualSidebar,
   VisualTaskCard,
@@ -33,6 +33,7 @@ import {
   type VisualTaskRow,
 } from "../../common/ui/index.ts";
 import { modifierPlatform, usePrefixMode } from "../keymap/index.ts";
+import { ShellStatus } from "../workspace/index.ts";
 import {
   useVisualSidebarPane,
   VISUAL_SIDEBAR_MAX_WIDTH,
@@ -247,6 +248,17 @@ export interface VisualShellViewProps {
   /** A failed action or guidance that is not the task list's own load failure. */
   notice?: VisualShellNotice | undefined;
   onDismissNotice?: (() => void) | undefined;
+  /**
+   * The live connection and its recovery surfaces. Absent in the fixture host, which keeps the
+   * local notice row instead of mounting a status the review fixtures cannot drive.
+   */
+  status?:
+    | {
+        connection: ConnectionState;
+        onOpenConnection: (opener: HTMLElement) => void;
+        onOpenConfigProblems: (opener?: HTMLElement) => void;
+      }
+    | undefined;
   /** The mounted rows, so a dialog closing after a removal can focus the row that takes over. */
   rowFocus?: Ref<VisualRowFocus> | undefined;
 }
@@ -469,6 +481,7 @@ export function VisualShellView({
   notice,
   onDismissNotice,
   rowFocus,
+  status,
 }: VisualShellViewProps) {
   const pane = useVisualSidebarPane();
   const shelf = useSettledShelf();
@@ -515,6 +528,13 @@ export function VisualShellView({
     setCopyNotice(undefined);
     settleFocus.current = undefined;
   }, []);
+  const prefix =
+    shortcut?.prefix ??
+    newTaskShortcut?.prefix ??
+    settingsShortcut?.prefix ??
+    renameShortcut?.prefix ??
+    removeShortcut?.prefix ??
+    "alt+a";
   const keymap = useMemo(() => {
     const bindings: Record<string, string> = {};
     if (shortcut?.binding !== null && shortcut?.binding !== undefined)
@@ -542,18 +562,12 @@ export function VisualShellView({
         bindings[chord] = action;
       }
     }
-    const prefix =
-      shortcut?.prefix ??
-      newTaskShortcut?.prefix ??
-      settingsShortcut?.prefix ??
-      renameShortcut?.prefix ??
-      removeShortcut?.prefix ??
-      "alt+a";
     return createPrefixKeymap(prefix, bindings);
   }, [
     addProjectShortcut,
     focusSidebarShortcut,
     newTaskShortcut,
+    prefix,
     prefixExtra,
     removeShortcut,
     renameShortcut,
@@ -804,7 +818,7 @@ export function VisualShellView({
       toggleSettle,
     ],
   );
-  usePrefixMode(
+  const armed = usePrefixMode(
     keymap,
     runAction,
     prefixEnabled,
@@ -916,10 +930,6 @@ export function VisualShellView({
           <span className="visual-toggle-slot" ref={openToggleSlot} aria-hidden="true" />
         </div>
         <div className="visual-sidebar-actions">
-          <VisualSearchAction
-            label="Search tasks…"
-            disabledReason="Task search is not part of this visual slice."
-          />
           <VisualIconButton
             label="New task"
             icon="add"
@@ -942,7 +952,7 @@ export function VisualShellView({
             shelf={shelfElement}
           />
         </TooltipProvider>
-        {shownNotice !== undefined && (
+        {status === undefined && shownNotice !== undefined && (
           <div
             className="visual-shell-notice"
             data-tone={shownNotice.tone}
@@ -966,28 +976,81 @@ export function VisualShellView({
             )}
           </div>
         )}
-        <div className="visual-sidebar-footer">
-          <VisualIconButton
-            label="Settings"
-            icon="settings"
-            onClick={onOpenSettings}
-            shortcut={settingsShortcut}
-            disabledReason={
-              onOpenSettings === undefined ? "Settings is unavailable here." : undefined
+        {status === undefined ? (
+          <div className="visual-sidebar-footer">
+            <VisualIconButton
+              label="Settings"
+              icon="settings"
+              onClick={onOpenSettings}
+              shortcut={settingsShortcut}
+              disabledReason={
+                onOpenSettings === undefined ? "Settings is unavailable here." : undefined
+              }
+            />
+            <VisualIconButton
+              label="Add project"
+              icon="add-project"
+              onClick={onAddProject}
+              shortcut={addProjectShortcut}
+              disabledReason={
+                onAddProject === undefined ? "Adding projects is unavailable here." : undefined
+              }
+            />
+          </div>
+        ) : !hidden ? (
+          <ShellStatus
+            placement="footer"
+            connection={status.connection}
+            armed={armed}
+            prefix={prefix}
+            failure={shownNotice}
+            onDismissFailure={() => {
+              clearCopyNotice();
+              onDismissNotice?.();
+            }}
+            onOpenConnection={status.onOpenConnection}
+            onOpenConfigProblems={status.onOpenConfigProblems}
+            actions={
+              <>
+                <VisualIconButton
+                  label="Settings"
+                  icon="settings"
+                  onClick={onOpenSettings}
+                  shortcut={settingsShortcut}
+                  disabledReason={
+                    onOpenSettings === undefined ? "Settings is unavailable here." : undefined
+                  }
+                />
+                <VisualIconButton
+                  label="Add project"
+                  icon="add-project"
+                  onClick={onAddProject}
+                  shortcut={addProjectShortcut}
+                  disabledReason={
+                    onAddProject === undefined ? "Adding projects is unavailable here." : undefined
+                  }
+                />
+              </>
             }
           />
-          <VisualIconButton
-            label="Add project"
-            icon="add-project"
-            onClick={onAddProject}
-            shortcut={addProjectShortcut}
-            disabledReason={
-              onAddProject === undefined ? "Adding projects is unavailable here." : undefined
-            }
-          />
-        </div>
+        ) : null}
       </VisualSidebar>
       <main className="visual-shell-main" aria-label="Workspace" ref={mainRef}>
+        {hidden && status !== undefined && (
+          <ShellStatus
+            placement="strip"
+            connection={status.connection}
+            armed={armed}
+            prefix={prefix}
+            failure={shownNotice}
+            onDismissFailure={() => {
+              clearCopyNotice();
+              onDismissNotice?.();
+            }}
+            onOpenConnection={status.onOpenConnection}
+            onOpenConfigProblems={status.onOpenConfigProblems}
+          />
+        )}
         {taskHeader !== undefined && (
           <div className="visual-task-header">
             <span

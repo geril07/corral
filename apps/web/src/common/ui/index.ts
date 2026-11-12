@@ -2,7 +2,6 @@ export { Badge } from "./badge.tsx";
 export { Checkbox } from "./checkbox.tsx";
 export { Alert, AlertDescription } from "./alert.tsx";
 export { Item } from "./item.tsx";
-export { BoardList, BoardRow } from "./board.tsx";
 export { Button, buttonVariants } from "./button.tsx";
 export {
   Combobox,
@@ -82,7 +81,6 @@ export { TreeIndent, TreeRow } from "./tree-row.tsx";
 export {
   VisualIconButton,
   VisualResizeHandle,
-  VisualSearchAction,
   VisualShelfToggle,
   VisualSidebar,
   VisualTaskCard,
