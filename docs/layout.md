@@ -1,10 +1,12 @@
 # Layout
 
-Behavior: `design.md`; interaction: `ux.md`; visual direction and kit boundaries: `ui-kit.md`.
+Behavior and security: `design.md`; visual direction and kit boundaries: `ui-kit.md`.
 
 Kind: **current state** — what sits where, and why. Measurements are the code's: the kit, the
 layout modules and their constants decide them. A piece that moves a surface edits this file in
 the same PR, and a description that no longer holds is deleted rather than adjusted.
+
+The current desktop window has a 1024×640 minimum. Smaller layouts have not been decided.
 
 ## Visual shell (routed workspace)
 
@@ -135,7 +137,7 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
   management and shows the visible/known count; shared visibility is not a launch permission policy.
 - No illustrative context usage, model availability or Full access permission appears as a fact.
 
-## Changes (stage C)
+## Changes
 
 - A `Changes` tab per task belongs to the companion group. It has no session behind it: no number hint, no status glyph, and selecting it does not change which session is current in the main group.
 - The companion pane's width with the Terminal's padding, not the chat lane: diffs are wide and
@@ -148,11 +150,16 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
 - Refreshed with a debounce when the workspace changes: loading shows skeleton rows, a clean tree shows "No changes yet".
 - Below the summary row, the finish controls, one line each and all keyboard-reachable: `Stage all` / `Unstage all` / stage-or-unstage the selected file with the staged count, then a one-line commit-message field and `Commit`, then `Push…` and `Create pull request…` (each behind a dialog naming the remote's push URL and the branch; creating also names the base branch and the provider) and the linked request's badge with its check line, or a `Settle task` button once it merged. A refusal shows its sentence under the row and keeps the message and the selection.
 - When both the live checkout and the task's recorded value name a branch and they differ, the controls name both: `Checked out now: <live> · the task was created on <recorded>.` No line appears when they agree, the live checkout is detached, or the recorded value is not a branch. The reason `Push…` and `Create pull request…` are unavailable is visible under the controls (`This task has no branch checked out.` for a detached HEAD, no remote, or no remote that would take the branch), never only in a `title`.
+- Git read/write and confirmation safety are documented in `engineering.md`.
 
 ## New task view
 
 - Still a main-area composer, not a dialog. `prefix t` opens it; Escape returns to the selected
   task and keeps the draft.
+- When a workspace or branch picker is open, Escape closes that picker before leaving the draft.
+- `Mod+N` chooses a project, skipping the picker when only one exists; `Mod+Shift+N` uses the
+  selected task's project or asks when none is current; `Mod+Alt+N` opens a scratch draft. `Mod`
+  is Cmd on macOS and Ctrl elsewhere.
 - The open draft is a tab in the working area's main group, in the same 40 px strip as a task's
   tabs and with the same close control; its pane is the composer. Opening New task for a project
   that already has a draft selects that draft instead of creating a second one, and a No project
@@ -171,7 +178,7 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
 - The strip labels every draft tab with its project (or `No project`, or `Project unavailable`);
   the pencil glyph says it is a draft, the visible number is the chord that selects it under the
   default bindings (`prefix 1`–`9`), and the accessible name and tooltip still begin with
-  `New task`. The task header is absent while a draft owns the main area.
+  `New task`. The working-area identity row is absent while a draft owns the main area.
 - Prompt, agent/model and Create controls share the composer. Launch view follows settings; there is
   no per-draft Chat/Terminal switch. One left-aligned
   context row below it names the project, the workspace mode and the branch; setup never sits in
@@ -193,20 +200,15 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
   workspace is inert while the modal is open, so its terminal cannot take the keyboard. Closing
   restores focus. Background prefix bindings and completion seen marks pause while the modal is
   open.
-- Appearance edits device-local tab position and interface text scale; the offered range is a
-  user-facing promise and is stated in `ux.md`, **Known limits**. Terminal text does not change.
+- Appearance edits device-local tab position and interface text scale (80–140%, relative to
+  OS/browser scale). Terminal text does not change.
 - Models is an editable, server-shared preference category: provider rail, searchable model list,
   allow/deny mode, mixed-state visibility, favorites, draft Preview/Save/Discard, and revision conflicts.
-  Picker-owned Settings preserves the picker search/selection as well as the workspace underneath.
-  Policy, discovery lifecycle and limits: [Model catalogs](model-catalog.md).
+  Provider bulk actions cover the provider, not just search matches; Hide all makes an empty
+  allowlist and Show all resets visibility. Search and All/Visible/Hidden/Favorites views are
+  temporary. A hidden current chat choice stays as a disabled, labeled row, and the configured
+  default's row is marked as such. Picker-owned Settings preserves the picker search/selection as
+  well as the workspace underneath. Policy, discovery lifecycle and limits:
+  [Model catalogs](model-catalog.md).
 - Server config stays read-only: keys, task defaults, naming, project overrides, profiles,
   agent capabilities and config problems. No server config writes or permission bypass.
-
-## Board
-
-- A full-screen layer over the mounted workspace, at /board and reached by key/palette. It is a
-  screen, not a dialog: no scrim and no second scrollbar. The covered workspace is inert and hidden
-  from the accessibility tree while it is open, so its terminal cannot take the keyboard. Escape
-  and Back return to the same task and URL; closing restores the keyboard. Drafts, collapsed
-  groups, list scroll and terminal attachment survive the visit, and the workspace prefix is paused
-  while it is open.
