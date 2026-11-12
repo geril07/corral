@@ -20,7 +20,9 @@ export const screenText = (page: Page) =>
  */
 export const unwrappedScreenText = (page: Page) =>
   screenText(page).then((text) => text.replaceAll("\n", ""));
-export const workspace = (page: Page) => page.getByRole("navigation", { name: "workspace" });
+/** A task card in the routed sidebar. */
+export const taskCard = (page: Page, title: string) =>
+  page.getByRole("button", { name: new RegExp(title) });
 /** The current task's session tabs (`layout.md`, **Session tabs**). */
 export const sessionTabs = (page: Page) => page.getByRole("tablist", { name: "Sessions" });
 export const sessionTab = (page: Page, name: string) =>
@@ -97,27 +99,28 @@ export interface CreateTaskOptions {
   workspace?: "new-worktree" | "main-worktree";
 }
 
+/** Writes the server config before the app starts; the watcher picks up later edits too. */
+export function writeConfig(stateDir: string, text: string) {
+  const dir = path.join(stateDir, "config");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, "config.toml"), text);
+}
+
 /**
- * Creates a task from the composer's optional title, with no prompt, so it starts no session
- * (design.md, **Domain model → Task → Creation**); a prompt-created task starts its agent.
+ * Creates a task from the routed composer's prompt. The composer always starts the primary
+ * agent, so a test that needs a shell-only task starts the shell after this.
  */
-export async function createTask(window: Page, title: string, options: CreateTaskOptions = {}) {
+export async function createTask(window: Page, prompt: string, options: CreateTaskOptions = {}) {
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyT");
   await expect(promptField(window)).toBeFocused();
   if (options.workspace === "new-worktree") {
-    await newTaskView(window)
-      .getByRole("combobox", { name: /^Workspace / })
-      .click();
-    await window.keyboard.type("new worktree");
-    await window.keyboard.press("Enter");
+    await newTaskView(window).getByText("Current checkout", { exact: true }).click();
+    await window.getByRole("option", { name: "New worktree", exact: true }).click();
   }
-  await newTaskView(window).getByRole("button", { name: "Title (optional)" }).click();
-  await window.keyboard.type(title);
-  await window.keyboard.press("Enter");
-  await expect(
-    workspace(window).getByRole("button", { name: new RegExp(`^${title}`) }),
-  ).toHaveAttribute("aria-current", "true");
+  await promptField(window).fill(prompt);
+  await promptField(window).press("Enter");
+  await expect(taskCard(window, prompt)).toHaveAttribute("aria-current", "true");
 }
 
 /** Adds a shell session to the current task with the new-terminal binding. */

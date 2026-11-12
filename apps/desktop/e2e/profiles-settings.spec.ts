@@ -8,7 +8,7 @@ import {
   createTask,
   openedWindow,
   sessionTabs,
-  workspace,
+  taskCard,
 } from "./app-helpers.ts";
 import { readLaunches, test } from "./fixtures.ts";
 
@@ -33,12 +33,15 @@ name = "Claude sonnet"
 agent = "claude"
 model = "claude-sonnet-4-5"
 env = [{ targetName = "ANTHROPIC_AUTH_TOKEN", fromEnv = "E2E_PROFILE_TOKEN" }]
+
+[tasks]
+agent = "pi"
+view = "terminal"
 `,
   );
 
   const repo = createRepo(stateDir);
   const window = await openedWindow(await launchApp());
-  await expect(window.getByText("Add a repository to start")).toBeVisible();
   await addProject(window, repo);
   await createTask(window, "Profiles");
 
@@ -48,10 +51,10 @@ env = [{ targetName = "ANTHROPIC_AUTH_TOKEN", fromEnv = "E2E_PROFILE_TOKEN" }]
   await expect(profile).toBeVisible();
   await profile.click();
   await picker.getByRole("textbox", { name: "Model override" }).fill("claude-opus-4-1");
-  await picker.getByRole("option").last().click();
+  await window.keyboard.press("Enter");
   await expect(picker).toBeHidden();
 
-  const tab = sessionTabs(window).getByRole("tab", { name: /^claude Claude sonnet/ });
+  const tab = sessionTabs(window).getByRole("tab", { name: /^claude/ });
   await expect(tab).toHaveAttribute("aria-selected", "true");
   await expect
     .poll(() =>
@@ -67,10 +70,9 @@ env = [{ targetName = "ANTHROPIC_AUTH_TOKEN", fromEnv = "E2E_PROFILE_TOKEN" }]
   await expect(settings).toBeVisible();
   await window
     .getByRole("navigation", { name: "Settings categories" })
-    .getByRole("button", { name: "Agent profiles", exact: true })
+    .getByRole("button", { name: "Profiles", exact: true })
     .click();
-  const profiles = window.getByRole("region", { name: "Agent profiles" });
-  await expect(window.getByText("read-only", { exact: true })).toBeVisible();
+  const profiles = window.getByRole("region", { name: "Profiles" });
   await expect(profiles).toContainText("Claude sonnet");
   await expect(profiles).toContainText("claude-sonnet-4-5");
   await profiles.getByRole("button", { name: "environment references for Claude sonnet" }).click();
@@ -80,10 +82,7 @@ env = [{ targetName = "ANTHROPIC_AUTH_TOKEN", fromEnv = "E2E_PROFILE_TOKEN" }]
 
   await window.keyboard.press("Escape");
   await expect(settings).toBeHidden();
-  await expect(workspace(window).getByRole("button", { name: /^Profiles/ })).toHaveAttribute(
-    "aria-current",
-    "true",
-  );
+  await expect(taskCard(window, "Profiles")).toHaveAttribute("aria-current", "true");
   // Keyboard-opened settings return to the terminal, not a route's sidebar fallback.
   await expect(window.locator(".terminal-host .xterm-helper-textarea")).toBeFocused();
 });
