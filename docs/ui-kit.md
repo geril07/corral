@@ -1,9 +1,6 @@
 # Web UI kit
 
-Kind: **Direction (supersedable)** below, then **Boundary (law)** and **Compositions (current
-state)**. An approved study that changes the look rewrites Direction in its own PR; it never
-edits Boundary without a decision. Compositions follow the code: a PR that changes a control
-updates or deletes its line.
+The owner-led rebuild's visual direction, current compositions and engineering boundaries.
 
 ## Direction (supersedable)
 
@@ -23,9 +20,9 @@ muted/faint roles, one hover overlay and semantic status colours. The dark value
 The interface font is **Inter Variable** (`@fontsource-variable/inter`, SIL OFL 1.1); the terminal
 keeps its separate mono role. Interface text follows the device scale, and the interface text scale
 is device-local and rem-based, independent of the terminal's fixed font; primitive dimensions, type,
-elevation, motion and focus follow **Spine**.
+elevation, motion and focus follow the foundations below.
 
-### Spine
+### Foundations
 
 - **Spacing** — Tailwind's spacing unit is the rhythm, steps `0`–`6`; a gutter above 24 px is a
   _derived_ inset (a step plus the control it clears) and lives only in the kit; a raw width
@@ -33,9 +30,9 @@ elevation, motion and focus follow **Spine**.
   popup. The visual shell's chrome metrics (320 px sidebar, 52 px card, 28 px controls) are
   kit-owned CSS values, never module class literals.
 - **Type** — compact text `13/16`, meta `11/16`, chrome wordmark `15/20`, tooltip `11/12`; the
-  prior Tailwind `text-xs`/`text-sm`/`text-base` steps remain for screens not yet rebuilt. Weights
-  are **440** regular, **530** medium, **670** bold; tracking stays 0 except an uppercase keycap
-  label; mono is a role (paths, code, terminal-adjacent), not a size.
+  Tailwind `text-xs`/`text-sm`/`text-base` steps remain for older kit compositions. Weights are
+  **440** regular, **530** medium, **670** bold; tracking stays 0 except an uppercase keycap label;
+  mono is a role (paths, code, terminal-adjacent), not a size.
 - **Radii** — one ladder off `--radius`; `--control-radius` for every box control and free to move
   independently; an inner radius is its shell minus the shell's inset; a badge is a pill.
 - **Elevation** — canvas, raised surface, floating popup, dialog with its scrim, and one inverted
@@ -52,7 +49,9 @@ elevation, motion and focus follow **Spine**.
   kill switch. **Dialogs and their scrim also animate out over 200 ms**: Base UI keeps the popup
   mounted only until that animation ends, then removes it and returns focus, so the keyboard is
   held for a bounded 200 ms rather than an open-ended one. Menus and other popups stay enter-only
-  (`ux.md`, Focus).
+  (`design.md`, **Client interaction**). The rebuild's dialogs animate without transitioning their
+  geometry, so changing interface scale does not animate the dialog's dimensions, type or radii
+  during an interaction.
 - **Density** — control heights are kit sizes; a control takes the height of the row it sits in; a
   full-width row uses a row size; a tab fills the tabstrip; a chrome band reads the chrome tokens;
   there is no comfort/compact mode.
@@ -65,18 +64,14 @@ elevation, motion and focus follow **Spine**.
 - **Known deviation** — non-text hairlines stay below 1.4.11's 3:1 (both references do the same; the
   direction is "restrained borders").
 
-The previous official shadcn generation commands, provenance and stock-only migration are
-archived in [research/shadcn-baseline.md](research/shadcn-baseline.md). They are a baseline for
-upstream diffs, not a prohibition on the accepted theme.
-
 ## Boundary (law)
 
 All interactive primitives live in `apps/web/src/common/ui`. Modules compose them, never
 import Base UI, cmdk or Lucide directly. Keep `scripts/check-web-ui.mjs` and the lint rules for
 layer boundaries and raw DOM controls enabled. Its class-string gates cover arbitrary values,
-palette, retired tokens, kit props and spreads, and the **Spine** ramps — spacing steps, type,
-radius and shadow, the focus ring and motion — and the kit itself answers the type, surface, focus
-and motion rules. A module stylesheet may not select on the kit's `data-slot` marker.
+palette, retired tokens, kit props and spreads. The implementation still enforces spacing, type,
+radius, shadow, focus and motion checks; those checks are not authority to restore the retired
+pre-rebuild appearance. A module stylesheet may not select on the kit's `data-slot` marker.
 
 A kit control cannot receive `className`, `style`, `render`, color/dimensions or opaque prop
 spreads from a module. Add a named variant for a demonstrated need. Modules own plain structural
@@ -136,7 +131,8 @@ context-menu dispatcher.
   glyph from the kit's `IconName` set; a menu's shortcut cell is a `DropdownMenuShortcut`, hidden
   from the accessible name because the item's label is the action.
 - OverflowMenu is the discoverable task-header and add-session menu, with one compact
-  minimum width. Menus fit available width/height. Combo search popups default to a readable
+  minimum width.
+- Menus fit available width/height. Combo search popups default to a readable
   width, not the tiny trigger width, bounded by the available viewport; `layout="anchor"` is the
   opt-in for a select row that opens at its trigger's width, and it survives portalling because the
   kit popup owns it rather than a descendant rule.
@@ -177,7 +173,6 @@ context-menu dispatcher.
   result switches the section, clears the query, scrolls the row into view, focuses it, and plays
   one motion-safe highlight. Search navigation is local state: it never rewrites the URL or starts
   the discard guard.
-- Enter only; the reason is in Direction (**Motion**). RowMenu has no delayed teardown.
 - Every native scroller takes the one bar in `app/global.css`, with no opt-in class: an 8 px lane,
   a transparent track inset 4 px at its ends, and a pill thumb inset by its 2 px border. The thumb
   rests low-contrast, so a scrollable column is discoverable without a pointer, and strengthens
@@ -196,12 +191,6 @@ context-menu dispatcher.
 - AgentIcon owns the four real tool logos and the shell glyph. Source and MIT notice:
   `agent-logos.ts` / `agent-logos.LICENSE`. StatusGlyph still distinguishes states by shape
   and color; its sizes match the tab's tool icon slot.
-- AppShell, SidebarPanel, MainPanel, TaskContent, ContentLane and MeasuredBox own structural
-  layout. MeasuredBox is a scrolling block with a maximum height the caller measured (the prior
-  sidebar's one-page Settled shelf); a raw inline style stays in the kit.
-  TaskContent is a size container so a prompt capped at 50cqh fits half the content area,
-  excluding the task/session chrome rather than growing to half the entire window. Sidebar sizing is
-  device-local; text scale never applies a CSS transform that would confuse popup coordinates.
 - The workspace route now composes `VisualShellView`: a borderless 320 px (100–640) sidebar over
   `bg-deep`, an 8 px inset `bg-base` main surface with radius 10, a 40 px Corral header, the
   Search/New-task row, a flat 52 px task card list, the Settled shelf and a footer. `VisualTaskCard`
@@ -270,14 +259,13 @@ context-menu dispatcher.
 - ComboboxButton `layout="bounded"` caps profile/workspace triggers and exposes the
   full text only on measured overflow, so valid long names cannot stretch Settings sideways.
 - DialogContent `padding="none"` tells its footer not to cancel nonexistent outer padding.
-- BoardRow, ChangeFileRow, DiffPane and DiffView retain their existing behavior. Changes UI
-  is not redesigned in this slice.
+- BoardRow, ChangeFileRow, DiffPane and DiffView retain their existing behavior. Changes UI is not
+  redesigned in this cleanup.
 
 ## Chat rendering
 
-Markdown stays Streamdown, UI off, backed by `@pierre/diffs`' shared highlighter. Code blocks and
-tables are capped. DiffView is unified and folds long hunks. The timeline remains virtualized with `@legendapp/list`. No second rendering engine or
-provider protocol belongs in the browser.
+The rendering libraries and the client/server boundary are recorded in `engineering.md` and
+`design.md`.
 
 The transcript's rows are a projection of the session's items (`modules/chat/chat-rows.ts`), not a
 second renderer: a finished turn becomes one `Worked` row that carries the rows it hides, a run of
@@ -285,6 +273,5 @@ finished calls becomes one verb summary that carries its calls, and the live tur
 plus the `Working` tail. The list renders those rows and nothing else; the fold's own disclosure
 state lives outside its data, so it is passed as the list's `extraData`.
 
-The prototype's model catalog, context consumption and Full access row are examples only.
 Production controls use driver-reported capabilities; launch reasoning/context require explicit
 contract work, not mock data or a silently ignored parameter.
