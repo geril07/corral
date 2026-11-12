@@ -58,20 +58,20 @@ export async function appWithProject(client: CorralClient, branches: string[] = 
   const repo = await createGitRepo("repo", branches);
   const rendered = await renderApp(client);
   await prefixShifted("p");
-  await expect.element(addProjectDialog().getByRole("combobox")).toHaveFocus();
-  await userEvent.keyboard(`${repo}{Enter}`);
+  const pathField = addProjectDialog().getByRole("combobox");
+  await expect.element(pathField).toHaveFocus();
+  // The picker starts at the server's `~/`; an absolute path replaces it rather than appending.
+  await pathField.fill(repo);
+  await userEvent.keyboard("{Enter}");
   await expect.element(addProjectDialog()).not.toBeInTheDocument();
-  // Adding a project selects it, and the route names the selection: waiting for that project id
-  // keeps the helper honest when a test already has another project.
+  // Adding a project registers it; the routed shell does not select a project or name one in the
+  // route until a draft or task does.
   const project = await vi.waitFor(() => {
     const found = client.projects.getSnapshot().projects.find((each) => each.path === repo);
     if (found === undefined) throw new Error("the project is not in the list yet");
     return found;
   });
-  await vi.waitFor(() =>
-    expect(rendered.history.location.search).toContain(`project=${project.id}`),
-  );
-  return { client, repo, rendered };
+  return { client, repo, rendered, project };
 }
 
 /**

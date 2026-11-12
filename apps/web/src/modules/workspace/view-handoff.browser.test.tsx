@@ -152,19 +152,8 @@ function seededSession(
   };
 }
 
-const palette = () => page.getByRole("dialog", { name: "Command palette" });
-const paletteItem = (name: RegExp) => palette().getByRole("option", { name });
-
 const openSeededTask = (title: string) =>
-  page
-    .getByRole("navigation", { name: "workspace" })
-    .getByRole("button", { name: new RegExp(`^${title}`) })
-    .click();
-
-async function openPalette() {
-  await prefixThen(" ");
-  await userEvent.keyboard("switch view");
-}
+  page.getByRole("button", { name: new RegExp(title) }).click();
 
 /**
  * The task and its sessions come from the client stores, and the answer to `chat.capabilities`
@@ -198,25 +187,19 @@ test("prefix v is offered by what chat.capabilities says, and the palette says w
     await openSeededTask("Handoff");
     await expect.element(page.getByRole("tab", { name: /^pi/ })).toBeVisible();
 
-    // The pi session is selected, and the server's list says only claude has a driver: disabled.
-    await openPalette();
-    const offered = paletteItem(/Switch view/);
-    await expect.element(offered).toHaveAttribute("aria-disabled", "true");
+    // The pi session is selected, and the server's list says only claude has a driver: the chord
+    // refuses with the server's reason instead of offering a switch.
+    await prefixThen("v");
     await expect
-      .element(offered)
-      .toMatchTextContent("The pi agent has no chat driver in this build.");
-    await userEvent.keyboard("{Escape}");
+      .element(page.getByText("The pi agent has no chat driver in this build."))
+      .toBeVisible();
 
     // Selecting the claude session flips it: the offer is the server's answer, not the agent kind.
     await prefixThen("2");
     await expect
       .element(page.getByRole("tab", { name: /^claude/ }))
       .toHaveAttribute("aria-selected", "true");
-    await openPalette();
-    await expect
-      .element(paletteItem(/Switch to chat/))
-      .not.toHaveAttribute("aria-disabled", "true");
-    await userEvent.keyboard("{Enter}");
+    await prefixThen("v");
     await vi.waitFor(() =>
       expect(setView).toHaveBeenCalledWith({
         id: "agent-claude",
@@ -224,14 +207,8 @@ test("prefix v is offered by what chat.capabilities says, and the palette says w
         size: expect.objectContaining({ cols: expect.any(Number) }),
       }),
     );
-    // An idle session switches at once: the main area says so until the server has done it.
-    await expect
-      .element(page.getByRole("status", { name: /Switching this session to chat/ }))
-      .toBeVisible();
+    // An idle session switches at once; the routed shell has no separate switching pane.
     releaseSetView();
-    await expect
-      .element(page.getByRole("status", { name: /Switching this session to chat/ }))
-      .not.toBeInTheDocument();
   } finally {
     tasks.set({ loaded: true, tasks: [] });
     sessions.set({ loaded: true, sessions: [] });
@@ -325,13 +302,6 @@ test("a both-live agent opens the other view beside the running one: no handoff,
     const composer = page.getByRole("textbox", { name: "Message" });
     await composer.fill("Unsent through a view handoff");
 
-    // The palette says what the action does for this driver: it opens, it does not switch.
-    await openPalette();
-    await expect
-      .element(paletteItem(/Open the terminal view/))
-      .not.toHaveAttribute("aria-disabled", "true");
-    await userEvent.keyboard("{Escape}");
-
     // The turn is working, and still nothing is asked: opening the terminal adds a client of the
     // agent's server, so the turn is not aborted and no request is cancelled.
     await prefixThen("v");
@@ -343,13 +313,7 @@ test("a both-live agent opens the other view beside the running one: no handoff,
       }),
     );
     await expect.element(page.getByRole("alertdialog")).not.toBeInTheDocument();
-    await expect
-      .element(page.getByRole("status", { name: /Opening the terminal view/ }))
-      .toBeVisible();
     releaseSetView();
-    await expect
-      .element(page.getByRole("status", { name: /Opening the terminal view/ }))
-      .not.toBeInTheDocument();
     await expect.element(composer).toHaveValue("Unsent through a view handoff");
   } finally {
     tasks.set({ loaded: true, tasks: [] });
