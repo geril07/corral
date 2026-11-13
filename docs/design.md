@@ -249,9 +249,9 @@ rules are in `ui-kit.md`.
 - **Known limits.** Task search is the sidebar's `Search tasks…` row and `prefix f`: it filters the
   tasks the client already watches and can resume a settled one, with no server search. A command
   palette is not mounted; its keymap and config action remain, but no palette is shown. Favourites
-  list inside the
-  selected instance; a picker-wide view would require eager discovery. Long values truncate without
-  losing their accessible name. Interface text scale is 80–140% per device; terminal text is fixed.
+  list inside the selected instance; a picker-wide view would require eager discovery. Long values
+  truncate without losing their accessible name. Interface text scale is 80–140% per device;
+  terminal text is fixed.
   Task drafts are one device-local record shared by every window: two windows that both type keep
   the last write. A local file link starts a loose terminal the routed shell cannot show
   (`ui-rebuild.md`).
