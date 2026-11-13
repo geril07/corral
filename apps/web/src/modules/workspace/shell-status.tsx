@@ -32,8 +32,9 @@ export interface ShellStatusProps {
 /**
  * The shell's one status surface (`layout.md`, **Shell**), in the two places the pane leaves it:
  * the sidebar footer while the sidebar is shown, and a strip above the main content while it is
- * hidden. The strip keeps its row whether or not it has something to say, so arming the prefix
- * never resizes the terminal under it; the footer's row exists for the same reason.
+ * hidden. Only a persistent problem owns the strip's row; the armed-prefix badge floats at the
+ * main surface's top-end, so arming the prefix never resizes the terminal and an idle surface has
+ * no empty band.
  *
  * The connection status is A2's opener (`Button layout="status"`), so a browser tab whose
  * capability rotated still reaches the `endpoint.json` guidance in the recovery dialog. A failed
@@ -81,10 +82,21 @@ export function ShellStatus({
       </footer>
     );
   }
-  // The strip is mounted for the whole hidden state, even with nothing to say: a surface that
-  // appeared with the armed badge would resize the terminal on every human-speed chord.
-  const hasContent =
-    failure !== undefined || connection.status !== "connected" || problems.length > 0 || armed;
+  // Only a persistent problem owns a row. Arming the prefix is transient, so its badge floats at
+  // the main surface's top-end: no empty band while nothing is wrong, and no terminal resize when
+  // a human-speed chord arms the prefix.
+  if (failure === undefined && connection.status === "connected" && problems.length === 0) {
+    if (!armed) return null;
+    return (
+      <div
+        data-slot="shell-status"
+        data-placement="strip"
+        className="pointer-events-none absolute end-2 top-2 z-30 flex"
+      >
+        <ArmedBadge prefix={prefix} />
+      </div>
+    );
+  }
   return (
     <div
       data-slot="shell-status"
@@ -92,9 +104,7 @@ export function ShellStatus({
       className={
         failure !== undefined
           ? "flex min-w-0 shrink-0 items-center gap-1 border-b border-border px-2 py-1"
-          : hasContent
-            ? "flex h-(--chrome-row) min-w-0 shrink-0 items-center gap-1 border-b border-border px-2"
-            : "flex h-(--chrome-row) min-w-0 shrink-0 items-center gap-1 px-2"
+          : "flex h-(--chrome-row) min-w-0 shrink-0 items-center gap-1 border-b border-border px-2"
       }
     >
       {failure !== undefined ? (
