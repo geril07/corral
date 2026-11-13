@@ -69,10 +69,11 @@ test("a blocked agent shows on its session and task card, and done updates both"
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 
   await report({ state: "done", msg: "All green" });
-  // A done tab keeps its tool logo; the card carries the completion status.
-  await expect.poll(() => cardStatusText("Alpha")).toContain("Done");
-  expect(cardStatus("Alpha")?.getAttribute("data-tone")).toBe("done");
+  // The selected task is marked seen: the tab keeps the completion, while the card fades from
+  // the unseen green Done to the neutral age. The unseen card is covered by its own test below.
   await expect.element(claudeButton()).toHaveAccessibleName(/done/i);
+  await expect.poll(() => cardStatusText("Alpha")).not.toContain("Done");
+  expect(cardStatus("Alpha")?.getAttribute("data-tone")).toBe("neutral");
 });
 
 test("stopping an agent drops the working status it had", async () => {
@@ -139,9 +140,8 @@ test("working, needs you and done carry the three status colors, and idle stays 
 });
 
 /**
- * The server-owned seen mark should fade a completed card when its task is opened
- * (`design.md`, **Status**). The routed shell does not currently call `tasks.seen`, so this
- * assertion is the live blocker recorded in issue #265 rather than a passing claim.
+ * The server-owned seen mark fades a completed card when its task is opened (`design.md`,
+ * **Status**). The routed shell marks the selected task once per task/seenAt/status update.
  */
 test("opening a task clears its unseen done mark", async () => {
   const { client, project } = await appWithProject(newClient());
