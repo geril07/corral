@@ -42,13 +42,20 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   when it is long, so settling a task never moves the active rows above it. Open, it mounts every
   settled row: the prior sidebar paged its measured box, and paging is not built here, so a very
   long settled history costs one card per row.
-- The footer is the `ShellStatus` row: connection state, the config-problem opener and the prefix
-  hint, with the **28×28** Settings and Add project actions beside them. It is **36** high with a
-  top border and grows for a failure or guidance sentence. While the sidebar is hidden the same
-  status moves above the main surface, but only a failure, a disconnected connection or a config
-  problem owns a row; an armed prefix floats at the main surface's top-end without reserving
-  layout. Settings and Add project stay icon-only with compact tooltips. The connection state opens
-  the capability-recovery dialog; a config problem opens the problems dialog.
+- The footer is the `ShellStatus` row: the config-problem opener and the prefix hint, with the
+  **28×28** Settings and Add project actions beside them. It is **36** high with a top border and
+  grows for a failure or guidance sentence. It carries no connection state: a lost server is
+  reported above the working area, where the work is. While the sidebar is hidden the strip takes
+  the same failure, config problem and armed prefix; only a persistent problem owns a row, and an
+  armed prefix floats at the main surface's top-end without reserving layout. Settings and Add
+  project stay icon-only with compact tooltips. A config problem opens the problems dialog.
+- The connection banner is the first row inside the main surface, above the task row and the
+  strip, and is mounted in both sidebar states. It is **36** high with a bottom border and a tone
+  tint; it names the state (`Connecting to the server`, `Cannot reach the server`, `The server
+  refused this capability`, `That capability cannot be used`, `This app and the server cannot talk
+  to each other`), the attempt and elapsed time where the state has one, and offers `Retry now`
+  where a retry can help plus `Details`, which opens the capability-recovery dialog. A reconnect
+  shows only after **2 s**; a capability or protocol failure shows at once.
 - The status slot follows only the task's **primary** agent session. Working has no displayed
   duration; other states use compact ages (`<1m`, `12m`, `2h`) from the report time. Sort order is
   Blocked/Error, unseen Done, Working, then neutral, newest report first inside a group.
