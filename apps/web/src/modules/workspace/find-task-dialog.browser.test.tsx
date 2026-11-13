@@ -33,10 +33,11 @@ const settledTask = (id: string, title: string, createdAt: number): Task => ({
 test("a result labels the create-time branch recorded, and a detached create says no branch", async () => {
   const archived: Task = { ...settledTask("t1", "Archived work", 1), branch: "branch-audit" };
   const detached: Task = { ...settledTask("t2", "Detached work", 2), branch: "HEAD" };
+  const unbranched: Task = { ...settledTask("t3", "Unbranched work", 3), branch: null };
   await render(
     <FindTaskDialog
       projects={[repoProject]}
-      tasks={[archived, detached]}
+      tasks={[archived, detached, unbranched]}
       onOpen={vi.fn<(task: Task) => void>()}
       onContinue={vi.fn<(task: Task) => Promise<void>>()}
       onClose={vi.fn<() => void>()}
@@ -69,6 +70,13 @@ test("a result labels the create-time branch recorded, and a detached create say
   const detachedOption = findOption(/Detached work/);
   await expect.element(detachedOption).toMatchTextContent("no branch");
   await expect.element(detachedOption).not.toMatchTextContent("HEAD");
+
+  // A task created without a branch must not disappear from the finder.
+  const unbranchedOption = findOption(/Unbranched work/);
+  await expect.element(unbranchedOption).toMatchTextContent("no branch");
+  expect(unbranchedOption.element().getAttribute("aria-label")).toContain(
+    "no branch checked out at create",
+  );
 });
 
 test("a failed continue keeps the dialog and its error, and a retry can still continue", async () => {
