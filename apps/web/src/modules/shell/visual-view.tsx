@@ -33,6 +33,7 @@ import {
   type VisualShortcut,
   type VisualTaskRow,
 } from "../../common/ui/index.ts";
+import { ConnectionBanner } from "../connection/index.ts";
 import { modifierPlatform, usePrefixMode } from "../keymap/index.ts";
 import { ShellStatus } from "../workspace/index.ts";
 import {
@@ -253,13 +254,15 @@ export interface VisualShellViewProps {
   notice?: VisualShellNotice | undefined;
   onDismissNotice?: (() => void) | undefined;
   /**
-   * The live connection and its recovery surfaces. Absent in the fixture host, which keeps the
-   * local notice row instead of mounting a status the review fixtures cannot drive.
+   * The live connection banner and its recovery surfaces. Absent in the fixture host, which keeps
+   * the local notice row instead of mounting a status the review fixtures cannot drive.
    */
   status?:
     | {
         connection: ConnectionState;
         onOpenConnection: (opener: HTMLElement) => void;
+        /** Retries the socket now; the desktop bridge also re-reads its endpoint file. */
+        onRetryConnection: () => void;
         onOpenConfigProblems: (opener?: HTMLElement) => void;
       }
     | undefined;
@@ -1024,7 +1027,6 @@ export function VisualShellView({
         ) : !hidden ? (
           <ShellStatus
             placement="footer"
-            connection={status.connection}
             armed={armed}
             prefix={prefix}
             failure={shownNotice}
@@ -1032,7 +1034,6 @@ export function VisualShellView({
               clearCopyNotice();
               onDismissNotice?.();
             }}
-            onOpenConnection={status.onOpenConnection}
             onOpenConfigProblems={status.onOpenConfigProblems}
             actions={
               <>
@@ -1060,10 +1061,16 @@ export function VisualShellView({
         ) : null}
       </VisualSidebar>
       <main className="visual-shell-main" aria-label="Workspace" ref={mainRef}>
+        {status !== undefined && (
+          <ConnectionBanner
+            state={status.connection}
+            onOpenDetails={status.onOpenConnection}
+            onRetry={status.onRetryConnection}
+          />
+        )}
         {hidden && status !== undefined && (
           <ShellStatus
             placement="strip"
-            connection={status.connection}
             armed={armed}
             prefix={prefix}
             failure={shownNotice}
@@ -1071,7 +1078,6 @@ export function VisualShellView({
               clearCopyNotice();
               onDismissNotice?.();
             }}
-            onOpenConnection={status.onOpenConnection}
             onOpenConfigProblems={status.onOpenConfigProblems}
           />
         )}

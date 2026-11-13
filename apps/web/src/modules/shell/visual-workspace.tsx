@@ -806,6 +806,7 @@ export function VisualWorkspace({
             dialogFocus?.remember(opener);
             setConnectionOpen(true);
           },
+          onRetryConnection: () => client.recover(),
           onOpenConfigProblems: (opener) => {
             dialogFocus?.remember(opener);
             setConfigProblemsOpen(true);

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
 import { Button, ContentLane, FormField, Input, TaskDialog } from "../../common/ui/index.ts";
 import { useCorralClient, useConnection } from "./client-context.tsx";
+import { isDesktopHost } from "./host.ts";
 
 /** Everything the framed notice can be about. */
 export type NoticeProblem =
@@ -59,10 +60,6 @@ export function putCapabilityInHash(capability: string): void {
     "",
     `${window.location.pathname}${window.location.search}${hash}`,
   );
-}
-
-function isDesktop(): boolean {
-  return typeof window !== "undefined" && window.corral !== undefined;
 }
 
 /** The capability field, shared by the boot notice and the running recovery dialog. */
@@ -257,7 +254,7 @@ function describeProblem(problem: NoticeProblem, host: NoticeHost, now: number):
 
 export function StartupNotice({
   problem,
-  host = isDesktop() ? "desktop" : "browser",
+  host = isDesktopHost() ? "desktop" : "browser",
   onReload,
   onRetry,
   onUseCapability,
@@ -371,7 +368,7 @@ export function ConnectionRecoveryDialog({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (connection.status === "connected") onClose();
   }, [connection.status, onClose]);
-  const host: NoticeHost = isDesktop() ? "desktop" : "browser";
+  const host: NoticeHost = isDesktopHost() ? "desktop" : "browser";
   const problem = RECOVERY_PROBLEM(connection, client.server.url);
   const content = describeProblem(problem, host, now);
   const retry = host === "desktop" || problem.kind === "unreachable";

@@ -992,6 +992,54 @@
   outline-offset: -2px;
 }
 
+/* The connection banner above the working area: one row, the tone on the icon and a wash behind
+   it. It is not the sidebar's status (`layout.md`, **Shell**). */
+.visual-connection-banner {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+  height: var(--chrome-row);
+  min-width: 0;
+  padding-inline: 12px;
+  border-bottom: 1px solid var(--visual-border-muted);
+}
+
+.visual-connection-banner[data-tone="attention"] {
+  background: color-mix(in srgb, var(--visual-status-blocked) 6%, transparent);
+}
+
+.visual-connection-banner[data-tone="destructive"] {
+  background: color-mix(in srgb, var(--visual-status-error) 6%, transparent);
+}
+
+.visual-connection-icon {
+  flex: none;
+  color: var(--visual-icon-muted);
+}
+
+.visual-connection-banner[data-tone="attention"] .visual-connection-icon {
+  color: var(--visual-status-blocked);
+}
+
+.visual-connection-banner[data-tone="destructive"] .visual-connection-icon {
+  color: var(--visual-status-error);
+}
+
+.visual-connection-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visual-connection-detail {
+  color: var(--visual-text-muted);
+}
+
 /* ── Main surface ────────────────────────────────────────────────────────── */
 
 .visual-shell-main {

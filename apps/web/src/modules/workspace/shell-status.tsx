@@ -1,7 +1,5 @@
-import type { ConnectionState } from "@corral/client/connection-state";
 import type { ReactNode } from "react";
 import { Alert, Badge, Button, IconButton, Kbd } from "../../common/ui/index.ts";
-import { ConnectionNotice } from "../connection/index.ts";
 import { ConfigProblemsNotice, useConfig } from "../keymap/index.ts";
 
 /**
@@ -17,47 +15,39 @@ export interface ShellFailure {
 
 export interface ShellStatusProps {
   placement: "footer" | "strip";
-  connection: ConnectionState;
   armed: boolean;
   /** The disarmed hint's chord; only the footer's row has room for it. */
   prefix: string;
   failure: ShellFailure | undefined;
   onDismissFailure: () => void;
-  onOpenConnection: (opener: HTMLElement) => void;
   onOpenConfigProblems: (opener?: HTMLElement) => void;
   /** The footer's controls; the strip has none. */
   actions?: ReactNode;
 }
 
 /**
- * The shell's one status surface (`layout.md`, **Shell**), in the two places the pane leaves it:
- * the sidebar footer while the sidebar is shown, and a strip above the main content while it is
- * hidden. Only a persistent problem owns the strip's row; the armed-prefix badge floats at the
- * main surface's top-end, so arming the prefix never resizes the terminal and an idle surface has
- * no empty band.
+ * The shell's action and config status (`layout.md`, **Shell**), in the two places the pane leaves
+ * it: the sidebar footer while the sidebar is shown, and a strip above the main content while it
+ * is hidden. Only a failure or config problems own the strip's row; the armed-prefix badge floats
+ * at the main surface's top-end, so arming the prefix never resizes the terminal.
  *
- * The connection status is A2's opener (`Button layout="status"`), so a browser tab whose
- * capability rotated still reaches the `endpoint.json` guidance in the recovery dialog. A failed
- * action is the kit's destructive `Alert` (`role="alert"`); guidance is a quiet `role="status"`.
+ * The connection is not here. A lost server is reported in `ConnectionBanner` above the working
+ * area, where the user's work is, and serves both sidebar states (T3,
+ * `useSystemComposerBanners.tsx`).
+ *
+ * A failed action is the kit's destructive `Alert` (`role="alert"`); guidance is a quiet
+ * `role="status"`.
  */
 export function ShellStatus({
   placement,
-  connection,
   armed,
   prefix,
   failure,
   onDismissFailure,
-  onOpenConnection,
   onOpenConfigProblems,
   actions,
 }: ShellStatusProps) {
   const { problems } = useConfig();
-  const status = (
-    <>
-      <ConnectionNotice state={connection} onOpen={onOpenConnection} />
-      <ConfigProblemsNotice onOpen={onOpenConfigProblems} />
-    </>
-  );
   if (placement === "footer") {
     return (
       <footer
@@ -72,12 +62,10 @@ export function ShellStatus({
         )}
         <div className="flex h-9 min-w-0 items-center gap-0.5 px-2">
           {actions}
-          {status}
-          {(armed || connection.status === "connected") && (
-            <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-              {armed ? <ArmedBadge prefix={prefix} /> : <Kbd>{prefix}</Kbd>}
-            </span>
-          )}
+          <ConfigProblemsNotice onOpen={onOpenConfigProblems} />
+          <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+            {armed ? <ArmedBadge prefix={prefix} /> : <Kbd>{prefix}</Kbd>}
+          </span>
         </div>
       </footer>
     );
@@ -85,7 +73,7 @@ export function ShellStatus({
   // Only a persistent problem owns a row. Arming the prefix is transient, so its badge floats at
   // the main surface's top-end: no empty band while nothing is wrong, and no terminal resize when
   // a human-speed chord arms the prefix.
-  if (failure === undefined && connection.status === "connected" && problems.length === 0) {
+  if (failure === undefined && problems.length === 0) {
     if (!armed) return null;
     return (
       <div
@@ -110,7 +98,7 @@ export function ShellStatus({
       {failure !== undefined ? (
         <FailureMessage failure={failure} onDismiss={onDismissFailure} />
       ) : undefined}
-      {status}
+      <ConfigProblemsNotice onOpen={onOpenConfigProblems} />
       {armed && (
         <span className="ml-auto flex shrink-0">
           <ArmedBadge prefix={prefix} />
