@@ -34,6 +34,10 @@ implementation per shared pattern and no invented user-visible copy. See `delive
   old screens and the `/board` route. Changes writes, links, session lifecycle, handoff, keymap,
   status and connection recovery run against the routed shell. Electron helpers and specs are
   migrated; no old or partial run is a green release gate.
+- The routed shell's Search was restored after #265: the sidebar row and `prefix f` open the task
+  finder over the tasks the client already watches. It opens an active task or resumes a settled
+  one; no server search or command palette is implied. The hidden-sidebar status now reserves a
+  row only for a persistent problem; the armed prefix floats without shifting the workspace.
 - **Editor terminal visibility (live blocker).** Opening a local file in chat calls
   `files.openEditor`, which starts the configured editor as a loose terminal in the task's
   workspace. The routed shell has no loose-terminal view, so the chat lane stays visible and the

@@ -223,9 +223,8 @@ context-menu dispatcher.
   strip's top/bottom position are device preferences. Hover is instant; only the companion's
   width and the edge fades carry motion, both removed under reduced motion.
 - Unavailable shell actions stay focusable with `aria-disabled` and explain the reason in the
-  compact tooltip; they never use an empty click handler. Add project opens the existing real
-  dialog. Search is hidden in the routed shell; its keymap and config action remain, but no control
-  or palette is mounted.
+  compact tooltip; they never use an empty click handler. Add project and Search open the existing
+  real dialogs. The command palette remains unmounted; its keymap and config action stay.
 - The workspace status slot follows the task's **primary** session only; auxiliary terminals do
   not contribute agent status, unread state or sort priority. Working shows no duration because
   `AgentStatus.updatedAt` is a report time, not a run start.
