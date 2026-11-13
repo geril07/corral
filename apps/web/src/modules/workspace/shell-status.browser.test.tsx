@@ -164,7 +164,7 @@ test.each([
   },
 );
 
-test("the strip grows for a wrapped failure and returns to its fixed row when it is dismissed", async () => {
+test("the strip exists only for a failure and grows for a wrapped one", async () => {
   const snapshot = await configSnapshot();
   const failure: ShellFailure = {
     tone: "notice",
@@ -176,9 +176,7 @@ test("the strip grows for a wrapped failure and returns to its fixed row when it
       <Status snapshot={snapshot} placement="strip" />
     </div>,
   );
-  const surface = document.querySelector<HTMLElement>('[data-slot="shell-status"]')!;
-  const rowHeight = surface.getBoundingClientRect().height;
-  expect(rowHeight).toBeGreaterThan(0);
+  expect(document.querySelector('[data-slot="shell-status"]')).toBeNull();
 
   await screen.rerender(
     <div className="w-58">
@@ -186,30 +184,40 @@ test("the strip grows for a wrapped failure and returns to its fixed row when it
     </div>,
   );
   await expect.element(page.getByRole("status").filter({ hasText: "already gone" })).toBeVisible();
-  expect(surface.getBoundingClientRect().height).toBeGreaterThan(rowHeight);
+  const surface = document.querySelector<HTMLElement>('[data-slot="shell-status"]')!;
+  expect(surface.getBoundingClientRect().height).toBeGreaterThan(0);
 
   await screen.rerender(
     <div className="w-58">
       <Status snapshot={snapshot} placement="strip" />
     </div>,
   );
-  await expect.element(page.getByRole("status")).not.toBeInTheDocument();
-  expect(surface.getBoundingClientRect().height).toBe(rowHeight);
+  expect(document.querySelector('[data-slot="shell-status"]')).toBeNull();
 });
 
-test("the strip keeps its row while the prefix arms", async () => {
+test("the armed prefix floats without a row or a layout shift", async () => {
   const snapshot = await configSnapshot();
-  const screen = await render(<Status snapshot={snapshot} placement="strip" />);
-  const surface = document.querySelector<HTMLElement>('[data-slot="shell-status"]')!;
-  const height = surface.getBoundingClientRect().height;
-  expect(height).toBeGreaterThan(0);
+  const screen = await render(
+    <div>
+      <div data-testid="content" />
+      <Status snapshot={snapshot} placement="strip" />
+    </div>,
+  );
+  const content = page.getByTestId("content").element();
+  const top = content.getBoundingClientRect().top;
+  expect(document.querySelector('[data-slot="shell-status"]')).toBeNull();
   await expect.element(page.getByRole("status", { name: "prefix mode" })).not.toBeInTheDocument();
 
-  // Arming changes the row's contents only: the same surface keeps the same height.
-  await screen.rerender(<Status snapshot={snapshot} placement="strip" armed />);
+  await screen.rerender(
+    <div>
+      <div data-testid="content" />
+      <Status snapshot={snapshot} placement="strip" armed />
+    </div>,
+  );
   await expect.element(page.getByRole("status", { name: "prefix mode" })).toBeVisible();
-  expect(document.querySelector<HTMLElement>('[data-slot="shell-status"]')).toBe(surface);
-  expect(surface.getBoundingClientRect().height).toBe(height);
+  const surface = document.querySelector<HTMLElement>('[data-slot="shell-status"]')!;
+  expect(getComputedStyle(surface).position).toBe("absolute");
+  expect(content.getBoundingClientRect().top).toBe(top);
 });
 
 test("the footer keeps one row: the badge replaces the disarmed chord", async () => {
