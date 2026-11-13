@@ -127,7 +127,6 @@ function LiveChat({
           followUp={undefined}
           canChooseAgent
           modelPickerAnchor={anchor}
-          abortHint={undefined}
           onSend={async (text, mode) => {
             await client.connection.api.chat.send({ sessionId: session.id, text, mode });
           }}

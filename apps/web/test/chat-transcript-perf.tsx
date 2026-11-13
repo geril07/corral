@@ -28,7 +28,6 @@ export async function measureTranscriptPerf(
         agent="pi"
         followUp
         files={NO_FILES}
-        abortHint="alt+a ."
         onSend={async () => undefined}
         onAbort={async () => undefined}
         onRespond={async () => undefined}

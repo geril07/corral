@@ -1019,7 +1019,6 @@ export function useTaskWorkspace({
           modelPickerAnchor={group === "main" ? mainModelAnchor : companionModelAnchor}
           reasoningPickerAnchor={group === "main" ? mainReasoningAnchor : companionReasoningAnchor}
           canChooseAgent={Object.values(config.agents).some((agent) => agent.enabled.value)}
-          abortHint={formatBinding(config, "abort-turn")}
           aborting={chat.aborting}
           onSend={chat.send}
           onAbort={chat.abort}
