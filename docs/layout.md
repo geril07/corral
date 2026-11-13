@@ -19,9 +19,9 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   an **8** px outer inset and radius **10**.
 - Sidebar insets are start **11**, end **3**, top **8**, bottom **10**. The header is **40** high:
   the wordmark is **15/20** weight **530**, and the toggle is an icon-only **28×28** ghost action.
-- The action row sits **4** below the header and holds New task, a **28×28** icon action. Search is
-  hidden in this shell; its keymap and config action remain for a later slice, but no control is
-  mounted. The list starts **16** after the row and scrolls independently; card gap is **3**.
+- The action row sits **4** below the header and holds the wide `Search tasks…` row and New task,
+  a **28×28** icon action; `prefix f` opens the same finder. The list starts **16** after the row
+  and scrolls independently; card gap is **3**.
 - A task card is **52** high: padding **8**, two **16**-high lines with **4** between, radius **6**,
   no border or shadow. The first line carries a **16** px project avatar/icon and the project at
   **11/16** weight **440**; the right slot carries status/time at **11/16** weight **530**. The
@@ -44,18 +44,19 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   long settled history costs one card per row.
 - The footer is the `ShellStatus` row: connection state, the config-problem opener and the prefix
   hint, with the **28×28** Settings and Add project actions beside them. It is **36** high with a
-  top border, grows for a failure or guidance sentence, and gives way to a strip above the main
-  surface while the sidebar is hidden. Settings and Add project stay icon-only with compact
-  tooltips. The connection state opens the capability-recovery dialog; a config problem opens the
-  problems dialog.
+  top border and grows for a failure or guidance sentence. While the sidebar is hidden the same
+  status moves above the main surface, but only a failure, a disconnected connection or a config
+  problem owns a row; an armed prefix floats at the main surface's top-end without reserving
+  layout. Settings and Add project stay icon-only with compact tooltips. The connection state opens
+  the capability-recovery dialog; a config problem opens the problems dialog.
 - The status slot follows only the task's **primary** agent session. Working has no displayed
   duration; other states use compact ages (`<1m`, `12m`, `2h`) from the report time. Sort order is
   Blocked/Error, unseen Done, Working, then neutral, newest report first inside a group.
 - `prefix \` toggles the sidebar. When hidden, the same toggle floats at the main surface's
   top-start corner. Clicking a card selects it and updates the route's `task` search; the review
   host at `/visual-review` (development only) renders the same components with fixture rows for
-  rare states. Search is hidden; Settle, New task, Settings and Add project are connected to the
-  real surfaces.
+  rare states. Search, Settle, New task, Settings and Add project are connected to the real
+  surfaces.
 - The main surface is the selected task's working area: a compact **40** px task row (title,
   project, branch, status, and the word `Settled` for a settled task), the **40** px strip, and the
   optional companion group beside the main pane. The task card shows its title, project initial
@@ -118,17 +119,19 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
   turn folds to one `Worked` row over the calls and reasoning it hid; a run of finished calls
   folds to one verb summary over the calls it hid; a single finished call and a running one keep
   their own rows, and their input and output or diff expand under the row with their own bounds.
-  The live turn ends in a `Working` row, and the transcript keeps a space below its last row for
-  the composer that overlays the lane's end. Scroll belongs to the pane: the transcript's `log`
+  The live turn ends in a `Working` row. With history the transcript keeps a space below its last
+  row for the composer at the lane's end; an empty transcript centres the composer in the pane,
+  like the new-task composer. Scroll belongs to the pane: the transcript's `log`
   owns it, opening or closing a fold leaves the row that was clicked where it is (the list's end
   follow is released for that layout change), and each session keeps its reading row and open
   folds while the session is open. A pending request overrides the reading position: the transcript
   reveals it and its control takes the keyboard.
-- New-task and chat prompts share the bordered composer surface and wrapping control row.
-  Send/steer, abort and IME protection retain their existing semantics; follow-up is offered only
-  where the driver declares it. The prompt's caret is its focus indicator, and its textarea has no
-  resize grip. Repository/checkout/branch controls never belong to an
-  existing-task chat composer.
+- New-task and chat prompts share the bordered composer surface, wrapping control row and arrow
+  submit control. The chat prompt reads `Ask anything…`; the control row has no persistent
+  shortcut sentence. Send/steer, abort and IME protection retain their existing semantics;
+  follow-up is offered only where the driver declares it. The prompt's caret is its focus
+  indicator, and its textarea has no resize grip. Repository/checkout/branch controls never belong
+  to an existing-task chat composer.
 - One bounded picker serves creation, add-agent and live chat: tool/profile icon rail, searchable
   model column and the selected model\'s thinking column. A live-chat popup anchors above its
   control and fits available width/height; add-agent anchors to the session adder. Without an
