@@ -145,6 +145,25 @@ export function VisualIconButton({
 }
 
 /** The wide ghost Search action row: 28 high, inline padding 8, gap 8, radius 6. */
+export function VisualSearchAction({
+  label,
+  shortcut,
+  onClick,
+}: {
+  label: string;
+  shortcut?: VisualShortcut | undefined;
+  onClick: () => void;
+}) {
+  return (
+    <CompactTooltip label={label} shortcut={shortcut}>
+      <button type="button" className="visual-sidebar-row" onClick={onClick}>
+        <Icon name="find" />
+        <span className="visual-sidebar-label">{label}</span>
+      </button>
+    </CompactTooltip>
+  );
+}
+
 /** The sidebar's one disclosure row: the wide ghost row with a chevron and a label. */
 export function VisualShelfToggle({
   label,

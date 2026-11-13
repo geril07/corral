@@ -26,6 +26,7 @@ import {
   TooltipProvider,
   VisualIconButton,
   VisualResizeHandle,
+  VisualSearchAction,
   VisualShelfToggle,
   VisualSidebar,
   VisualTaskCard,
@@ -218,9 +219,12 @@ export interface VisualShellViewProps {
   /** While a draft is open no sidebar row is current (`docs/layout.md`). */
   composerOpen?: boolean | undefined;
   onNewTask?: (() => void) | undefined;
+  /** Opens task search; absent in a host that cannot show the dialog. */
+  onFindTask?: (() => void) | undefined;
   onOpenSettings?: (() => void) | undefined;
-  /** The prefix action `new-task`/`settings`/`add-project`, for the button tooltips and keymap. */
+  /** The prefix action `new-task`/`find-task`/`settings`/`add-project`, for tooltips and keymap. */
   newTaskShortcut?: VisualShortcut | undefined;
+  findTaskShortcut?: VisualShortcut | undefined;
   settingsShortcut?: VisualShortcut | undefined;
   addProjectShortcut?: VisualShortcut | undefined;
   /** `prefix w`: the list takes the keyboard; `prefix d`: settle or unsettle the current task. */
@@ -466,8 +470,10 @@ export function VisualShellView({
   mainFill = false,
   composerOpen = false,
   onNewTask,
+  onFindTask,
   onOpenSettings,
   newTaskShortcut,
+  findTaskShortcut,
   settingsShortcut,
   addProjectShortcut,
   focusSidebarShortcut,
@@ -531,6 +537,7 @@ export function VisualShellView({
   const prefix =
     shortcut?.prefix ??
     newTaskShortcut?.prefix ??
+    findTaskShortcut?.prefix ??
     settingsShortcut?.prefix ??
     renameShortcut?.prefix ??
     removeShortcut?.prefix ??
@@ -541,6 +548,12 @@ export function VisualShellView({
       bindings[shortcut.binding] = "toggle-sidebar";
     if (newTaskShortcut?.binding !== null && newTaskShortcut?.binding !== undefined)
       bindings[newTaskShortcut.binding] = "new-task";
+    if (
+      onFindTask !== undefined &&
+      findTaskShortcut?.binding !== null &&
+      findTaskShortcut?.binding !== undefined
+    )
+      bindings[findTaskShortcut.binding] = "find-task";
     if (settingsShortcut?.binding !== null && settingsShortcut?.binding !== undefined)
       bindings[settingsShortcut.binding] = "settings";
     if (focusSidebarShortcut?.binding !== null && focusSidebarShortcut?.binding !== undefined)
@@ -565,8 +578,10 @@ export function VisualShellView({
     return createPrefixKeymap(prefix, bindings);
   }, [
     addProjectShortcut,
+    findTaskShortcut,
     focusSidebarShortcut,
     newTaskShortcut,
+    onFindTask,
     prefix,
     prefixExtra,
     removeShortcut,
@@ -796,6 +811,7 @@ export function VisualShellView({
     (action: string) => {
       if (action === "toggle-sidebar") toggleSidebar();
       else if (action === "new-task") onNewTask?.();
+      else if (action === "find-task") onFindTask?.();
       else if (action === "settings") onOpenSettings?.();
       else if (action === "add-project") onAddProject?.();
       else if (action === "focus-sidebar") focusList();
@@ -810,6 +826,7 @@ export function VisualShellView({
       currentTaskId,
       focusList,
       onAddProject,
+      onFindTask,
       onNewTask,
       onOpenSettings,
       prefixExtra,
@@ -930,6 +947,13 @@ export function VisualShellView({
           <span className="visual-toggle-slot" ref={openToggleSlot} aria-hidden="true" />
         </div>
         <div className="visual-sidebar-actions">
+          {onFindTask !== undefined && (
+            <VisualSearchAction
+              label="Search tasks…"
+              shortcut={findTaskShortcut}
+              onClick={onFindTask}
+            />
+          )}
           <VisualIconButton
             label="New task"
             icon="add"

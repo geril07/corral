@@ -1,3 +1,4 @@
+export { FindTaskDialog } from "./find-task-dialog.tsx";
 export { RenameDialog, type RenameTarget } from "./rename-dialog.tsx";
 export { ShellStatus, type ShellFailure, type ShellStatusProps } from "./shell-status.tsx";
 export {
