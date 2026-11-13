@@ -99,9 +99,6 @@ context-menu dispatcher.
   `layout="picker-row"` a settings card list row. `layout="tab"` fills the tabstrip's height and
   uses content width up to a maximum. `layout="model"` bounds a model trigger so long native IDs
   really truncate.
-- Button `layout="status"` keeps the footer's connection opener in its row; the visible label is
-  the connection state word, shortened when the row cannot hold it, and the sentence with attempt
-  and elapsed is its `Hint` and the recovery dialog. It opens that dialog.
 - Button `layout="activity"` + `size="activity"` is the chat transcript's activity row: the whole
   lane's width, a 24 px slot holding a 16 px glyph, a truncating label and a trailing disclosure,
   with an inset ring because it sits in the timeline's scroll container. Its minimum is T3's
@@ -203,7 +200,10 @@ context-menu dispatcher.
   RowMenu uses; the visual host
   opts into the shell's floating-surface skin, while the stock kit keeps its own. A copy
   confirmation and a refused task action share the sidebar's notice row above the footer; the
-  confirmation clears on the next interaction.
+  confirmation clears on the next interaction. The connection banner is the main surface's first
+  row, in both sidebar states: a **36** px strip with a tone tint, the state name and its attempt
+  on one line, and `Retry now` / `Details` at the end (`ConnectionBanner`). It is not a kit
+  primitive; the shell composes it from `Icon`, `Button` and the status roles.
 - One root-layer toggle owns hide/show. It reads the sidebar's real width and the reserved header
   and main-chrome slots, so the 240 ms width transition is the only motion; there is never a
   second visible or tabbable toggle at either endpoint or in flight.

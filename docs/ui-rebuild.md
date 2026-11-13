@@ -36,8 +36,14 @@ implementation per shared pattern and no invented user-visible copy. See `delive
   migrated; no old or partial run is a green release gate.
 - The routed shell's Search was restored after #265: the sidebar row and `prefix f` open the task
   finder over the tasks the client already watches. It opens an active task or resumes a settled
-  one; no server search or command palette is implied. The hidden-sidebar status now reserves a
-  row only for a persistent problem; the armed prefix floats without shifting the workspace.
+  one; no server search or command palette is implied.
+- The connection status left the sidebar after #269. The footer keeps its actions, the config
+  problem opener and the prefix hint; the connection is a banner above the working area in both
+  sidebar states, following T3's unavailable-environment banner rather than a header word. A
+  reconnect shows after a **2 s** grace; a refused capability, invalid capability or protocol
+  mismatch shows at once. `Retry now` appears where a retry can help and `Details` opens the
+  recovery dialog. The hidden-sidebar strip still owns a row only for a persistent failure or
+  config problem, and the armed prefix floats without shifting the workspace.
 - **Editor terminal visibility (live blocker).** Opening a local file in chat calls
   `files.openEditor`, which starts the configured editor as a loose terminal in the task's
   workspace. The routed shell has no loose-terminal view, so the chat lane stays visible and the
