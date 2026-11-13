@@ -336,7 +336,6 @@ test("a refused read becomes the same row, and the row's Open still reaches the 
         agent="pi"
         followUp={true}
         files={files}
-        abortHint="alt+a ."
         onSend={async () => {}}
         onAbort={async () => {}}
         onRespond={async () => {}}
@@ -371,7 +370,6 @@ test("a streaming lane asks about each path once, and never retries a refused lo
         agent="pi"
         followUp={true}
         files={files}
-        abortHint="alt+a ."
         onSend={async () => {}}
         onAbort={async () => {}}
         onRespond={async () => {}}
@@ -422,7 +420,6 @@ test("a media file too large to preview is one row, not a broken image", async (
         agent="pi"
         followUp={true}
         files={files}
-        abortHint="alt+a ."
         onSend={async () => {}}
         onAbort={async () => {}}
         onRespond={async () => {}}
@@ -460,7 +457,6 @@ test("a server without files.* says so once and leaves the paths as text", async
         agent="pi"
         followUp={true}
         files={files}
-        abortHint="alt+a ."
         onSend={async () => {}}
         onAbort={async () => {}}
         onRespond={async () => {}}

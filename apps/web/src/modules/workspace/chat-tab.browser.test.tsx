@@ -213,7 +213,7 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
     const stopping = page.getByRole("button", { name: "Stopping…" });
     await expect.element(stopping).toBeDisabled();
     await expect.element(stopping).toHaveTextContent("Stopping…");
-    const row = stopping.element().parentElement!;
+    const row = stopping.element().closest<HTMLElement>("[aria-busy]")!;
     await expect.poll(() => row.getAttribute("aria-busy")).toBe("true");
 
     pendingAbort.resolve();
@@ -309,10 +309,9 @@ test("the matched driver decides the follow-up offer: Codex has no Queue, pi kee
       .toHaveAttribute("aria-selected", "true");
     const composer = page.getByRole("textbox", { name: "Message" });
 
-    // Codex declares `followUp:false`: the Queue button and the chord's clause are absent.
+    // Codex declares `followUp:false`: the Queue button is absent and no hint sentence returns.
     await expect.element(page.getByRole("button", { name: "Queue" })).not.toBeInTheDocument();
-    await expect.element(page.getByText(/follow-up/)).not.toBeInTheDocument();
-    await expect.element(page.getByText(/Enter steer ·/)).toBeVisible();
+    await expect.element(page.getByText(/Enter steer ·/)).not.toBeInTheDocument();
 
     // Ctrl+Enter steers the same turn plain Enter does, and the composer keeps its semantics.
     await composer.fill("Steer the Codex turn");
@@ -329,7 +328,6 @@ test("the matched driver decides the follow-up offer: Codex has no Queue, pi kee
     // pi declares `followUp:true`: the offer returns when the selected session changes.
     await page.getByRole("tab", { name: /^pi/ }).click();
     await expect.element(page.getByRole("button", { name: "Queue" })).toBeVisible();
-    await expect.element(page.getByText(/Enter steer · ⌘\/Ctrl\+Enter follow-up/)).toBeVisible();
     await composer.fill("Queue for pi");
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
     await vi.waitFor(() =>
@@ -413,7 +411,6 @@ test("an unknown capability keeps Queue and a loaded Codex answer removes it wit
     const composer = page.getByRole("textbox", { name: "Message" });
     // No answer yet: the composer keeps today's offer instead of stripping a mode it cannot see.
     await expect.element(page.getByRole("button", { name: "Queue" })).toBeVisible();
-    await expect.element(page.getByText(/Enter steer · ⌘\/Ctrl\+Enter follow-up/)).toBeVisible();
 
     // The loaded record hides it in place; the chat stays selected and keeps its draft.
     await composer.fill("Keep this while the answer loads");

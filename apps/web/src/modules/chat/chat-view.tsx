@@ -22,6 +22,7 @@ import {
   ComposerSurface,
   ComposerToolbar,
   ContentLane,
+  Icon,
   ModelPickerButton,
   SelectionAction,
   Textarea,
@@ -46,7 +47,7 @@ export interface ChatViewProps {
   /** Workspace-owned per-session text survives replacing the chat with another view. */
   draft: string;
   onDraftChange: Dispatch<SetStateAction<string>>;
-  /** The agent's name for the placeholder ("Ask pi…"); the session's kind. */
+  /** The session's kind; the model picker and transcript rows use it. */
   agent: AgentKind;
   /**
    * The matched driver's `followUp` declaration. `undefined` until the capabilities answer, or
@@ -56,8 +57,6 @@ export interface ChatViewProps {
   canChooseAgent: boolean;
   modelPickerAnchor?: Ref<HTMLButtonElement> | undefined;
   reasoningPickerAnchor?: Ref<HTMLButtonElement> | undefined;
-  /** The abort action's effective chord (`formatBinding`), or undefined when it is unbound. */
-  abortHint: string | undefined;
   onSend: ChatSend;
   /** Shared by the button, prefix and palette; true while the abort RPC is pending. */
   aborting: boolean;
@@ -90,7 +89,6 @@ export function ChatView({
   canChooseAgent,
   modelPickerAnchor,
   reasoningPickerAnchor,
-  abortHint,
   onSend,
   aborting,
   onAbort,
@@ -119,12 +117,12 @@ export function ChatView({
   );
   const requestId = request?.id;
   const working = snapshot.state.turn === "working";
-  // A driver that does not declare follow-ups gets steer from both Enter and the chord, and the
-  // hint names only the actions it does offer (`chat.capabilities`, protocol 10).
+  // T3's draft hero and OpenCode's new-session screen centre an empty transcript's composer; a
+  // chat with history keeps it docked at the lane's end.
+  const empty = snapshot.items.length === 0;
+  // A driver that does not declare follow-ups gets steer from both Enter and the chord; the
+  // Queue control appears only for the drivers that do (`chat.capabilities`, protocol 10).
   const followUpOffered = followUp !== false;
-  const workingHint = followUpOffered
-    ? `Enter steer · ⌘/Ctrl+Enter follow-up · ${abortHint ?? "no key"} abort`
-    : `Enter steer · ${abortHint ?? "no key"} abort`;
 
   // The composer overlays the timeline, so the list keeps a matching end spacer
   // (`layout.md`: "at the bottom of the lane, overlaying the timeline's end").
@@ -266,7 +264,11 @@ export function ChatView({
           </div>
           <div
             ref={panelRef}
-            className="absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-canvas pt-2"
+            className={
+              empty
+                ? "absolute inset-x-0 top-1/2 flex -translate-y-1/2 flex-col gap-2 pt-2"
+                : "absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-canvas pt-2"
+            }
           >
             {snapshot.failure !== null && (
               <Alert variant="destructive">
@@ -295,7 +297,7 @@ export function ChatView({
                   ref={composerRef}
                   layout="chat"
                   aria-label="Message"
-                  placeholder={`Ask ${agent}…`}
+                  placeholder="Ask anything…"
                   rows={2}
                   spellCheck={false}
                   value={draft}
@@ -350,48 +352,48 @@ export function ChatView({
                       {reasoning}
                     </span>
                   </Button>
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    {working ? workingHint : "Enter send · Shift+Enter newline"}
-                  </span>
-                  {working && (
-                    <>
-                      {followUpOffered && (
+                  <span className="ml-auto flex items-center gap-1">
+                    {working && (
+                      <>
+                        {followUpOffered && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={draft.trim() === "" || sending}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={(event) => {
+                              keepKeyboardInComposer(event);
+                              void send("follow-up");
+                            }}
+                          >
+                            Queue
+                          </Button>
+                        )}
                         <Button
-                          variant="outline"
+                          variant="destructive"
                           size="sm"
-                          disabled={draft.trim() === "" || sending}
+                          disabled={aborting}
                           onMouseDown={(event) => event.preventDefault()}
                           onClick={(event) => {
                             keepKeyboardInComposer(event);
-                            void send("follow-up");
+                            void abort();
                           }}
                         >
-                          Queue
+                          {aborting ? "Stopping…" : "Abort"}
                         </Button>
-                      )}
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        disabled={aborting}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={(event) => {
-                          keepKeyboardInComposer(event);
-                          void abort();
-                        }}
-                      >
-                        {aborting ? "Stopping…" : "Abort"}
-                      </Button>
-                    </>
-                  )}
-                  <Button
-                    type="submit"
-                    size="sm"
-                    disabled={draft.trim() === "" || sending}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={keepKeyboardInComposer}
-                  >
-                    {working ? "Steer" : "Send"}
-                  </Button>
+                      </>
+                    )}
+                    <Button
+                      type="submit"
+                      size="icon-sm"
+                      aria-label={working ? "Steer" : "Send"}
+                      disabled={draft.trim() === "" || sending}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={keepKeyboardInComposer}
+                    >
+                      <Icon name="up" />
+                    </Button>
+                  </span>
                 </ComposerToolbar>
               </ComposerSurface>
             </form>

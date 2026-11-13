@@ -30,8 +30,6 @@ import {
   workingChat,
 } from "../../../test/recorded-chat.ts";
 
-const ABORT_HINT = `${DEFAULT_PREFIX} .`;
-
 /** Chat links in these tests: nothing resolves, nothing opens (the lane's own file covers links). */
 const NO_FILES: ChatFiles = {
   resolve: async () => [],
@@ -85,7 +83,6 @@ async function renderChat(
         agent="pi"
         followUp={options.followUp}
         files={NO_FILES}
-        abortHint={ABORT_HINT}
         {...(options.memory === undefined ? {} : { memory: options.memory })}
         onSend={async (text, mode) => {
           sent.push({ text, mode });
@@ -592,7 +589,7 @@ test("a pending abort says it is stopping and marks the composer row busy", asyn
   const queue = page.getByRole("button", { name: "Queue" });
   const steer = page.getByRole("button", { name: "Steer" });
   const abort = page.getByRole("button", { name: "Abort" });
-  const row = abort.element().parentElement!;
+  const row = abort.element().closest<HTMLElement>("[aria-busy]")!;
   await expect.element(composer).toHaveFocus();
   await userEvent.keyboard("Keep this");
 
@@ -605,8 +602,9 @@ test("a pending abort says it is stopping and marks the composer row busy", asyn
   await expect.element(stopping).toHaveTextContent("Stopping…");
   await expect.poll(() => row.getAttribute("aria-busy")).toBe("true");
 
-  // The turn still reads working and the other actions keep their own rules.
-  await expect.element(page.getByText(/Enter steer · ⌘\/Ctrl\+Enter follow-up/)).toBeVisible();
+  // The turn still reads working and the other actions keep their own rules; no hint sentence
+  // has reappeared beside them.
+  await expect.element(page.getByText(/Enter steer/)).not.toBeInTheDocument();
   await expect.element(queue).toBeEnabled();
   await expect.element(steer).toBeEnabled();
 
@@ -627,7 +625,7 @@ test("a rejected abort clears the stopping state and shows its sentence", async 
   });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
   const abort = page.getByRole("button", { name: "Abort" });
-  const row = abort.element().parentElement!;
+  const row = abort.element().closest<HTMLElement>("[aria-busy]")!;
 
   await userEvent.click(abort);
   await vi.waitFor(() => expect(chat.aborts).toHaveLength(1));
@@ -646,10 +644,9 @@ test("a driver without follow-up hides Queue and turns Ctrl/Cmd+Enter into steer
   const composer = page.getByRole("textbox", { name: "Message" });
   await expect.element(composer).toHaveFocus();
 
-  // Codex's declaration: no Queue and no follow-up clause in the hint, abort still named.
+  // Codex's declaration: no Queue, while Abort stays reachable.
   await expect.element(page.getByRole("button", { name: "Queue" })).not.toBeInTheDocument();
-  await expect.element(page.getByText(`Enter steer · ${ABORT_HINT} abort`)).toBeVisible();
-  await expect.element(page.getByText(/follow-up/)).not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: "Abort" })).toBeVisible();
 
   // Plain Enter still steers; the chord is the same action rather than a refused follow-up.
   await userEvent.keyboard("Steer this{Enter}");
@@ -666,10 +663,22 @@ test("an unanswered driver capability keeps the follow-up offer", async () => {
   await expect.element(composer).toHaveFocus();
 
   await expect.element(page.getByRole("button", { name: "Queue" })).toBeVisible();
-  await expect.element(page.getByText(/Enter steer · ⌘\/Ctrl\+Enter follow-up/)).toBeVisible();
 
   await userEvent.keyboard("Queue this{Control>}{Enter}{/Control}");
   await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Queue this", mode: "follow-up" }]));
+});
+
+test("an empty transcript centres the composer and asks anything", async () => {
+  const chat = await renderChat(recorded([]));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await expect.element(composer).toHaveAttribute("placeholder", "Ask anything…");
+
+  const surface = document.querySelector<HTMLElement>('[data-slot="composer-surface"]')!;
+  const box = surface.getBoundingClientRect();
+  // A docked composer sits at the lane's end; this one is the empty transcript's hero.
+  expect(box.top).toBeLessThan(window.innerHeight / 2);
+  expect(window.innerHeight - box.bottom).toBeGreaterThan(100);
 });
 
 test("send, steer and queue a follow-up from the keyboard; Shift+Enter is a newline", async () => {
@@ -677,7 +686,11 @@ test("send, steer and queue a follow-up from the keyboard; Shift+Enter is a newl
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
   const composer = page.getByRole("textbox", { name: "Message" });
   await expect.element(composer).toHaveFocus();
-  await expect.element(page.getByText("Enter send · Shift+Enter newline")).toBeVisible();
+  await expect.element(composer).toHaveAttribute("placeholder", "Ask anything…");
+  await expect.element(page.getByText("Enter send · Shift+Enter newline")).not.toBeInTheDocument();
+  const send = page.getByRole("button", { name: "Send" });
+  expect(send.element().textContent).toBe("");
+  expect(send.element().querySelector("svg")).not.toBeNull();
 
   await userEvent.keyboard("Fix the test{Enter}");
   await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Fix the test", mode: "prompt" }]));
@@ -693,7 +706,7 @@ test("send, steer and queue a follow-up from the keyboard; Shift+Enter is a newl
     { type: "event", sequence: 2, event: { type: "state", state: workingChat() } },
   );
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().state.turn).toBe("working"));
-  await expect.element(page.getByText(/Enter steer · ⌘\/Ctrl\+Enter follow-up/)).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Queue" })).toBeVisible();
 
   await userEvent.keyboard("Tighten the assertion{Enter}");
   await vi.waitFor(() =>
@@ -760,7 +773,6 @@ function PrefixHarness({
         agent="pi"
         followUp={true}
         files={NO_FILES}
-        abortHint={ABORT_HINT}
         memory={memory}
         onSend={async () => {}}
         onAbort={onAbort}
@@ -1720,7 +1732,6 @@ test("a refused watch shows the store's failure and the view does not retry it i
         agent="pi"
         followUp={true}
         files={NO_FILES}
-        abortHint={ABORT_HINT}
         memory={memory}
         onSend={async () => {}}
         onAbort={async () => {}}
