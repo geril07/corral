@@ -49,6 +49,7 @@ import {
   TriangleAlert,
   Undo2,
   UserRound,
+  WifiOff,
   Wrench,
   X,
 } from "lucide-react";
@@ -70,6 +71,7 @@ const ICONS = {
   close: X,
   collapse: ChevronDown,
   config: CircleAlert,
+  connection: WifiOff,
   copy: Copy,
   expand: ChevronRight,
   changes: FileDiff,

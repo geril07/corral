@@ -399,8 +399,9 @@ const STATUS_CONFIG = {
   problems: [],
 };
 
-test("the routed shell mounts the connection status and recovery opener in both placements", async () => {
+test("the connection banner sits above the working area and the sidebar has no status", async () => {
   const opened: HTMLElement[] = [];
+  const retried = vi.fn<() => void>();
   const disconnected: ConnectionState = {
     status: "disconnected",
     attempt: 2,
@@ -412,23 +413,40 @@ test("the routed shell mounts the connection status and recovery opener in both 
         status={{
           connection: disconnected,
           onOpenConnection: (opener) => opened.push(opener),
+          onRetryConnection: retried,
           onOpenConfigProblems: () => undefined,
         }}
       />
     </KeymapProvider>,
   );
 
-  const opener = page.getByRole("button", { name: /^connection:/ });
-  await expect.element(opener).toBeVisible();
-  // The status footer keeps the two real actions in the same row.
+  // The banner waits out the reconnect grace, then names the server above the workspace.
+  await vi.waitFor(
+    () => expect(document.querySelector('[data-slot="connection-banner"]')).not.toBeNull(),
+    { timeout: 3000 },
+  );
+  const banner = document.querySelector<HTMLElement>('[data-slot="connection-banner"]')!;
+  expect(banner.closest("main")).toBe(page.getByRole("main", { name: "Workspace" }).element());
+  await expect.element(page.getByText(/^Cannot reach the server · /)).toBeVisible();
+
+  // The sidebar keeps its actions and carries no connection word, icon or opener.
+  const footer = document.querySelector('[data-slot="shell-status"][data-placement="footer"]')!;
+  expect(footer.querySelector('[data-slot="connection-banner"]')).toBeNull();
+  expect(footer.textContent).not.toContain("Cannot reach the server");
+  expect(page.getByRole("button", { name: /^connection:/ }).elements()).toHaveLength(0);
   await expect.element(page.getByRole("button", { name: "Settings" })).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Add project" })).toBeVisible();
-  await opener.click();
-  expect(opened).toEqual([opener.element()]);
 
-  // Hidden sidebar: the same status moves to the strip above the main surface.
+  await page.getByRole("button", { name: "Retry now" }).click();
+  expect(retried).toHaveBeenCalledOnce();
+  const details = page.getByRole("button", { name: "Details" });
+  await details.click();
+  expect(opened).toEqual([details.element()]);
+
+  // Hiding the sidebar leaves one banner in the same place, not a second copy in the strip.
   await userEvent.click(page.getByRole("button", { name: "Hide sidebar" }));
-  await expect.element(page.getByRole("button", { name: /^connection:/ })).toBeVisible();
+  await expect.element(page.getByText(/^Cannot reach the server · /)).toBeVisible();
+  expect(document.querySelectorAll('[data-slot="connection-banner"]')).toHaveLength(1);
   await unmount();
 });
 

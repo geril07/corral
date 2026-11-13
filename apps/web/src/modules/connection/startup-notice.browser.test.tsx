@@ -1,6 +1,5 @@
 import { resolveServerTarget, type ServerTargetStorage } from "@corral/client/bootstrap";
 import { capabilityProtocols } from "@corral/protocol/handshake";
-import type { ConnectionState } from "@corral/client/connection-state";
 import type { CreateSocket } from "@corral/client/reconnecting-socket";
 import type { ServerTarget } from "@corral/protocol/server-target";
 import { expect, test, vi } from "vite-plus/test";
@@ -9,7 +8,6 @@ import { render } from "vitest-browser-react";
 import { appWithProject, taskWithShell } from "../../../test/task-flows.tsx";
 import { realServerClients, screenText } from "../../../test/real-client.ts";
 import { serverTarget } from "../../../test/server-url.ts";
-import { ConnectionNotice } from "./connection-notice.tsx";
 import { CapabilityForm, StartupNotice } from "./startup-notice.tsx";
 
 const { newClient } = realServerClients();
@@ -192,74 +190,7 @@ test("a capability that is not a token is refused in place before it reaches the
   await screen.unmount();
 });
 
-test("the footer connection status keeps the button but announces the drop", async () => {
-  const open = vi.fn<(opener: HTMLElement) => void>();
-  await render(
-    <ConnectionNotice
-      state={{ status: "disconnected", attempt: 3, startedAt: Date.now() - 2000 }}
-      onOpen={open}
-    />,
-  );
-
-  await expect
-    .element(page.getByRole("status"))
-    .toHaveTextContent("Cannot reach the server. Attempt 3.");
-  const opener = page.getByRole("button", { name: /^connection:/ });
-  await expect.element(opener).toBeVisible();
-  await expect.element(opener).toHaveTextContent("Offline");
-  expect(opener.element().getAttribute("aria-label")).toMatch(
-    /^connection: Cannot reach the server · attempt 3 · \d+ s$/,
-  );
-  const word = opener.element().querySelector<HTMLElement>('[data-slot="connection-state"]');
-  if (word === null) throw new Error("the connection opener has no state word");
-  await userEvent.hover(word);
-  await expect
-    .element(page.getByRole("tooltip"))
-    .toMatchTextContent(/Cannot reach the server · attempt 3 · \d+ s/);
-});
-
-test("every connection state shows its word and keeps the whole sentence in its name", async () => {
-  const startedAt = Date.now();
-  const cases: { state: ConnectionState; word: string; name: RegExp }[] = [
-    {
-      state: { status: "connecting", attempt: 2, startedAt },
-      word: "Connecting",
-      name: /^connection: Connecting to the server · attempt 2 · \d+ s$/,
-    },
-    {
-      state: { status: "disconnected", attempt: 2, startedAt },
-      word: "Offline",
-      name: /^connection: Cannot reach the server · attempt 2 · \d+ s$/,
-    },
-    {
-      state: { status: "capability-refused", attempt: 2, startedAt },
-      word: "Refused",
-      name: /^connection: The server refused this capability · attempt 2 · \d+ s$/,
-    },
-    {
-      state: { status: "invalid-capability", detail: "bad token" },
-      word: "Invalid",
-      name: /^connection: That capability cannot be used$/,
-    },
-    {
-      state: { status: "protocol-mismatch", serverProtocolVersion: 12 },
-      word: "Mismatch",
-      name: /^connection: Protocol mismatch$/,
-    },
-  ];
-  for (const { state, word, name } of cases) {
-    // oxlint-disable-next-line eslint/no-await-in-loop -- each state replaces the previous render
-    const screen = await render(<ConnectionNotice state={state} onOpen={() => {}} />);
-    const opener = page.getByRole("button", { name: /^connection:/ });
-    // oxlint-disable-next-line eslint/no-await-in-loop -- each state replaces the previous render
-    await expect.element(opener).toHaveTextContent(word);
-    expect(opener.element().getAttribute("aria-label")).toMatch(name);
-    // oxlint-disable-next-line eslint/no-await-in-loop -- each state replaces the previous render
-    await screen.unmount();
-  }
-});
-
-test("a refused capability shows on the terminal and leaves the task intact", async () => {
+test("a refused capability names itself in the banner and leaves the task intact", async () => {
   const target = serverTarget();
   const rotated = "rotated-capability_2026";
   const original = window.location.href;
@@ -319,8 +250,9 @@ test("a refused capability shows on the terminal and leaves the task intact", as
       .element(page.getByRole("status", { name: "terminal connection" }))
       .toMatchTextContent(/refused this terminal's capability/);
 
-    // The routed shell does not mount the connection status/recovery opener, so the pasted
-    // capability path is not reachable here; the refusal and the terminal's own notice are.
+    // The banner above the working area names the refusal; the task keeps its place and its
+    // terminal keeps the output it already has.
+    await expect.element(page.getByText(/^The server refused this capability · /)).toBeVisible();
     await expect.element(card("Keeps its place")).toHaveAttribute("aria-current", "true");
     expect(screenText()).toContain("keep-5");
   } finally {
