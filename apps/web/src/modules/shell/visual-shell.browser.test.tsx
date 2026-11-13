@@ -30,7 +30,13 @@ const FOCUS_SHORTCUT = { prefix: "alt+a", binding: "w" };
 const NO_SETTLED_ROWS: readonly VisualTaskRow[] = [];
 const FIRST = VISUAL_REVIEW_ROWS[0]!;
 
-function Harness({ status }: { status?: VisualShellViewProps["status"] } = {}) {
+function Harness({
+  status,
+  onFindTask,
+}: {
+  status?: VisualShellViewProps["status"];
+  onFindTask?: (() => void) | undefined;
+} = {}) {
   const [selected, setSelected] = useState<string | null>(VISUAL_REVIEW_SELECTED);
   return (
     <VisualShellView
@@ -41,6 +47,8 @@ function Harness({ status }: { status?: VisualShellViewProps["status"] } = {}) {
       failure={undefined}
       shortcut={SHORTCUT}
       onSelectTask={setSelected}
+      onFindTask={onFindTask}
+      findTaskShortcut={onFindTask === undefined ? undefined : { prefix: "alt+a", binding: "f" }}
       status={status}
     />
   );
@@ -679,10 +687,21 @@ test("the toggle hides the sidebar, stays available in the main surface, and its
   await unmount();
 });
 
+test("Search sits in the sidebar action row and answers its prefix chord", async () => {
+  const onFindTask = vi.fn<() => void>();
+  const { unmount } = await render(<Harness onFindTask={onFindTask} />);
+  const search = page.getByRole("button", { name: "Search tasks…" });
+  await expect.element(search).toBeVisible();
+  await userEvent.click(search);
+  expect(onFindTask).toHaveBeenCalledOnce();
+
+  await prefixThen("f");
+  expect(onFindTask).toHaveBeenCalledTimes(2);
+  await unmount();
+});
+
 test("unavailable actions say why in the compact tooltip and never claim to run", async () => {
   const { unmount } = await render(<Harness />);
-  // Search is hidden in the routed shell; its keymap and config action remain for a later slice.
-  expect(page.getByRole("button", { name: /Search tasks/ }).elements()).toHaveLength(0);
   const newTask = page.getByRole("button", { name: "New task" });
   await expect.element(newTask).toHaveAttribute("aria-disabled", "true");
   await userEvent.hover(newTask);

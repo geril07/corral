@@ -25,7 +25,7 @@ import {
   workspaceGoneNotice,
   type TaskComposerDraft,
 } from "../tasks/index.ts";
-import { RenameDialog, type RenameTarget } from "../workspace/index.ts";
+import { FindTaskDialog, RenameDialog, type RenameTarget } from "../workspace/index.ts";
 import {
   draftForProject,
   draftHasContent,
@@ -119,6 +119,7 @@ export function VisualWorkspace({
   );
   const [addingProject, setAddingProject] = useState(false);
   const [projectChoice, setProjectChoice] = useState(false);
+  const [finding, setFinding] = useState(false);
   // Whether the open project choice ended in a draft. The picker is replaced by the composer in one
   // commit, so the dialog's final-focus callback reads this ref instead of the render it closed in.
   const pickedProject = useRef(false);
@@ -195,6 +196,7 @@ export function VisualWorkspace({
   const renameBinding = bindingOf(config, "rename-task");
   const removeBinding = bindingOf(config, "remove-task");
   const addProjectBinding = bindingOf(config, "add-project");
+  const findTaskBinding = bindingOf(config, "find-task");
   const focusSidebarBinding = bindingOf(config, "focus-sidebar");
   const settleBinding = bindingOf(config, "settle-task");
   const prefix = config.keys.prefix;
@@ -205,6 +207,10 @@ export function VisualWorkspace({
   const newTaskShortcut = useMemo(
     () => (newTaskBinding === null ? undefined : { prefix, binding: newTaskBinding }),
     [newTaskBinding, prefix],
+  );
+  const findTaskShortcut = useMemo(
+    () => (findTaskBinding === null ? undefined : { prefix, binding: findTaskBinding }),
+    [findTaskBinding, prefix],
   );
   const settingsShortcut = useMemo(
     () => (settingsBinding === null ? undefined : { prefix, binding: settingsBinding }),
@@ -517,6 +523,16 @@ export function VisualWorkspace({
     [hideDraft, onSelectTask],
   );
 
+  const continueFoundTask = useCallback(
+    async (task: Task) => {
+      // The same reactivation as un-settling in the sidebar; the dialog keeps itself open on a
+      // refusal so the sentence and the query are not lost.
+      await client.connection.api.tasks.setState({ id: task.id, state: "active" });
+      selectTask(task.id);
+    },
+    [client, selectTask],
+  );
+
   const createTask = useCallback(
     (input: CreateTaskInput) => {
       const submitted = activeDraft;
@@ -685,6 +701,7 @@ export function VisualWorkspace({
         }
         shortcut={shortcut}
         newTaskShortcut={newTaskShortcut}
+        findTaskShortcut={findTaskShortcut}
         settingsShortcut={settingsShortcut}
         renameShortcut={renameShortcut}
         removeShortcut={removeShortcut}
@@ -704,6 +721,7 @@ export function VisualWorkspace({
         onSelectTask={selectTask}
         onAddProject={() => setAddingProject(true)}
         onNewTask={chooseProjectFirst}
+        onFindTask={() => setFinding(true)}
         onOpenSettings={onOpenSettings}
         composerOpen={activeDraft !== undefined}
         main={
@@ -772,6 +790,7 @@ export function VisualWorkspace({
           active &&
           !addingProject &&
           !projectChoice &&
+          !finding &&
           !composerModal &&
           !creating &&
           rename === undefined &&
@@ -794,6 +813,15 @@ export function VisualWorkspace({
         }}
       />
       {taskWorkspace.dialogs}
+      {finding && (
+        <FindTaskDialog
+          projects={projects.projects}
+          tasks={tasks.tasks}
+          onOpen={(task) => selectTask(task.id)}
+          onContinue={continueFoundTask}
+          onClose={() => setFinding(false)}
+        />
+      )}
       {addingProject && (
         <AddProjectDialog
           onBrowse={browse}

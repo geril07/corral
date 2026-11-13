@@ -81,6 +81,7 @@ export { TreeIndent, TreeRow } from "./tree-row.tsx";
 export {
   VisualIconButton,
   VisualResizeHandle,
+  VisualSearchAction,
   VisualShelfToggle,
   VisualSidebar,
   VisualTaskCard,
