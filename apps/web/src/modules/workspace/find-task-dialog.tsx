@@ -106,15 +106,16 @@ export function FindTaskDialog({
         <CommandList>
           <CommandGroup heading="Tasks">
             {results.map(({ task, project }) => {
-              if (task.branch === null) return null;
-              const branch = recordedBranchParts(task.branch);
+              // A task created without a branch is still findable; the qualifier says so.
+              const recordedBranch = task.branch ?? "HEAD";
+              const branch = recordedBranchParts(recordedBranch);
               return (
                 <CommandItem
                   key={task.id}
                   value={task.id}
                   aria-label={[
                     task.title,
-                    recordedBranchAccessible(task.branch),
+                    recordedBranchAccessible(recordedBranch),
                     project.name,
                     task.state === "settled" ? "settled" : undefined,
                   ]
