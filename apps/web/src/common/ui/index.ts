@@ -48,7 +48,6 @@ export { Textarea } from "./textarea.tsx";
 export { ComposerSurface, ComposerToolbar } from "./composer.tsx";
 export { Markdown, type MarkdownAnchorProps, type MarkdownLinks } from "./streamdown.tsx";
 export { DiffView } from "./diff-view.tsx";
-export { ChangeFileRow, DiffPane } from "./change-row.tsx";
 export { Kbd } from "./kbd.tsx";
 export {
   AppShell,

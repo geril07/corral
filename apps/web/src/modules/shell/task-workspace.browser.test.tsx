@@ -2,6 +2,7 @@ import type { CorralClient } from "@corral/client/corral-client";
 import type { Session, Task } from "@corral/protocol/rpc";
 import { expect, test } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
+import { writeFilesIn } from "../../../test/files-client.ts";
 import { createGitRepo } from "../../../test/git-repo.ts";
 import {
   prefixShifted,
@@ -85,8 +86,7 @@ test("a task opens with its primary agent first and a shell beside it, in one st
   expect(
     Math.abs(band.getBoundingClientRect().left - surface.getBoundingClientRect().left),
   ).toBeLessThan(1);
-  // The add control follows the last tab inside the scroller; Changes stays in the trailing area.
-  await expect.element(page.getByRole("button", { name: "Changes" })).toBeVisible();
+  // The add control follows the last tab inside the scroller.
   const scroller = screen.container.querySelector<HTMLElement>(".visual-tab-scroll")!;
   const add = page.getByRole("button", { name: "Add session" }).element();
   const lastTab = sessionTabs().getByRole("tab").elements().at(-1)!;
@@ -168,7 +168,6 @@ test("a task with no sessions shows the strip with only its actions, never a fak
   const band = screen.container.querySelector<HTMLElement>(".visual-tab-band")!;
   await expect.element(band).toBeVisible();
   expect(band.querySelectorAll('[role="tab"]')).toHaveLength(0);
-  await expect.element(page.getByRole("button", { name: "Changes" })).toBeVisible();
   // With no tab to follow, the strip has no add control: the empty pane owns the one Add session
   // button and its full menu, so the task never shows two controls with the same name.
   expect(page.getByRole("button", { name: "Add session" }).elements()).toHaveLength(1);
@@ -260,47 +259,45 @@ test("a non-active chat asks before its view switches", async () => {
   await screen.unmount();
 });
 
-test("Changes opens in the companion group without moving the main session", async () => {
-  const seeded = await seed();
-  await open(seeded);
-  await expect.element(sessionTab(/^pi/)).toHaveAttribute("aria-selected", "true");
+test("no Changes button, tab, panel, finish bar or pull-request badge is reachable", async () => {
+  const setup = newClient();
+  await expect.poll(() => setup.connection.state.getSnapshot().status).toBe("connected");
+  const { api } = setup.connection;
+  const project = await api.projects.add({ path: await createGitRepo("no-changes") });
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "Changed work",
+    workspace: { type: "new-branch" },
+  });
+  await writeFilesIn(task.workspacePath, {
+    "README.md": "changed\n",
+    "src/new.ts": "export {};\n",
+  });
+  const session = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
 
+  await renderApp(newClient(), [`/?project=${project.id}&task=${task.id}`]);
+  await expect.element(sessionTabs().getByRole("tab", { name: /^shell/ })).toBeVisible();
+  // The workspace has changes to show, and the shell is the only view of them: no trailing
+  // action, no tab, no finish controls and no request badge anywhere in the working area.
+  await expect.element(page.getByRole("button", { name: "Changes" })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("tab", { name: "Changes" })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("group", { name: "Finish" })).not.toBeInTheDocument();
+  await expect
+    .element(page.getByRole("listbox", { name: "Changed files" }))
+    .not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: /PR #/ })).not.toBeInTheDocument();
+  await expect.element(page.getByText("Stage all", { exact: true })).not.toBeInTheDocument();
+  // The removed chord neither opens a companion group nor crashes the prefix.
   await prefixShifted("c");
-  await expect.element(companionTabs()).toBeVisible();
-  await expect
-    .element(companionTabs().getByRole("tab", { name: "Changes" }))
-    .toHaveAttribute("aria-selected", "true");
-  await expect.element(sessionTab(/^pi/)).toHaveAttribute("aria-selected", "true");
-
-  // Changes belongs to the companion group; selecting it puts the keyboard there and the
-  // refused move says so.
-  await userEvent.click(companionTabs().getByRole("tab", { name: "Changes" }));
-  await prefixShifted("o");
-  await expect
-    .element(page.getByRole("alert"))
-    .toMatchTextContent("Changes stays in the companion group.");
-
-  // The companion closes as a view; the main session did not move, and the line is spent.
-  await prefixThen("q");
   await expect.element(companionTabs()).not.toBeInTheDocument();
   await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
-  await expect.element(sessionTab(/^pi/)).toHaveAttribute("aria-selected", "true");
-
-  await prefixShifted("c");
-  await expect.element(companionTabs()).toBeVisible();
-  await expect
-    .element(companionTabs().getByRole("tab", { name: "Changes" }))
-    .toHaveAttribute("aria-selected", "true");
-
-  // The companion held only Changes; the focus chord toggles back to the main group, where the
-  // number keys work again.
-  await prefixShifted("w");
-  await prefixThen("1");
-  await expect.element(sessionTab(/^pi/)).toHaveAttribute("aria-selected", "true");
-  await prefixShifted("w");
-  await expect
-    .element(companionTabs().getByRole("tab", { name: "Changes" }))
-    .toHaveAttribute("aria-selected", "true");
+  await expect.element(sessionTab(/^shell/)).toHaveAttribute("aria-selected", "true");
+  expect(
+    setup.sessions
+      .getSnapshot()
+      .sessions.filter((each) => each.taskId === task.id)
+      .map((each) => each.id),
+  ).toEqual([session.id]);
 });
 
 test("closing a running shell tab stops its session, removes the view and keeps no history", async () => {
@@ -448,7 +445,8 @@ test("the focused group does not leak into another task", async () => {
     workspace: { type: "main-worktree" },
   });
   await open(seeded);
-  await prefixShifted("c");
+  await userEvent.click(sessionTab(/^shell/));
+  await prefixShifted("o");
   await expect.element(companionTabs()).toBeVisible();
 
   await page.getByRole("button", { name: /Beta/ }).click();
@@ -533,6 +531,31 @@ test("a stored layout that still carries closed-tab history opens without it", a
   expect(sessionTabs().getByRole("tab").elements()).toHaveLength(1);
 });
 
+test("a stored layout that still carries a changes tab opens without it", async () => {
+  const seeded = await seed();
+  window.localStorage.setItem(
+    `corral.task-tabs.${seeded.task.id}`,
+    JSON.stringify({
+      version: 1,
+      tabs: [
+        { kind: "session", sessionId: seeded.primary.id, group: "main", order: 0 },
+        { kind: "changes", group: "companion", order: 0 },
+      ],
+      active: { main: `session:${seeded.primary.id}`, companion: "changes" },
+      companionOpen: true,
+      seenSessions: [seeded.primary.id, seeded.shell.id],
+    }),
+  );
+
+  await open(seeded);
+  await expect.element(sessionTab(/^pi/)).toBeVisible();
+  await expect.element(sessionTab(/^pi/)).toHaveAttribute("aria-selected", "true");
+  // The removed view is not read back, and the empty half it occupied stays shut.
+  await expect.element(page.getByRole("tab", { name: "Changes" })).not.toBeInTheDocument();
+  await expect.element(companionTabs()).not.toBeInTheDocument();
+  expect(sessionTabs().getByRole("tab").elements()).toHaveLength(1);
+});
+
 test("number, step, focus and move keys reach both groups", async () => {
   const seeded = await seed();
   await open(seeded);
@@ -568,7 +591,8 @@ test("the splitter stores the width the frame can show in both directions", asyn
   window.localStorage.setItem("corral.companion-width", "320");
   const seeded = await seed();
   await open(seeded);
-  await prefixShifted("c");
+  await userEvent.click(sessionTab(/^shell/));
+  await prefixShifted("o");
   await expect.element(companionTabs()).toBeVisible();
   const handle = page.getByRole("separator", { name: "Resize companion group" });
   await expect.element(handle).toHaveAttribute("aria-valuenow", "320");
@@ -603,14 +627,15 @@ test("a bottom strip replaces the chrome row instead of leaving an empty band", 
 test("closing the last companion tab collapses it but leaves the main strip alone", async () => {
   const seeded = await seed();
   await open(seeded);
-  await prefixShifted("c");
+  await userEvent.click(sessionTab(/^shell/));
+  await prefixShifted("o");
   await expect.element(companionTabs()).toBeVisible();
   const mainCount = sessionTabs().getByRole("tab").elements().length;
 
-  const changesTab = companionTabs().getByRole("tab", { name: "Changes" });
-  await userEvent.hover(changesTab);
+  const movedTab = companionTabs().getByRole("tab", { name: /^shell/ });
+  await userEvent.hover(movedTab);
   await userEvent.click(
-    changesTab.element().closest(".visual-tab")!.querySelector('[aria-label="Close Changes tab"]')!,
+    movedTab.element().closest(".visual-tab")!.querySelector('[aria-label="Close shell tab"]')!,
   );
   await expect.element(companionTabs()).not.toBeInTheDocument();
   expect(sessionTabs().getByRole("tab").elements()).toHaveLength(mainCount);

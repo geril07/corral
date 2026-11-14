@@ -1,6 +1,5 @@
 import { expect, test } from "vite-plus/test";
 import {
-  branchDrift,
   branchName,
   recordedBranchAccessible,
   recordedBranchLabel,
@@ -24,16 +23,6 @@ test("the recorded label says recorded and spells the qualifier out for the acce
   expect(recordedBranchLabel("HEAD", "detached")).toBe("detached");
   expect(recordedBranchAccessible("feature/x")).toBe("feature/x (recorded at create)");
   expect(recordedBranchAccessible("")).toBe("no branch checked out at create");
-});
-
-test("the drift line names both branches only when the reads name a branch and differ", () => {
-  expect(branchDrift("recorded", "renamed")).toBe(
-    "Checked out now: renamed · the task was created on recorded.",
-  );
-  expect(branchDrift("same", "same")).toBeUndefined();
-  expect(branchDrift("HEAD", "main")).toBeUndefined();
-  expect(branchDrift("recorded", null)).toBeUndefined();
-  expect(branchDrift("recorded", undefined)).toBeUndefined();
 });
 
 test("Remove names the live branch, says no branch when detached, and stays generic while pending", () => {

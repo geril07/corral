@@ -8,7 +8,7 @@ import { recordOf } from "./json-record.ts";
  * chat driver before the view leaves. The layout is device-local and stored per task; the server
  * owns none of it.
  */
-export type TaskTabKind = "session" | "changes" | "file";
+export type TaskTabKind = "session" | "file";
 export type TaskTabGroup = "main" | "companion";
 
 export interface TaskTab {
@@ -37,8 +37,7 @@ export const TASK_TAB_STORAGE_PREFIX = "corral.task-tabs.";
 
 export function tabId(tab: TaskTab): string {
   if (tab.kind === "session") return `session:${tab.sessionId ?? ""}`;
-  if (tab.kind === "file") return `file:${tab.path ?? ""}`;
-  return "changes";
+  return `file:${tab.path ?? ""}`;
 }
 
 export function tabsInGroup(
@@ -298,7 +297,7 @@ export function removeSession(layout: TaskTabLayout, sessionId: string): TaskTab
 
 /**
  * The keyboard's move-to-the-other-group. Moving the last main tab is refused, so this command
- * never leaves the main group empty; Changes belongs to the companion group and does not move.
+ * never leaves the main group empty.
  */
 export function moveTab(
   layout: TaskTabLayout,
@@ -306,7 +305,7 @@ export function moveTab(
   primarySessionId: string | null,
 ): TaskTabLayout {
   const tab = layout.tabs.find((candidate) => tabId(candidate) === id);
-  if (tab === undefined || tab.kind === "changes") return layout;
+  if (tab === undefined) return layout;
   if (tab.kind === "session" && tab.sessionId === primarySessionId) return layout;
   if (tab.group === "main" && tabsInGroup(layout, "main").length === 1) return layout;
   const target: TaskTabGroup = tab.group === "main" ? "companion" : "main";
@@ -328,7 +327,10 @@ export function moveTab(
   };
 }
 
-/** Toggling an empty companion group opens Changes, so the group is never an empty half. */
+/**
+ * Toggling the companion group. A group with no tab has nothing to open, so the toggle leaves the
+ * layout as it is rather than mounting an empty half.
+ */
 export function toggleCompanion(layout: TaskTabLayout): TaskTabLayout {
   if (layout.companionOpen) {
     return { ...layout, companionOpen: false };
@@ -336,12 +338,10 @@ export function toggleCompanion(layout: TaskTabLayout): TaskTabLayout {
   if (tabsInGroup(layout, "companion").length > 0) {
     return { ...layout, companionOpen: true };
   }
-  const changes: TaskTab = { kind: "changes", group: "companion" };
-  const opened = addTab(layout, changes);
-  return { ...opened, companionOpen: true };
+  return layout;
 }
 
-/** Session tabs carry 1–9 within their own group; Changes and files carry no number. */
+/** Session tabs carry 1–9 within their own group; file tabs carry no number. */
 export function tabNumber(layout: Pick<TaskTabLayout, "tabs">, id: string): number | undefined {
   const tab = layout.tabs.find((candidate) => tabId(candidate) === id);
   if (tab === undefined || tab.kind !== "session") return undefined;
@@ -369,7 +369,7 @@ export function sessionTabAt(
   return undefined;
 }
 
-/** One step within a group, wrapping; Changes and file tabs are steps too. */
+/** One step within a group, wrapping; file tabs are steps too. */
 export function stepTab(
   layout: Pick<TaskTabLayout, "tabs" | "active">,
   group: TaskTabGroup,
@@ -433,7 +433,7 @@ function asGroup(value: unknown): TaskTabGroup | undefined {
 }
 
 function asKind(value: unknown): TaskTabKind | undefined {
-  return value === "session" || value === "changes" || value === "file" ? value : undefined;
+  return value === "session" || value === "file" ? value : undefined;
 }
 
 interface ReadTab {
@@ -471,7 +471,8 @@ function readStoredTab(value: unknown): ReadTab | undefined {
 
 /**
  * A stored record, or `undefined` when it is absent, another version or malformed. A record from
- * before the closed-tab history was removed still carries `closed`; it is read without it, so the
+ * before the closed-tab history was removed still carries `closed`, and one from before the
+ * Changes tab was removed still carries a `changes` tab; both are read without them, so the
  * device-local state needs no migration.
  */
 export function parseLayout(raw: string | null): TaskTabLayout | undefined {
@@ -500,13 +501,23 @@ export function parseLayout(raw: string | null): TaskTabLayout | undefined {
     ? record["seenSessions"].filter((id): id is string => typeof id === "string")
     : [];
   const ordered = tabs.map((entry) => entry.tab);
+  const namesTab = (group: TaskTabGroup, id: string) =>
+    ordered.some((tab) => tab.group === group && tabId(tab) === id);
+  const main =
+    typeof activeMain === "string" && namesTab("main", activeMain) ? activeMain : undefined;
+  const companion =
+    typeof activeCompanion === "string" && namesTab("companion", activeCompanion)
+      ? activeCompanion
+      : undefined;
   return {
     tabs: ordered,
     active: {
-      ...(typeof activeMain === "string" ? { main: activeMain } : {}),
-      ...(typeof activeCompanion === "string" ? { companion: activeCompanion } : {}),
+      ...(main === undefined ? {} : { main }),
+      ...(companion === undefined ? {} : { companion }),
     },
-    companionOpen: record["companionOpen"] === true,
+    // A group with no stored tab is shut, including one whose only tab this parser dropped.
+    companionOpen:
+      record["companionOpen"] === true && ordered.some((tab) => tab.group === "companion"),
     seenSessions,
   };
 }

@@ -91,8 +91,8 @@ context-menu dispatcher.
   global notification system. Modules supply server paths and actions, never control skins.
 
 - Button `layout="tree"`: allocation/truncation inside a horizontal task/project row;
-  `size="row"`: the two-line task; `size="row-sm"`: a dense single-line list row (the Changes
-  file list). `layout="navigation"` fills a compact rail row's width without vertically stretching
+  `size="row"`: the two-line task. `layout="navigation"` fills a compact rail row's width without
+  vertically stretching
   it (the model editor's provider rail). `layout="category"` is the settings category row: 32 px,
   8 px radius, 10 px inline padding, a muted 14/20 label that takes the hover overlay, and the
   current section on `bg-layer-03`. `layout="result"` is a settings search result row, and
@@ -216,7 +216,7 @@ context-menu dispatcher.
   close control at inset **4** revealed by hover/focus, a **1.5×12** separator between inactive
   neighbours, a **72** px tab minimum and **24** px edge fades over a horizontal scroller that
   keeps the active tab in view. Numbers are session-tab content inside a group and draft-tab
-  content in the draft strip, where the same numbered chords select them; `Changes` and file tabs
+  content in the draft strip, where the same numbered chords select them; file tabs
   carry none. `VisualTabPanel`, `VisualAddMenu`, `VisualCompanion` and `VisualSplitHandle`
   are the strip's remaining structural pieces: the companion owns a **1** px split with an **8** px
   pointer and keyboard hit area, keeps its contents mounted while shut, and its width and the
@@ -228,7 +228,7 @@ context-menu dispatcher.
 - The workspace status slot follows the task's **primary** session only; auxiliary terminals do
   not contribute agent status, unread state or sort priority. Working shows no duration because
   `AgentStatus.updatedAt` is a report time, not a run start.
-- Chat, changes and the terminal panes still use the prior kit compositions until their own
+- Chat and the terminal panes still use the prior kit compositions until their own
   rebuild; their controls do not become the source of new visual rules.
 - ComposerSurface and ComposerToolbar own the shared prompt frame and wrapping control row. The
   caret is the prompt's focus indicator: the frame adds no ring, and the textarea cannot be resized
@@ -259,8 +259,7 @@ context-menu dispatcher.
 - ComboboxButton `layout="bounded"` caps profile/workspace triggers and exposes the
   full text only on measured overflow, so valid long names cannot stretch Settings sideways.
 - DialogContent `padding="none"` tells its footer not to cancel nonexistent outer padding.
-- ChangeFileRow, DiffPane and DiffView retain their existing behavior. Changes UI is not redesigned
-  in this cleanup.
+- DiffView retains its existing behavior.
 
 ## Chat rendering
 

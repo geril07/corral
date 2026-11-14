@@ -460,9 +460,8 @@ Growing version 10 in place means a **same-version daemon from before a later sl
 by that barrier and simply has no procedure for the newer calls: it answers oRPC's own `404 No
 procedure matched`, which the client reports as an undefined `NOT_FOUND`
 (`procedureMissing` in `packages/client/src/rpc-errors.ts`). Every such surface says so instead of
-showing a failed write: the Changes tab and the finish bar say the server does not offer the
-changes API, commit, push or pull requests, and chat's local links say it does not offer file
-links — all with "restart it after upgrading Corral".
+showing a failed write: chat's local links say the server does not offer file links — all with
+"restart it after upgrading Corral".
 
 ## Security
 

@@ -12,7 +12,6 @@ import {
   VisualTabStrip,
   type VisualTabItem,
 } from "../../common/ui/index.ts";
-import { createChangesActions } from "../changes/index.ts";
 import { ConnectionRecoveryDialog, useConnection, useCorralClient } from "../connection/index.ts";
 import { bindingOf, ConfigProblemsDialog, useConfig } from "../keymap/index.ts";
 import { AddProjectDialog, ProjectChoiceDialog } from "../projects/index.ts";
@@ -252,7 +251,7 @@ export function VisualWorkspace({
         setRemove({ task, workspaceMissing: false });
         if (!task.ownsWorktree) return;
         // `tasks.remove` returns nothing, so the question is answered before it is asked: the
-        // same read the Changes tab shows tells whether the directory is already gone.
+        // `changes.files` read tells whether the directory is already gone.
         const controller = new AbortController();
         removeRead.current = controller;
         void client.connection.api.changes
@@ -846,8 +845,8 @@ export function VisualWorkspace({
           loadLiveBranch={
             remove.task.ownsWorktree
               ? () =>
-                  createChangesActions(client, remove.task.id)
-                    .finish()
+                  client.connection.api.changes
+                    .finish({ id: remove.task.id })
                     .then((finish) => finish.branch)
               : undefined
           }

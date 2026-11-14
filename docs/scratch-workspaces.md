@@ -6,7 +6,7 @@ the task, not opening a draft or browsing metadata, creates the directory. Reope
 recorded path. A scratch task has no project or Git branch; Corral does not initialize a repository.
 
 Changes and other Git operations are unavailable for scratch tasks, even when the data directory
-is inside an existing repository. The Changes watch and file summary report that Git is unavailable
+is inside an existing repository. The `changes.*` read model reports that Git is unavailable
 instead of inspecting an ancestor repository.
 
 Removing a scratch task stops its sessions and closes loose terminals in its directory, but keeps

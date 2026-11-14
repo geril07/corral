@@ -70,6 +70,21 @@ test("a binding for the removed reopen action is reported as an unknown action",
   expect(client.config.getSnapshot().config.keys.bindings).not.toHaveProperty("reopen-closed-tab");
 });
 
+test("a binding for the removed changes action is reported as an unknown action", async () => {
+  const client = newClient();
+  await render(<App client={client} />);
+  await applyConfig(client, '[keys.bindings]\nchanges = "shift+c"\n', () =>
+    expect(client.config.getSnapshot().problems).toHaveLength(1),
+  );
+  expect(client.config.getSnapshot().problems[0]).toMatchObject({
+    severity: "error",
+    path: "keys.bindings.changes",
+  });
+  expect(client.config.getSnapshot().problems[0]?.message).toContain('unknown action "changes"');
+  // The key is not in the bindings the client reads, so nothing is dispatched from it.
+  expect(client.config.getSnapshot().config.keys.bindings).not.toHaveProperty("changes");
+});
+
 test("a config file rebinds an action and the chord follows it", async () => {
   const { client, project } = await appWithProject(newClient());
   await taskWithShell(client, project.id, "Keymap");
