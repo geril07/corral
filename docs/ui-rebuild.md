@@ -43,9 +43,9 @@ settled task makes it active. `design.md` owns the decision.
   status and connection recovery run against the routed shell. Electron helpers and specs are
   migrated; no old or partial run is a green release gate.
 - The routed shell's Search is the sidebar row and `prefix f`: a command palette over the tasks the
-  client already watches, scratch tasks included under `No project`. Enter opens an active task or
-  a settled one; opening a settled task neither restarts it nor un-shelves it, and starting work in
-  it is what makes it active (#277, #274).
+  client already watches, with the `No project` badge on a scratch task. Enter opens an active task
+  or a settled one; opening a settled task neither restarts it nor un-shelves it, and starting work
+  in it is what makes it active (#277, #274).
 - The connection status left the sidebar after #269. The footer keeps its actions, the config
   problem opener and the prefix hint; the connection is a banner above the working area in both
   sidebar states, following T3's unavailable-environment banner rather than a header word. A
