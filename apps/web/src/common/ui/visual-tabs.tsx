@@ -224,7 +224,7 @@ export function VisualTabStrip({
                   tabIndex={-1}
                   onClick={() => onClose(item.id)}
                 >
-                  <Icon name="close" />
+                  <Icon name="close" size="chrome" />
                 </button>
               )}
             </div>
