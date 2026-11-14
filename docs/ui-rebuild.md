@@ -42,6 +42,8 @@ settled task makes it active. `design.md` owns the decision.
   old screens and the `/board` route. Links, session lifecycle, handoff, keymap,
   status and connection recovery run against the routed shell. Electron helpers and specs are
   migrated; no old or partial run is a green release gate.
+- The Changes UI is deliberately unavailable until the work-area rebuild; the server `changes.*`
+  reads/writes and the read model stay (#278).
 - The routed shell's Search is the sidebar row and `prefix f`: a command palette over the tasks the
   client already watches, scratch tasks included under `No project`. Enter opens an active task or
   a settled one; opening a settled task neither restarts it nor un-shelves it, and starting work in
