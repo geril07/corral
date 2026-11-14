@@ -1,4 +1,10 @@
 import { workspaceMissingPath } from "@corral/protocol/workspace";
+import {
+  agentDisabled,
+  profileChanged,
+  profileMissing,
+  launchViewUnsupported,
+} from "@corral/client/launch-messages";
 
 interface DefinedError {
   code: string;
@@ -30,9 +36,14 @@ export function describeLaunchError(error: unknown): string | undefined {
 
   switch (defined.code) {
     case "LAUNCH_PROFILE_UNKNOWN":
-      return `The profile "${String(field(defined.data, "id"))}" is no longer in the config file.`;
+      return profileMissing(String(field(defined.data, "id")));
     case "LAUNCH_PROFILE_CHANGED":
-      return `The profile "${String(field(defined.data, "id"))}" changed on the server. Review it and choose it again.`;
+      return profileChanged(String(field(defined.data, "id")));
+    case "LAUNCH_VIEW_UNSUPPORTED":
+      return launchViewUnsupported(
+        String(field(defined.data, "kind")),
+        field(defined.data, "view"),
+      );
     case "LAUNCH_PROFILE_REVISION_UNSUPPORTED":
       return "A pinned profile revision needs a selected profile.";
     case "LAUNCH_PROFILE_KIND_MISMATCH":
@@ -49,7 +60,7 @@ export function describeLaunchError(error: unknown): string | undefined {
         : `The server has no environment variable ${name}.`;
     }
     case "AGENT_DISABLED":
-      return `The ${String(field(defined.data, "kind"))} agent is disabled in the config file.`;
+      return agentDisabled(String(field(defined.data, "kind")));
     case "LAUNCH_ENV_RESERVED":
       return `A profile may not set ${String(field(defined.data, "name"))}.`;
     case "LAUNCH_FAILED": {

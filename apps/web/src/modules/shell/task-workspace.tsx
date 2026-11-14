@@ -974,7 +974,6 @@ export function useTaskWorkspace({
         <StoppedSession
           key={session.id}
           session={session}
-          restartHint={formatBinding(config, "restart-session")}
           onRestart={() => void restartSession(session)}
         />
       );

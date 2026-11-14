@@ -273,7 +273,7 @@ export interface VisualShellViewProps {
 function SidebarList({
   rows,
   projectsLoaded,
-  hasProjects,
+  hasProjects = false,
   tasksLoaded,
   failure,
   renderRow,
@@ -290,8 +290,7 @@ function SidebarList({
     return (
       <div className="visual-task-scroll">
         <div className="visual-list-state" role="alert">
-          <span className="visual-list-state-title">The workspace could not load.</span>
-          <span className="visual-list-state-detail">{failure}</span>
+          <WorkspaceState hasProjects={hasProjects} failure={failure} />
         </div>
       </div>
     );
@@ -309,12 +308,7 @@ function SidebarList({
     <div className="visual-task-scroll">
       {rows.length === 0 ? (
         <div className="visual-list-state">
-          <span className="visual-list-state-title">No active tasks.</span>
-          <span className="visual-list-state-detail">
-            {hasProjects
-              ? "Start one with New task."
-              : "Add a project, or start without one with New task."}
-          </span>
+          <WorkspaceState hasProjects={hasProjects} failure={undefined} />
         </div>
       ) : (
         <ul className="visual-task-list" aria-label="Tasks">
@@ -374,26 +368,16 @@ function SettledShelf({
 function statusLine(row: VisualTaskRow): string | undefined {
   const status = row.status;
   if (status === undefined) return undefined;
-  if (status.tone === "neutral") {
-    return status.time === undefined ? undefined : `Last reported ${status.time} ago`;
-  }
-  if (status.tone === "working") return "Working · start time not available";
+  if (status.tone === "working") return "Working";
   return [status.label, status.time === undefined ? undefined : `${status.time} ago`]
     .filter((part): part is string => part !== undefined)
     .join(" · ");
 }
 
-export function TaskMain({
-  row,
-  compact = false,
-}: {
-  row: VisualTaskRow;
-  /** The working area's one-line header; the review host keeps the full block. */
-  compact?: boolean;
-}) {
+export function TaskMain({ row }: { row: VisualTaskRow }) {
   const status = statusLine(row);
   return (
-    <div className={compact ? "visual-main-task visual-main-task-compact" : "visual-main-task"}>
+    <div className="visual-main-task">
       <span className="visual-main-eyebrow">
         {row.project}
         {row.metadata.branch !== undefined && (
@@ -412,10 +396,31 @@ export function TaskMain({
         </span>
       )}
       {row.settled === true && <span className="visual-main-settled">Settled</span>}
-      {!compact && row.metadata.prompt !== undefined && (
-        <p className="visual-main-prompt">{row.metadata.prompt}</p>
-      )}
     </div>
+  );
+}
+
+function WorkspaceState({
+  hasProjects,
+  failure,
+  main = false,
+}: {
+  hasProjects: boolean;
+  failure: string | undefined;
+  main?: boolean;
+}) {
+  return (
+    <>
+      <span className={main ? "visual-main-empty-title" : "visual-list-state-title"}>
+        {failure !== undefined ? "The workspace could not load." : "No active tasks."}
+      </span>
+      <span className={main ? undefined : "visual-list-state-detail"}>
+        {failure ??
+          (hasProjects
+            ? "Start one with New task."
+            : "Add a project, or start without one with New task.")}
+      </span>
+    </>
   );
 }
 
@@ -430,22 +435,14 @@ function EmptyMain({
 }) {
   return (
     <div className="visual-main-empty">
-      <span className="visual-main-empty-title">
-        {failure !== undefined
-          ? "The workspace could not load."
-          : rows.length === 0
-            ? "No active tasks."
-            : "No task selected."}
-      </span>
-      <span>
-        {failure !== undefined
-          ? failure
-          : rows.length === 0
-            ? hasProjects
-              ? "Start a task with New task."
-              : "Add a project from the sidebar footer, or start a scratch task with New task."
-            : "Choose a task in the sidebar."}
-      </span>
+      {failure !== undefined || rows.length === 0 ? (
+        <WorkspaceState hasProjects={hasProjects} failure={failure} main />
+      ) : (
+        <>
+          <span className="visual-main-empty-title">No task selected.</span>
+          <span>Choose a task in the sidebar.</span>
+        </>
+      )}
     </div>
   );
 }

@@ -174,6 +174,28 @@ test("a refused launch keeps the picker open with the draft and the typed reason
   expect(onClose).not.toHaveBeenCalled();
 });
 
+test("a retained agent disabled in live config names the refusal and cannot start", async () => {
+  const { screen, onStart } = await opened(profiles);
+  const config = defaultClientConfig("");
+  config.agents.claude.enabled = { value: false, source: "global" };
+  await screen.rerender(
+    <AgentPicker
+      profiles={profiles}
+      agents={config.agents}
+      settings={config.tasks}
+      chatDrivers={["claude", "codex", "pi", "opencode"]}
+      capabilitiesReady
+      onStart={onStart}
+      onClose={() => undefined}
+    />,
+  );
+  await expect
+    .element(dialog().getByRole("alert"))
+    .toMatchTextContent("The claude agent is disabled in the config file. Choose another agent.");
+  await userEvent.keyboard("{Enter}");
+  expect(onStart).not.toHaveBeenCalled();
+});
+
 test("a profile dropped from the live config disables Start and never starts native", async () => {
   const { screen, onStart } = await opened(profiles);
   await dialog().getByRole("radio", { name: "Claude gateway" }).click();
@@ -193,7 +215,9 @@ test("a profile dropped from the live config disables Start and never starts nat
 
   await expect
     .element(dialog().getByRole("alert"))
-    .toMatchTextContent("no longer in the config file");
+    .toMatchTextContent(
+      'The profile "Claude gateway" is no longer in the config file. Choose an agent or another profile.',
+    );
 
   // Enter from the stale selection must not submit the first choice (native claude).
   dialog().getByRole("radio", { name: "claude" }).element().focus();
@@ -225,7 +249,9 @@ test("a profile whose revision changed needs an explicit reselect before it can 
 
   await expect
     .element(dialog().getByRole("alert"))
-    .toMatchTextContent("changed in the config file");
+    .toMatchTextContent(
+      'The profile "Claude gateway" changed on the server. Review it and choose it again.',
+    );
   dialog().getByRole("radio", { name: "claude" }).element().focus();
   await userEvent.keyboard("{Enter}");
   expect(onStart).not.toHaveBeenCalled();
@@ -271,7 +297,11 @@ test("a server-side revision conflict keeps the draft and needs an explicit rese
   await dialog().getByRole("radio", { name: "Claude gateway" }).click();
   await userEvent.keyboard("{Enter}");
 
-  await expect.element(dialog().getByRole("alert")).toMatchTextContent("changed on the server");
+  await expect
+    .element(dialog().getByRole("alert"))
+    .toMatchTextContent(
+      'The profile "Claude gateway" changed on the server. Review it and choose it again.',
+    );
   expect(onStart).toHaveBeenCalledTimes(1);
   expect(onStart).toHaveBeenNthCalledWith(1, {
     kind: "claude",
@@ -298,7 +328,9 @@ test("a server-side revision conflict keeps the draft and needs an explicit rese
   );
   await expect
     .element(dialog().getByRole("alert"))
-    .toMatchTextContent("changed in the config file");
+    .toMatchTextContent(
+      'The profile "Claude gateway" changed on the server. Review it and choose it again.',
+    );
 
   await dialog().getByRole("radio", { name: "Claude gateway" }).click();
   await expect.element(dialog().getByRole("alert")).not.toBeInTheDocument();

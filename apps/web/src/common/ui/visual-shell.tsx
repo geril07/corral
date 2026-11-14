@@ -33,7 +33,7 @@ export interface VisualTaskAgent {
 /** The status slot of a task card, already resolved from the primary session. */
 export interface VisualCardStatus {
   tone: "working" | "blocked" | "error" | "done" | "neutral";
-  /** Absent for a neutral card, which shows only its muted age. */
+  /** Absent for seen Done; Idle keeps its label with a neutral tone. */
   label?: string | undefined;
   /** Absent when no trustworthy timestamp exists (Working has no reliable start). */
   time?: string | undefined;

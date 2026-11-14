@@ -26,7 +26,7 @@ export {
   type AgentLaunchChoice,
 } from "./launch-choice.ts";
 export { describeLaunchError } from "./launch-error.ts";
-export { compactLaunchLabel, launchFacts, launchLine } from "./launch-summary.ts";
+export { compactLaunchLabel, launchFacts } from "./launch-summary.ts";
 export { RemoveSessionDialog } from "./remove-session-dialog.tsx";
 export { StoppedSession } from "./stopped-session.tsx";
 export { SwitchViewDialog } from "./switch-view-dialog.tsx";

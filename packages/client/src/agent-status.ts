@@ -72,19 +72,6 @@ export function isSeenDone(status: AgentStatus | undefined, unseen: boolean): bo
   return status?.state === "done" && !unseen;
 }
 
-/**
- * The word a flat sidebar row shows instead of the age while the task needs the user. The state
- * name stays visible next to its glyph, rather than relying on shape or color alone.
- */
-export function attentionWord(status: AgentStatus | undefined): string | undefined {
-  if (status?.state === "error") return "error";
-  if (status?.state !== "blocked") return undefined;
-  if (status.kind === "permission") return "needs approval";
-  if (status.kind === "question") return "needs input";
-  if (status.kind === "auth") return "needs auth";
-  return "blocked";
-}
-
 /** `5m`, `2h`: how long ago, for a list that is read at a glance. */
 export function formatAge(now: number, then: number): string {
   const seconds = Math.max(0, Math.floor((now - then) / 1000));

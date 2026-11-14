@@ -17,6 +17,7 @@ import {
 } from "./visual-fixtures.ts";
 import {
   VisualShellView,
+  TaskMain,
   type VisualShellViewProps,
   type VisualTaskActions,
 } from "./visual-view.tsx";
@@ -29,6 +30,86 @@ const FOCUS_SHORTCUT = { prefix: "alt+a", binding: "w" };
 /** No settled rows, as one stable value: an inline `[]` default would change on every render. */
 const NO_SETTLED_ROWS: readonly VisualTaskRow[] = [];
 const FIRST = VISUAL_REVIEW_ROWS[0]!;
+
+for (const [status, line] of [
+  [{ tone: "working", label: "Working" }, "Working"],
+  [{ tone: "blocked", label: "Blocked", time: "2m" }, "Blocked · 2m ago"],
+  [{ tone: "error", label: "Error", time: "1h" }, "Error · 1h ago"],
+  [{ tone: "done", label: "Done", time: "4m" }, "Done · 4m ago"],
+  [{ tone: "neutral", muted: true, time: "4m" }, "4m ago"],
+  [{ tone: "neutral", label: "Idle", muted: true, time: "6h" }, "Idle · 6h ago"],
+] satisfies [NonNullable<VisualTaskRow["status"]>, string][]) {
+  test(`the header shows ${line} without explanatory clauses or the prompt`, async () => {
+    const { container } = await render(<TaskMain row={{ ...FIRST, status }} />);
+    expect(container.querySelector(".visual-main-status")?.textContent).toBe(line);
+    expect(container.textContent).not.toContain("Last reported");
+    expect(container.textContent).not.toContain("start time not available");
+    expect(container.querySelector(".visual-main-prompt")).toBeNull();
+    expect(getComputedStyle(container.querySelector(".visual-main-task")!).flexDirection).toBe(
+      "row",
+    );
+  });
+}
+
+test("a settled task keeps the live Working status beside its shelf marker", async () => {
+  const { container } = await render(
+    <TaskMain row={{ ...FIRST, settled: true, status: { tone: "working", label: "Working" } }} />,
+  );
+  expect(container.querySelector(".visual-main-status")?.textContent).toBe("Working");
+  expect(container.querySelector(".visual-main-settled")?.textContent).toBe("Settled");
+});
+
+test("an idle row and selected header retain Idle and their age", async () => {
+  const row: VisualTaskRow = {
+    ...FIRST,
+    status: { tone: "neutral", label: "Idle", time: "6h", muted: true },
+  };
+  const { container } = await render(
+    <VisualShellView
+      rows={[row]}
+      selectedId={row.id}
+      projectsLoaded
+      tasksLoaded
+      hasProjects
+      shortcut={undefined}
+      failure={undefined}
+      onSelectTask={() => undefined}
+    />,
+  );
+  expect(container.querySelector(".visual-task-status-label")?.textContent).toBe("Idle");
+  expect(container.querySelector(".visual-task-status-time")?.textContent).toBe("6h");
+  expect(container.querySelector(".visual-main-status")?.textContent).toBe("Idle · 6h ago");
+});
+
+for (const hasProjects of [false, true]) {
+  for (const failure of [undefined, "Server unavailable"]) {
+    test(`sidebar and main share ${failure ? "failure" : "empty"} sentences with projects=${hasProjects}`, async () => {
+      const { container } = await render(
+        <VisualShellView
+          rows={[]}
+          selectedId={null}
+          projectsLoaded
+          tasksLoaded
+          hasProjects={hasProjects}
+          shortcut={undefined}
+          failure={failure}
+          onSelectTask={() => undefined}
+        />,
+      );
+      const title = failure ? "The workspace could not load." : "No active tasks.";
+      const detail =
+        failure ??
+        (hasProjects
+          ? "Start one with New task."
+          : "Add a project, or start without one with New task.");
+      for (const selector of [".visual-list-state", ".visual-main-empty"]) {
+        const block = container.querySelector(selector);
+        expect(block?.textContent).toBe(title + detail);
+        expect(block?.querySelectorAll("span")).toHaveLength(2);
+      }
+    });
+  }
+}
 
 function Harness({
   status,

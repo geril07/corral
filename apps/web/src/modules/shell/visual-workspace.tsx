@@ -746,7 +746,7 @@ export function VisualWorkspace({
         }
         taskHeader={
           activeDraft === undefined && selectedTask !== undefined && selectedRow !== undefined ? (
-            <TaskMain row={selectedRow} compact />
+            <TaskMain row={selectedRow} />
           ) : undefined
         }
         workingNotice={

@@ -125,8 +125,9 @@ test("prefix x stops the session, which stays in the list; prefix r starts it ag
 
   await prefixThen("x");
   await expect.element(sessionButton("claude", "stopped")).toHaveAttribute("aria-selected", "true");
-  await expect.element(stoppedPane()).toMatchTextContent("resumes");
-  await expect.element(stoppedPane()).toMatchTextContent("Enter, or alt+a r.");
+  await expect.element(stoppedPane()).not.toMatchTextContent("resumes");
+  await expect.element(stoppedPane()).not.toMatchTextContent("Enter, or");
+  await expect.element(stoppedPane().getByRole("button", { name: "Restart" })).toBeVisible();
   await sessionButton("claude", "stopped").click({ button: "right" });
   await expect.element(page.getByRole("menuitem", { name: "Restart claude" })).toBeVisible();
   await userEvent.keyboard("{Escape}");

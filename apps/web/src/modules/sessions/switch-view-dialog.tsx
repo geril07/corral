@@ -20,8 +20,8 @@ interface SwitchViewDialogProps {
 /**
  * Asked only while the agent is busy (`prefix v` goes straight through when it is idle): the
  * handoff stops one frontend and starts the other, so an in-flight turn and a request the agent is
- * waiting on cannot survive it. What does survive is the agent's own conversation, and the
- * description says both (`design.md`, **Terminal and chat**).
+ * waiting on cannot survive it. The description names that consequence
+ * (`design.md`, **Terminal and chat**).
  */
 export function SwitchViewDialog({
   session,
@@ -47,9 +47,7 @@ export function SwitchViewDialog({
   return (
     <DestructiveTaskDialog
       title={`Switch the ${session.kind} session to ${target}?`}
-      description={[losing, "The conversation it already wrote stays; what is in flight does not."]
-        .filter(Boolean)
-        .join(" ")}
+      description={losing}
       onClose={onClose}
     >
       {attempt.failed && (

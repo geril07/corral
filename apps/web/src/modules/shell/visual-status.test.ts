@@ -114,6 +114,7 @@ describe("primary session status", () => {
     expect(primaryTaskStatus(selected, [primary, auxiliary])?.status.state).toBe("idle");
     expect(cardStatus(selected, status("idle"), NOW)).toEqual({
       tone: "neutral",
+      label: "Idle",
       muted: true,
       time: "1m",
     });
