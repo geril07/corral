@@ -4,7 +4,7 @@ import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { createGitRepo } from "../../../test/git-repo.ts";
-import { realServerClients } from "../../../test/real-client.ts";
+import { prefixThen, realServerClients } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
 
 const { newClient } = realServerClients();
@@ -12,6 +12,8 @@ const { newClient } = realServerClients();
 const findDialog = () => page.getByRole("dialog", { name: "Find task" });
 const searchInput = () => findDialog().getByRole("combobox", { name: "Tasks" });
 const rowFor = (title: string) => page.getByRole("button", { name: new RegExp(title) });
+const stateOf = (client: CorralClient, id: string) =>
+  client.tasks.getSnapshot().tasks.find((task) => task.id === id)?.state;
 
 async function connectedClient(): Promise<CorralClient> {
   const client = newClient();
@@ -39,7 +41,13 @@ async function projectWithTasks(client: CorralClient, titles: readonly string[])
   return tasks;
 }
 
-test("the sidebar search filters the watched tasks and Enter opens the chosen one", async () => {
+/** The sidebar's own opener, so the test covers the row and the finder together. */
+async function openFinder(): Promise<void> {
+  await page.getByRole("button", { name: "Search tasks…" }).click();
+  await expect.element(findDialog()).toBeVisible();
+}
+
+test("the sidebar search filters the watched tasks, Enter opens the chosen one, and Escape closes", async () => {
   const client = await connectedClient();
   await projectWithTasks(client, ["Fix login", "Write docs"]);
   const { unmount } = await render(<App client={client} />);
@@ -47,10 +55,14 @@ test("the sidebar search filters the watched tasks and Enter opens the chosen on
     expect(page.getByRole("button", { name: /Fix login/ }).elements()).toHaveLength(1),
   );
 
-  await page.getByRole("button", { name: "Search tasks…" }).click();
-  await expect.element(findDialog()).toBeVisible();
+  await openFinder();
   await expect.element(searchInput()).toHaveFocus();
 
+  // Escape is the finder's only way out besides choosing a row.
+  await userEvent.keyboard("{Escape}");
+  await expect.element(findDialog()).not.toBeInTheDocument();
+
+  await openFinder();
   await userEvent.keyboard("login");
   await expect.element(findDialog().getByRole("option", { name: /Fix login/ })).toBeVisible();
   await expect
@@ -63,32 +75,58 @@ test("the sidebar search filters the watched tasks and Enter opens the chosen on
   await unmount();
 });
 
-test("a settled result continues through the same reactivation as un-settling", async () => {
+test("a scratch task is listed as No project and opens from the same list", async () => {
   const client = await connectedClient();
-  const [active, settled] = await projectWithTasks(client, ["Active work", "Old work"]);
-  await client.connection.api.tasks.setState({ id: settled!.id, state: "settled" });
+  const scratch = await client.connection.api.tasks.create({
+    projectId: null,
+    title: "Scratch task",
+    workspace: { type: "scratch" },
+  });
   await vi.waitFor(() =>
-    expect(client.tasks.getSnapshot().tasks.find((task) => task.id === settled!.id)?.state).toBe(
-      "settled",
+    expect(client.tasks.getSnapshot().tasks.find((task) => task.id === scratch.id)?.title).toBe(
+      "Scratch task",
     ),
   );
 
   const { unmount } = await render(<App client={client} />);
   await vi.waitFor(() =>
-    expect(page.getByRole("button", { name: /Active work/ }).elements()).toHaveLength(1),
+    expect(page.getByRole("button", { name: /Scratch task/ }).elements()).toHaveLength(1),
   );
 
-  await page.getByRole("button", { name: "Search tasks…" }).click();
-  await userEvent.keyboard("old work");
-  await findDialog().getByRole("button", { name: "Continue settled task" }).click();
+  await openFinder();
+  const option = findDialog().getByRole("option", { name: /Scratch task/ });
+  await expect.element(option).toMatchTextContent(/No project/);
 
+  await userEvent.keyboard("{Enter}");
   await expect.element(findDialog()).not.toBeInTheDocument();
-  await vi.waitFor(() =>
-    expect(client.tasks.getSnapshot().tasks.find((task) => task.id === settled!.id)?.state).toBe(
-      "active",
-    ),
-  );
+  await expect.element(rowFor("Scratch task")).toHaveAttribute("aria-current", "true");
+  await unmount();
+});
+
+test("a settled row opens as it is, and starting work in it is what activates the task", async () => {
+  const client = await connectedClient();
+  const [settled] = await projectWithTasks(client, ["Old work"]);
+  await client.connection.api.tasks.setState({ id: settled!.id, state: "settled" });
+  await vi.waitFor(() => expect(stateOf(client, settled!.id)).toBe("settled"));
+
+  const { unmount } = await render(<App client={client} />);
+  // The closed shelf lists no settled row until one is current, so wait on its toggle instead.
+  await expect.element(page.getByRole("button", { name: "Settled (1)" })).toBeVisible();
+
+  await openFinder();
+  await userEvent.keyboard("old work");
+  const option = findDialog().getByRole("option", { name: /Old work/ });
+  await expect.element(option).toMatchTextContent(/settled/);
+  // Opening a settled task is not a second primary action: the finder offers no Continue control.
+  expect(findDialog().element().textContent).not.toContain("Continue");
+
+  await userEvent.keyboard("{Enter}");
+  await expect.element(findDialog()).not.toBeInTheDocument();
   await expect.element(rowFor("Old work")).toHaveAttribute("aria-current", "true");
-  expect(active!.id).not.toBe(settled!.id);
+  expect(stateOf(client, settled!.id)).toBe("settled");
+
+  // New work is what un-shelves it (#277); a shell session is the cheapest real start.
+  await prefixThen("c");
+  await vi.waitFor(() => expect(stateOf(client, settled!.id)).toBe("active"));
   await unmount();
 });

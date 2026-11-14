@@ -523,16 +523,6 @@ export function VisualWorkspace({
     [hideDraft, onSelectTask],
   );
 
-  const continueFoundTask = useCallback(
-    async (task: Task) => {
-      // The same reactivation as un-settling in the sidebar; the dialog keeps itself open on a
-      // refusal so the sentence and the query are not lost.
-      await client.connection.api.tasks.setState({ id: task.id, state: "active" });
-      selectTask(task.id);
-    },
-    [client, selectTask],
-  );
-
   const createTask = useCallback(
     (input: CreateTaskInput) => {
       const submitted = activeDraft;
@@ -819,7 +809,6 @@ export function VisualWorkspace({
           projects={projects.projects}
           tasks={tasks.tasks}
           onOpen={(task) => selectTask(task.id)}
-          onContinue={continueFoundTask}
           onClose={() => setFinding(false)}
         />
       )}

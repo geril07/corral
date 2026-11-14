@@ -22,6 +22,14 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
 - The action row sits **4** below the header and holds the wide `Search tasks…` row and New task,
   a **28×28** icon action; `prefix f` opens the same finder. The list starts **16** after the row
   and scrolls independently; card gap is **3**.
+- The task finder is the command-palette pattern: one full-width `Search tasks…` field over one
+  list of the tasks the client already watches, grouped under one `Tasks` heading with no title,
+  description or footer actions. The list box is a fixed **288** px, so typing never resizes the
+  dialog and its one-line `No results found` state sits in the same box. A row carries the title,
+  the recorded branch and the project badge — `No project` for a scratch task — and a settled row
+  keeps its `settled` badge. Arrow keys move the selection, Enter opens the highlighted task and
+  Escape closes; a settled task opens as it is, with no second primary action, and starting work
+  in it is what makes it active (`Settle task` above).
 - A task card is **52** high: padding **8**, two **16**-high lines with **4** between, radius **6**,
   no border or shadow. The first line carries a **16** px project avatar/icon and the project at
   **11/16** weight **440**; the right slot carries status/time at **11/16** weight **530**. The

@@ -1,10 +1,8 @@
-import { describeError } from "@corral/client/rpc-errors";
 import { searchTasks } from "@corral/client/task-search";
 import type { Project, Task } from "@corral/protocol/rpc";
 import { useState } from "react";
 import {
   Badge,
-  Button,
   Command,
   CommandInput,
   CommandList,
@@ -12,8 +10,6 @@ import {
   CommandItem,
   CommandEmpty,
   TaskCommandDialog,
-  DialogActions,
-  FormError,
 } from "../../common/ui/index.ts";
 import { recordedBranchAccessible, recordedBranchParts } from "../tasks/index.ts";
 
@@ -22,27 +18,17 @@ export interface FindTaskDialogProps {
   tasks: readonly Task[];
   /** Shows the task's existing context without changing any task's state. */
   onOpen: (task: Task) => void;
-  /** Reactivates a settled task; a rejection is shown in the dialog and leaves it open. */
-  onContinue: (task: Task) => Promise<void>;
   onClose: () => void;
 }
 
 /**
- * Search over the tasks already watched by the client: every project, active and settled.
- * Enter or Open inspects a result; only the labelled Continue button (or Ctrl/Cmd+Enter)
- * resumes a settled task, so viewing one never restarts its sessions.
+ * The command palette over the tasks already watched by the client: one field, one grouped
+ * list, no title, description or footer actions. Enter opens the highlighted task, and a
+ * settled one opens as it is — starting work in it is what makes it active (#277).
  */
-export function FindTaskDialog({
-  projects,
-  tasks,
-  onOpen,
-  onContinue,
-  onClose,
-}: FindTaskDialogProps) {
+export function FindTaskDialog({ projects, tasks, onOpen, onClose }: FindTaskDialogProps) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string>();
-  const [failure, setFailure] = useState<string>();
-  const [continuing, setContinuing] = useState(false);
   const results = searchTasks(query, projects, tasks);
   const selected = results.find(({ task }) => task.id === selectedId) ?? results[0];
 
@@ -51,64 +37,32 @@ export function FindTaskDialog({
     onClose();
   };
 
-  const continueSelected = async () => {
-    if (!selected || selected.task.state !== "settled" || continuing) return;
-    setFailure(undefined);
-    setContinuing(true);
-    try {
-      await onContinue(selected.task);
-    } catch (error) {
-      setFailure(describeError(error));
-      setContinuing(false);
-      return;
-    }
-    onClose();
-  };
-
   return (
-    <TaskCommandDialog
-      title="Find task"
-      description="Every task in every project, active and settled. Enter opens one; a settled task keeps its state until you continue it."
-      onClose={onClose}
-    >
+    <TaskCommandDialog title="Find task" onClose={onClose}>
       <Command
         label="Tasks"
         loop
         shouldFilter={false}
         value={selected?.task.id ?? ""}
-        onValueChange={(value) => {
-          setSelectedId(value);
-          setFailure(undefined);
-        }}
+        onValueChange={setSelectedId}
       >
         <CommandInput
           aria-label="Search tasks"
-          placeholder="Search title, branch or project…"
+          placeholder="Search tasks…"
           autoFocus
           value={query}
           onValueChange={(value) => {
             setQuery(value);
             setSelectedId(undefined);
-            setFailure(undefined);
-          }}
-          onKeyDown={(event) => {
-            if (
-              event.key === "Enter" &&
-              (event.ctrlKey || event.metaKey) &&
-              selected?.task.state === "settled"
-            ) {
-              event.preventDefault();
-              event.stopPropagation();
-              void continueSelected();
-            }
           }}
         />
-        <CommandList>
+        <CommandList variant="fixed">
           <CommandGroup heading="Tasks">
             {results.map(({ task, project }) => {
               // A task created without a branch is still findable; the qualifier says so.
               const recordedBranch = task.branch ?? "HEAD";
               const branch = recordedBranchParts(recordedBranch);
+              const projectName = project?.name ?? "No project";
               return (
                 <CommandItem
                   key={task.id}
@@ -116,7 +70,7 @@ export function FindTaskDialog({
                   aria-label={[
                     task.title,
                     recordedBranchAccessible(recordedBranch),
-                    project.name,
+                    projectName,
                     task.state === "settled" ? "settled" : undefined,
                   ]
                     .filter((part): part is string => part !== undefined)
@@ -134,35 +88,15 @@ export function FindTaskDialog({
                       {branch.qualifier}
                     </span>
                   </span>
-                  <Badge variant="secondary">{project.name}</Badge>
+                  <Badge variant="secondary">{projectName}</Badge>
                   {task.state === "settled" && <Badge variant="secondary">settled</Badge>}
                 </CommandItem>
               );
             })}
           </CommandGroup>
-          <CommandEmpty>
-            {query.trim() === "" ? "No tasks to find." : "No task matches."}
-          </CommandEmpty>
+          <CommandEmpty>No results found</CommandEmpty>
         </CommandList>
       </Command>
-      {failure && <FormError>{failure}</FormError>}
-      <DialogActions>
-        <Button variant="ghost" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button
-          variant="outline"
-          onClick={() => selected && open(selected.task)}
-          disabled={!selected}
-        >
-          Open task
-        </Button>
-        {selected?.task.state === "settled" && (
-          <Button variant="default" onClick={() => void continueSelected()} disabled={continuing}>
-            Continue settled task
-          </Button>
-        )}
-      </DialogActions>
     </TaskCommandDialog>
   );
 }
