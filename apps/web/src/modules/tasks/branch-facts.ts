@@ -36,16 +36,6 @@ export function recordedBranchAccessible(branch: string): string {
   return name === undefined ? "no branch checked out at create" : `${name} (recorded at create)`;
 }
 
-/** Changes' drift line; none when the two reads agree or either side has no branch. */
-export function branchDrift(recorded: string, live: string | null | undefined): string | undefined {
-  const createdOn = branchName(recorded);
-  const checkedOutNow = branchName(live);
-  if (createdOn === undefined || checkedOutNow === undefined || createdOn === checkedOutNow) {
-    return undefined;
-  }
-  return `Checked out now: ${checkedOutNow} · the task was created on ${createdOn}.`;
-}
-
 /**
  * What Remove promises about the branch. `undefined` is a read still pending or unavailable; a
  * `null` live branch is a detached HEAD, which is not the recorded name either.

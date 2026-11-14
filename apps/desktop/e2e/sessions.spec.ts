@@ -127,8 +127,8 @@ test("two sessions of one task are tabs that switch by click and by key", async 
   await createTask(window, "Tabbed", { workspace: "new-worktree" });
   await startShell(window);
 
-  // The main strip holds the primary agent and the shell; the companion stays hidden until a
-  // Changes tab is opened.
+  // The main strip holds the primary agent and the shell; the companion stays hidden until a tab
+  // is moved into it.
   const tabs = sessionTabs(window);
   await expect(tabs.getByRole("tab")).toHaveCount(2);
   const companion = window.getByRole("tablist", { name: "Companion tabs" });
@@ -150,14 +150,11 @@ test("two sessions of one task are tabs that switch by click and by key", async 
   await window.keyboard.press("Enter");
   await expect.poll(() => unwrappedScreenText(window)).toContain("fake claude got: back-to-claude");
 
-  // The Changes tab opens by key and is not a session: the main session stays selected,
-  // and the clean task shows the empty state (`layout.md`, **Changes**).
+  // The removed Changes chord opens nothing: no companion tab, no panel, and the main session
+  // keeps the keyboard.
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("Shift+KeyC");
-  await expect(companion.getByRole("tab", { name: "Changes" })).toHaveAttribute(
-    "aria-selected",
-    "true",
-  );
+  await expect(companion).toHaveCount(0);
+  await expect(window.getByRole("tab", { name: "Changes" })).toHaveCount(0);
   await expect(sessionTab(window, "claude")).toHaveAttribute("aria-selected", "true");
-  await expect(window.getByText("No changes yet")).toBeVisible();
 });

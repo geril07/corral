@@ -17,25 +17,15 @@ import type {
   TerminalInfo,
   TerminalSize,
 } from "@corral/protocol/rpc";
-import {
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DropdownMenuItem,
   VisualAddMenu,
   VisualCompanion,
-  VisualIconButton,
   VisualTabPanel,
   VisualTabStrip,
   type VisualTabItem,
 } from "../../common/ui/index.ts";
-import { ChangesView, createChangesActions, usePullRequests } from "../changes/index.ts";
 import {
   ChatChoiceDialog,
   ChatView,
@@ -227,8 +217,8 @@ export function useTaskWorkspace({
   const companionChat = useChatSession(client, companionSession);
   const companionHasSession =
     layout !== undefined && tabsInGroup(layout, "companion").some((tab) => tab.kind === "session");
-  // A companion holding only Changes has no session to step through or hand over; those chords
-  // fall back to the main group, which always has one while the task has any session.
+  // A companion holding no session (a file view) has no session to step through or hand over;
+  // those chords fall back to the main group, which always has one while the task has any session.
   const actionGroup: TaskTabGroup =
     focusGroup === "companion" && !companionHasSession ? "main" : focusGroup;
   const focusedSession = actionGroup === "main" ? mainSession : companionSession;
@@ -242,16 +232,6 @@ export function useTaskWorkspace({
         : session.id === companionSession?.id
           ? companionChat
           : undefined;
-
-  const changes = useSyncExternalStore(client.changes.subscribe, client.changes.getSnapshot);
-  const changesActions = useMemo(
-    () => (task === undefined ? undefined : createChangesActions(client, task.id)),
-    [client, task],
-  );
-  const pullRequests = usePullRequests(
-    (id) => (task?.id === id ? changesActions : undefined),
-    task === undefined ? [] : [task.id],
-  );
 
   const chatFiles = useMemo<ChatFiles | undefined>(() => {
     if (task === undefined) return undefined;
@@ -369,14 +349,6 @@ export function useTaskWorkspace({
     setDialog({ kind: "pick-agent" });
   }, [setDialog, setFailure, task]);
 
-  const openChanges = useCallback(() => {
-    setFailure(undefined);
-    change((current) => addTab(current, { kind: "changes", group: "companion" }));
-    setFocusGroup("companion");
-    // Changes has no composer or terminal input; the tab itself is the deterministic focus point.
-    focusTab("changes");
-  }, [change, focusTab, setFailure, setFocusGroup]);
-
   /**
    * Closing a tab. The primary session is not a closable view: removing it is the destructive
    * `Remove session…` path. Any other session's close ends its session first — a shell's process
@@ -453,11 +425,9 @@ export function useTaskWorkspace({
     const after = moveTab(layout, tabId(tab), task.primarySessionId);
     if (after === layout) {
       setFailure(
-        tab.kind === "changes"
-          ? "Changes stays in the companion group."
-          : tab.kind === "session" && tab.sessionId === task.primarySessionId
-            ? "The primary session is not moved between groups."
-            : "The main group keeps its only tab.",
+        tab.kind === "session" && tab.sessionId === task.primarySessionId
+          ? "The primary session is not moved between groups."
+          : "The main group keeps its only tab.",
       );
       return;
     }
@@ -615,6 +585,7 @@ export function useTaskWorkspace({
   const toggleGroup = useCallback(() => {
     if (layout === undefined) return;
     const next = toggleCompanion(layout);
+    if (next === layout) return;
     change((current) => toggleCompanion(current));
     setFocusGroup(next.companionOpen ? "companion" : "main");
     if (next.companionOpen) focusPane("companion");
@@ -623,17 +594,11 @@ export function useTaskWorkspace({
 
   const focusCompanion = useCallback(() => {
     if (layout === undefined) return;
-    // A second press of the focus chord returns to the main group. It is the keyboard's way
-    // out when the companion holds only Changes and the number/step chords have nothing to do.
+    // A second press of the focus chord returns to the main group. A task with no companion tab
+    // has no group to focus, so the chord leaves the keyboard where it is.
     if (focusGroup === "companion") {
       setFocusGroup("main");
       focusPane("main");
-      return;
-    }
-    if (tabsInGroup(layout, "companion").length === 0) {
-      change((current) => toggleCompanion(current));
-      setFocusGroup("companion");
-      focusPane("companion");
       return;
     }
     const tab = activeTab(layout, "companion") ?? tabsInGroup(layout, "companion")[0];
@@ -694,7 +659,6 @@ export function useTaskWorkspace({
     (action: string) => {
       if (action === "new-terminal") void startSession("shell");
       else if (action === "new-agent") openAgentPicker();
-      else if (action === "changes") openChanges();
       else if (action === "switch-view") switchActive();
       else if (action === "close-tab") closeFocused();
       else if (action === "toggle-companion") toggleGroup();
@@ -734,7 +698,6 @@ export function useTaskWorkspace({
       labels,
       move,
       openAgentPicker,
-      openChanges,
       openModelPicker,
       openReasoningPicker,
       restartSession,
@@ -759,7 +722,6 @@ export function useTaskWorkspace({
     const actions: ActionId[] = [
       "new-terminal",
       "new-agent",
-      "changes",
       "switch-view",
       "close-tab",
       "toggle-companion",
@@ -902,18 +864,6 @@ export function useTaskWorkspace({
           },
         ];
       }
-      if (tab.kind === "changes") {
-        return [
-          {
-            id,
-            kind: "changes" as const,
-            label: "Changes",
-            selected: layout.active[group] === id,
-            canClose: true,
-            paneId,
-          },
-        ];
-      }
       return [
         {
           id,
@@ -927,7 +877,6 @@ export function useTaskWorkspace({
     });
   };
 
-  const changesBinding = bindingOf(config, "changes");
   const addSessionTooltip = `Add session · ${formatBinding(config, "new-terminal")} / ${formatBinding(config, "new-agent")}`;
   const agentItem = <DropdownMenuItem onClick={openAgentPicker}>Agent…</DropdownMenuItem>;
   // Beside the last tab, the plus is the common action and the chevron is the one menu that
@@ -948,18 +897,6 @@ export function useTaskWorkspace({
       {agentItem}
     </VisualAddMenu>
   );
-  const trailing = (
-    <VisualIconButton
-      label="Changes"
-      icon="changes"
-      onClick={openChanges}
-      shortcut={
-        changesBinding === null
-          ? undefined
-          : { prefix: config.keys.prefix, binding: changesBinding }
-      }
-    />
-  );
 
   const strip = (group: TaskTabGroup) => (
     <VisualTabStrip
@@ -969,7 +906,6 @@ export function useTaskWorkspace({
       onSelect={select}
       onClose={(id) => close(id)}
       add={group === "main" ? addSessionControl : null}
-      trailing={group === "main" ? trailing : null}
     />
   );
 
@@ -1083,29 +1019,10 @@ export function useTaskWorkspace({
           panelRef={companionPane}
         >
           <div className="visual-workspace-pane" onFocusCapture={() => setFocusGroup("companion")}>
-            {companionTab?.kind === "changes" &&
-            task !== undefined &&
-            changesActions !== undefined ? (
-              <ChangesView
-                key={task.id}
-                task={task}
-                changes={changes.byTask.get(task.id)}
-                failed={changes.failed}
-                store={client.changes}
-                actions={changesActions}
-                pullRequest={pullRequests.byTask.get(task.id)}
-                onPullRequest={(request) => pullRequests.remember(request)}
-                onSettle={() => {
-                  void client.connection.api.tasks.setState({
-                    id: task.id,
-                    state: task.state === "active" ? "settled" : "active",
-                  });
-                }}
-              />
-            ) : (
+            {
               // oxlint-disable-next-line react/refs -- the anchors are passed to ChatView, not read here
               sessionPane(companionSession, "companion")
-            )}
+            }
           </div>
         </VisualTabPanel>
         {position === "bottom" && strip("companion")}

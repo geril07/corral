@@ -33,13 +33,13 @@ settled task makes it active. `design.md` owns the decision.
   (`settings-sections.ts`), the model-ordering paragraph (`model-management.tsx`), the task prompt
   placeholder and disabled attach/reasoning hints (`task-composer.tsx`), and the tab labels
   `Companion tabs`, `Resize companion group` and refusal lines for closing or moving the primary
-  tab, moving Changes, and moving the only main tab. Reference wording for the placeholder exists;
+  tab and moving the only main tab. Reference wording for the placeholder exists;
   the disabled hints have no reference wording.
 
 ## Known limitations
 
 - Issue #265 ported the live old-interface coverage to the routed shell and removed the unmounted
-  old screens and the `/board` route. Changes writes, links, session lifecycle, handoff, keymap,
+  old screens and the `/board` route. Links, session lifecycle, handoff, keymap,
   status and connection recovery run against the routed shell. Electron helpers and specs are
   migrated; no old or partial run is a green release gate.
 - The routed shell's Search is the sidebar row and `prefix f`: a command palette over the tasks the

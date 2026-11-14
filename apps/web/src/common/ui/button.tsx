@@ -55,8 +55,6 @@ const buttonVariants = cva(
         lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
         // Two-line sidebar task row (`layout.md`, **Sidebar**: 52 px, content decides the rest).
         row: "min-h-13 gap-2 px-2 py-1.5",
-        // Dense single-line list row (ChangeFileRow): the height and width of the row it fills.
-        "row-sm": "min-h-7 w-full gap-2 rounded-sm px-2",
         // A transcript activity row is 24 px with the icon in a 24 px slot (T3's `WorkLogLine`,
         // `WorkLog.tsx:51`: `min-h-6 gap-1.5 px-0.5 py-0.5 text-sm leading-relaxed`).
         activity: "min-h-6 gap-1.5 px-0.5 py-0.5 text-sm leading-relaxed",

@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 
 /**
  * The server-side half of the browser command: a browser test cannot write the files a task's
- * Changes tab should show, so it asks the test run's Node process to write them into the
- * worktree the real server gave it.
+ * workspace should show, so it asks the test run's Node process to write them into the worktree
+ * the real server gave it.
  */
 export function writeFilesIn(
   _context: unknown,

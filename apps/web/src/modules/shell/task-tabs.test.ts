@@ -109,29 +109,33 @@ describe("closing views", () => {
   });
 });
 
+const FILE_TAB = { kind: "file", path: "src/a.ts", group: "companion" } as const;
+
 describe("the companion group", () => {
-  test("Changes lives in the companion group and selecting it leaves the main session alone", () => {
-    const l = addTab(layout(), { kind: "changes", group: "companion" });
+  test("a file view has its own active tab and leaves the main session alone", () => {
+    const l = addTab(layout(), FILE_TAB);
     expect(l.companionOpen).toBe(true);
-    expect(l.active.companion).toBe("changes");
+    expect(l.active.companion).toBe("file:src/a.ts");
     expect(l.active.main).toBe("session:s1");
-    const selected = selectTab(l, "changes");
+    const selected = selectTab(l, "file:src/a.ts");
     expect(selected.active.main).toBe("session:s1");
   });
 
   test("closing the last companion tab collapses the group and keeps the other tabs", () => {
-    const l = addTab(layout(), { kind: "changes", group: "companion" });
-    const closed = closeTab(l, "changes", "s1");
+    const l = addTab(layout(), FILE_TAB);
+    const closed = closeTab(l, "file:src/a.ts", "s1");
     expect(closed.companionOpen).toBe(false);
     expect(closed.active.companion).toBeUndefined();
     expect(ids(closed)).toEqual(["session:s1", "session:s2", "session:s3"]);
   });
 
-  test("toggling an empty group opens Changes instead of an empty half", () => {
-    const l = toggleCompanion(layout());
-    expect(l.companionOpen).toBe(true);
-    expect(tabsInGroup(l, "companion").map(tabId)).toEqual(["changes"]);
-    expect(toggleCompanion(l).companionOpen).toBe(false);
+  test("toggling an empty group leaves it shut instead of mounting an empty half", () => {
+    const l = layout();
+    expect(toggleCompanion(l)).toBe(l);
+
+    const withFile = addTab(l, FILE_TAB);
+    expect(toggleCompanion(withFile).companionOpen).toBe(false);
+    expect(toggleCompanion(withFile).tabs).toEqual(withFile.tabs);
   });
 });
 
@@ -155,11 +159,6 @@ describe("moving tabs between groups", () => {
   test("the main group always keeps one tab", () => {
     const one = defaultLayout(task("s1"), [SESSIONS[1]!]);
     expect(moveTab(one, "session:s1", "s1")).toBe(one);
-  });
-
-  test("Changes belongs to the companion group and does not move", () => {
-    const l = addTab(layout(), { kind: "changes", group: "companion" });
-    expect(moveTab(l, "changes", "s1")).toBe(l);
   });
 
   test("the primary session stays first and does not move", () => {
@@ -215,7 +214,7 @@ describe("reconciling with the server", () => {
 
 describe("the device-local record", () => {
   test("round-trips tab identity, group, order and active tabs", () => {
-    let l = addTab(layout(), { kind: "changes", group: "companion" });
+    let l = addTab(layout(), FILE_TAB);
     l = moveTab(l, "session:s3", "s1");
     l = closeTab(l, "session:s2", "s1");
     const stored = serializeLayout(l);
@@ -241,12 +240,37 @@ describe("the device-local record", () => {
     expect(ids(reloaded)).toEqual(["session:s1", "session:s3"]);
   });
 
+  test("reads a record that still carries a changes tab without it", () => {
+    const stored = JSON.stringify({
+      version: 1,
+      tabs: [
+        { kind: "session", sessionId: "s1", group: "main", order: 0 },
+        { kind: "changes", group: "companion", order: 0 },
+      ],
+      active: { main: "session:s1", companion: "changes" },
+      companionOpen: true,
+      seenSessions: ["s1"],
+    });
+    expect(parseLayout(stored)).toEqual({
+      tabs: [{ kind: "session", sessionId: "s1", group: "main" }],
+      active: { main: "session:s1" },
+      companionOpen: false,
+      seenSessions: ["s1"],
+    });
+    const reloaded = reconcileLayout(parseLayout(stored), task("s1"), SESSIONS);
+    expect(tabsInGroup(reloaded, "companion")).toEqual([]);
+    expect(reloaded.companionOpen).toBe(false);
+    expect(reloaded.active.main).toBe("session:s1");
+  });
+
   test("rejects malformed and unknown records instead of dropping the task's layout", () => {
     expect(parseLayout(null)).toBeUndefined();
     expect(parseLayout("{")).toBeUndefined();
     expect(parseLayout(JSON.stringify({ version: 2, tabs: [] }))).toBeUndefined();
     expect(
-      parseLayout('{"version":1,"tabs":[{"kind":"changes","group":"companion","order":1e999}]}'),
+      parseLayout(
+        '{"version":1,"tabs":[{"kind":"file","path":"a.ts","group":"companion","order":1e999}]}',
+      ),
     ).toEqual({
       tabs: [],
       active: {},
@@ -265,17 +289,17 @@ describe("the device-local record", () => {
 });
 
 describe("numbers and stepping", () => {
-  test("session tabs are numbered inside their own group; Changes is not numbered", () => {
-    let l = addTab(layout(), { kind: "changes", group: "companion" });
+  test("session tabs are numbered inside their own group; a file tab is not numbered", () => {
+    let l = addTab(layout(), FILE_TAB);
     expect(sessionTabAt(l, "main", 1)).toMatchObject({ sessionId: "s1" });
     expect(sessionTabAt(l, "companion", 1)).toBeUndefined();
-    expect(activeTab(l, "companion")).toMatchObject({ kind: "changes" });
+    expect(activeTab(l, "companion")).toMatchObject({ kind: "file" });
     expect(tabNumber(l, "session:s2")).toBe(2);
-    expect(tabNumber(l, "changes")).toBeUndefined();
+    expect(tabNumber(l, "file:src/a.ts")).toBeUndefined();
 
-    // A session beside Changes is the companion group's first session, not its second tab.
+    // A session beside a file view is the companion group's first session, not its second tab.
     l = moveTab(l, "session:s2", "s1");
-    expect(tabsInGroup(l, "companion").map(tabId)).toEqual(["changes", "session:s2"]);
+    expect(tabsInGroup(l, "companion").map(tabId)).toEqual(["file:src/a.ts", "session:s2"]);
     expect(tabNumber(l, "session:s2")).toBe(1);
     expect(sessionTabAt(l, "companion", 1)).toMatchObject({ sessionId: "s2" });
   });

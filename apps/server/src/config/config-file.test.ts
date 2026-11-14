@@ -186,6 +186,7 @@ const rejected: [file: string, path: string, message: string][] = [
     "keys.bindings.reopen-closed-tab",
     'unknown action "reopen-closed-tab"',
   ],
+  ['[keys.bindings]\nchanges = "shift+c"\n', "keys.bindings.changes", 'unknown action "changes"'],
   [
     '[keys.bindings]\nnew-agent = "hyper+a"\n',
     "keys.bindings.new-agent",

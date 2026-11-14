@@ -82,15 +82,15 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   and status; branch, agent and prompt are in the card's metadata tooltip. The panes carry the
   conversation and work.
 
-The routed shell replaces the former workspace and sidebar composition. Shared chat, changes,
-terminal and dialog modules remain; old-screen tests can still contain live behavior coverage.
+The routed shell replaces the former workspace and sidebar composition. Shared chat, terminal and
+dialog modules remain; old-screen tests can still contain live behavior coverage.
 
 ## Working area
 
 - One task is one working area with two tab groups. The main group is always visible; the
-  companion group is hidden until it has a tab, and a toggle with no companion tab opens
-  `Changes`. There is never an empty half. The strip band is **40** high inside the main
-  surface's **8** inset and **10** radius.
+  companion group is hidden until it has a tab, and the toggle only opens and shuts a group that
+  has one. There is never an empty half. The strip band is **40** high inside the main surface's
+  **8** inset and **10** radius.
 - A tab is **28** high, radius **6**, inline padding **6** with **26** reserved at the end for the
   close control, gap **6**, icon **16**, title **13/16** weight **530**, maximum **200**. The
   status glyph leads the title; the primary tab has no close control. Hover takes the one hover
@@ -99,19 +99,19 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
   share a **1.5×12** separator.
 - Tabs keep a **72** px minimum and then scroll horizontally with **24** px edge fades; the active
   tab is scrolled into view. The `+` follows the last tab inside that scroller and scrolls with
-  the tabs; `Changes` stays pinned in the trailing area.
+  the tabs.
 - The first tab of the main group is the task's **primary** session: `Task.primarySessionId`,
   created with the task. Moving that tab between groups is refused, so the primary stays first;
   its close control stays absent and only the destructive `Remove session…` removes it.
-- The rest of the tabs are sessions (an agent or a shell) and the task's `Changes`. A file tab
-  promoted from a preview is not built yet. Chat and Terminal are **one** tab: the same session
-  switches view in place, and a both-live agent still has one tab. A new session starts from the
+- The rest of the tabs are sessions (an agent or a shell). A file tab promoted from a preview is
+  not built yet. Chat and Terminal are **one** tab: the same session switches view in place, and
+  a both-live agent still has one tab. A new session starts from the
   `+` beside the last tab: a plain click starts a shell in the task's workspace, and the chevron
   beside it opens `Agent…`; `prefix c`/`prefix s` still work and the control's tooltip names both.
-  A task with no sessions keeps the strip's `Changes` action and shows the full add-session menu
-  (`Shell`, `Agent…`) in the empty pane, never a fake tab.
-- Session tabs carry a number **1–9** counted over the session tabs inside their group; `Changes`
-  carries no number and no status glyph. Every session tab's glyph slot shows the tool or shell
+  A task with no sessions has no strip tabs and shows the full add-session menu (`Shell`,
+  `Agent…`) in the empty pane, never a fake tab.
+- Session tabs carry a number **1–9** counted over the session tabs inside their group; a file
+  tab carries no number and no status glyph. Every session tab's glyph slot shows the tool or shell
   logo, a working, blocked or error glyph, and a failed or unresumable session uses the error
   glyph. The accessible name carries the session's badge; the Chat/Terminal view item, rename,
   one `Close tab` that stops the session, and the destructive remove live in the tab's context
@@ -127,13 +127,12 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
   process group or a chat driver stops, a running turn is aborted and keeps what it wrote — and
   then removes the view. The primary tab stays unclosable, and there is no closed-tab history or
   reopen. The route keeps naming the task.
-- `prefix c` and `prefix s` add a shell or an agent and focus the new main-group tab;
-  `prefix shift+c` opens `Changes` in the companion group without changing the current session.
+- `prefix c` and `prefix s` add a shell or an agent and focus the new main-group tab.
   `prefix q` closes, `prefix shift+b` toggles the companion,
   `prefix shift+o` moves the focused tab to the other group, and `prefix shift+w` toggles the
-  focus between the groups. Number and `n`/`p` navigation act inside the focused group; when a
-  companion holds only `Changes` they act on the main group. A refused close of the primary or a
-  refused move says so in the one line above the strip, and choosing a tab clears that line.
+  focus between the groups. Number and `n`/`p` navigation act inside the focused group. A refused
+  close of the primary or a refused move says so in the one line above the strip, and choosing a
+  tab clears that line.
 
 ## Terminal and chat
 
@@ -176,21 +175,6 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
   no status, model management or default action lives there. Visibility, favorites and order stay
   in Settings → Models. Shared visibility is not a launch permission policy.
 - No illustrative context usage, model availability or Full access permission appears as a fact.
-
-## Changes
-
-- A `Changes` tab per task belongs to the companion group. It has no session behind it: no number hint, no status glyph, and selecting it does not change which session is current in the main group.
-- The companion pane's width with the Terminal's padding, not the chat lane: diffs are wide and
-  get horizontal scroll rather than wrapping.
-- A summary row at the top ("12 files, +340 −87", `text-sm`, muted), then compact file rows: status letter (`M`/`A`/`D`/`R`), path in mono truncated from the left, `+N −M` right-aligned. Changed files sort by path; a renamed file shows `old → new`.
-- The diff pane under the list: unified hunks, muted hunk headers, monospace on a compact line
-  height, unchanged regions folded with "Show N more lines". Binary files show one row ("Binary
-  file, 12 KB") and no diff. At the minimum viewport the list collapses to the top third and the
-  selected file's diff takes the rest.
-- Refreshed with a debounce when the workspace changes: loading shows skeleton rows, a clean tree shows "No changes yet".
-- Below the summary row, the finish controls, one line each and all keyboard-reachable: `Stage all` / `Unstage all` / stage-or-unstage the selected file with the staged count, then a one-line commit-message field and `Commit`, then `Push…` and `Create pull request…` (each behind a dialog naming the remote's push URL and the branch; creating also names the base branch and the provider) and the linked request's badge with its check line, or a `Settle task` button once it merged. A refusal shows its sentence under the row and keeps the message and the selection.
-- When both the live checkout and the task's recorded value name a branch and they differ, the controls name both: `Checked out now: <live> · the task was created on <recorded>.` No line appears when they agree, the live checkout is detached, or the recorded value is not a branch. The reason `Push…` and `Create pull request…` are unavailable is visible under the controls (`This task has no branch checked out.` for a detached HEAD, no remote, or no remote that would take the branch), never only in a `title`.
-- Git read/write and confirmation safety are documented in `engineering.md`.
 
 ## New task view
 

@@ -16,7 +16,7 @@ import { RowMenu } from "./row-menu.tsx";
 import { StatusGlyph } from "./status-glyph.tsx";
 
 /** The tab's kind decides its glyph and whether it carries a number or status. */
-export type VisualTabKind = "session" | "changes" | "file" | "draft";
+export type VisualTabKind = "session" | "file" | "draft";
 
 export interface VisualTabItem {
   id: string;
@@ -26,12 +26,12 @@ export interface VisualTabItem {
   ariaLabel?: string | undefined;
   /** The context-menu name, e.g. `Session actions for shell 2`. */
   menuLabel?: string | undefined;
-  /** Session and draft tabs carry 1–9 inside their group; Changes and files carry none. */
+  /** Session and draft tabs carry 1–9 inside their group; file tabs carry none. */
   number?: number | undefined;
   agentKind?: Session["kind"] | undefined;
   status?: AgentStatus | undefined;
   selected: boolean;
-  /** The primary session is not a closable view; Changes, files and drafts are. */
+  /** The primary session is not a closable view; files and drafts are. */
   canClose: boolean;
   /** The whole label and the session's state, when the label clips. */
   title?: string | undefined;
@@ -42,7 +42,6 @@ export interface VisualTabItem {
 }
 
 const GLYPH: Readonly<Record<Exclude<VisualTabKind, "session">, IconName>> = {
-  changes: "changes",
   file: "file",
   draft: "task",
 };
@@ -117,7 +116,6 @@ export function VisualTabStrip({
   onSelect,
   onClose,
   add,
-  trailing,
   position = "top",
 }: {
   label: string;
@@ -125,7 +123,6 @@ export function VisualTabStrip({
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   add?: ReactNode;
-  trailing?: ReactNode;
   position?: "top" | "bottom";
 }) {
   const scroll = useRef<HTMLDivElement>(null);
@@ -250,9 +247,6 @@ export function VisualTabStrip({
           aria-hidden="true"
         />
       </div>
-      {trailing !== undefined && trailing !== null && (
-        <div className="visual-tab-trailing">{trailing}</div>
-      )}
     </div>
   );
 }
