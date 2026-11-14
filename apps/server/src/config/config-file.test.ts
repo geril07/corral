@@ -182,6 +182,11 @@ const rejected: [file: string, path: string, message: string][] = [
   ["[keys.bindings]\nnew-agent = true\n", "keys.bindings.new-agent", "expected a string"],
   ['[keys.bindings]\nlaunch-missiles = "m"\n', "keys.bindings.launch-missiles", "unknown action"],
   [
+    '[keys.bindings]\nreopen-closed-tab = "shift+q"\n',
+    "keys.bindings.reopen-closed-tab",
+    'unknown action "reopen-closed-tab"',
+  ],
+  [
     '[keys.bindings]\nnew-agent = "hyper+a"\n',
     "keys.bindings.new-agent",
     'unknown modifier "hyper"',

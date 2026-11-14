@@ -479,6 +479,10 @@ export class SessionService {
   stop(id: string): Promise<Session> {
     return this.#queue.run(async () => {
       const stored = this.#stored(id);
+      // A turn that is still running is aborted before the frontend goes, so the agent records
+      // the aborted turn it already wrote instead of losing it to an exit. Bounded like a
+      // handoff's abort; the stop itself is what removes the frontend.
+      await this.#chat.abortWorking(id);
       await this.#halt(id);
       if (stored.state === "running") this.#settle(id);
       this.#changes.notify();

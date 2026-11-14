@@ -62,7 +62,6 @@ import {
   closeTab,
   moveTab,
   removeSession,
-  reopenLast,
   selectTab,
   sessionTabAt,
   stepTab,
@@ -378,64 +377,26 @@ export function useTaskWorkspace({
     focusTab("changes");
   }, [change, focusTab, setFailure, setFocusGroup]);
 
-  const closeFocused = useCallback(() => {
-    if (layout === undefined || task === undefined) return;
-    setFailure(undefined);
-    const tab = activeTab(layout, focusGroup);
-    if (tab === undefined) return;
-    const id = tabId(tab);
-    const after = closeTab(layout, id, task.primarySessionId);
-    if (after === layout) {
-      if (tab.kind === "session" && tab.sessionId === task.primarySessionId)
-        setFailure("The primary session is not a closable view; remove it with Remove session.");
-      return;
-    }
-    change((current) => closeTab(current, id, task.primarySessionId));
-    const remaining = activeTab(after, tab.group);
-    if (remaining !== undefined) {
-      setFocusGroup(tab.group);
-      focusTab(tabId(remaining));
-      return;
-    }
-    setFocusGroup("main");
-    const main = activeTab(after, "main");
-    if (main !== undefined) focusTab(tabId(main));
-    else focusAddSession();
-  }, [change, focusAddSession, focusGroup, focusTab, layout, setFailure, setFocusGroup, task]);
-
-  const reopen = useCallback(() => {
-    if (layout === undefined || task === undefined) return;
-    setFailure(undefined);
-    const after = reopenLast(layout, task, ofTask);
-    if (after === layout) return;
-    change((current) => reopenLast(current, task, ofTask));
-    const group: TaskTabGroup =
-      after.active.companion !== layout.active.companion ? "companion" : "main";
-    setFocusGroup(group);
-    const tab = activeTab(after, group);
-    if (tab !== undefined) focusTab(tabId(tab));
-    else focusAddSession();
-  }, [change, focusAddSession, focusTab, layout, ofTask, setFailure, setFocusGroup, task]);
-
-  const select = useCallback(
-    (id: string) => {
-      if (layout === undefined) return;
-      const tab = layout.tabs.find((candidate) => tabId(candidate) === id);
-      if (tab === undefined) return;
-      setFailure(undefined);
-      change((current) => selectTab(current, id));
-      setFocusGroup(tab.group);
-      focusPane(tab.group);
-    },
-    [change, focusPane, layout, setFailure, setFocusGroup],
-  );
-
+  /**
+   * Closing a tab. The primary session is not a closable view: removing it is the destructive
+   * `Remove session…` path. Any other session's close ends its session first — a shell's process
+   * group or a chat driver stops, a running turn is aborted — and only then removes the view.
+   */
   const close = useCallback(
-    (id: string) => {
+    async (id: string) => {
       if (layout === undefined || task === undefined) return;
-      setFailure(undefined);
       const tab = layout.tabs.find((candidate) => tabId(candidate) === id);
       if (tab === undefined) return;
+      if (tab.kind === "session" && tab.sessionId === task.primarySessionId) return;
+      setFailure(undefined);
+      if (tab.kind === "session" && tab.sessionId !== undefined) {
+        try {
+          await client.connection.api.sessions.stop({ id: tab.sessionId });
+        } catch (error) {
+          report(error);
+          return;
+        }
+      }
       const after = closeTab(layout, id, task.primarySessionId);
       if (after === layout) return;
       change((current) => closeTab(current, id, task.primarySessionId));
@@ -450,7 +411,31 @@ export function useTaskWorkspace({
       if (main !== undefined) focusTab(tabId(main));
       else focusAddSession();
     },
-    [change, focusAddSession, focusTab, layout, setFailure, setFocusGroup, task],
+    [change, client, focusAddSession, focusTab, layout, report, setFailure, setFocusGroup, task],
+  );
+
+  const closeFocused = useCallback(() => {
+    if (layout === undefined || task === undefined) return;
+    const tab = activeTab(layout, focusGroup);
+    if (tab === undefined) return;
+    if (tab.kind === "session" && tab.sessionId === task.primarySessionId) {
+      setFailure("The primary session is not a closable view; remove it with Remove session.");
+      return;
+    }
+    void close(tabId(tab));
+  }, [close, focusGroup, layout, setFailure, task]);
+
+  const select = useCallback(
+    (id: string) => {
+      if (layout === undefined) return;
+      const tab = layout.tabs.find((candidate) => tabId(candidate) === id);
+      if (tab === undefined) return;
+      setFailure(undefined);
+      change((current) => selectTab(current, id));
+      setFocusGroup(tab.group);
+      focusPane(tab.group);
+    },
+    [change, focusPane, layout, setFailure, setFocusGroup],
   );
 
   const move = useCallback(() => {
@@ -705,7 +690,6 @@ export function useTaskWorkspace({
       else if (action === "changes") openChanges();
       else if (action === "switch-view") switchActive();
       else if (action === "close-tab") closeFocused();
-      else if (action === "reopen-closed-tab") reopen();
       else if (action === "toggle-companion") toggleGroup();
       else if (action === "move-tab") move();
       else if (action === "focus-companion") focusCompanion();
@@ -746,7 +730,6 @@ export function useTaskWorkspace({
       openChanges,
       openModelPicker,
       openReasoningPicker,
-      reopen,
       restartSession,
       selectNumber,
       startSession,
@@ -772,7 +755,6 @@ export function useTaskWorkspace({
       "changes",
       "switch-view",
       "close-tab",
-      "reopen-closed-tab",
       "toggle-companion",
       "move-tab",
       "focus-companion",
@@ -868,15 +850,15 @@ export function useTaskWorkspace({
             paneId,
             menu: (
               <>
-                {session.state === "running" ? (
+                {session.state === "running" && session.id === task?.primarySessionId ? (
                   <DropdownMenuItem onClick={() => void stopSession(session)}>
                     Stop {label}
                   </DropdownMenuItem>
-                ) : (
+                ) : session.state !== "running" ? (
                   <DropdownMenuItem onClick={() => void restartSession(session)}>
                     {described.action ?? "Restart"} {label}
                   </DropdownMenuItem>
-                )}
+                ) : null}
                 <DropdownMenuItem
                   disabled={"reason" in offer}
                   title={"reason" in offer ? offer.reason : undefined}
@@ -900,7 +882,7 @@ export function useTaskWorkspace({
                   Rename…
                 </DropdownMenuItem>
                 {session.id !== task?.primarySessionId && (
-                  <DropdownMenuItem onClick={() => close(id)}>Close tab</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void close(id)}>Close tab</DropdownMenuItem>
                 )}
                 <DropdownMenuItem
                   variant="destructive"

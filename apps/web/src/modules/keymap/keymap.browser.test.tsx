@@ -53,6 +53,23 @@ test("number keys select the n-th session of the current task in the focused gro
   await expect.element(shell("shell")).toHaveAttribute("aria-selected", "true");
 });
 
+test("a binding for the removed reopen action is reported as an unknown action", async () => {
+  const client = newClient();
+  await render(<App client={client} />);
+  await applyConfig(client, '[keys.bindings]\nreopen-closed-tab = "shift+q"\n', () =>
+    expect(client.config.getSnapshot().problems).toHaveLength(1),
+  );
+  expect(client.config.getSnapshot().problems[0]).toMatchObject({
+    severity: "error",
+    path: "keys.bindings.reopen-closed-tab",
+  });
+  expect(client.config.getSnapshot().problems[0]?.message).toContain(
+    'unknown action "reopen-closed-tab"',
+  );
+  // The removed action is not part of the bindings the client reads, and nothing ran from it.
+  expect(client.config.getSnapshot().config.keys.bindings).not.toHaveProperty("reopen-closed-tab");
+});
+
 test("a config file rebinds an action and the chord follows it", async () => {
   const { client, project } = await appWithProject(newClient());
   await taskWithShell(client, project.id, "Keymap");
