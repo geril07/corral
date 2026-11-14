@@ -493,19 +493,23 @@ test("the chat model and reasoning controls apply what the driver reports, from 
       }),
     );
     await expect.element(modelDialog).toBeVisible();
-    // The old model's levels are gone until the driver reports the new model; the picker says so
-    // for the selected candidate rather than showing the previous levels.
+    // The old model's levels are gone until the driver reports the new model; the column keeps
+    // its geometry with skeleton rows and busy semantics instead of showing the previous levels.
     await expect
-      .element(modelDialog)
-      .toMatchTextContent("Thinking levels not reported for this model.");
+      .element(modelDialog.getByRole("group", { name: "Thinking levels" }))
+      .toHaveAttribute("aria-busy", "true");
+    expect(
+      modelDialog.element().querySelectorAll(".model-picker-level-skeleton").length,
+    ).toBeGreaterThan(0);
     await expect
       .element(modelDialog.getByRole("toolbar", { name: "Thinking" }))
       .not.toBeInTheDocument();
+    expect(modelDialog.element().querySelectorAll("p")).toHaveLength(0);
     await userEvent.keyboard("{Escape}");
     await expect.element(modelDialog).not.toBeInTheDocument();
     await expect.element(page.getByRole("textbox", { name: "Message" })).toHaveFocus();
 
-    // The row\u0027s reasoning picker opens the level list; the driver's own values are what it offers.
+    // The row's reasoning picker opens the level list; the driver's own values are what it offers.
     await page.getByRole("button", { name: "Reasoning medium" }).click();
     const levelDialog = page.getByRole("dialog", { name: "Reasoning level" });
     await expect.element(levelDialog).toBeVisible();
@@ -516,6 +520,12 @@ test("the chat model and reasoning controls apply what the driver reports, from 
         level: "high",
       }),
     );
+    // Choosing a level keeps the picker open on the chosen level.
+    await expect.element(levelDialog).toBeVisible();
+    await expect
+      .element(levelDialog.getByRole("button", { name: "high", exact: true }))
+      .toHaveFocus();
+    await userEvent.keyboard("{Escape}");
     await expect.element(levelDialog).not.toBeInTheDocument();
 
     // `prefix shift+m` reaches the same reasoning action from the keyboard.
@@ -530,7 +540,7 @@ test("the chat model and reasoning controls apply what the driver reports, from 
   }
 });
 
-test("with no reported thinking levels, Thinking opens the picker's sentence", async () => {
+test("with no reported thinking levels, Thinking opens an empty track without prose", async () => {
   const { client, real, tasks, sessions, chatStore, chatSession } = seededClient(workingChat());
   const { repo } = await appWithProject(client);
   const project = await vi.waitFor(() => {
@@ -575,22 +585,19 @@ test("with no reported thinking levels, Thinking opens the picker's sentence", a
     await expect.element(thinking).toBeEnabled();
     await expect.element(thinking).toHaveTextContent("Thinking");
 
-    // The pointer gets the same picker as the chord, and its sentence explains the empty list.
+    // The pointer gets the same picker as the chord, and its empty track carries no sentence.
     await userEvent.click(thinking);
     const levelDialog = page.getByRole("dialog", { name: "Reasoning level" });
     await expect.element(levelDialog).toBeVisible();
-    await expect
-      .element(levelDialog)
-      .toMatchTextContent("No thinking levels have been reported for this model.");
+    expect(levelDialog.element().querySelectorAll("p")).toHaveLength(0);
+    expect(levelDialog.element().querySelector(".model-picker-levels-empty")).not.toBeNull();
     await userEvent.keyboard("{Escape}");
     await expect.element(levelDialog).not.toBeInTheDocument();
 
-    // `prefix shift+m` opens the same picker with the same sentence.
+    // `prefix shift+m` opens the same picker with the same empty track.
     await prefixShifted("m");
     await expect.element(levelDialog).toBeVisible();
-    await expect
-      .element(levelDialog)
-      .toMatchTextContent("No thinking levels have been reported for this model.");
+    expect(levelDialog.element().querySelectorAll("p")).toHaveLength(0);
     await userEvent.keyboard("{Escape}");
     await expect.element(levelDialog).not.toBeInTheDocument();
   } finally {

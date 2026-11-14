@@ -140,15 +140,23 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
   indicator, and its textarea has no resize grip. Repository/checkout/branch controls never belong
   to an existing-task chat composer.
 - One bounded picker serves creation, add-agent and live chat: tool/profile icon rail, searchable
-  model column and the selected model\'s thinking column. A live-chat popup anchors above its
+  model column and the selected model's thinking column. A live-chat popup anchors above its
   control and fits available width/height; add-agent anchors to the session adder. Without an
-  anchor the same body uses a task dialog. Existing-chat model selection keeps it open; thinking
-  applies and closes. A new launch commits its native/configured model row. Current choices are marked.
-  Live catalogs and thinking come from the driver, not prototype fixtures. Before launch,
-  pi/OpenCode inventories come from scoped, short-lived native metadata probes; unsupported
-  selection rows are disabled. Configured/native defaults and supported raw IDs remain available.
-  The right column explains why pre-launch thinking is unavailable. The footer links to Models
-  management and shows the visible/known count; shared visibility is not a launch permission policy.
+  anchor the same body uses a task dialog. The dialog and all three columns keep their width and
+  height across open, typing, instance switch, model switch, loading and choosing a level. States
+  are never sentences: loading, empty, waiting and unsupported show skeleton rows or an empty
+  track, with `aria-busy` while levels are unknown. Choosing a reasoning level keeps the picker
+  open and moves focus to that level; Escape or an outside press closes. A model switch in a
+  running chat keeps the columns and shows skeletons until the driver reports the new levels,
+  never the previous model's levels as current. Existing-chat model selection also keeps it open.
+  A new launch commits the selected catalog model row. Current choices are marked, and the
+  configured default is a marked row, not a footer action. Live catalogs and thinking come from
+  the driver, not prototype fixtures. Before launch, pi/OpenCode inventories come from scoped,
+  short-lived native metadata probes; unsupported selection rows are disabled. Models come from
+  the agent's catalog and launch profiles: no picker, composer or launch picker has a native
+  model-ID field. The only footer is the new launch's always-present chat/terminal view choice;
+  no status, model management or default action lives there. Visibility, favorites and order stay
+  in Settings → Models. Shared visibility is not a launch permission policy.
 - No illustrative context usage, model availability or Full access permission appears as a fact.
 
 ## Changes

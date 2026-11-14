@@ -1,4 +1,5 @@
 import type { CorralClient } from "@corral/client/corral-client";
+import type { ModelCatalog } from "@corral/protocol/models";
 import { defaultModelPolicy, modelScopeKey } from "@corral/protocol/models";
 import { useSyncExternalStore } from "react";
 import { expect, test } from "vite-plus/test";
@@ -18,17 +19,38 @@ const catalog = [
 ];
 const noop = () => {};
 
+/** The editor's own catalog request is the seam; the probe would run a real agent otherwise. */
+function withCatalog(client: CorralClient) {
+  const api = client.connection.api;
+  const reported: ModelCatalog = {
+    models: catalog,
+    status: "ready",
+    fetchedAt: null,
+    message: null,
+  };
+  const models = new Proxy(api.models, {
+    get(target, property, receiver) {
+      if (property === "catalog") return async () => reported;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  Object.defineProperty(client.connection, "api", {
+    configurable: true,
+    value: new Proxy(api, {
+      get(target, property, receiver) {
+        if (property === "models") return models;
+        return Reflect.get(target, property, receiver);
+      },
+    }),
+  });
+}
+
 function Manager({ client }: { client: CorralClient }) {
   const config = useSyncExternalStore(client.config.subscribe, client.config.getSnapshot);
   return (
     <CorralClientProvider client={client}>
       <KeymapProvider config={config}>
-        <ModelManagement
-          active
-          target={{ scope, context: {}, known: { scope, context: {}, models: catalog } }}
-          onDirty={noop}
-          onBusy={noop}
-        />
+        <ModelManagement active onDirty={noop} onBusy={noop} />
       </KeymapProvider>
     </CorralClientProvider>
   );
@@ -43,6 +65,7 @@ function rowOrder(): string[] {
 
 test("Settings saves independent provider, model and favorite order to the shared config", async () => {
   const client = newClient();
+  withCatalog(client);
   await render(<Manager client={client} />);
   const moveProvider = page.getByRole("button", { name: "Move provider two up", exact: true });
   await expect.element(moveProvider).toBeEnabled();
@@ -101,6 +124,7 @@ test("an idle Settings editor accepts changed content even when its opaque revis
   });
   const [higher, lower] = first.revision > second.revision ? [first, second] : [second, first];
   const active = await api.models.save({ ...higher, revision: second.revision });
+  withCatalog(client);
   await render(<Manager client={client} />);
   const alpha = page.getByRole("checkbox", { name: "Show Alpha · one", exact: true });
   await expect.element(alpha).toBeVisible();

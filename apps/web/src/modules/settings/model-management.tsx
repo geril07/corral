@@ -38,7 +38,7 @@ import { ProjectOption, projectOptionLabel } from "../projects/index.ts";
 // launch-choice is a leaf that imports no settings, so this avoids a settings/index cycle.
 // oxlint-disable-next-line import/no-restricted-imports
 import { CONFIGURED_DEFAULT, configuredDefaultRow } from "../sessions/launch-choice.ts";
-import { useModelCatalog, useModelPreferences, type KnownModelCatalog } from "./model-catalog.ts";
+import { useModelCatalog, useModelPreferences } from "./model-catalog.ts";
 import { modelFooterText } from "./model-footer.ts";
 import {
   acknowledgeSavedPreferences,
@@ -48,11 +48,6 @@ import {
   type SavedPreferences,
 } from "./saved-preferences.ts";
 
-export interface ModelManagementTarget {
-  scope: ModelScope;
-  context: ModelContext;
-  known?: KnownModelCatalog;
-}
 const HOME = "server-home";
 
 /** The configured default is resolved through the selected catalog context, not a cache. */
@@ -72,12 +67,10 @@ function contextProjectPath(
 
 export function ModelManagement({
   active,
-  target,
   onDirty,
   onBusy,
 }: {
   active: boolean;
-  target?: ModelManagementTarget | undefined;
   onDirty: (dirty: boolean) => void;
   onBusy: (busy: boolean) => void;
 }) {
@@ -95,10 +88,8 @@ export function ModelManagement({
       name: profile.name,
     })),
   ];
-  const [scope, setScope] = useState<ModelScope>(
-    () => target?.scope ?? { kind: "pi", profileId: null },
-  );
-  const [context, setContext] = useState<ModelContext>(target?.context ?? {});
+  const [scope, setScope] = useState<ModelScope>(() => ({ kind: "pi", profileId: null }));
+  const [context, setContext] = useState<ModelContext>({});
   const [dirty, setDirty] = useState(false);
   const [switchError, setSwitchError] = useState(false);
   const option = options.find((o) => modelScopeKey(o.scope) === modelScopeKey(scope));
@@ -106,7 +97,6 @@ export function ModelManagement({
   const inventory = useModelCatalog(
     { scope, context, ...(profile ? { expectedProfileRevision: profile.revision } : {}) },
     active,
-    target?.known,
   );
   const projectPath = contextProjectPath(context, projects, tasks);
   const configuredDefault =
@@ -130,14 +120,9 @@ export function ModelManagement({
       setSwitchError(false);
     }
   };
-  const workspaceItems = [
-    HOME,
-    ...(target?.context.taskId ? ["current-task"] : []),
-    ...projects.map((p) => p.id),
-  ];
+  const workspaceItems = [HOME, ...projects.map((p) => p.id)];
   const workspaceLabel = (id: string) => {
     if (id === HOME) return "Server home";
-    if (id === "current-task") return "Current task workspace";
     const project = projects.find((p) => p.id === id);
     return project ? projectOptionLabel(project) : id;
   };
@@ -167,16 +152,9 @@ export function ModelManagement({
         </Combobox>
         <Combobox
           items={workspaceItems}
-          value={context.taskId ? "current-task" : (context.projectId ?? HOME)}
+          value={context.projectId ?? HOME}
           onValueChange={(id) => {
-            if (id)
-              setContext(
-                id === HOME
-                  ? {}
-                  : id === "current-task"
-                    ? { taskId: target?.context.taskId }
-                    : { projectId: id },
-              );
+            if (id) setContext(id === HOME ? {} : { projectId: id });
           }}
           autoHighlight
           itemToStringLabel={workspaceLabel}
@@ -185,9 +163,7 @@ export function ModelManagement({
           }
         >
           <ComboboxButton layout="bounded" aria-label="Catalog workspace">
-            {context.taskId
-              ? "Current task workspace"
-              : (projects.find((p) => p.id === context.projectId)?.name ?? "Server home")}
+            {projects.find((p) => p.id === context.projectId)?.name ?? "Server home"}
           </ComboboxButton>
           <ComboboxContent>
             <div className="p-1">
@@ -202,8 +178,6 @@ export function ModelManagement({
                       Server home
                     </ComboboxItem>
                   );
-                if (id === "current-task")
-                  return <ComboboxItem value="current-task">Current task workspace</ComboboxItem>;
                 const project = projects.find((p) => p.id === id);
                 if (!project) return null;
                 return (
@@ -890,13 +864,6 @@ function ModelPolicyEditor({
             disabled: true,
           }))}
           onModel={() => undefined}
-          unavailable="Preview only. Thinking levels come from the running agent."
-          emptyMessage="No models pass this draft's rules."
-          footer={
-            <span className="text-xs text-muted-foreground">
-              Preview of unsaved menu visibility. No session is changed.
-            </span>
-          }
           onClose={() => setPreview(false)}
           finalFocus={previewButton}
         />

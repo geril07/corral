@@ -178,10 +178,13 @@ test("both chat picker chords apply on a running chat, and the picker closes whe
   await expect.element(modelDialog()).not.toBeInTheDocument();
   await expect.element(page.getByRole("button", { name: "Model Stub Two" })).toBeVisible();
 
-  // The reasoning chord opens it too, and a level applies and closes.
+  // The reasoning chord opens it too; a level applies and keeps the picker open.
   await prefixShifted("m");
   await expect.element(reasoningDialog()).toBeVisible();
   await reasoningDialog().getByRole("button", { name: "high" }).click();
+  await expect.element(reasoningDialog()).toBeVisible();
+  await expect.element(reasoningDialog().getByRole("button", { name: "high" })).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
   await expect.element(reasoningDialog()).not.toBeInTheDocument();
   await expect.element(page.getByRole("button", { name: "Reasoning high" })).toBeVisible();
 

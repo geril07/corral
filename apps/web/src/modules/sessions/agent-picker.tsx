@@ -13,8 +13,6 @@ import {
   defaultLaunch,
   launchChoice,
   launchKey,
-  launchModel,
-  launchName,
   launchProblem,
   launchView,
   type AgentLaunchChoice,
@@ -114,25 +112,13 @@ export function AgentPicker({
       }
       busy={busy || waiting}
       footer={
-        <>
-          <p className="m-0" aria-label="launch choice">
-            {selection.profile
-              ? `${launchName(selection)}: ${selection.kind}, ${launchModel(selection) ?? "the agent's native default"}${selection.profile.provider ? `, provider ${selection.profile.provider}` : ""}.`
-              : selection.model.trim()
-                ? `${selection.kind} with model ${launchModel(selection)}.`
-                : `${selection.kind} with the agent\u0027s native defaults.`}
-          </p>
-          <LaunchViewControls
-            value={effectiveView}
-            kind={selection.kind}
-            chatDrivers={chatDrivers}
-            disabled={busy}
-            onChange={setView}
-          />
-          {waiting && (
-            <p className="m-0 text-xs text-muted-foreground">Loading agent capabilities…</p>
-          )}
-        </>
+        <LaunchViewControls
+          value={effectiveView}
+          kind={selection.kind}
+          chatDrivers={chatDrivers}
+          disabled={busy}
+          onChange={setView}
+        />
       }
     />
   );

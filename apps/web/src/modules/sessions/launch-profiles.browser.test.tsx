@@ -73,7 +73,7 @@ async function startedAgent(client: CorralClient, kind: Session["kind"]): Promis
   return sessionOf(client, kind);
 }
 
-test("a named profile and a typed model reach the fake CLI and stay on the session", async () => {
+test("a named profile's model reaches the fake CLI and stays on the session", async () => {
   const { client, project } = await appWithProject(newClient());
   await taskWithShell(client, project.id, "Profiled");
   await applyConfig(client, PROFILES, 2);
@@ -81,7 +81,6 @@ test("a named profile and a typed model reach the fake CLI and stay on the sessi
   await openAgentSessionPicker("terminal");
   await expect.element(picker()).toBeVisible();
   await picker().getByRole("radio", { name: "Claude gateway" }).click();
-  await picker().getByRole("textbox", { name: "Model override" }).fill("claude-opus-4-1");
   await userEvent.keyboard("{Enter}");
 
   await expect.element(picker()).not.toBeInTheDocument();
@@ -89,12 +88,12 @@ test("a named profile and a typed model reach the fake CLI and stay on the sessi
   expect(session.launch).toMatchObject({
     kind: "claude",
     profile: { id: "claude-gateway", name: "Claude gateway" },
-    model: "claude-opus-4-1",
+    model: "claude-sonnet-4-5",
     provider: null,
   });
   await expect
     .poll(() => argvOf(session.id))
-    .toEqual([["--model", "claude-opus-4-1", "--session-id", session.agentSessionId]]);
+    .toEqual([["--model", "claude-sonnet-4-5", "--session-id", session.agentSessionId]]);
   await expect.poll(screenText).toContain("fake claude ready");
 
   // The tab names the agent; the launch snapshot above carries the profile and model.
@@ -103,7 +102,7 @@ test("a named profile and a typed model reach the fake CLI and stay on the sessi
 
   // Stop, then change the profile in the file: the conversation keeps its snapshot.
   await prefixThen("x");
-  await expect.element(stoppedPane()).toMatchTextContent("Claude gateway · claude-opus-4-1");
+  await expect.element(stoppedPane()).toMatchTextContent("Claude gateway · claude-sonnet-4-5");
 
   await applyConfig(
     client,
@@ -115,11 +114,11 @@ model = "claude-haiku-4"
 `,
     1,
   );
-  await expect.element(stoppedPane()).toMatchTextContent("Claude gateway · claude-opus-4-1");
+  await expect.element(stoppedPane()).toMatchTextContent("Claude gateway · claude-sonnet-4-5");
   await expect.element(stoppedPane()).not.toMatchTextContent("claude-haiku-4");
   expect(sessionOf(client, "claude").launch).toMatchObject({
     profile: { name: "Claude gateway" },
-    model: "claude-opus-4-1",
+    model: "claude-sonnet-4-5",
   });
 });
 
@@ -174,7 +173,6 @@ test("a profile removed from the live config cannot fall back to a native launch
 
   await openAgentSessionPicker("terminal");
   await picker().getByRole("radio", { name: "Claude gateway" }).click();
-  await picker().getByRole("textbox", { name: "Model override" }).fill("claude-opus-4-1");
   await applyConfig(
     client,
     '[profiles.codex-work]\nname = "Codex work"\nagent = "codex"\nmodel = "gpt-5-codex"\n',
@@ -184,9 +182,6 @@ test("a profile removed from the live config cannot fall back to a native launch
   await expect
     .element(picker().getByRole("alert"))
     .toMatchTextContent("no longer in the config file");
-  await expect
-    .element(picker().getByRole("textbox", { name: "Model override" }))
-    .toHaveValue("claude-opus-4-1");
   const start = picker().getByRole("option").last();
   await expect.element(start).toBeDisabled();
   const before = client.sessions.getSnapshot().sessions.length;
@@ -201,7 +196,6 @@ test("a profile removed from the live config cannot fall back to a native launch
 
   // Recovery needs an explicit reselect; the stale draft is not silently replaced.
   await picker().getByRole("radio", { name: "Codex work" }).click();
-  await picker().getByRole("textbox", { name: "Model override" }).fill("");
   await expect.element(start).toBeEnabled();
   await start.click();
   await expect.element(picker()).not.toBeInTheDocument();
@@ -412,6 +406,9 @@ test("the live picker follows model-specific thinking and another profile starts
     .element(models.getByRole("button", { name: "low", exact: true }))
     .not.toBeInTheDocument();
   await models.getByRole("button", { name: "max", exact: true }).click();
+  await expect.element(models).toBeVisible();
+  await expect.element(models.getByRole("button", { name: "max", exact: true })).toHaveFocus();
+  await userEvent.keyboard("{Escape}");
   await expect.element(models).not.toBeInTheDocument();
   await expect.element(page.getByRole("button", { name: "Reasoning max" })).toBeVisible();
   await expect.element(message).toHaveValue("Keep the original chat draft");
