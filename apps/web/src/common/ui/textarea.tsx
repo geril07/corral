@@ -18,9 +18,6 @@ const textareaVariants = cva(
         // (`layout.md`, **Chat**). Font, border and focus stay stock; the padding is the composer
         // inset (`ui-kit.md`, **Input padding**).
         chat: "min-h-14 max-h-52 overflow-y-auto px-4 py-3",
-        // The Changes tab's commit message: one rest line in a toolbar row, growing as it is
-        // typed (`layout.md`, **Changes**). Stock font, padding, border and focus.
-        commit: "min-h-8",
       },
     },
   },
