@@ -89,15 +89,18 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
   **20×20** at inset **4** and appears on hover or keyboard focus only. Two inactive neighbours
   share a **1.5×12** separator.
 - Tabs keep a **72** px minimum and then scroll horizontally with **24** px edge fades; the active
-  tab is scrolled into view. The trailing `+` and the `Changes` action do not scroll away.
+  tab is scrolled into view. The `+` follows the last tab inside that scroller and scrolls with
+  the tabs; `Changes` stays pinned in the trailing area.
 - The first tab of the main group is the task's **primary** session: `Task.primarySessionId`,
   created with the task. Moving that tab between groups is refused, so the primary stays first;
   its close control stays absent and only the destructive `Remove session…` removes it.
 - The rest of the tabs are sessions (an agent or a shell) and the task's `Changes`. A file tab
   promoted from a preview is not built yet. Chat and Terminal are **one** tab: the same session
-  switches view in place, and a both-live agent still has one tab. A task with no sessions keeps
-  the strip's `+`/`Changes` actions and repeats the same `+` add-session menu in the empty pane,
-  never a fake tab.
+  switches view in place, and a both-live agent still has one tab. A new session starts from the
+  `+` beside the last tab: a plain click starts a shell in the task's workspace, and the chevron
+  beside it opens `Agent…`; `prefix c`/`prefix s` still work and the control's tooltip names both.
+  A task with no sessions keeps the strip's `+`/`Changes` actions and repeats the full add-session
+  menu (`Shell`, `Agent…`) in the empty pane, never a fake tab.
 - Session tabs carry a number **1–9** counted over the session tabs inside their group; `Changes`
   carries no number and no status glyph. Every session tab's glyph slot shows the tool or shell
   logo, a working, blocked or error glyph, and a failed or unresumable session uses the error

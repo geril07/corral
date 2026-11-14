@@ -28,6 +28,11 @@ function Harness({ count = 4 }: { count?: number }) {
         items={items(count, selected)}
         onSelect={setSelected}
         onClose={() => undefined}
+        add={
+          <button type="button" aria-label="Add session">
+            +
+          </button>
+        }
       />
     </div>
   );
@@ -101,6 +106,45 @@ test("the strip scrolls with edge fades and keeps the selected tab in view", asy
   await expect.poll(() => scroll.scrollLeft).toBeGreaterThan(0);
   const startFade = container.querySelector<HTMLElement>('.visual-tab-fade[data-edge="start"]')!;
   await expect.poll(() => startFade.getAttribute("data-visible")).toBe("true");
+  await unmount();
+});
+
+test.for([1, 8, 20])(
+  "the add control follows the last of %i tabs inside the scroller",
+  async (count) => {
+    const { container, unmount } = await render(<Harness count={count} />);
+    const scroll = container.querySelector<HTMLElement>(".visual-tab-scroll")!;
+    const tablist = container.querySelector<HTMLElement>('[role="tablist"]')!;
+    const add = page.getByRole("button", { name: "Add session" }).element();
+    const tabs = [...container.querySelectorAll<HTMLElement>(".visual-tab")];
+    expect(tabs).toHaveLength(count);
+    // The tablist holds exactly the tabs; the add control is its sibling inside the scroller.
+    expect(tablist.querySelectorAll(".visual-tab")).toHaveLength(count);
+    expect(tablist.querySelector('[aria-label="Add session"]')).toBeNull();
+    expect(tablist.nextElementSibling?.contains(add)).toBe(true);
+    expect(scroll.contains(add)).toBe(true);
+    const gap = add.getBoundingClientRect().left - tabs.at(-1)!.getBoundingClientRect().right;
+    expect(Math.round(gap)).toBeGreaterThanOrEqual(6);
+    expect(Math.round(gap)).toBeLessThanOrEqual(8);
+    await unmount();
+  },
+);
+
+test("the add control overflows with the strip and scrolls back into view", async () => {
+  const { container, unmount } = await render(<Harness count={20} />);
+  const scroll = container.querySelector<HTMLElement>(".visual-tab-scroll")!;
+  const add = page.getByRole("button", { name: "Add session" }).element();
+  expect(scroll.scrollWidth).toBeGreaterThan(scroll.clientWidth);
+  // The add control may scroll out, like a browser's tab-strip plus: it goes with the strip.
+  expect(add.getBoundingClientRect().left).toBeGreaterThan(scroll.getBoundingClientRect().right);
+  scroll.scrollLeft = scroll.scrollWidth;
+  await expect
+    .poll(() => {
+      const box = add.getBoundingClientRect();
+      const view = scroll.getBoundingClientRect();
+      return box.left >= view.left && box.right <= view.right + 1;
+    })
+    .toBe(true);
   await unmount();
 });
 

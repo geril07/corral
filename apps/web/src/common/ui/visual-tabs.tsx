@@ -107,13 +107,16 @@ function TabButton({
 /**
  * One working-area strip: 28 px tabs in a 40 px band, content-width down to 72 and then a
  * horizontal scroll with edge fades; the active tab is scrolled into view. The close control
- * shares the trailing 20 px slot and appears on hover or keyboard focus only.
+ * shares the trailing 20 px slot and appears on hover or keyboard focus only. `add` is a sibling
+ * after the tab list inside the scroller, so it follows the last tab and may scroll out; the
+ * tablist itself holds exactly the tabs.
  */
 export function VisualTabStrip({
   label,
   items,
   onSelect,
   onClose,
+  add,
   trailing,
   position = "top",
 }: {
@@ -121,6 +124,7 @@ export function VisualTabStrip({
   items: readonly VisualTabItem[];
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
+  add?: ReactNode;
   trailing?: ReactNode;
   position?: "top" | "bottom";
 }) {
@@ -191,44 +195,45 @@ export function VisualTabStrip({
         <div
           className="visual-tab-scroll"
           ref={scroll}
-          role="tablist"
-          aria-label={label}
           onMouseDown={(event) => event.preventDefault()}
         >
-          {items.map((item) => (
-            <div
-              key={item.id}
-              className="visual-tab"
-              data-selected={item.selected ? "true" : undefined}
-            >
-              {item.menu === undefined ? (
-                <TabButton item={item} onSelect={onSelect} onStep={step} />
-              ) : (
-                <RowMenu
-                  label={item.menuLabel ?? item.label}
-                  trigger={
-                    <span className="visual-tab-trigger">
-                      <TabButton item={item} onSelect={onSelect} onStep={step} />
-                    </span>
-                  }
-                >
-                  {item.menu}
-                </RowMenu>
-              )}
-              {item.canClose && (
-                <button
-                  type="button"
-                  className="visual-tab-close"
-                  aria-label={`Close ${item.label} tab`}
-                  title={`Close ${item.label} tab`}
-                  tabIndex={-1}
-                  onClick={() => onClose(item.id)}
-                >
-                  <Icon name="close" />
-                </button>
-              )}
-            </div>
-          ))}
+          <div className="visual-tab-list" role="tablist" aria-label={label}>
+            {items.map((item) => (
+              <div
+                key={item.id}
+                className="visual-tab"
+                data-selected={item.selected ? "true" : undefined}
+              >
+                {item.menu === undefined ? (
+                  <TabButton item={item} onSelect={onSelect} onStep={step} />
+                ) : (
+                  <RowMenu
+                    label={item.menuLabel ?? item.label}
+                    trigger={
+                      <span className="visual-tab-trigger">
+                        <TabButton item={item} onSelect={onSelect} onStep={step} />
+                      </span>
+                    }
+                  >
+                    {item.menu}
+                  </RowMenu>
+                )}
+                {item.canClose && (
+                  <button
+                    type="button"
+                    className="visual-tab-close"
+                    aria-label={`Close ${item.label} tab`}
+                    title={`Close ${item.label} tab`}
+                    tabIndex={-1}
+                    onClick={() => onClose(item.id)}
+                  >
+                    <Icon name="close" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          {add !== undefined && add !== null && <div className="visual-tab-add">{add}</div>}
         </div>
         <span
           className="visual-tab-fade"
@@ -250,30 +255,65 @@ export function VisualTabStrip({
   );
 }
 
-/** The strip's trailing plus, opening the same compact menu the workspace uses elsewhere. */
+/**
+ * The strip's add control. With `onAdd` it is a split control as browsers have beside the last
+ * tab: the plus itself is the common action, and the adjacent chevron opens the menu beside it.
+ * Without `onAdd` the whole control opens the menu, which is what the empty workspace repeats.
+ */
 export function VisualAddMenu({
   label,
   tooltip,
+  menuLabel,
+  onAdd,
   children,
 }: {
   label: string;
   /** The compact hint with the two prefix chords; the trigger's name stays the short label. */
   tooltip?: ReactNode;
+  /** The chevron's name when `onAdd` splits the control. */
+  menuLabel?: string;
+  /** The plain click; without it the whole control opens the menu. */
+  onAdd?: (() => void) | undefined;
   children: ReactNode;
 }) {
+  if (onAdd === undefined) {
+    return (
+      <DropdownMenu>
+        <Hint content={tooltip}>
+          <DropdownMenuTrigger
+            render={
+              <button type="button" className="visual-icon-button" aria-label={label}>
+                <Icon name="add" />
+              </button>
+            }
+          />
+        </Hint>
+        <DropdownMenuContent align="end">{children}</DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
   return (
-    <DropdownMenu>
-      <Hint content={tooltip}>
-        <DropdownMenuTrigger
-          render={
-            <button type="button" className="visual-icon-button" aria-label={label}>
-              <Icon name="add" />
-            </button>
-          }
-        />
-      </Hint>
-      <DropdownMenuContent align="end">{children}</DropdownMenuContent>
-    </DropdownMenu>
+    <Hint content={tooltip}>
+      <span className="visual-add-split">
+        <button type="button" className="visual-icon-button" aria-label={label} onClick={onAdd}>
+          <Icon name="add" />
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <button
+                type="button"
+                className="visual-icon-button visual-add-menu"
+                aria-label={menuLabel ?? label}
+              >
+                <Icon name="collapse" />
+              </button>
+            }
+          />
+          <DropdownMenuContent align="end">{children}</DropdownMenuContent>
+        </DropdownMenu>
+      </span>
+    </Hint>
   );
 }
 

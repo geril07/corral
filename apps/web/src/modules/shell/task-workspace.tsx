@@ -306,7 +306,7 @@ export function useTaskWorkspace({
     requestAnimationFrame(() => {
       document
         .querySelector<HTMLButtonElement>(
-          '.visual-tab-trailing [aria-label="Add session"], .visual-workspace-empty [aria-label="Add session"]',
+          '.visual-tab-add [aria-label="Add session"], .visual-workspace-empty [aria-label="Add session"]',
         )
         ?.focus();
     });
@@ -939,34 +939,37 @@ export function useTaskWorkspace({
   };
 
   const changesBinding = bindingOf(config, "changes");
-  const addSessionMenu = (
-    <>
-      <DropdownMenuItem onClick={() => void startSession("shell")}>Shell</DropdownMenuItem>
-      <DropdownMenuItem onClick={openAgentPicker}>Agent…</DropdownMenuItem>
-    </>
-  );
+  const addSessionTooltip = `Add session · ${formatBinding(config, "new-terminal")} / ${formatBinding(config, "new-agent")}`;
+  const agentItem = <DropdownMenuItem onClick={openAgentPicker}>Agent…</DropdownMenuItem>;
+  // Beside the last tab, the plus is the common action and the chevron is the one menu that
+  // remains; the empty workspace below repeats the whole add-session menu instead.
   const addSessionControl = (
     <VisualAddMenu
       label="Add session"
-      tooltip={`Add session · ${formatBinding(config, "new-terminal")} / ${formatBinding(config, "new-agent")}`}
+      menuLabel="New agent session"
+      tooltip={addSessionTooltip}
+      onAdd={() => void startSession("shell")}
     >
-      {addSessionMenu}
+      {agentItem}
+    </VisualAddMenu>
+  );
+  const emptyAddSessionControl = (
+    <VisualAddMenu label="Add session" tooltip={addSessionTooltip}>
+      <DropdownMenuItem onClick={() => void startSession("shell")}>Shell</DropdownMenuItem>
+      {agentItem}
     </VisualAddMenu>
   );
   const trailing = (
-    <>
-      <VisualIconButton
-        label="Changes"
-        icon="changes"
-        onClick={openChanges}
-        shortcut={
-          changesBinding === null
-            ? undefined
-            : { prefix: config.keys.prefix, binding: changesBinding }
-        }
-      />
-      {addSessionControl}
-    </>
+    <VisualIconButton
+      label="Changes"
+      icon="changes"
+      onClick={openChanges}
+      shortcut={
+        changesBinding === null
+          ? undefined
+          : { prefix: config.keys.prefix, binding: changesBinding }
+      }
+    />
   );
 
   const strip = (group: TaskTabGroup) => (
@@ -975,7 +978,8 @@ export function useTaskWorkspace({
       items={sessionItems(group)}
       position={position}
       onSelect={select}
-      onClose={close}
+      onClose={(id) => close(id)}
+      add={group === "main" ? addSessionControl : null}
       trailing={group === "main" ? trailing : null}
     />
   );
@@ -1066,7 +1070,7 @@ export function useTaskWorkspace({
             // oxlint-disable-next-line react/refs -- the anchors are passed to ChatView, not read here
             sessionPane(mainSession, "main")
           ) : (
-            <div className="visual-main-empty visual-workspace-empty">{addSessionControl}</div>
+            <div className="visual-main-empty visual-workspace-empty">{emptyAddSessionControl}</div>
           )}
         </div>
       </VisualTabPanel>

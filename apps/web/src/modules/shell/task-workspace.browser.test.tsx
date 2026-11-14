@@ -85,16 +85,71 @@ test("a task opens with its primary agent first and a shell beside it, in one st
   expect(
     Math.abs(band.getBoundingClientRect().left - surface.getBoundingClientRect().left),
   ).toBeLessThan(1);
-  // The trailing controls share the band and are not clipped by the reserved toggle slot.
+  // The add control follows the last tab inside the scroller; Changes stays in the trailing area.
   await expect.element(page.getByRole("button", { name: "Changes" })).toBeVisible();
-  await expect.element(page.getByRole("button", { name: "Add session" })).toBeVisible();
-  await userEvent.hover(page.getByRole("button", { name: "Add session" }));
+  const scroller = screen.container.querySelector<HTMLElement>(".visual-tab-scroll")!;
+  const add = page.getByRole("button", { name: "Add session" }).element();
+  const lastTab = sessionTabs().getByRole("tab").elements().at(-1)!;
+  expect(scroller.contains(add)).toBe(true);
+  expect(add.closest(".visual-tab-add")).not.toBeNull();
+  expect(lastTab.getBoundingClientRect().right).toBeLessThanOrEqual(
+    add.getBoundingClientRect().left,
+  );
+  // The tablist holds exactly the tabs, and never the add control.
+  expect(sessionTabs().element().querySelector('[aria-label="Add session"]')).toBeNull();
+  expect(sessionTabs().getByRole("tab").elements()).toHaveLength(2);
+  await userEvent.hover(add);
   await expect
     .poll(() => document.querySelector('[role="tooltip"]')?.textContent ?? "")
     .toContain("alt+a c");
   await expect
     .poll(() => document.querySelector('[role="tooltip"]')?.textContent ?? "")
     .toContain("alt+a s");
+});
+
+test("a plain click on the add control starts a shell, and its chevron opens Agent…", async () => {
+  const seeded = await seed();
+  await open(seeded);
+  await expect.element(sessionTab(/^shell/)).toBeVisible();
+  const before = seeded.client.sessions.getSnapshot().sessions.length;
+
+  // A plain click is the common action: one shell in this task's workspace, no menu.
+  await page.getByRole("button", { name: "Add session" }).click();
+  await expect.element(page.getByRole("menuitem", { name: "Agent…" })).not.toBeInTheDocument();
+  await expect.poll(() => sessionTabs().getByRole("tab").elements()).toHaveLength(3);
+  await expect.element(sessionTab(/^shell 2/)).toHaveAttribute("aria-selected", "true");
+  await expect.poll(() => seeded.client.sessions.getSnapshot().sessions.length).toBe(before + 1);
+  const started = seeded.client.sessions
+    .getSnapshot()
+    .sessions.find(
+      (session) =>
+        session.taskId === seeded.task.id &&
+        session.id !== seeded.shell.id &&
+        session.id !== seeded.primary.id,
+    );
+  expect(started).toMatchObject({ kind: "shell", state: "running" });
+
+  // The adjacent control is the one menu; the tooltip still names both chords.
+  const options = page.getByRole("button", { name: "New agent session" });
+  await userEvent.hover(options);
+  await expect
+    .poll(() => document.querySelector('[role="tooltip"]')?.textContent ?? "")
+    .toMatch(/alt\+a c.*alt\+a s/);
+  await options.click();
+  await expect.element(page.getByRole("menuitem", { name: "Agent…" })).toBeVisible();
+  await expect.element(page.getByRole("menuitem", { name: "Shell" })).not.toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("menuitem", { name: "Agent…" })).not.toBeInTheDocument();
+});
+
+test("keyboard order reaches the add control after the last tab", async () => {
+  const seeded = await seed();
+  await open(seeded);
+  const last = sessionTab(/^shell/);
+  await userEvent.click(last);
+  last.element().focus();
+  await userEvent.keyboard("{Tab}");
+  await expect.element(page.getByRole("button", { name: "Add session" })).toHaveFocus();
 });
 
 test("a task with no sessions shows the strip with only its actions, never a fake tab", async () => {
@@ -109,7 +164,7 @@ test("a task with no sessions shows the strip with only its actions, never a fak
   });
 
   await renderApp(newClient(), [`/?project=${project.id}&task=${task.id}`]);
-  await expect.element(sessionTabs()).toBeVisible();
+  await expect.element(sessionTabs()).toBeInTheDocument();
   expect(sessionTabs().getByRole("tab").elements()).toHaveLength(0);
   await expect.element(page.getByRole("button", { name: "Changes" })).toBeVisible();
   // The strip keeps its menu and the empty pane promotes the same one.
