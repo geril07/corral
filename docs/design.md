@@ -246,12 +246,13 @@ rules are in `ui-kit.md`.
   produces can navigate the window. An older server without the file procedures shows one muted
   line and leaves paths as plain text. Security and the workspace allow-list: **Local trust
   boundary** above.
-- **Known limits.** Task search is the sidebar's `Search tasks…` row and `prefix f`: it filters the
-  tasks the client already watches and makes a settled task active, with no server search. A command
-  palette is not mounted; its keymap and config action remain, but no palette is shown. Favourites
-  list inside the selected instance; a picker-wide view would require eager discovery. Long values
-  truncate without losing their accessible name. Interface text scale is 80–140% per device;
-  terminal text is fixed.
+- **Known limits.** Task search is the sidebar's `Search tasks…` row and `prefix f`: a command
+  palette over the tasks the client already watches, scratch tasks included, with no server search.
+  It opens a task without starting anything; starting work in a settled task makes it active. The
+  action command palette is not mounted; its keymap and config action remain, but no palette is
+  shown. Favourites list inside the selected instance; a picker-wide view would require eager
+  discovery. Long values truncate without losing their accessible name. Interface text scale is
+  80–140% per device; terminal text is fixed.
   Task drafts are one device-local record shared by every window: two windows that both type keep
   the last write. A local file link starts a loose terminal the routed shell cannot show
   (`ui-rebuild.md`).

@@ -14,19 +14,20 @@ const task = (
   id: string,
   title: string,
   options: {
-    projectId?: string;
-    branch?: string;
+    /** `null` is a scratch task. */
+    projectId?: string | null;
+    branch?: string | null;
     state?: Task["state"];
     createdAt?: number;
   } = {},
 ): Task => ({
   id,
-  projectId: options.projectId ?? "p1",
+  projectId: options.projectId === undefined ? "p1" : options.projectId,
   title,
   titleSource: "user",
   prompt: null,
   primarySessionId: null,
-  branch: options.branch ?? `branch-${id}`,
+  branch: options.branch === undefined ? `branch-${id}` : options.branch,
   workspacePath: `/work/${id}`,
   ownsWorktree: true,
   state: options.state ?? "active",
@@ -138,4 +139,30 @@ test("a task whose project has not arrived is left out instead of crashing", () 
   );
 
   expect(titles(results)).toEqual(["Known"]);
+});
+
+test("a scratch task is kept without a project, in browse order and behind its own fields", () => {
+  const projects = [project("p1", "corral")];
+  const tasks = [
+    task("a1", "Active project work", { createdAt: 20 }),
+    task("s1", "Scratch settled", { projectId: null, state: "settled", createdAt: 30 }),
+    task("a2", "Scratch active", { projectId: null, branch: "fix/login", createdAt: 10 }),
+  ];
+
+  const browsed = searchTasks("", projects, tasks);
+  expect(titles(browsed)).toEqual(["Active project work", "Scratch active", "Scratch settled"]);
+  expect(browsed.map(({ project: owner }) => owner?.name)).toEqual([
+    "corral",
+    undefined,
+    undefined,
+  ]);
+
+  // A scratch task is found by its title, branch or state, and a project word never matches one.
+  expect(titles(searchTasks("scratch", projects, tasks))).toEqual([
+    "Scratch settled",
+    "Scratch active",
+  ]);
+  expect(titles(searchTasks("login", projects, tasks))).toEqual(["Scratch active"]);
+  // "settled" matches the scratch task's state, but the project word cannot match a scratch one.
+  expect(titles(searchTasks("settled corral", projects, tasks))).toEqual([]);
 });

@@ -23,7 +23,7 @@ function Command({ className, ...props }: React.ComponentProps<typeof CommandPri
 
 function CommandDialog({
   title = "Command Palette",
-  description = "Search for a command to run...",
+  description,
   children,
   className,
   showCloseButton = false,
@@ -31,6 +31,7 @@ function CommandDialog({
   ...props
 }: Omit<React.ComponentProps<typeof Dialog>, "children"> & {
   title?: string;
+  /** Only a dialog that has a sentence of its own gets one; a palette's list speaks for itself. */
   description?: string;
   className?: string;
   showCloseButton?: boolean;
@@ -41,7 +42,7 @@ function CommandDialog({
     <Dialog {...props}>
       <DialogHeader className="sr-only">
         <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
+        {description !== undefined && <DialogDescription>{description}</DialogDescription>}
       </DialogHeader>
       <DialogContent
         className={cn(
@@ -81,12 +82,23 @@ function CommandInput({
   );
 }
 
-function CommandList({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.List>) {
+function CommandList({
+  className,
+  variant = "content",
+  ...props
+}: React.ComponentProps<typeof CommandPrimitive.List> & {
+  /**
+   * `fixed` holds one box whatever the result count, so a palette never resizes while it filters;
+   * `content` shrinks to its rows.
+   */
+  variant?: "content" | "fixed";
+}) {
   return (
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        "no-scrollbar max-h-72 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none",
+        "no-scrollbar scroll-py-1 overflow-x-hidden overflow-y-auto outline-none",
+        variant === "fixed" ? "h-72" : "max-h-72",
         className,
       )}
       {...props}

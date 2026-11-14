@@ -3,11 +3,13 @@ import type { Project, Task } from "@corral/protocol/rpc";
 /** A task and the project it belongs to, as the task search shows and opens it. */
 export interface TaskSearchResult {
   task: Task;
-  project: Project;
+  /** Absent for a scratch task, which the search shows under `No project`. */
+  project?: Project;
 }
 
 /**
- * Tasks whose parent project is missing from the list yet are left out, as in the sidebar.
+ * A scratch task (`projectId: null`) is kept without a project; a task whose parent project has
+ * not arrived yet is left out, as in the sidebar.
  *
  * An empty query browses: active tasks before settled ones, each newest first, ties by title
  * and then id so the order never depends on the server's list order. A non-empty query is a
@@ -23,7 +25,11 @@ export function searchTasks(
   const projectById = new Map(projects.map((project) => [project.id, project]));
   const rows: TaskSearchResult[] = [];
   for (const task of tasks) {
-    const project = task.projectId === null ? undefined : projectById.get(task.projectId);
+    if (task.projectId === null) {
+      rows.push({ task });
+      continue;
+    }
+    const project = projectById.get(task.projectId);
     if (project) rows.push({ task, project });
   }
 
@@ -64,7 +70,7 @@ function matchScore(word: string, { task, project }: TaskSearchResult): number {
   if (title.split(/\s+/).some((part) => part.startsWith(word))) return 80;
   if (title.includes(word)) return 60;
   if (task.branch?.toLowerCase().includes(word)) return 40;
-  if (project.name.toLowerCase().includes(word)) return 20;
+  if (project?.name.toLowerCase().includes(word)) return 20;
   if (task.state === word) return 10;
   return 0;
 }
