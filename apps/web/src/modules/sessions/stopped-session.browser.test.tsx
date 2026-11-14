@@ -87,7 +87,7 @@ test("a status-only error still names its reason in the pane", async () => {
     .toMatchTextContent("error: claude crashed");
 });
 
-test("an unresumable session says it will start a new conversation", async () => {
+test("an unresumable session keeps the new-conversation button without the note", async () => {
   await render(
     <StoppedSession session={session("unresumable", "codex")} onRestart={() => undefined} />,
   );
