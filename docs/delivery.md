@@ -21,7 +21,8 @@ A slice runs the same way every time.
    gate: `pnpm check`, the focused browser suites the change can break, format and lint of the
    touched files, and the UI class gate. A worker that cannot run something says so in its report;
    it does not hand unfinished checks to a reviewer. Doc updates for the changed behaviour are part
-   of the slice.
+   of the slice. A UI change also carries before/after screenshots at 100% and 140% interface text
+   in the PR; the worker or a separate screenshot agent captures them from the reviewed tree.
 2. **UI/UX review.** A `reviewer` reads the slice as a product: does it match the reference it
    claims, is the hierarchy, spacing, iconography and copy consistent, does every state look and
    behave right, is anything invented that a reference would have answered. Findings are ordered
@@ -29,8 +30,9 @@ A slice runs the same way every time.
 3. **Technical review.** A second `reviewer` reads the same change as engineering: data shape and
    ownership, protocol and state, design-system reuse instead of one-off control skins, edge cases,
    test quality, docs versus code. Same output: P0–P3, P0/P1 fixed before merge.
-4. **Merge.** The orchestrator rebases onto the feature branch, runs the gate once more on the
-   combined tree, and opens the running app for the owner.
+4. **Merge.** The orchestrator rebases onto the feature branch, has the final gate run on the
+   combined tree, and merges after the owner's visual OK. The slice is recorded in
+   `docs/ui-rebuild.md`.
 
 Reviews run per slice. Different slices may be reviewed in parallel; within a slice the two reviews
 are sequential, so the technical reviewer reads the UI-accepted version.
@@ -58,3 +60,10 @@ Scope questions the references answer are decided during the brief. A question t
 product (a new user-visible concept, a reversed decision, a destructive path) is asked, not
 decided. Between those: ambiguity inside an accepted slice is the orchestrator's call, recorded in
 the commit message or the slice report.
+
+## Orchestrator scope
+
+The orchestrator owns the issue and PR bodies, `docs/ui-rebuild.md`, the lane order and the
+dependency map. Implementation, screenshots, the gate and both reviews are delegated to
+subagents; the orchestrator does not write code, run suites or capture screenshots itself. It
+merges after the owner's visual OK and records the slice in the status doc.
