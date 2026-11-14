@@ -33,7 +33,55 @@ function Harness({ count = 4 }: { count?: number }) {
   );
 }
 
+/** The rendered boxes of a tab's close control and the end of the label's content area. */
+function closeBoxes(tab: HTMLElement) {
+  const main = tab.querySelector<HTMLElement>(".visual-tab-main")!;
+  const close = tab.querySelector<HTMLElement>(".visual-tab-close")!;
+  const mainBox = main.getBoundingClientRect();
+  return {
+    tab: tab.getBoundingClientRect(),
+    close: close.getBoundingClientRect(),
+    glyph: close.querySelector<SVGSVGElement>("svg")!.getBoundingClientRect(),
+    contentRight: mainBox.right - Number.parseFloat(getComputedStyle(main).paddingRight),
+  };
+}
+
+/** A 28 px tab, a 20 px control around a 14 px glyph with 3 px of inset, and a 4 px label gap. */
+function expectCloseGeometry(tab: HTMLElement) {
+  const box = closeBoxes(tab);
+  expect(Math.round(box.tab.height)).toBe(28);
+  expect(Math.round(box.close.width)).toBe(20);
+  expect(Math.round(box.close.height)).toBe(20);
+  expect(Math.round(box.glyph.width)).toBe(14);
+  expect(Math.round(box.glyph.height)).toBe(14);
+  expect(box.glyph.left - box.close.left).toBeGreaterThanOrEqual(3);
+  expect(box.close.right - box.glyph.right).toBeGreaterThanOrEqual(3);
+  expect(box.glyph.top - box.close.top).toBeGreaterThanOrEqual(3);
+  expect(box.close.bottom - box.glyph.bottom).toBeGreaterThanOrEqual(3);
+  expect(box.close.left - box.contentRight).toBeGreaterThanOrEqual(4);
+}
+
+/**
+ * The kit's glyph steps are rem, so at 140 % interface text the 14 px glyph renders ~19.6 px inside
+ * the fixed 20 px control. The tab, the control and the label gap stay px; the glyph must still be
+ * centred inside the control rather than pushed out of it.
+ */
+function expectCloseAtEnlargedText(tab: HTMLElement) {
+  const box = closeBoxes(tab);
+  const closeCenterX = box.close.left + box.close.width / 2;
+  const closeCenterY = box.close.top + box.close.height / 2;
+  expect(Math.round(box.tab.height)).toBe(28);
+  expect(Math.round(box.close.width)).toBe(20);
+  expect(Math.round(box.close.height)).toBe(20);
+  expect(box.close.left - box.contentRight).toBeGreaterThanOrEqual(4);
+  expect(box.glyph.width).toBeLessThanOrEqual(box.close.width);
+  expect(box.glyph.height).toBeLessThanOrEqual(box.close.height);
+  expect(Math.abs(box.glyph.left + box.glyph.width / 2 - closeCenterX)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(box.glyph.top + box.glyph.height / 2 - closeCenterY)).toBeLessThanOrEqual(0.5);
+}
+
 test("the strip is a 40 px band with 28 px tabs and a 20 px close control on hover", async () => {
+  const previousScale = document.documentElement.style.fontSize;
   const { container, unmount } = await render(<Harness />);
   const band = container.querySelector<HTMLElement>(".visual-tab-band")!;
   const tab = container.querySelectorAll<HTMLElement>(".visual-tab")[1]!;
@@ -50,7 +98,15 @@ test("the strip is a 40 px band with 28 px tabs and a 20 px close control on hov
 
   await userEvent.hover(tab);
   await expect.poll(() => getComputedStyle(close).opacity).toBe("1");
-  await unmount();
+  expectCloseGeometry(tab);
+
+  try {
+    document.documentElement.style.fontSize = "140%";
+    expectCloseAtEnlargedText(tab);
+  } finally {
+    document.documentElement.style.fontSize = previousScale;
+    await unmount();
+  }
 });
 
 test("the strip scrolls with edge fades and keeps the selected tab in view", async () => {
