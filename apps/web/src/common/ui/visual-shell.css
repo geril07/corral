@@ -1383,6 +1383,12 @@
   cursor: default;
 }
 
+/* The control's box is px, so its glyph is px; the kit's rem steps would fill it at 140 % text. */
+.visual-tab-close > svg {
+  width: 14px;
+  height: 14px;
+}
+
 .visual-tab:hover .visual-tab-close,
 .visual-tab:focus-within .visual-tab-close {
   opacity: 1;
