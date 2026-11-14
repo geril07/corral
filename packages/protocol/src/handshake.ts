@@ -40,10 +40,15 @@ import { z } from "zod";
  * 13 requires server directory completions before project registration. Version 14 adds the
  * required `Project.defaultBaseBranch` and `Project.pinnedAt`, nullable task project/branch/
  * workspace ownership, and the model policy's `providerOrder`/`modelOrder`, plus
- * `projects.baseRefs`, and the five working-area actions (close, reopen closed, toggle
- * companion, move tab, focus companion): a version 13 daemon's projects and tasks lack required
- * fields, its model policy lacks the order arrays `orderModels` reads, and it strips the new tab
- * bindings from its exhaustive keys, so its replies are refused rather than silently misread.
+ * `projects.baseRefs`, and the working-area actions (close, toggle companion, move tab, focus
+ * companion): a version 13 daemon's projects and tasks lack required fields, its model policy
+ * lacks the order arrays `orderModels` reads, and it strips the new tab bindings from its
+ * exhaustive keys, so its replies are refused rather than silently misread. Version 14 also
+ * added a reopen-closed action and then removed it before release (the version 7 precedent:
+ * the unreleased version is still the one shape). A 14 daemon from before the removal sends
+ * that binding key; nothing parses `ConfigState` on the client, which rebuilds the record from
+ * `ActionId.options`, so the key is dropped and the chord does nothing instead of the whole
+ * reply being refused.
  */
 // Version 14 adds the project defaults, base refs, model ordering and working-area tab actions.
 export const PROTOCOL_VERSION = 14;

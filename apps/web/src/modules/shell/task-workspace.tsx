@@ -158,7 +158,7 @@ export function useTaskWorkspace({
     () => (task === undefined ? [] : sessions.filter((session) => session.taskId === task.id)),
     [sessions, task],
   );
-  const { layout, change } = useTaskTabLayout(task, ofTask);
+  const { layout, change, changeFor } = useTaskTabLayout(task, sessions);
   const { width: preferredWidth, setWidth: setPreferredWidth } = useCompanionWidth();
   const taskId = task?.id;
   // Working-area actions are per task: switching tasks starts on the main group with no old
@@ -380,7 +380,9 @@ export function useTaskWorkspace({
   /**
    * Closing a tab. The primary session is not a closable view: removing it is the destructive
    * `Remove session…` path. Any other session's close ends its session first — a shell's process
-   * group or a chat driver stops, a running turn is aborted — and only then removes the view.
+   * group or a chat driver stops, a running turn is aborted — and only then removes the view. The
+   * owning task is captured before the stop, so switching tasks during the abort grace still
+   * closes that task's tab and leaves the task now on screen alone.
    */
   const close = useCallback(
     async (id: string) => {
@@ -388,18 +390,23 @@ export function useTaskWorkspace({
       const tab = layout.tabs.find((candidate) => tabId(candidate) === id);
       if (tab === undefined) return;
       if (tab.kind === "session" && tab.sessionId === task.primarySessionId) return;
-      setFailure(undefined);
+      const owner = { id: task.id, primarySessionId: task.primarySessionId };
+      const stillOnOwner = () => taskIdRef.current === owner.id;
+      if (stillOnOwner()) setFailure(undefined);
       if (tab.kind === "session" && tab.sessionId !== undefined) {
         try {
           await client.connection.api.sessions.stop({ id: tab.sessionId });
         } catch (error) {
-          report(error);
+          if (stillOnOwner()) report(error);
           return;
         }
       }
-      const after = closeTab(layout, id, task.primarySessionId);
+      const after = closeTab(layout, id, owner.primarySessionId);
       if (after === layout) return;
-      change((current) => closeTab(current, id, task.primarySessionId));
+      changeFor(owner, (current) => closeTab(current, id, owner.primarySessionId));
+      // The owning task is closed either way; only the task on screen owns the keyboard and the
+      // selection that the removal changes underneath it.
+      if (!stillOnOwner()) return;
       const remaining = activeTab(after, tab.group);
       if (remaining !== undefined) {
         setFocusGroup(tab.group);
@@ -411,7 +418,7 @@ export function useTaskWorkspace({
       if (main !== undefined) focusTab(tabId(main));
       else focusAddSession();
     },
-    [change, client, focusAddSession, focusTab, layout, report, setFailure, setFocusGroup, task],
+    [changeFor, client, focusAddSession, focusTab, layout, report, setFailure, setFocusGroup, task],
   );
 
   const closeFocused = useCallback(() => {

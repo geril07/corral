@@ -19,10 +19,10 @@ function items(count: number, selected: string): VisualTabItem[] {
   });
 }
 
-function Harness({ count = 4 }: { count?: number }) {
+function Harness({ count = 4, width = 400 }: { count?: number; width?: number }) {
   const [selected, setSelected] = useState("tab-1");
   return (
-    <div style={{ width: 400 }}>
+    <div style={{ width }}>
       <VisualTabStrip
         label="Sessions"
         items={items(count, selected)}
@@ -129,6 +129,38 @@ test.for([1, 8, 20])(
     await unmount();
   },
 );
+
+test("tabs shrink to their 72 px minimum before the strip scrolls", async () => {
+  const natural = await render(<Harness count={8} width={1200} />);
+  const naturalWidth = natural.container
+    .querySelector<HTMLElement>(".visual-tab")!
+    .getBoundingClientRect().width;
+  await natural.unmount();
+
+  // Wider than the eight 72 px minimums and their gaps, so they compress instead of scrolling.
+  const compressed = await render(<Harness count={8} width={720} />);
+  const compressedScroll = compressed.container.querySelector<HTMLElement>(".visual-tab-scroll")!;
+  const compressedTabs = [...compressed.container.querySelectorAll<HTMLElement>(".visual-tab")];
+  const compressedWidths = compressedTabs.map((tab) => tab.getBoundingClientRect().width);
+  expect(compressedScroll.scrollWidth).toBe(compressedScroll.clientWidth);
+  expect(compressedWidths.every((width) => width > 72)).toBe(true);
+  expect(compressedWidths.every((width) => width < naturalWidth)).toBe(true);
+  const compressedAdd = page.getByRole("button", { name: "Add session" }).element();
+  expect(compressedAdd.getBoundingClientRect().left).toBeGreaterThanOrEqual(
+    compressedTabs.at(-1)!.getBoundingClientRect().right,
+  );
+  await compressed.unmount();
+
+  // Narrower than the minimums: every tab is 72 and only then does the strip scroll.
+  const minimum = await render(<Harness count={8} width={500} />);
+  const minimumScroll = minimum.container.querySelector<HTMLElement>(".visual-tab-scroll")!;
+  const minimumTabs = [...minimum.container.querySelectorAll<HTMLElement>(".visual-tab")];
+  expect(minimumTabs.every((tab) => Math.round(tab.getBoundingClientRect().width) === 72)).toBe(
+    true,
+  );
+  expect(minimumScroll.scrollWidth).toBeGreaterThan(minimumScroll.clientWidth);
+  await minimum.unmount();
+});
 
 test("the add control overflows with the strip and scrolls back into view", async () => {
   const { container, unmount } = await render(<Harness count={20} />);
