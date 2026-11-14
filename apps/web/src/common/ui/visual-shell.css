@@ -1230,6 +1230,31 @@
   display: none;
 }
 
+/* The tablist holds exactly the tabs; the add control follows it inside the scroller. */
+.visual-tab-list {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.visual-tab-add {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+/* The plus and its chevron read as one browser-like split control. */
+.visual-add-split {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.visual-add-menu {
+  width: 20px;
+}
+
 .visual-tab-trailing {
   display: flex;
   flex: 0 0 auto;
