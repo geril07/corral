@@ -9,6 +9,9 @@ The visual direction remains T3 for structure and behavior, OpenCode for visual 
 implementation per shared pattern and no invented user-visible copy. See `delivery.md` and
 `ui-kit.md` for the rules and provenance.
 
+Settle is T3-style since #277: it shelves a task and never stops its sessions; new work in a
+settled task makes it active. `design.md` owns the decision.
+
 ## Open decisions
 
 - Model favorites across instances need a display-name and cross-instance application rule.
@@ -18,14 +21,20 @@ implementation per shared pattern and no invented user-visible copy. See `delive
   which requires a prompt. Whether to expose a title control remains open.
 - Chat-start polish, including focus intent, a device-local last-used model, headline and create
   gating wording, is not authorized by this cleanup.
+- The chat picker keeps the new-launch Chat/Terminal choice in a fixed footer; whether that control
+  belongs in the picker or another surface is open (#275 review).
+- Settings → Models no longer receives the picker's task/project context; whether routed Settings
+  should know the active project is open (#275 review).
+- A view switch in a settled `handoff-only` session stops the live frontend and starts the other
+  while the task stays shelved; whether a live handoff should un-shelve is open (#277 review).
+- Starting in a settled task activates it before validation; whether a pure refusal (disabled
+  agent, changed profile) should leave it shelved is open (#277 review).
 - The following Corral-only strings remain unresolved: the four settings section descriptions
   (`settings-sections.ts`), the model-ordering paragraph (`model-management.tsx`), the task prompt
   placeholder and disabled attach/reasoning hints (`task-composer.tsx`), and the tab labels
   `Companion tabs`, `Resize companion group` and refusal lines for closing or moving the primary
   tab, moving Changes, and moving the only main tab. Reference wording for the placeholder exists;
   the disabled hints have no reference wording.
-- Settle is settled as T3 style (#277): it shelves a task and never stops its sessions; new work in a
-  settled task makes it active. `design.md` owns the decision.
 
 ## Known limitations
 
@@ -34,8 +43,9 @@ implementation per shared pattern and no invented user-visible copy. See `delive
   status and connection recovery run against the routed shell. Electron helpers and specs are
   migrated; no old or partial run is a green release gate.
 - The routed shell's Search was restored after #265: the sidebar row and `prefix f` open the task
-  finder over the tasks the client already watches. It opens an active task or resumes a settled
-  one; no server search or command palette is implied.
+  finder over the tasks the client already watches. It opens an active task or a settled one,
+  un-shelving it rather than restarting it; #274 replaces the finder with the command-palette
+  pattern.
 - The connection status left the sidebar after #269. The footer keeps its actions, the config
   problem opener and the prefix hint; the connection is a banner above the working area in both
   sidebar states, following T3's unavailable-environment banner rather than a header word. A

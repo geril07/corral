@@ -363,9 +363,9 @@ Selecting a profile or model snapshots the nonsecret choices on the session:
 }
 ```
 
-It is persisted in SQLite (`sessions.launch_spec`) and is immutable. Stop/restart, settle/resume
-and server-restart restore use the snapshot; editing or deleting the instance does not change an
-existing conversation. Referenced values are re-resolved from the server environment on every
+It is persisted in SQLite (`sessions.launch_spec`) and is immutable. Stop/restart and
+server-restart restore use the snapshot; settling a task does not launch a session. Editing or
+deleting the instance does not change an existing conversation. Referenced values are re-resolved from the server environment on every
 launch. Sessions created before this feature have no snapshot and keep their old launch behavior;
 Corral never infers a profile or model for them.
 
