@@ -233,9 +233,13 @@ test("Escape closes the modal and restores its anchor", async () => {
 function GeometryFixture({
   busy = false,
   levelsPending = false,
+  loading = false,
+  error,
 }: {
   busy?: boolean;
   levelsPending?: boolean;
+  loading?: boolean;
+  error?: string;
 }) {
   const [instance, setInstance] = useState("one");
   const [level, setLevel] = useState("medium");
@@ -264,7 +268,9 @@ function GeometryFixture({
       level={level}
       onLevel={setLevel}
       levelsPending={levelsPending}
+      loading={loading}
       busy={busy}
+      error={error}
       onClose={() => {}}
     />
   );
@@ -338,6 +344,26 @@ test("the dialog and each column keep their geometry across typing, switches and
 
   await screen.rerender(<GeometryFixture busy levelsPending />);
   expectSameGeometry(baseline, await settledGeometry());
+
+  await screen.rerender(<GeometryFixture loading />);
+  expectSameGeometry(baseline, await settledGeometry());
+});
+
+test("an error takes its own row without moving the picker's columns", async () => {
+  const screen = await render(<GeometryFixture />);
+  const baseline = await settledGeometry();
+
+  await screen.rerender(<GeometryFixture error="The server refused this model." />);
+  const failed = await settledGeometry();
+  for (const region of ["rail", "models", "thinking"] as const) {
+    expect(Math.abs(failed[region].height - baseline[region].height)).toBeLessThan(1);
+    expect(Math.abs(failed[region].width - baseline[region].width)).toBeLessThan(1);
+  }
+  expect(failed.dialog.height).toBeGreaterThan(baseline.dialog.height);
+  expect(failed.dialog.width).toBeCloseTo(baseline.dialog.width, 0);
+
+  await screen.rerender(<GeometryFixture />);
+  expectSameGeometry(baseline, await settledGeometry());
 });
 
 test("unknown levels show skeleton rows and aria-busy, never the previous levels", async () => {
@@ -370,6 +396,21 @@ test("loading, empty and unsupported states are not prose", async () => {
   expect(document.querySelector(".model-picker-levels-empty")).not.toBeNull();
   await page.getByRole("combobox", { name: "Search models" }).fill("nothing");
   expect(dialog.element().querySelectorAll("p")).toHaveLength(0);
+
+  await screen.rerender(
+    <ModelPicker
+      title="Models"
+      instances={[{ key: "pi", kind: "pi", name: "Pi" }]}
+      instance="pi"
+      onInstance={() => {}}
+      models={[]}
+      onModel={() => {}}
+      loading
+      onClose={() => {}}
+    />,
+  );
+  expect(dialog.element().querySelectorAll("p")).toHaveLength(0);
+  expect(document.querySelector(".model-picker-body")?.getAttribute("aria-busy")).toBe("true");
 
   await screen.rerender(
     <ModelPicker

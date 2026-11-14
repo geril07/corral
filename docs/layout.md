@@ -230,8 +230,9 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
   Provider bulk actions cover the provider, not just search matches; Hide all makes an empty
   allowlist and Show all resets visibility. Search and All/Visible/Hidden/Favorites views are
   temporary. A hidden current chat choice stays as a disabled, labeled row, and the configured
-  default's row is marked as such. Picker-owned Settings preserves the picker search/selection as
-  well as the workspace underneath. Policy, discovery lifecycle and limits:
+  default's row is marked as such. Settings opens at Server home with no picker/task target: a
+  project's configured default is reached by selecting that project workspace in the Models panel.
+  Policy, discovery lifecycle and limits:
   [Model catalogs](model-catalog.md).
 - Server config stays read-only: keys, task defaults, naming, project overrides, profiles,
   agent capabilities and config problems. No server config writes or permission bypass.

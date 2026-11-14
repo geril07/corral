@@ -86,6 +86,8 @@ export interface ModelPickerProps {
   modelName?: string | undefined;
   /** The chosen model's levels have not been reported yet; the column shows skeletons. */
   levelsPending?: boolean | undefined;
+  /** The catalog or shared preferences are still loading; the body is busy. */
+  loading?: boolean | undefined;
   error?: string | undefined;
   busy?: boolean | undefined;
   /** A stable bar under the columns; the new-launch view choice. It never carries status. */
@@ -153,6 +155,7 @@ function PickerContent({
   onModelLevel,
   modelName,
   levelsPending,
+  loading,
   error,
   busy,
   footer,
@@ -270,7 +273,7 @@ function PickerContent({
   return (
     <div
       className="model-picker-body"
-      aria-busy={busy || levelsPending || undefined}
+      aria-busy={busy || levelsPending || loading || undefined}
       onKeyDown={(event) => {
         if (
           !event.nativeEvent.isComposing &&
@@ -462,7 +465,7 @@ function PickerContent({
                         ★
                       </span>
                     )}
-                    {item.index < 9 && (
+                    {item.index < 9 && !item.model.default && (
                       <kbd className="model-picker-keycap">Ctrl+{item.index + 1}</kbd>
                     )}
                     <span className="model-picker-check">

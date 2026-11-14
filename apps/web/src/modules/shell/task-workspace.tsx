@@ -144,7 +144,12 @@ export function useTaskWorkspace({
   terminals: readonly TerminalInfo[];
   config: ClientConfig;
   profiles: readonly LaunchProfile[];
-  drivers: readonly { kind: AgentKind; followUp: boolean; terminalView: string }[];
+  drivers: readonly {
+    kind: AgentKind;
+    followUp: boolean;
+    reasoningLevels: boolean;
+    terminalView: string;
+  }[];
   capabilitiesReady: boolean;
   projectPath: string | undefined;
   position: "top" | "bottom";
@@ -1174,6 +1179,10 @@ export function useTaskWorkspace({
                 agents={config.agents}
                 settings={taskSettingsFor(config, projectPath ?? "")}
                 chatDrivers={drivers.map((driver) => driver.kind)}
+                levelsSupported={
+                  drivers.find((driver) => driver.kind === dialog.session.kind)?.reasoningLevels ??
+                  false
+                }
                 anchor={
                   dialog.session.id === companionSession?.id
                     ? dialog.kind === "chat-model"
