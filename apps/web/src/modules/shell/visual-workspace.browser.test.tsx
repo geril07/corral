@@ -312,12 +312,12 @@ test("settling the selected task keeps its working area, its tabs and the truth 
       .elements()
       .map((element) => element.textContent ?? ""),
   ).toEqual(tabsBefore);
-  // The server stopped its sessions, and the pane says what continuing would do.
+  // Settle is metadata: both sessions keep running, so no pane switches to the stopped shape and
+  // nothing on screen speaks about the shelf.
   await expect
     .element(page.getByRole("region", { name: /stopped session/ }))
-    .toMatchTextContent(
-      "This task is settled. Restarting makes the task active and resumes the sessions that were running.",
-    );
+    .not.toBeInTheDocument();
+  await expect.element(page.getByText("This task is settled.")).not.toBeInTheDocument();
 
   // Selecting another task, then the settled one, opens the working area again with its sessions.
   await userEvent.click(rowFor("Stay active"));

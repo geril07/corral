@@ -1,25 +1,18 @@
 import { describeSessionState } from "@corral/client/session-state";
-import type { Session, Task } from "@corral/protocol/rpc";
+import type { Session } from "@corral/protocol/rpc";
 import { Button, Hint } from "../../common/ui/index.ts";
 import { statusMessage } from "../status/index.ts";
 import { launchLine } from "./launch-summary.ts";
 
 interface StoppedSessionProps {
   session: Session;
-  /** The task's state, so a settled task's action says what it does to the task. */
-  taskState?: Task["state"] | undefined;
   /** The whole key press that also restarts, e.g. `alt+a r`; absent when the action is unbound. */
   restartHint: string | undefined;
   onRestart: () => void;
 }
 
 /** Shown in place of a terminal while the selected session is not running. */
-export function StoppedSession({
-  session,
-  taskState,
-  restartHint,
-  onRestart,
-}: StoppedSessionProps) {
+export function StoppedSession({ session, restartHint, onRestart }: StoppedSessionProps) {
   const { badge, action, note } = describeSessionState(session);
   const launch = launchLine(session);
   return (
@@ -28,12 +21,6 @@ export function StoppedSession({
         {session.kind} · {badge}
       </h2>
       <p className="mb-3">{note}</p>
-      {taskState === "settled" && (
-        <p className="mb-3 text-muted-foreground">
-          This task is settled. Restarting makes the task active and resumes the sessions that were
-          running.
-        </p>
-      )}
       {launch && (
         <p className="mb-3 text-muted-foreground" aria-label="launch choices">
           <Hint content={launch.details}>

@@ -24,9 +24,8 @@ implementation per shared pattern and no invented user-visible copy. See `delive
   `Companion tabs`, `Resize companion group` and refusal lines for closing or moving the primary
   tab, moving Changes, and moving the only main tab. Reference wording for the placeholder exists;
   the disabled hints have no reference wording.
-- Settle is left as implemented for now. The earlier accepted C2 lifecycle differs from that
-  implementation; see `design.md` for the discrepancy and provenance. A change needs a separate
-  decision.
+- Settle is settled as T3 style (#277): it shelves a task and never stops its sessions; new work in a
+  settled task makes it active. `design.md` owns the decision.
 
 ## Known limitations
 

@@ -54,7 +54,6 @@ import {
   LaunchViewUnsupportedError,
   SessionNotFoundError,
   ShellPromptError,
-  TaskSettledError,
   TerminalCloseFailedError,
 } from "./errors.ts";
 import { launchDiagnostic, launchFailureReason, redactLaunchError } from "./launch-diagnostics.ts";
@@ -67,15 +66,16 @@ const UNATTACHED_SIZE: TerminalSize = { cols: 80, rows: 24 };
 
 /**
  * What a session tells its task: a removal clears the primary reference through the database's
- * foreign key, and a restart of a settled task makes it active before anything starts.
+ * foreign key, and new work in a settled task makes it active before anything starts.
  */
 export interface SessionTasks {
   primarySessionRemoved(): void;
   /**
-   * Makes a settled task active in the same queued transition as a restart. This must be the plain
-   * task-row write plus a feed notification, never `TaskService.setState`: that method waits for the
-   * session queue this call runs on, which would deadlock. A settle racing this write is
-   * last-write-wins; it stops and remembers, so the end state is active with stopped sessions.
+   * Makes a settled task active in the same queued transition as the start that asked for it. This
+   * must be the plain task-row write plus a feed notification, never `TaskService.setState`: this
+   * call runs inside the session queue and must not wait on another queue to write one field. A
+   * settle racing this write is last-write-wins; a start that fails after this write leaves the
+   * task active.
    */
   taskActivated(taskId: string): void;
 }
@@ -236,7 +236,7 @@ export class SessionService {
     keepFailedLaunch: boolean,
   ): Promise<Session> {
     const task = this.#task(taskId);
-    if (task.state === "settled") throw new TaskSettledError(taskId);
+    this.#activate(taskId);
     // The requested view, until `#viewFor` resolves it. A task created with a view this build
     // cannot show keeps a stopped session with that view and the launch error (below), rather
     // than throwing past `keepFailedLaunch` and leaving its worktree with no row.
@@ -345,11 +345,9 @@ export class SessionService {
     return this.#queue.run(async () => {
       const stored = this.#stored(id);
       if (stored.state === "running") throw new AlreadyRunningError(id);
-      // Restarting a settled task is also continuing it: the task becomes active before the
-      // siblings or the target start, so no session runs while the task still says settled.
-      if (this.#tasks.get(stored.taskId)?.state === "settled") {
-        await this.#activate(stored.taskId, stored.id);
-      }
+      // Starting work in a settled task is new work: the task becomes active before the restart,
+      // so no client keeps the session it is watching marked as shelved.
+      this.#activate(stored.taskId);
       const prompt = this.#promptFor(stored.kind, choice.prompt ?? this.#taskPrompt(stored));
       // The exited terminal of a session that stopped by itself stays listed until now; a chat
       // session is stopped before anything new spawns, so one session never has two writers.
@@ -376,34 +374,18 @@ export class SessionService {
       }
       if (exitedTerminal !== null) await this.#terminals.close(exitedTerminal);
       this.#store.setState(id, "running");
-      this.#store.setResumeOnUnsettle(id, false);
       this.#changes.notify();
       return this.#withTerminal({ ...stored, state: "running" });
     });
   }
 
   /**
-   * Makes a settled task active in the same queued transition as the restart that asked for it,
-   * and resumes the sessions settle remembered. The target is skipped here: the restart body starts
-   * it itself, so resuming all and then restarting the same session would throw AlreadyRunning.
-   * Every remembered flag is cleared before its launch, so a failed target launch leaves no stale
-   * `resume_on_unsettle` behind. A sibling that cannot start is left stopped by `#relaunch` and
-   * does not undo the user's restart.
+   * Makes a settled task active in the same queued transition as the start that asked for it. A
+   * settled task runs what it was already running, so nothing is resumed here: the start body
+   * launches its own session, and no sibling was ever stopped.
    */
-  async #activate(taskId: string, targetId: string): Promise<void> {
-    // The task row is written straight through the seam, never via `TaskService.setState`: that
-    // method awaits `resumeAllIn` on this session queue and would deadlock a restart.
-    this.#taskEvents.taskActivated(taskId);
-    const remembered = this.#store.listResumableOnUnsettle(taskId);
-    for (const stored of remembered) {
-      this.#store.setResumeOnUnsettle(stored.id, false);
-      if (stored.id === targetId) continue;
-      if (stored.state !== "running") {
-        // oxlint-disable-next-line no-await-in-loop -- sessions are relaunched one after the other
-        await this.#relaunch(stored);
-      }
-    }
-    if (remembered.length > 0) this.#changes.notify();
+  #activate(taskId: string): void {
+    if (this.#tasks.get(taskId)?.state === "settled") this.#taskEvents.taskActivated(taskId);
   }
 
   /**
@@ -418,8 +400,9 @@ export class SessionService {
    * requests do not, which is what the confirmation in the client says. A handoff whose second
    * start fails leaves the session `stopped` (and settled, so a dead session does not keep its task
    * in "working") in the target view with the launch error, so `restart` (or `setView` back) is the
-   * retry; a stopped session only records the view its next start opens in. A running session of a
-   * settled task is refused before either frontend starts: only a continue may launch one.
+   * retry; a stopped session only records the view its next start opens in. A running session
+   * switches views like any other, whatever its task's shelf state: settling is metadata, so it
+   * never blocks a frontend that is already live.
    *
    * Asking for the view the session already has touches nothing: two windows on one session, or a
    * second `prefix v` before the first one's answer arrives, would otherwise kill and respawn a
@@ -430,15 +413,6 @@ export class SessionService {
       const stored = this.#stored(id);
       const target = this.#viewFor(stored.kind, view);
       if (stored.view === target) return this.#withTerminal(stored);
-      if (stored.state === "running") {
-        const live = this.#live.get(id);
-        const attached =
-          this.#bothLive(stored.kind) &&
-          (target === "chat" ? (live?.chat ?? false) : this.#terminalAlive(id));
-        if (!attached && this.#task(stored.taskId).state === "settled") {
-          throw new TaskSettledError(stored.taskId);
-        }
-      }
       if (stored.state === "running" && this.#bothLive(stored.kind)) {
         // This agent's two frontends are clients of one server (`design.md`, **Terminal and
         // chat**), so opening the other view starts a client beside the live one instead of
@@ -549,6 +523,22 @@ export class SessionService {
       : { sessionId: stored.id, kind: stored.kind, view: stored.view, state: stored.state };
   }
 
+  /**
+   * The subject of a chat prompt. A prompt in a settled task is new work, so the task becomes
+   * active before the turn runs; the session itself keeps running, because settle never stopped it.
+   */
+  promptSubject(id: string): ChatSubject | undefined {
+    const stored = this.#store.get(id);
+    if (stored === undefined) return undefined;
+    this.#activate(stored.taskId);
+    return {
+      sessionId: stored.id,
+      kind: stored.kind,
+      view: stored.view,
+      state: stored.state,
+    };
+  }
+
   /** An agent's HTTP status report. Only the launch that got the token can report, and only while its process runs. */
   reportStatus(id: string, token: string, report: StatusReport): StatusReportOutcome {
     if (!this.#store.get(id)) return "unknown-session";
@@ -621,55 +611,17 @@ export class SessionService {
   }
 
   /**
-   * Stops the running sessions of a task that is being settled and remembers them, so that
-   * `resumeAllIn` starts them again.
-   */
-  suspendAllIn(taskId: string): Promise<void> {
-    return this.#queue.run(async () => {
-      const running = this.#store
-        .list()
-        .filter((stored) => stored.taskId === taskId && stored.state === "running");
-      for (const stored of running) {
-        // oxlint-disable-next-line no-await-in-loop -- processes are stopped one after the other
-        await this.#halt(stored.id);
-        this.#settle(stored.id);
-        this.#store.setResumeOnUnsettle(stored.id, true);
-      }
-      if (running.length > 0) this.#changes.notify();
-    });
-  }
-
-  /** Starts the sessions `suspendAllIn` remembered, with the launch rules of a server restart. */
-  resumeAllIn(taskId: string): Promise<void> {
-    return this.#queue.run(async () => {
-      const remembered = this.#store.listResumableOnUnsettle(taskId);
-      for (const stored of remembered) {
-        this.#store.setResumeOnUnsettle(stored.id, false);
-        // Awaited on purpose: the queue is what keeps a launch from racing a stop or a restart.
-        // oxlint-disable-next-line no-await-in-loop -- sessions are relaunched one after the other
-        if (stored.state !== "running") await this.#relaunch(stored);
-      }
-      if (remembered.length > 0) this.#changes.notify();
-    });
-  }
-
-  /**
    * Starts again every session that was running when the server last went down: a shell fresh,
    * an agent resumed. One that cannot start becomes `stopped`; nothing here may keep the server
-   * from starting. The sessions of a settled task stay stopped and are remembered for when the
-   * task is active again.
+   * from starting. A settled task's sessions need no special case: settle is metadata only, so
+   * they start again like any other.
    */
   restore(): void {
     for (const stored of this.#store.list()) {
       if (stored.state !== "running") continue;
-      if (this.#tasks.get(stored.taskId)?.state === "settled") {
-        this.#settle(stored.id);
-        this.#store.setResumeOnUnsettle(stored.id, true);
-      } else {
-        // Through the queue, like every other session mutation: a restore that spawned beside a
-        // queued stop or restart could leave two frontends, or resurrect a session the user stopped.
-        void this.#queue.run(() => this.#relaunch(stored));
-      }
+      // Through the queue, like every other session mutation: a restore that spawned beside a
+      // queued stop or restart could leave two frontends, or resurrect a session the user stopped.
+      void this.#queue.run(() => this.#relaunch(stored));
     }
   }
 

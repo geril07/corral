@@ -78,10 +78,6 @@ export interface TaskSessions {
    * session — and resolves once each process is gone. A close that rejects stops the sweep.
    */
   closeTerminalsIn(workspacePath: string): Promise<void>;
-  /** Stops the task's running sessions and remembers them for `resumeAllIn`. */
-  suspendAllIn(taskId: string): Promise<void>;
-  /** Starts the sessions `suspendAllIn` remembered. */
-  resumeAllIn(taskId: string): Promise<void>;
   /**
    * Starts a task's primary agent session with the task's prompt. A launch that fails does not
    * throw: it leaves the session `stopped` with its launch error, so the task keeps it and the
@@ -196,10 +192,11 @@ export class TaskService implements ProjectTasks {
   }
 
   /**
-   * A restart of a settled task makes it active before any session starts. This is deliberately
-   * not `setState`: that runs on `#mutations` and waits for `resumeAllIn` on the session queue,
-   * while this is called from inside a session-queue job and would deadlock. A settle racing this
-   * write is last-write-wins; settle stops and remembers, so the end state is consistent.
+   * A start, restart or prompt in a settled task makes it active. This is deliberately not
+   * `setState`: it runs inside a session-queue job, and a one-field write whose ordering against
+   * the other task mutations is not at stake should not wait on that queue while the session
+   * transition is open. A settle racing this write is last-write-wins, and a start that fails
+   * after it leaves the task active.
    */
   taskActivated(taskId: string): void {
     this.#store.setState(taskId, "active");
@@ -516,17 +513,9 @@ export class TaskService implements ProjectTasks {
   async #setState(id: string, state: Task["state"]): Promise<Task> {
     const task = this.get(id);
     if (task.state === state) return task;
-    // A crash between the two steps leaves sessions running in a settled task, which the next
-    // start stops and remembers.
-    if (state === "settled") {
-      this.#store.setState(id, state);
-      await this.#sessions.suspendAllIn(id);
-    } else {
-      // The task reads active before any remembered session starts, so Continue never runs a
-      // session under a task that still says settled.
-      this.#store.setState(id, state);
-      await this.#sessions.resumeAllIn(id);
-    }
+    // Settling is a shelf state and nothing else: the task's sessions keep running, and un-settling
+    // starts nothing. A start or prompt in a settled task makes it active on its own.
+    this.#store.setState(id, state);
     this.#changes.notify();
     return this.get(id);
   }

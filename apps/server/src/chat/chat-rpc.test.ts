@@ -4,11 +4,13 @@ import type {
   ChatSessionState,
   ChatStreamMessage,
 } from "@corral/protocol/chat";
+import { Task } from "@corral/protocol/rpc";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test, vi } from "vite-plus/test";
+import { z } from "zod";
 import { floorPath } from "./sequence-floor.ts";
 import { recordWriter, writerPath } from "./writer-claim.ts";
 import { useFakeAgents } from "../../test/fake-agents.ts";
@@ -27,6 +29,17 @@ const agents = useFakeAgents();
 const SIZE = { cols: 80, rows: 24 };
 
 type Api = Awaited<ReturnType<typeof server.rpc>>;
+
+/** The task's state in the watched feed, which is what the sidebar, board and header read. */
+async function taskStateOf(api: Api, taskId: string): Promise<Task["state"] | undefined> {
+  const updates = await api.tasks.watch();
+  const first = await updates.next();
+  await updates.return?.();
+  return z
+    .array(Task)
+    .parse(first.value)
+    .find((task) => task.id === taskId)?.state;
+}
 
 /** A project and a task whose primary session is a chat session with `prompt`. */
 async function chatTask(prompt = "Add a note to notes.txt", projectName = "app") {
@@ -514,7 +527,7 @@ test("a record cut off without LF fails the frontend with the parse reason", asy
     .toMatchObject({ state: "stopped", launchError: expect.stringContaining("not a JSON record") });
 });
 
-test("settling the task stops the chat child; making it active again resumes with its history", async () => {
+test("settling the task leaves its chat child running; a prompt makes the task active", async () => {
   const { api, task, session } = await chatTask("Keep it");
   const first = follow(api, session.id);
   try {
@@ -531,33 +544,31 @@ test("settling the task stops the chat child; making it active again resumes wit
   const [launch] = await agents.launches();
 
   await api.tasks.setState({ id: task.id, state: "settled" });
-  await expect
-    .poll(async () => processExists(launch!.pid), { timeout: 10_000, message: "the stopped child" })
-    .toBe(false);
-  expect((await sessionsOf(api)).find((candidate) => candidate.id === session.id)?.state).toBe(
-    "stopped",
-  );
-  await expect(firstMessage(api.chat.watch({ sessionId: session.id }))).rejects.toMatchObject({
-    code: "CHAT_UNAVAILABLE",
-    data: { reason: "not-started" },
-  });
-
-  await api.tasks.setState({ id: task.id, state: "active" });
-  await expect
-    .poll(async () => (await agents.launches()).length, { timeout: 10_000, message: "the resume" })
-    .toBe(2);
-  const launches = await agents.launches();
-  expect(launches[1]!.argv).toEqual(["--mode", "rpc", "--session-id", session.agentSessionId]);
-  const chat = follow(api, session.id);
+  // Settle never stops a session: the chat child keeps its process and its view stays usable.
+  expect(processExists(launch!.pid)).toBe(true);
+  const live = follow(api, session.id);
   try {
-    await chat.until(
-      (view) => view.itemOfKind("tool-call")?.status === "done",
+    await live.until(
+      (view) => view.itemOfKind("user-message") !== undefined,
       "the rebuilt history",
     );
-    expect(chat.itemOfKind("user-message")).toMatchObject({ text: "Keep it" });
+    expect(live.itemOfKind("user-message")).toMatchObject({ text: "Keep it" });
+
+    // A prompt in a settled task is new work: it makes the task active and the same child answers.
+    await api.chat.send({ sessionId: session.id, text: "one more", mode: "prompt" });
+    await live.until(
+      (view) => view.items.filter((item) => item.kind === "user-message").length === 2,
+      "the prompt in the same process",
+    );
+    await live.until((view) => view.state.turn === "settled", "the second settled turn");
   } finally {
-    await chat.close();
+    await live.close();
   }
+  expect(await taskStateOf(api, task.id)).toBe("active");
+  expect((await sessionsOf(api)).find((candidate) => candidate.id === session.id)?.state).toBe(
+    "running",
+  );
+  expect(await agents.launches()).toEqual([launch]);
 });
 
 test("a message pi refuses is an error item, and the frontend keeps running", async () => {

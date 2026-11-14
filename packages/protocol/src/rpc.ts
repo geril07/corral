@@ -172,8 +172,9 @@ export const Task = z.object({
   /** True when the workspace is a worktree this task created and owns. */
   ownsWorktree: z.boolean(),
   /**
-   * Set by the user. `settled`: the work is done; the task keeps its worktree and branch but
-   * runs nothing. Derived agent status arrives with agent sessions.
+   * Set by the user. `settled`: the work is done and the task sits on the shelf; it keeps its
+   * worktree, branch and running sessions, because the shelf is organizational only. New work in
+   * a settled task makes it active.
    */
   state: z.enum(["active", "settled"]),
   /**
@@ -663,8 +664,6 @@ const terminalNotFound = { NOT_FOUND: { data: z.object({ id: TerminalId }) } };
 const projectNotFound = { PROJECT_NOT_FOUND: { data: z.object({ id: ProjectId }) } };
 const taskNotFound = { TASK_NOT_FOUND: { data: z.object({ id: TaskId }) } };
 const sessionNotFound = { SESSION_NOT_FOUND: { data: z.object({ id: SessionId }) } };
-/** A settled task runs nothing, so starting or launching a view waits until it is continued. */
-const taskSettled = { TASK_SETTLED: {} };
 /** Input the wire schema accepts but a handler still refuses; `message` is shown to the user. */
 const badRequest = { BAD_REQUEST: { data: z.object({ message: z.string() }) } };
 /** A launch was refused before anything was spawned; `name` is a profile id or an env variable name, never a value. */
@@ -863,8 +862,9 @@ export const contract = {
       .input(CreateTaskInput)
       .output(Task),
     /**
-     * Settling stops the task's running sessions and remembers which ones ran; making it
-     * active again starts exactly those (agents resume). Setting the current state is a no-op.
+     * Moves the task between the active list and the shelf. This writes the task's state only:
+     * its sessions keep running, and making it active again starts nothing. Setting the current
+     * state is a no-op.
      */
     setState: oc
       .errors(taskNotFound)
@@ -908,8 +908,8 @@ export const contract = {
      * Starts a shell or an agent in the task's workspace, in a new terminal or, for `view: "chat"`,
      * as a chat session with a driver. The agent CLI is looked up on the server's `PATH`, unless
      * `[agents.<kind>].command` names an executable; a disabled agent is refused with
-     * `AGENT_DISABLED` and a missing one fails with `AGENT_NOT_FOUND`. A settled task refuses the
-     * start with `TASK_SETTLED` until it is continued, before anything is spawned.
+     * `AGENT_DISABLED` and a missing one fails with `AGENT_NOT_FOUND`. A settled task becomes
+     * active before the start; its shelf state is metadata, so it never refuses new work.
      *
      * `profileId` selects a profile from the server's config file. `expectedProfileRevision`
      * pins the definition the caller showed; a profile that changed since then is refused with
@@ -920,7 +920,6 @@ export const contract = {
     start: oc
       .errors({
         ...taskNotFound,
-        ...taskSettled,
         AGENT_NOT_FOUND: { data: z.object({ command: z.string() }) },
         ...launchRefused,
       })
@@ -938,7 +937,10 @@ export const contract = {
         }),
       )
       .output(Session),
-    /** Starts a `stopped` (or `unresumable`, as a new conversation) session again in a new terminal. */
+    /**
+     * Starts a `stopped` (or `unresumable`, as a new conversation) session again in a new terminal.
+     * A restart in a settled task makes the task active first.
+     */
     restart: oc
       .errors({
         ...sessionNotFound,
@@ -973,14 +975,13 @@ export const contract = {
      * survives, while the in-flight turn and pending requests do not — a working turn is aborted
      * first. A chat view needs an agent with a chat driver (otherwise `LAUNCH_VIEW_UNSUPPORTED`),
      * and never a shell. On a stopped session only the stored view changes, so its next start opens
-     * there; a handoff whose second start fails leaves it stopped with `launchError` set. A running
-     * session of a settled task is refused with `TASK_SETTLED` before either frontend starts, so a
-     * crash-left session cannot hand off or open the other live view until the task is continued.
+     * there; a handoff whose second start fails leaves it stopped with `launchError` set. A settled
+     * task changes nothing here: its shelf state is metadata, so a running session switches views
+     * like any other.
      */
     setView: oc
       .errors({
         ...sessionNotFound,
-        ...taskSettled,
         AGENT_NOT_FOUND: { data: z.object({ command: z.string() }) },
         ...launchRefused,
       })
@@ -1021,7 +1022,8 @@ export const contract = {
     /**
      * Sends a message: starts a turn, steers the running one, or queues one after it. Returns the
      * id of the item it became, so a client can reconcile an optimistic user message with the one
-     * the stream delivers instead of showing it twice.
+     * the stream delivers instead of showing it twice. A prompt in a settled task makes the task
+     * active first; the session itself keeps running, because settle never stopped it.
      */
     send: oc
       .errors({ ...sessionNotFound, ...chatUnavailable })

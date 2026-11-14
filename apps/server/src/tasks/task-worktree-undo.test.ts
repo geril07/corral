@@ -29,8 +29,6 @@ const sessions: TaskSessions = {
   hasRunningIn: () => false,
   removeAllIn: () => Promise.resolve(),
   closeTerminalsIn: () => Promise.resolve(),
-  suspendAllIn: () => Promise.resolve(),
-  resumeAllIn: () => Promise.resolve(),
   startPrimary: () => {
     throw new Error("a creation without an agent starts no session");
   },

@@ -39,11 +39,7 @@ const worktreePaths = (repo: string) =>
  * workspace handed to `closeTerminalsIn` is recorded, so a removal can be checked for the sweep it
  * ran (and did not run).
  */
-function service(
-  repo: string,
-  closeTerminalsIn: (workspacePath: string) => Promise<void>,
-  onResume?: (taskId: string) => void,
-) {
+function service(repo: string, closeTerminalsIn: (workspacePath: string) => Promise<void>) {
   const dataDir = join(root, "data");
   const db = openDatabase(dataDir);
   databases.push(db);
@@ -60,11 +56,6 @@ function service(
     closeTerminalsIn: (workspacePath) => {
       closed.push(workspacePath);
       return closeTerminalsIn(workspacePath);
-    },
-    suspendAllIn: () => Promise.resolve(),
-    resumeAllIn: (taskId) => {
-      onResume?.(taskId);
-      return Promise.resolve();
     },
     startPrimary: () => {
       throw new Error("a creation without an agent starts no session");
@@ -193,25 +184,18 @@ test("a terminal that does not close aborts the removal and leaves the task and 
   expect(localBranches(repo)).toContain("stuck");
 });
 
-test("activating a settled task writes active before it resumes a remembered session", async () => {
+test("settling and unsettling write only the task's state", async () => {
   const repo = initRepo(join(root, "repo"));
-  let tasksRef: TaskService;
-  let stateAtResume: string | undefined;
-  const { tasks } = service(
-    repo,
-    () => Promise.resolve(),
-    (taskId) => {
-      stateAtResume = tasksRef.get(taskId).state;
-    },
-  );
-  tasksRef = tasks;
+  const { tasks } = service(repo, () => Promise.resolve());
   const task = await tasks.create({
     projectId: "p",
-    title: "Continue order",
+    title: "Shelf only",
     workspace: { type: "new-branch" },
   });
-  await tasks.setState(task.id, "settled");
-  await tasks.setState(task.id, "active");
 
-  expect(stateAtResume).toBe("active");
+  expect((await tasks.setState(task.id, "settled")).state).toBe("settled");
+  expect(tasks.list().find((each) => each.id === task.id)?.state).toBe("settled");
+
+  expect((await tasks.setState(task.id, "active")).state).toBe("active");
+  expect(tasks.list().find((each) => each.id === task.id)?.state).toBe("active");
 });

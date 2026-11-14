@@ -25,7 +25,7 @@ export const MIGRATIONS: readonly Migration[] = [
    CREATE TABLE sessions (
      id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
      kind TEXT NOT NULL, agent_session_id TEXT, state TEXT NOT NULL, created_at INTEGER NOT NULL,
-     resume_on_unsettle INTEGER NOT NULL DEFAULT 0, label TEXT, launch_spec TEXT,
+     label TEXT, launch_spec TEXT,
      view TEXT NOT NULL DEFAULT 'terminal'
    ) STRICT;
    CREATE INDEX sessions_by_task ON sessions(task_id);

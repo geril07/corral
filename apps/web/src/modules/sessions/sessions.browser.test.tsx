@@ -144,7 +144,7 @@ test("prefix x stops the session, which stays in the list; prefix r starts it ag
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 });
 
-test("prefix d settles the task, stopping its agent, and unsettling resumes the conversation", async () => {
+test("prefix d shelves the task while its agent keeps working, and pressing it again starts nothing", async () => {
   const { client, project } = await appWithProject(newClient());
   await taskWithShell(client, project.id);
   await startAgent("claude", "1");
@@ -154,18 +154,20 @@ test("prefix d settles the task, stopping its agent, and unsettling resumes the 
 
   await prefixThen("d");
   await expect.element(page.getByRole("button", { name: "Settled (1)" })).toBeVisible();
-  await expect.element(sessionButton("claude", "stopped")).toBeVisible();
-  expect(sessionOf(client, "claude")).toMatchObject({ state: "stopped", terminalId: null });
+  // Settle never stops a session: the tab keeps no state word, and the live terminal still answers.
+  await expect.element(sessionButton("claude")).toBeVisible();
+  expect(sessionOf(client, "claude")).toMatchObject({ state: "running" });
+  await userEvent.keyboard("still-here{Enter}");
+  await expect.poll(wrappedScreen).toContain("fake claude got: still-here");
 
   await prefixThen("d");
-  await expect.element(sessionButton("claude")).toBeVisible();
+  await expect.element(page.getByRole("button", { name: /^Settled \(/ })).not.toBeInTheDocument();
   await vi.waitFor(() => expect(sessionOf(client, "claude").state).toBe("running"));
+  // Un-settling starts nothing: the same conversation is still the only launch.
   await vi.waitFor(async () =>
-    expect(await argvOf(id)).toEqual([
-      ["--session-id", agentSessionId],
-      ["--resume", agentSessionId],
-    ]),
+    expect(await argvOf(id)).toEqual([["--session-id", agentSessionId]]),
   );
+  await expect.poll(wrappedScreen).toContain("fake claude got: still-here");
 });
 
 test("Enter on the stopped session's pane starts it again", async () => {
