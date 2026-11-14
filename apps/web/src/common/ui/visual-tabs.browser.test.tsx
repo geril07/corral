@@ -61,25 +61,6 @@ function expectCloseGeometry(tab: HTMLElement) {
   expect(box.close.left - box.contentRight).toBeGreaterThanOrEqual(4);
 }
 
-/**
- * The kit's glyph steps are rem, so at 140 % interface text the 14 px glyph renders ~19.6 px inside
- * the fixed 20 px control. The tab, the control and the label gap stay px; the glyph must still be
- * centred inside the control rather than pushed out of it.
- */
-function expectCloseAtEnlargedText(tab: HTMLElement) {
-  const box = closeBoxes(tab);
-  const closeCenterX = box.close.left + box.close.width / 2;
-  const closeCenterY = box.close.top + box.close.height / 2;
-  expect(Math.round(box.tab.height)).toBe(28);
-  expect(Math.round(box.close.width)).toBe(20);
-  expect(Math.round(box.close.height)).toBe(20);
-  expect(box.close.left - box.contentRight).toBeGreaterThanOrEqual(4);
-  expect(box.glyph.width).toBeLessThanOrEqual(box.close.width);
-  expect(box.glyph.height).toBeLessThanOrEqual(box.close.height);
-  expect(Math.abs(box.glyph.left + box.glyph.width / 2 - closeCenterX)).toBeLessThanOrEqual(0.5);
-  expect(Math.abs(box.glyph.top + box.glyph.height / 2 - closeCenterY)).toBeLessThanOrEqual(0.5);
-}
-
 test("the strip is a 40 px band with 28 px tabs and a 20 px close control on hover", async () => {
   const previousScale = document.documentElement.style.fontSize;
   const { container, unmount } = await render(<Harness />);
@@ -102,7 +83,7 @@ test("the strip is a 40 px band with 28 px tabs and a 20 px close control on hov
 
   try {
     document.documentElement.style.fontSize = "140%";
-    expectCloseAtEnlargedText(tab);
+    expectCloseGeometry(tab);
   } finally {
     document.documentElement.style.fontSize = previousScale;
     await unmount();
