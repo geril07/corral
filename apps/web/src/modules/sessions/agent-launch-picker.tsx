@@ -2,7 +2,7 @@ import type { AgentSettings, LaunchProfile, TaskView } from "@corral/protocol/co
 import type { AgentKind } from "@corral/protocol/rpc";
 import type { RefObject } from "react";
 import type { ModelContext } from "@corral/protocol/models";
-import { modelKey, modelVisible } from "@corral/protocol/models";
+import { modelKey } from "@corral/protocol/models";
 import { useModelMenu } from "../settings/index.ts";
 import { Button, ModelPicker, type PickerModel } from "../../common/ui/index.ts";
 import {
@@ -14,7 +14,6 @@ import {
   launchName,
   launchOptions,
   modelOverride,
-  supportsModel,
   launchCurrentModelRow,
   CURRENT_ROW_KEY,
   type LaunchSelection,
@@ -108,6 +107,7 @@ export function AgentLaunchPicker({
   error?: string | undefined;
   busy?: boolean | undefined;
   blocked?: boolean | undefined;
+  /** The new-launch view choice; a picker footer never carries status or management actions. */
   footer?: React.ReactNode;
 }) {
   const options = launchOptions(profiles, agents);
@@ -126,12 +126,12 @@ export function AgentLaunchPicker({
       ? defaultSelection
       : undefined;
   const configuredModel = configured === undefined ? undefined : launchModel(configured);
-  const instanceDefaultModel = launchModel({ ...selection, model: "" });
-  const defaultModel = configured === undefined ? instanceDefaultModel : configuredModel;
+  const configuredRow =
+    configured === undefined ? undefined : launchCatalogRow(configured, menu.all);
   const currentRow = launchCatalogRow(selection, menu.all);
   const current = launchCurrentModelRow(selection, menu.all, menu.models.map(modelKey), blocked);
   const models: PickerModel[] = [
-    ...(current ? [current] : []),
+    ...(current ? [{ ...current, default: current.name === configuredModel }] : []),
     ...menu.models.map((model) => ({
       key: modelKey(model),
       name: model.name,
@@ -143,10 +143,9 @@ export function AgentLaunchPicker({
       disabled: blocked || catalogLaunchModel(selection, model) === undefined,
       favorite: menu.favorite(model),
       current: currentRow === undefined ? false : modelKey(currentRow) === modelKey(model),
+      default: configuredRow !== undefined && modelKey(configuredRow) === modelKey(model),
     })),
   ];
-  const hidden = currentRow !== undefined && !modelVisible(menu.preferences.policy, currentRow);
-  const overridden = currentModel !== undefined && currentModel !== defaultModel;
   // Another instance means another runtime and model space: the previous model text is not
   // carried over, because doing so would switch the model silently (`docs/layout.md`).
   // Re-picking the instance already shown changes nothing, so its configured model stays.
@@ -156,79 +155,43 @@ export function AgentLaunchPicker({
       "instance",
     );
   return (
-    <>
-      <ModelPicker
-        suspended={menu.managing}
-        focus={menu.returned ? "search" : undefined}
-        title={title}
-        anchor={anchor}
-        restoreFocus={restoreFocus}
-        instances={instances}
-        instance={key}
-        onInstance={(next) => {
-          const option = options.find((candidate) => launchKey(candidate) === next);
-          if (option) select(option);
-        }}
-        models={models}
-        onModel={(model) => {
-          if (model === CURRENT_ROW_KEY) {
-            onCommit(selection);
-            return;
-          }
-          const reported = menu.models.find((m) => modelKey(m) === model);
-          const value = reported ? catalogLaunchModel(selection, reported) : undefined;
-          const target = value ? { ...selection, model: value } : selection;
-          onChange(target, "model");
-          onCommit(target);
-        }}
-        onUseDefault={
-          overridden
-            ? () => {
-                const target = { ...selection, model: defaultModel ?? "" };
-                onChange(target, "model");
-                onCommit(target);
-              }
-            : undefined
+    <ModelPicker
+      focus="search"
+      title={title}
+      anchor={anchor}
+      restoreFocus={restoreFocus}
+      instances={instances}
+      instance={key}
+      onInstance={(next) => {
+        const option = options.find((candidate) => launchKey(candidate) === next);
+        if (option) select(option);
+      }}
+      models={models}
+      onModel={(model) => {
+        if (model === CURRENT_ROW_KEY) {
+          onCommit(selection);
+          return;
         }
-        modelName={currentModel}
-        unavailable="Thinking levels are reported by a running chat. Pre-launch thinking is not available yet."
-        error={error}
-        busy={busy}
-        footer={
-          <>
-            {footer}
-            {hidden && (
-              <p className="m-0">
-                Current selection is hidden by the model filter; it is not changed.
-              </p>
-            )}
-            {menu.catalog?.message && <p className="m-0">{menu.catalog.message}</p>}
-            {menu.status}
-          </>
+        const reported = menu.models.find((m) => modelKey(m) === model);
+        const value = reported ? catalogLaunchModel(selection, reported) : undefined;
+        const target = value ? { ...selection, model: value } : selection;
+        onChange(target, "model");
+        onCommit(target);
+      }}
+      modelName={currentModel}
+      error={error}
+      busy={busy}
+      footer={footer}
+      onInstanceEnter={() => onCommit(selection)}
+      onQuickChoice={(index) => {
+        if (selection.profile || modelOverride(selection.model)) return;
+        const native = options.filter((option) => option.profile === null)[index];
+        if (native) {
+          onChange(native, "instance");
+          onCommit(native);
         }
-        actions={menu.manage}
-        nativeModel={
-          supportsModel(selection.kind)
-            ? {
-                value: selection.model,
-                placeholder: selection.profile?.model ?? "Native model ID",
-                onChange: (model) => onChange({ ...selection, model }, "model"),
-                onSubmit: () => onCommit(selection),
-              }
-            : undefined
-        }
-        onInstanceEnter={() => onCommit(selection)}
-        onQuickChoice={(index) => {
-          if (selection.profile || modelOverride(selection.model)) return;
-          const native = options.filter((option) => option.profile === null)[index];
-          if (native) {
-            onChange(native, "instance");
-            onCommit(native);
-          }
-        }}
-        onClose={onClose}
-      />
-      {menu.settings}
-    </>
+      }}
+      onClose={onClose}
+    />
   );
 }

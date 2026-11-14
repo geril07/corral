@@ -480,8 +480,9 @@ page is a separate, per-server transport capability (another change), not a prop
 
 ## Not supported
 
-- Pre-launch model/provider discovery or listing. Creation takes a native ID; a running chat's
-  model and thinking lists come from its driver. No pre-launch thinking field exists.
+- Pre-launch model/provider discovery or listing. Creation chooses the agent's catalog row or a
+  launch profile; a running chat's model and thinking lists come from its driver. No pre-launch
+  thinking field exists.
 - Model or provider changes for an existing terminal conversation. A chat session changes its
   model and reasoning level mid-session through its driver (`chat.setModel`/`chat.setReasoning`);
   a terminal session has no such control.

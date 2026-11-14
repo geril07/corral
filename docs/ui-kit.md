@@ -234,11 +234,15 @@ context-menu dispatcher.
   caret is the prompt's focus indicator: the frame adds no ring, and the textarea cannot be resized
   by dragging; it grows by its layout limits. Textarea `frame="composer"` removes its duplicate
   inner border without changing prompt/chat growth limits. ModelPicker owns one viewport-bounded
-  dialog with three regions — a 44 px
-  instance radio rail, a bare search band over the virtualized model list and a 192 px thinking
-  column — above a footer shared by all three. The list is flat rows (`provider` heading or model),
-  so a heading owns its own height; the thinking levels are a vertical Base UI `Toolbar`. Modules
-  supply driver/config data and actions, not control skins.
+  dialog with three regions — a 44 px instance radio rail, a bare search band over the virtualized
+  model list and a 192 px thinking column. The list is flat rows (`provider` heading or model),
+  so a heading owns its own height; the thinking levels are a vertical Base UI `Toolbar`. The
+  dialog and every column keep their geometry in every state: loading, empty, waiting and
+  unsupported are skeleton rows or an empty track, never prose, and unknown levels carry
+  `aria-busy`. Choosing a level keeps the picker open with focus on it. The footer holds only
+  the new launch's always-present chat/terminal view choice, never status or management: the
+  configured default is a marked row (T3's `Default` badge) and Models management is Settings-only.
+  Modules supply driver/config data and actions, not control skins.
 - **Input padding** is one inline value per control class, measured from both references. A composer
   prompt is 16 px inline and 12 px block: T3's composer body pads `px-4 pt-3.5/4 pb-2`
   (`ChatComposer.tsx:3308`) and OpenCode's editor `ps-4 pt-4 pb-2` (`editor.tsx:321`), so 12 is the
@@ -252,7 +256,6 @@ context-menu dispatcher.
   worktree's `from <branch>` opens a popover with a search band over one bordered, scrollable
   branch list. These triggers are borderless plain text with the shared hover.
 - Checkbox composes Base UI checked/mixed state using the shared primary/input/focus tokens.
-  ModelPicker can suspend its dialog for Settings while retaining its search and selection owner.
 - ComboboxButton `layout="bounded"` caps profile/workspace triggers and exposes the
   full text only on measured overflow, so valid long names cannot stretch Settings sideways.
 - DialogContent `padding="none"` tells its footer not to cancel nonexistent outer padding.

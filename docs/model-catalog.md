@@ -79,7 +79,7 @@ and have side effects**. An ephemeral session is not a sandbox. Corral does not 
 
 Inventory is not selection support. Existing launch/provider validation still wins. A pinned pi
 provider cannot be silently replaced by choosing another provider's model. Unsupported launch
-rows are disabled with a reason; configured defaults and supported raw native IDs remain available.
+rows are disabled with a reason; the configured default is a marked row.
 
 This slice does **not** add initial thinking to task/session launch fields, nor model/effort
 switching to the current OpenCode/Codex adapters. Pi and Claude live changes keep their existing

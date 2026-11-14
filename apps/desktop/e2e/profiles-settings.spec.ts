@@ -21,7 +21,7 @@ function writeConfig(stateDir: string, text: string) {
 // A safe placeholder, not a credential: the profile only needs the server to have the name.
 const ENV_SENTINEL = "e2e-profile-sentinel";
 
-test("a profile and typed model start in Electron, and settings shows the profile read-only", async ({
+test("a profile's model starts in Electron, and settings shows the profile read-only", async ({
   launchApp,
   stateDir,
 }) => {
@@ -50,7 +50,6 @@ view = "terminal"
   const profile = picker.getByRole("radio", { name: "Claude sonnet" });
   await expect(profile).toBeVisible();
   await profile.click();
-  await picker.getByRole("textbox", { name: "Model override" }).fill("claude-opus-4-1");
   await window.keyboard.press("Enter");
   await expect(picker).toBeHidden();
 
@@ -62,7 +61,7 @@ view = "terminal"
         .find((launch) => launch.agent === "claude")
         ?.argv.slice(0, 2),
     )
-    .toEqual(["--model", "claude-opus-4-1"]);
+    .toEqual(["--model", "claude-sonnet-4-5"]);
 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyO");

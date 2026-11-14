@@ -6,7 +6,7 @@ interface SettingsActivity {
 }
 const Context = createContext<SettingsActivity | undefined>(undefined);
 
-/** Route settings and picker-owned settings cover the same mounted workspace. */
+/** Route settings cover the mounted workspace; the shell pauses behind it. */
 export function SettingsActivityProvider({ children }: { children: ReactNode }) {
   const [count, setCount] = useState(0);
   const register = useCallback(() => {

@@ -15,7 +15,7 @@ import { AppearanceSection } from "./appearance-section.tsx";
 import { AgentsSection } from "./agents.tsx";
 import { DiagnosticsSection } from "./diagnostics-section.tsx";
 import { KeyboardSection } from "./keyboard-section.tsx";
-import { ModelManagement, type ModelManagementTarget } from "./model-management.tsx";
+import { ModelManagement } from "./model-management.tsx";
 import { ProfileList } from "./profile-list.tsx";
 import { ProjectsSection } from "./projects-section.tsx";
 import { SETTINGS_GROUPS, SETTINGS_SECTIONS, type SettingsSectionId } from "./settings-sections.ts";
@@ -38,15 +38,6 @@ function firstPanelControl(id: SettingsSectionId) {
   return document.getElementById(panelId(id))?.querySelector<HTMLElement>(FOCUSABLE) ?? null;
 }
 
-/** The visible panel's first control, else its heading; never a control from a hidden panel. */
-function firstPanelFocus(id: SettingsSectionId) {
-  const panel = document.getElementById(panelId(id));
-  if (!panel || panel.hidden) return null;
-  return (
-    panel.querySelector<HTMLElement>(FOCUSABLE) ?? document.getElementById(`${panelId(id)}-title`)
-  );
-}
-
 export interface SettingsNavigationGuard {
   cancel: () => void;
   proceed: () => void;
@@ -54,7 +45,6 @@ export interface SettingsNavigationGuard {
 
 export function SettingsScreen({
   onClose,
-  modelTarget,
   projectTarget,
   onDirtyChange,
   onBusyChange,
@@ -63,7 +53,6 @@ export function SettingsScreen({
   navigationGuard,
 }: {
   onClose: () => void;
-  modelTarget?: ModelManagementTarget | undefined;
   /** A project path: opens Projects with that project selected. */
   projectTarget?: string | undefined;
   onDirtyChange?: (dirty: boolean) => void;
@@ -71,7 +60,7 @@ export function SettingsScreen({
   /** The routed screen records a refused close so it survives the immediate navigation reset. */
   onBusyCloseRefused?: (() => void) | undefined;
   busyNotice?: boolean | undefined;
-  /** The routed screen passes the pending history navigation; picker-owned Settings does not. */
+  /** The routed screen passes the pending history navigation. */
   navigationGuard?: SettingsNavigationGuard | undefined;
 }) {
   const client = useCorralClient();
@@ -80,7 +69,7 @@ export function SettingsScreen({
   useLayoutEffect(() => registerSettings?.(), [registerSettings]);
   const projectState = useSyncExternalStore(client.projects.subscribe, client.projects.getSnapshot);
   const [current, setCurrent] = useState<SettingsSectionId>(() =>
-    projectTarget !== undefined ? "projects" : modelTarget ? "models" : "appearance",
+    projectTarget !== undefined ? "projects" : "appearance",
   );
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | undefined>(
     () => projectTarget,
@@ -252,9 +241,7 @@ export function SettingsScreen({
   const initialFocus =
     projectTarget !== undefined
       ? () => document.getElementById("settings-projects-selected")
-      : modelTarget
-        ? () => firstPanelFocus("models")
-        : () => document.getElementById(`settings-nav-${current}`);
+      : () => document.getElementById(`settings-nav-${current}`);
 
   return (
     <TaskDialog
@@ -402,7 +389,6 @@ export function SettingsScreen({
             <SettingsSection id="models" current={current}>
               <ModelsSection
                 active={current === "models"}
-                target={modelTarget}
                 onDirty={(dirty) => {
                   setModelsDirty(dirty);
                   onDirtyChange?.(dirty);
@@ -449,12 +435,10 @@ export function SettingsScreen({
 
 function ModelsSection({
   active,
-  target,
   onDirty,
   onBusy,
 }: {
   active: boolean;
-  target?: ModelManagementTarget | undefined;
   onDirty: (dirty: boolean) => void;
   onBusy: (busy: boolean) => void;
 }) {
@@ -468,7 +452,7 @@ function ModelsSection({
         />
       </SettingsCard>
       <div className="settings-model-panel">
-        <ModelManagement active={active} target={target} onDirty={onDirty} onBusy={onBusy} />
+        <ModelManagement active={active} onDirty={onDirty} onBusy={onBusy} />
       </div>
     </>
   );

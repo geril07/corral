@@ -3,7 +3,6 @@ import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { useRef, useState } from "react";
 import { ModelPicker } from "./model-picker.tsx";
-import { TaskDialog } from "./task-dialog.tsx";
 
 test("model shortcuts select the filtered results in displayed order", async () => {
   const onModel = vi.fn<(key: string) => void>();
@@ -65,6 +64,28 @@ test("the centered modal focuses search and previews without choosing a model", 
   expect(page.getByText("OpenAI", { exact: true }).elements()).toHaveLength(1);
 });
 
+test("the configured default is a marked row in the model column", async () => {
+  await render(
+    <ModelPicker
+      title="Models"
+      instances={[{ key: "pi", kind: "pi", name: "Pi" }]}
+      instance="pi"
+      onInstance={() => {}}
+      models={[
+        { key: "a", name: "Alpha", provider: "stub", default: true },
+        { key: "b", name: "Beta", provider: "stub" },
+      ]}
+      onModel={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  await expect
+    .element(page.getByRole("option", { name: "Alpha · stub · Default" }))
+    .toMatchTextContent("Default");
+  await expect.element(page.getByRole("option", { name: "Beta · stub" })).toBeVisible();
+  expect(page.getByText("Default", { exact: true }).elements()).toHaveLength(1);
+});
+
 test("current model uses onLevel and another candidate stays disabled without atomic callback", async () => {
   const onLevel = vi.fn<(level: string) => void>();
   await render(
@@ -88,6 +109,28 @@ test("current model uses onLevel and another candidate stays disabled without at
   await page.getByRole("option", { name: "Beta" }).hover();
   await expect.element(page.getByRole("button", { name: "High" })).toBeDisabled();
   expect(onLevel).toHaveBeenCalledTimes(1);
+});
+
+test("choosing a reasoning level keeps the picker open and focuses the chosen level", async () => {
+  const onLevel = vi.fn<(level: string) => void>();
+  await render(
+    <ModelPicker
+      title="Models"
+      instances={[{ key: "pi", kind: "pi", name: "Pi" }]}
+      instance="pi"
+      onInstance={() => {}}
+      models={[{ key: "a", name: "Alpha", current: true }]}
+      levels={["off", "medium", "high"]}
+      level="medium"
+      onLevel={onLevel}
+      onModel={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  await page.getByRole("button", { name: "high", exact: true }).click();
+  expect(onLevel).toHaveBeenCalledExactlyOnceWith("high");
+  await expect.element(page.getByRole("dialog", { name: "Models" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "high", exact: true })).toHaveFocus();
 });
 
 test("virtual model and instance lists navigate beyond mounted rows", async () => {
@@ -187,27 +230,162 @@ test("Escape closes the modal and restores its anchor", async () => {
   await expect.element(page.getByRole("button", { name: "Open picker" })).toHaveFocus();
 });
 
-async function assertPickerViewport(width: number) {
-  await page.viewport(width, 700);
-  await vi.waitFor(() => {
-    const box = page.getByRole("dialog", { name: "Models" }).element().getBoundingClientRect();
-    expect(box.left).toBeGreaterThanOrEqual(0);
-    expect(box.right).toBeLessThanOrEqual(width);
-  });
-  const dialog = page.getByRole("dialog", { name: "Models" }).element().getBoundingClientRect();
-  for (const element of [
-    page.getByRole("radiogroup", { name: "Instances" }),
-    page.getByRole("combobox", { name: "Search models" }),
-    page.getByRole("button", { name: "High" }),
-  ]) {
-    const box = element.element().getBoundingClientRect();
-    expect(box.left).toBeGreaterThanOrEqual(dialog.left - 1);
-    expect(box.right).toBeLessThanOrEqual(dialog.right + 1);
-    expect(box.width).toBeGreaterThan(25);
-  }
-  expect(dialog.left).toBeGreaterThanOrEqual(0);
-  expect(dialog.right).toBeLessThanOrEqual(width);
+function GeometryFixture({
+  busy = false,
+  levelsPending = false,
+}: {
+  busy?: boolean;
+  levelsPending?: boolean;
+}) {
+  const [instance, setInstance] = useState("one");
+  const [level, setLevel] = useState("medium");
+  const models =
+    instance === "one"
+      ? [
+          { key: "alpha", name: "Alpha", provider: "stub", current: true },
+          { key: "beta", name: "Beta", provider: "stub" },
+        ]
+      : [
+          { key: "gamma", name: "Gamma", provider: "stub", current: true },
+          { key: "delta", name: "Delta", provider: "stub" },
+        ];
+  return (
+    <ModelPicker
+      title="Models"
+      instances={[
+        { key: "one", kind: "pi", name: "Pi one" },
+        { key: "two", kind: "claude", name: "Claude two" },
+      ]}
+      instance={instance}
+      onInstance={setInstance}
+      models={models}
+      onModel={() => {}}
+      levels={["off", "medium", "high"]}
+      level={level}
+      onLevel={setLevel}
+      levelsPending={levelsPending}
+      busy={busy}
+      onClose={() => {}}
+    />
+  );
 }
+
+function rectOf(element: Element) {
+  const rect = element.getBoundingClientRect();
+  return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+}
+
+function geometry() {
+  return {
+    dialog: rectOf(page.getByRole("dialog", { name: "Models" }).element()),
+    rail: rectOf(document.querySelector(".model-picker-rail")!),
+    models: rectOf(document.querySelector(".model-picker-models")!),
+    thinking: rectOf(document.querySelector(".model-picker-thinking")!),
+  };
+}
+
+function expectSameGeometry(
+  before: ReturnType<typeof geometry>,
+  after: ReturnType<typeof geometry>,
+) {
+  for (const region of ["dialog", "rail", "models", "thinking"] as const) {
+    expect(
+      Math.abs(after[region].width - before[region].width),
+      `${region}.width ${before[region].width} -> ${after[region].width}`,
+    ).toBeLessThan(1);
+    expect(Math.abs(after[region].height - before[region].height), `${region}.height`).toBeLessThan(
+      1,
+    );
+    expect(Math.abs(after[region].left - before[region].left), `${region}.left`).toBeLessThan(1);
+    expect(Math.abs(after[region].top - before[region].top), `${region}.top`).toBeLessThan(1);
+  }
+}
+
+async function settledGeometry() {
+  const dialog = page.getByRole("dialog", { name: "Models" }).element();
+  await Promise.all(
+    dialog
+      .getAnimations({ subtree: true })
+      .map((animation) => animation.finished.catch(() => undefined)),
+  );
+  return geometry();
+}
+
+test("the dialog and each column keep their geometry across typing, switches and loading", async () => {
+  const screen = await render(<GeometryFixture />);
+  const baseline = await settledGeometry();
+  const search = page.getByRole("combobox", { name: "Search models" });
+
+  await search.fill("Beta");
+  expectSameGeometry(baseline, await settledGeometry());
+  await search.fill("no such model");
+  expectSameGeometry(baseline, await settledGeometry());
+  await search.fill("");
+  expectSameGeometry(baseline, await settledGeometry());
+
+  await page.getByRole("radio", { name: "Claude two" }).click();
+  expectSameGeometry(baseline, await settledGeometry());
+
+  await page.getByRole("option", { name: /Gamma/ }).click();
+  expectSameGeometry(baseline, await settledGeometry());
+
+  await page.getByRole("button", { name: "high", exact: true }).click();
+  expectSameGeometry(baseline, await settledGeometry());
+  await expect.element(page.getByRole("button", { name: "high", exact: true })).toHaveFocus();
+
+  await screen.rerender(<GeometryFixture busy />);
+  expectSameGeometry(baseline, await settledGeometry());
+
+  await screen.rerender(<GeometryFixture busy levelsPending />);
+  expectSameGeometry(baseline, await settledGeometry());
+});
+
+test("unknown levels show skeleton rows and aria-busy, never the previous levels", async () => {
+  await render(<GeometryFixture levelsPending />);
+  const thinking = page.getByRole("group", { name: "Thinking levels" });
+  await expect.element(thinking).toHaveAttribute("aria-busy", "true");
+  expect(thinking.element().querySelectorAll(".model-picker-level-skeleton")).toHaveLength(3);
+  await expect
+    .element(page.getByRole("button", { name: "medium", exact: true }))
+    .not.toBeInTheDocument();
+  expect(page.getByRole("dialog", { name: "Models" }).element().querySelectorAll("p")).toHaveLength(
+    0,
+  );
+});
+
+test("loading, empty and unsupported states are not prose", async () => {
+  const screen = await render(
+    <ModelPicker
+      title="Models"
+      instances={[{ key: "pi", kind: "pi", name: "Pi" }]}
+      instance="pi"
+      onInstance={() => {}}
+      models={[]}
+      onModel={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  const dialog = page.getByRole("dialog", { name: "Models" });
+  expect(dialog.element().querySelectorAll("p")).toHaveLength(0);
+  expect(document.querySelector(".model-picker-levels-empty")).not.toBeNull();
+  await page.getByRole("combobox", { name: "Search models" }).fill("nothing");
+  expect(dialog.element().querySelectorAll("p")).toHaveLength(0);
+
+  await screen.rerender(
+    <ModelPicker
+      title="Models"
+      instances={[{ key: "pi", kind: "pi", name: "Pi" }]}
+      instance="pi"
+      onInstance={() => {}}
+      models={[{ key: "a", name: "Alpha" }]}
+      onModel={() => {}}
+      busy
+      onClose={() => {}}
+    />,
+  );
+  expect(dialog.element().querySelectorAll("p")).toHaveLength(0);
+  expect(document.querySelector(".model-picker-body")?.getAttribute("aria-busy")).toBe("true");
+});
 
 test("the three columns remain within narrow and medium viewports", async () => {
   const original = { width: window.innerWidth, height: window.innerHeight };
@@ -233,9 +411,30 @@ test("the three columns remain within narrow and medium viewports", async () => 
   }
 });
 
-test("composition Enter does not choose a model or submit a native override", async () => {
+async function assertPickerViewport(width: number) {
+  await page.viewport(width, 700);
+  await vi.waitFor(() => {
+    const box = page.getByRole("dialog", { name: "Models" }).element().getBoundingClientRect();
+    expect(box.left).toBeGreaterThanOrEqual(0);
+    expect(box.right).toBeLessThanOrEqual(width);
+  });
+  const dialog = page.getByRole("dialog", { name: "Models" }).element().getBoundingClientRect();
+  for (const element of [
+    page.getByRole("radiogroup", { name: "Instances" }),
+    page.getByRole("combobox", { name: "Search models" }),
+    page.getByRole("button", { name: "High" }),
+  ]) {
+    const box = element.element().getBoundingClientRect();
+    expect(box.left).toBeGreaterThanOrEqual(dialog.left - 1);
+    expect(box.right).toBeLessThanOrEqual(dialog.right + 1);
+    expect(box.width).toBeGreaterThan(25);
+  }
+  expect(dialog.left).toBeGreaterThanOrEqual(0);
+  expect(dialog.right).toBeLessThanOrEqual(width);
+}
+
+test("composition Enter does not choose a model", async () => {
   const onModel = vi.fn<(key: string) => void>();
-  const onSubmit = vi.fn<() => void>();
   await render(
     <ModelPicker
       title="Models"
@@ -244,7 +443,6 @@ test("composition Enter does not choose a model or submit a native override", as
       onInstance={() => {}}
       models={[{ key: "a", name: "Alpha" }]}
       onModel={onModel}
-      nativeModel={{ value: "custom", placeholder: "Custom", onChange: () => {}, onSubmit }}
       onClose={() => {}}
     />,
   );
@@ -256,14 +454,6 @@ test("composition Enter does not choose a model or submit a native override", as
   expect(onModel).not.toHaveBeenCalled();
   await userEvent.keyboard("{Enter}");
   expect(onModel).toHaveBeenCalledExactlyOnceWith("a");
-  const native = page.getByRole("textbox", { name: "Model override" });
-  await native.click();
-  native.element().dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
-  native.element().dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
-  await userEvent.keyboard("{Enter}");
-  expect(onSubmit).not.toHaveBeenCalled();
-  await userEvent.keyboard("{Enter}");
-  expect(onSubmit).toHaveBeenCalledOnce();
 });
 
 test("busy picker does not apply choices or close", async () => {
@@ -290,41 +480,6 @@ test("busy picker does not apply choices or close", async () => {
   expect(onClose).not.toHaveBeenCalled();
   await expect.element(page.getByRole("button", { name: "High" })).toBeDisabled();
   await expect.element(page.getByRole("dialog", { name: "Models" })).toBeVisible();
-});
-
-function SuspendedFixture() {
-  const [settings, setSettings] = useState(false);
-  return (
-    <>
-      <ModelPicker
-        title="Models"
-        suspended={settings}
-        instances={[{ key: "pi", kind: "pi", name: "Pi" }]}
-        instance="pi"
-        onInstance={() => {}}
-        models={[{ key: "a", name: "Alpha" }]}
-        onModel={() => {}}
-        onClose={() => {}}
-        footer={<button onClick={() => setSettings(true)}>Settings</button>}
-      />
-      {settings && (
-        <TaskDialog title="Settings" onClose={() => setSettings(false)}>
-          <button onClick={() => setSettings(false)}>Back</button>
-        </TaskDialog>
-      )}
-    </>
-  );
-}
-
-test("settings suspension retains search and restores search focus", async () => {
-  await render(<SuspendedFixture />);
-  await page.getByRole("combobox", { name: "Search models" }).fill("Alpha");
-  await page.getByRole("button", { name: "Settings" }).click();
-  await expect.element(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
-  expect(page.getByRole("dialog", { name: "Models" }).elements()).toHaveLength(0);
-  await page.getByRole("button", { name: "Back" }).click();
-  await expect.element(page.getByRole("combobox", { name: "Search models" })).toHaveFocus();
-  await expect.element(page.getByRole("combobox", { name: "Search models" })).toHaveValue("Alpha");
 });
 
 test("the instance rail names an instance on focus as well as hover", async () => {
