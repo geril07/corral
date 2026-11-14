@@ -1,4 +1,5 @@
 import { describeError } from "@corral/client/rpc-errors";
+import { profileChanged } from "@corral/client/launch-messages";
 import type {
   AgentSettings,
   LaunchProfile,
@@ -62,9 +63,7 @@ export function AgentPicker({
       : "terminal";
   const error =
     launchProblem(selection, profiles, agents) ??
-    (conflicted === launchKey(selection)
-      ? "The profile changed on the server. Review it and choose it again."
-      : failure);
+    (conflicted === launchKey(selection) ? profileChanged(selection.profile?.name ?? "") : failure);
   const submit = (target: LaunchSelection) => {
     if (
       busy ||

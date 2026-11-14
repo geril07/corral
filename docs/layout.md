@@ -71,6 +71,8 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
 - The status slot follows only the task's **primary** agent session. Working has no displayed
   duration; other states use compact ages (`<1m`, `12m`, `2h`) from the report time. Sort order is
   Blocked/Error, unseen Done, Working, then neutral, newest report first inside a group.
+  Idle keeps its word beside the age; seen Done shows the age alone. The header adds `ago` to
+  ages and no explanatory clause to Working. Settled remains a separate marker beside live status.
 - `prefix \` toggles the sidebar. When hidden, the same toggle floats at the main surface's
   top-start corner. Clicking a card selects it and updates the route's `task` search; the review
   host at `/visual-review` (development only) renders the same components with fixture rows for
@@ -116,6 +118,9 @@ dialog modules remain; old-screen tests can still contain live behavior coverage
   glyph. The accessible name carries the session's badge; the Chat/Terminal view item, rename,
   one `Close tab` that stops the session, and the destructive remove live in the tab's context
   menu; a stopped session's menu offers restart.
+- A stopped pane contains only the `kind · badge` heading, an alert when a launch or agent failed,
+  and the focused `Restart` or `Start a new conversation` button. Enter and the restart binding
+  still start it; launch facts stay in the sidebar metadata, not in the stopped pane.
 - The companion group has its own strip and pane, separated by a **1** px border with an **8** px
   drag hit area. At the 1024 floor with the sidebar hidden the main pane keeps **560** and the
   companion can use **320–448**; the stored 600 clamps to 448. With the sidebar shown the

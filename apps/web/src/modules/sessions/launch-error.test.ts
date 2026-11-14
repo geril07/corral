@@ -6,7 +6,7 @@ const defined = (code: string, data: unknown) => ({ code, defined: true, data })
 
 test("each typed launch refusal becomes a sentence with names, never values", () => {
   expect(describeLaunchError(defined("LAUNCH_PROFILE_UNKNOWN", { id: "gone" }))).toBe(
-    'The profile "gone" is no longer in the config file.',
+    'The profile "gone" is no longer in the config file. Choose an agent or another profile.',
   );
   expect(
     describeLaunchError(defined("LAUNCH_PROFILE_KIND_MISMATCH", { id: "p", kind: "codex" })),
@@ -28,8 +28,17 @@ test("each typed launch refusal becomes a sentence with names, never values", ()
   );
   // The composer and the agent picker call this first, so this copy is the sentence users see.
   expect(describeLaunchError(defined("AGENT_DISABLED", { kind: "claude" }))).toBe(
-    "The claude agent is disabled in the config file.",
+    "The claude agent is disabled in the config file. Choose another agent.",
   );
+});
+
+test("unsupported chat launches name the shell constraint or missing agent driver", () => {
+  expect(
+    describeLaunchError(defined("LAUNCH_VIEW_UNSUPPORTED", { kind: "shell", view: "chat" })),
+  ).toBe("A shell runs in a terminal only.");
+  expect(
+    describeLaunchError(defined("LAUNCH_VIEW_UNSUPPORTED", { kind: "claude", view: "chat" })),
+  ).toBe("The claude agent has no chat driver in this build.");
 });
 
 test("a pinned revision conflict and an invalid revision-only launch are explained", () => {

@@ -1,4 +1,10 @@
 import type { ChatUnavailableReason } from "@corral/protocol/rpc";
+import {
+  agentDisabled,
+  profileChanged,
+  profileMissing,
+  launchViewUnsupported,
+} from "./launch-messages.ts";
 
 /**
  * The typed errors of the contract (`rpc.ts`) that the UI explains in its own words. Matched by
@@ -92,13 +98,20 @@ export function describeError(error: unknown): string {
           : `${command} was not found on the server's PATH.`;
       }
       case "AGENT_DISABLED":
-        return `The ${String(field(data, "kind"))} agent is disabled in the config file.`;
+        return agentDisabled(String(field(data, "kind")));
       case "CHAT_MODEL_UNSUPPORTED":
         return `The agent does not offer the model ${String(field(field(data, "model"), "id"))}.`;
       case "CHAT_REASONING_UNSUPPORTED":
         return `The agent has no reasoning level "${String(field(data, "level"))}".`;
       case "LAUNCH_PROFILE_CHANGED":
-        return "The launch profile changed since you chose it. Reload and choose it again.";
+        return profileChanged(String(field(data, "id")));
+      case "LAUNCH_PROFILE_UNKNOWN":
+        return profileMissing(String(field(data, "id")));
+      case "LAUNCH_VIEW_UNSUPPORTED":
+        return (
+          launchViewUnsupported(String(field(data, "kind")), field(data, "view")) ??
+          (error instanceof Error ? error.message : String(error))
+        );
       case "LAUNCH_PROFILE_REVISION_UNSUPPORTED":
         return "A pinned profile revision requires a selected profile.";
       case "HAS_LIVE_TERMINALS":

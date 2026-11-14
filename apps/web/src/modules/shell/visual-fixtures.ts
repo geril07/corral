@@ -102,7 +102,7 @@ export const VISUAL_REVIEW_ROWS: readonly VisualTaskRow[] = [
     title: "Trace the stale workspace cache invalidation",
     project: "orbit",
     projectInitial: "O",
-    status: { tone: "neutral", muted: true, time: "6h" },
+    status: { tone: "neutral", label: "Idle", muted: true, time: "6h" },
     metadata: {
       project: "orbit",
       branch: "chore/workspace-cache",

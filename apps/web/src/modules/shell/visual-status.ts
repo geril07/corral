@@ -74,7 +74,12 @@ export function cardStatus(
         }
       : { tone: "neutral", muted: true, time: formatCompactAge(now, status.updatedAt) };
   }
-  return { tone: "neutral", muted: true, time: formatCompactAge(now, status.updatedAt) };
+  return {
+    tone: "neutral",
+    label: "Idle",
+    muted: true,
+    time: formatCompactAge(now, status.updatedAt),
+  };
 }
 
 /** Blocked/Error, then unseen Done, then Working, then everything else. */

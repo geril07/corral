@@ -2,7 +2,6 @@ import type { AgentState, AgentStatus, Session } from "@corral/protocol/rpc";
 import * as fc from "fast-check";
 import { expect, test } from "vite-plus/test";
 import {
-  attentionWord,
   describeStatus,
   formatAge,
   hasUnseen,
@@ -133,16 +132,4 @@ test("a done update newer than the task's seenAt is completed and unseen", () =>
   expect(hasUnseen(seenTask(1), status("blocked", 2, "permission"))).toBe(true);
   expect(hasUnseen(seenTask(2), status("done", 2))).toBe(false);
   expect(hasUnseen(seenTask(null), undefined)).toBe(false);
-});
-
-test("the word a row shows while the task needs the user names the state and the wait", () => {
-  expect(attentionWord(status("blocked", 0, "permission"))).toBe("needs approval");
-  expect(attentionWord(status("blocked", 0, "question"))).toBe("needs input");
-  expect(attentionWord(status("blocked", 0, "auth"))).toBe("needs auth");
-  expect(attentionWord(status("blocked"))).toBe("blocked");
-  expect(attentionWord(status("error"))).toBe("error");
-  expect(attentionWord(status("working"))).toBeUndefined();
-  expect(attentionWord(status("done"))).toBeUndefined();
-  expect(attentionWord(status("idle"))).toBeUndefined();
-  expect(attentionWord(undefined)).toBeUndefined();
 });

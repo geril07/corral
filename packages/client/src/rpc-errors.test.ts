@@ -54,7 +54,7 @@ test("a refused model, level or disabled agent names what the server refused", (
     'The agent has no reasoning level "low".',
   );
   expect(describeError(defined("AGENT_DISABLED", { kind: "claude" }))).toBe(
-    "The claude agent is disabled in the config file.",
+    "The claude agent is disabled in the config file. Choose another agent.",
   );
   // A custom `[agents.<kind>].command` is a path, so PATH is not where it was looked for.
   expect(describeError(defined("AGENT_NOT_FOUND", { command: "/opt/pi/bin/pi" }))).toBe(
@@ -67,10 +67,22 @@ test("a refused model, level or disabled agent names what the server refused", (
 
 test("a launch profile pinned to a changed revision is explained", () => {
   expect(describeError(defined("LAUNCH_PROFILE_CHANGED", { id: "p1" }))).toBe(
-    "The launch profile changed since you chose it. Reload and choose it again.",
+    'The profile "p1" changed on the server. Review it and choose it again.',
   );
   expect(describeError(defined("LAUNCH_PROFILE_REVISION_UNSUPPORTED", undefined))).toBe(
     "A pinned profile revision requires a selected profile.",
+  );
+});
+
+test("a missing profile and unsupported chat launches keep the launch refusal sentences", () => {
+  expect(describeError(defined("LAUNCH_PROFILE_UNKNOWN", { id: "gone" }))).toBe(
+    'The profile "gone" is no longer in the config file. Choose an agent or another profile.',
+  );
+  expect(describeError(defined("LAUNCH_VIEW_UNSUPPORTED", { kind: "shell", view: "chat" }))).toBe(
+    "A shell runs in a terminal only.",
+  );
+  expect(describeError(defined("LAUNCH_VIEW_UNSUPPORTED", { kind: "claude", view: "chat" }))).toBe(
+    "The claude agent has no chat driver in this build.",
   );
 });
 

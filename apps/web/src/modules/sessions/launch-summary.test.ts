@@ -1,11 +1,6 @@
 import type { Session } from "@corral/protocol/rpc";
 import { expect, test } from "vite-plus/test";
-import { compactLaunchLabel, launchFacts, launchLine } from "./launch-summary.ts";
-
-const session = (launch: Session["launch"]): Pick<Session, "kind" | "launch"> => ({
-  kind: "claude",
-  launch,
-});
+import { compactLaunchLabel, launchFacts } from "./launch-summary.ts";
 
 const profileLaunch: NonNullable<Session["launch"]> = {
   kind: "claude",
@@ -15,45 +10,34 @@ const profileLaunch: NonNullable<Session["launch"]> = {
   env: [{ targetName: "ANTHROPIC_AUTH_TOKEN", fromEnv: "CLAUDE_TOKEN" }],
 };
 
-test("a snapshot is shown from its own choices, with reference names only", () => {
-  const line = launchLine(session(profileLaunch));
-  expect(line?.text).toBe("Claude gateway · claude-sonnet-4-5");
-  expect(line?.details).toContain("profile claude-gateway (0123456789ab)");
-  expect(line?.details).toContain("env ANTHROPIC_AUTH_TOKEN from server CLAUDE_TOKEN");
-  expect(compactLaunchLabel(session(profileLaunch))).toBe("Claude gateway");
+test("the sidebar reads immutable launch facts and prefers the profile name", () => {
+  expect(launchFacts({ launch: profileLaunch })).toEqual({
+    profile: "Claude gateway",
+    profileId: "claude-gateway",
+    revision: "0123456789ab",
+    model: "claude-sonnet-4-5",
+    provider: null,
+    env: profileLaunch.env,
+  });
+  expect(compactLaunchLabel({ launch: profileLaunch })).toBe("Claude gateway");
 });
 
 test("a bare model choice has no profile and shows the model", () => {
-  const launch = { ...profileLaunch, profile: null, env: [] };
-  expect(launchLine(session(launch))?.text).toBe("claude-sonnet-4-5");
-  expect(compactLaunchLabel(session(launch))).toBe("claude-sonnet-4-5");
-});
-
-test("a provider and an env-only profile read as such", () => {
-  const codex = {
-    ...profileLaunch,
-    kind: "codex" as const,
+  const launch = { ...profileLaunch, profile: null, env: [], provider: "openai" };
+  expect(compactLaunchLabel({ launch })).toBe("claude-sonnet-4-5");
+  expect(launchFacts({ launch })).toEqual({
+    profile: null,
+    profileId: null,
+    revision: null,
+    model: "claude-sonnet-4-5",
     provider: "openai",
     env: [],
-  };
-  expect(launchLine({ kind: "codex", launch: codex })?.text).toContain("provider openai");
-
-  const opencode = {
-    ...profileLaunch,
-    kind: "opencode" as const,
-    model: null,
-    provider: null,
-    env: [{ targetName: "OPENAI_API_KEY", fromEnv: "TEAM_KEY" }],
-  };
-  expect(launchLine({ kind: "opencode", launch: opencode })?.text).toBe(
-    "Claude gateway · no model choice",
-  );
+  });
 });
 
-test("a native-default launch claims no model, and an old session claims nothing", () => {
-  expect(launchLine(session(null))?.text).toBe("agent default model");
-  expect(compactLaunchLabel(session(null))).toBeUndefined();
-  expect(launchFacts(session(null))).toEqual({
+test("a native default claims no model, and an old session claims nothing", () => {
+  expect(compactLaunchLabel({ launch: null })).toBeUndefined();
+  expect(launchFacts({ launch: null })).toEqual({
     profile: null,
     profileId: null,
     revision: null,
@@ -61,14 +45,6 @@ test("a native-default launch claims no model, and an old session claims nothing
     provider: null,
     env: [],
   });
-
-  const legacy = launchLine(session(undefined));
-  expect(legacy?.text).toContain("unknown");
-  expect(legacy?.text).not.toContain("model ·");
-  expect(compactLaunchLabel(session(undefined))).toBeUndefined();
-  expect(launchFacts(session(undefined))).toBeUndefined();
-});
-
-test("a shell never carries launch prose", () => {
-  expect(launchLine({ kind: "shell", launch: null })).toBeUndefined();
+  expect(compactLaunchLabel({ launch: undefined })).toBeUndefined();
+  expect(launchFacts({ launch: undefined })).toBeUndefined();
 });

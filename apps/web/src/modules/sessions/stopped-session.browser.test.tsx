@@ -20,33 +20,28 @@ const session = (state: Session["state"], kind: Session["kind"] = "claude"): Ses
 const pane = (badge: "stopped" | "failed" | "unresumable" = "stopped") =>
   page.getByRole("region", { name: `${badge} session` });
 
-test("a stopped agent says it resumes, and Enter starts it, as the button has the focus", async () => {
+test("a stopped agent keeps its heading and focused Restart button, and Enter starts it", async () => {
   const onRestart = vi.fn<() => void>();
-  await render(
-    <StoppedSession session={session("stopped")} restartHint="alt+a r" onRestart={onRestart} />,
-  );
+  await render(<StoppedSession session={session("stopped")} onRestart={onRestart} />);
 
   await expect.element(pane()).toMatchTextContent("claude · stopped");
-  await expect.element(pane()).toMatchTextContent("resumes");
-  await expect.element(pane()).toMatchTextContent("Enter, or alt+a r.");
+  await expect.element(pane()).not.toMatchTextContent("resumes");
+  await expect.element(pane()).not.toMatchTextContent("Enter, or");
+  await expect.element(pane()).not.toMatchTextContent("alt+a r");
   await expect.element(pane().getByRole("button", { name: "Restart" })).toHaveFocus();
 
   await userEvent.keyboard("{Enter}");
   expect(onRestart).toHaveBeenCalledOnce();
+  await pane().getByRole("button", { name: "Restart" }).click();
+  expect(onRestart).toHaveBeenCalledTimes(2);
 });
 
 test("the pane speaks for the session only, never for the task's shelf state", async () => {
-  await render(
-    <StoppedSession
-      session={session("stopped")}
-      restartHint="alt+a r"
-      onRestart={() => undefined}
-    />,
-  );
+  await render(<StoppedSession session={session("stopped")} onRestart={() => undefined} />);
 
   await expect
     .element(pane())
-    .toMatchTextContent("Starting it again resumes the agent's conversation.");
+    .not.toMatchTextContent("Starting it again resumes the agent's conversation.");
   // Settle is metadata: a stopped session has nothing to say about the task's shelf.
   await expect.element(pane()).not.toMatchTextContent("This task is settled.");
   await expect.element(pane()).not.toMatchTextContent("transcript");
@@ -63,13 +58,12 @@ test("a failed start's pane heading says failed and names the error", async () =
         status: { state: "error", updatedAt: 1, message: "claude did not answer" },
         launchError: "claude did not answer within 15 s",
       }}
-      restartHint="alt+a r"
       onRestart={() => undefined}
     />,
   );
 
   await expect.element(pane("failed")).toMatchTextContent("claude · failed");
-  await expect.element(pane("failed")).toMatchTextContent("resumes");
+  await expect.element(pane("failed")).not.toMatchTextContent("resumes");
   await expect.element(pane("failed").getByRole("button", { name: "Restart" })).toBeVisible();
   await expect
     .element(pane("failed").getByRole("alert"))
@@ -83,7 +77,6 @@ test("a status-only error still names its reason in the pane", async () => {
         ...session("stopped"),
         status: { state: "error", updatedAt: 1, message: "claude crashed" },
       }}
-      restartHint="alt+a r"
       onRestart={() => undefined}
     />,
   );
@@ -96,21 +89,17 @@ test("a status-only error still names its reason in the pane", async () => {
 
 test("an unresumable session says it will start a new conversation", async () => {
   await render(
-    <StoppedSession
-      session={session("unresumable", "codex")}
-      restartHint="alt+a r"
-      onRestart={() => undefined}
-    />,
+    <StoppedSession session={session("unresumable", "codex")} onRestart={() => undefined} />,
   );
 
   await expect.element(pane("unresumable")).toMatchTextContent("codex · unresumable");
-  await expect.element(pane("unresumable")).toMatchTextContent("will start a new conversation");
+  await expect.element(pane("unresumable")).not.toMatchTextContent("will start a new conversation");
   await expect
     .element(pane("unresumable").getByRole("button", { name: "Start a new conversation" }))
     .toHaveFocus();
 });
 
-test("a profiled session shows its snapshot profile, model and provider", async () => {
+test("a profiled session has no launch line or tooltip", async () => {
   await render(
     <StoppedSession
       session={{
@@ -123,38 +112,41 @@ test("a profiled session shows its snapshot profile, model and provider", async 
           env: [{ targetName: "ANTHROPIC_AUTH_TOKEN", fromEnv: "CLAUDE_TOKEN" }],
         },
       }}
-      restartHint="alt+a r"
       onRestart={() => undefined}
     />,
   );
 
-  await expect.element(pane()).toMatchTextContent("Claude gateway · claude-sonnet-4-5");
+  await expect.element(pane()).not.toMatchTextContent("Claude gateway");
+  await expect.element(pane()).not.toMatchTextContent("claude-sonnet-4-5");
+  await expect.element(pane().getByLabelText("launch choices")).not.toBeInTheDocument();
+  await expect.element(pane().getByRole("tooltip")).not.toBeInTheDocument();
+  await expect.element(pane().getByRole("button", { name: "Restart" })).toBeVisible();
 });
 
 test("a native-default launch shows no model from today's config", async () => {
   await render(
     <StoppedSession
       session={{ ...session("stopped"), launch: null }}
-      restartHint="alt+a r"
       onRestart={() => undefined}
     />,
   );
 
   await expect.element(pane()).not.toMatchTextContent("claude-sonnet-4-5");
-  await expect.element(pane()).toMatchTextContent("agent default model");
+  await expect.element(pane()).not.toMatchTextContent("agent default model");
+  await expect.element(pane().getByRole("button", { name: "Restart" })).toBeVisible();
 });
 
-test("an old session says its launch choices are unknown, without guessing a model", async () => {
+test("an old session keeps Restart without launch compatibility prose", async () => {
   await render(
     <StoppedSession
       session={{ ...session("stopped"), launch: undefined }}
-      restartHint="alt+a r"
       onRestart={() => undefined}
     />,
   );
 
-  await expect.element(pane()).toMatchTextContent("launch choices");
-  await expect.element(pane()).toMatchTextContent("its model is unknown");
+  await expect.element(pane()).not.toMatchTextContent("launch choices");
+  await expect.element(pane()).not.toMatchTextContent("its model is unknown");
+  await expect.element(pane().getByRole("button", { name: "Restart" })).toBeVisible();
 });
 
 test("a safe launch error stays visible next to the restart button", async () => {
@@ -165,7 +157,6 @@ test("a safe launch error stays visible next to the restart button", async () =>
         launchError:
           "the server has no environment variable CLAUDE_TOKEN for profile claude-gateway",
       }}
-      restartHint="alt+a r"
       onRestart={() => undefined}
     />,
   );
@@ -180,7 +171,6 @@ test("a workspace deleted outside Corral names the sentence and the path, never 
   await render(
     <StoppedSession
       session={{ ...session("stopped", "shell"), launchError: workspaceMissingMessage(path) }}
-      restartHint="alt+a r"
       onRestart={() => undefined}
     />,
   );

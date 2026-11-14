@@ -102,7 +102,8 @@ test("a named profile's model reaches the fake CLI and stays on the session", as
 
   // Stop, then change the profile in the file: the conversation keeps its snapshot.
   await prefixThen("x");
-  await expect.element(stoppedPane()).toMatchTextContent("Claude gateway · claude-sonnet-4-5");
+  await expect.element(stoppedPane()).not.toMatchTextContent("Claude gateway · claude-sonnet-4-5");
+  await expect.element(stoppedPane().getByRole("button", { name: "Restart" })).toBeVisible();
 
   await applyConfig(
     client,
@@ -114,7 +115,7 @@ model = "claude-haiku-4"
 `,
     1,
   );
-  await expect.element(stoppedPane()).toMatchTextContent("Claude gateway · claude-sonnet-4-5");
+  await expect.element(stoppedPane()).not.toMatchTextContent("Claude gateway · claude-sonnet-4-5");
   await expect.element(stoppedPane()).not.toMatchTextContent("claude-haiku-4");
   expect(sessionOf(client, "claude").launch).toMatchObject({
     profile: { name: "Claude gateway" },
@@ -136,7 +137,8 @@ test("a native-default start carries no profile or model and never borrows the f
   await expect.poll(() => argvOf(session.id)).toEqual([["--session-id", session.agentSessionId]]);
 
   await prefixThen("x");
-  await expect.element(stoppedPane()).toMatchTextContent("agent default model");
+  await expect.element(stoppedPane()).not.toMatchTextContent("agent default model");
+  await expect.element(stoppedPane().getByRole("button", { name: "Restart" })).toBeVisible();
   await expect.element(stoppedPane()).not.toMatchTextContent("claude-sonnet-4-5");
 });
 
@@ -228,7 +230,9 @@ test("a profile revision change requires explicit reselect and launches the new 
 
   await expect
     .element(picker().getByRole("alert"))
-    .toMatchTextContent("changed in the config file");
+    .toMatchTextContent(
+      'The profile "Claude gateway" changed on the server. Review it and choose it again.',
+    );
   const start = picker().getByRole("option").last();
   await expect.element(start).toBeDisabled();
   const beforeCount = client.sessions.getSnapshot().sessions.length;

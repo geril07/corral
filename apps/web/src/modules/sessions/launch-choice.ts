@@ -9,6 +9,7 @@ import {
 import type { ChatModel, ChatModelRef } from "@corral/protocol/chat";
 import { modelKey, modelScopeKey, type ModelScope } from "@corral/protocol/models";
 import { AGENTS } from "@corral/client/session-state";
+import { agentDisabled, profileChanged, profileMissing } from "@corral/client/launch-messages";
 import type { AgentKind } from "@corral/protocol/rpc";
 
 export interface AgentLaunchChoice {
@@ -192,19 +193,16 @@ export function launchProblem(
   profiles: readonly LaunchProfile[],
   agents: AgentSettings,
 ): string | undefined {
-  if (!agents[selection.kind].enabled.value)
-    return `The ${selection.kind} agent is disabled in the config file. Choose another agent.`;
+  if (!agents[selection.kind].enabled.value) return agentDisabled(selection.kind);
   if (selection.profile) {
     const current = profiles.find((profile) => profile.id === selection.profile?.id);
-    if (!current)
-      return `The profile "${selection.profile.name}" is no longer in the config file. Choose an agent or another profile.`;
+    if (!current) return profileMissing(selection.profile.name);
     // A disabled instance is not offered, but a retained selection still names it; the server
     // refuses the launch, so the picker says why before the request exists. The server's own
     // message for this state says "instance".
     if (current.enabled === false)
       return `The instance "${current.name}" is disabled in the config file. Choose an agent or another instance.`;
-    if (current.revision !== selection.profile.revision)
-      return `The profile "${current.name}" changed in the config file. Review it and choose it again.`;
+    if (current.revision !== selection.profile.revision) return profileChanged(current.name);
   }
   return modelProblem(selection.kind, selection.model);
 }

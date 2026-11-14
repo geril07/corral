@@ -91,10 +91,12 @@ test("configured profiles win, model overrides stay explicit and payloads pin th
     expectedProfileRevision: "3",
     model: "other-model",
   });
-  expect(launchProblem(selection, [{ ...gateway, revision: "4" }], config.agents)).toContain(
-    "changed",
+  expect(launchProblem(selection, [{ ...gateway, revision: "4" }], config.agents)).toBe(
+    'The profile "Gateway" changed on the server. Review it and choose it again.',
   );
-  expect(launchProblem(selection, [], config.agents)).toContain("no longer");
+  expect(launchProblem(selection, [], config.agents)).toBe(
+    'The profile "Gateway" is no longer in the config file. Choose an agent or another profile.',
+  );
   expect(launchChoice(selection).expectedProfileRevision).toBe("3");
 });
 
@@ -113,8 +115,8 @@ test("without a usable default profile the configured agent wins, then the first
   const disabled = structuredClone(config.agents);
   for (const kind of AgentKind.options) disabled[kind].enabled = { value: false, source: "global" };
   expect(defaultLaunch(config.tasks, [gateway], disabled)).toBeUndefined();
-  expect(launchProblem({ kind: "pi", profile: null, model: "" }, [], disabled)).toContain(
-    "disabled",
+  expect(launchProblem({ kind: "pi", profile: null, model: "" }, [], disabled)).toBe(
+    "The pi agent is disabled in the config file. Choose another agent.",
   );
 });
 
