@@ -11,8 +11,8 @@ import {
 } from "./app-helpers.ts";
 import { isAlive, readLaunches, test } from "./fixtures.ts";
 
-// Settling a task stops what runs in it; making it active again brings back what was running.
-test("settling a task stops its agent and unsettling resumes the conversation", async ({
+// Settling only shelves a task: what runs in it keeps running, and un-settling starts nothing.
+test("settling a task shelves it while its agent keeps working, and unsettling starts nothing", async ({
   launchApp,
   stateDir,
 }) => {
@@ -55,9 +55,10 @@ test("settling a task stops its agent and unsettling resumes the conversation", 
   const settledRow = window.getByRole("button", { name: /Finished/ });
   await expect(settledRow).toHaveAttribute("aria-current", "true");
   await expect(settledRow).toBeVisible();
-  await expect(tabs.getByRole("tab", { name: /^claude stopped/ })).toBeVisible();
-  await expect(tabs.getByRole("tab", { name: /^shell stopped/ })).toBeVisible();
-  await expect.poll(() => isAlive(started!.pid)).toBe(false);
+  // Settle is metadata: both sessions keep running, so their tabs carry no state word.
+  await expect(tabs.getByRole("tab", { name: "claude", exact: true })).toBeVisible();
+  await expect(tabs.getByRole("tab", { name: "shell", exact: true })).toBeVisible();
+  expect(isAlive(started!.pid)).toBe(true);
 
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyD");
@@ -65,12 +66,11 @@ test("settling a task stops its agent and unsettling resumes the conversation", 
   await expect(window.getByRole("button", { name: "Settled (1)" })).toBeHidden();
   await expect(claudeTab()).toBeVisible();
   await expect(shellTab()).toBeVisible();
+  // Un-settling starts nothing: the agent process was never stopped, so it is still the first launch.
   await expect
     .poll(() => claudeLaunches().map((launch) => launch.argv))
-    .toEqual([
-      ["--session-id", claudeId, " Finished"],
-      ["--resume", claudeId],
-    ]);
+    .toEqual([["--session-id", claudeId, " Finished"]]);
+  expect(isAlive(started!.pid)).toBe(true);
   await claudeTab().click();
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
   await window.keyboard.type("after-unsettle");

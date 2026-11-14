@@ -66,8 +66,6 @@ test("a rename queued behind a removal waits for it and fails without writing th
       return stopping;
     },
     closeTerminalsIn: () => Promise.resolve(),
-    suspendAllIn: () => Promise.resolve(),
-    resumeAllIn: () => Promise.resolve(),
     startPrimary: () => {
       throw new Error("a rename starts no session");
     },
@@ -94,8 +92,6 @@ test("a blank title is refused before anything is written, so the task list stil
     hasRunningIn: () => false,
     removeAllIn: () => Promise.resolve(),
     closeTerminalsIn: () => Promise.resolve(),
-    suspendAllIn: () => Promise.resolve(),
-    resumeAllIn: () => Promise.resolve(),
     startPrimary: () => {
       throw new Error("a rename starts no session");
     },
@@ -115,8 +111,6 @@ test("a rename that runs before a removal applies, and the removal then takes th
     hasRunningIn: () => false,
     removeAllIn: () => Promise.resolve(),
     closeTerminalsIn: () => Promise.resolve(),
-    suspendAllIn: () => Promise.resolve(),
-    resumeAllIn: () => Promise.resolve(),
     startPrimary: () => {
       throw new Error("a rename starts no session");
     },

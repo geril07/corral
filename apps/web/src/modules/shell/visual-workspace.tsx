@@ -179,7 +179,7 @@ export function VisualWorkspace({
     [now, projects.projects, sessions.sessions, tasks.tasks],
   );
   // The shelf is part of the one list: a settled task stays selectable, and its working area keeps
-  // its tabs and explains that continuing it resumes the sessions that were running.
+  // its tabs and its running sessions, because settling is metadata only.
   const listedRows = useMemo(() => [...rows, ...settledRows], [rows, settledRows]);
   const selectedRow =
     selectedTaskId === null

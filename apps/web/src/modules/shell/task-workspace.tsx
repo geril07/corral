@@ -1,6 +1,6 @@
 import { describeStatus, sessionStatus } from "@corral/client/agent-status";
 import type { CorralClient } from "@corral/client/corral-client";
-import { describeError, SETTLED_TASK_MESSAGE } from "@corral/client/rpc-errors";
+import { describeError } from "@corral/client/rpc-errors";
 import { describeSessionState } from "@corral/client/session-state";
 import { sessionLabels } from "@corral/client/session-labels";
 import {
@@ -326,7 +326,6 @@ export function useTaskWorkspace({
       view?: SessionView,
     ): Promise<Session> => {
       if (task === undefined) throw new Error("Select a task first.");
-      if (task.state === "settled") throw new Error(SETTLED_TASK_MESSAGE);
       const chosenView = view ?? choice?.view;
       return client.connection.api.sessions.start({
         taskId: task.id,
@@ -349,10 +348,6 @@ export function useTaskWorkspace({
 
   const startSession = useCallback(
     async (kind: Session["kind"], choice?: AgentLaunchChoice, view?: SessionView) => {
-      if (task?.state === "settled") {
-        setFailure(SETTLED_TASK_MESSAGE);
-        return;
-      }
       setFailure(undefined);
       try {
         const started = await launch(kind, choice, view);
@@ -361,15 +356,11 @@ export function useTaskWorkspace({
         report(error);
       }
     },
-    [addSession, launch, report, setFailure, task?.state],
+    [addSession, launch, report, setFailure],
   );
 
   const openAgentPicker = useCallback(() => {
     if (task === undefined) return;
-    if (task.state === "settled") {
-      setFailure(SETTLED_TASK_MESSAGE);
-      return;
-    }
     setFailure(undefined);
     setDialog({ kind: "pick-agent" });
   }, [setDialog, setFailure, task]);
@@ -1049,7 +1040,6 @@ export function useTaskWorkspace({
         <StoppedSession
           key={session.id}
           session={session}
-          taskState={task?.state}
           restartHint={formatBinding(config, "restart-session")}
           onRestart={() => void restartSession(session)}
         />

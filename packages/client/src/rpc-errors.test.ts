@@ -34,9 +34,6 @@ test("a missing agent names the command, and session errors are explained", () =
   expect(describeError(defined("ALREADY_RUNNING", undefined))).toBe(
     "This session is already running.",
   );
-  expect(describeError(defined("TASK_SETTLED", undefined))).toBe(
-    "This task is settled. Continue it first.",
-  );
 });
 
 test("a typed error is recognized by shape, not only as an ORPCError instance", () => {

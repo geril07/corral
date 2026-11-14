@@ -101,7 +101,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-test("the prompt is the first start's argument, and a restart, a settle-and-continue or a server restore never passes it again", async () => {
+test("the prompt is the first start's argument, and a restart, a start in a settled task or a server restore never passes it again", async () => {
   // Claude Code has a transcript as soon as it starts, so every later launch resumes the conversation.
   vi.stubEnv("FAKE_CLAUDE_TRANSCRIPT", "eager");
   const session = await sessions.start(TASK_ID, "claude", SIZE, { prompt: PROMPT });
@@ -117,8 +117,11 @@ test("the prompt is the first start's argument, and a restart, a settle-and-cont
   await sessions.restart(session.id, SIZE, { prompt: PROMPT });
   expect((await launchesOf(agents, "claude", 2))[1]!.argv).toEqual(["--resume", id]);
 
-  await sessions.suspendAllIn(TASK_ID);
-  await sessions.resumeAllIn(TASK_ID);
+  // Settling is metadata only, so the session has to be stopped by the user to start it again;
+  // a task that is settled starts the same way, and it still resumes without the prompt.
+  await sessions.stop(session.id);
+  new TaskStore(database).setState(TASK_ID, "settled");
+  await sessions.restart(session.id, SIZE, { prompt: PROMPT });
   expect((await launchesOf(agents, "claude", 3))[2]!.argv).toEqual(["--resume", id]);
 
   // A server restart: a new process on the same data directory, which restores the running session.

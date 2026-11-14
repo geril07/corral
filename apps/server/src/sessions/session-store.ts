@@ -54,16 +54,6 @@ export class SessionStore {
     return PrivateLaunchSpec.parse(JSON.parse(z.string().parse(row["spec"])));
   }
 
-  /** The sessions that were running when their task was settled and start again when it is not. */
-  listResumableOnUnsettle(taskId: string): StoredSession[] {
-    return this.#db
-      .prepare(
-        `SELECT ${COLUMNS} FROM sessions WHERE task_id = ? AND resume_on_unsettle = 1 ORDER BY rowid`,
-      )
-      .all(taskId)
-      .map(fromRow);
-  }
-
   /** The agent session ids that sessions of `kind` already hold. */
   agentSessionIds(kind: StoredSession["kind"]): Set<string> {
     return new Set(
@@ -124,12 +114,6 @@ export class SessionStore {
   /** `null` takes the user's name away, restoring the natural label. */
   setLabel(id: string, label: string | null): void {
     this.#db.prepare("UPDATE sessions SET label = ? WHERE id = ?").run(label, id);
-  }
-
-  setResumeOnUnsettle(id: string, resume: boolean): void {
-    this.#db
-      .prepare("UPDATE sessions SET resume_on_unsettle = ? WHERE id = ?")
-      .run(resume ? 1 : 0, id);
   }
 
   /** Sets the agent's conversation id; `null` forgets one that cannot be resumed. */

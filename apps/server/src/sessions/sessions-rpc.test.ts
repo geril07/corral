@@ -233,32 +233,21 @@ test("an unknown task is TASK_NOT_FOUND", async () => {
   });
 });
 
-test("starting a shell or an agent in a settled task is TASK_SETTLED and creates nothing", async () => {
+test("starting a shell or an agent in a settled task makes it active and starts it", async () => {
   vi.stubEnv("SHELL", "/bin/sh");
   const { api, task } = await addTask(server, "Settled start");
   const existing = await api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE });
   await api.tasks.setState({ id: task.id, state: "settled" });
-  const before = await sessionsOf(api);
 
-  await expect(
-    api.sessions.start({ taskId: task.id, kind: "shell", size: SIZE }),
-  ).rejects.toMatchObject({ code: "TASK_SETTLED" });
-  await expect(
-    api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE }),
-  ).rejects.toMatchObject({ code: "TASK_SETTLED" });
-
-  expect(await sessionsOf(api)).toEqual(before);
-  expect(before).toEqual([
-    expect.objectContaining({ id: existing.id, state: "stopped", terminalId: null }),
-  ]);
-  expect(await api.terminals.list()).toEqual([]);
-  expect(await launchesOfAgent(agents, "claude", 0)).toHaveLength(0);
-  expect(await taskStateOf(api, task.id)).toBe("settled");
-
-  // Continuing is the way out: the same calls work once the task is active again.
-  await api.tasks.setState({ id: task.id, state: "active" });
   const started = await api.sessions.start({ taskId: task.id, kind: "claude", size: SIZE });
+
   expect(started).toMatchObject({ kind: "claude", state: "running" });
+  expect(await taskStateOf(api, task.id)).toBe("active");
+  // The session that was already running was never stopped, so it keeps its terminal.
+  expect(await sessionsOf(api)).toEqual([
+    expect.objectContaining({ id: existing.id, state: "running", terminalId: existing.terminalId }),
+    expect.objectContaining({ id: started.id, state: "running" }),
+  ]);
   expect(await launchesOfAgent(agents, "claude", 1)).toHaveLength(1);
 });
 

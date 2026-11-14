@@ -31,7 +31,10 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   action without moving the title. The action is Settle's slot: it settles an active task and
   unsettles a settled one, named `Settle task` / `Unsettle task`; a host with no task store keeps
   the status instead of offering an action that could not run, and its row menu has no settle item.
-- The Settled shelf is the last group of the same scroller, after the active rows: a **28**-high
+  Settling and un-settling change only the task's shelf state: a running session keeps running, and
+  the next shell, agent or chat prompt makes the task active again.
+- The Settled shelf is the last group of the same scroller, after the active rows, and is
+  organizational only: it groups finished work, it does not stop anything. It is a **28**-high
   wide ghost row with the disclosure chevron and `Settled (N)`, then the
   same **52** px cards in the shelf's one order: newest activity, then newest task, then id — the
   server records no settle time, and activity is the **primary** session's report the card shows,

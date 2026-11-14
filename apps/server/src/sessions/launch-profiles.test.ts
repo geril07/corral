@@ -158,7 +158,7 @@ test("a profile chooses a Codex model and native provider, and resume keeps both
   expect(restarted.launch).toEqual(session.launch);
 });
 
-test("a pi profile passes provider and model together, and settling/resuming keeps them", async () => {
+test("a pi profile passes provider and model together, and a restart keeps them", async () => {
   await writeConfig(
     '[profiles.pi-work]\nname = "pi work"\nagent = "pi"\nmodel = "anthropic/claude-sonnet-4:high"\nprovider = "anthropic"\n',
     (config) => config.profiles.length === 1,
@@ -180,9 +180,9 @@ test("a pi profile passes provider and model together, and settling/resuming kee
     session.agentSessionId,
   ]);
 
-  await api.tasks.setState({ id: task.id, state: "settled" });
-  expect((await sessionsOf(api))[0]).toMatchObject({ id: session.id, state: "stopped" });
-  await api.tasks.setState({ id: task.id, state: "active" });
+  await api.sessions.stop({ id: session.id });
+  await api.sessions.restart({ id: session.id, size: SIZE });
+  expect((await sessionsOf(api))[0]).toMatchObject({ id: session.id, state: "running" });
   expect((await launchesOf(agents, "pi", 2))[1]!.argv).toEqual([
     "--provider",
     "anthropic",

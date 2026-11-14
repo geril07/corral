@@ -69,7 +69,6 @@ import {
   LaunchSpawnError,
   LaunchViewUnsupportedError,
   SessionNotFoundError,
-  TaskSettledError,
   TerminalCloseFailedError,
 } from "../sessions/errors.ts";
 import { MissingEnvRefError, ReservedEnvRefError } from "../agents/launch-env.ts";
@@ -523,7 +522,6 @@ export function createRpcRouter({
           (error) => {
             if (error instanceof TaskNotFoundError)
               return errors.TASK_NOT_FOUND({ data: { id: error.id } });
-            if (error instanceof TaskSettledError) return errors.TASK_SETTLED();
             if (error instanceof AgentNotFoundError)
               return errors.AGENT_NOT_FOUND({ data: { command: error.command } });
             return launchError(error, errors);
@@ -579,7 +577,6 @@ export function createRpcRouter({
           (error) => {
             if (error instanceof SessionNotFoundError)
               return errors.SESSION_NOT_FOUND({ data: { id: error.id } });
-            if (error instanceof TaskSettledError) return errors.TASK_SETTLED();
             if (error instanceof AgentNotFoundError)
               return errors.AGENT_NOT_FOUND({ data: { command: error.command } });
             return launchError(error, errors);
@@ -604,7 +601,7 @@ export function createRpcRouter({
       send: os.chat.send.handler(({ input, errors }) =>
         translating(
           () => {
-            const subject = sessions.chatSubject(input.sessionId);
+            const subject = sessions.promptSubject(input.sessionId);
             if (!subject) throw new SessionNotFoundError(input.sessionId);
             return chat.send(subject, input.text, input.mode);
           },
