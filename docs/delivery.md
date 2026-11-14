@@ -17,25 +17,21 @@ writing a sentence.
 
 A slice runs the same way every time.
 
-1. **Worker.** Implements the slice, self-verifies, and commits. Self-verification means the whole
-   gate: `pnpm check`, the focused browser suites the change can break, format and lint of the
-   touched files, and the UI class gate. A worker that cannot run something says so in its report;
-   it does not hand unfinished checks to a reviewer. Doc updates for the changed behaviour are part
-   of the slice. A UI change also carries before/after screenshots at 100% and 140% interface text
-   in the PR; the worker or a separate screenshot agent captures them from the reviewed tree.
-2. **UI/UX review.** A `reviewer` reads the slice as a product: does it match the reference it
-   claims, is the hierarchy, spacing, iconography and copy consistent, does every state look and
-   behave right, is anything invented that a reference would have answered. Findings are ordered
-   P0–P3; a P0 or P1 goes back to the worker before the next step.
-3. **Technical review.** A second `reviewer` reads the same change as engineering: data shape and
-   ownership, protocol and state, design-system reuse instead of one-off control skins, edge cases,
-   test quality, docs versus code. Same output: P0–P3, P0/P1 fixed before merge.
-4. **Merge.** The orchestrator rebases onto the feature branch, has the final gate run on the
-   combined tree, and merges after the owner's visual OK. The slice is recorded in
+1. **Worker.** Implements the slice, self-verifies, captures evidence, and commits. Self-verification
+   means the whole gate: `pnpm check`, the focused browser suites the change can break, format and
+   lint of the touched files, and the UI class gate. A worker that cannot run something says so in
+   its report; it does not hand unfinished checks to a reviewer. Doc updates for the changed
+   behaviour are part of the slice. A UI change also carries before/after screenshots at 100% and
+   140% interface text in the PR, captured from the worker's final tree.
+2. **Review.** One `reviewer` reads the slice as both product and engineering: does it match the
+   reference it claims; hierarchy, spacing, iconography and copy; data shape and ownership, protocol
+   and state, design-system reuse, edge cases, test quality, docs versus code. Findings are ordered
+   P0–P3; a P0 or P1 goes back to the worker.
+3. **Fix and re-evidence.** The worker fixes P0/P1 in the same branch and re-runs only what the
+   change invalidates: affected tests, the gate when code or configuration changed, and new
+   screenshots when the UI changed. A clean rebase with no code change needs no new evidence.
+4. **Merge.** The orchestrator rebases, merges after the owner's visual OK, and records the slice in
    `docs/ui-rebuild.md`.
-
-Reviews run per slice. Different slices may be reviewed in parallel; within a slice the two reviews
-are sequential, so the technical reviewer reads the UI-accepted version.
 
 ## Models
 
@@ -45,14 +41,16 @@ named, not silently left out of the pipeline.
 
 ## What reviewers run
 
-Reviewers do not run the gate and do not run test suites — that is the worker's evidence, and a
-review that reruns it adds nothing. They may:
+One reviewer covers both the product and the technical read; there is no second review. The
+reviewer does not run the gate and does not run the test suites — that is the worker's evidence, and
+a review that reruns it adds nothing. They may:
 
 - read the diff, the tests the worker wrote, and the worker's reported commands and results;
-- open the running app read-only to see states and capture screenshots;
+- open the running app read-only to see states;
 - write and run a single throwaway test to prove a suspected bug, and report it with the result.
 
-If the worker's evidence is missing or does not cover the change, that is a P1 finding on its own.
+If the worker's evidence is missing, stale (the code changed after it), or does not cover the
+change, that is a P1 finding on its own.
 
 ## What the orchestrator decides
 
@@ -64,6 +62,6 @@ the commit message or the slice report.
 ## Orchestrator scope
 
 The orchestrator owns the issue and PR bodies, `docs/ui-rebuild.md`, the lane order and the
-dependency map. Implementation, screenshots, the gate and both reviews are delegated to
-subagents; the orchestrator does not write code, run suites or capture screenshots itself. It
-merges after the owner's visual OK and records the slice in the status doc.
+dependency map. Implementation, screenshots, the gate and the review are delegated to subagents;
+the orchestrator does not write code, run suites or capture screenshots itself. It merges after the
+owner's visual OK and records the slice in the status doc.
