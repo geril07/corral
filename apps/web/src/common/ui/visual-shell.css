@@ -816,12 +816,15 @@
 
 .visual-main-task {
   display: flex;
-  flex: 1 1 auto;
   flex-direction: row;
   align-items: center;
   gap: 8px;
   max-width: none;
   min-width: 0;
+}
+
+.visual-task-header .visual-main-task {
+  flex: 1 1 auto;
 }
 
 .visual-main-task .visual-main-title {

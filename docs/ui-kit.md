@@ -207,7 +207,7 @@ context-menu dispatcher.
 - One root-layer toggle owns hide/show. It reads the sidebar's real width and the reserved header
   and main-chrome slots, so the 240 ms width transition is the only motion; there is never a
   second visible or tabbable toggle at either endpoint or in flight.
-- `TaskMain` with `compact` is the working area's **40** px identity row: title, project, branch,
+- `TaskMain` is the working area's **40** px identity row: title, project, branch,
   status and the settled state's word `Settled`, reusing the card's existing strings. The strip's
   band follows it; a bottom strip
   replaces the chrome row rather than adding an empty one.

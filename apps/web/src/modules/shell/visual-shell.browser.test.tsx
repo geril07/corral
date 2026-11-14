@@ -51,6 +51,39 @@ for (const [status, line] of [
   });
 }
 
+for (const scale of [100, 140]) {
+  test(`the fallback identity row stays at its natural height and content top at ${scale}%`, async () => {
+    const previousScale = document.documentElement.style.fontSize;
+    document.documentElement.style.fontSize = `${scale}%`;
+    try {
+      const { container } = await render(
+        <VisualShellView
+          rows={[FIRST]}
+          selectedId={FIRST.id}
+          projectsLoaded
+          tasksLoaded
+          failure={undefined}
+          shortcut={undefined}
+          onSelectTask={() => undefined}
+        />,
+      );
+      const content = container.querySelector<HTMLElement>(".visual-main-content")!;
+      const identity = container.querySelector<HTMLElement>(".visual-main-task")!;
+      const contentBox = content.getBoundingClientRect();
+      const identityBox = identity.getBoundingClientRect();
+      expect(getComputedStyle(identity).flexGrow).toBe("0");
+      expect(identityBox.height).toBeLessThan(contentBox.height / 2);
+      expect(identityBox.top).toBeCloseTo(
+        contentBox.top + Number.parseFloat(getComputedStyle(content).paddingTop),
+        0,
+      );
+      expect(getComputedStyle(identity).flexDirection).toBe("row");
+    } finally {
+      document.documentElement.style.fontSize = previousScale;
+    }
+  });
+}
+
 test("a settled task keeps the live Working status beside its shelf marker", async () => {
   const { container } = await render(
     <TaskMain row={{ ...FIRST, settled: true, status: { tone: "working", label: "Working" } }} />,
