@@ -43,9 +43,6 @@ export function LaunchViewControls({
           aria-label={`Open in ${view}`}
           aria-pressed={value === view}
           disabled={disabled || (view === "chat" && !chat)}
-          title={
-            view === "chat" && !chat ? "This agent has no chat driver in this build." : undefined
-          }
           onClick={() => onChange(view)}
         >
           {view === "chat" ? "Chat" : "Terminal"}
@@ -125,13 +122,13 @@ export function AgentLaunchPicker({
     defaultSelection !== undefined && launchKey(defaultSelection) === key
       ? defaultSelection
       : undefined;
-  const configuredModel = configured === undefined ? undefined : launchModel(configured);
   const configuredRow =
     configured === undefined ? undefined : launchCatalogRow(configured, menu.all);
   const currentRow = launchCatalogRow(selection, menu.all);
   const current = launchCurrentModelRow(selection, menu.all, menu.models.map(modelKey), blocked);
   const models: PickerModel[] = [
-    ...(current ? [{ ...current, default: current.name === configuredModel }] : []),
+    // The synthetic row already names a configured default in its detail; one mark per row.
+    ...(current ? [current] : []),
     ...menu.models.map((model) => ({
       key: modelKey(model),
       name: model.name,
@@ -181,6 +178,7 @@ export function AgentLaunchPicker({
       modelName={currentModel}
       error={error}
       busy={busy}
+      loading={!menu.preferences.loaded || menu.loading || menu.refreshing}
       footer={footer}
       onInstanceEnter={() => onCommit(selection)}
       onQuickChoice={(index) => {

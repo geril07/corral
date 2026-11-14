@@ -19,7 +19,7 @@ import { runGitIn } from "../../../test/git-client.ts";
 import { realServerClients, prefixThen } from "../../../test/real-client.ts";
 import { writeConfig } from "../../../test/config-command.ts";
 import { projectOptionLabel } from "../projects/index.ts";
-import { promptField } from "../../../test/task-flows.tsx";
+import { promptField, newTaskView } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 const scope = { kind: "pi" as const, profileId: null };
@@ -154,6 +154,7 @@ function LiveChat({
           agents={config.config.agents}
           settings={taskSettingsFor(config.config, projectPath)}
           chatDrivers={["pi"]}
+          levelsSupported
           anchor={anchor}
           onSetModel={async (model) => {
             await client.connection.api.chat.setModel({ sessionId: session.id, model });
@@ -310,6 +311,102 @@ const rail = () => settings().getByRole("navigation", { name: "Settings categori
 const railButton = (name: string) => rail().getByRole("button", { name, exact: true });
 const firstModelControl = () =>
   models().getByRole("combobox", { name: "Model tool/profile", exact: true });
+
+function pickerRect(element: Element) {
+  const rect = element.getBoundingClientRect();
+  return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+}
+
+function pickerGeometry() {
+  return {
+    dialog: pickerRect(page.getByRole("dialog", { name: "Chat model", exact: true }).element()),
+    rail: pickerRect(document.querySelector(".model-picker-rail")!),
+    models: pickerRect(document.querySelector(".model-picker-models")!),
+    thinking: pickerRect(document.querySelector(".model-picker-thinking")!),
+  };
+}
+
+async function settledPickerGeometry() {
+  const element = page.getByRole("dialog", { name: "Chat model", exact: true }).element();
+  await Promise.all(
+    element
+      .getAnimations({ subtree: true })
+      .map((animation) => animation.finished.catch(() => undefined)),
+  );
+  return pickerGeometry();
+}
+
+function expectSamePickerGeometry(
+  before: ReturnType<typeof pickerGeometry>,
+  after: ReturnType<typeof pickerGeometry>,
+) {
+  for (const region of ["dialog", "rail", "models", "thinking"] as const) {
+    expect(Math.abs(after[region].width - before[region].width)).toBeLessThan(1);
+    expect(Math.abs(after[region].height - before[region].height)).toBeLessThan(1);
+    expect(Math.abs(after[region].left - before[region].left)).toBeLessThan(1);
+    expect(Math.abs(after[region].top - before[region].top)).toBeLessThan(1);
+  }
+}
+
+test("the configured default row is marked in the real launch picker", async () => {
+  const client = newClient();
+  await writeConfig('[tasks]\nagent = "pi"\nmodel = "stub-1"\n');
+  await appWithProject(client);
+  await prefixThen("t");
+  await newTaskView()
+    .getByRole("button", { name: /^Agent pi/ })
+    .click();
+  const agentPicker = page.getByRole("dialog", { name: "Agent and model", exact: true });
+  const row = agentPicker.getByRole("option", {
+    name: /^Stub One · stub · stub-1 · Default$/,
+  });
+  await expect.element(row).toBeVisible();
+  const element = row.element();
+  for (const part of [".model-picker-option-name", ".model-picker-option-detail"]) {
+    const field = element.querySelector<HTMLElement>(part);
+    expect(field).not.toBeNull();
+    expect(field!.scrollWidth).toBeLessThanOrEqual(field!.clientWidth + 1);
+  }
+  expect(agentPicker.getByText("Configured default").elements()).toHaveLength(0);
+});
+
+test("the chat picker keeps the dialog and columns across an instance switch", async () => {
+  const client = newClient();
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
+  const repo = await createGitRepo("picker-instance");
+  const project = await client.connection.api.projects.add({ path: repo });
+  const task = await client.connection.api.tasks.create({
+    title: "Picker instance",
+    projectId: project.id,
+    workspace: { type: "main-worktree" },
+  });
+  const session = await client.connection.api.sessions.start({
+    taskId: task.id,
+    kind: "pi",
+    view: "chat",
+    size: { cols: 80, rows: 24 },
+  });
+  const screen = await render(
+    <LiveChat client={client} taskId={task.id} session={session} projectPath={repo} />,
+  );
+  try {
+    await expect
+      .element(page.getByRole("button", { name: "Model Stub One", exact: true }))
+      .toBeVisible();
+    await page.getByRole("button", { name: "Model Stub One", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: "Chat model", exact: true });
+    await expect.element(dialog).toBeVisible();
+    await expect.element(dialog.getByRole("button", { name: "Open in chat" })).toBeVisible();
+    const before = await settledPickerGeometry();
+
+    await dialog.getByRole("radio", { name: "opencode", exact: true }).click();
+
+    expectSamePickerGeometry(before, await settledPickerGeometry());
+    await expect.element(dialog.getByRole("button", { name: "Open in chat" })).toBeVisible();
+  } finally {
+    await screen.unmount();
+  }
+});
 
 test("Settings opens the Models panel and keeps the keyboard inside it at 1024 and 1920", async () => {
   const originalViewport = { width: window.innerWidth, height: window.innerHeight };

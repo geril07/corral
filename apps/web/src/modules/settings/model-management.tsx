@@ -33,7 +33,7 @@ import {
 import { useCorralClient } from "../connection/index.ts";
 import { useConfig } from "../keymap/index.ts";
 import { AgentKind, taskSettingsFor } from "@corral/protocol/config";
-import type { Project, Task } from "@corral/protocol/rpc";
+import type { Project } from "@corral/protocol/rpc";
 import { ProjectOption, projectOptionLabel } from "../projects/index.ts";
 // launch-choice is a leaf that imports no settings, so this avoids a settings/index cycle.
 // oxlint-disable-next-line import/no-restricted-imports
@@ -50,16 +50,11 @@ import {
 
 const HOME = "server-home";
 
-/** The configured default is resolved through the selected catalog context, not a cache. */
+/** The configured default is resolved through the selected catalog workspace, not a cache. */
 function contextProjectPath(
   context: ModelContext,
   projects: readonly Project[],
-  tasks: readonly Task[],
 ): string | undefined {
-  if (context.taskId !== undefined) {
-    const task = tasks.find((candidate) => candidate.id === context.taskId);
-    return task ? projects.find((project) => project.id === task.projectId)?.path : undefined;
-  }
   if (context.projectId !== undefined)
     return projects.find((project) => project.id === context.projectId)?.path;
   return "";
@@ -80,7 +75,6 @@ export function ModelManagement({
     client.projects.subscribe,
     client.projects.getSnapshot,
   ).projects;
-  const tasks = useSyncExternalStore(client.tasks.subscribe, client.tasks.getSnapshot).tasks;
   const options = [
     ...AgentKind.options.map((kind) => ({ scope: { kind, profileId: null }, name: kind })),
     ...config.profiles.map((profile) => ({
@@ -98,7 +92,7 @@ export function ModelManagement({
     { scope, context, ...(profile ? { expectedProfileRevision: profile.revision } : {}) },
     active,
   );
-  const projectPath = contextProjectPath(context, projects, tasks);
+  const projectPath = contextProjectPath(context, projects);
   const configuredDefault =
     inventory.catalog && projectPath !== undefined
       ? configuredDefaultRow(

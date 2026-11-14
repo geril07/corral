@@ -123,6 +123,7 @@ function seededClient(
     setModel,
     setReasoning,
     chatStore,
+    chatState,
     chatSession: "chat-seeded",
   };
 }
@@ -533,6 +534,101 @@ test("the chat model and reasoning controls apply what the driver reports, from 
     await expect.element(levelDialog).toBeVisible();
     await userEvent.keyboard("{Escape}");
     await expect.element(levelDialog).not.toBeInTheDocument();
+  } finally {
+    tasks.set({ loaded: true, tasks: [] });
+    sessions.set({ loaded: true, sessions: [] });
+    chatStore.close();
+  }
+});
+
+test("a reported model with empty levels keeps the thinking column busy until levels arrive", async () => {
+  const state = workingChat({
+    model: { provider: "stub", id: "stub-1", name: "Stub One" },
+    models: [
+      { provider: "stub", id: "stub-1", name: "Stub One" },
+      { provider: "stub", id: "stub-2", name: "Stub Two" },
+    ],
+    reasoning: "medium",
+    reasoningLevels: ["off", "medium", "high"],
+  });
+  const { client, real, tasks, sessions, chatStore, chatState, chatSession } = seededClient(state);
+  const { repo } = await appWithProject(client);
+  const project = await vi.waitFor(() => {
+    const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
+    if (found === undefined) throw new Error("the project is not in the list yet");
+    return found;
+  });
+  await vi.waitFor(() => expect(real.sessions.getSnapshot().loaded).toBe(true));
+
+  const task: Task = {
+    id: "task-chat-levels-pending",
+    projectId: project.id,
+    title: "Levels pending",
+    titleSource: "user",
+    prompt: null,
+    primarySessionId: chatSession,
+    branch: "main",
+    workspacePath: project.path,
+    ownsWorktree: false,
+    state: "active",
+    seenAt: null,
+    createdAt: 1,
+  };
+  const session: Session = {
+    id: chatSession,
+    taskId: task.id,
+    kind: "pi",
+    view: "chat",
+    agentSessionId: "pi-seeded",
+    terminalId: null,
+    state: "running",
+    status: null,
+    createdAt: 1,
+  };
+
+  try {
+    tasks.set({ loaded: true, tasks: [task] });
+    sessions.set({ loaded: true, sessions: [session] });
+
+    await openSeededTask("Levels pending");
+    await page.getByRole("button", { name: "Model Stub One" }).click();
+    const dialog = page.getByRole("dialog", { name: "Chat model" });
+    await dialog.getByRole("option", { name: /Stub Two/ }).click();
+    const thinking = dialog.getByRole("group", { name: "Thinking levels" });
+    await expect.element(thinking).toHaveAttribute("aria-busy", "true");
+    expect(thinking.element().querySelectorAll(".model-picker-level-skeleton").length).toBe(3);
+
+    // The driver reports the new model first and refreshes the levels later: still pending.
+    chatState.set({
+      loaded: true,
+      sequence: 1,
+      items: [],
+      failure: null,
+      state: {
+        ...state,
+        model: { provider: "stub", id: "stub-2", name: "Stub Two" },
+        reasoningLevels: [],
+      },
+    });
+    await expect.element(thinking).toHaveAttribute("aria-busy", "true");
+    await expect
+      .element(dialog.getByRole("button", { name: "medium", exact: true }))
+      .not.toBeInTheDocument();
+
+    chatState.set({
+      loaded: true,
+      sequence: 2,
+      items: [],
+      failure: null,
+      state: {
+        ...state,
+        model: { provider: "stub", id: "stub-2", name: "Stub Two" },
+        reasoningLevels: ["off", "medium", "high"],
+      },
+    });
+    await expect.element(dialog.getByRole("button", { name: "medium", exact: true })).toBeVisible();
+    expect(thinking.element().getAttribute("aria-busy")).toBeNull();
+    expect(thinking.element().querySelectorAll(".model-picker-level-skeleton")).toHaveLength(0);
   } finally {
     tasks.set({ loaded: true, tasks: [] });
     sessions.set({ loaded: true, sessions: [] });

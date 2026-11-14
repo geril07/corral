@@ -41,6 +41,8 @@ export interface ChatChoiceDialogProps {
   agents: AgentSettings;
   settings: ResolvedTaskSettings;
   chatDrivers: readonly AgentKind[];
+  /** The running driver reports thinking levels; an empty list after a model report is still pending. */
+  levelsSupported: boolean;
   anchor: RefObject<HTMLElement | null>;
   onSetModel: (model: ChatModelRef) => Promise<void>;
   onSetReasoning: (level: string) => Promise<void>;
@@ -59,6 +61,7 @@ export function ChatChoiceDialog({
   agents,
   settings,
   chatDrivers,
+  levelsSupported,
   anchor,
   onSetModel,
   onSetReasoning,
@@ -82,8 +85,15 @@ export function ChatChoiceDialog({
   const [requestedView, setRequestedView] = useState<TaskView>();
   const existing = launchKey(selection) === currentKey;
   const reported = state.model ? chatModelKey(state.model) : undefined;
-  if (pendingModel !== undefined && pendingModel === reported) setPendingModel(undefined);
-  const waiting = pendingModel !== undefined && pendingModel !== reported;
+  // A model can be reported before its levels are: pi resets `reasoningLevels` to [] and refreshes
+  // later, so an empty list on a level-capable driver keeps the pending window open.
+  if (
+    pendingModel !== undefined &&
+    pendingModel === reported &&
+    (!levelsSupported || state.reasoningLevels.length > 0)
+  )
+    setPendingModel(undefined);
+  const waiting = pendingModel !== undefined;
   const options = launchOptions(profiles, agents);
   const retained = !options.some((option) => launchKey(option) === currentKey);
   if (retained) options.unshift(current);
@@ -114,7 +124,6 @@ export function ChatChoiceDialog({
     defaultSelection !== undefined && launchKey(defaultSelection) === launchKey(selection)
       ? defaultSelection
       : undefined;
-  const configuredModel = configured === undefined ? undefined : launchModel(configured);
   const configuredRow =
     configured === undefined ? undefined : launchCatalogRow(configured, menu.all);
   const currentModel = launchModel(selection);
@@ -127,9 +136,8 @@ export function ChatChoiceDialog({
     blocked,
   );
   const launchModels: PickerModel[] = [
-    ...(launchCurrent
-      ? [{ ...launchCurrent, default: launchCurrent.name === configuredModel }]
-      : []),
+    // The synthetic row already names a configured default in its detail; one mark per row.
+    ...(launchCurrent ? [launchCurrent] : []),
     ...menu.models.map((model) => ({
       key: modelKey(model),
       name: model.name,
@@ -224,18 +232,17 @@ export function ChatChoiceDialog({
         if (existing && !waiting) void apply(() => onSetReasoning(level), false);
       }}
       levelsPending={existing && waiting}
+      loading={!menu.preferences.loaded || menu.loading || menu.refreshing}
       error={problem ?? failure}
       busy={busy}
       footer={
-        !existing ? (
-          <LaunchViewControls
-            value={view}
-            kind={selection.kind}
-            chatDrivers={chatDrivers}
-            onChange={setRequestedView}
-            disabled={busy}
-          />
-        ) : undefined
+        <LaunchViewControls
+          value={view}
+          kind={selection.kind}
+          chatDrivers={chatDrivers}
+          onChange={setRequestedView}
+          disabled={busy}
+        />
       }
       onClose={onClose}
     />

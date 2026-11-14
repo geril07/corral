@@ -240,9 +240,9 @@ context-menu dispatcher.
   dialog and every column keep their geometry in every state: loading, empty, waiting and
   unsupported are skeleton rows or an empty track, never prose, and unknown levels carry
   `aria-busy`. Choosing a level keeps the picker open with focus on it. The footer holds only
-  the new launch's always-present chat/terminal view choice, never status or management: the
-  configured default is a marked row (T3's `Default` badge) and Models management is Settings-only.
-  Modules supply driver/config data and actions, not control skins.
+  the new launch's always-present chat/terminal view choice, never status or management. The
+  configured default is a marked row with a small `Default` label, and Models management is
+  Settings-only. Modules supply driver/config data and actions, not control skins.
 - **Input padding** is one inline value per control class, measured from both references. A composer
   prompt is 16 px inline and 12 px block: T3's composer body pads `px-4 pt-3.5/4 pb-2`
   (`ChatComposer.tsx:3308`) and OpenCode's editor `ps-4 pt-4 pb-2` (`editor.tsx:321`), so 12 is the
