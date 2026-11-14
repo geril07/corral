@@ -626,8 +626,7 @@ export function VisualWorkspace({
     active,
   });
   const closeBinding = bindingOf(config, "close-tab");
-  // A draft tab has the same keyboard close and numbered chords as any other tab; it has no
-  // closed stack to reopen.
+  // A draft tab has the same keyboard close and numbered chords as any other tab.
   const draftPrefix = useMemo(() => {
     const bindings: Record<string, string> = {};
     if (closeBinding !== null) bindings[closeBinding] = "close-draft";

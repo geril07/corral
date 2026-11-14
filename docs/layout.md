@@ -104,8 +104,9 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
 - Session tabs carry a number **1–9** counted over the session tabs inside their group; `Changes`
   carries no number and no status glyph. Every session tab's glyph slot shows the tool or shell
   logo, a working, blocked or error glyph, and a failed or unresumable session uses the error
-  glyph. The accessible name carries the session's badge; stop/restart, the Chat/Terminal view
-  item, rename and the destructive remove live in the tab's context menu.
+  glyph. The accessible name carries the session's badge; the Chat/Terminal view item, rename,
+  one `Close tab` that stops the session, and the destructive remove live in the tab's context
+  menu; a stopped session's menu offers restart.
 - The companion group has its own strip and pane, separated by a **1** px border with an **8** px
   drag hit area. At the 1024 floor with the sidebar hidden the main pane keeps **560** and the
   companion can use **320–448**; the stored 600 clamps to 448. With the sidebar shown the
@@ -113,11 +114,13 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
   tab collapses the group; toggling it shut keeps the pane mounted. The companion width and the
   strip's top/bottom position are device-local.
 - Selection, order, group and the active tab are stored per task and device under
-  `corral.task-tabs.<task id>`, with a closed stack of every closed view. Closing a session tab closes the
-  view, not the session; reopening restores its group and order. The route keeps naming the task.
+  `corral.task-tabs.<task id>`. Closing a non-primary session tab ends its session — a shell's
+  process group or a chat driver stops, a running turn is aborted and keeps what it wrote — and
+  then removes the view. The primary tab stays unclosable, and there is no closed-tab history or
+  reopen. The route keeps naming the task.
 - `prefix c` and `prefix s` add a shell or an agent and focus the new main-group tab;
   `prefix shift+c` opens `Changes` in the companion group without changing the current session.
-  `prefix q`/`shift+q` close and reopen, `prefix shift+b` toggles the companion,
+  `prefix q` closes, `prefix shift+b` toggles the companion,
   `prefix shift+o` moves the focused tab to the other group, and `prefix shift+w` toggles the
   focus between the groups. Number and `n`/`p` navigation act inside the focused group; when a
   companion holds only `Changes` they act on the main group. A refused close of the primary or a

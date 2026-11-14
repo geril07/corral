@@ -9,7 +9,6 @@ import {
   parseLayout,
   reconcileLayout,
   removeSession,
-  reopenLast,
   selectTab,
   serializeLayout,
   sessionTabAt,
@@ -76,13 +75,14 @@ describe("the default working area", () => {
   });
 });
 
-describe("closing and reopening views", () => {
-  test("closing an auxiliary session keeps the session but removes its view", () => {
+describe("closing views", () => {
+  test("closing an auxiliary session removes its view and keeps it out of the strip", () => {
     const l = selectTab(layout(), "session:s2");
     const closed = closeTab(l, "session:s2", "s1");
     expect(ids(closed)).toEqual(["session:s1", "session:s3"]);
-    expect(closed.closed.map((entry) => tabId(entry.tab))).toEqual(["session:s2"]);
     expect(closed.active.main).toBe("session:s3");
+    // The session was shown, so a reload does not treat it as a new session and re-add it.
+    expect(closed.seenSessions).toContain("s2");
   });
 
   test("the primary session is not a closable view", () => {
@@ -98,30 +98,14 @@ describe("closing and reopening views", () => {
     expect(l.active.main).toBe("session:s1");
   });
 
-  test("reopen puts the view back in its group at its old order and activates it", () => {
-    const l = closeTab(layout(), "session:s2", "s1");
-    const reopened = reopenLast(l, task("s1"), SESSIONS);
-    expect(ids(reopened)).toEqual(["session:s1", "session:s2", "session:s3"]);
-    expect(reopened.active.main).toBe("session:s2");
-    expect(reopened.closed).toEqual([]);
-  });
-
-  test("a session removed by the server is not reopened", () => {
-    const l = closeTab(layout(), "session:s2", "s1");
-    const without = SESSIONS.filter((each) => each.id !== "s2");
-    const reopened = reopenLast(l, task("s1"), without);
-    expect(ids(reopened)).toEqual(["session:s1", "session:s3"]);
-  });
-
-  test("every closed view stays in the stack, so a running session never strands", () => {
+  test("closing a session does not leave a history entry behind", () => {
     let l = layout();
     for (let index = 0; index < 25; index += 1) {
       l = addTab(l, { kind: "session", sessionId: `extra-${index}`, group: "main" });
       l = closeTab(l, `session:extra-${index}`, "s1");
     }
-    expect(l.closed).toHaveLength(25);
-    expect(tabId(l.closed[0]!.tab)).toBe("session:extra-0");
-    expect(tabId(l.closed.at(-1)!.tab)).toBe("session:extra-24");
+    expect(ids(l)).toEqual(["session:s1", "session:s2", "session:s3"]);
+    expect(l.seenSessions).toContain("extra-24");
   });
 });
 
@@ -141,14 +125,6 @@ describe("the companion group", () => {
     expect(closed.companionOpen).toBe(false);
     expect(closed.active.companion).toBeUndefined();
     expect(ids(closed)).toEqual(["session:s1", "session:s2", "session:s3"]);
-  });
-
-  test("reopening a companion tab restores the group and its order", () => {
-    const l = closeTab(addTab(layout(), { kind: "changes", group: "companion" }), "changes", "s1");
-    const reopened = reopenLast(l, task("s1"), SESSIONS);
-    expect(reopened.companionOpen).toBe(true);
-    expect(reopened.active.companion).toBe("changes");
-    expect(tabsInGroup(reopened, "companion").map(tabId)).toEqual(["changes"]);
   });
 
   test("toggling an empty group opens Changes instead of an empty half", () => {
@@ -205,11 +181,10 @@ describe("reconciling with the server", () => {
     expect(dropped.seenSessions).not.toContain("s2");
   });
 
-  test("a closed view stays closed after a reload", () => {
+  test("a closed view stays closed after a reload even though its session is still listed", () => {
     const l = closeTab(layout(), "session:s2", "s1");
     const reloaded = reconcileLayout(parseLayout(serializeLayout(l)), task("s1"), SESSIONS);
     expect(ids(reloaded)).toEqual(["session:s1", "session:s3"]);
-    expect(reloaded.closed.map((entry) => tabId(entry.tab))).toEqual(["session:s2"]);
   });
 
   test("a task never opened on this device gets the default layout", () => {
@@ -224,7 +199,6 @@ describe("reconciling with the server", () => {
       ],
       active: { main: "session:s2", companion: "session:s1" },
       companionOpen: true,
-      closed: [],
       seenSessions: ["s1", "s2"],
     };
     const next = reconcileLayout(stored, task("s1"), SESSIONS);
@@ -240,12 +214,31 @@ describe("reconciling with the server", () => {
 });
 
 describe("the device-local record", () => {
-  test("round-trips tab identity, group, order, active tabs and the closed stack", () => {
+  test("round-trips tab identity, group, order and active tabs", () => {
     let l = addTab(layout(), { kind: "changes", group: "companion" });
     l = moveTab(l, "session:s3", "s1");
     l = closeTab(l, "session:s2", "s1");
     const stored = serializeLayout(l);
     expect(parseLayout(stored)).toEqual(l);
+  });
+
+  test("reads a record that still carries the removed closed-tab history without it", () => {
+    const stored = JSON.stringify({
+      version: 1,
+      tabs: [{ kind: "session", sessionId: "s1", group: "main", order: 0 }],
+      active: { main: "session:s1" },
+      companionOpen: false,
+      closed: [{ kind: "session", sessionId: "s2", group: "main", order: 1 }],
+      seenSessions: ["s1", "s2"],
+    });
+    expect(parseLayout(stored)).toEqual({
+      tabs: [{ kind: "session", sessionId: "s1", group: "main" }],
+      active: { main: "session:s1" },
+      companionOpen: false,
+      seenSessions: ["s1", "s2"],
+    });
+    const reloaded = reconcileLayout(parseLayout(stored), task("s1"), SESSIONS);
+    expect(ids(reloaded)).toEqual(["session:s1", "session:s3"]);
   });
 
   test("rejects malformed and unknown records instead of dropping the task's layout", () => {
@@ -258,7 +251,6 @@ describe("the device-local record", () => {
       tabs: [],
       active: {},
       companionOpen: false,
-      closed: [],
       seenSessions: [],
     });
     expect(
@@ -267,7 +259,6 @@ describe("the device-local record", () => {
       tabs: [],
       active: {},
       companionOpen: false,
-      closed: [],
       seenSessions: [],
     });
   });
@@ -291,11 +282,10 @@ describe("numbers and stepping", () => {
 });
 
 describe("removing a session", () => {
-  test("drops the tab, the closed entry and the seen mark", () => {
+  test("drops the tab and the seen mark", () => {
     let l = closeTab(layout(), "session:s2", "s1");
     l = removeSession(l, "s2");
     expect(ids(l)).toEqual(["session:s1", "session:s3"]);
-    expect(l.closed).toEqual([]);
     expect(l.seenSessions).not.toContain("s2");
   });
 });

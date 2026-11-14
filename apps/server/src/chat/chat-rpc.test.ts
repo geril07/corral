@@ -980,6 +980,31 @@ test("a handoff while the turn runs aborts it first, so the conversation keeps t
   }
 });
 
+test("a stop during a turn aborts it and keeps what the agent wrote in its history", async () => {
+  // The turn is running when the stop arrives, and short enough to report the abort within the
+  // stop's grace, exactly as the handoff's own abort expects.
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "150");
+  const { api, task, session } = await chatTask("Keep the note");
+  const [launch] = await piLaunches(1);
+  await waitForStatus(api, session.id, "working");
+
+  const stopped = await api.sessions.stop({ id: session.id });
+
+  expect(stopped).toMatchObject({ id: session.id, state: "stopped", terminalId: null });
+  await expect
+    .poll(() => processExists(launch!.pid), { timeout: 10_000, message: "the child" })
+    .toBe(false);
+  // The agent recorded the turn it was writing, marked as the abort it was.
+  const journal = await journalOf(session.agentSessionId!);
+  expect(userMessages(journal)).toEqual(["Keep the note"]);
+  expect(journal.find((message) => message["role"] === "assistant")).toMatchObject({
+    stopReason: "aborted",
+  });
+  // Stopping the session is not settling the task.
+  expect(await taskStateOf(api, task.id)).toBe("active");
+});
+
 test("a handoff whose second start fails leaves the session stopped in the target view, and retries", async () => {
   const { api, session } = await chatTask("Keep it");
   await settleTurn(api, session.id, "Keep it");

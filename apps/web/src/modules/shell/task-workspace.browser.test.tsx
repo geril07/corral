@@ -280,7 +280,7 @@ test("Changes opens in the companion group without moving the main session", asy
   await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
   await expect.element(sessionTab(/^pi/)).toHaveAttribute("aria-selected", "true");
 
-  await prefixShifted("q");
+  await prefixShifted("c");
   await expect.element(companionTabs()).toBeVisible();
   await expect
     .element(companionTabs().getByRole("tab", { name: "Changes" }))
@@ -297,31 +297,98 @@ test("Changes opens in the companion group without moving the main session", asy
     .toHaveAttribute("aria-selected", "true");
 });
 
-test("closing a session tab keeps the session, and reopen brings the view back", async () => {
+test("closing a running shell tab stops its session, removes the view and keeps no history", async () => {
   const seeded = await seed();
   await open(seeded);
   await userEvent.click(sessionTab(/^shell/));
   await expect.element(sessionTab(/^shell/)).toHaveAttribute("aria-selected", "true");
 
-  await prefixThen("x");
-  await expect.element(sessionTab("shell stopped")).toBeVisible();
-  await userEvent.hover(sessionTab("shell stopped"));
-  await expect.element(page.getByRole("button", { name: "Close shell tab" })).toBeVisible();
+  await userEvent.hover(sessionTab(/^shell/));
+  await userEvent.click(page.getByRole("button", { name: "Close shell tab" }));
 
-  await prefixThen("q");
   await expect.element(sessionTab(/^shell/)).not.toBeInTheDocument();
+  await expect
+    .poll(
+      () =>
+        seeded.client.sessions
+          .getSnapshot()
+          .sessions.find((session) => session.id === seeded.shell.id)?.state,
+    )
+    .toBe("stopped");
+  expect(
+    seeded.client.sessions.getSnapshot().sessions.find((session) => session.id === seeded.shell.id)
+      ?.terminalId,
+  ).toBeNull();
   await expect
     .poll(() => document.activeElement?.getAttribute("data-tab-id"))
     .toBe(`session:${seeded.primary.id}`);
-  expect(
-    seeded.client.sessions.getSnapshot().sessions.some((session) => session.id === seeded.shell.id),
-  ).toBe(true);
 
+  // Closing is final: no closed-tab history is stored, and the removed chord does nothing.
+  const stored: unknown = JSON.parse(
+    window.localStorage.getItem(`corral.task-tabs.${seeded.task.id}`) ?? "{}",
+  );
+  expect(stored).not.toHaveProperty("closed");
   await prefixShifted("q");
-  await expect.element(sessionTab(/^shell/)).toBeVisible();
+  await expect.element(sessionTab(/^shell/)).not.toBeInTheDocument();
+});
+
+test("a non-primary tab menu has one close action, which ends its session", async () => {
+  const seeded = await seed();
+  await open(seeded);
+  await userEvent.click(sessionTab(/^shell/), { button: "right" });
+  const menu = page.getByRole("menu", { name: "Session actions for shell" });
+  await expect.element(menu).toBeVisible();
+  const items = menu
+    .getByRole("menuitem")
+    .elements()
+    .map((element) => element.textContent ?? "");
+  expect(items).toContain("Close tab");
+  expect(items).toContain("Remove session…");
+  expect(items.some((item) => item.startsWith("Stop"))).toBe(false);
+
+  await menu.getByRole("menuitem", { name: "Close tab" }).click();
+  await expect.element(sessionTab(/^shell/)).not.toBeInTheDocument();
   await expect
-    .poll(() => document.activeElement?.getAttribute("data-tab-id"))
-    .toBe(`session:${seeded.shell.id}`);
+    .poll(
+      () =>
+        seeded.client.sessions
+          .getSnapshot()
+          .sessions.find((session) => session.id === seeded.shell.id)?.state,
+    )
+    .toBe("stopped");
+});
+
+test("closing a running chat tab stops its driver and leaves the task state alone", async () => {
+  const seeded = await seed();
+  const other = await seeded.client.connection.api.sessions.start({
+    taskId: seeded.task.id,
+    kind: "pi",
+    view: "chat",
+    size: SIZE,
+  });
+  await open(seeded);
+  await expect.poll(() => sessionTabs().getByRole("tab").elements().length).toBe(3);
+
+  const tab = sessionTabs().getByRole("tab").elements()[2]!;
+  await userEvent.click(tab, { button: "right" });
+  const menu = page.getByRole("menu", { name: /Session actions for pi/ });
+  await expect.element(menu).toBeVisible();
+  await menu.getByRole("menuitem", { name: "Close tab" }).click();
+
+  await expect.poll(() => sessionTabs().getByRole("tab").elements().length).toBe(2);
+  await expect
+    .poll(
+      () =>
+        seeded.client.sessions.getSnapshot().sessions.find((session) => session.id === other.id)
+          ?.state,
+    )
+    .toBe("stopped");
+  expect(
+    seeded.client.sessions.getSnapshot().sessions.find((session) => session.id === other.id)
+      ?.terminalId,
+  ).toBeNull();
+  const task = seeded.client.tasks.getSnapshot().tasks.find((entry) => entry.id === seeded.task.id);
+  expect(task?.state).toBe("active");
 });
 
 test("the focused group does not leak into another task", async () => {
@@ -396,6 +463,27 @@ test("the layout stored for this task and device is restored on open", async () 
   await expect.element(sessionTab(/^pi/)).toHaveAttribute("aria-selected", "true");
   // A different task on this device still starts from its default layout.
   expect(window.localStorage.getItem("corral.task-tabs.other")).toBeNull();
+});
+
+test("a stored layout that still carries closed-tab history opens without it", async () => {
+  const seeded = await seed();
+  window.localStorage.setItem(
+    `corral.task-tabs.${seeded.task.id}`,
+    JSON.stringify({
+      version: 1,
+      tabs: [{ kind: "session", sessionId: seeded.primary.id, group: "main", order: 0 }],
+      active: { main: `session:${seeded.primary.id}` },
+      companionOpen: false,
+      closed: [{ kind: "session", sessionId: seeded.shell.id, group: "main", order: 1 }],
+      seenSessions: [seeded.primary.id, seeded.shell.id],
+    }),
+  );
+
+  await open(seeded);
+  await expect.element(sessionTab(/^pi/)).toBeVisible();
+  // The old history is not read back into the strip, and no action can reopen it.
+  await expect.element(sessionTab(/^shell/)).not.toBeInTheDocument();
+  expect(sessionTabs().getByRole("tab").elements()).toHaveLength(1);
 });
 
 test("number, step, focus and move keys reach both groups", async () => {

@@ -4,8 +4,9 @@ import { recordOf } from "./json-record.ts";
 /**
  * A task's working area is one layout with two groups (`docs/layout.md`, **Working area**). The
  * main group is always visible; the companion group is hidden until it has a tab and the user
- * opens it. A tab is a view of something that outlives it: closing one never removes the session
- * behind it. The layout is device-local and stored per task; the server owns none of it.
+ * opens it. Closing a session tab ends the session behind it: the workspace stops the process or
+ * chat driver before the view leaves. The layout is device-local and stored per task; the server
+ * owns none of it.
  */
 export type TaskTabKind = "session" | "changes" | "file";
 export type TaskTabGroup = "main" | "companion";
@@ -19,24 +20,15 @@ export interface TaskTab {
   group: TaskTabGroup;
 }
 
-/** A closed view waits here; reopening puts it back in its group at its old order. */
-export interface ClosedTaskTab {
-  tab: TaskTab;
-  order: number;
-}
-
 export interface TaskTabLayout {
   tabs: readonly TaskTab[];
   /** The current tab id in each visible group. */
   active: { main?: string; companion?: string };
   /** The companion group keeps this preference while it is shut. */
   companionOpen: boolean;
-  /** Most recent last; every closed view stays reopenable for the life of the task. */
-  closed: readonly ClosedTaskTab[];
   /**
-   * Every session this layout has ever shown. A session missing from `tabs` was closed as a view;
-   * a session missing here arrived from the server (a restore, or another view) and joins the
-   * main group.
+   * Every session this layout has ever shown. A session missing from `tabs` was closed; a session
+   * missing here arrived from the server (a restore, or another view) and joins the main group.
    */
   seenSessions: readonly string[];
 }
@@ -98,7 +90,6 @@ export function defaultLayout(
     tabs,
     active: first === undefined ? {} : { main: tabId(first) },
     companionOpen: false,
-    closed: [],
     seenSessions: ordered.map((session) => session.id),
   };
 }
@@ -140,21 +131,16 @@ function sameLayout(a: TaskTabLayout, b: TaskTabLayout): boolean {
     a.active.main === b.active.main &&
     a.active.companion === b.active.companion &&
     a.tabs.length === b.tabs.length &&
-    a.closed.length === b.closed.length &&
     a.seenSessions.length === b.seenSessions.length &&
     a.tabs.every((tab, index) => tabId(tab) === tabId(b.tabs[index]!)) &&
-    a.closed.every(
-      (entry, index) =>
-        tabId(entry.tab) === tabId(b.closed[index]!.tab) && entry.order === b.closed[index]!.order,
-    ) &&
     a.seenSessions.every((id, index) => id === b.seenSessions[index])
   );
 }
 
 /**
- * Fits a stored layout to the sessions the server has now: a removed session loses its tab and
- * its closed entry, and a session this layout has never shown joins the main group at the end.
- * A closed tab is not a new session, so it stays closed after a reload.
+ * Fits a stored layout to the sessions the server has now: a removed session loses its tab, and a
+ * session this layout has never shown joins the main group at the end. A session the layout showed
+ * and that was closed stays out, even though the server still lists it as stopped.
  */
 export function reconcileLayout(
   stored: TaskTabLayout | undefined,
@@ -182,7 +168,6 @@ export function reconcileLayout(
     primaryTab === undefined
       ? tabs
       : [{ ...primaryTab, group: "main" as const }, ...tabs.filter((tab) => tab !== primaryTab)];
-  const closed = stored.closed.filter((entry) => hasSession(available, entry.tab));
   const companionOpen =
     stored.companionOpen && orderedTabs.some((tab) => tab.group === "companion");
   const main = fallbackActive(stored.tabs, orderedTabs, "main", stored.active.main);
@@ -197,7 +182,6 @@ export function reconcileLayout(
       ...(companion === undefined ? {} : { companion }),
     },
     companionOpen,
-    closed,
     seenSessions: [...known],
   };
   return sameLayout(stored, next) ? stored : next;
@@ -262,7 +246,8 @@ function nextActiveAfterRemoval(
 
 /**
  * Closing a view. The primary session is not a closable view: removing it is the destructive
- * `Remove session…` path. An auxiliary session stays on the server and only leaves the strip.
+ * `Remove session…` path. Any other session is stopped by the workspace before this call, so a
+ * closed tab never leaves a running process without a view.
  */
 export function closeTab(
   layout: TaskTabLayout,
@@ -272,8 +257,6 @@ export function closeTab(
   const tab = layout.tabs.find((candidate) => tabId(candidate) === id);
   if (tab === undefined) return layout;
   if (tab.kind === "session" && tab.sessionId === primarySessionId) return layout;
-  const groupTabs = tabsInGroup(layout, tab.group);
-  const order = groupTabs.findIndex((candidate) => tabId(candidate) === id);
   const tabs = layout.tabs.filter((candidate) => tabId(candidate) !== id);
   const active = { ...layout.active };
   if (layout.active[tab.group] === id) {
@@ -281,12 +264,10 @@ export function closeTab(
     if (next === undefined) delete active[tab.group];
     else active[tab.group] = next;
   }
-  const closed = [...layout.closed, { tab, order: Math.max(0, order) }];
   return {
     ...layout,
     tabs,
     active,
-    closed,
     companionOpen:
       tab.group === "companion" && tabsInGroup({ tabs }, "companion").length === 0
         ? false
@@ -294,52 +275,7 @@ export function closeTab(
   };
 }
 
-/**
- * Puts the most recently closed view back where it came from. A session removed in the meantime
- * is not resurrected; the stack entry is dropped instead.
- */
-export function reopenLast(
-  layout: TaskTabLayout,
-  task: Pick<Task, "id" | "primarySessionId">,
-  sessions: readonly Session[],
-): TaskTabLayout {
-  if (layout.closed.length === 0) return layout;
-  const available = new Set(taskSessions(task, sessions).map((session) => session.id));
-  const stack = [...layout.closed];
-  let entry: ClosedTaskTab | undefined;
-  while (stack.length > 0) {
-    const candidate = stack.pop()!;
-    if (
-      candidate.tab.kind !== "session" ||
-      (candidate.tab.sessionId !== undefined && available.has(candidate.tab.sessionId))
-    ) {
-      entry = candidate;
-      break;
-    }
-  }
-  if (entry === undefined) return { ...layout, closed: [] };
-  const id = tabId(entry.tab);
-  if (layout.tabs.some((tab) => tabId(tab) === id)) return { ...layout, closed: stack };
-  const groupTabs = tabsInGroup(layout, entry.tab.group);
-  const before = groupTabs.slice(0, Math.min(entry.order, groupTabs.length));
-  const after = groupTabs.slice(before.length);
-  const reopened = entry.tab;
-  const tabs = [
-    ...layout.tabs.filter((tab) => tab.group !== reopened.group),
-    ...before,
-    reopened,
-    ...after,
-  ];
-  return {
-    ...layout,
-    tabs,
-    closed: stack,
-    active: { ...layout.active, [reopened.group]: id },
-    companionOpen: reopened.group === "companion" ? true : layout.companionOpen,
-  };
-}
-
-/** Drops a session that the server really removed, from the strip, the closed stack and `seen`. */
+/** Drops a session that the server really removed, from the strip and `seen`. */
 export function removeSession(layout: TaskTabLayout, sessionId: string): TaskTabLayout {
   const matches = (tab: TaskTab) => tab.kind === "session" && tab.sessionId === sessionId;
   const removed = layout.tabs.find(matches);
@@ -355,7 +291,6 @@ export function removeSession(layout: TaskTabLayout, sessionId: string): TaskTab
     ...layout,
     tabs,
     active,
-    closed: layout.closed.filter((entry) => !matches(entry.tab)),
     seenSessions: layout.seenSessions.filter((id) => id !== sessionId),
     companionOpen: tabsInGroup({ tabs }, "companion").length === 0 ? false : layout.companionOpen,
   };
@@ -461,7 +396,6 @@ interface StoredLayout {
   tabs: StoredTab[];
   active: { main?: string; companion?: string };
   companionOpen: boolean;
-  closed: StoredTab[];
   seenSessions: string[];
 }
 
@@ -481,9 +415,6 @@ export function serializeLayout(layout: TaskTabLayout): string {
   for (const group of ["main", "companion"] as const) {
     tabsInGroup(layout, group).forEach((tab, order) => tabs.push(storedTab(tab, order)));
   }
-  const closed: StoredTab[] = layout.closed.map((entry) => ({
-    ...storedTab(entry.tab, entry.order),
-  }));
   const stored: StoredLayout = {
     version: 1,
     tabs,
@@ -492,7 +423,6 @@ export function serializeLayout(layout: TaskTabLayout): string {
       ...(layout.active.companion === undefined ? {} : { companion: layout.active.companion }),
     },
     companionOpen: layout.companionOpen,
-    closed,
     seenSessions: [...layout.seenSessions],
   };
   return JSON.stringify(stored);
@@ -506,7 +436,12 @@ function asKind(value: unknown): TaskTabKind | undefined {
   return value === "session" || value === "changes" || value === "file" ? value : undefined;
 }
 
-function readStoredTab(value: unknown): ClosedTaskTab | undefined {
+interface ReadTab {
+  tab: TaskTab;
+  order: number;
+}
+
+function readStoredTab(value: unknown): ReadTab | undefined {
   const record = recordOf(value);
   if (record === undefined) return undefined;
   const kind = asKind(record["kind"]);
@@ -534,7 +469,11 @@ function readStoredTab(value: unknown): ClosedTaskTab | undefined {
   };
 }
 
-/** A stored record, or `undefined` when it is absent, another version or malformed. */
+/**
+ * A stored record, or `undefined` when it is absent, another version or malformed. A record from
+ * before the closed-tab history was removed still carries `closed`; it is read without it, so the
+ * device-local state needs no migration.
+ */
 export function parseLayout(raw: string | null): TaskTabLayout | undefined {
   if (raw === null) return undefined;
   let parsed: unknown;
@@ -554,12 +493,6 @@ export function parseLayout(raw: string | null): TaskTabLayout | undefined {
     if (a.tab.group !== b.tab.group) return a.tab.group === "main" ? -1 : 1;
     return a.order - b.order;
   });
-  const closed = Array.isArray(record["closed"])
-    ? record["closed"].flatMap((value) => {
-        const entry = readStoredTab(value);
-        return entry === undefined ? [] : [entry];
-      })
-    : [];
   const active = recordOf(record["active"]);
   const activeMain = active?.["main"];
   const activeCompanion = active?.["companion"];
@@ -574,7 +507,6 @@ export function parseLayout(raw: string | null): TaskTabLayout | undefined {
       ...(typeof activeCompanion === "string" ? { companion: activeCompanion } : {}),
     },
     companionOpen: record["companionOpen"] === true,
-    closed,
     seenSessions,
   };
 }
