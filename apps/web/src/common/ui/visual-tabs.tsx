@@ -109,7 +109,7 @@ function TabButton({
  * horizontal scroll with edge fades; the active tab is scrolled into view. The close control
  * shares the trailing 20 px slot and appears on hover or keyboard focus only. `add` is a sibling
  * after the tab list inside the scroller, so it follows the last tab and may scroll out; the
- * tablist itself holds exactly the tabs.
+ * tablist itself holds exactly the tabs, and an empty strip has no add control to follow.
  */
 export function VisualTabStrip({
   label,
@@ -233,7 +233,9 @@ export function VisualTabStrip({
               </div>
             ))}
           </div>
-          {add !== undefined && add !== null && <div className="visual-tab-add">{add}</div>}
+          {add !== undefined && add !== null && items.length > 0 && (
+            <div className="visual-tab-add">{add}</div>
+          )}
         </div>
         <span
           className="visual-tab-fade"

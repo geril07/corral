@@ -102,25 +102,44 @@ export function useTaskTabLayout(task: Task | undefined, sessions: readonly Sess
     return () => window.removeEventListener("storage", onStorage);
   }, [taskKey?.id]);
 
-  const change = useCallback((update: (current: TaskTabLayout) => TaskTabLayout) => {
-    const currentTask = taskRef.current;
-    if (currentTask === undefined) return;
-    setLayouts((previous) => {
-      const storedBase =
-        readLayout(currentTask.id) ??
-        previous.get(currentTask.id) ??
-        defaultLayout(currentTask, sessionsRef.current);
-      const current = reconcileLayout(storedBase, currentTask, sessionsRef.current);
-      const next = update(current);
-      if (next === current) return previous;
-      storeLayout(currentTask.id, next);
-      const map = new Map(previous);
-      map.set(currentTask.id, next);
-      return map;
-    });
-  }, []);
+  /**
+   * Applies a change to one named task's layout. Async work (a close waits for its session to
+   * stop) keeps the task that owned the action, so switching tasks meanwhile cannot write the
+   * change onto the task now on screen.
+   */
+  const changeFor = useCallback(
+    (
+      target: Pick<Task, "id" | "primarySessionId">,
+      update: (current: TaskTabLayout) => TaskTabLayout,
+    ) => {
+      setLayouts((previous) => {
+        const targetSessions = sessionsRef.current.filter(
+          (session) => session.taskId === target.id,
+        );
+        const storedBase =
+          readLayout(target.id) ?? previous.get(target.id) ?? defaultLayout(target, targetSessions);
+        const current = reconcileLayout(storedBase, target, targetSessions);
+        const next = update(current);
+        if (next === current) return previous;
+        storeLayout(target.id, next);
+        const map = new Map(previous);
+        map.set(target.id, next);
+        return map;
+      });
+    },
+    [],
+  );
 
-  return { layout, change };
+  const change = useCallback(
+    (update: (current: TaskTabLayout) => TaskTabLayout) => {
+      const currentTask = taskRef.current;
+      if (currentTask === undefined) return;
+      changeFor(currentTask, update);
+    },
+    [changeFor],
+  );
+
+  return { layout, change, changeFor };
 }
 
 /** The companion group's device-local preferred width; the pane clamps it to the room it has. */

@@ -107,8 +107,8 @@ terminal and dialog modules remain; old-screen tests can still contain live beha
   switches view in place, and a both-live agent still has one tab. A new session starts from the
   `+` beside the last tab: a plain click starts a shell in the task's workspace, and the chevron
   beside it opens `Agent…`; `prefix c`/`prefix s` still work and the control's tooltip names both.
-  A task with no sessions keeps the strip's `+`/`Changes` actions and repeats the full add-session
-  menu (`Shell`, `Agent…`) in the empty pane, never a fake tab.
+  A task with no sessions keeps the strip's `Changes` action and shows the full add-session menu
+  (`Shell`, `Agent…`) in the empty pane, never a fake tab.
 - Session tabs carry a number **1–9** counted over the session tabs inside their group; `Changes`
   carries no number and no status glyph. Every session tab's glyph slot shows the tool or shell
   logo, a working, blocked or error glyph, and a failed or unresumable session uses the error

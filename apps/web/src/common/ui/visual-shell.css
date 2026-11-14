@@ -1230,12 +1230,11 @@
   display: none;
 }
 
-/* The tablist holds exactly the tabs; the add control follows it inside the scroller. */
+/* The tablist holds exactly the tabs; the add control follows it inside the scroller. The list
+   itself has no box, so the tabs stay the scroller's flex items: they shrink to their 72 px
+   minimums and only then does the strip scroll, with `+` after the last one. */
 .visual-tab-list {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
+  display: contents;
 }
 
 .visual-tab-add {

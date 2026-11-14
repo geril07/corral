@@ -163,13 +163,19 @@ test("a task with no sessions shows the strip with only its actions, never a fak
     workspace: { type: "main-worktree" },
   });
 
-  await renderApp(newClient(), [`/?project=${project.id}&task=${task.id}`]);
-  await expect.element(sessionTabs()).toBeInTheDocument();
-  expect(sessionTabs().getByRole("tab").elements()).toHaveLength(0);
+  const screen = await renderApp(newClient(), [`/?project=${project.id}&task=${task.id}`]);
+  await expect.poll(() => screen.container.querySelector(".visual-tab-band") !== null).toBe(true);
+  const band = screen.container.querySelector<HTMLElement>(".visual-tab-band")!;
+  await expect.element(band).toBeVisible();
+  expect(band.querySelectorAll('[role="tab"]')).toHaveLength(0);
   await expect.element(page.getByRole("button", { name: "Changes" })).toBeVisible();
-  // The strip keeps its menu and the empty pane promotes the same one.
-  expect(page.getByRole("button", { name: "Add session" }).elements()).toHaveLength(2);
-  await page.getByRole("button", { name: "Add session" }).last().click();
+  // With no tab to follow, the strip has no add control: the empty pane owns the one Add session
+  // button and its full menu, so the task never shows two controls with the same name.
+  expect(page.getByRole("button", { name: "Add session" }).elements()).toHaveLength(1);
+  await expect
+    .element(page.getByRole("button", { name: "New agent session" }))
+    .not.toBeInTheDocument();
+  await page.getByRole("button", { name: "Add session" }).click();
   await expect.element(page.getByRole("menuitem", { name: "Shell" })).toBeVisible();
   await expect.element(page.getByRole("menuitem", { name: "Agent…" })).toBeVisible();
   await page.getByRole("menuitem", { name: "Shell" }).click();
@@ -389,6 +395,47 @@ test("closing a running chat tab stops its driver and leaves the task state alon
   ).toBeNull();
   const task = seeded.client.tasks.getSnapshot().tasks.find((entry) => entry.id === seeded.task.id);
   expect(task?.state).toBe("active");
+});
+
+test("closing a tab still applies to its task after switching tasks during the stop", async () => {
+  const seeded = await seed();
+  const beta = await seeded.client.connection.api.tasks.create({
+    projectId: seeded.projectId,
+    title: "Beta",
+    prompt: "Beta work",
+    agent: { kind: "pi", view: "chat" },
+    workspace: { type: "main-worktree" },
+  });
+  await open(seeded);
+  await userEvent.click(sessionTab(/^shell/));
+  await expect.element(sessionTab(/^shell/)).toHaveAttribute("aria-selected", "true");
+  await userEvent.click(sessionTab(/^shell/), { button: "right" });
+  await expect.element(page.getByRole("menu", { name: "Session actions for shell" })).toBeVisible();
+
+  // Both clicks run in one task: the close hands off to `sessions.stop`, and the switch happens
+  // before that promise can resolve, so the post-stop layout write sees another task on screen.
+  const close = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (item) => item.textContent?.trim() === "Close tab",
+  );
+  const betaRow = document.querySelector<HTMLElement>(`[data-task-id="${beta.id}"]`);
+  if (close === undefined || betaRow === null) throw new Error("the close and the task row");
+  close.click();
+  betaRow.click();
+
+  await expect.element(page.getByRole("heading", { name: "Beta" })).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        seeded.client.sessions
+          .getSnapshot()
+          .sessions.find((session) => session.id === seeded.shell.id)?.state,
+    )
+    .toBe("stopped");
+  // The close landed on the task that owned the tab, not on the one now on screen.
+  await page.getByRole("button", { name: /Alpha/ }).click();
+  await expect.element(page.getByRole("heading", { name: "Alpha" })).toBeVisible();
+  await expect.element(sessionTab(/^shell/)).not.toBeInTheDocument();
+  expect(sessionTabs().getByRole("tab").elements()).toHaveLength(1);
 });
 
 test("the focused group does not leak into another task", async () => {
