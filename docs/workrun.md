@@ -43,9 +43,8 @@ enough time for waiting plus execution and cancel that invocation to withdraw a 
 
 ## Role-specific guides
 
-| Task                                                                  | Read                                           |
-| --------------------------------------------------------------------- | ---------------------------------------------- |
-| Assign concurrent agents, isolate stacks and clean up owned resources | [Orchestration](workrun/orchestration.md)      |
-| Change or verify this repository's launcher                           | [Launcher checks](workrun/testing.md)          |
-| Look up CLI behavior and ownership limits                             | [Tool usage](../scripts/workrun/docs/usage.md) |
-| Provision a host or deliberately change resource/admission settings   | [Tool setup](../scripts/workrun/docs/setup.md) |
+| Task                                                                | Read                                           |
+| ------------------------------------------------------------------- | ---------------------------------------------- |
+| Change or verify this repository's launcher                         | [Launcher checks](workrun/testing.md)          |
+| Look up CLI behavior and ownership limits                           | [Tool usage](../scripts/workrun/docs/usage.md) |
+| Provision a host or deliberately change resource/admission settings | [Tool setup](../scripts/workrun/docs/setup.md) |

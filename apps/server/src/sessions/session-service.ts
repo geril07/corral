@@ -724,7 +724,7 @@ export class SessionService {
       onExit: (reason) => {
         if (this.#shuttingDown) return;
         // Only a crash gets here (an expected stop is silent, `codex-server.ts`). The TUI keeps
-        // "Reconnecting to server…" forever (measured, `.e2e/stage-c/c3/probe/`), so a session
+        // "Reconnecting to server…" forever (measured), so a session
         // whose app-server is gone has no frontend worth keeping: the terminal leg is closed, and
         // its recorded exit settles the session through the same path a stop uses.
         this.#launchErrors.set(stored.id, reason);
@@ -966,7 +966,7 @@ export class SessionService {
         }
       }
       if (stored.kind === "codex") {
-        // Measured (`.e2e/stage-c/c3/probe/`): a plain `codex` starts its own managed daemon, and
+        // Measured: a plain `codex` starts its own managed daemon, and
         // a thread another app-server holds is read-only there. The terminal is therefore a client
         // of this session's app-server (`--remote unix://…`), the same one chat attaches to — that
         // is what makes the two views live at once. An untested CLI keeps the plain launch, and

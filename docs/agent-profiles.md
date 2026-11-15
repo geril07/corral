@@ -179,9 +179,9 @@ command = "/opt/pi/bin/pi" # absolute path replacing the PATH lookup; default th
 ### The editor for local file links
 
 A path in chat requests the user's editor (`design.md`, **Local trust boundary**); the routed shell
-cannot currently show the loose terminal it starts (`ui-rebuild.md`). `[editor]` names
-that editor. Like `[agents.<kind>]` it describes the machine, not a repository, so it has **no
-per-project layer**.
+cannot currently show the loose terminal it starts (tracked in #288). `[editor]` names that editor.
+Like `[agents.<kind>]` it describes the machine, not a repository, so it has **no per-project
+layer**.
 
 ```toml
 [editor]
@@ -423,45 +423,6 @@ model/provider, environment **reference names**, capability hints from
 configuration problems. It must not ask
 for or display resolved values; the server never sends them. To start a session, send `profileId`
 and optionally `model`; the server validates them and returns the snapshot.
-
-## Protocol and old daemons
-
-The combined client/server contract is protocol version 14. Version 3 added launch profiles
-and their revision pin; version 4 added the settings action; version 5 protects task-source
-inputs; version 6 adds the task title source, `tasks.rename`, the rename-task/session-number
-actions and the required task, naming and project settings; version 7 adds the sidebar-mode
-action, the server-owned task `seenAt` and, while still unreleased, the task's prompt and primary
-session; version 8 adds the toggle-sidebar action; version 9 adds the `chat.*` contract, the
-session's `view` (optional until B1's migration), `sessions.setView`, the
-abort-turn/change-model/change-reasoning/switch-view bindings, `[tasks] view = "chat"`,
-`[agents.<kind>]` with `AGENT_DISABLED`, and `ConfigState.agents`; version 10 turns
-`chat.capabilities` from a driver list into the per-agent capability record (`kind`, `steer`,
-`followUp`, `approvals`, `modelSwitch`, `reasoningLevels`, `terminalView`); version 11 requires
-the shared model catalog (`models.watch/save/catalog`) on every client; version 12 adds the
-focus-sidebar action and its binding; version 13 requires `projects.directories` before project
-registration; version 14 adds the required project base/pin fields, nullable task project/branch/
-workspace ownership, the model policy's `providerOrder`/`modelOrder`, and `projects.baseRefs`. A
-protocol 4 daemon would
-strip task sources, a
-protocol 3 daemon sends an exhaustive bindings record without `settings`, and a protocol 2
-daemon would strip launch fields and start the agent natively; a protocol 5 daemon strips the
-title source and its bindings, a protocol 6 daemon strips `seenAt` and the sidebar-mode binding
-and has no `tasks.markSeen`, a protocol 7 daemon strips the toggle-sidebar binding, a
-protocol 8 daemon has no `chat.*` procedures, no `sessions.setView` and its sessions carry no
-`view`, and a protocol 9 daemon answers `chat.capabilities` with a bare driver list instead of
-the capability record, a protocol 10 daemon has no `models.*` contract, and a protocol 11 daemon
-strips the focus-sidebar binding. Clients
-must therefore refuse older versions: the endpoint check reports a protocol mismatch, and a
-WebSocket handshake on an older version closes with `4001` and the server's version before any
-route, keymap or session mutation. The old daemon is left running with its sessions; nothing
-bypasses the version barrier.
-
-Growing version 10 in place means a **same-version daemon from before a later slice** is accepted
-by that barrier and simply has no procedure for the newer calls: it answers oRPC's own `404 No
-procedure matched`, which the client reports as an undefined `NOT_FOUND`
-(`procedureMissing` in `packages/client/src/rpc-errors.ts`). Every such surface says so instead of
-showing a failed write: chat's local links say the server does not offer file links — all with
-"restart it after upgrading Corral".
 
 ## Security
 

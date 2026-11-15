@@ -64,7 +64,7 @@ export function reconcileTranscriptMemory(
 /**
  * A quoted selection as Markdown: every line of it as a blockquote, then the blank line the user
  * writes their comment on. Corral v1 sends the quote as plain Markdown rather than a citation
- * token, so no protocol field carries it (`.review/research/chat-transcript.md`, **Quote flow**).
+ * token, so no protocol field carries it.
  */
 export function quoteBlock(text: string): string {
   const lines = text.split(/\r?\n/u).map((line) => line.trimEnd());

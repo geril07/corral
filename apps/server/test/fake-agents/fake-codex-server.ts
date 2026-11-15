@@ -1,5 +1,5 @@
 // A stand-in for `codex app-server --listen unix://PATH` (0.166.0), speaking the v2 subset the
-// chat driver needs. Measured facts it reproduces (`.e2e/stage-c/c3/probe/`):
+// chat driver needs. Measured facts it reproduces:
 //
 // - the unix listener is a WebSocket endpoint (`ws+unix://…`), not newline JSON-RPC;
 // - `thread/start` assigns the id; `thread/resume` of an id with no stored turn fails with

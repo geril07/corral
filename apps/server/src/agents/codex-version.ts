@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 
 /**
- * The Codex CLI the driver was measured against (`.e2e/stage-c/c3/probe/`). 0.166.0's app-server
+ * The Codex CLI the driver was measured against. 0.166.0's app-server
  * is labelled experimental and its JSON-RPC surface is not a compatibility promise, so an
  * untested version gets a visible refusal instead of a driver that half-works. The terminal stays
  * available: without a tested version the session launches plain `codex`, and chat refuses.

@@ -191,7 +191,7 @@ export class ClaudeDriver implements ChatDriver {
     void this.#read(query);
     // Preparation does not wait for `system:init`: the CLI emits that frame with the first turn, so
     // a launch that waited for it before sending the task prompt would deadlock. `supportedModels()`
-    // and the transcript are answerable now (measured without a turn, `.e2e/stage-c/c2/probe/`).
+    // and the transcript are answerable now (measured without a turn).
     void this.#prepare();
   }
 

@@ -649,8 +649,7 @@ function codexChatArgs(_facts: ChatLaunchFacts): string[] {
 }
 
 /**
- * The registry entry. `terminalView: "both-live"` is the measured fact (`.e2e/stage-c/c3/probe/`,
- * `design.md` **Terminal and chat**): the TUI is a second client of the same per-session
+ * The registry entry. `terminalView: "both-live"` is the measured fact (`design.md` **Terminal and chat**): the TUI is a second client of the same per-session
  * app-server (`codex --remote unix://… resume <thread>`), so opening the other view starts a
  * client instead of stopping this one.
  */

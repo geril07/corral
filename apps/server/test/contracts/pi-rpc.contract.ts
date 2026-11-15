@@ -10,8 +10,8 @@
 // It costs nothing and touches nothing of the user's: pi runs with an isolated
 // `PI_CODING_AGENT_DIR` (its own `models.json` and extension), an isolated session directory,
 // `PI_OFFLINE=1`, and a local OpenAI-compatible stub on port 0 that answers with a tool call and
-// then with text. Ported from the pre-run probe in `.e2e/stage-b/probe/` (which is gitignored);
-// this file is the tracked evidence that the hand-written client still follows the installed pi.
+// then with text. This file is the tracked evidence that the hand-written client still follows
+// the installed pi.
 // Skipped when `pi` is not on the PATH.
 import { createServer, type Server } from "node:http";
 import { spawn } from "node:child_process";

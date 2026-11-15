@@ -14,8 +14,7 @@ Keyboard-first workspace for running coding agents in terminals: a long-lived No
 ## Local workloads
 
 Before launching local workloads on the Linux agent host, read `docs/workrun.md` for Corral's
-entrypoints, group and heavy classification. Orchestrators also read
-`docs/workrun/orchestration.md` for assignment, isolation and cleanup.
+entrypoints, group and heavy classification.
 
 ## Verification
 
@@ -28,9 +27,7 @@ entrypoints, group and heavy classification. Orchestrators also read
 - A pattern that exists in T3 or OpenCode is taken from there (T3: structure, geometry, behaviour;
   OpenCode: visual language). A pattern that exists in neither is new work and is reviewed as such.
 - Do not invent user-visible copy. No reference wording and no functional error means no sentence.
-- Pipeline, review roles and what reviewers may run: `docs/delivery.md`.
-- Current scope, slice status and open decisions: `docs/ui-rebuild.md`. Read it before starting a
-  UI slice; update it when one lands.
+- Visual direction and kit boundary: `docs/ui-kit.md`. Current placement: `docs/layout.md`.
 
 ## Issues and pull requests
 
