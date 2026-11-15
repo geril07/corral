@@ -412,10 +412,10 @@ export class SessionService {
       const target = this.#viewFor(stored.kind, view);
       if (stored.view === target) return this.#withTerminal(stored);
       if (stored.state === "running" && this.#bothLive(stored.kind)) {
-        // This agent's two frontends are clients of one server (`design.md`, **Terminal and
-        // chat**), so opening the other view starts a client beside the live one instead of
-        // stopping what the user is looking at. The session keeps one tab; the stored view says
-        // which frontend the main area shows, and the other stays live server-side.
+        // This agent's two frontends are clients of one server, so opening the other view starts a
+        // client beside the live one instead of stopping what the user is looking at. The session
+        // keeps one tab; the stored view says which frontend the main area shows, and the other
+        // stays live server-side.
         const live = this.#live.get(id);
         const attached = target === "chat" ? (live?.chat ?? false) : this.#terminalAlive(id);
         if (!attached) {
@@ -918,7 +918,7 @@ export class SessionService {
       if (!isExecutable(command, env["PATH"])) throw new AgentNotFoundError(command);
       input.command = command;
       // Codex assigns a new id to a conversation it starts, and a thread `thread/start` created but
-      // no turn wrote is not durable (`design.md`): a recorded id with no rollout is forgotten, and
+      // no turn wrote is not durable: a recorded id with no rollout is forgotten, and
       // the launch below starts a new conversation and looks for its rollout.
       conversationId = resumable ? stored.agentSessionId : null;
       if (!resumable && stored.kind === "codex" && stored.agentSessionId !== null) {
@@ -938,10 +938,10 @@ export class SessionService {
       ];
       if (stored.kind === "opencode") {
         // The terminal is a client of the one server this run shares with the chat driver, so the
-        // two frontends are live at once: `--server <url> --session <id>` (`design.md`,
-        // **Terminal and chat**). A server that cannot start falls back to OpenCode's own private
-        // one and its status plugin; that session cannot open chat (two servers would be two
-        // writers on one conversation) until it is stopped and started again.
+        // two frontends are live at once: `--server <url> --session <id>`. A server that cannot
+        // start falls back to OpenCode's own private one and its status plugin; that session cannot
+        // open chat (two servers would be two writers on one conversation) until it is stopped and
+        // started again.
         let server: { url: string; password: string } | undefined;
         try {
           server = await this.#openCodeServer("terminal", stored, task, command, env);

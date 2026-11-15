@@ -280,7 +280,7 @@ export const AgentAvailability = z.object({
 });
 export type AgentAvailability = z.infer<typeof AgentAvailability>;
 
-/** How a new task gets its workspace (`design.md`, **Task creation and workspace**). */
+/** How a new task gets its workspace. */
 export const WorkspaceMode = z.enum(["main-worktree", "new-worktree"]);
 export type WorkspaceMode = z.infer<typeof WorkspaceMode>;
 
@@ -441,8 +441,7 @@ export function taskSettingsFor(config: ClientConfig, path: string): ResolvedTas
 
 /**
  * Something wrong in the file. Each problem drops only the entry it names; the rest of the
- * file still applies. `warning`s apply the entry anyway (e.g. a chord a browser keeps for
- * itself, design.md "Keyboard and interaction").
+ * file still applies. `warning`s apply the entry anyway (e.g. a chord a browser keeps for itself).
  */
 export const ConfigProblem = z.object({
   severity: z.enum(["error", "warning"]),

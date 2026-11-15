@@ -1361,10 +1361,10 @@ function isBrowserOwnedDirect(chord: ModChord): boolean {
 }
 
 /**
- * Chords the browser handles before the page sees them (design.md "Keyboard and interaction"): Ctrl or Cmd
- * with W, T or N (Ctrl+Shift+T included) and Ctrl+Tab. Alt gets a chord past the browser, so
- * `alt+ctrl+w` stays ours. A binding fires after the prefix, as its own key press without the
- * prefix's modifiers, so only the binding's own modifiers can make it browser-owned.
+ * Chords the browser handles before the page sees them: Ctrl or Cmd with W, T or N
+ * (Ctrl+Shift+T included) and Ctrl+Tab. Alt gets a chord past the browser, so `alt+ctrl+w` stays
+ * ours. A binding fires after the prefix, as its own key press without the prefix's modifiers, so
+ * only the binding's own modifiers can make it browser-owned.
  */
 function isBrowserOwned(chord: Chord): boolean {
   if (chord.alt) return false;

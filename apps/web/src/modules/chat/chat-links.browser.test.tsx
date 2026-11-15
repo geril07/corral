@@ -484,7 +484,7 @@ test("a server without files.* says so once and leaves the paths as text", async
 test("a web link goes to the desktop shell instead of loading in the app window", async () => {
   const opened = vi.fn<(url: string) => Promise<void>>(async () => undefined);
   const openTab = vi.spyOn(window, "open").mockReturnValue(null);
-  // The preload bridge is what makes this the desktop app (`docs/design.md`, trust boundary).
+  // The preload bridge is what makes this the desktop app.
   window.corral = { server: async () => null, openExternal: opened };
   try {
     await laneWith("Read https://example.com/docs for the details.");

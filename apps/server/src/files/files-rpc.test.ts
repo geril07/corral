@@ -156,7 +156,7 @@ test("openEditor runs a resolved file through [editor] command and reports its t
     command: editor.path,
     args: [`${join(repo, "src", "app.ts")}:12`],
     cwd: repo,
-    // Loose: the editor belongs to no session, so a task's terminals keep one owner (`design.md`).
+    // Loose: the editor belongs to no session, so a task's terminals keep one owner.
     taskId: null,
     sessionId: null,
   });

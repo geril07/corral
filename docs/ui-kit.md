@@ -1,7 +1,7 @@
 # Web UI kit
 
-Read this before changing the web or desktop UI. Product interaction and safety constraints are in
-[Design](design.md); verification selection is in [AGENTS.md](../AGENTS.md#verification).
+Read this before changing the web or desktop UI. System boundaries are in
+[Architecture](architecture.md); verification selection is in [AGENTS.md](../AGENTS.md#verification).
 
 ## Direction
 
@@ -33,7 +33,13 @@ parallel document-level popup lifecycle.
 ## Foundations
 
 - **Focus:** keyboard focus must be visible, including inside scrolling rows and containers.
-  Accessible names remain available when visible text truncates.
+  Accessible names remain available when visible text truncates. Dismissing a dialog or menu
+  returns focus to its opener or the active work surface.
+- **Keyboard:** ordinary typing and IME composition belong to the focused input. Terminal keys
+  belong to the PTY; the configurable prefix provides a way out. Browser-reserved shortcuts are
+  not a promise the web client can keep.
+- **Input preservation:** opening Settings must not destroy the mounted workspace, terminal
+  attachments or drafts. Failed creation and refused sends retain the user's input.
 - **Motion:** no continuously looping animation; respect reduced motion. Do not animate dialog
   geometry when interface scale changes. Popup teardown and focus restoration must remain bounded.
 - **Density:** use the kit's semantic type, spacing, radius and control roles rather than

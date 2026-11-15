@@ -113,7 +113,7 @@ export class FilesService {
   /**
    * Runs the user's editor on a workspace file as a terminal in the task's workspace: a terminal
    * editor needs a PTY, and a GUI editor detaches from it. The terminal is loose (it belongs to no
-   * session), which keeps `design.md`'s one-owner rule for a task's terminals intact.
+   * session), so it cannot be mistaken for a session's terminal.
    */
   async openEditor(
     taskId: string,

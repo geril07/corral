@@ -214,7 +214,7 @@ export function LocalLinksUnavailable() {
   );
 }
 
-/** The refusal of an editor launch, where the composer's own errors appear (`docs/design.md`). */
+/** The refusal of an editor launch, where the composer's own errors appear. */
 export function LocalLinkFailure() {
   const failure = useLocalLinks()?.failure;
   if (failure === undefined) return null;
@@ -243,7 +243,7 @@ export function useMarkdownLinks(): MarkdownLinks {
  * Every anchor the lane's Markdown renders. A local file link opens the editor with the position
  * the message named; media is previewed inline instead; an ordinary web link goes to the OS browser
  * in the desktop app and to a new tab in a browser, never into this window
- * (`docs/design.md`, **Local trust boundary**).
+ * (`docs/architecture.md`, **Local trust boundary**).
  *
  * **Nothing else is a link.** A destination the lane does not own — `mailto:`, an app route, an
  * unknown scheme, a path it cannot place — renders as the label's text, because a chat message
@@ -299,8 +299,7 @@ export { openWebLink } from "../../common/lib/open-web-link.ts";
 /**
  * An image or video the message pointed at. Bytes come over RPC (`files.read`) and become a
  * `blob:` URL. Every way this can fail — past the bound, a refused read, bytes that do not decode
- * — ends as **one row with the editor**, never a broken frame or a stuck "Loading" line
- * (`docs/design.md`).
+ * — ends as **one row with the editor**, never a broken frame or a stuck "Loading" line.
  */
 function FileMedia({ file, target }: { file: FileTarget; target: LocalTarget }) {
   const links = useLocalLinks();

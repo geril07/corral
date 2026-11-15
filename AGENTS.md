@@ -2,7 +2,7 @@
 
 Keyboard-first workspace for running coding agents in terminals: a long-lived Node server plus web, desktop and (later) mobile clients.
 
-- Behavior, protocol or architecture: read `docs/design.md` for decisions and invariants.
+- Server, clients, protocol, agent sessions, data ownership or trust: read `docs/architecture.md` for boundaries and reasons.
 - Reference checkouts, never bases: `.refs/t3code` (visual, composition, chat, type) and `.refs/orca`
   (terminal, status, daemon). Gitignored; refresh with `git -C .refs/<name> pull`.
 - Code organization, dependencies or tests: read `docs/engineering.md`.
