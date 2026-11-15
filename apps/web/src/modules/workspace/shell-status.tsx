@@ -26,7 +26,7 @@ export interface ShellStatusProps {
 }
 
 /**
- * The shell's action and config status (`layout.md`, **Shell**), in the two places the pane leaves
+ * The shell's action and config status, in the two places the pane leaves
  * it: the sidebar footer while the sidebar is shown, and a strip above the main content while it
  * is hidden. Only a failure or config problems own the strip's row; the armed-prefix badge floats
  * at the main surface's top-end, so arming the prefix never resizes the terminal.

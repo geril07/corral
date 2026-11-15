@@ -39,7 +39,7 @@ import {
   type ChatFiles,
 } from "./local-links.tsx";
 
-/** How the composer turns its text into a `chat.send` while a turn runs (`design.md`, D2). */
+/** How the composer turns its text into a `chat.send` while a turn runs. */
 export type ChatSend = (text: string, mode: ChatSendMode) => Promise<void>;
 
 export interface ChatViewProps {
@@ -76,9 +76,9 @@ export interface ChatViewProps {
 }
 
 /**
- * One session as chat (`layout.md`, **Chat**): the 46 rem lane, the virtualized timeline, the
+ * One session as chat: the 46 rem lane, the virtualized timeline, the
  * request the agent waits on, and the composer that overlays the lane's end. The view renders the
- * B0 store; the workspace owns the connection calls (goal D4: no driver is needed here).
+ * chat store; the workspace owns the connection calls, so no driver is needed here.
  */
 export function ChatView({
   store,
@@ -124,8 +124,7 @@ export function ChatView({
   // Queue control appears only for the drivers that do (`chat.capabilities`, protocol 10).
   const followUpOffered = followUp !== false;
 
-  // The composer overlays the timeline, so the list keeps a matching end spacer
-  // (`layout.md`: "at the bottom of the lane, overlaying the timeline's end").
+  // The composer overlays the timeline, so the list keeps a matching end spacer.
   useEffect(() => {
     const node = panelRef.current;
     if (node === null) return undefined;

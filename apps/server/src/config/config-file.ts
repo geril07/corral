@@ -898,8 +898,8 @@ function resolvedProjects(
 }
 
 /**
- * Decision 5's view rule: a `chat` view is only usable by an agent with a chat driver. When the
- * resolved settings name such an agent, the effective view is the terminal and the file says so —
+ * A `chat` view is only usable by an agent with a chat driver. When the resolved settings name an
+ * agent without one, the effective view is the terminal and the file says so —
  * a warning, never a silent downgrade. With no agent configured the view stays `chat` here; the
  * composer applies the rule to the agent the user picks, and `tasks.create` does the same for a
  * request that names none.
@@ -980,7 +980,7 @@ function errnoCode(error: unknown): string | undefined {
 }
 
 /**
- * Decision 17's resolution for one project: built-in default, then `[tasks]`, then the
+ * Resolution for one project: built-in default, then `[tasks]`, then the
  * project's own table. The result says which layer each value came from, so no client has to
  * look it up.
  */
@@ -1361,7 +1361,7 @@ function isBrowserOwnedDirect(chord: ModChord): boolean {
 }
 
 /**
- * Chords the browser handles before the page sees them (design.md "Keyboard"): Ctrl or Cmd
+ * Chords the browser handles before the page sees them (design.md "Keyboard and interaction"): Ctrl or Cmd
  * with W, T or N (Ctrl+Shift+T included) and Ctrl+Tab. Alt gets a chord past the browser, so
  * `alt+ctrl+w` stays ours. A binding fires after the prefix, as its own key press without the
  * prefix's modifiers, so only the binding's own modifiers can make it browser-owned.

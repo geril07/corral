@@ -9,7 +9,7 @@ import {
 } from "./settings-primitives.tsx";
 
 /**
- * `[agents.<kind>]` and what the host has (`layout.md`, **Board and settings**: an Agents section).
+ * `[agents.<kind>]` and what the host has.
  * Settings is read-only: it names each agent, whether the file offers it, the executable a launch
  * would run, whether the server found it, and whether this build can show it as chat. The chat
  * driver column is the same fact `chat.capabilities` reports.

@@ -35,7 +35,7 @@ export const SessionId = z.string().min(1);
 export type SessionId = z.infer<typeof SessionId>;
 
 /**
- * How a session runs: as a terminal, or as chat through its agent's driver (design.md, decision 5).
+ * How a session runs: as a terminal, or as chat through its agent's driver.
  * One vocabulary with a task's view (`TaskView`). A start may name it and a task's agent carries
  * it; a stored session always has one, and a shell is always `terminal`, which the server refuses
  * to violate (`LAUNCH_VIEW_UNSUPPORTED`).
@@ -59,7 +59,7 @@ export const TerminalInfo = z.object({
   /**
    * The user's name for a loose terminal, shown instead of the one derived from the command;
    * `null` means none. Kept for as long as the terminal lives: terminals do not survive a
-   * server restart (decision 12). Absent from a server that predates labels.
+   * server restart. Absent from a server that predates labels.
    */
   label: Label.nullable().optional(),
 });
@@ -161,8 +161,8 @@ export const Task = z.object({
    */
   prompt: z.string().nullable(),
   /**
-   * The session created from the prompt (design.md, **Sessions**); `null` until a task has one, and
-   * again when that session is removed.
+   * The primary agent session started with the task; `null` until a task has one, and again when
+   * that session is removed.
    */
   primarySessionId: SessionId.nullable(),
   /** Branch checked out in the workspace; for a task in the main working tree, whatever is checked out there at creation. */
@@ -285,7 +285,7 @@ export const ChangesRemote = z.object({
 export type ChangesRemote = z.infer<typeof ChangesRemote>;
 
 /**
- * The finish panel's read model (`layout.md`, **Changes**): what the commit, push and pull-request
+ * The finish panel's read model: what the commit, push and pull-request
  * controls need to name in their confirmations. Read on mount and after every write; nothing here
  * writes to the repository or a remote.
  */
@@ -366,7 +366,7 @@ export const MAX_PULL_REQUEST_TITLE = 256;
 
 /**
  * An agent the task's primary session starts. The shape `sessions.start` takes, without a shell: a
- * task never starts one on its own (design.md, **Domain model → Task → Creation**).
+ * task never starts one on its own.
  */
 export const TaskAgent = z.object({
   kind: AgentKind,
@@ -497,7 +497,7 @@ export type LaunchSnapshot = z.infer<typeof LaunchSnapshot>;
 /**
  * Something running in a task: a shell or an agent. Persisted, unlike terminals: after a
  * server restart every session that was running is started again, a shell fresh and an agent
- * resumed by `agentSessionId` (decision 12).
+ * resumed by `agentSessionId`.
  */
 export const Session = z.object({
   id: SessionId,
@@ -969,15 +969,12 @@ export const contract = {
       .input(z.object({ id: SessionId, label: Label.nullable() }))
       .output(Session),
     /**
-     * Moves the session between its two views (design.md, decision 5): the live frontend is stopped
-     * and its process awaited, then the other view starts on the same agent session id. The session
-     * keeps its id, label and place in the task's tabs; the conversation is the agent's own and
-     * survives, while the in-flight turn and pending requests do not — a working turn is aborted
-     * first. A chat view needs an agent with a chat driver (otherwise `LAUNCH_VIEW_UNSUPPORTED`),
-     * and never a shell. On a stopped session only the stored view changes, so its next start opens
-     * there; a handoff whose second start fails leaves it stopped with `launchError` set. A settled
-     * task changes nothing here: its shelf state is metadata, so a running session switches views
-     * like any other.
+     * Moves a session between terminal and chat. A handoff-only driver stops the live frontend
+     * before starting the other; a both-live driver can attach both to the same agent server.
+     * The session keeps its id, label and tab. A handoff can end an in-flight turn or request.
+     * Chat requires a driver and cannot be used by a shell. On a stopped session only the stored
+     * view changes; a failed handoff start leaves it stopped with `launchError`. A running session
+     * can switch even when its task is settled.
      */
     setView: oc
       .errors({

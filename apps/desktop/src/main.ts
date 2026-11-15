@@ -13,14 +13,14 @@ import { isAppNavigation } from "./external-links.ts";
 import { openExternalRequest } from "./bridge.ts";
 
 // No application menu: on Linux and Windows a lone Alt would otherwise reveal the menu bar
-// and swallow Alt chords such as the default prefix (docs/design.md, Keyboard).
+// and swallow Alt chords such as the default prefix (docs/design.md, Keyboard and interaction).
 Menu.setApplicationMenu(null);
 
 const webDist = path.join(import.meta.dirname, "../../web/dist/index.html");
 const serverEntry = path.join(import.meta.dirname, "../../server/src/main.ts");
 const preload = path.join(import.meta.dirname, "preload.cjs");
 const SERVER_START_TIMEOUT_MS = 15_000;
-// `docs/layout.md`: desktop support begins at 1024×640. The window and its starting size
+// Desktop support begins at 1024×640. The window and its starting size
 // share the floor, so neither the start nor a later resize can drop below it.
 const MIN_WINDOW_WIDTH = 1024;
 const MIN_WINDOW_HEIGHT = 640;

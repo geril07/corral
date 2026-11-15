@@ -272,8 +272,7 @@ export function VisualWorkspace({
         if (task === undefined) return false;
         setNotice(undefined);
         const state = task.state === "active" ? "settled" : "active";
-        // The server owns the state: settling stops the running sessions, continuing resumes the
-        // ones that were running (`design.md`, **Domain model** — Task).
+        // Settling changes only the shelf state; running sessions keep running.
         try {
           const updated = await client.connection.api.tasks.setState({ id, state });
           // The server answers early without notifying when it already had this state, so compare
@@ -338,7 +337,7 @@ export function VisualWorkspace({
 
   /**
    * Escape and a task selection take the working area back; the drafts stay where they are and
-   * the next New task for the same project returns to one (`docs/layout.md`).
+   * the next New task for the same project returns to one.
    */
   const hideDraft = useCallback(() => setActiveDraftId(undefined), [setActiveDraftId]);
 
@@ -375,7 +374,7 @@ export function VisualWorkspace({
       setProjectChoice(false);
       if (existing === undefined) {
         // Pin the launch the draft opened with. A later config edit then shows an invalidation
-        // instead of silently swapping the runtime under the same prompt (`docs/layout.md`).
+        // instead of silently swapping the runtime under the same prompt.
         const opened = newTaskDraft(projectId, opening);
         changeDrafts((current) => [...current, opened]);
         setActiveDraftId(opened.id);
@@ -637,8 +636,7 @@ export function VisualWorkspace({
     };
   }, [activeDraft, closeBinding, config, discardDraft, drafts, selectDraft]);
   // A draft is a tab in the main group; every open draft shows in the same strip. The project is
-  // the visible label, so two drafts never read the same, and the pencil glyph says it is a draft
-  // (`docs/layout.md`).
+  // the visible label, so two drafts never read the same, and the pencil glyph says it is a draft.
   const draftItems: VisualTabItem[] = drafts.map((entry, index) => {
     const projectName =
       entry.composer.projectId === null

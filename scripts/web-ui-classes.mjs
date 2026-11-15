@@ -1,5 +1,5 @@
 // UI kit class rules: which literal strings in apps/web are class names, and which of those leave
-// the scales `docs/ui-kit.md` **Spine** declares. Parsing is by Oxc's public parser so comments,
+// the allowed scales. Parsing is by Oxc's public parser so comments,
 // JSX prose and regular expressions are never mistaken for literals; see
 // scripts/check-web-ui.mjs for the file walk.
 import { parseSync } from "oxc-parser";
@@ -128,7 +128,7 @@ export function classViolations(source, filename, location = "module") {
         message: `${rule.label} in class name: ${token.value}`,
       });
     }
-    // Per-element reduced motion (`ui-kit.md`, **Spine** — no global kill switch). A transition
+    // Per-element reduced motion, without a global kill switch. A transition
     // keeps its own reduce override. An entry animation is conditional on motion being allowed:
     // a bare `animate-in` loses to its `data-open:` rule even when a reduce partner exists, so
     // only `motion-safe` may carry it. A non-entry animation may still pair with `animate-none`.

@@ -4,13 +4,13 @@ import { Button } from "./button.tsx";
 import { diffContentLines } from "./diff-lines.ts";
 import { useDarkTheme } from "./diff-theme.ts";
 
-/** The changed-file preview folds after this many diff line boxes (`layout.md`, **Chat**). */
+/** The changed-file preview folds after this many diff line boxes. */
 const FOLD_LINES = 20;
 /** The app switches no theme, but the diff reads the same `dark` class the tokens do. */
 
 /**
- * A tool result's unified diff, rendered by `@pierre/diffs` on the highlighter Streamdown uses
- * (goal D1). The diff is a plain element in the chat lane, so the kit owns its width, its wrap and
+ * A tool result's unified diff, rendered by `@pierre/diffs` on the highlighter Streamdown uses.
+ * The diff is a plain element in the chat lane, so the kit owns its width, its wrap and
  * the 20-line fold; modules pass the text and the optional path, nothing visual.
  */
 export function DiffView({ text, path }: { text: string; path: string | null }) {

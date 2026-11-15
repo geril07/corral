@@ -39,7 +39,7 @@ export interface LineCounts {
 /**
  * `git diff --name-status -z` output. Entries are NUL separated: `M\0path\0`, and for a rename or
  * copy `R100\0old\0new\0`, where the score after the letter is dropped. A copy is listed as an
- * addition because `layout.md` has four status letters and a copy adds a file.
+ * addition because the read model has four status letters and a copy adds a file.
  */
 export function parseNameStatus(output: string): ChangedName[] {
   const entries = output.split("\0");
@@ -68,7 +68,7 @@ export function parseNameStatus(output: string): ChangedName[] {
   return names;
 }
 
-/** A status letter git can print that `layout.md` has no letter of its own for (a type change). */
+/** Map Git's type change to a modification in the read model. */
 function statusOf(letter: string): ChangeStatus {
   if (letter === "A") return "A";
   if (letter === "D") return "D";

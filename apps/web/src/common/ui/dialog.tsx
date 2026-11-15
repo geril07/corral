@@ -39,7 +39,7 @@ const DialogContentPadding = React.createContext<"default" | "none">("default");
 
 // `motion-safe:animation-duration-200` carries the enter/exit duration without `transition-duration`. Tailwind's
 // `duration-200` would leave `transition-property: all` in place, so a text-scale change would
-// animate the popup's size and position instead of re-laying out at once (`ui-kit.md`, **Motion**).
+// animate the popup's size and position instead of re-laying out at once.
 
 function DialogContent({
   className,

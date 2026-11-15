@@ -1066,8 +1066,8 @@ test("a pointer click leaves no focus ring, while Tab still shows one", async ()
   const scale = page.getByRole("slider", { name: "Interface text scale" });
   await scale.click();
   expect(scale.element().matches(":focus-visible")).toBe(false);
-  // A scale change re-lays out the dialog at once; its geometry never animates (`ui-kit.md`,
-  // **Motion**), so no transition may start on it.
+  // A scale change re-lays out the dialog at once; its geometry never animates, so no transition
+  // may start on it.
   expect(settingsDialog().element().getAnimations()).toHaveLength(0);
 
   const keyboard = settingsRailButton("Keyboard");

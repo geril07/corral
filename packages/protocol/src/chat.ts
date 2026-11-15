@@ -2,9 +2,9 @@ import { z } from "zod";
 import { AgentKind } from "./config.ts";
 
 /**
- * Corral's own chat contract (design.md, decision 14): the server owns the state of an agent
+ * Corral's own chat contract: the server owns the state of an agent
  * session shown as chat and streams it as one snapshot followed by sequenced events. Clients
- * render that; a provider protocol (pi's RPC mode, later OpenCode, Claude Code or Codex) never
+ * render that; a provider protocol (pi's RPC mode, OpenCode, Claude Code or Codex) never
  * leaves the server's driver.
  *
  * Items have stable ids. The snapshot is the whole timeline; later events replace an item by id,

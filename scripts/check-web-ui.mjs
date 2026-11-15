@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// UI kit guard for apps/web: class strings must name the scales `docs/ui-kit.md` **Spine** declares,
+// UI kit guard for apps/web: class strings must name the allowed scales,
 // inside `common/ui` and out. Layer boundaries and raw DOM controls are lint rules; this covers
 // class strings, which Oxlint has no configurable rule for, and module stylesheets, which may not
 // select on the kit's `data-slot` marker. The class rules live in web-ui-classes.mjs.
@@ -27,8 +27,8 @@ function filesIn(directory) {
 /**
  * A module stylesheet may not reach a kit control through the `data-slot` marker the kit sets. Every
  * attribute form names a slot — `[data-slot="button"]`, `[data-slot=button]`, `[data-slot^="dialog"]`
- * — so the selector itself is the violation, whatever value it names (`ui-kit.md`, **Spine** —
- * ownership). The kit's own stylesheet is where those selectors belong.
+ * — so the selector itself is the violation, whatever value it names. The kit's own stylesheet
+ * is where those selectors belong.
  */
 const KIT_SLOT_SELECTOR = /\[data-slot[^\]]*\]/g;
 
@@ -36,7 +36,7 @@ const problems = [];
 for (const file of filesIn(root)) {
   const relative = path.relative(repository, file);
   // The kit's literals are legitimate geometry, so it answers the type/surface/focus/motion rules
-  // only; a module answers every rule (`ui-kit.md`, **Spine** — ownership).
+  // only; a module answers every rule.
   const location = file.startsWith(`${kit}${path.sep}`) ? "kit" : "module";
   const source = readFileSync(file, "utf8");
   if (file.endsWith(".css")) {

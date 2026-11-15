@@ -92,8 +92,7 @@ test("projects and tasks are still there when the app is opened again", async ({
   await expect(sessionTab(secondWindow, "shell")).toHaveCount(1);
 });
 
-// The composer starts the task's primary agent with the prompt as its launch argument
-// (design.md, decision 3 and **Domain model → Task → Creation**).
+// The composer starts the task's primary agent with the prompt as its launch argument.
 test("a prompt creates the task and the fake agent receives it", async ({
   launchApp,
   stateDir,

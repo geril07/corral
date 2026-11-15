@@ -1,7 +1,7 @@
 /**
  * A task keeps the branch it had when it was created (`Task.branch`); the workspace can be on
  * another branch, or none, by the time it is read. These helpers keep that one distinction in one
- * place (`docs/layout.md`, **Task header**): git has no branch on a detached HEAD, which the
+ * place: git has no branch on a detached HEAD, which the
  * protocol records as `"HEAD"` at create and reports as `null` live.
  */
 

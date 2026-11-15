@@ -17,7 +17,7 @@ import { z } from "zod";
  * [keys.direct]     # direct commands; `mod` is Cmd on macOS, Ctrl elsewhere
  * new-task = "mod+n"
  *
- * [profiles.gateway]  # a launch profile; see docs/agent-profiles.md
+ * [profiles.gateway]  # a launch profile
  * name = "Claude via gateway"
  * agent = "claude"
  * model = "claude-sonnet-4-5"
@@ -157,7 +157,7 @@ export const DEFAULT_BINDINGS: Readonly<Record<ActionId, string>> = {
 
 /**
  * A direct command: it fires without the prefix. The three creation commands mirror T3's
- * desktop/web semantics (`docs/layout.md`). A chord is config syntax understood by
+ * desktop/web semantics. A chord is config syntax understood by
  * `parseModChord`; `mod` is Command on macOS and Control elsewhere.
  */
 export const DirectActionId = z.enum(["new-task", "new-task-in-project", "new-task-no-project"]);
@@ -210,7 +210,7 @@ export const LaunchProfile = z.object({
 });
 export type LaunchProfile = z.infer<typeof LaunchProfile>;
 
-/** Where an effective value came from: decision 17's layers. */
+/** Where an effective value came from: the default, global or project layer. */
 export const SettingSource = z.enum(["default", "global", "project"]);
 export type SettingSource = z.infer<typeof SettingSource>;
 
@@ -218,7 +218,7 @@ export type SettingSource = z.infer<typeof SettingSource>;
  * `[agents.<kind>]`: what Corral offers and runs for one agent. It has no per-project layer — an
  * agent is a property of the machine, not of a repository — so a value is either the built-in
  * default or the file's global one. Launch profiles stay the place for a model, a provider and
- * environment references (`docs/agent-profiles.md`); this table does not repeat them.
+ * environment references; this table does not repeat them.
  */
 export const AgentSetting = z.object({
   /** False hides the agent from every picker and refuses a new launch of it. */
@@ -248,7 +248,7 @@ export function agentEnabled(config: ClientConfig, kind: AgentKind): boolean {
  * `[editor]`: the command a local file link in chat opens. Like `[agents.<kind>]` it describes the
  * machine, not a repository, so it has no per-project layer. Empty means "not configured": the
  * server falls back to `$VISUAL`, then `$EDITOR`, and a file link without any of them is refused
- * with `EDITOR_UNSET` (`docs/agent-profiles.md`).
+ * with `EDITOR_UNSET`.
  */
 export const EditorSetting = z.object({
   /** A command line, split like a shell would; `{file}`, `{line}` and `{column}` are filled in. */
@@ -280,15 +280,15 @@ export const AgentAvailability = z.object({
 });
 export type AgentAvailability = z.infer<typeof AgentAvailability>;
 
-/** How a new task gets its workspace (`design.md`, **Domain model → Task → Workspace**). */
+/** How a new task gets its workspace (`design.md`, **Task creation and workspace**). */
 export const WorkspaceMode = z.enum(["main-worktree", "new-worktree"]);
 export type WorkspaceMode = z.infer<typeof WorkspaceMode>;
 
-/** Whether branch and worktree names come from the title or from the naming request (decision 16). */
+/** Whether branch and worktree names come from the title or from the naming request. */
 export const SlugMode = z.enum(["title", "generated"]);
 export type SlugMode = z.infer<typeof SlugMode>;
 
-/** The view a task's primary agent opens in (decision 5). */
+/** The view a task's primary agent opens in. */
 export const TaskView = z.enum(["terminal", "chat"]);
 export type TaskView = z.infer<typeof TaskView>;
 
@@ -316,7 +316,7 @@ export const ResolvedTaskSettings = z.object({
 export type ResolvedTaskSettings = z.infer<typeof ResolvedTaskSettings>;
 
 /**
- * `[naming]`: the launch profile or agent and model that generates task titles (decision 16),
+ * `[naming]`: the launch profile or agent and model that generates task titles,
  * and how long Corral waits for it. Naming has no per-project layer: one setting for the server.
  */
 export const NamingSettings = z.object({
@@ -330,7 +330,7 @@ export type NamingSettings = z.infer<typeof NamingSettings>;
 /** The default wait for a naming request, in seconds. */
 export const DEFAULT_NAMING_TIMEOUT_SECONDS = 8;
 
-/** Whether `[naming]` names something to run; empty means seed titles only (decision 16). */
+/** Whether `[naming]` names something to run; empty means seed titles only. */
 export function namingConfigured(naming: NamingSettings): boolean {
   return naming.profile.value !== null || naming.agent.value !== null;
 }
@@ -442,7 +442,7 @@ export function taskSettingsFor(config: ClientConfig, path: string): ResolvedTas
 /**
  * Something wrong in the file. Each problem drops only the entry it names; the rest of the
  * file still applies. `warning`s apply the entry anyway (e.g. a chord a browser keeps for
- * itself, design.md "Keyboard").
+ * itself, design.md "Keyboard and interaction").
  */
 export const ConfigProblem = z.object({
   severity: z.enum(["error", "warning"]),

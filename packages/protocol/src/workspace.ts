@@ -1,5 +1,5 @@
 /**
- * A task's workspace that is gone from disk is one named state (`design.md`, **Domain model**):
+ * A task's workspace that is gone from disk is one named state:
  * the session launch and the Changes read say this sentence, and the remove dialog recognizes it
  * to say the directory was already gone. It lives in the protocol package so the server that
  * writes it and the client that reads it cannot drift.

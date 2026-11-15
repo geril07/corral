@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The checkout's dev stack, isolated from the installed app: state, data and config live in
 // `.dev/`, so a development server cannot take the packaged app's single-instance lock, database
-// or config file (`engineering.md`, **Two directories, two keys**). `pnpm dev` and
+// or config file (`engineering.md`, **Boundaries**). `pnpm dev` and
 // `pnpm dev:desktop` both come through here, so those three paths have one definition and do not
 // depend on the shell having mise activated.
 import { spawn } from "node:child_process";

@@ -10,13 +10,9 @@ const textareaVariants = cva(
         composer: "rounded-none border-0 bg-transparent shadow-none dark:bg-transparent",
       },
       layout: {
-        // The new-task composer's prompt: a four-line rest and a half-view growth cap
-        // (`layout.md`, **New task view**). Font, border and focus stay stock; the padding is the
-        // composer inset (`ui-kit.md`, **Input padding**).
+        // The new-task prompt rests at four lines and grows to half the view.
         prompt: "min-h-24 max-h-[50cqh] px-4 py-3",
-        // The chat composer rests at two lines and grows to 13 rem before it scrolls
-        // (`layout.md`, **Chat**). Font, border and focus stay stock; the padding is the composer
-        // inset (`ui-kit.md`, **Input padding**).
+        // The chat composer rests at two lines and grows to 13 rem before it scrolls.
         chat: "min-h-14 max-h-52 overflow-y-auto px-4 py-3",
       },
     },

@@ -134,7 +134,7 @@ test("a loose terminal keeps its label on every client and through a client reco
   expect(processExists(pid)).toBe(true);
 
   // A client that connects again sees the same terminal, label and all; only a server restart
-  // ends a loose terminal (decision 12) and with it the label.
+  // ends a loose terminal and with it the label.
   const reconnected = await server.rpc();
   expect(await reconnected.terminals.list()).toEqual(labeled);
   expect(processExists(pid)).toBe(true);

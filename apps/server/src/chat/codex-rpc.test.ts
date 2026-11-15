@@ -178,7 +178,7 @@ test(
     // Nothing was spawned for the refused chat.
     expect(await appServerLaunches()).toHaveLength(0);
 
-    // The terminal stays available, and it is the plain stage A launch (no Corral app-server).
+    // The terminal stays available with a plain launch, without a Corral app-server.
     const terminal = await codexTask("terminal", "stream please", refused.projectId);
     expect(terminal.session.state).toBe("running");
     const launches = (await agents.launches()).filter((launch) => launch.agent === "codex");

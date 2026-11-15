@@ -128,7 +128,7 @@ export const VISUAL_REVIEW_SELECTED = "fixture-blocked";
 
 /**
  * The Settled shelf's fixture rows: the same card recipe, the server-owned settled state, and the
- * one order the shelf keeps (`layout.md`, **Sidebar**).
+ * one order the shelf keeps.
  */
 export const VISUAL_REVIEW_SETTLED_ROWS: readonly VisualTaskRow[] = [
   {

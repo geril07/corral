@@ -208,7 +208,7 @@ export class TaskService implements ProjectTasks {
     // A blank prompt is the same as none; the wire schema trimmed it already.
     const prompt = input.prompt === undefined || input.prompt === "" ? null : input.prompt;
     // An explicit title and an issue's title are the user's: the first was typed, the second seen
-    // and accepted. Only a prompt-only task gets the seed (design.md, decision 16).
+    // and accepted. Only a prompt-only task gets the seed.
     const named = input.title ?? input.source?.title;
     const title = named ?? (prompt === null ? undefined : seedTitle(prompt));
     // The contract requires one of the three; this guard keeps direct callers honest too.
@@ -256,7 +256,7 @@ export class TaskService implements ProjectTasks {
       workspace.type === "new-branch" &&
       workspace.branch === undefined &&
       this.#settings.slugMode(project) === "generated";
-    // Naming runs only for a prompt-only task with a configured runner (decision 16).
+    // Naming runs only for a prompt-only task with a configured runner.
     let naming: { plan: NamingPlan; prompt: string } | undefined;
     if (named === undefined && prompt !== null) {
       const plan = namingPlan(this.#naming, { generatedSlug });

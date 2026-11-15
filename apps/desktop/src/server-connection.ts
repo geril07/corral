@@ -30,7 +30,7 @@ export type ServerConnection =
 
 export interface EnsureServerOptions {
   stateDir: string;
-  /** TODO(packaging): dev only. The shipped app runs a bundled Node from a relocated copy; see docs/engineering.md, Open: Shipping the server. */
+  /** TODO(packaging): dev only. Shipping the server and bundled Node is tracked in #289. */
   serverEntry: string;
   /** How long to wait for a freshly started server to publish its endpoint. */
   startTimeoutMs: number;

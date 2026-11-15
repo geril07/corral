@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 /**
- * The Settled shelf is collapsed until the user opens it (`design.md`, **Domain model** — Task).
+ * The Settled shelf is collapsed until the user opens it.
  * The same key the prior sidebar used, whose state is `{expanded, page}`: the expanded bit is read
  * here and written by merging into the stored object, so the prior shelf's page survives. A value
  * an older build wrote is read defensively.

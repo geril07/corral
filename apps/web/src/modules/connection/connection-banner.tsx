@@ -22,7 +22,7 @@ export interface ConnectionBannerProps {
 }
 
 /**
- * The connection notice above the working area (`layout.md`, **Shell**). T3 keeps its sidebar for
+ * The connection notice above the working area. T3 keeps its sidebar for
  * work and reports an unavailable environment at the composer; this shell has one working area, so
  * the banner sits above it and serves both sidebar states. A transient reconnect waits out the
  * grace before it shows; a capability or protocol failure cannot recover on its own, so it shows

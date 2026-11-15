@@ -586,9 +586,9 @@ export function createRpcRouter({
       watch: os.sessions.watch.handler(({ signal }) => sessions.watch(signal)),
     },
     chat: {
-      // The pi driver (B1). The build fact comes from the chat service, so this router never
+      // The build fact comes from the chat service, so this router never
       // decides by agent kind; a session without a live frontend gets `CHAT_UNAVAILABLE` with the
-      // reason a client can act on, never an ended iterator (B0's contract).
+      // reason a client can act on, never an ended iterator.
       capabilities: os.chat.capabilities.handler(() => ({ drivers: chat.capabilities() })),
       watch: os.chat.watch.handler(({ input, errors, signal }) => {
         const subject = sessions.chatSubject(input.sessionId);

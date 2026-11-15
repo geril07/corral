@@ -232,7 +232,7 @@ export class ClaudeDriver implements ChatDriver {
       permissionMode: "default",
       canUseTool: (toolName, input, context) => this.#ask(toolName, input, context),
       spawnClaudeCodeProcess: (spawnOptions) => this.#spawn(spawnOptions),
-      // `settingSources` stays default (goal D10 rule for C2 decision d): the user's settings and
+      // `settingSources` stays default: the user's settings and
       // CLAUDE.md apply, because chat and the terminal must see one environment.
     };
     if (this.#request.model !== null) options.model = this.#request.model;

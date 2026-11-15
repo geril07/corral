@@ -10,7 +10,7 @@ import { renderApp } from "./render-app.tsx";
 export const workspace = () => page.getByRole("navigation", { name: "workspace" });
 export const taskButton = (title: string) =>
   workspace().getByRole("button", { name: new RegExp(`^${title}`) });
-/** The current task's session tabs (`layout.md`, **Session tabs**). */
+/** The current task's session tabs. */
 export const sessionTabs = () => page.getByRole("tablist", { name: "Sessions" });
 export const sessionTab = (name: string | RegExp) => sessionTabs().getByRole("tab", { name });
 export const selectedTab = () => sessionTabs().getByRole("tab", { selected: true });
@@ -21,7 +21,7 @@ export const focusedIsTerminal = () =>
   document.activeElement?.classList.contains("xterm-helper-textarea");
 
 export const addProjectDialog = () => page.getByRole("dialog", { name: "Add project" });
-/** The new-task composer in the main area (`layout.md`, **New task view**): a view, not a dialog. */
+/** The new-task composer in the main area: a view, not a dialog. */
 export const newTaskView = () => page.getByRole("form", { name: "New task" });
 export const promptField = () => newTaskView().getByRole("textbox", { name: "Prompt" });
 export const expandTitleButton = () =>
@@ -115,8 +115,8 @@ export interface CreateTaskOptions {
 }
 
 /**
- * Creates a task from the composer's optional title, with no prompt, so it starts no session
- * (`design.md`, **Domain model → Task → Creation**); a prompt-created task starts its agent.
+ * Creates a task from the composer's optional title, with no prompt, so it starts no session;
+ * a prompt-created task starts its agent.
  */
 export async function createTask(title: string, options: CreateTaskOptions = {}) {
   await prefixThen("t");

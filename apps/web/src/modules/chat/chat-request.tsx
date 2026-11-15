@@ -15,8 +15,8 @@ function answerLabel(item: ChatUserRequest): string {
 }
 
 /**
- * A request the agent is blocked on (`layout.md`, **Chat**: the selected pending request takes
- * the keyboard). Every kind is answerable without a pointer: arrows and Enter for `select` and
+ * A request the agent is blocked on: the selected pending request takes the keyboard. Every kind
+ * is answerable without a pointer: arrows and Enter for `select` and
  * `confirm`, Enter for `input`, Ctrl/Cmd+Enter for `editor`, and Escape dismisses any of them with
  * `null` (`chat.respond`).
  */
@@ -43,7 +43,7 @@ export function ChatRequestItem({
   const choiceCount =
     item.request === "confirm" ? 2 : item.request === "select" ? item.options.length : 0;
 
-  // The request owns the keyboard when it arrives (`layout.md`, **Chat**); a select/confirm starts
+  // The request owns the keyboard when it arrives; a select/confirm starts
   // on its first choice and moves with the arrow keys. A choice-less request has no radio to focus,
   // so its explicit Dismiss button takes the keyboard instead of leaving the request unreachable.
   useEffect(() => {

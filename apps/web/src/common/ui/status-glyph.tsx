@@ -13,8 +13,8 @@ const COLORS: Readonly<Record<AgentState, string>> = {
 };
 
 /**
- * Shape, the caller's accessible name and the status color distinguish states (`layout.md`,
- * **Task header**, **Working area**). `muted` fades a finished update the user has already seen.
+ * Shape, the caller's accessible name and the status color distinguish states. `muted` fades a
+ * finished update the user has already seen.
  */
 export function StatusGlyph({
   state = "idle",

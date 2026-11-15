@@ -132,8 +132,7 @@ const request: ChatItem = {
 
 /**
  * A recorded chat: user message, reasoning, a streamed answer, three finished tool calls (one
- * with a diff), a notice, an error and a pending request. B3 renders from this instead of a live
- * pi driver (goal D4); the diff is pi's `details.patch`, which is what B1 will map to `ChatDiff`.
+ * with a diff), a notice, an error and a pending request. The diff is pi's `details.patch`.
  */
 export const RECORDED_CHAT: ChatStreamMessage[] = recorded([
   { type: "item", item: userMessage },

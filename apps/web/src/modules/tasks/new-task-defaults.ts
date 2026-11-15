@@ -1,7 +1,7 @@
 import type { ResolvedTaskSettings } from "@corral/protocol/config";
 import type { CreateTaskInput } from "@corral/protocol/rpc";
 
-/** One entry of the workspace picker (`layout.md`: "main tree" / "new worktree" / branch). */
+/** One entry of the workspace picker: main tree, new worktree or branch. */
 export interface ComposerWorkspace {
   key: string;
   label: string;

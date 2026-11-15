@@ -27,7 +27,7 @@ export function modelIdProblem(model: string): string | undefined {
 }
 
 /**
- * What each agent CLI in `docs/agent-profiles.md` accepts on its launch command. The same rules
+ * What each agent CLI accepts on its launch command. The same rules
  * validate a profile in the config file and a model override on `sessions.start`, so neither can
  * claim a choice the agent would silently ignore.
  *

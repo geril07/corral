@@ -4,7 +4,7 @@ import { z } from "zod";
 import { PrivateLaunchSpec } from "./private-launch.ts";
 
 /**
- * What is persisted of a session; the terminal and its transient status are not (decision 12).
+ * What is persisted of a session; the terminal and its transient status are not.
  * `launchError` is not persisted: a restore failure is reported by the server run that saw it.
  */
 export const StoredSession = Session.omit({

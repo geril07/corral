@@ -217,7 +217,7 @@ export interface VisualShellViewProps {
   companion?: ReactNode | undefined;
   /** The working area owns its pane's padding; empty states keep the content inset. */
   mainFill?: boolean | undefined;
-  /** While a draft is open no sidebar row is current (`docs/layout.md`). */
+  /** While a draft is open no sidebar row is current. */
   composerOpen?: boolean | undefined;
   onNewTask?: (() => void) | undefined;
   /** Opens task search; absent in a host that cannot show the dialog. */
@@ -324,7 +324,7 @@ function SidebarList({
 const SETTLED_LIST_ID = "visual-settled-list";
 
 /**
- * The settled tasks below the active list (`design.md`, **Domain model** — Task): one collapsed
+ * The settled tasks below the active list: one collapsed
  * group, the count in its label, and the same card rows as the active list. Collapsed, it keeps
  * the current task's row alone, so closing the shelf never hides what the main area shows.
  */

@@ -16,7 +16,7 @@ test("name-status parses a modification, a rename with its score and a copy", ()
   expect(parseNameStatus("M\0src/a.ts\0R100\0old.ts\0new.ts\0C075\0one.ts\0two.ts\0")).toEqual([
     { status: "M", path: "src/a.ts", oldPath: null },
     { status: "R", path: "new.ts", oldPath: "old.ts" },
-    // `layout.md` has four letters; a copy adds a file, so it is listed as an addition.
+    // A copy adds a file, so it is listed as an addition.
     { status: "A", path: "two.ts", oldPath: null },
   ]);
 });
