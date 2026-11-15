@@ -19,8 +19,8 @@ export class WorkspaceMissingError extends Error {
 
 /**
  * Reading a local path behind a chat link. Each refusal names its own reason so the client can
- * tell "not a file of this workspace" apart from "gone" or "too large" — and so a test can pin
- * the security boundary (`docs/design.md`, **Local trust boundary**) instead of a bare failure.
+ * tell "not a file of this workspace" apart from "gone" or "too large" — and so a test can pin the
+ * security boundary (`docs/architecture.md`, **Local trust boundary**) instead of a bare failure.
  */
 
 export class FileOutsideWorkspaceError extends Error {

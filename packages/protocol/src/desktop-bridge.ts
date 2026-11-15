@@ -15,8 +15,8 @@ export interface DesktopBridge {
   server(): Promise<ServerTarget | null>;
   /**
    * Opens an ordinary http(s) link in the OS browser, never in the capability-bearing window
-   * (`docs/design.md`, **Local trust boundary**). The shell validates the URL again, so a page
-   * cannot hand it a `file:` or `javascript:` target.
+   * (`docs/architecture.md`, **Local trust boundary**). The shell validates the URL again, so a
+   * page cannot hand it a `file:` or `javascript:` target.
    */
   openExternal(url: string): Promise<void>;
 }

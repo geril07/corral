@@ -547,7 +547,7 @@ export function piChatArgs(facts: ChatLaunchFacts): string[] {
 
 /**
  * pi as one chat driver. Its terminal view is `handoff-only`: pi has no session-file lock, so a
- * chat frontend and a TUI on one session would corrupt the file (design.md, **Terminal and chat**).
+ * chat frontend and a TUI on one session would corrupt the file.
  * Its dialogs are the contract's user requests, its events carry status, and the model in effect
  * reports the thinking levels it takes.
  */

@@ -13,5 +13,5 @@ pnpm dev
 ```
 
 Development uses checkout-local state rather than the installed app's data. For verification and
-change rules, start with [AGENTS.md](AGENTS.md); product decisions and engineering rules are in
-[Design](docs/design.md) and [Engineering](docs/engineering.md).
+change rules, start with [AGENTS.md](AGENTS.md); architecture and engineering rules are in
+[Architecture](docs/architecture.md) and [Engineering](docs/engineering.md).

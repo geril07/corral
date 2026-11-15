@@ -762,9 +762,8 @@ function claudeChatArgs(): string[] {
 }
 
 /**
- * Claude Code as a chat driver. `handoff-only` is the measured fact (`design.md`, **Terminal and
- * chat**): the SDK and the TUI cannot attach to one session at once, so `prefix v` keeps B4's
- * serial stop-and-start and the terminal leg is `claude --resume <id>`.
+ * Claude Code as a chat driver. The SDK and the TUI cannot attach to one session at once, so
+ * `prefix v` uses serial stop-and-start and the terminal leg is `claude --resume <id>`.
  */
 export const claudeChatDriver: ChatDriverRegistration = {
   capabilities: {

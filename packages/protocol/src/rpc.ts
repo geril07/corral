@@ -1000,7 +1000,7 @@ export const contract = {
      * build fact, not a session's state, so a client asks once per connection (the list changes when
      * a driver lands). `kind` is the agent; the flags enable or disable the controls that would use
      * them, and `terminalView` says whether a terminal can be open beside the chat or only instead
-     * of it (design.md, **Terminal and chat**).
+     * of it (architecture.md, **Terminal and chat**).
      */
     capabilities: oc.output(z.object({ drivers: z.array(ChatDriverCapabilities) })),
     /**

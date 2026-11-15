@@ -21,7 +21,7 @@ interface SwitchViewDialogProps {
  * Asked only while the agent is busy (`prefix v` goes straight through when it is idle): the
  * handoff stops one frontend and starts the other, so an in-flight turn and a request the agent is
  * waiting on cannot survive it. The description names that consequence
- * (`design.md`, **Terminal and chat**).
+ * (`docs/architecture.md`, **Terminal and chat**).
  */
 export function SwitchViewDialog({
   session,

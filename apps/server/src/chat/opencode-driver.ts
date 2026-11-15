@@ -608,9 +608,8 @@ function openCodeChatArgs(_facts: ChatLaunchFacts): string[] {
 }
 
 /**
- * The registry entry. `terminalView: "both-live"` is the measured fact (`design.md`,
- * **Terminal and chat**): the TUI attaches to the same server with `--server <url> --session <id>`,
- * so opening the other view starts a client instead of stopping this one.
+ * The TUI attaches to the same server with `--server <url> --session <id>`, so opening the
+ * other view starts a client instead of stopping this one.
  */
 export const openCodeChatDriver: ChatDriverRegistration = {
   capabilities: {

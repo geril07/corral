@@ -1,7 +1,7 @@
 # Engineering
 
-Rules for changing Corral. Product decisions are in [Design](design.md); the applicable checks
-are selected by [AGENTS.md](../AGENTS.md#verification).
+Rules for changing Corral. System boundaries are in [Architecture](architecture.md); the
+applicable checks are selected by [AGENTS.md](../AGENTS.md#verification).
 
 ## Dependencies
 
@@ -80,4 +80,7 @@ Internal docs hold decisions and reasons, cross-component constraints and traps 
 does not make apparent. A local reason belongs beside its code. Link to the implementation
 instead of cataloguing its fields, methods, constants or control flow. Update a documented
 invariant when it changes; ordinary implementation changes do not require a documentation edit.
-Work status, plans and historical research belong in issues, PRs or commits.
+An architecture decision record may retain the context, alternatives and consequences of a
+significant choice when that history is useful; mark it when superseded. Current constraints live
+in the relevant guidance, not in an obsolete decision record. Work status, plans and research
+artifacts belong in issues, PRs or commits.

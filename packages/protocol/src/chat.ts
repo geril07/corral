@@ -255,7 +255,8 @@ export const ChatStreamMessage = z.discriminatedUnion("type", [
 export type ChatStreamMessage = z.infer<typeof ChatStreamMessage>;
 
 /**
- * How a terminal view can live next to chat, declared per driver (design.md, **Terminal and chat**).
+ * How a terminal view can live next to chat, declared per driver
+ * (architecture.md, **Terminal and chat**).
  * `both-live`: the terminal and the chat are two clients of one live agent (OpenCode, Codex);
  * `view-only-terminal`: chat works, and a terminal may watch but not write (none yet);
  * `handoff-only`: one writer at a time, so switching view stops the frontend (pi, Claude Code).

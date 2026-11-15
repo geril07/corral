@@ -61,7 +61,7 @@ export interface ChatLaunchRequest {
   /**
    * A server this launch's own frontends attach to, when the agent keeps the session in one (C1's
    * `opencode serve`). The session service starts it and passes its address; a driver whose agent
-   * has no such server gets none and must not start one (`design.md`, **Terminal and chat**).
+   * has no such server gets none and must not start one.
    */
   server?: { url: string; password: string };
   /**

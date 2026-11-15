@@ -13,7 +13,7 @@ import { isAppNavigation } from "./external-links.ts";
 import { openExternalRequest } from "./bridge.ts";
 
 // No application menu: on Linux and Windows a lone Alt would otherwise reveal the menu bar
-// and swallow Alt chords such as the default prefix (docs/design.md, Keyboard and interaction).
+// and swallow Alt chords such as the default prefix.
 Menu.setApplicationMenu(null);
 
 const webDist = path.join(import.meta.dirname, "../../web/dist/index.html");

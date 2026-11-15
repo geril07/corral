@@ -48,8 +48,7 @@ interface Attachment {
 /**
  * The one `opencode serve` of a Corral run: started by the first session that needs it, stopped
  * when the last one lets go. Both of a session's legs are clients of it — the chat driver over
- * HTTP/SSE and the terminal with `--server <url>` — so the pair of frontends is live at once
- * (`design.md`, **Terminal and chat**).
+ * HTTP/SSE and the terminal with `--server <url>` — so the pair of frontends is live at once.
  *
  * The process record is keyed by the process, not by a session: `<dataDir>/chat/opencode-server.json`
  * names the pid and its start time, so a Corral that starts again stops the previous server before
