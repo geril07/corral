@@ -11,8 +11,7 @@ export interface NamingLaunch {
 /**
  * argv for one unattended naming request: the agent's own model/provider flags, its
  * non-interactive mode with no session saved and no tools where the agent has such a mode, then
- * the prompt. Each flag was checked against the installed CLI's `--help` (see
- * docs/agent-profiles.md).
+ * the prompt. Each flag was checked against the installed CLI's `--help`.
  *
  * Codex has no flag that removes its read-only tools. `--ignore-user-config` and
  * `--ignore-rules` keep the user's MCP servers and hook/notify commands out of the run;

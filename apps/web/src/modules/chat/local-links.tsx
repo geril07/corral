@@ -45,8 +45,7 @@ interface LocalLinksState {
   known: ReadonlyMap<string, FileTarget>;
   /**
    * The server answered `files.*` with oRPC's own "no such procedure": a daemon from before this
-   * slice on the same protocol (`docs/agent-profiles.md`, **Protocol and old daemons**). The lane
-   * says so once and stops asking.
+   * change on the same protocol. The lane says so once and stops asking.
    */
   unsupported: boolean;
   /**

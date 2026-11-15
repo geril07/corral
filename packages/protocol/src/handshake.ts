@@ -20,7 +20,7 @@ import { z } from "zod";
  * `ConfigState.agents`: a version 8 server has no chat procedures at all, its sessions carry no
  * view, it strips those bindings from its exhaustive keys and its config has neither the agent
  * tables nor the availability list. Version 10 adds the per-agent capability record in
- * `chat.capabilities` (goal D7, decision 13): a version 9 server answers `{ drivers: AgentKind[] }`,
+ * `chat.capabilities`: a version 9 server answers `{ drivers: AgentKind[] }`,
  * so a version 10 client asking for the record would receive a list of bare strings whose fields it
  * reads as absent, and its controls would claim a capability no driver declared. The same version 10
  * grew the `changes.*` read model (a task's changed files, one file's capped diff) and the `changes`

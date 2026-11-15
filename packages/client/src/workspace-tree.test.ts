@@ -157,7 +157,7 @@ test("a chosen project selects its first task, or the composer when it has none"
     taskId: "t4",
   });
   // A project with no tasks is the composer state; its loose terminals belong to an explicit
-  // no-task choice, so a project choice never lands on one (`layout.md`, **Empty states**).
+  // no-task choice, so a project choice never lands on one.
   const bare = buildWorkspaceTree([project("empty")], [], [], terminals);
   expect(resolveSelection(bare, { projectId: "empty" })).toEqual({
     projectId: "empty",

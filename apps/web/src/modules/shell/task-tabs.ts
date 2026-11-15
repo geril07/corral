@@ -2,7 +2,7 @@ import type { Session, Task } from "@corral/protocol/rpc";
 import { recordOf } from "./json-record.ts";
 
 /**
- * A task's working area is one layout with two groups (`docs/layout.md`, **Working area**). The
+ * A task's working area is one layout with two groups. The
  * main group is always visible; the companion group is hidden until it has a tab and the user
  * opens it. Closing a session tab ends the session behind it: the workspace stops the process or
  * chat driver before the view leaves. The layout is device-local and stored per task; the server

@@ -345,7 +345,7 @@ test("the shelf's collapsed state is device-local and survives a reload", async 
   await rowFor(titleOf(client, settled)).click({ button: "right" });
   await page.getByRole("menuitem", { name: "Settle task" }).click();
   await expect.element(shelfToggleButton()).toBeVisible();
-  // Collapsed by default, as `design.md` asks.
+  // The shelf starts collapsed.
   await expect.element(shelfToggleButton()).toHaveAttribute("aria-expanded", "false");
 
   await shelfToggleButton().click();

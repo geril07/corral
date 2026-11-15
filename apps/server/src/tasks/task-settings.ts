@@ -3,8 +3,8 @@ import type { SlugMode, TaskView } from "@corral/protocol/config";
 import type { Project } from "@corral/protocol/rpc";
 
 /**
- * What task creation needs from settings, per project (design.md decision 17). A0 replaces the
- * defaults behind this with the config layers; task creation only calls it.
+ * What task creation needs from settings, per project. Task creation reads the resolved config
+ * layers through this interface.
  */
 export interface TaskSettings {
   /** Absolute directory whose `<repo>/<slug>` children are the tasks' worktrees. */

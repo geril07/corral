@@ -50,7 +50,7 @@ import type { PullRequestStore } from "./pull-request-store.ts";
 const SCRATCH_GIT_UNAVAILABLE = "Git operations are unavailable for a no-project scratch task";
 
 /**
- * The read model behind `changes.*` (`layout.md`, **Changes**) and its writes (C6): each task's
+ * The read model behind `changes.*` and its writes: each task's
  * changed files under a base the server computes on every read, one file's capped diff, and the
  * staging, commit, push and pull-request actions the user confirms one at a time.
  *

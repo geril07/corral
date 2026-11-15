@@ -77,7 +77,7 @@ const LEGACY_OPTIONS: ChatRequestOption[] = [
 ];
 
 /**
- * The app-server's records projected into the chat contract (`design.md`, decision 14). The
+ * The app-server's records projected into the chat contract. The
  * driver owns the socket and the lifecycle; this class owns what one notification means, so the
  * same mapping serves a live turn and a rebuilt transcript.
  *

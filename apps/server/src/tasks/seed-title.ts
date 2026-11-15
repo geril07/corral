@@ -1,4 +1,4 @@
-/** The longest seed title, ellipsis included; short enough for a sidebar row (design.md, decision 16). */
+/** The longest seed title, ellipsis included; short enough for a sidebar row. */
 export const SEED_TITLE_LENGTH = 60;
 
 const ELLIPSIS = "…";
@@ -9,7 +9,7 @@ const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 /**
  * The title a task created from a prompt shows at once: the prompt's first non-empty line with
  * its whitespace collapsed, cut at a word boundary to `SEED_TITLE_LENGTH` with an ellipsis. A
- * generated title replaces it later (decision 16); until then it is the task's name.
+ * generated title replaces it later; until then it is the task's name.
  */
 export function seedTitle(prompt: string): string {
   const firstLine = prompt.split("\n").find((line) => line.trim() !== "") ?? "";

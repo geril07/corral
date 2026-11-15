@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-/** Sidebar sizing and visibility per device (`layout.md`, **Shell**). */
+/** Sidebar sizing and visibility per device. */
 export const SIDEBAR_MIN_WIDTH = 208;
 export const SIDEBAR_MAX_WIDTH = 420;
 export const SIDEBAR_DEFAULT_WIDTH = 264;
@@ -16,7 +16,7 @@ const HIDDEN_KEY = "corral.sidebar-hidden";
 /**
  * The widest sidebar this window may have: the static maximum or the main area's 640 px, whichever
  * wins. At 848 px and above that leaves the main area its reserve; below it the 208 px sidebar floor
- * wins and the reserve cannot hold (`docs/layout.md`).
+ * wins and the reserve cannot hold.
  */
 export function maxSidebarWidth(windowWidth: number): number {
   return Math.max(

@@ -5,7 +5,7 @@ import { Store, type ReadableStore } from "./store.ts";
 
 /**
  * What this server build can show as chat, and what each agent's driver declared it can do
- * (protocol 10): a build fact, not a session's state (B0's contract, decision 13).
+ * (protocol 10): a build fact, not a session's state.
  */
 export interface ChatCapabilitiesSnapshot {
   /** False until this server has answered; until then nothing may claim a driver exists. */

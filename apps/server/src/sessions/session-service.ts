@@ -207,8 +207,8 @@ export class SessionService {
   /**
    * Starts the agent session a task was created with, before any client is attached. Unlike
    * `start`, a launch that fails keeps the session: it stays `stopped` with its launch error, so the
-   * task keeps what the user made and can start it again (design.md, **Domain model → Task →
-   * Creation**). Nothing here throws for the launch itself; the caller keeps the task either way.
+   * task keeps what the user made and can start it again. Nothing here throws for the launch
+   * itself; the caller keeps the task either way.
    */
   startPrimary(taskId: string, agent: TaskAgent, prompt: string | null): Promise<Session> {
     return this.#queue.run(() =>
@@ -389,13 +389,11 @@ export class SessionService {
   }
 
   /**
-   * Hands the session over between its two views (design.md, decision 5): the live frontend is
-   * stopped through the same path a stop uses — a chat child closes stdin and is waited for, then
-   * killed with its group; a terminal's PTY is closed and awaited — and only then does the other
-   * view start on the same agent session id. One frontend exists at any moment, and the session
-   * keeps its id, label and place in the task's tabs because nothing recreates the row.
+   * Changes the session's view without recreating its row. Both-live drivers attach the other
+   * frontend to the same agent server; handoff-only drivers stop the previous frontend before
+   * starting the next on the same agent session id.
    *
-   * A working turn is aborted first, so the chat's own transcript settles before the process goes.
+   * During a handoff, a working turn is aborted first so the transcript settles before exit.
    * The conversation is the agent's, so history survives the frontend; in-flight output and pending
    * requests do not, which is what the confirmation in the client says. A handoff whose second
    * start fails leaves the session `stopped` (and settled, so a dead session does not keep its task
@@ -671,7 +669,7 @@ export class SessionService {
     return profile;
   }
 
-  /** The prompt of the task whose primary session this is, if it is one (design.md, **Sessions**). */
+  /** The task's prompt, only for its primary session. */
   #taskPrompt(stored: StoredSession): string | undefined {
     const task = this.#tasks.get(stored.taskId);
     // Only an agent becomes primary, so a prompt never lands on a shell here.
@@ -834,8 +832,7 @@ export class SessionService {
 
   /**
    * Starts the session's frontend in the view it was created with; throws, changing nothing, when
-   * it cannot. A terminal gets a PTY; a chat session gets its agent in RPC mode, whose live state is
-   * the chat timeline and whose only writer is that child.
+   * it cannot. A terminal gets a PTY; a chat session uses its agent's driver and chat timeline.
    *
    * `prompt` is a candidate initial prompt, used only when the launch starts a conversation: the
    * first start, or a start under the same id that falls back here because the conversation was

@@ -3,7 +3,7 @@ import { cn } from "../lib/cn.ts";
 
 /**
  * Two-pane application: a fixed sidebar and the screen that takes the rest. `sidebarWidth`
- * overrides the stock 16 rem column, including 0 for a hidden sidebar (`layout.md`, **Shell**).
+ * overrides the stock 16 rem column, including 0 for a hidden sidebar.
  */
 export function AppShell({
   children,
@@ -47,8 +47,8 @@ export function MainPanel({ children, className }: { children: ReactNode; classN
 }
 
 /**
- * The centered 46 rem content lane of a main area (`layout.md`: the new-task column, and the chat
- * lane in stage B). It is structural, like MainPanel: modules own the vertical placement and the
+ * The centered 46 rem content lane of a main area, used by new-task and chat. It is structural,
+ * like MainPanel: modules own the vertical placement and the
  * spacing around it.
  */
 export function ContentLane({ children, className }: { children: ReactNode; className?: string }) {

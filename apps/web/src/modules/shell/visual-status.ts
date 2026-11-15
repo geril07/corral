@@ -195,7 +195,7 @@ export function buildTaskRows(
  * first, then the newest task, then the id. Activity is the **primary** session's report — the one
  * the card shows — not the most urgent of all sessions, which is how the prior sidebar ordered its
  * shelf (`packages/client/src/workspace-tree.ts`). A settled task without a status sorts by
- * creation; the server records no settle time (`layout.md`, **Visual shell (routed workspace)**).
+ * creation; the server records no settle time.
  */
 export function buildSettledRows(
   projects: readonly Project[],

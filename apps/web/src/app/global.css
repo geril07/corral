@@ -5,9 +5,8 @@
 @import "../modules/tasks/task-composer.css";
 @import "../modules/settings/settings.css";
 @import "@fontsource-variable/inter";
-/* Streamdown renders its own DOM, so Tailwind must scan the utilities in its dist. The path goes
-   through the pnpm symlink in `apps/web/node_modules`; the B3 build greps a Streamdown-only
-   utility out of the built CSS to prove it (goal D1). */
+/* Streamdown renders its own DOM, so Tailwind scans the utilities in its dist through the pnpm
+   symlink in `apps/web/node_modules`. */
 @source "../../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
@@ -15,7 +14,7 @@
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: "Inter Variable", "Inter", sans-serif;
-  /* Mono is a family, never a size (`ui-kit.md`, **Spine**). xterm reads this same token. */
+  /* Mono is a family, never a size. xterm reads this same token. */
   --font-mono:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
     monospace;
@@ -55,15 +54,14 @@
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   --color-scrim: var(--scrim);
-  /* The visual shell's canvas and its first raised layer, named for modules (`ui-kit.md`,
-     **Direction**): a chat pane sits on the canvas and a user bubble on layer-01. */
+  /* A chat pane sits on the canvas and a user bubble on its first raised layer. */
   --color-canvas: var(--visual-bg-base);
   --color-layer-01: var(--visual-bg-layer-01);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) * 1.4);
-  /* The two floating tiers (`ui-kit.md`, **Spine**). */
+  /* The two floating tiers. */
   --shadow-floating: 0 16px 40px -18px rgb(0 0 0 / 55%);
   --shadow-dialog: 0 24px 64px -24px rgb(0 0 0 / 65%);
 }
@@ -88,8 +86,7 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
-  /* Agent state, in addition to the glyph and its word (`layout.md`, **Task header**,
-     **Working area**); alongside the T3-derived theme in `ui-kit.md`. */
+  /* Agent state, in addition to the glyph and its word. */
   --status-working: oklch(0.55 0.16 250);
   --status-attention: oklch(0.62 0.14 75);
   --status-done: oklch(0.55 0.12 150);
@@ -183,8 +180,8 @@ body,
 /* Scrollbars: one recipe for every native scroller, from OpenCode's shared bar. An 8 px lane, a
    transparent track with its ends inset, and a pill thumb inset by its 2 px border, revealed while
    the scroller is hovered or holds the caret. The resting thumb stays low-contrast rather than
-   invisible, so a column that can scroll is discoverable without pointing at it (`ui-kit.md`,
-   **Direction**). Chromium ignores every `::-webkit-scrollbar` rule on an element that sets
+   invisible, so a column that can scroll is discoverable without pointing at it. Chromium ignores
+   every `::-webkit-scrollbar` rule on an element that sets
    `scrollbar-width` or `scrollbar-color`, so the standard properties are Firefox's alone. */
 :root {
   --app-scrollbar-size: 8px;

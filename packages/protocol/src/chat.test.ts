@@ -90,7 +90,6 @@ test("events are distinguished by type and every item kind is accepted", () => {
 });
 
 test("a plan item is not part of the contract yet", () => {
-  // Decision 14 lists a plan; it joins with protocol 10 when a driver emits one (design.md).
   expect(ChatItem.safeParse({ kind: "plan", id: "p1", steps: [] }).success).toBe(false);
 });
 

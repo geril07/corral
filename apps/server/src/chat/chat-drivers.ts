@@ -7,10 +7,10 @@ import { piChatDriver } from "./pi-driver.ts";
 
 /**
  * The chat drivers this build ships, by agent kind: one file per driver, one line here. It is a
- * build fact, not a session's state, and it is the one definition behind `chat.capabilities`
- * (goal D7), the config file's fallback from an unsupported `chat` view to the terminal, and
- * Settings' `ConfigState.agents`. Adding a driver adds its module and this entry — `ChatService`
- * and `SessionService` need no branch for it.
+ * build fact, not a session's state, and it is the one definition behind `chat.capabilities`,
+ * the config file's fallback from an unsupported `chat` view to the terminal, and
+ * Settings' `ConfigState.agents`. Adding a driver registers it here; an agent with a shared
+ * frontend server also needs the corresponding session supervision.
  */
 export const CHAT_DRIVER_REGISTRY: ChatDriverRegistry = {
   claude: claudeChatDriver,

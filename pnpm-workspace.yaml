@@ -49,7 +49,7 @@ overrides:
   vitest: 5.0.5
 
 # @anthropic-ai/claude-agent-sdk's eight optional platform packages each carry a copy of the
-# 328 MB Claude Code CLI (goal D9/C2 decision b): the SDK always runs pathToClaudeCodeExecutable,
+# Claude Code CLI: the SDK always runs pathToClaudeCodeExecutable,
 # which the driver sets to the user's own install, so the copies are never used.
 ignoredOptionalDependencies:
   - "@anthropic-ai/claude-agent-sdk-linux-x64"

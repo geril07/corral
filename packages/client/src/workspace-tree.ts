@@ -95,8 +95,7 @@ function activityTime(node: TaskNode): number {
 /**
  * The Settled shelf's one order in both grouping modes: the most recent activity first — the
  * moment the row's age counts from — then the newest task, then the id. A settled task without a
- * status therefore sorts by creation; no separate settle time is recorded
- * (`layout.md`, **Sidebar**).
+ * status therefore sorts by creation; no separate settle time is recorded.
  */
 function compareSettled(a: TaskNode, b: TaskNode): number {
   return (
@@ -110,7 +109,7 @@ function settledNodesInOrder(nodes: readonly TaskNode[]): TaskNode[] {
   return nodes.toSorted(compareSettled);
 }
 
-/** The Settled shelf's rows, across every project, in their one order (`layout.md`, **Sidebar**). */
+/** The Settled shelf's rows, across every project, in their one order. */
 export function settledInOrder(tree: WorkspaceTree): TaskNode[] {
   return settledNodesInOrder(tree.projects.flatMap(({ settled }) => settled));
 }
@@ -164,8 +163,8 @@ export function resolveSelection(tree: WorkspaceTree, chosen: Chosen): Selection
 
   const entries = entriesOf(tree, task?.id ?? null);
   // A chosen project that names an existing project with no tasks, and no task choice of its own,
-  // is the composer state, not the no-task group: its loose terminals belong to another choice
-  // (`layout.md`, **Empty states**). An explicit `taskId: null` still selects the first loose
+  // is the composer state, not the no-task group: its loose terminals belong to another choice.
+  // An explicit `taskId: null` still selects the first loose
   // terminal; a missing project id keeps the old fallback to the first project.
   const emptyProject =
     chosen.taskId !== null &&
@@ -199,7 +198,7 @@ export function entriesOf(tree: WorkspaceTree, taskId: string | null): readonly 
   return taskId === null ? tree.loose : taskSessions(tree, taskId);
 }
 
-/** How the sidebar lists tasks: flat by status, or grouped by project (`layout.md`, **Sidebar**). */
+/** How the sidebar lists tasks: flat by status, or grouped by project. */
 export type SidebarMode = "flat" | "project";
 
 export type FlatSectionKind = "needs-you" | "working" | "done";
@@ -236,7 +235,7 @@ const FLAT_SECTION_KINDS: readonly FlatSectionKind[] = ["needs-you", "working", 
 /**
  * Flat mode: the active tasks of every project in one list, ordered by status (blocked, error,
  * working, completed and unseen, then the rest), then by the most recent update. Settled tasks
- * keep a shelf of their own (`layout.md`, **Sidebar**).
+ * keep a shelf of their own.
  */
 export function buildFlatSidebar(tree: WorkspaceTree): FlatSidebar {
   const rows = tree.projects.flatMap(({ project, active }) =>

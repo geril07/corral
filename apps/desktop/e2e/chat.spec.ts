@@ -5,7 +5,7 @@ import { addProject, createRepo, newTaskView, openedWindow, promptField } from "
 import { readLaunches, test } from "./fixtures.ts";
 
 // The composer's view control and the chat tab: a prompt-created task opens in chat, its agent is
-// the fake pi in RPC mode, and the answer streams into the lane (stage B, decision 5).
+// the fake pi in RPC mode, and the answer streams into the lane.
 test("a task created in chat view from the composer opens as chat", async ({
   launchApp,
   stateDir,

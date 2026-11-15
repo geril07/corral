@@ -54,7 +54,7 @@ export function codexVersion(
 /**
  * Whether chat may run against this executable, and why not. The terminal launch uses the same
  * answer: a tested version gets the Corral app-server (both views live), an untested one keeps
- * stage A's plain `codex` launch (its own daemon) and chat is refused with this sentence.
+ * the plain `codex` launch (its own daemon) and chat is refused with this sentence.
  */
 export async function codexChatSupport(
   command: string,

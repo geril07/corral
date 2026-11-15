@@ -60,7 +60,7 @@ export function taskSettingRows(settings: ResolvedTaskSettings): TaskSettingRow[
   ];
 }
 
-/** `[naming]`, and the layer each value came from (`design.md`, decision 16). */
+/** `[naming]`, and the layer each value came from. */
 export function namingSettingRows(naming: NamingSettings): TaskSettingRow[] {
   return [
     {

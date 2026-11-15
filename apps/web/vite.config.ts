@@ -52,7 +52,7 @@ export default defineConfig({
     browser: {
       enabled: true,
       headless: true,
-      // The desktop minimum (`docs/layout.md`); a phone-sized iframe tests a layout
+      // The desktop minimum (`docs/ui-kit.md`); a phone-sized iframe tests a layout
       // the app does not support and hides the ones it does.
       viewport: { width: 1024, height: 640 },
       provider: playwright(),

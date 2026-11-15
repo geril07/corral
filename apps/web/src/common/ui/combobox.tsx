@@ -28,8 +28,8 @@ function ComboboxTrigger({ className, children, ...props }: ComboboxPrimitive.Tr
 }
 
 /**
- * The trigger alone, as a compact stock button showing the selected value (`layout.md`,
- * **New task view**). The list opens with a search input inside its popup, so the trigger is the
+ * The trigger alone, as a compact stock button showing the selected value. The list opens with a
+ * search input inside its popup, so the trigger is the
  * form control and takes its name from `aria-label` or `Combobox.Label`; keyboard navigation and
  * type-to-filter then belong to that input. `layout="text"` is the borderless plain-text trigger
  * of the composer's context row; its chevron is then the caller's choice.

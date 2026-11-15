@@ -153,7 +153,7 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
 
   return (
     <section className="absolute inset-0 flex flex-col p-2" aria-label="active terminal">
-      {/* The 8 px frame sits on the tab area, so xterm fits the padded box (`layout.md`, **Terminal**). */}
+      {/* The 8 px frame sits on the tab area, so xterm fits the padded box. */}
       <div className="terminal-host min-h-0 flex-1 overflow-hidden" ref={hostRef} />
       <TerminalNotice terminal={terminal} streamState={streamState} exitHint={exitHint} />
     </section>

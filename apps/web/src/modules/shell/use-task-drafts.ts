@@ -35,7 +35,7 @@ function readDrafts(): MountedDrafts {
 }
 
 /**
- * The open drafts on this device (`docs/layout.md`, **New task view**). The document is written as
+ * The open drafts on this device. The document is written as
  * a whole, 300 ms after the last edit and before the page unloads, so typing survives a reload
  * without a write per keystroke. A window that changed nothing it stores writes nothing on close,
  * so it cannot erase what another window typed into the same record.

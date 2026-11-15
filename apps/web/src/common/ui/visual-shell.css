@@ -923,7 +923,7 @@
 
 /* A settings category row: 32 px, 8 px radius, 10 px inline padding, a 16 px icon with an 8 px gap
    and a muted 14/20 label that takes the hover overlay; the current section sits on layer 03
-   (`ui-kit.md`, **Compositions** — Settings). Geometry stays px so the rail keeps T3's metrics at
+   Geometry stays px so the rail keeps T3's metrics at
    every interface text scale, while the label's rem type follows it. This block is unlayered, so
    it outranks the variant and size utilities `button.tsx` composes with it. */
 .visual-settings-category {
@@ -996,7 +996,7 @@
 }
 
 /* The connection banner above the working area: one row, the tone on the icon and a wash behind
-   it. It is not the sidebar's status (`layout.md`, **Shell**). */
+   it. It is not the sidebar's status. */
 .visual-connection-banner {
   display: flex;
   flex: 0 0 auto;
@@ -1449,7 +1449,7 @@
   justify-content: center;
 }
 
-/* The companion group keeps its contents mounted while it is shut (`docs/layout.md`). */
+/* The companion group keeps its contents mounted while it is shut. */
 .visual-companion {
   position: relative;
   display: flex;

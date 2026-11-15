@@ -34,17 +34,27 @@ same CPU/RAM budget. Classification is not authorization to run an otherwise out
 | Dependency installation, typecheck, lint, format, build                        | No    |
 | Development stack or seed command                                              | No    |
 
-Test selection and required gates remain in [Engineering — Testing](engineering.md#testing);
-this table only chooses admission. The shared workrun budget applies without an additional
-host-specific test-worker or shard limit.
+Test selection and required gates remain in [AGENTS.md](../AGENTS.md#verification); this table
+only chooses admission. The shared workrun budget applies without an additional host-specific
+test-worker or shard limit.
 
 Let workrun wait for heavy capacity instead of adding sleep/retry loops. Give the invoking tool
 enough time for waiting plus execution and cancel that invocation to withdraw a waiter.
 
-## Role-specific guides
+## Verifying workrun changes
 
-| Task                                                                | Read                                           |
-| ------------------------------------------------------------------- | ---------------------------------------------- |
-| Change or verify this repository's launcher                         | [Launcher checks](workrun/testing.md)          |
-| Look up CLI behavior and ownership limits                           | [Tool usage](../scripts/workrun/docs/usage.md) |
-| Provision a host or deliberately change resource/admission settings | [Tool setup](../scripts/workrun/docs/setup.md) |
+The ordinary Node gate skips the real-systemd suite. After the host owner has
+[configured workrun](../scripts/workrun/docs/setup.md), run this opt-in suite with CPU/RAM
+headroom when changing the launcher or its config:
+
+```sh
+pnpm workrun --group corral run --name workrun-tests --heavy -- pnpm test:workrun
+```
+
+Before integrating such changes, run `pnpm check` and this suite on the final tree. The suite
+uses separate groups from the runner's heavy slot, preserves the shared budget and cleans up its
+own jobs and configuration. Check that its jobs are absent afterwards. The tool's
+[verification contract](../scripts/workrun/docs/testing.md) owns the test safety rules.
+
+For CLI behavior and ownership limits, read [Usage](../scripts/workrun/docs/usage.md); host
+provisioning and resource settings belong to [Setup](../scripts/workrun/docs/setup.md).

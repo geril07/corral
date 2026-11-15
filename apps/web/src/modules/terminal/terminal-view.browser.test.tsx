@@ -47,7 +47,7 @@ function SizedPane({
   );
 }
 
-/** The size of the PTY, which is the grid every attached client shows (`design.md`, Open questions). */
+/** The size of the PTY, which is the grid every attached client shows. */
 async function serverSize(client: CorralClient, terminalId: string): Promise<TerminalSize> {
   const terminal = (await client.connection.api.terminals.list()).find(
     (each) => each.id === terminalId,

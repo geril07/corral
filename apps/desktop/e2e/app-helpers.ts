@@ -23,7 +23,7 @@ export const unwrappedScreenText = (page: Page) =>
 /** A task card in the routed sidebar. */
 export const taskCard = (page: Page, title: string) =>
   page.getByRole("button", { name: new RegExp(title) });
-/** The current task's session tabs (`layout.md`, **Session tabs**). */
+/** The current task's session tabs. */
 export const sessionTabs = (page: Page) => page.getByRole("tablist", { name: "Sessions" });
 export const sessionTab = (page: Page, name: string | RegExp) =>
   sessionTabs(page).getByRole("tab", { name, exact: true });
@@ -68,7 +68,7 @@ export async function addProject(window: Page, repo: string) {
   await expect(dialog).toBeHidden();
 }
 
-/** The new-task composer in the main area (`layout.md`, **New task view**): a view, not a dialog. */
+/** The new-task composer in the main area: a view, not a dialog. */
 export const newTaskView = (window: Page) => window.getByRole("form", { name: "New task" });
 export const promptField = (window: Page) =>
   newTaskView(window).getByRole("textbox", { name: "Prompt" });

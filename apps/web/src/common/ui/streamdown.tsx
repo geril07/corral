@@ -1,7 +1,7 @@
 import { useMemo, type ComponentProps, type ComponentType, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
 // The stylesheet ships Streamdown's animation keyframes; the utility classes its DOM uses come
-// from the `@source` lines in `app/global.css` (see `docs/ui-kit.md`).
+// from the `@source` lines in `app/global.css`.
 // oxlint-disable-next-line import/no-unassigned-import -- the package's own keyframes
 import "streamdown/styles.css";
 import { pierreCodePlugin } from "./streamdown-code.ts";
@@ -44,7 +44,7 @@ function anchorComponents(Anchor: ComponentType<MarkdownAnchorProps>): Streamdow
 }
 
 /**
- * Assistant Markdown (goal D1): Streamdown with its own UI off. `controls={false}` drops the
+ * Assistant Markdown: Streamdown with its own UI off. `controls={false}` drops the
  * copy/download/table/fullscreen controls and `linkSafety` is off, so a link's behavior belongs to
  * `links` — without it a link is a plain anchor. The component is wrapped here so the kit gates
  * cover the surface; modules pass text, whether it is still streaming, and their link rendering,

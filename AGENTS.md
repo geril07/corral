@@ -2,10 +2,10 @@
 
 Keyboard-first workspace for running coding agents in terminals: a long-lived Node server plus web, desktop and (later) mobile clients.
 
-- Product decisions and why: `docs/design.md`. Read before changing behavior, protocol or architecture.
+- Behavior, protocol or architecture: read `docs/design.md` for decisions and invariants.
 - Reference checkouts, never bases: `.refs/t3code` (visual, composition, chat, type) and `.refs/orca`
   (terminal, status, daemon). Gitignored; refresh with `git -C .refs/<name> pull`.
-- Layout, toolchain, code organization and testing rules: `docs/engineering.md`. Read before adding a package, a dependency or a test.
+- Code organization, dependencies or tests: read `docs/engineering.md`.
 
 ## Commands
 
@@ -27,7 +27,8 @@ entrypoints, group and heavy classification.
 - A pattern that exists in T3 or OpenCode is taken from there (T3: structure, geometry, behaviour;
   OpenCode: visual language). A pattern that exists in neither is new work and is reviewed as such.
 - Do not invent user-visible copy. No reference wording and no functional error means no sentence.
-- Visual direction and kit boundary: `docs/ui-kit.md`. Current placement: `docs/layout.md`.
+- Before changing UI, read `docs/ui-kit.md` for visual direction and kit boundaries. Publish
+  before/after screenshots as specified in `.github/pull_request_template.md`.
 
 ## Issues and pull requests
 

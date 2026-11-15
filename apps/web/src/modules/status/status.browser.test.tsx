@@ -140,8 +140,8 @@ test("working, needs you and done carry the three status colors, and idle stays 
 });
 
 /**
- * The server-owned seen mark fades a completed card when its task is opened (`design.md`,
- * **Status**). The routed shell marks the selected task once per task/seenAt/status update.
+ * The server-owned seen mark fades a completed card when its task is opened. The routed shell
+ * marks the selected task once per task/seenAt/status update.
  */
 test("opening a task clears its unseen done mark", async () => {
   const { client, project } = await appWithProject(newClient());

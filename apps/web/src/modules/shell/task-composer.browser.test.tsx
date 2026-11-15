@@ -157,7 +157,7 @@ test("the prompt has no focus ring and cannot be resized by dragging", async () 
   expect(style.resize).toBe("none");
   expect(style.outlineStyle).toBe("none");
   expect(visibleShadow(style.boxShadow)).toBe("");
-  // The composer inset (`ui-kit.md`, **Input padding**), not a class string.
+  // The composer inset, not a class string.
   expect(style.paddingLeft).toBe("16px");
   expect(style.paddingRight).toBe("16px");
   expect(style.paddingTop).toBe("12px");

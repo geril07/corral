@@ -21,7 +21,7 @@ export interface NamingSettingsSource {
   command?(kind: AgentKind): string;
 }
 
-/** Naming that runs nothing: the seed title stays (decision 16). */
+/** Naming that runs nothing: the seed title stays. */
 export function disabledNaming(): NamingSettingsSource {
   return { settings: defaultNamingSettings, profiles: () => [] };
 }
@@ -81,7 +81,7 @@ export function namingPlan(
 
 /**
  * One naming request, from the template to the parsed name. A failure is logged and becomes
- * `undefined`, so the caller keeps the seed title; nothing is retried in stage A.
+ * `undefined`, so the caller keeps the seed title; nothing is retried.
  */
 export async function requestName(
   plan: NamingPlan,

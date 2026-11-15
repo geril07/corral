@@ -19,7 +19,7 @@ export function TaskDefaultsSection() {
   );
 }
 
-/** `[naming]`, and the note that an empty section means seed titles only (decision 16). */
+/** `[naming]`, and the note that an empty section means seed titles only. */
 export function NamingSection() {
   const { config, loaded } = useConfig();
   if (!loaded) return <PendingConfig />;

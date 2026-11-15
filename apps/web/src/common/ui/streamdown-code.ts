@@ -8,7 +8,7 @@ import type {
 
 /**
  * Corral's one highlighter: `@pierre/diffs`' shared Shiki instance backs both Streamdown's code
- * blocks and the diff renderer (goal D1), so a language or theme is loaded once and the two
+ * blocks and the diff renderer, so a language or theme is loaded once and the two
  * surfaces cannot pick different colors. `@streamdown/code` would ship a second highlighter.
  */
 const THEMES = ["pierre-light", "pierre-dark"] as const;
