@@ -49,7 +49,7 @@ export interface VisualTaskActions {
   onRemove: (id: string) => void;
   onViewSource: (id: string) => void;
   /**
-   * Settle an active task, or continue a settled one; the server stops or resumes its sessions.
+   * Settle an active task, or return a settled one to the active list, without changing sessions.
    * Resolves true only when the server changed the state, false when it refused or nothing moved.
    * Absent in a host with no task store, which then offers no settle control at all.
    */
