@@ -1,12 +1,11 @@
 # Web UI kit
 
-The owner-led rebuild's visual direction, current compositions and engineering boundaries.
+Visual direction, current compositions and engineering boundaries.
 
-## Direction (supersedable)
+## Direction
 
-The current direction is the visual shell study, which superseded UI study 03: OpenCode's bundled
-`oc-2` theme is the dark and light baseline, Corral supplies its own compact sidebar geometry, and
-the whole workspace is being rebuilt rather than restyled. Keep shadcn/ui Base UI / Nova as the
+The direction is the visual shell study: OpenCode's bundled `oc-2` theme is the dark and light
+baseline, and Corral supplies its own compact sidebar geometry. Keep shadcn/ui Base UI / Nova as the
 primitive foundation, not a second visual system; OpenCode's Solid runtime is not imported. Orca
 may inform interactions, not colors or another control skin. This paragraph is the one place a
 visual reference is named; a new study replaces it.
@@ -49,7 +48,7 @@ elevation, motion and focus follow the foundations below.
   kill switch. **Dialogs and their scrim also animate out over 200 ms**: Base UI keeps the popup
   mounted only until that animation ends, then removes it and returns focus, so the keyboard is
   held for a bounded 200 ms rather than an open-ended one. Menus and other popups stay enter-only
-  (`design.md`, **Client interaction**). The rebuild's dialogs animate without transitioning their
+  (`design.md`, **Client interaction**). Dialogs animate without transitioning their
   geometry, so changing interface scale does not animate the dialog's dimensions, type or radii
   during an interaction.
 - **Density** — control heights are kit sizes; a control takes the height of the row it sits in; a
@@ -71,7 +70,7 @@ import Base UI, cmdk or Lucide directly. Keep `scripts/check-web-ui.mjs` and the
 layer boundaries and raw DOM controls enabled. Its class-string gates cover arbitrary values,
 palette, retired tokens, kit props and spreads. The implementation still enforces spacing, type,
 radius, shadow, focus and motion checks; those checks are not authority to restore the retired
-pre-rebuild appearance. A module stylesheet may not select on the kit's `data-slot` marker.
+older appearance. A module stylesheet may not select on the kit's `data-slot` marker.
 
 A kit control cannot receive `className`, `style`, `render`, color/dimensions or opaque prop
 spreads from a module. Add a named variant for a demonstrated need. Modules own plain structural
@@ -185,7 +184,7 @@ context-menu dispatcher.
 - AgentIcon owns the four real tool logos and the shell glyph. Source and MIT notice:
   `agent-logos.ts` / `agent-logos.LICENSE`. StatusGlyph still distinguishes states by shape
   and color; its sizes match the tab's tool icon slot.
-- The workspace route now composes `VisualShellView`: a borderless 320 px (100–640) sidebar over
+- The workspace route composes `VisualShellView`: a borderless 320 px (100–640) sidebar over
   `bg-deep`, an 8 px inset `bg-base` main surface with radius 10, a 40 px Corral header, the
   New-task action row, a flat 52 px task card list, the Settled shelf and the `ShellStatus` footer.
   `VisualTaskCard` keeps its title metrics in every state, swaps the fixed 88 px status slot for the
@@ -228,8 +227,8 @@ context-menu dispatcher.
 - The workspace status slot follows the task's **primary** session only; auxiliary terminals do
   not contribute agent status, unread state or sort priority. Working shows no duration because
   `AgentStatus.updatedAt` is a report time, not a run start.
-- Chat and the terminal panes still use the prior kit compositions until their own
-  rebuild; their controls do not become the source of new visual rules.
+- Chat and the terminal panes keep their own kit compositions; their controls do not become the
+  source of new visual rules.
 - ComposerSurface and ComposerToolbar own the shared prompt frame and wrapping control row. The
   caret is the prompt's focus indicator: the frame adds no ring, and the textarea cannot be resized
   by dragging; it grows by its layout limits. Textarea `frame="composer"` removes its duplicate

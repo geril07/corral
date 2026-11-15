@@ -47,13 +47,12 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   wide ghost row with the disclosure chevron and `Settled (N)`, then the
   same **52** px cards in the shelf's one order: newest activity, then newest task, then id — the
   server records no settle time, and activity is the **primary** session's report the card shows,
-  not the most urgent of all sessions the prior sidebar used. It is collapsed by default and kept
+  not the most urgent of all sessions. It is collapsed by default and kept
   per device;
   collapsed it mounts only the current task's row, so the main area's task is never hidden. The
   shelf rests at the bottom while the list is short (`margin-top: auto`) and scrolls with the list
   when it is long, so settling a task never moves the active rows above it. Open, it mounts every
-  settled row: the prior sidebar paged its measured box, and paging is not built here, so a very
-  long settled history costs one card per row.
+  settled row with no paging, so a very long settled history costs one card per row.
 - The footer is the `ShellStatus` row: the config-problem opener and the prefix hint, with the
   **28×28** Settings and Add project actions beside them. It is **36** high with a top border and
   grows for a failure or guidance sentence. It carries no connection state: a lost server is
@@ -84,9 +83,6 @@ kit-owned in `common/ui/visual-shell.css`; the values below are the code's.
   and status; branch, agent and prompt are in the card's metadata tooltip. The panes carry the
   conversation and work.
 
-The routed shell replaces the former workspace and sidebar composition. Shared chat, terminal and
-dialog modules remain; old-screen tests can still contain live behavior coverage.
-
 ## Working area
 
 - One task is one working area with two tab groups. The main group is always visible; the
@@ -105,8 +101,7 @@ dialog modules remain; old-screen tests can still contain live behavior coverage
 - The first tab of the main group is the task's **primary** session: `Task.primarySessionId`,
   created with the task. Moving that tab between groups is refused, so the primary stays first;
   its close control stays absent and only the destructive `Remove session…` removes it.
-- The rest of the tabs are sessions (an agent or a shell). A file tab promoted from a preview is
-  not built yet. Chat and Terminal are **one** tab: the same session switches view in place, and
+- The rest of the tabs are sessions (an agent or a shell). Chat and Terminal are **one** tab: the same session switches view in place, and
   a both-live agent still has one tab. A new session starts from the
   `+` beside the last tab: a plain click starts a shell in the task's workspace, and the chevron
   beside it opens `Agent…`; `prefix c`/`prefix s` still work and the control's tooltip names both.
@@ -214,9 +209,7 @@ dialog modules remain; old-screen tests can still contain live behavior coverage
   ongoing chat. The project name reuses the shared project picker, and choosing a project returns
   focus to the prompt. `Current checkout` shows the project's default base as a read-only fact;
   `New worktree` shows `from <branch>` and opens the branch picker. No workspace path or summary
-  line sits at the right. The routed composer currently requires a prompt and starts the primary
-  agent; title-only creation, issue import and creating a task on an existing branch are not
-  exposed there. Existing-branch creation remains server-supported.
+  line sits at the right. The routed composer requires a prompt and starts the primary agent.
 - Chat is the built-in default; explicit global/project/view choices win and unsupported chat
   falls back to terminal. Capability loading blocks prompt launches.
 

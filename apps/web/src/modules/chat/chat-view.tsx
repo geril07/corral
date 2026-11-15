@@ -160,8 +160,8 @@ export function ChatView({
 
   /**
    * Quoting a selection puts a Markdown blockquote at the composer's caret and leaves the caret on
-   * the line below it, where the comment goes (`.review/research/chat-transcript.md`, **Quote
-   * flow** — Corral v1 sends plain Markdown, so no protocol field carries the quote).
+   * the line below it, where the comment goes. Corral v1 sends plain Markdown, so no protocol field
+   * carries the quote.
    */
   const quoteSelection = useCallback(
     (text: string) => {

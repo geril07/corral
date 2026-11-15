@@ -49,7 +49,7 @@ The workspace selector chooses server home, a known project root, or the actual 
 workspace. No arbitrary path/environment comes from the client. A future worktree is not treated
 as if it already existed.
 
-This slice discovers **pi and OpenCode** before launch. Running chat inventories, including Claude,
+Discovery covers **pi and OpenCode** before launch. Running chat inventories, including Claude,
 can be used in their actual scope/context/profile revision. A different context cannot reuse a
 working chat's inventory. Unsupported adapters say so rather than supply a stock catalog.
 
@@ -81,7 +81,7 @@ Inventory is not selection support. Existing launch/provider validation still wi
 provider cannot be silently replaced by choosing another provider's model. Unsupported launch
 rows are disabled with a reason; the configured default is a marked row.
 
-This slice does **not** add initial thinking to task/session launch fields, nor model/effort
+The contract does **not** add initial thinking to task/session launch fields, nor model/effort
 switching to the current OpenCode/Codex adapters. Pi and Claude live changes keep their existing
 driver contracts. Pi clears the old model's thinking state when a switch succeeds but its refresh
 fails, so the previous model's capabilities are never offered as the new one's.
