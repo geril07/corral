@@ -11,12 +11,14 @@ import {
   screenText,
 } from "../../../test/real-client.ts";
 import { renderApp } from "../../../test/render-app.tsx";
+import { focusedIsTerminal } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 const SIZE = { cols: 80, rows: 24 };
 
 const sessionTabs = () => page.getByRole("tablist", { name: "Sessions" });
 const sessionTab = (name: string | RegExp) => sessionTabs().getByRole("tab", { name });
+const shells = () => sessionTab(/^shell/);
 const companionTabs = () => page.getByRole("tablist", { name: "Companion tabs" });
 
 interface Seeded {
@@ -322,12 +324,7 @@ test("closing a running shell tab stops its session, removes the view and keeps 
     seeded.client.sessions.getSnapshot().sessions.find((session) => session.id === seeded.shell.id)
       ?.terminalId,
   ).toBeNull();
-  await expect
-    .poll(() => ({
-      id: document.activeElement?.getAttribute("data-tab-id"),
-      element: document.activeElement?.outerHTML.slice(0, 500),
-    }))
-    .toMatchObject({ id: `session:${seeded.primary.id}` });
+  await expect.element(page.getByRole("textbox", { name: "Message" })).toHaveFocus();
 
   // Closing is final: no closed-tab history is stored, and the removed chord does nothing.
   const stored: unknown = JSON.parse(
@@ -336,6 +333,22 @@ test("closing a running shell tab stops its session, removes the view and keeps 
   expect(stored).not.toHaveProperty("closed");
   await prefixShifted("q");
   await expect.element(sessionTab(/^shell/)).not.toBeInTheDocument();
+});
+
+test("closing a shell tab focuses the shell that takes its place", async () => {
+  const seeded = await seed();
+  await open(seeded);
+  await prefixThen("c");
+  await expect.element(shells()).toHaveLength(2);
+  await expect.element(shells().last()).toHaveAttribute("aria-selected", "true");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  await userEvent.hover(shells().last());
+  await userEvent.click(page.getByRole("button", { name: "Close shell tab" }).last());
+
+  await expect.element(shells()).toHaveLength(1);
+  await expect.element(shells().first()).toHaveAttribute("aria-selected", "true");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 });
 
 test("a non-primary tab menu has one close action, which ends its session", async () => {

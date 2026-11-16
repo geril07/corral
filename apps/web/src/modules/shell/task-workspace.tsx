@@ -408,15 +408,25 @@ export function useTaskWorkspace({
       const remaining = activeTab(after, tab.group);
       if (remaining !== undefined) {
         setFocusGroup(tab.group);
-        focusTab(tabId(remaining));
+        focusPane(tab.group);
         return;
       }
       setFocusGroup(after.focused);
       const remainingGroup = activeTab(after, after.focused);
-      if (remainingGroup !== undefined) focusTab(tabId(remainingGroup));
+      if (remainingGroup !== undefined) focusPane(after.focused);
       else focusAddSession();
     },
-    [changeFor, client, focusAddSession, focusTab, layout, report, setFailure, setFocusGroup, task],
+    [
+      changeFor,
+      client,
+      focusAddSession,
+      focusPane,
+      layout,
+      report,
+      setFailure,
+      setFocusGroup,
+      task,
+    ],
   );
 
   const closeFocused = useCallback(() => {
@@ -626,26 +636,29 @@ export function useTaskWorkspace({
       setFailure(undefined);
       await client.connection.api.sessions.remove({ id: session.id });
       setDialog(undefined);
-      const after = layout === undefined ? undefined : removeSession(layout, session.id);
+      if (layout === undefined) return;
+      // Focus follows the view that takes the removed one's place: the next tab in its group,
+      // the other group when that one is now empty, or the add control when nothing is left.
+      const group = layout.tabs.find(
+        (tab) => tab.kind === "session" && tab.sessionId === session.id,
+      )?.group;
+      const after = removeSession(layout, session.id);
       change((current) => removeSession(current, session.id));
-      if (after !== undefined && tabsInGroup(after, focusGroup).length === 0) {
-        setFocusGroup(after.focused);
-        const remaining = activeTab(after, after.focused);
-        if (remaining !== undefined) focusTab(tabId(remaining));
-        else focusAddSession();
+      if (group === undefined) return;
+      if (activeTab(after, group) !== undefined) {
+        setFocusGroup(group);
+        focusPane(group);
+        return;
       }
+      const other = group === "main" ? "companion" : "main";
+      if (activeTab(after, other) !== undefined) {
+        setFocusGroup(other);
+        focusPane(other);
+        return;
+      }
+      focusAddSession();
     },
-    [
-      change,
-      client,
-      focusAddSession,
-      focusGroup,
-      focusTab,
-      layout,
-      setDialog,
-      setFailure,
-      setFocusGroup,
-    ],
+    [change, client, focusAddSession, focusPane, layout, setDialog, setFailure, setFocusGroup],
   );
 
   const toggleGroup = useCallback(

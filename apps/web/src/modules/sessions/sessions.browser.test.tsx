@@ -307,4 +307,5 @@ test("prefix shift+x asks first, starts on Cancel, and removes the session for g
   await expect.element(sessionButton("claude")).not.toBeInTheDocument();
   expect(client.sessions.getSnapshot().sessions.map((session) => session.kind)).toEqual(["shell"]);
   await expect.element(shellTabs()).toHaveAttribute("aria-selected", "true");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 });
