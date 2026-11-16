@@ -532,7 +532,7 @@ export const Session = z.object({
    */
   status: AgentStatus.nullable(),
   /**
-   * The user's name for the session, shown instead of the natural label (`shell 2`); `null`
+   * The user's name for the session, shown instead of the natural label (its kind); `null`
    * means none. Persisted, so it survives stop, restart, settling and a server restart. Absent
    * from a server that predates labels.
    */

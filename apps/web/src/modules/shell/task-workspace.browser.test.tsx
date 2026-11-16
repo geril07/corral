@@ -117,7 +117,7 @@ test("a plain click on the add control starts a shell, and its chevron opens Age
   await page.getByRole("button", { name: "Add session" }).click();
   await expect.element(page.getByRole("menuitem", { name: "Agent…" })).not.toBeInTheDocument();
   await expect.poll(() => sessionTabs().getByRole("tab").elements()).toHaveLength(3);
-  await expect.element(sessionTab(/^shell 2/)).toHaveAttribute("aria-selected", "true");
+  await expect.element(sessionTab(/^shell/).nth(1)).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => seeded.client.sessions.getSnapshot().sessions.length).toBe(before + 1);
   const started = seeded.client.sessions
     .getSnapshot()
@@ -517,9 +517,10 @@ test("group changes and reload preserve the draft, split and a running shell", a
   // A group control creates its shell in that group, not in the group on the left.
   const rightGroup = companionTabs().element().closest(".visual-workspace-group")!;
   await userEvent.click(rightGroup.querySelector<HTMLButtonElement>('[aria-label="Add session"]')!);
-  await expect.element(companionTabs().getByRole("tab", { name: /^shell 2/ })).toBeVisible();
+  const companionShells = () => companionTabs().getByRole("tab", { name: /^shell$/ });
+  await expect.element(companionShells()).toHaveLength(1);
   await prefixThen("c");
-  await expect.element(companionTabs().getByRole("tab", { name: /^shell 3/ })).toBeVisible();
+  await expect.element(companionShells()).toHaveLength(2);
   await userEvent.click(companionTabs().getByRole("tab", { name: /^pi/ }));
   await expect.element(draft).toHaveValue("A draft that stays");
   const primary = companionTabs().getByRole("tab", { name: /^pi/ });
@@ -534,9 +535,9 @@ test("group changes and reload preserve the draft, split and a running shell", a
         .map((tab) => tab.textContent),
     )
     .toEqual([
-      expect.stringContaining("shell 2"),
+      expect.stringContaining("shell"),
       expect.stringContaining("pi"),
-      expect.stringContaining("shell 3"),
+      expect.stringContaining("shell"),
     ]);
   await prefixShifted("b");
   await expect.element(sessionTabs()).not.toBeInTheDocument();
@@ -623,7 +624,7 @@ test("a session created in a group stays there when its watch update arrives aft
     sessionTab(/^pi/).element().focus();
     hold = false;
     for (const notify of notifications) notify();
-    await expect.element(companionTabs().getByRole("tab", { name: /^shell 2/ })).toBeVisible();
+    await expect.element(companionTabs().getByRole("tab", { name: /^shell$/ })).toHaveLength(2);
     expect(sessionTabs().getByRole("tab").elements()).toHaveLength(1);
   } finally {
     hold = false;

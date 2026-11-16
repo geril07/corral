@@ -76,14 +76,16 @@ test("task route changes and Back/Forward follow the task URL", async () => {
 test("a removed selected session falls back to the remaining session on reopen", async () => {
   const { href, second } = await seed("shell");
   const screen = await renderApp(newClient(), [href]);
-  await tab(/^shell 2/).click();
-  await expect.element(tab(/^shell 2/)).toHaveAttribute("aria-selected", "true");
+  await tab(/^shell$/)
+    .nth(1)
+    .click();
+  await expect.element(tab(/^shell$/).nth(1)).toHaveAttribute("aria-selected", "true");
   await screen.unmount();
   const setup = newClient();
   await expect.poll(() => setup.connection.state.getSnapshot().status).toBe("connected");
   await setup.connection.api.sessions.remove({ id: second.id });
 
   await renderApp(newClient(), [href]);
+  await expect.element(tab(/^shell$/)).toHaveLength(1);
   await expect.element(tab(/^shell$/)).toHaveAttribute("aria-selected", "true");
-  await expect.element(tab(/^shell 2/)).not.toBeInTheDocument();
 });

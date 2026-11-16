@@ -8,13 +8,11 @@ import { App } from "../../../test/render-app.tsx";
 import {
   appWithProject,
   focusedIsTerminal,
-  sessionTab,
   shellTabs,
   taskWithShell,
 } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
-const shell = (name: string) => sessionTab(name);
 const picker = () => page.getByRole("dialog", { name: "New agent session" });
 const reasonText = (text: string) => page.getByText(text, { exact: true });
 const modelDialog = () => page.getByRole("dialog", { name: "Chat model" });
@@ -39,18 +37,19 @@ test("number keys select the n-th session of the current task in the focused gro
   await taskWithShell(client, project.id, "Numbers");
   await prefixThen("c");
   await prefixThen("c");
-  await expect.element(shell("shell 3")).toHaveAttribute("aria-selected", "true");
+  const third = shellTabs().nth(2);
+  await expect.element(third).toHaveAttribute("aria-selected", "true");
 
   await prefixThen("2");
-  await expect.element(shell("shell 2")).toHaveAttribute("aria-selected", "true");
-  await expect.element(shell("shell 3")).toHaveAttribute("aria-selected", "false");
+  await expect.element(shellTabs().nth(1)).toHaveAttribute("aria-selected", "true");
+  await expect.element(third).toHaveAttribute("aria-selected", "false");
 
   await prefixThen("1");
-  await expect.element(shell("shell")).toHaveAttribute("aria-selected", "true");
+  await expect.element(shellTabs().nth(0)).toHaveAttribute("aria-selected", "true");
 
   // A number past the task's sessions keeps the current one.
   await prefixThen("9");
-  await expect.element(shell("shell")).toHaveAttribute("aria-selected", "true");
+  await expect.element(shellTabs().nth(0)).toHaveAttribute("aria-selected", "true");
 });
 
 test("a binding for the removed reopen action is reported as an unknown action", async () => {
@@ -159,7 +158,7 @@ test("a config file changes the prefix and every action follows it", async () =>
 test("the chat picker chords refuse on a shell, and the next chords still work", async () => {
   const { client, project } = await appWithProject(newClient());
   await taskWithShell(client, project.id, "Shell chords");
-  await expect.element(shell("shell")).toHaveAttribute("aria-selected", "true");
+  await expect.element(shellTabs().first()).toHaveAttribute("aria-selected", "true");
 
   await assertRefused(() => prefixThen("m"), "Only a running chat session has a model control.");
   await assertRefused(
