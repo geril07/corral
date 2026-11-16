@@ -1316,6 +1316,16 @@
   padding: 0 8px;
 }
 
+/* The band is a row of its own: a hairline on the side that faces the pane, so the strip separates
+   from the content whether it sits under the title row or at the bottom of the card. */
+.visual-tab-band[data-position="top"] {
+  border-bottom: 1px solid var(--visual-border-muted);
+}
+
+.visual-tab-band[data-position="bottom"] {
+  border-top: 1px solid var(--visual-border-muted);
+}
+
 /* The main band shares the chrome row with the reserved sidebar-toggle slot. */
 .visual-main-chrome > .visual-tab-band {
   flex: 1 1 auto;
