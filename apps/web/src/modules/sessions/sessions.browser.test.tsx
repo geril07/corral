@@ -213,6 +213,26 @@ test("a shell that exits closes its tab instead of showing a notice or a stopped
   await expect.element(stoppedPane()).not.toBeInTheDocument();
 });
 
+test("a shell whose process is already gone loses its tab when the task opens", async () => {
+  const { client, project } = await appWithProject(newClient());
+  const task = await client.connection.api.tasks.create({
+    projectId: project.id,
+    title: "Gone shell",
+    workspace: { type: "main-worktree" },
+  });
+  const shell = await client.connection.api.sessions.start({
+    taskId: task.id,
+    kind: "shell",
+    size: { cols: 80, rows: 24 },
+  });
+  await client.connection.api.sessions.stop({ id: shell.id });
+
+  await page.getByRole("button", { name: /Gone shell/ }).click();
+
+  await expect.element(shellTabs()).toHaveLength(0);
+  await expect.element(stoppedPane()).not.toBeInTheDocument();
+});
+
 test("a Codex session whose conversation was never identified is unresumable and says it starts a new one", async () => {
   await withServerEnv("FAKE_CODEX_ROLLOUT", "never");
   const { client, project } = await appWithProject(newClient());

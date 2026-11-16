@@ -430,8 +430,9 @@ export function useTaskWorkspace({
     void close(tabId(tab));
   }, [close, focusGroup, layout, setFailure, task]);
 
-  // An exited shell is over: close its tab instead of leaving a stopped pane and a restart
-  // notice. Agents keep their tab — it is the conversation and the way back into it.
+  // A shell whose process is gone is over: close its tab instead of leaving a stopped pane and a
+  // restart notice. A failed launch keeps its tab, because that pane carries the reason the shell
+  // never started. Agents keep their tab — it is the conversation and the way back into it.
   const closingExited = useRef(new Set<string>());
   useEffect(() => {
     if (task === undefined) return;
@@ -439,7 +440,9 @@ export function useTaskWorkspace({
       if (session.kind !== "shell" || session.id === task.primarySessionId) continue;
       if (closingExited.current.has(session.id)) continue;
       const terminal = terminals.find((candidate) => candidate.id === session.terminalId);
-      if (terminal?.exit == null) continue;
+      const over =
+        session.launchError == null && (session.state !== "running" || terminal?.exit != null);
+      if (!over) continue;
       const tab = layout?.tabs.find(
         (candidate) => candidate.kind === "session" && candidate.sessionId === session.id,
       );
@@ -1006,8 +1009,13 @@ export function useTaskWorkspace({
     if (session === undefined) return null;
     const chat = chatFor(session);
     const terminal = terminals.find((candidate) => candidate.id === session.terminalId);
-    // The exit effect closes this tab; render nothing for the frame before it does.
-    if (session.kind === "shell" && terminal?.exit != null) return null;
+    // The exit effect closes this tab; render nothing for the frame before it does. A failed
+    // launch keeps its stopped pane, which is where the reason is shown.
+    const shellOver =
+      session.kind === "shell" &&
+      session.launchError == null &&
+      (session.state !== "running" || terminal?.exit != null);
+    if (shellOver) return null;
     if (
       session.view === "chat" &&
       session.state === "running" &&
