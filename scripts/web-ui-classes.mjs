@@ -39,7 +39,12 @@ const PRIMARY_TEXT = /(?:^|[\s:])text-primary(?![\w-])/;
  * it. `guard: "any"` runs the rule on every literal; the rest run only on class-like ones.
  */
 export const CLASS_RULES = [
-  { label: "arbitrary value", pattern: ARBITRARY, scope: "module" },
+  {
+    label: "arbitrary value",
+    pattern: ARBITRARY,
+    scope: "module",
+    hint: "use a kit role, or a token class such as h-(--chrome-row)",
+  },
   { label: "raw colour", pattern: RAW_COLOUR, scope: "module" },
   { label: "obsolete theme token", pattern: OBSOLETE_TOKEN, scope: "module" },
   { label: "palette colour", pattern: PALETTE, scope: "module", guard: "any" },
@@ -125,7 +130,9 @@ export function classViolations(source, filename, location = "module") {
         continue;
       diagnostics.push({
         line: line(literal.start + token.start),
-        message: `${rule.label} in class name: ${token.value}`,
+        message: `${rule.label} in class name: ${token.value}${
+          rule.hint === undefined ? "" : `; ${rule.hint}`
+        }`,
       });
     }
     // Per-element reduced motion, without a global kill switch. A transition

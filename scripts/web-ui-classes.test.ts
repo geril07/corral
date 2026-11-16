@@ -75,6 +75,8 @@ describe("class literals", () => {
   });
 
   it("still reports arbitrary values and raw colours", () => {
+    // The arbitrary-value rule names the way out; the other rules stand on their own.
+    const hint = "; use a kit role, or a token class such as h-(--chrome-row)";
     const source = [
       'const a = "bg-[#fff]";',
       'const b = "p-[3px]";',
@@ -84,15 +86,15 @@ describe("class literals", () => {
     const reported = messages(source);
     expect(reported).toHaveLength(9);
     expect(reported.filter((line) => line.startsWith("1:"))).toEqual([
-      "1:arbitrary value in class name: bg-[#fff]",
+      `1:arbitrary value in class name: bg-[#fff]${hint}`,
       "1:raw colour in class name: bg-[#fff]",
     ]);
-    expect(reported).toContain("2:arbitrary value in class name: p-[3px]");
+    expect(reported).toContain(`2:arbitrary value in class name: p-[3px]${hint}`);
     expect(reported).toContain("2:spacing outside the scale in class name: p-[3px]");
-    expect(reported).toContain("3:arbitrary value in class name: text-[hsl(0_0%_0%)]");
+    expect(reported).toContain(`3:arbitrary value in class name: text-[hsl(0_0%_0%)]${hint}`);
     expect(reported).toContain("3:raw colour in class name: text-[hsl(0_0%_0%)]");
     expect(reported).toContain("3:type outside the ramp in class name: text-[hsl(0_0%_0%)]");
-    expect(reported).toContain("4:arbitrary value in class name: hover:bg-[#fff]");
+    expect(reported).toContain(`4:arbitrary value in class name: hover:bg-[#fff]${hint}`);
     expect(reported).toContain("4:raw colour in class name: hover:bg-[#fff]");
   });
 
