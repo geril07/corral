@@ -264,3 +264,9 @@ body,
 .terminal-host .xterm {
   height: 100%;
 }
+
+/* xterm ships a black viewport and composition view; the pane's card is the terminal's background. */
+.terminal-host .xterm .xterm-viewport,
+.terminal-host .xterm .composition-view {
+  background-color: transparent;
+}

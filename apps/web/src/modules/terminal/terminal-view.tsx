@@ -24,8 +24,13 @@ interface TerminalViewProps {
   exitHint?: string | undefined;
 }
 
-function readTerminalTheme() {
-  const styles = getComputedStyle(document.body);
+/**
+ * The terminal paints the surface it is drawn on, never a colour of its own: the card the pane sits
+ * in decides it, so a terminal and a chat compose the same card.
+ */
+function readTerminalTheme(host: HTMLElement | null) {
+  const surface = host?.closest<HTMLElement>(".visual-workspace-group") ?? document.body;
+  const styles = getComputedStyle(surface);
   // xterm's parser does not accept OKLCH; canvas resolves the stock CSS colors to sRGB.
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 1;
@@ -74,7 +79,7 @@ export function TerminalView({
         getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim() ||
         "monospace",
       fontSize: 14,
-      theme: readTerminalTheme(),
+      theme: readTerminalTheme(host),
     });
     const fit = new FitAddon();
     xterm.loadAddon(fit);

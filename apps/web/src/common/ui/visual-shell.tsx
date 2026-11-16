@@ -203,7 +203,13 @@ export function VisualShelfToggle({
   );
 }
 
-/** The sidebar's drag edge: pointer drag and arrow keys, bounded by the caller. */
+/**
+ * A horizontal split's drag edge: pointer drag and arrow keys, bounded by the caller. The sidebar
+ * and the working-area groups share it, so both boundaries feel and behave the same.
+ *
+ * `reverse` is for a pane whose width grows leftwards (a right-hand group): it flips the drag and
+ * the arrow keys, nothing else.
+ */
 export function VisualResizeHandle({
   width,
   min,
@@ -211,6 +217,9 @@ export function VisualResizeHandle({
   onResize,
   onResizeStart,
   onResizeEnd,
+  label = "Resize sidebar",
+  reverse = false,
+  className,
 }: {
   width: number;
   min: number;
@@ -218,8 +227,12 @@ export function VisualResizeHandle({
   onResize: (width: number) => void;
   onResizeStart?: (() => void) | undefined;
   onResizeEnd?: (() => void) | undefined;
+  label?: string | undefined;
+  reverse?: boolean | undefined;
+  className?: string | undefined;
 }) {
   const keyStep = 16;
+  const grow = reverse ? -1 : 1;
   const [dragging, setDragging] = useState(false);
   const drag = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -228,7 +241,7 @@ export function VisualResizeHandle({
     const handle = event.currentTarget;
     const startX = event.clientX;
     const startWidth = width;
-    const move = (moved: PointerEvent) => onResize(startWidth + (moved.clientX - startX));
+    const move = (moved: PointerEvent) => onResize(startWidth + grow * (moved.clientX - startX));
     const stop = () => {
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", stop);
@@ -248,22 +261,24 @@ export function VisualResizeHandle({
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize sidebar"
+      aria-label={label}
       aria-valuenow={width}
       aria-valuemin={min}
       aria-valuemax={max}
       tabIndex={0}
-      className="visual-resize-handle"
+      className={
+        className === undefined ? "visual-resize-handle" : `visual-resize-handle ${className}`
+      }
       data-dragging={dragging ? "true" : undefined}
       onPointerDown={drag}
       onKeyDown={(event) => {
         if (event.key === "ArrowLeft") {
           event.preventDefault();
-          onResize(width - keyStep);
+          onResize(width - grow * keyStep);
         }
         if (event.key === "ArrowRight") {
           event.preventDefault();
-          onResize(width + keyStep);
+          onResize(width + grow * keyStep);
         }
       }}
     />

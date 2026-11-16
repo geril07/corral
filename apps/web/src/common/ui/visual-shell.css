@@ -221,7 +221,9 @@
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
-  padding: 8px 5px 10px 11px;
+  /* The shell's one inset on the top, left and bottom; no right inset, so a row's hover runs to the
+     column's edge. The footer's bottom edge then sits on the tab band's. */
+  padding: 8px 0 8px 8px;
   opacity: 1;
   transition: opacity 120ms ease-out;
 }
@@ -244,7 +246,7 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
-  height: 40px;
+  height: 32px;
   gap: 8px;
 }
 
@@ -276,6 +278,8 @@
 .visual-wordmark {
   min-width: 0;
   overflow: hidden;
+  /* The rows below carry their own 8 px inset; the wordmark starts on that same line. */
+  padding-left: 8px;
   color: var(--visual-text-base);
   font-size: 15px;
   line-height: 20px;
@@ -291,7 +295,7 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 4px;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 /* The sidebar's one wide ghost row: Search and the Settled shelf's disclosure share it. */
@@ -425,6 +429,8 @@
   color: var(--visual-status-error);
 }
 
+/* Icon buttons centre a 16 px glyph in a 28 px box, so the row starts 6 px before the column the
+   rows above use: the glyphs, not the boxes, are what line up. */
 .visual-sidebar-footer {
   display: flex;
   flex: 0 0 auto;
@@ -432,6 +438,7 @@
   gap: 4px;
   height: 28px;
   margin-top: 8px;
+  padding-left: 2px;
 }
 
 /* ── Task card ───────────────────────────────────────────────────────────── */
@@ -809,7 +816,7 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 6px;
-  height: 40px;
+  height: 32px;
   min-width: 0;
   padding: 0 8px;
 }
@@ -1046,6 +1053,7 @@
 /* ── Main surface ────────────────────────────────────────────────────────── */
 
 .visual-shell-main {
+  --workspace-gutter: 6px;
   position: relative;
   display: flex;
   flex: 1 1 auto;
@@ -1055,6 +1063,35 @@
   margin: 8px 8px 8px 8px;
   overflow: hidden;
   border-radius: 10px;
+  background: var(--visual-bg-base);
+}
+
+/* The task's own surface: it fills the shell's box, so the shell's own inset is the only outer
+   inset and a mode change moves no edge. The title row is part of the surface unless it splits. */
+.visual-task-surface {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.visual-shell-main:has(.visual-workspace-groups) {
+  background: var(--visual-bg-deep);
+}
+
+.visual-shell-main:has(.visual-workspace-groups) > .visual-task-surface {
+  border-radius: 8px;
+  background: var(--visual-bg-base);
+}
+
+/* Split: the shell's tone shows between cards, and the title row stays one bar across both. */
+.visual-shell-main:has(.visual-workspace-groups[data-split="true"]) > .visual-task-surface {
+  background: transparent;
+}
+
+.visual-shell-main:has(.visual-workspace-groups[data-split="true"]) .visual-task-header {
+  border-radius: 8px 0 0;
   background: var(--visual-bg-base);
 }
 
@@ -1167,6 +1204,15 @@
   min-height: 0;
 }
 
+/* Two cards on the shell's own tone: the gutter and the rounding separate them, so no rule is
+   drawn between the working areas. The 8 px gap holds the 4 px split pill dead centre, with 2 px
+   of air on either side of it. */
+.visual-workspace-groups[data-split="true"] {
+  gap: calc(var(--workspace-gutter) + 2px);
+}
+
+/* The card's top edge is the title row's: only the bottom corners are the card's own, which is
+   what makes the strip read as one surface with the bar above it. */
 .visual-workspace-group {
   position: relative;
   display: flex;
@@ -1174,15 +1220,33 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  background: var(--visual-bg-base);
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+  transition: opacity 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.visual-workspace-group[data-hidden] {
-  display: none;
-}
-
-.visual-workspace-group-companion[data-split] {
+/* The split group takes its width from the handle, not from an even share. */
+.visual-workspace-groups[data-split="true"] > .visual-workspace-group-companion {
   flex: 0 0 auto;
-  border-left: 1px solid var(--visual-border-muted);
+}
+
+/* Collapsed or expanded away: the group keeps its place in the tree but takes no room, so restoring
+   it does not rebuild its sessions or lose their state. */
+.visual-workspace-group[data-hidden] {
+  flex: 0 0 0;
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .visual-workspace-group {
+    transition: none;
+  }
 }
 
 .visual-tab-drop-edge {
@@ -1250,10 +1314,6 @@
 .visual-main-chrome > .visual-tab-band {
   flex: 1 1 auto;
   width: auto;
-}
-
-.visual-tab-band[data-position="bottom"] {
-  border-top: 1px solid var(--visual-border-muted);
 }
 
 .visual-tab-viewport {
@@ -1354,21 +1414,22 @@
   }
 }
 
-/* 1.5 × 12 between two inactive neighbours; hover or selection takes it away. */
-.visual-tab:not([data-selected]) + .visual-tab:not([data-selected])::before {
+/* A hairline between neighbours: 12 px tall, inset 8 px, and it fades out around hover or the
+   selected tab so the pill never carries a line through it. */
+.visual-tab + .visual-tab::before {
   content: "";
   position: absolute;
   top: 8px;
-  left: -3.75px;
-  width: 1.5px;
-  height: 12px;
+  bottom: 8px;
+  left: -3.5px;
+  width: 1px;
   background: var(--visual-border-muted);
 }
 
-.visual-tab:not([data-selected]):hover::before,
-.visual-tab:not([data-selected]):has(+ .visual-tab:hover)::before,
+.visual-tab:hover::before,
+.visual-tab:hover + .visual-tab::before,
 .visual-tab[data-selected]::before,
-.visual-tab:has(+ .visual-tab[data-selected])::before {
+.visual-tab[data-selected] + .visual-tab::before {
   opacity: 0;
 }
 
@@ -1531,29 +1592,14 @@
   justify-content: center;
 }
 
-.visual-split-handle {
-  position: absolute;
+/* The group boundary: the sidebar's grip, centred in the gap between the two cards. The shared
+   `.visual-resize-handle` supplies the 8 px hit area and the 4 px pill. */
+.visual-workspace-groups > .visual-split-handle {
   top: 0;
   bottom: 0;
-  left: -4px;
-  z-index: 2;
-  width: 8px;
-  cursor: col-resize;
-  outline: none;
-}
-
-.visual-split-handle::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 3.5px;
-  width: 1px;
-  background: transparent;
-}
-
-.visual-split-handle:focus-visible::after {
-  background: var(--visual-border-focus);
+  /* The card's width plus half the 8 px gap: the pill's centre, not the card's edge. */
+  right: calc(var(--group-companion-width, 0px) + 4px);
+  z-index: 6;
 }
 
 @media (prefers-reduced-motion: reduce) {
