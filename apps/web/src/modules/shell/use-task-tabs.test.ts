@@ -1,21 +1,25 @@
 import { describe, expect, test } from "vite-plus/test";
-import { COMPANION_MIN_WIDTH } from "./task-tabs.ts";
-import { companionRange, companionWidthFor } from "./use-task-tabs.ts";
+import { COMPANION_MAX_WIDTH, COMPANION_MIN_WIDTH } from "./task-tabs.ts";
+import { MAIN_MIN_WIDTH, companionRange, companionWidthFor } from "./use-task-tabs.ts";
 
 describe("the companion group's width", () => {
-  test("keeps both reference minimums when the working area has room", () => {
-    const range = companionRange(1008);
-    expect(range.min).toBe(COMPANION_MIN_WIDTH);
-    expect(range.max).toBe(448);
-    expect(companionWidthFor(600, 1008)).toBe(448);
+  test("caps the companion at its maximum when the working area has room", () => {
+    expect(companionRange(1600)).toEqual({
+      min: COMPANION_MIN_WIDTH,
+      max: COMPANION_MAX_WIDTH,
+    });
+    expect(companionWidthFor(1000, 1600)).toBe(COMPANION_MAX_WIDTH);
   });
 
-  test("gives the companion its minimum and lets the main pane shrink below 560", () => {
-    expect(companionWidthFor(600, 696)).toBe(COMPANION_MIN_WIDTH);
+  test("leaves the main pane its minimum while the companion takes the rest", () => {
+    expect(companionWidthFor(600, 696)).toBe(696 - MAIN_MIN_WIDTH);
   });
 
   test("never grows past the working area on a narrow window", () => {
-    expect(companionRange(280)).toEqual({ min: 280, max: 280 });
-    expect(companionWidthFor(600, 280)).toBe(280);
+    expect(companionRange(280)).toEqual({
+      min: COMPANION_MIN_WIDTH,
+      max: COMPANION_MIN_WIDTH,
+    });
+    expect(companionWidthFor(600, 280)).toBe(COMPANION_MIN_WIDTH);
   });
 });
