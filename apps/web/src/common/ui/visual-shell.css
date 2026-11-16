@@ -825,7 +825,7 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   max-width: none;
   min-width: 0;
 }
@@ -834,20 +834,46 @@
   flex: 1 1 auto;
 }
 
-.visual-main-task .visual-main-title {
-  order: -1;
+/* The identity reads as one line: the project, then the task's title, exactly as the row above
+   names the same task. A long title gives way first, then the project name. */
+.visual-main-project {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
+  color: var(--visual-text-muted);
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 440;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.visual-main-divider {
+  flex: 0 0 auto;
+  color: var(--visual-text-faint);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.visual-main-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--visual-text-base);
   font-size: 13px;
   line-height: 16px;
   font-weight: 530;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.visual-main-task .visual-main-eyebrow {
-  flex: 0 0 auto;
+.visual-task-header .visual-project-avatar {
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  font-size: 10px;
 }
 
 .visual-main-task .visual-main-status {
@@ -1122,26 +1148,6 @@
   line-height: 20px;
   font-weight: 530;
   letter-spacing: -0.04px;
-}
-
-.visual-main-eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--visual-text-faint);
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 440;
-}
-
-.visual-main-title {
-  margin: 0;
-  color: var(--visual-text-base);
-  font-size: 15px;
-  line-height: 20px;
-  font-weight: 530;
-  letter-spacing: -0.04px;
-  overflow-wrap: anywhere;
 }
 
 .visual-main-status {

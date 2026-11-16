@@ -69,7 +69,7 @@ test("a task opens with its primary agent first and a shell beside it, in one st
   await expect.element(page.getByRole("log", { name: "Chat transcript" })).toBeVisible();
   // The working area names its task above the strip.
   await expect.element(page.getByRole("heading", { name: "Alpha" })).toBeVisible();
-  expect(screen.container.querySelector(".visual-main-eyebrow")?.textContent).toContain("repo");
+  expect(screen.container.querySelector(".visual-main-project")?.textContent).toContain("repo");
   const names = sessionTabs()
     .getByRole("tab")
     .elements()

@@ -378,16 +378,12 @@ export function TaskMain({ row }: { row: VisualTaskRow }) {
   const status = statusLine(row);
   return (
     <div className="visual-main-task">
-      <span className="visual-main-eyebrow">
-        {row.project}
-        {row.metadata.branch !== undefined && (
-          <>
-            <span aria-hidden="true">·</span>
-            <Icon name="branch" size="row" />
-            <span>{row.metadata.branch}</span>
-            <span>recorded</span>
-          </>
-        )}
+      <span className="visual-project-avatar" aria-hidden="true">
+        {row.projectInitial}
+      </span>
+      <span className="visual-main-project">{row.project}</span>
+      <span className="visual-main-divider" aria-hidden="true">
+        /
       </span>
       <h1 className="visual-main-title">{row.title}</h1>
       {row.status !== undefined && (
