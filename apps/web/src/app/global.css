@@ -265,8 +265,42 @@ body,
   height: 100%;
 }
 
-/* xterm ships a black viewport and composition view; the pane's card is the terminal's background. */
+/* The pane's card is the terminal's background. xterm draws the terminal's scrollbar and keeps the
+   viewport scrollable underneath it, so no other scrollbar belongs in that lane. */
+.terminal-host .xterm .xterm-viewport {
+  scrollbar-width: none;
+}
+
 .terminal-host .xterm .xterm-viewport,
 .terminal-host .xterm .composition-view {
   background-color: transparent;
+}
+
+/* xterm draws its own scrollbar over the pane, as a square block in the theme's foreground tone.
+   Its slider is the whole 14 px lane, and its hover and drag rules repaint that box with the
+   `background` shorthand, so the pill is painted as a child of the lane instead: a 4 px thumb, 2 px
+   in from the pane's edge — the width every other scroller paints — while the lane keeps the full
+   hit area and the thumb keeps its own rounding in every state. */
+.terminal-host .xterm .xterm-scrollable-element > .scrollbar > .slider {
+  background-color: transparent;
+}
+
+/* xterm's own hover and drag rules paint the whole lane; the lane stays clear in every state. */
+.terminal-host .xterm .xterm-scrollable-element > .scrollbar > .slider:hover,
+.terminal-host .xterm .xterm-scrollable-element > .scrollbar > .slider.active {
+  background: none;
+}
+
+.terminal-host .xterm .xterm-scrollable-element > .scrollbar > .slider::before {
+  content: "";
+  position: absolute;
+  inset: 0 2px 0 auto;
+  width: 4px;
+  border-radius: 9999px;
+  background-color: var(--app-scrollbar-thumb);
+}
+
+.terminal-host .xterm .xterm-scrollable-element > .scrollbar > .slider:hover::before,
+.terminal-host .xterm .xterm-scrollable-element > .scrollbar > .slider.active::before {
+  background-color: var(--app-scrollbar-thumb-hover);
 }
