@@ -201,6 +201,18 @@ test("an agent that ends by itself shows its last screen and is stopped until pr
   await expect.element(exitedNotice()).not.toBeInTheDocument();
 });
 
+test("a shell that exits closes its tab instead of showing a notice or a stopped pane", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Exit");
+  await expect.element(shellTabs()).toHaveLength(1);
+
+  await userEvent.keyboard("exit{Enter}");
+
+  await expect.element(shellTabs()).toHaveLength(0);
+  await expect.element(exitedNotice()).not.toBeInTheDocument();
+  await expect.element(stoppedPane()).not.toBeInTheDocument();
+});
+
 test("a Codex session whose conversation was never identified is unresumable and says it starts a new one", async () => {
   await withServerEnv("FAKE_CODEX_ROLLOUT", "never");
   const { client, project } = await appWithProject(newClient());

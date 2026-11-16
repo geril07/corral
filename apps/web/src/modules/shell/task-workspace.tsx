@@ -430,6 +430,25 @@ export function useTaskWorkspace({
     void close(tabId(tab));
   }, [close, focusGroup, layout, setFailure, task]);
 
+  // An exited shell is over: close its tab instead of leaving a stopped pane and a restart
+  // notice. Agents keep their tab — it is the conversation and the way back into it.
+  const closingExited = useRef(new Set<string>());
+  useEffect(() => {
+    if (task === undefined) return;
+    for (const session of ofTask) {
+      if (session.kind !== "shell" || session.id === task.primarySessionId) continue;
+      if (closingExited.current.has(session.id)) continue;
+      const terminal = terminals.find((candidate) => candidate.id === session.terminalId);
+      if (terminal?.exit == null) continue;
+      const tab = layout?.tabs.find(
+        (candidate) => candidate.kind === "session" && candidate.sessionId === session.id,
+      );
+      if (tab === undefined) continue;
+      closingExited.current.add(session.id);
+      void close(tabId(tab));
+    }
+  }, [close, layout, ofTask, task, terminals]);
+
   const select = useCallback(
     (id: string) => {
       if (layout === undefined) return;
@@ -987,6 +1006,8 @@ export function useTaskWorkspace({
     if (session === undefined) return null;
     const chat = chatFor(session);
     const terminal = terminals.find((candidate) => candidate.id === session.terminalId);
+    // The exit effect closes this tab; render nothing for the frame before it does.
+    if (session.kind === "shell" && terminal?.exit != null) return null;
     if (
       session.view === "chat" &&
       session.state === "running" &&
