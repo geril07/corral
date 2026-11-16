@@ -1,6 +1,6 @@
 import type { CorralClient } from "@corral/client/corral-client";
 import type { Session, Task } from "@corral/protocol/rpc";
-import { expect, test } from "vite-plus/test";
+import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { writeFilesIn } from "../../../test/files-client.ts";
 import { createGitRepo } from "../../../test/git-repo.ts";
@@ -323,8 +323,11 @@ test("closing a running shell tab stops its session, removes the view and keeps 
       ?.terminalId,
   ).toBeNull();
   await expect
-    .poll(() => document.activeElement?.getAttribute("data-tab-id"))
-    .toBe(`session:${seeded.primary.id}`);
+    .poll(() => ({
+      id: document.activeElement?.getAttribute("data-tab-id"),
+      element: document.activeElement?.outerHTML.slice(0, 500),
+    }))
+    .toMatchObject({ id: `session:${seeded.primary.id}` });
 
   // Closing is final: no closed-tab history is stored, and the removed chord does nothing.
   const stored: unknown = JSON.parse(
@@ -459,7 +462,7 @@ test("the focused group does not leak into another task", async () => {
     );
 });
 
-test("a refused close or move says why in the working-area line", async () => {
+test("the primary tab refuses close but can move to the other group", async () => {
   const seeded = await seed();
   await open(seeded);
   await userEvent.click(sessionTab(/^pi/));
@@ -471,12 +474,162 @@ test("a refused close or move says why in the working-area line", async () => {
       "The primary session is not a closable view; remove it with Remove session.",
     );
   await prefixShifted("o");
-  await expect
-    .element(page.getByRole("alert"))
-    .toMatchTextContent("The primary session is not moved between groups.");
+  await expect.element(companionTabs().getByRole("tab", { name: /^pi/ })).toBeVisible();
+  await expect.element(sessionTab(/^shell/)).toBeVisible();
 
-  await userEvent.click(sessionTab(/^shell/));
   await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+});
+
+test("group changes and reload preserve the draft, split and a running shell", async () => {
+  const seeded = await seed();
+  await seeded.client.connection.api.tasks.create({
+    projectId: seeded.projectId,
+    title: "Beta",
+    prompt: "Beta work",
+    agent: { kind: "pi", view: "chat" },
+    workspace: { type: "main-worktree" },
+  });
+  const screen = await open(seeded);
+  const draft = page.getByRole("textbox", { name: "Message" });
+  await expect.element(draft).toBeVisible();
+  await userEvent.fill(draft, "A draft that stays");
+
+  // The non-closable agent can move; the running shell is left in the first group.
+  await prefixShifted("o");
+  await expect.element(companionTabs().getByRole("tab", { name: /^pi/ })).toBeVisible();
+  await expect.element(draft).toHaveValue("A draft that stays");
+  await userEvent.click(sessionTab(/^shell/));
+  await userEvent.keyboard("CORRAL_KEEP=alive{Enter}");
+  await userEvent.keyboard("printf 'before_%s\\n' \"$CORRAL_KEEP\"{Enter}");
+  await expect.poll(() => screenText()).toContain("before_alive");
+
+  // Expanding one group and focusing the hidden group swaps the expanded surface.
+  await prefixShifted("b");
+  await expect.element(companionTabs()).not.toBeInTheDocument();
+  await prefixShifted("w");
+  await expect.element(companionTabs()).toBeVisible();
+  await expect.element(sessionTabs()).not.toBeInTheDocument();
+  await expect.element(draft).toHaveValue("A draft that stays");
+  await prefixShifted("b");
+  await expect.element(sessionTabs()).toBeVisible();
+  await expect.element(companionTabs()).toBeVisible();
+
+  // A group control creates its shell in that group, not in the group on the left.
+  const rightGroup = companionTabs().element().closest(".visual-workspace-group")!;
+  await userEvent.click(rightGroup.querySelector<HTMLButtonElement>('[aria-label="Add session"]')!);
+  await expect.element(companionTabs().getByRole("tab", { name: /^shell 2/ })).toBeVisible();
+  await prefixThen("c");
+  await expect.element(companionTabs().getByRole("tab", { name: /^shell 3/ })).toBeVisible();
+  await userEvent.click(companionTabs().getByRole("tab", { name: /^pi/ }));
+  await expect.element(draft).toHaveValue("A draft that stays");
+  const primary = companionTabs().getByRole("tab", { name: /^pi/ });
+  primary.element().focus();
+  await userEvent.keyboard("{Shift>}{F10}{/Shift}");
+  await page.getByRole("menuitem", { name: "Move tab right" }).click();
+  await expect
+    .poll(() =>
+      companionTabs()
+        .getByRole("tab")
+        .elements()
+        .map((tab) => tab.textContent),
+    )
+    .toEqual([
+      expect.stringContaining("shell 2"),
+      expect.stringContaining("pi"),
+      expect.stringContaining("shell 3"),
+    ]);
+  await prefixShifted("b");
+  await expect.element(sessionTabs()).not.toBeInTheDocument();
+
+  await page.getByRole("button", { name: /Beta/ }).click();
+  await expect.element(page.getByRole("heading", { name: "Beta" })).toBeVisible();
+  await page.getByRole("button", { name: /Alpha/ }).click();
+  await expect.element(companionTabs().getByRole("tab", { name: /^pi/ })).toBeVisible();
+  await expect.element(sessionTabs()).not.toBeInTheDocument();
+  await expect.element(draft).toHaveValue("A draft that stays");
+
+  await screen.unmount();
+  await open(seeded);
+  await expect.element(companionTabs().getByRole("tab", { name: /^pi/ })).toBeVisible();
+  await expect.element(sessionTabs()).not.toBeInTheDocument();
+  await expect.element(draft).toHaveValue("A draft that stays");
+  await prefixShifted("w");
+  await userEvent.click(sessionTab(/^shell$/));
+  await userEvent.keyboard("printf 'after_%s\\n' \"$CORRAL_KEEP\"{Enter}");
+  await expect.poll(() => screenText()).toContain("after_alive");
+  expect(
+    seeded.client.sessions.getSnapshot().sessions.find((session) => session.id === seeded.shell.id)
+      ?.state,
+  ).toBe("running");
+});
+
+test("a chat draft stays editable and reports when the device cannot save it", async () => {
+  const seeded = await seed();
+  await open(seeded);
+  const draft = page.getByRole("textbox", { name: "Message" });
+  await expect.element(draft).toBeVisible();
+  const setItem = window.localStorage.setItem.bind(window.localStorage);
+  const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation((key, value) => {
+    if (key.startsWith("corral.chat-draft.")) throw new Error("storage full");
+    setItem(key, value);
+  });
+  try {
+    await userEvent.fill(draft, "Keep this text");
+    await expect
+      .element(page.getByRole("alert"))
+      .toMatchTextContent(
+        "Drafts are kept in this session, but could not be saved on this device.",
+      );
+    await expect.element(draft).toHaveValue("Keep this text");
+  } finally {
+    storage.mockRestore();
+  }
+  await userEvent.fill(draft, "Keep this text too");
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+});
+
+test("a session created in a group stays there when its watch update arrives after the reply", async () => {
+  const seeded = await seed();
+  const client = newClient();
+  await expect.poll(() => client.sessions.getSnapshot().loaded).toBe(true);
+  const held = client.sessions.getSnapshot();
+  const getSnapshot = client.sessions.getSnapshot;
+  const subscribe = client.sessions.subscribe;
+  const notifications = new Set<() => void>();
+  let hold = true;
+  const snapshotSpy = vi
+    .spyOn(client.sessions, "getSnapshot")
+    .mockImplementation(() => (hold ? held : getSnapshot()));
+  const subscriptionSpy = vi.spyOn(client.sessions, "subscribe").mockImplementation((listener) =>
+    subscribe(() => {
+      if (hold) notifications.add(listener);
+      else listener();
+    }),
+  );
+  try {
+    await renderApp(client, [seeded.href]);
+    await userEvent.click(sessionTab(/^shell/));
+    await prefixShifted("o");
+    const group = companionTabs().element().closest(".visual-workspace-group")!;
+    await userEvent.click(group.querySelector<HTMLButtonElement>('[aria-label="Add session"]')!);
+    await expect
+      .poll(
+        () =>
+          seeded.client.sessions
+            .getSnapshot()
+            .sessions.filter((item) => item.taskId === seeded.task.id).length,
+      )
+      .toBe(3);
+    sessionTab(/^pi/).element().focus();
+    hold = false;
+    for (const notify of notifications) notify();
+    await expect.element(companionTabs().getByRole("tab", { name: /^shell 2/ })).toBeVisible();
+    expect(sessionTabs().getByRole("tab").elements()).toHaveLength(1);
+  } finally {
+    hold = false;
+    snapshotSpy.mockRestore();
+    subscriptionSpy.mockRestore();
+  }
 });
 
 test("the layout stored for this task and device is restored on open", async () => {
@@ -590,6 +743,14 @@ test("the splitter stores the width the frame can show in both directions", asyn
   window.localStorage.setItem("corral.visual-sidebar-width", "100");
   window.localStorage.setItem("corral.companion-width", "320");
   const seeded = await seed();
+  const beta = await seeded.client.connection.api.tasks.create({
+    projectId: seeded.projectId,
+    title: "Beta",
+    prompt: "Beta work",
+    agent: { kind: "pi", view: "chat" },
+    workspace: { type: "main-worktree" },
+  });
+  await seeded.client.connection.api.sessions.start({ taskId: beta.id, kind: "shell", size: SIZE });
   await open(seeded);
   await userEvent.click(sessionTab(/^shell/));
   await prefixShifted("o");
@@ -602,10 +763,29 @@ test("the splitter stores the width the frame can show in both directions", asyn
       .dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
   press("ArrowLeft");
   await expect.element(handle).toHaveAttribute("aria-valuenow", "336");
-  await expect.poll(() => window.localStorage.getItem("corral.companion-width")).toBe("336");
+  await expect
+    .poll(
+      () =>
+        JSON.parse(window.localStorage.getItem(`corral.task-tabs.${seeded.task.id}`) ?? "{}")
+          .companionWidth,
+    )
+    .toBe(336);
+  await page.getByRole("button", { name: /Beta/ }).click();
+  await expect.element(page.getByRole("heading", { name: "Beta" })).toBeVisible();
+  await userEvent.click(sessionTab(/^shell/));
+  await prefixShifted("o");
+  await expect.element(handle).toHaveAttribute("aria-valuenow", "320");
+  await page.getByRole("button", { name: /Alpha/ }).click();
+  await expect.element(handle).toHaveAttribute("aria-valuenow", "336");
   press("ArrowRight");
   await expect.element(handle).toHaveAttribute("aria-valuenow", "320");
-  await expect.poll(() => window.localStorage.getItem("corral.companion-width")).toBe("320");
+  await expect
+    .poll(
+      () =>
+        JSON.parse(window.localStorage.getItem(`corral.task-tabs.${seeded.task.id}`) ?? "{}")
+          .companionWidth,
+    )
+    .toBe(320);
   window.localStorage.setItem("corral.visual-sidebar-width", "320");
 });
 
@@ -621,6 +801,20 @@ test("a bottom strip replaces the chrome row instead of leaving an empty band", 
   expect(
     screen.container.querySelector<HTMLElement>(".visual-tab-band")?.getAttribute("data-position"),
   ).toBe("bottom");
+  await userEvent.click(sessionTab(/^shell/));
+  await prefixShifted("o");
+  await expect.element(companionTabs()).toBeVisible();
+  const bands = [...screen.container.querySelectorAll<HTMLElement>(".visual-tab-band")];
+  expect(bands).toHaveLength(2);
+  expect(bands.every((band) => band.getAttribute("data-position") === "bottom")).toBe(true);
+  expect(
+    bands.every((band) => {
+      const group = band.closest<HTMLElement>(".visual-workspace-group")!;
+      return (
+        Math.abs(band.getBoundingClientRect().bottom - group.getBoundingClientRect().bottom) < 1
+      );
+    }),
+  ).toBe(true);
   window.localStorage.removeItem("corral.appearance");
 });
 

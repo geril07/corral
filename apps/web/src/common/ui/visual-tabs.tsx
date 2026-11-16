@@ -1,6 +1,21 @@
 import type { AgentStatus, Session } from "@corral/protocol/rpc";
 import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  pointerWithin,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragMoveEvent,
+} from "@dnd-kit/core";
+import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS as DndCSS } from "@dnd-kit/utilities";
+import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -39,6 +54,161 @@ export interface VisualTabItem {
   paneId: string;
   /** Secondary actions for a session tab; rendered by the owning module. */
   menu?: ReactNode | undefined;
+}
+
+export type VisualTabGroup = "main" | "companion";
+
+export interface VisualTabDrop {
+  id: string;
+  group: VisualTabGroup;
+  over?: string;
+  after?: boolean;
+}
+
+interface TabDragState {
+  active: string | undefined;
+  target: VisualTabDrop | undefined;
+}
+
+const TabDragContext = createContext<TabDragState>({ active: undefined, target: undefined });
+
+function dropTarget(event: DragMoveEvent | DragEndEvent): VisualTabDrop | undefined {
+  const { active, over } = event;
+  if (over === null) return undefined;
+  const group = over.data.current?.["group"];
+  if (group !== "main" && group !== "companion") return undefined;
+  if (over.data.current?.["edge"] === true) return { id: String(active.id), group };
+  const moving = active.rect.current.translated;
+  if (moving === null) return undefined;
+  return {
+    id: String(active.id),
+    group,
+    over: String(over.id),
+    after: moving.left + moving.width / 2 >= over.rect.left + over.rect.width / 2,
+  };
+}
+
+/** Pointer dragging is shared by both strips; keyboard users have the same actions in tab menus. */
+function VisualTabDrag({
+  onDrop,
+  children,
+}: {
+  onDrop: (drop: VisualTabDrop) => void;
+  children: ReactNode;
+}) {
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const [drag, setDrag] = useState<TabDragState>({ active: undefined, target: undefined });
+  const [label, setLabel] = useState("");
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={pointerWithin}
+      onDragStart={({ active }) => {
+        setLabel(String(active.data.current?.["label"] ?? ""));
+        setDrag({ active: String(active.id), target: undefined });
+      }}
+      onDragMove={(event) =>
+        setDrag({ active: String(event.active.id), target: dropTarget(event) })
+      }
+      onDragEnd={(event) => {
+        const target = dropTarget(event);
+        setDrag({ active: undefined, target: undefined });
+        if (target !== undefined) onDrop(target);
+      }}
+      onDragCancel={() => setDrag({ active: undefined, target: undefined })}
+    >
+      <TabDragContext.Provider value={drag}>{children}</TabDragContext.Provider>
+      <DragOverlay dropAnimation={null}>
+        {drag.active === undefined ? null : (
+          <div className="visual-tab-drag-overlay" aria-hidden="true">
+            {label}
+          </div>
+        )}
+      </DragOverlay>
+    </DndContext>
+  );
+}
+
+/** The edge is reachable only during a drag, so the one-group layout keeps its full width. */
+function VisualTabDropEdge({ group }: { group: VisualTabGroup }) {
+  const drag = useContext(TabDragContext);
+  const { setNodeRef, isOver } = useDroppable({
+    id: `group:${group}`,
+    data: { group, edge: true },
+    disabled: drag.active === undefined,
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      className="visual-tab-drop-edge"
+      data-side={group === "main" ? "left" : "right"}
+      data-active={drag.active === undefined ? undefined : "true"}
+      data-over={isOver ? "true" : undefined}
+      aria-hidden="true"
+    />
+  );
+}
+
+export function VisualWorkspaceGroups({
+  main,
+  companion,
+  mainVisible,
+  companionVisible,
+  width,
+  min,
+  max,
+  onResize,
+  onFocusGroup,
+  onDrop,
+}: {
+  main: ReactNode;
+  companion: ReactNode;
+  mainVisible: boolean;
+  companionVisible: boolean;
+  width: number;
+  min: number;
+  max: number;
+  onResize: (width: number) => void;
+  onFocusGroup: (group: VisualTabGroup) => void;
+  onDrop: (drop: VisualTabDrop) => void;
+}) {
+  const split = mainVisible && companionVisible;
+  return (
+    <div className="visual-workspace-groups">
+      <VisualTabDrag onDrop={onDrop}>
+        <div
+          className="visual-workspace-group"
+          data-hidden={mainVisible ? undefined : "true"}
+          aria-hidden={mainVisible ? undefined : true}
+          inert={mainVisible ? undefined : true}
+          onFocusCapture={() => onFocusGroup("main")}
+        >
+          {main}
+        </div>
+        <div
+          className="visual-workspace-group visual-workspace-group-companion"
+          data-hidden={companionVisible ? undefined : "true"}
+          data-split={split ? "true" : undefined}
+          style={split ? { width } : undefined}
+          aria-hidden={companionVisible ? undefined : true}
+          inert={companionVisible ? undefined : true}
+          onFocusCapture={() => onFocusGroup("companion")}
+        >
+          {split && (
+            <VisualSplitHandle
+              width={width}
+              min={min}
+              max={max}
+              onResize={onResize}
+              label="Resize companion group"
+            />
+          )}
+          {companion}
+        </div>
+        {!split && <VisualTabDropEdge group={mainVisible ? "companion" : "main"} />}
+      </VisualTabDrag>
+    </div>
+  );
 }
 
 const GLYPH: Readonly<Record<Exclude<VisualTabKind, "session">, IconName>> = {
@@ -116,6 +286,8 @@ export function VisualTabStrip({
   onSelect,
   onClose,
   add,
+  actions,
+  dragGroup,
   position = "top",
 }: {
   label: string;
@@ -123,6 +295,8 @@ export function VisualTabStrip({
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   add?: ReactNode;
+  actions?: ReactNode;
+  dragGroup?: VisualTabGroup;
   position?: "top" | "bottom";
 }) {
   const scroll = useRef<HTMLDivElement>(null);
@@ -195,40 +369,33 @@ export function VisualTabStrip({
           onMouseDown={(event) => event.preventDefault()}
         >
           <div className="visual-tab-list" role="tablist" aria-label={label}>
-            {items.map((item) => (
-              <div
-                key={item.id}
-                className="visual-tab"
-                data-selected={item.selected ? "true" : undefined}
+            {dragGroup === undefined ? (
+              items.map((item) => (
+                <div
+                  key={item.id}
+                  className="visual-tab"
+                  data-selected={item.selected ? "true" : undefined}
+                >
+                  <TabCell item={item} onSelect={onSelect} onClose={onClose} onStep={step} />
+                </div>
+              ))
+            ) : (
+              <SortableContext
+                items={items.map((item) => item.id)}
+                strategy={horizontalListSortingStrategy}
               >
-                {item.menu === undefined ? (
-                  <TabButton item={item} onSelect={onSelect} onStep={step} />
-                ) : (
-                  <RowMenu
-                    label={item.menuLabel ?? item.label}
-                    trigger={
-                      <span className="visual-tab-trigger">
-                        <TabButton item={item} onSelect={onSelect} onStep={step} />
-                      </span>
-                    }
-                  >
-                    {item.menu}
-                  </RowMenu>
-                )}
-                {item.canClose && (
-                  <button
-                    type="button"
-                    className="visual-tab-close"
-                    aria-label={`Close ${item.label} tab`}
-                    title={`Close ${item.label} tab`}
-                    tabIndex={-1}
-                    onClick={() => onClose(item.id)}
-                  >
-                    <Icon name="close" />
-                  </button>
-                )}
-              </div>
-            ))}
+                {items.map((item) => (
+                  <SortableTabCell
+                    key={item.id}
+                    item={item}
+                    group={dragGroup}
+                    onSelect={onSelect}
+                    onClose={onClose}
+                    onStep={step}
+                  />
+                ))}
+              </SortableContext>
+            )}
           </div>
           {add !== undefined && add !== null && items.length > 0 && (
             <div className="visual-tab-add">{add}</div>
@@ -247,6 +414,71 @@ export function VisualTabStrip({
           aria-hidden="true"
         />
       </div>
+      {actions}
+    </div>
+  );
+}
+
+interface TabCellProps {
+  item: VisualTabItem;
+  onSelect: (id: string) => void;
+  onClose: (id: string) => void;
+  onStep: (id: string, step: "next" | "previous" | "first" | "last") => void;
+}
+
+function TabCell({ item, onSelect, onClose, onStep }: TabCellProps) {
+  return (
+    <>
+      {item.menu === undefined ? (
+        <TabButton item={item} onSelect={onSelect} onStep={onStep} />
+      ) : (
+        <RowMenu
+          label={item.menuLabel ?? item.label}
+          trigger={
+            <span className="visual-tab-trigger">
+              <TabButton item={item} onSelect={onSelect} onStep={onStep} />
+            </span>
+          }
+        >
+          {item.menu}
+        </RowMenu>
+      )}
+      {item.canClose && (
+        <button
+          type="button"
+          className="visual-tab-close"
+          aria-label={`Close ${item.label} tab`}
+          title={`Close ${item.label} tab`}
+          tabIndex={-1}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => onClose(item.id)}
+        >
+          <Icon name="close" />
+        </button>
+      )}
+    </>
+  );
+}
+
+function SortableTabCell(props: TabCellProps & { group: VisualTabGroup }) {
+  const { item, group } = props;
+  const drag = useContext(TabDragContext);
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: item.id,
+    data: { group, label: item.label },
+  });
+  const target = drag.target?.over === item.id && drag.active !== item.id ? drag.target : undefined;
+  return (
+    <div
+      ref={setNodeRef}
+      className="visual-tab"
+      data-selected={item.selected ? "true" : undefined}
+      data-dragging={isDragging ? "true" : undefined}
+      data-drop={target === undefined ? undefined : target.after ? "after" : "before"}
+      style={{ transform: DndCSS.Transform.toString(transform), transition }}
+      {...listeners}
+    >
+      <TabCell {...props} />
     </div>
   );
 }
@@ -314,21 +546,17 @@ export function VisualAddMenu({
 }
 
 /** A vertical split edge: a 1 px line with an 8 px pointer hit area. */
-export function VisualSplitHandle({
+function VisualSplitHandle({
   width,
   min,
   max,
   onResize,
-  onResizeStart,
-  onResizeEnd,
   label,
 }: {
   width: number;
   min: number;
   max: number;
   onResize: (width: number) => void;
-  onResizeStart?: (() => void) | undefined;
-  onResizeEnd?: (() => void) | undefined;
   label: string;
 }) {
   const keyStep = 16;
@@ -344,7 +572,6 @@ export function VisualSplitHandle({
       className="visual-split-handle"
       onPointerDown={(event) => {
         event.preventDefault();
-        onResizeStart?.();
         const handle = event.currentTarget;
         const startX = event.clientX;
         const startWidth = width;
@@ -356,7 +583,6 @@ export function VisualSplitHandle({
           handle.removeEventListener("lostpointercapture", stop);
           if (handle.hasPointerCapture(event.pointerId))
             handle.releasePointerCapture(event.pointerId);
-          onResizeEnd?.();
         };
         handle.setPointerCapture(event.pointerId);
         handle.addEventListener("pointermove", move);
@@ -375,61 +601,6 @@ export function VisualSplitHandle({
         }
       }}
     />
-  );
-}
-
-/**
- * The companion group's frame. Closing it keeps its contents mounted, like both references: the
- * frame narrows to zero and the fixed-width surface is clipped, so a terminal or chat store is
- * not torn down by hiding the group. `inert` keeps a hidden surface out of the keyboard.
- */
-export function VisualCompanion({
-  open,
-  width,
-  min,
-  max,
-  onResize,
-  label,
-  children,
-}: {
-  open: boolean;
-  width: number;
-  min: number;
-  max: number;
-  onResize: (width: number) => void;
-  label: string;
-  children: ReactNode;
-}) {
-  const [resizing, setResizing] = useState(false);
-  return (
-    <aside
-      className="visual-companion"
-      data-open={open ? "true" : undefined}
-      data-resizing={resizing ? "true" : undefined}
-      style={open ? { width } : undefined}
-    >
-      {open && (
-        <VisualSplitHandle
-          width={width}
-          min={min}
-          max={max}
-          onResize={onResize}
-          onResizeStart={() => setResizing(true)}
-          onResizeEnd={() => setResizing(false)}
-          label={label}
-        />
-      )}
-      <div className="visual-companion-clip">
-        <div
-          className="visual-companion-surface"
-          style={{ width }}
-          inert={!open ? true : undefined}
-          aria-hidden={!open ? "true" : undefined}
-        >
-          {children}
-        </div>
-      </div>
-    </aside>
   );
 }
 

@@ -17,13 +17,23 @@ import type {
   TerminalInfo,
   TerminalSize,
 } from "@corral/protocol/rpc";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   DropdownMenuItem,
   VisualAddMenu,
-  VisualCompanion,
+  VisualIconButton,
   VisualTabPanel,
   VisualTabStrip,
+  VisualWorkspaceGroups,
+  type VisualTabDrop,
   type VisualTabItem,
 } from "../../common/ui/index.ts";
 import {
@@ -50,6 +60,8 @@ import {
   activeTab,
   addTab,
   closeTab,
+  COMPANION_DEFAULT_WIDTH,
+  focusGroup as focusLayoutGroup,
   moveTab,
   removeSession,
   selectTab,
@@ -58,20 +70,16 @@ import {
   tabId,
   tabNumber,
   tabsInGroup,
-  toggleCompanion,
+  toggleExpanded,
   type TaskTabGroup,
 } from "./task-tabs.ts";
-import {
-  companionRange,
-  companionWidthFor,
-  useCompanionWidth,
-  useTaskTabLayout,
-} from "./use-task-tabs.ts";
+import { companionRange, companionWidthFor, useTaskTabLayout } from "./use-task-tabs.ts";
+import { useChatDrafts } from "./use-chat-drafts.ts";
+import { DRAFT_STORAGE_NOTICE } from "./use-task-drafts.ts";
 
 const DEFAULT_SIZE: TerminalSize = { cols: 80, rows: 24 };
 const MAIN_PANE_ID = "task-main-pane";
 const COMPANION_PANE_ID = "task-companion-pane";
-
 /** The view `prefix v` offers this session, or the existing sentence saying why it cannot. */
 function viewOffer(
   session: Session,
@@ -90,7 +98,7 @@ function viewOffer(
 }
 
 type DialogState =
-  | { kind: "pick-agent" }
+  | { kind: "pick-agent"; group: TaskTabGroup }
   | { kind: "remove-session"; session: Session }
   | {
       kind: "switch-view";
@@ -103,11 +111,15 @@ type DialogState =
   | { kind: "chat-reasoning"; session: Session }
   | { kind: "rename"; target: RenameTarget };
 
+interface PendingSessionTab {
+  session: Session;
+  owner: Pick<Task, "id" | "primarySessionId">;
+  group: TaskTabGroup;
+}
+
 export interface TaskWorkspaceController {
   notice: ReactNode;
-  chrome: ReactNode;
   main: ReactNode;
-  companion: ReactNode;
   dialogs: ReactNode;
   prefix: { bindings: Readonly<Record<string, string>>; onAction: (action: string) => void };
   prefixEnabled: boolean;
@@ -149,25 +161,19 @@ export function useTaskWorkspace({
     [sessions, task],
   );
   const { layout, change, changeFor } = useTaskTabLayout(task, sessions);
-  const { width: preferredWidth, setWidth: setPreferredWidth } = useCompanionWidth();
   const taskId = task?.id;
-  // Working-area actions are per task: switching tasks starts on the main group with no old
-  // dialog or failure still holding the keyboard. The setters stay one identity; the ref is
-  // updated before any handler can run with the new task.
+  // Dialogs and async actions belong to their original task, even after the route changes.
   const taskIdRef = useRef(taskId);
   useLayoutEffect(() => {
     taskIdRef.current = taskId;
   }, [taskId]);
-  const [focusState, setFocusState] = useState<{
-    taskId: string | undefined;
-    group: TaskTabGroup;
-  }>({ group: "main", taskId: undefined });
-  const focusGroup = focusState.taskId === taskId ? focusState.group : "main";
+  const focusGroup = layout?.focused ?? "main";
   const setFocusGroup = useCallback(
-    (group: TaskTabGroup) => setFocusState({ taskId: taskIdRef.current, group }),
-    [],
+    (group: TaskTabGroup) => change((current) => focusLayoutGroup(current, group)),
+    [change],
   );
-  const [chatDrafts, setChatDrafts] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const chatDrafts = useChatDrafts();
+  const [pendingTabs, setPendingTabs] = useState<readonly PendingSessionTab[]>([]);
   // Scroll offset and open folds per session, beside the draft: a tab switch unmounts the pane.
   const [transcriptMemory, setTranscriptMemory] = useState<
     ReadonlyMap<string, ChatTranscriptStore>
@@ -215,12 +221,7 @@ export function useTaskWorkspace({
     companionTab?.kind === "session" ? sessionById.get(companionTab.sessionId ?? "") : undefined;
   const mainChat = useChatSession(client, mainSession);
   const companionChat = useChatSession(client, companionSession);
-  const companionHasSession =
-    layout !== undefined && tabsInGroup(layout, "companion").some((tab) => tab.kind === "session");
-  // A companion holding no session (a file view) has no session to step through or hand over;
-  // those chords fall back to the main group, which always has one while the task has any session.
-  const actionGroup: TaskTabGroup =
-    focusGroup === "companion" && !companionHasSession ? "main" : focusGroup;
+  const actionGroup = focusGroup;
   const focusedSession = actionGroup === "main" ? mainSession : companionSession;
   const focusedChat = actionGroup === "main" ? mainChat : companionChat;
 
@@ -267,11 +268,13 @@ export function useTaskWorkspace({
   const focusPane = useCallback((group: TaskTabGroup) => {
     requestAnimationFrame(() => {
       const node = group === "main" ? mainPane.current : companionPane.current;
-      node
-        ?.querySelector<HTMLElement>(
-          'textarea[aria-label="Message"], textarea[aria-label="Prompt"], .xterm-helper-textarea',
-        )
-        ?.focus();
+      const input = node?.querySelector<HTMLElement>(
+        '[aria-label="Agent request"] [role="radio"][aria-checked="true"], [aria-label="Agent request"] input, [aria-label="Agent request"] textarea, textarea[aria-label="Message"], textarea[aria-label="Prompt"], .xterm-helper-textarea',
+      );
+      const tab = node
+        ?.closest(".visual-workspace-group")
+        ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      (input ?? tab)?.focus();
     });
   }, []);
 
@@ -292,15 +295,28 @@ export function useTaskWorkspace({
   }, []);
 
   const addSession = useCallback(
-    (session: Session) => {
-      change((current) =>
-        addTab(current, { kind: "session", sessionId: session.id, group: "main" }),
-      );
-      setFocusGroup("main");
-      focusPane("main");
+    (session: Session, owner: Pick<Task, "id" | "primarySessionId">, group: TaskTabGroup) => {
+      setPendingTabs((previous) => [...previous, { session, owner, group }]);
     },
-    [change, focusPane, setFocusGroup],
+    [],
   );
+
+  // The RPC reply and sessions.watch are independent: reconcile only after the watch knows the
+  // new session, or it can discard the requested group before that session is visible.
+  useEffect(() => {
+    const ready = pendingTabs.filter(({ session }) =>
+      sessions.some((item) => item.id === session.id),
+    );
+    if (ready.length === 0) return;
+    // oxlint-disable-next-line react/set-state-in-effect -- consume replies once the server watch sees them
+    setPendingTabs((previous) => previous.filter((entry) => !ready.includes(entry)));
+    for (const { session, owner, group } of ready) {
+      changeFor(owner, (current) =>
+        addTab(current, { kind: "session", sessionId: session.id, group }),
+      );
+      if (taskIdRef.current === owner.id) focusPane(group);
+    }
+  }, [changeFor, focusPane, pendingTabs, sessions]);
 
   /** Starts the session and leaves the tab to the caller, so a picker can show its own refusal. */
   const launch = useCallback(
@@ -331,23 +347,33 @@ export function useTaskWorkspace({
   );
 
   const startSession = useCallback(
-    async (kind: Session["kind"], choice?: AgentLaunchChoice, view?: SessionView) => {
+    async (
+      kind: Session["kind"],
+      choice?: AgentLaunchChoice,
+      view?: SessionView,
+      group: TaskTabGroup = focusGroup,
+    ) => {
+      if (task === undefined) return;
+      const owner = { id: task.id, primarySessionId: task.primarySessionId };
       setFailure(undefined);
       try {
         const started = await launch(kind, choice, view);
-        addSession(started);
+        addSession(started, owner, group);
       } catch (error) {
-        report(error);
+        if (taskIdRef.current === owner.id) report(error);
       }
     },
-    [addSession, launch, report, setFailure],
+    [addSession, focusGroup, launch, report, setFailure, task],
   );
 
-  const openAgentPicker = useCallback(() => {
-    if (task === undefined) return;
-    setFailure(undefined);
-    setDialog({ kind: "pick-agent" });
-  }, [setDialog, setFailure, task]);
+  const openAgentPicker = useCallback(
+    (group: TaskTabGroup = focusGroup) => {
+      if (task === undefined) return;
+      setFailure(undefined);
+      setDialog({ kind: "pick-agent", group });
+    },
+    [focusGroup, setDialog, setFailure, task],
+  );
 
   /**
    * Closing a tab. The primary session is not a closable view: removing it is the destructive
@@ -385,9 +411,9 @@ export function useTaskWorkspace({
         focusTab(tabId(remaining));
         return;
       }
-      setFocusGroup("main");
-      const main = activeTab(after, "main");
-      if (main !== undefined) focusTab(tabId(main));
+      setFocusGroup(after.focused);
+      const remainingGroup = activeTab(after, after.focused);
+      if (remainingGroup !== undefined) focusTab(tabId(remainingGroup));
       else focusAddSession();
     },
     [changeFor, client, focusAddSession, focusTab, layout, report, setFailure, setFocusGroup, task],
@@ -417,27 +443,35 @@ export function useTaskWorkspace({
     [change, focusPane, layout, setFailure, setFocusGroup],
   );
 
+  const moveTo = useCallback(
+    (id: string, group: TaskTabGroup, index?: number) => {
+      if (layout === undefined) return;
+      const after = moveTab(layout, id, group, index);
+      if (after === layout) return;
+      setFailure(undefined);
+      change((current) => moveTab(current, id, group, index));
+      focusTab(id);
+    },
+    [change, focusTab, layout, setFailure],
+  );
+
   const move = useCallback(() => {
-    if (layout === undefined || task === undefined) return;
-    setFailure(undefined);
+    if (layout === undefined) return;
     const tab = activeTab(layout, focusGroup);
     if (tab === undefined) return;
-    const after = moveTab(layout, tabId(tab), task.primarySessionId);
-    if (after === layout) {
-      setFailure(
-        tab.kind === "session" && tab.sessionId === task.primarySessionId
-          ? "The primary session is not moved between groups."
-          : "The main group keeps its only tab.",
-      );
-      return;
-    }
-    change((current) => moveTab(current, tabId(tab), task.primarySessionId));
-    const group: TaskTabGroup = tab.group === "main" ? "companion" : "main";
-    setFocusGroup(group);
-    const moved = activeTab(after, group);
-    if (moved !== undefined) focusTab(tabId(moved));
-    else focusAddSession();
-  }, [change, focusAddSession, focusTab, focusGroup, layout, setFailure, setFocusGroup, task]);
+    moveTo(tabId(tab), tab.group === "main" ? "companion" : "main");
+  }, [focusGroup, layout, moveTo]);
+
+  const dropTab = useCallback(
+    (drop: VisualTabDrop) => {
+      if (layout === undefined || drop.id === drop.over) return;
+      const items = tabsInGroup(layout, drop.group).filter((tab) => tabId(tab) !== drop.id);
+      const over = items.findIndex((tab) => tabId(tab) === drop.over);
+      const index = over < 0 ? items.length : over + (drop.after ? 1 : 0);
+      moveTo(drop.id, drop.group, index);
+    },
+    [layout, moveTo],
+  );
 
   const step = useCallback(
     (direction: 1 | -1) => {
@@ -572,41 +606,45 @@ export function useTaskWorkspace({
       setDialog(undefined);
       const after = layout === undefined ? undefined : removeSession(layout, session.id);
       change((current) => removeSession(current, session.id));
-      if (after !== undefined && tabsInGroup(after, "companion").length === 0) {
-        setFocusGroup("main");
-        const main = activeTab(after, "main");
-        if (main !== undefined) focusTab(tabId(main));
+      if (after !== undefined && tabsInGroup(after, focusGroup).length === 0) {
+        setFocusGroup(after.focused);
+        const remaining = activeTab(after, after.focused);
+        if (remaining !== undefined) focusTab(tabId(remaining));
         else focusAddSession();
       }
     },
-    [change, client, focusAddSession, focusTab, layout, setDialog, setFailure, setFocusGroup],
+    [
+      change,
+      client,
+      focusAddSession,
+      focusGroup,
+      focusTab,
+      layout,
+      setDialog,
+      setFailure,
+      setFocusGroup,
+    ],
   );
 
-  const toggleGroup = useCallback(() => {
-    if (layout === undefined) return;
-    const next = toggleCompanion(layout);
-    if (next === layout) return;
-    change((current) => toggleCompanion(current));
-    setFocusGroup(next.companionOpen ? "companion" : "main");
-    if (next.companionOpen) focusPane("companion");
-    else focusPane("main");
-  }, [change, focusPane, layout, setFocusGroup]);
+  const toggleGroup = useCallback(
+    (group: TaskTabGroup = focusGroup) => {
+      if (layout === undefined) return;
+      const next = toggleExpanded(layout, group);
+      if (next === layout) return;
+      change((current) => toggleExpanded(current, group));
+      focusPane(group);
+    },
+    [change, focusGroup, focusPane, layout],
+  );
 
   const focusCompanion = useCallback(() => {
     if (layout === undefined) return;
-    // A second press of the focus chord returns to the main group. A task with no companion tab
-    // has no group to focus, so the chord leaves the keyboard where it is.
-    if (focusGroup === "companion") {
-      setFocusGroup("main");
-      focusPane("main");
-      return;
-    }
-    const tab = activeTab(layout, "companion") ?? tabsInGroup(layout, "companion")[0];
+    const other = focusGroup === "companion" ? "main" : "companion";
+    const tab = activeTab(layout, other) ?? tabsInGroup(layout, other)[0];
     if (tab === undefined) return;
-    change((current) => selectTab({ ...current, companionOpen: true }, tabId(tab)));
-    setFocusGroup("companion");
-    focusPane("companion");
-  }, [change, focusGroup, focusPane, layout, setFocusGroup]);
+    change((current) => focusLayoutGroup(current, other));
+    focusPane(other);
+  }, [change, focusGroup, focusPane, layout]);
 
   const abort = useCallback(async () => {
     if (focusedChat === undefined) return;
@@ -763,23 +801,33 @@ export function useTaskWorkspace({
     return () => observer.disconnect();
   }, []);
 
-  const companionWidth = companionWidthFor(preferredWidth, available);
+  const companionWidth = companionWidthFor(
+    layout?.companionWidth ?? COMPANION_DEFAULT_WIDTH,
+    available,
+  );
   const companionLimits = companionRange(available);
   // The handle starts from the rendered width; store the value the frame can actually show.
   const resizeCompanion = useCallback(
     (next: number) => {
-      setPreferredWidth(
-        Math.max(companionLimits.min, Math.min(companionLimits.max, Math.round(next))),
+      const width = Math.max(companionLimits.min, Math.min(companionLimits.max, Math.round(next)));
+      change((current) =>
+        current.companionWidth === width ? current : { ...current, companionWidth: width },
       );
     },
-    [companionLimits.max, companionLimits.min, setPreferredWidth],
+    [change, companionLimits.max, companionLimits.min],
   );
 
+  const mainHasTabs = layout !== undefined && tabsInGroup(layout, "main").length > 0;
+  const companionHasTabs = layout !== undefined && tabsInGroup(layout, "companion").length > 0;
+  const mainVisible = !companionHasTabs || (mainHasTabs && layout?.expanded !== "companion");
+  const companionVisible = companionHasTabs && (!mainHasTabs || layout?.expanded !== "main");
   const sessionItems = (group: TaskTabGroup): VisualTabItem[] => {
     if (layout === undefined) return [];
     const paneId = group === "main" ? MAIN_PANE_ID : COMPANION_PANE_ID;
     return tabsInGroup(layout, group).flatMap((tab): VisualTabItem[] => {
       const id = tabId(tab);
+      const groupTabs = tabsInGroup(layout, group);
+      const index = groupTabs.findIndex((candidate) => tabId(candidate) === id);
       if (tab.kind === "session") {
         const session = sessionById.get(tab.sessionId ?? "");
         if (session === undefined) return [];
@@ -850,6 +898,23 @@ export function useTaskWorkspace({
                 >
                   Rename…
                 </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={index === 0}
+                  onClick={() => moveTo(id, group, index - 1)}
+                >
+                  Move tab left
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={index === groupTabs.length - 1}
+                  onClick={() => moveTo(id, group, index + 1)}
+                >
+                  Move tab right
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => moveTo(id, group === "main" ? "companion" : "main")}
+                >
+                  Move tab to the other group
+                </DropdownMenuItem>
                 {session.id !== task?.primarySessionId && (
                   <DropdownMenuItem onClick={() => void close(id)}>Close tab</DropdownMenuItem>
                 )}
@@ -878,23 +943,22 @@ export function useTaskWorkspace({
   };
 
   const addSessionTooltip = `Add session · ${formatBinding(config, "new-terminal")} / ${formatBinding(config, "new-agent")}`;
-  const agentItem = <DropdownMenuItem onClick={openAgentPicker}>Agent…</DropdownMenuItem>;
-  // Beside the last tab, the plus is the common action and the chevron is the one menu that
-  // remains; the empty workspace below repeats the whole add-session menu instead.
-  const addSessionControl = (
+  const addSessionControl = (group: TaskTabGroup) => (
     <VisualAddMenu
       label="Add session"
       menuLabel="New agent session"
       tooltip={addSessionTooltip}
-      onAdd={() => void startSession("shell")}
+      onAdd={() => void startSession("shell", undefined, undefined, group)}
     >
-      {agentItem}
+      <DropdownMenuItem onClick={() => openAgentPicker(group)}>Agent…</DropdownMenuItem>
     </VisualAddMenu>
   );
   const emptyAddSessionControl = (
     <VisualAddMenu label="Add session" tooltip={addSessionTooltip}>
-      <DropdownMenuItem onClick={() => void startSession("shell")}>Shell</DropdownMenuItem>
-      {agentItem}
+      <DropdownMenuItem onClick={() => void startSession("shell", undefined, undefined, "main")}>
+        Shell
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => openAgentPicker("main")}>Agent…</DropdownMenuItem>
     </VisualAddMenu>
   );
 
@@ -905,7 +969,17 @@ export function useTaskWorkspace({
       position={position}
       onSelect={select}
       onClose={(id) => close(id)}
-      add={group === "main" ? addSessionControl : null}
+      dragGroup={group}
+      add={addSessionControl(group)}
+      actions={
+        mainHasTabs && companionHasTabs ? (
+          <VisualIconButton
+            label={layout?.expanded === group ? "Restore panel size" : "Maximize panel"}
+            icon={layout?.expanded === group ? "minimize" : "maximize"}
+            onClick={() => toggleGroup(group)}
+          />
+        ) : undefined
+      }
     />
   );
 
@@ -926,18 +1000,9 @@ export function useTaskWorkspace({
           key={session.id}
           store={chat.store}
           memory={memories.get(session.id) ?? chatTranscriptStore()}
-          draft={chatDrafts.get(session.id) ?? ""}
-          onDraftChange={(update) => {
-            setChatDrafts((previous) => {
-              const value = previous.get(session.id) ?? "";
-              const next = typeof update === "function" ? update(value) : update;
-              if (next === value) return previous;
-              const drafts = new Map(previous);
-              if (next === "") drafts.delete(session.id);
-              else drafts.set(session.id, next);
-              return drafts;
-            });
-          }}
+          draft={chatDrafts.get(session.id)}
+          autoFocus={focusGroup === group && (group === "main" ? mainVisible : companionVisible)}
+          onDraftChange={(update) => chatDrafts.change(session.id, update)}
           files={chatFiles}
           agent={session.kind}
           followUp={driver?.followUp}
@@ -961,6 +1026,7 @@ export function useTaskWorkspace({
           client={client}
           terminal={terminal}
           onFit={rememberFitSize}
+          autoFocus={focusGroup === group && (group === "main" ? mainVisible : companionVisible)}
           exitHint={
             `${describeSessionState(session).note ?? ""} ${
               restartHint === null ? "" : `Press ${formatBinding(config, "restart-session")}.`
@@ -981,52 +1047,32 @@ export function useTaskWorkspace({
     return null;
   };
 
-  const mainPaneContent =
-    layout === undefined ? null : (
-      <VisualTabPanel
-        id={MAIN_PANE_ID}
-        labelledBy={mainTab === undefined ? undefined : `tab-${tabId(mainTab)}`}
-        fill
-        panelRef={mainPane}
-      >
-        <div className="visual-workspace-pane" onFocusCapture={() => setFocusGroup("main")}>
-          {tabsInGroup(layout, "main").some((tab) => tab.kind === "session") ? (
-            // oxlint-disable-next-line react/refs -- the anchors are passed to ChatView, not read here
-            sessionPane(mainSession, "main")
-          ) : (
-            <div className="visual-main-empty visual-workspace-empty">{emptyAddSessionControl}</div>
-          )}
-        </div>
-      </VisualTabPanel>
-    );
-
-  const companionPaneContent =
-    layout === undefined || tabsInGroup(layout, "companion").length === 0 ? null : (
-      <VisualCompanion
-        open={layout.companionOpen}
-        width={companionWidth}
-        min={companionLimits.min}
-        max={companionLimits.max}
-        onResize={resizeCompanion}
-        label="Resize companion group"
-      >
-        {position === "top" && strip("companion")}
+  const groupPane = (group: TaskTabGroup) => {
+    const selected = group === "main" ? mainTab : companionTab;
+    const session = group === "main" ? mainSession : companionSession;
+    return (
+      <>
+        {position === "top" && strip(group)}
         <VisualTabPanel
-          id={COMPANION_PANE_ID}
-          labelledBy={companionTab === undefined ? undefined : `tab-${tabId(companionTab)}`}
+          id={group === "main" ? MAIN_PANE_ID : COMPANION_PANE_ID}
+          labelledBy={selected === undefined ? undefined : `tab-${tabId(selected)}`}
           fill
-          panelRef={companionPane}
+          panelRef={group === "main" ? mainPane : companionPane}
         >
-          <div className="visual-workspace-pane" onFocusCapture={() => setFocusGroup("companion")}>
-            {
-              // oxlint-disable-next-line react/refs -- the anchors are passed to ChatView, not read here
-              sessionPane(companionSession, "companion")
-            }
+          <div className="visual-workspace-pane">
+            {session === undefined && group === "main" && !companionHasTabs ? (
+              <div className="visual-main-empty visual-workspace-empty">
+                {emptyAddSessionControl}
+              </div>
+            ) : (
+              sessionPane(session, group)
+            )}
           </div>
         </VisualTabPanel>
-        {position === "bottom" && strip("companion")}
-      </VisualCompanion>
+        {position === "bottom" && strip(group)}
+      </>
     );
+  };
 
   const dialogs =
     task === undefined ? null : (
@@ -1040,8 +1086,8 @@ export function useTaskWorkspace({
             capabilitiesReady={capabilitiesReady}
             onStart={async (choice) => {
               const started = await launch(choice.kind, choice, choice.view);
-              addSession(started);
-              setDialog(undefined);
+              addSession(started, task, dialog.group);
+              if (taskIdRef.current === task.id) setDialog(undefined);
             }}
             onClose={() => setDialog(undefined)}
           />
@@ -1093,7 +1139,11 @@ export function useTaskWorkspace({
                 }
                 onStart={async (choice) => {
                   const started = await launch(choice.kind, choice, choice.view);
-                  addSession(started);
+                  const group =
+                    layout?.tabs.find(
+                      (tab) => tab.kind === "session" && tab.sessionId === dialog.session.id,
+                    )?.group ?? focusGroup;
+                  addSession(started, task, group);
                 }}
                 onSetModel={chat.setModel}
                 onSetReasoning={chat.setReasoning}
@@ -1126,19 +1176,28 @@ export function useTaskWorkspace({
 
   return {
     notice:
-      failure === undefined ? null : (
+      failure === undefined && !chatDrafts.storageFailed ? null : (
         <p className="visual-workspace-alert" role="alert">
-          {failure}
+          {failure ?? DRAFT_STORAGE_NOTICE}
         </p>
       ),
-    chrome: position === "top" ? strip("main") : undefined,
-    main: (
-      <>
-        {mainPaneContent}
-        {position === "bottom" && strip("main")}
-      </>
-    ),
-    companion: companionPaneContent,
+    main:
+      layout === undefined ? null : (
+        <VisualWorkspaceGroups
+          // oxlint-disable-next-line react/refs -- the group passes pane refs to its children
+          main={groupPane("main")}
+          // oxlint-disable-next-line react/refs -- the group passes pane refs to its children
+          companion={groupPane("companion")}
+          mainVisible={mainVisible}
+          companionVisible={companionVisible}
+          width={companionWidth}
+          min={companionLimits.min}
+          max={companionLimits.max}
+          onResize={resizeCompanion}
+          onFocusGroup={setFocusGroup}
+          onDrop={dropTab}
+        />
+      ),
     dialogs,
     prefix,
     prefixEnabled: active && dialog === undefined,

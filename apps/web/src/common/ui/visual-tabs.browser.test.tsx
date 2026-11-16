@@ -2,7 +2,7 @@ import { expect, test } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { useState } from "react";
 import { render } from "vitest-browser-react";
-import { VisualCompanion, VisualTabStrip, type VisualTabItem } from "./visual-tabs.tsx";
+import { VisualTabStrip, VisualWorkspaceGroups, type VisualTabItem } from "./visual-tabs.tsx";
 
 function items(count: number, selected: string): VisualTabItem[] {
   return Array.from({ length: count }, (_unused, index) => {
@@ -182,28 +182,35 @@ test("the add control overflows with the strip and scrolls back into view", asyn
 
 function CompanionHarness() {
   const [open, setOpen] = useState(true);
+  const [width, setWidth] = useState(320);
   return (
     <div style={{ width: 900, height: 400, display: "flex" }}>
-      <VisualCompanion
-        open={open}
-        width={320}
+      <VisualWorkspaceGroups
+        main={<div>main</div>}
+        companion={
+          <>
+            <button type="button" onClick={() => setOpen(false)}>
+              Shut the companion
+            </button>
+            <span data-testid="kept">kept</span>
+          </>
+        }
+        mainVisible
+        companionVisible={open}
+        width={width}
         min={320}
         max={480}
-        onResize={() => undefined}
-        label="Resize companion group"
-      >
-        <button type="button" onClick={() => setOpen(false)}>
-          Shut the companion
-        </button>
-        <span data-testid="kept">kept</span>
-      </VisualCompanion>
+        onResize={setWidth}
+        onFocusGroup={() => undefined}
+        onDrop={() => undefined}
+      />
     </div>
   );
 }
 
 test("the companion keeps its contents mounted while it is shut, with a 1 px split and 8 px hit area", async () => {
   const { container, unmount } = await render(<CompanionHarness />);
-  const companion = container.querySelector<HTMLElement>(".visual-companion")!;
+  const companion = container.querySelector<HTMLElement>(".visual-workspace-group-companion")!;
   const handle = page.getByRole("separator", { name: "Resize companion group" }).element();
   expect(getComputedStyle(companion).borderLeftWidth).toBe("1px");
   expect(handle.getBoundingClientRect().width).toBe(8);
@@ -222,7 +229,14 @@ test("the companion keeps its contents mounted while it is shut, with a 1 px spl
       clientX: 0,
     }),
   );
-  await expect.poll(() => companion.getAttribute("data-resizing")).toBe("true");
+  handle.dispatchEvent(
+    new PointerEvent("pointermove", {
+      bubbles: true,
+      pointerId: 1,
+      clientX: -16,
+    }),
+  );
+  await expect.element(handle).toHaveAttribute("aria-valuenow", "336");
   handle.dispatchEvent(
     new PointerEvent("pointerup", {
       bubbles: true,
@@ -231,11 +245,8 @@ test("the companion keeps its contents mounted while it is shut, with a 1 px spl
       clientX: 0,
     }),
   );
-  await expect.poll(() => companion.getAttribute("data-resizing")).toBeNull();
-
   await userEvent.click(page.getByRole("button", { name: "Shut the companion" }));
-  // A transparent 1 px border can survive the zero width; no pane is visible either way.
-  await expect.poll(() => companion.getBoundingClientRect().width).toBeLessThanOrEqual(1);
+  await expect.poll(() => getComputedStyle(companion).display).toBe("none");
   expect(container.querySelector('[data-testid="kept"]')).not.toBeNull();
   await unmount();
 });

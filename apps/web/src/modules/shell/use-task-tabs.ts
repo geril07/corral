@@ -1,6 +1,9 @@
 import type { Session, Task } from "@corral/protocol/rpc";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  COMPANION_DEFAULT_WIDTH,
+  COMPANION_MAX_WIDTH,
+  COMPANION_MIN_WIDTH,
   defaultLayout,
   parseLayout,
   reconcileLayout,
@@ -9,16 +12,16 @@ import {
   type TaskTabLayout,
 } from "./task-tabs.ts";
 
-export const COMPANION_MIN_WIDTH = 320;
-export const COMPANION_DEFAULT_WIDTH = 600;
 /** The main pane keeps this much room before the companion group grows into it. */
 export const MAIN_MIN_WIDTH = 560;
-const COMPANION_MAX_WIDTH = 900;
 const COMPANION_WIDTH_KEY = "corral.companion-width";
 
 function readLayout(taskId: string): TaskTabLayout | undefined {
   try {
-    return parseLayout(window.localStorage.getItem(`${TASK_TAB_STORAGE_PREFIX}${taskId}`));
+    return parseLayout(
+      window.localStorage.getItem(`${TASK_TAB_STORAGE_PREFIX}${taskId}`),
+      readCompanionWidth(),
+    );
   } catch {
     return undefined;
   }
@@ -49,6 +52,7 @@ function readCompanionWidth(): number {
  */
 export function useTaskTabLayout(task: Task | undefined, sessions: readonly Session[]) {
   const [layouts, setLayouts] = useState<ReadonlyMap<string, TaskTabLayout>>(() => new Map());
+  const layoutsRef = useRef(layouts);
   const taskKey = useMemo(
     () =>
       task === undefined ? undefined : { id: task.id, primarySessionId: task.primarySessionId },
@@ -80,7 +84,10 @@ export function useTaskTabLayout(task: Task | undefined, sessions: readonly Sess
     [layouts, taskKey?.id],
   );
   const layout = useMemo(
-    () => (taskKey === undefined ? undefined : reconcileLayout(base, taskKey, layoutSessions)),
+    () =>
+      taskKey === undefined
+        ? undefined
+        : reconcileLayout(base, taskKey, layoutSessions, readCompanionWidth()),
     [base, taskKey, layoutSessions],
   );
 
@@ -90,13 +97,12 @@ export function useTaskTabLayout(task: Task | undefined, sessions: readonly Sess
     const key = `${TASK_TAB_STORAGE_PREFIX}${id}`;
     const onStorage = (event: StorageEvent) => {
       if (event.key !== key) return;
-      const parsed = parseLayout(event.newValue);
+      const parsed = parseLayout(event.newValue, readCompanionWidth());
       if (parsed === undefined) return;
-      setLayouts((previous) => {
-        const map = new Map(previous);
-        map.set(id, parsed);
-        return map;
-      });
+      const map = new Map(layoutsRef.current);
+      map.set(id, parsed);
+      layoutsRef.current = map;
+      setLayouts(map);
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -112,20 +118,22 @@ export function useTaskTabLayout(task: Task | undefined, sessions: readonly Sess
       target: Pick<Task, "id" | "primarySessionId">,
       update: (current: TaskTabLayout) => TaskTabLayout,
     ) => {
-      setLayouts((previous) => {
-        const targetSessions = sessionsRef.current.filter(
-          (session) => session.taskId === target.id,
-        );
-        const storedBase =
-          readLayout(target.id) ?? previous.get(target.id) ?? defaultLayout(target, targetSessions);
-        const current = reconcileLayout(storedBase, target, targetSessions);
-        const next = update(current);
-        if (next === current) return previous;
-        storeLayout(target.id, next);
-        const map = new Map(previous);
-        map.set(target.id, next);
-        return map;
-      });
+      // Compute once, outside a state updater: React may re-run an updater, and storing inside it
+      // made a second run read the value the first run had just written.
+      const previous = layoutsRef.current;
+      const targetSessions = sessionsRef.current.filter((session) => session.taskId === target.id);
+      const storedBase =
+        readLayout(target.id) ??
+        previous.get(target.id) ??
+        defaultLayout(target, targetSessions, readCompanionWidth());
+      const current = reconcileLayout(storedBase, target, targetSessions);
+      const next = update(current);
+      if (next === current) return;
+      storeLayout(target.id, next);
+      const map = new Map(previous);
+      map.set(target.id, next);
+      layoutsRef.current = map;
+      setLayouts(map);
     },
     [],
   );
@@ -142,21 +150,6 @@ export function useTaskTabLayout(task: Task | undefined, sessions: readonly Sess
   return { layout, change, changeFor };
 }
 
-/** The companion group's device-local preferred width; the pane clamps it to the room it has. */
-export function useCompanionWidth() {
-  const [width, setWidth] = useState(readCompanionWidth);
-  const set = useCallback((next: number) => {
-    const value = Math.round(Math.min(COMPANION_MAX_WIDTH, Math.max(COMPANION_MIN_WIDTH, next)));
-    setWidth(value);
-    try {
-      window.localStorage.setItem(COMPANION_WIDTH_KEY, String(value));
-    } catch {
-      // See above: a preference that cannot be kept is not a workspace failure.
-    }
-  }, []);
-  return { width, setWidth: set };
-}
-
 /**
  * The width range the companion actually has. At the 1024 floor with the sidebar hidden both
  * minimums hold (560 + 320 + the 8 px inset); with the sidebar open the main pane gives up part of
@@ -164,7 +157,11 @@ export function useCompanionWidth() {
  */
 export function companionRange(available: number): { min: number; max: number } {
   if (available <= 0) return { min: COMPANION_MIN_WIDTH, max: COMPANION_DEFAULT_WIDTH };
-  const max = Math.min(available, Math.max(COMPANION_MIN_WIDTH, available - MAIN_MIN_WIDTH));
+  const max = Math.min(
+    COMPANION_MAX_WIDTH,
+    available,
+    Math.max(COMPANION_MIN_WIDTH, available - MAIN_MIN_WIDTH),
+  );
   return { min: Math.min(COMPANION_MIN_WIDTH, max), max };
 }
 

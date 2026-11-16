@@ -751,18 +751,7 @@ export function VisualWorkspace({
           activeDraft === undefined && selectedTask !== undefined ? taskWorkspace.notice : undefined
         }
         chrome={
-          activeDraft !== undefined
-            ? appearance.tabPosition === "top"
-              ? draftStrip
-              : undefined
-            : selectedTask !== undefined
-              ? taskWorkspace.chrome
-              : undefined
-        }
-        companion={
-          activeDraft === undefined && selectedTask !== undefined
-            ? taskWorkspace.companion
-            : undefined
+          activeDraft !== undefined && appearance.tabPosition === "top" ? draftStrip : undefined
         }
         mainFill={activeDraft !== undefined || selectedTask !== undefined}
         prefixExtra={

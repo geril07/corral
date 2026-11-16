@@ -19,6 +19,7 @@ interface TerminalViewProps {
   client: CorralClient;
   terminal: TerminalInfo;
   onFit: (size: TerminalSize) => void;
+  autoFocus?: boolean | undefined;
   /** Appended to the notice shown once the process has exited. */
   exitHint?: string | undefined;
 }
@@ -44,8 +45,15 @@ function readTerminalTheme() {
 }
 
 /** One xterm.js bound to one server terminal. Output goes stream to xterm, never through React. */
-export function TerminalView({ client, terminal, onFit, exitHint }: TerminalViewProps) {
+export function TerminalView({
+  client,
+  terminal,
+  onFit,
+  exitHint,
+  autoFocus = true,
+}: TerminalViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const focusOnMount = useRef(autoFocus);
   const [streamState, setStreamState] = useState<TerminalStreamState>({
     status: "connecting",
     attempt: 1,
@@ -82,7 +90,7 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
     } catch {
       // No WebGL here: xterm.js keeps its DOM renderer.
     }
-    const unpublish = publishScreenText(xterm);
+    const unpublish = publishScreenText(xterm, host);
 
     const stream = client.attach(terminalId, xterm, {
       // The connected state arrives before the replay snapshot, which resets the canvas to the
@@ -102,6 +110,7 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
     let frame = 0;
     let held = "";
     const applySize = () => {
+      if (host.clientWidth === 0 || host.clientHeight === 0 || host.closest("[inert]")) return;
       const size = fit.proposeDimensions();
       if (!size || !(size.cols > 0 && size.rows > 0)) return;
       // The server's snapshot may have put another client's grid on this canvas. Fit this pane
@@ -111,6 +120,7 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
       onFit(size);
     };
     const proposeSize = () => {
+      if (host.clientWidth === 0 || host.clientHeight === 0 || host.closest("[inert]")) return;
       const size = `${host.clientWidth}x${host.clientHeight}`;
       cancelAnimationFrame(frame);
       if (size === held) {
@@ -136,7 +146,7 @@ export function TerminalView({ client, terminal, onFit, exitHint }: TerminalView
     host.addEventListener("focusin", refitOnFocus);
     document.addEventListener("visibilitychange", refitOnVisible);
     proposeSize();
-    xterm.focus();
+    if (focusOnMount.current) xterm.focus();
 
     return () => {
       reducedMotion.removeEventListener("change", onMotionChange);

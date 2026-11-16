@@ -1,8 +1,9 @@
 import type { ChatAnswer, ChatUserRequest } from "@corral/protocol/chat";
 import { describeError } from "@corral/client/rpc-errors";
 import { useEnterGuard } from "../../common/hooks/use-enter-guard.ts";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { Badge, Button, Input, StatusGlyph, Textarea } from "../../common/ui/index.ts";
+import { ChatFocusContext } from "./chat-focus.ts";
 
 /** What a recorded or live answer reads as in the timeline after the request is resolved. */
 function answerLabel(item: ChatUserRequest): string {
@@ -39,6 +40,7 @@ export function ChatRequestItem({
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const fieldRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const dismissRef = useRef<HTMLButtonElement | null>(null);
+  const focusAllowed = useContext(ChatFocusContext);
   const pending = item.status === "pending";
   const choiceCount =
     item.request === "confirm" ? 2 : item.request === "select" ? item.options.length : 0;
@@ -47,7 +49,13 @@ export function ChatRequestItem({
   // on its first choice and moves with the arrow keys. A choice-less request has no radio to focus,
   // so its explicit Dismiss button takes the keyboard instead of leaving the request unreachable.
   useEffect(() => {
-    if (!pending || !selected) return;
+    if (
+      !pending ||
+      !selected ||
+      focusAllowed?.current === false ||
+      document.activeElement?.getAttribute("role") === "tab"
+    )
+      return;
     const control =
       item.request === "input" || item.request === "editor"
         ? fieldRef.current
@@ -56,7 +64,7 @@ export function ChatRequestItem({
           : optionRefs.current[active];
     control?.focus({ preventScroll: true });
     control?.scrollIntoView({ block: "center" });
-  }, [pending, selected, item.request, active, choiceCount]);
+  }, [pending, selected, item.request, active, choiceCount, focusAllowed]);
 
   const answer = async (value: ChatAnswer) => {
     if (!pending || busy) return;

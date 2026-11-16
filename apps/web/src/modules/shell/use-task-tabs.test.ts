@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
-import { companionRange, companionWidthFor, COMPANION_MIN_WIDTH } from "./use-task-tabs.ts";
+import { COMPANION_MIN_WIDTH } from "./task-tabs.ts";
+import { companionRange, companionWidthFor } from "./use-task-tabs.ts";
 
 describe("the companion group's width", () => {
   test("keeps both reference minimums when the working area has room", () => {
