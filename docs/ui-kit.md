@@ -14,6 +14,11 @@ Semantic color and chrome values live in
 it. Use those roles rather than copying values into modules. Interface text scales per device;
 the terminal keeps its own monospace role and does not follow interface text scale.
 
+Chrome geometry the class scale cannot name lives in the kit as a length token (`--visual-band`,
+`--chrome-row`), and a module names that token (`h-(--chrome-row)`) instead of writing a pixel value
+into a class string. A module's own stylesheet is layout the module owns and may carry one-off
+geometry; the gate reads class strings and kit `data-slot` selectors, not stylesheet values.
+
 The supported desktop window starts at 1024×640; smaller layouts have not been decided. The
 window floor is in [`apps/desktop/src/main.ts`](../apps/desktop/src/main.ts).
 

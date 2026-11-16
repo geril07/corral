@@ -880,12 +880,20 @@
   flex: 0 0 auto;
 }
 
+/* Chrome geometry: the row above the working area and the tab strip are one band, and the sidebar
+   footer's row is that band less its own hairline, so the strip's rule and the footer's rule meet
+   on one line. A module names the row through `h-(--visual-footer-row)` rather than a pixel. */
+:root {
+  --visual-band: 40px;
+  --visual-footer-row: calc(var(--visual-band) - 1px);
+}
+
 /* A real chrome row is reserved in the main surface, so its Show toggle never sits over the title. */
 .visual-main-chrome {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  height: 40px;
+  height: var(--visual-band);
   padding: 0 8px;
   overflow: hidden;
 }
@@ -1311,7 +1319,7 @@
   align-items: center;
   gap: 6px;
   width: 100%;
-  height: 40px;
+  height: var(--visual-band);
   min-width: 0;
   padding: 0 8px;
 }
