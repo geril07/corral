@@ -20,6 +20,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -29,6 +30,7 @@ import { Hint } from "./hint.tsx";
 import { Icon, type IconName } from "./icon.tsx";
 import { RowMenu } from "./row-menu.tsx";
 import { StatusGlyph } from "./status-glyph.tsx";
+import { VisualResizeHandle } from "./visual-shell.tsx";
 
 /** The tab's kind decides its glyph and whether it carries a number or status. */
 export type VisualTabKind = "session" | "file" | "draft";
@@ -174,7 +176,11 @@ export function VisualWorkspaceGroups({
 }) {
   const split = mainVisible && companionVisible;
   return (
-    <div className="visual-workspace-groups">
+    <div
+      className="visual-workspace-groups"
+      data-split={split ? "true" : undefined}
+      style={split ? ({ "--group-companion-width": `${width}px` } as CSSProperties) : undefined}
+    >
       <VisualTabDrag onDrop={onDrop}>
         <div
           className="visual-workspace-group"
@@ -188,25 +194,26 @@ export function VisualWorkspaceGroups({
         <div
           className="visual-workspace-group visual-workspace-group-companion"
           data-hidden={companionVisible ? undefined : "true"}
-          data-split={split ? "true" : undefined}
           style={split ? { width } : undefined}
           aria-hidden={companionVisible ? undefined : true}
           inert={companionVisible ? undefined : true}
           onFocusCapture={() => onFocusGroup("companion")}
         >
-          {split && (
-            <VisualSplitHandle
-              width={width}
-              min={min}
-              max={max}
-              onResize={onResize}
-              label="Resize companion group"
-            />
-          )}
           {companion}
         </div>
         {!split && <VisualTabDropEdge group={mainVisible ? "companion" : "main"} />}
       </VisualTabDrag>
+      {split && (
+        <VisualResizeHandle
+          className="visual-split-handle"
+          label="Resize companion group"
+          reverse
+          width={width}
+          min={min}
+          max={max}
+          onResize={onResize}
+        />
+      )}
     </div>
   );
 }
@@ -542,65 +549,6 @@ export function VisualAddMenu({
         </DropdownMenu>
       </span>
     </Hint>
-  );
-}
-
-/** A vertical split edge: a 1 px line with an 8 px pointer hit area. */
-function VisualSplitHandle({
-  width,
-  min,
-  max,
-  onResize,
-  label,
-}: {
-  width: number;
-  min: number;
-  max: number;
-  onResize: (width: number) => void;
-  label: string;
-}) {
-  const keyStep = 16;
-  return (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label={label}
-      aria-valuenow={width}
-      aria-valuemin={min}
-      aria-valuemax={max}
-      tabIndex={0}
-      className="visual-split-handle"
-      onPointerDown={(event) => {
-        event.preventDefault();
-        const handle = event.currentTarget;
-        const startX = event.clientX;
-        const startWidth = width;
-        const move = (moved: PointerEvent) => onResize(startWidth + (startX - moved.clientX));
-        const stop = () => {
-          handle.removeEventListener("pointermove", move);
-          handle.removeEventListener("pointerup", stop);
-          handle.removeEventListener("pointercancel", stop);
-          handle.removeEventListener("lostpointercapture", stop);
-          if (handle.hasPointerCapture(event.pointerId))
-            handle.releasePointerCapture(event.pointerId);
-        };
-        handle.setPointerCapture(event.pointerId);
-        handle.addEventListener("pointermove", move);
-        handle.addEventListener("pointerup", stop);
-        handle.addEventListener("pointercancel", stop);
-        handle.addEventListener("lostpointercapture", stop);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "ArrowLeft") {
-          event.preventDefault();
-          onResize(width + keyStep);
-        }
-        if (event.key === "ArrowRight") {
-          event.preventDefault();
-          onResize(width - keyStep);
-        }
-      }}
-    />
   );
 }
 

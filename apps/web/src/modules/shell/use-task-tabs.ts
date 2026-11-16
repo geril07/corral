@@ -13,7 +13,7 @@ import {
 } from "./task-tabs.ts";
 
 /** The main pane keeps this much room before the companion group grows into it. */
-export const MAIN_MIN_WIDTH = 560;
+export const MAIN_MIN_WIDTH = 360;
 const COMPANION_WIDTH_KEY = "corral.companion-width";
 
 function readLayout(taskId: string): TaskTabLayout | undefined {
@@ -151,9 +151,9 @@ export function useTaskTabLayout(task: Task | undefined, sessions: readonly Sess
 }
 
 /**
- * The width range the companion actually has. At the 1024 floor with the sidebar hidden both
- * minimums hold (560 + 320 + the 8 px inset); with the sidebar open the main pane gives up part of
- * its minimum rather than let the companion become an unusable sliver.
+ * The width range the companion actually has. The main pane keeps 360 px and the companion 160 px;
+ * in a working area too narrow for both floors the companion keeps its own and the main pane goes
+ * under its floor, so a split on a small window is cramped rather than frozen.
  */
 export function companionRange(available: number): { min: number; max: number } {
   if (available <= 0) return { min: COMPANION_MIN_WIDTH, max: COMPANION_DEFAULT_WIDTH };

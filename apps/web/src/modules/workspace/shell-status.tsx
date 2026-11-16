@@ -60,7 +60,7 @@ export function ShellStatus({
             <FailureMessage failure={failure} onDismiss={onDismissFailure} />
           </div>
         )}
-        <div className="flex h-9 min-w-0 items-center gap-0.5 px-2">
+        <div className="flex h-9 min-w-0 items-center gap-0.5 pl-0.5 pr-2">
           {actions}
           <ConfigProblemsNotice onOpen={onOpenConfigProblems} />
           <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground">

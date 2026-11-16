@@ -5,7 +5,8 @@ import { recordOf } from "./json-record.ts";
 export type TaskTabKind = "session" | "file";
 export type TaskTabGroup = "main" | "companion";
 
-export const COMPANION_MIN_WIDTH = 320;
+/** The narrowest a group gets; a strip with one tab still fits, and the split stays free. */
+export const COMPANION_MIN_WIDTH = 160;
 export const COMPANION_DEFAULT_WIDTH = 600;
 export const COMPANION_MAX_WIDTH = 900;
 

@@ -1078,24 +1078,9 @@ export function VisualShellView({
             onOpenConfigProblems={status.onOpenConfigProblems}
           />
         )}
-        {taskHeader !== undefined && (
-          <div className="visual-task-header">
-            <span
-              className={
-                pane.hidden
-                  ? "visual-toggle-slot"
-                  : "visual-toggle-slot visual-toggle-slot-collapsed"
-              }
-              ref={closedToggleSlot}
-              aria-hidden="true"
-            />
-            {taskHeader}
-          </div>
-        )}
-        {workingNotice}
-        {(taskHeader === undefined || chrome !== undefined) && (
-          <div className="visual-main-chrome">
-            {taskHeader === undefined && (
+        <div className="visual-task-surface">
+          {taskHeader !== undefined && (
+            <div className="visual-task-header">
               <span
                 className={
                   pane.hidden
@@ -1105,25 +1090,42 @@ export function VisualShellView({
                 ref={closedToggleSlot}
                 aria-hidden="true"
               />
-            )}
-            {chrome}
+              {taskHeader}
+            </div>
+          )}
+          {workingNotice}
+          {(taskHeader === undefined || chrome !== undefined) && (
+            <div className="visual-main-chrome">
+              {taskHeader === undefined && (
+                <span
+                  className={
+                    pane.hidden
+                      ? "visual-toggle-slot"
+                      : "visual-toggle-slot visual-toggle-slot-collapsed"
+                  }
+                  ref={closedToggleSlot}
+                  aria-hidden="true"
+                />
+              )}
+              {chrome}
+            </div>
+          )}
+          <div className="visual-workspace-body">
+            <div
+              className={
+                mainFill ? "visual-main-content visual-main-content-fill" : "visual-main-content"
+              }
+            >
+              {main !== undefined ? (
+                main
+              ) : selected === undefined ? (
+                <EmptyMain rows={rows} hasProjects={hasProjects} failure={failure} />
+              ) : (
+                <TaskMain row={selected} />
+              )}
+            </div>
+            {companion}
           </div>
-        )}
-        <div className="visual-workspace-body">
-          <div
-            className={
-              mainFill ? "visual-main-content visual-main-content-fill" : "visual-main-content"
-            }
-          >
-            {main !== undefined ? (
-              main
-            ) : selected === undefined ? (
-              <EmptyMain rows={rows} hasProjects={hasProjects} failure={failure} />
-            ) : (
-              <TaskMain row={selected} />
-            )}
-          </div>
-          {companion}
         </div>
       </main>
     </div>
