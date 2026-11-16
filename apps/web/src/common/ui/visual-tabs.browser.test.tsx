@@ -1,6 +1,6 @@
 import { expect, test } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { render } from "vitest-browser-react";
 import { VisualTabStrip, VisualWorkspaceGroups, type VisualTabItem } from "./visual-tabs.tsx";
 
@@ -184,7 +184,16 @@ function CompanionHarness() {
   const [open, setOpen] = useState(true);
   const [width, setWidth] = useState(320);
   return (
-    <div style={{ width: 900, height: 400, display: "flex" }}>
+    <div
+      style={
+        {
+          width: 900,
+          height: 400,
+          display: "flex",
+          "--workspace-gutter": "6px",
+        } as CSSProperties
+      }
+    >
       <VisualWorkspaceGroups
         main={<div>main</div>}
         companion={
@@ -208,12 +217,18 @@ function CompanionHarness() {
   );
 }
 
-test("the companion keeps its contents mounted while it is shut, with a 1 px split and 8 px hit area", async () => {
+test("the companion keeps its contents mounted while it is shut, with an 8 px gap and a centred handle", async () => {
   const { container, unmount } = await render(<CompanionHarness />);
+  const main = container.querySelector<HTMLElement>(
+    ".visual-workspace-group:not(.visual-workspace-group-companion)",
+  )!;
   const companion = container.querySelector<HTMLElement>(".visual-workspace-group-companion")!;
   const handle = page.getByRole("separator", { name: "Resize companion group" }).element();
-  expect(getComputedStyle(companion).borderLeftWidth).toBe("1px");
+  const gap = companion.getBoundingClientRect().left - main.getBoundingClientRect().right;
+  expect(getComputedStyle(companion).borderLeftWidth).toBe("0px");
+  expect(gap).toBe(8);
   expect(handle.getBoundingClientRect().width).toBe(8);
+  expect(handle.getBoundingClientRect().left + 4).toBe(main.getBoundingClientRect().right + 4);
   expect(container.querySelector('[data-testid="kept"]')).not.toBeNull();
 
   Object.defineProperties(handle, {
@@ -246,7 +261,8 @@ test("the companion keeps its contents mounted while it is shut, with a 1 px spl
     }),
   );
   await userEvent.click(page.getByRole("button", { name: "Shut the companion" }));
-  await expect.poll(() => getComputedStyle(companion).display).toBe("none");
+  await expect.poll(() => getComputedStyle(companion).visibility).toBe("hidden");
+  expect(companion.getBoundingClientRect().width).toBe(0);
   expect(container.querySelector('[data-testid="kept"]')).not.toBeNull();
   await unmount();
 });
