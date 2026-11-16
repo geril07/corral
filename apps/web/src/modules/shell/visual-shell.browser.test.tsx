@@ -763,9 +763,9 @@ test("one toggle travels with the sidebar edge and keeps focus across hide and s
   const hideBox = toggle.getBoundingClientRect();
   expect(Math.abs(hideBox.left - closedBox.left)).toBeLessThan(1);
   expect(Math.abs(hideBox.top - closedBox.top)).toBeLessThan(1);
-  const eyebrow = container.querySelector<HTMLElement>(".visual-main-eyebrow");
-  if (eyebrow === null) throw new Error("main eyebrow is missing");
-  expect(hideBox.bottom).toBeLessThanOrEqual(eyebrow.getBoundingClientRect().top);
+  const identity = container.querySelector<HTMLElement>(".visual-main-task");
+  if (identity === null) throw new Error("main identity is missing");
+  expect(hideBox.bottom).toBeLessThanOrEqual(identity.getBoundingClientRect().top);
 
   await userEvent.click(toggle);
   await expect.poll(() => document.activeElement?.getAttribute("aria-label")).toBe("Hide sidebar");
