@@ -60,7 +60,9 @@ export function ShellStatus({
             <FailureMessage failure={failure} onDismiss={onDismissFailure} />
           </div>
         )}
-        <div className="flex h-9 min-w-0 items-center gap-0.5 pl-0.5 pr-2">
+        {/* 39 px under the footer's own rule: the row is 40 px tall in total, the same as the tab
+            band beside it, so their rules meet on one line. */}
+        <div className="flex h-[39px] min-w-0 items-center gap-0.5 pl-0.5 pr-2">
           {actions}
           <ConfigProblemsNotice onOpen={onOpenConfigProblems} />
           <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
