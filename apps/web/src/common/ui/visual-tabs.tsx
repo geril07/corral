@@ -41,7 +41,7 @@ export interface VisualTabItem {
   label: string;
   /** The state-bearing accessible name; the visible label stays short. */
   ariaLabel?: string | undefined;
-  /** The context-menu name, e.g. `Session actions for shell 2`. */
+  /** The context-menu name, e.g. `Session actions for shell`. */
   menuLabel?: string | undefined;
   /** Session and draft tabs carry 1–9 inside their group; file tabs carry none. */
   number?: number | undefined;

@@ -17,6 +17,7 @@ import {
 const { newClient } = realServerClients();
 const dialog = () => page.getByRole("dialog", { name: /^Rename / });
 const nameField = () => dialog().getByRole("textbox", { name: "Name" });
+const shells = () => sessionTab(/^shell$/);
 
 /** Renames the entry that is current in the sidebar through its key, replacing whatever is there. */
 async function renameCurrent(name: string) {
@@ -27,26 +28,26 @@ async function renameCurrent(name: string) {
   await expect.element(dialog()).not.toBeInTheDocument();
 }
 
-test("a task session is renamed without restarting it, and custom names keep the duplicate numbering intact", async () => {
+test("a task session is renamed without restarting it, and the other shell keeps its kind", async () => {
   const { client, project } = await appWithProject(newClient());
   await taskWithShell(client, project.id, "Named");
   await prefixThen("c");
-  await expect.element(sessionTab("shell 2")).toBeVisible();
+  await expect.element(shells()).toHaveLength(2);
   await userEvent.keyboard("echo before-$((6*7)){Enter}");
   await expect.poll(screenText).toContain("before-42");
 
-  await sessionTab("shell").click();
+  await shells().first().click();
   await renameCurrent("build");
 
   await expect.element(sessionTab("build")).toHaveAttribute("aria-selected", "true");
-  await expect.element(sessionTab("shell 2")).toBeVisible();
+  await expect.element(shells()).toHaveLength(1);
   await userEvent.keyboard("echo after-$((7*7)){Enter}");
   await expect.poll(screenText).toContain("after-49");
 
   await sessionTab("build").click();
   await renameCurrent("");
-  await expect.element(sessionTab("shell")).toBeVisible();
-  await expect.element(sessionTab("shell 2")).toBeVisible();
+  await expect.element(sessionTab("build")).not.toBeInTheDocument();
+  await expect.element(shells()).toHaveLength(2);
   await expect.element(dialog()).not.toBeInTheDocument();
 });
 
