@@ -60,12 +60,18 @@ to add retries.
 Examples from the repository root:
 
 ```sh
+pnpm check
+pnpm verify
 pnpm exec vp fmt --check <file>
 pnpm exec vp lint <file>
 pnpm --filter @corral/server typecheck
 pnpm exec vp test run --project node <test-file>
 pnpm exec vp test run --project browser <test-file>
 ```
+
+`pnpm check` is the static gate: the UI kit guard, format, lint and every package's type check.
+`pnpm verify` adds the Node suite. Neither is the edit loop — that is the test file next to the
+change — and a release or a broad change runs both.
 
 Browser tests use real Chromium; Electron tests exercise the desktop app. A single-file browser
 run does not prove suite isolation: files within a shard share a server. The performance suite is

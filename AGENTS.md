@@ -9,7 +9,7 @@ Keyboard-first workspace for running coding agents in terminals: a long-lived No
 
 ## Commands
 
-`pnpm check` is the full gate: format, lint, type check, Node tests. Browser and Electron suites: `pnpm test:browser`, `pnpm test:e2e`.
+`pnpm check` is the static gate: UI kit guard, format, lint, type check. `pnpm verify` adds the Node tests. Browser and Electron suites: `pnpm test:browser`, `pnpm test:e2e`.
 
 ## Local workloads
 
@@ -19,7 +19,7 @@ entrypoints, group and heavy classification.
 ## Verification
 
 - Run what the change can break, not the whole pipeline: the test file next to the code, that package's type check, format and lint of the files touched. Per-file commands: `docs/engineering.md`, **Testing**.
-- Broad or undeterminable change — protocol, layout, build or config shapes, anything spanning packages — gets the full gate: `pnpm check`, plus `pnpm test:browser` and `pnpm test:e2e` where the changed surface is one a user or client can reach.
+- Broad or undeterminable change — protocol, layout, build or config shapes, anything spanning packages — gets the full gate: `pnpm verify`, plus `pnpm test:browser` and `pnpm test:e2e` where the changed surface is one a user or client can reach.
 - The PR says what ran and what did not. An unstated skip is the failure this rule exists to prevent; the full suites are the evidence a release needs, not the edit loop.
 
 ## UI work
