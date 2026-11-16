@@ -26,13 +26,13 @@ pnpm workrun --group corral run --name issue135-check --heavy -- pnpm verify
 **Only full test suites use `--heavy` in this project.** Other workloads still run under the
 same CPU/RAM budget. Classification is not authorization to run an otherwise out-of-scope suite.
 
-| Workload                                                                                          | Heavy |
-| ------------------------------------------------------------------------------------------------- | ----- |
-| Full `pnpm verify` (the Node suite), `test:browser`, `test:e2e`, `test:contracts`, `test:workrun` | Yes   |
-| `pnpm check` (guard, format, lint, type checks)                                                   | No    |
-| Selected test files or a filtered test case                                                       | No    |
-| Dependency installation, typecheck, lint, format, build                                           | No    |
-| Development stack or seed command                                                                 | No    |
+| Workload                                                                                                             | Heavy |
+| -------------------------------------------------------------------------------------------------------------------- | ----- |
+| Full `pnpm verify` (Node, browser and Electron suites), `test:browser`, `test:e2e`, `test:contracts`, `test:workrun` | Yes   |
+| `pnpm check` (guard, format, lint, type checks)                                                                      | No    |
+| Selected test files or a filtered test case                                                                          | No    |
+| Dependency installation, typecheck, lint, format, build                                                              | No    |
+| Development stack or seed command                                                                                    | No    |
 
 Test selection and required gates remain in [AGENTS.md](../AGENTS.md#verification); this table
 only chooses admission. The shared workrun budget applies without an additional host-specific
