@@ -70,8 +70,9 @@ pnpm exec vp test run --project browser <test-file>
 ```
 
 `pnpm check` is the static gate: the UI kit guard, format, lint and every package's type check.
-`pnpm verify` adds the Node suite. Neither is the edit loop — that is the test file next to the
-change — and a release or a broad change runs both.
+`pnpm verify` is the full pack: the static gate plus the Node, browser and Electron suites. Neither
+is the edit loop — that is the test file next to the change — and a broad or undeterminable change,
+a release or a shared branch runs the pack.
 
 Browser tests use real Chromium; Electron tests exercise the desktop app. A single-file browser
 run does not prove suite isolation: files within a shard share a server. The performance suite is

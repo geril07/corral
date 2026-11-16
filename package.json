@@ -5,7 +5,7 @@
   "scripts": {
     "prepare": "vp config --no-agent",
     "check": "node scripts/check-web-ui.mjs && vp check && vp run -r typecheck",
-    "verify": "pnpm check && pnpm test",
+    "verify": "pnpm check && pnpm test && pnpm test:browser && pnpm test:e2e",
     "fmt": "vp fmt",
     "lint": "vp lint",
     "typecheck": "vp run -r typecheck",

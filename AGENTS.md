@@ -9,7 +9,7 @@ Keyboard-first workspace for running coding agents in terminals: a long-lived No
 
 ## Commands
 
-`pnpm check` is the static gate: UI kit guard, format, lint, type check. `pnpm verify` adds the Node tests. Browser and Electron suites: `pnpm test:browser`, `pnpm test:e2e`.
+`pnpm check` is the static gate: UI kit guard, format, lint, type check. `pnpm verify` is the full pack: the static gate plus the Node, browser and Electron suites. Browser and Electron files on their own: `pnpm test:browser`, `pnpm test:e2e`.
 
 ## Local workloads
 
@@ -18,9 +18,9 @@ entrypoints, group and heavy classification.
 
 ## Verification
 
-- Run what the change can break, not the whole pipeline: the test file next to the code, that package's type check, format and lint of the files touched. Per-file commands: `docs/engineering.md`, **Testing**.
-- Broad or undeterminable change — protocol, layout, build or config shapes, anything spanning packages — gets the full gate: `pnpm verify`, plus `pnpm test:browser` and `pnpm test:e2e` where the changed surface is one a user or client can reach.
-- The PR says what ran and what did not. An unstated skip is the failure this rule exists to prevent; the full suites are the evidence a release needs, not the edit loop.
+- **Focused, and the default.** Run what the change can break: the test file next to the code, that package's type check, format and lint of the files touched, and the browser or Electron file when the change reaches a surface a user or client can use. Per-file commands: `docs/engineering.md`, **Testing**.
+- **Full pack, for a broad or undeterminable change.** Protocol, layout, build or config shapes, anything spanning packages, or a surface whose tests you cannot name: `pnpm verify`, which runs every suite, so nothing is selected by judgement.
+- The PR says what ran and what did not. A focused run makes a smaller claim, not the same one under another name: name the suites that did not run. An unstated skip is the failure this rule exists to prevent; the full pack is the evidence a release needs, not the edit loop.
 
 ## UI work
 
