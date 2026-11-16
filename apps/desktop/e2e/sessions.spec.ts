@@ -158,3 +158,75 @@ test("two sessions of one task are tabs that switch by click and by key", async 
   await expect(window.getByRole("tab", { name: "Changes" })).toHaveCount(0);
   await expect(sessionTab(window, "claude")).toHaveAttribute("aria-selected", "true");
 });
+
+test("dragging and expanding groups keeps the agent and shell alive", async ({
+  launchApp,
+  stateDir,
+}) => {
+  writeConfig(stateDir, '[tasks]\nview = "terminal"\n');
+  const window = await openedWindow(await launchApp());
+  await addProject(window, createRepo(stateDir));
+  await createTask(window, "Movable tabs");
+  await startShell(window);
+  await window.keyboard.type("CORRAL_KEEP=alive");
+  await window.keyboard.press("Enter");
+
+  const main = sessionTabs(window);
+  const agent = main.getByRole("tab", { name: "claude", exact: true });
+  const shell = main.getByRole("tab", { name: "shell", exact: true });
+  const from = await agent.boundingBox();
+  const over = await shell.boundingBox();
+  if (from === null || over === null) throw new Error("tab boxes are missing");
+  await window.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await window.mouse.down();
+  await window.mouse.move(over.x + over.width - 3, over.y + over.height / 2, { steps: 16 });
+  await window.mouse.up();
+  await expect(main.getByRole("tab")).toHaveText([/shell/, /claude/]);
+
+  const moved = await agent.boundingBox();
+  const area = await window.locator(".visual-workspace-groups").boundingBox();
+  if (moved === null || area === null) throw new Error("workspace boxes are missing");
+  await window.mouse.move(moved.x + moved.width / 2, moved.y + moved.height / 2);
+  await window.mouse.down();
+  await window.mouse.move(area.x + area.width - 10, area.y + area.height / 2, { steps: 20 });
+  await expect(window.locator(".visual-tab-drop-edge")).toHaveAttribute("data-over", "true");
+  await window.mouse.up();
+  const companion = window.getByRole("tablist", { name: "Companion tabs" });
+  const rightAgent = companion.getByRole("tab", { name: "claude", exact: true });
+  await expect(rightAgent).toBeVisible();
+  await expect(main.getByRole("tab", { name: "shell", exact: true })).toBeVisible();
+
+  // Cancelling a drag is not a tab close and does not change either group.
+  const rightBox = await rightAgent.boundingBox();
+  const leftBox = await shell.boundingBox();
+  if (rightBox === null || leftBox === null) throw new Error("split tab boxes are missing");
+  await window.mouse.move(rightBox.x + rightBox.width / 2, rightBox.y + rightBox.height / 2);
+  await window.mouse.down();
+  await window.mouse.move(leftBox.x + leftBox.width / 2, leftBox.y + leftBox.height / 2, {
+    steps: 16,
+  });
+  await window.keyboard.press("Escape");
+  await window.mouse.up();
+  await expect(rightAgent).toBeVisible();
+  await expect(shell).toBeVisible();
+
+  // dnd-kit stops the next document click for 50 ms after any drag, including a cancelled one.
+  await window.waitForTimeout(60);
+  await window
+    .locator(".visual-workspace-group-companion")
+    .getByRole("button", { name: "Maximize panel" })
+    .click();
+  await expect(main).toBeHidden();
+  await window.keyboard.press("Alt+KeyA");
+  await window.keyboard.press("Shift+KeyW");
+  await expect(main).toBeVisible();
+  await expect(companion).toBeHidden();
+  await window.keyboard.press("Alt+KeyA");
+  await window.keyboard.press("Shift+KeyB");
+  await expect(companion).toBeVisible();
+  await shell.click();
+  await window.keyboard.type("printf 'after_%s\\n' \"$CORRAL_KEEP\"");
+  await window.keyboard.press("Enter");
+  await expect.poll(() => unwrappedScreenText(window)).toContain("after_alive");
+  expect(readLaunches(stateDir).filter((launch) => launch.agent === "claude")).toHaveLength(1);
+});

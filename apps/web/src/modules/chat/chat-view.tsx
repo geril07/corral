@@ -5,6 +5,7 @@ import type { AgentKind, ChatSendMode } from "@corral/protocol/rpc";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -29,6 +30,7 @@ import {
   useTruncatedText,
 } from "../../common/ui/index.ts";
 import { draftLeftAfterSend } from "./chat-draft.ts";
+import { ChatFocusContext } from "./chat-focus.ts";
 import { pendingRequest } from "./chat-rows.ts";
 import { ChatTimeline } from "./chat-timeline.tsx";
 import { insertQuote as quoteIntoDraft, type ChatTranscriptStore } from "./chat-transcript.ts";
@@ -73,6 +75,7 @@ export interface ChatViewProps {
    * coming back is not a fresh session.
    */
   memory: ChatTranscriptStore;
+  autoFocus?: boolean | undefined;
 }
 
 /**
@@ -97,6 +100,7 @@ export function ChatView({
   onChangeReasoning,
   files,
   memory,
+  autoFocus = true,
 }: ChatViewProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const reasoning = snapshot.state.reasoning ?? "Thinking";
@@ -105,6 +109,10 @@ export function ChatView({
   const [failure, setFailure] = useState<string>();
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => memory.read().expanded);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const focusAllowed = useRef(autoFocus);
+  useLayoutEffect(() => {
+    focusAllowed.current = autoFocus;
+  }, [autoFocus]);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [panelHeight, setPanelHeight] = useState(0);
@@ -188,6 +196,7 @@ export function ChatView({
 
   // A request takes the keyboard; the composer takes it back only when no request remains.
   useEffect(() => {
+    if (!focusAllowed.current || document.activeElement?.getAttribute("role") === "tab") return;
     if (requestId === undefined) focusComposer();
     else composerRef.current?.blur();
   }, [requestId, focusComposer]);
@@ -246,19 +255,21 @@ export function ChatView({
         <ContentLane className="relative h-full min-h-0">
           <div className="relative min-h-0 flex-1">
             <div className="absolute inset-0" ref={transcriptRef}>
-              <ChatTimeline
-                items={snapshot.items}
-                turn={snapshot.state.turn}
-                waiting={request !== undefined}
-                requestId={request?.id}
-                endSpace={panelHeight}
-                memory={memory}
-                expanded={expanded}
-                onToggleFold={toggleFold}
-                onRespond={onRespond}
-                onAnswered={focusAfterAnswer}
-                onFailure={setFailure}
-              />
+              <ChatFocusContext.Provider value={focusAllowed}>
+                <ChatTimeline
+                  items={snapshot.items}
+                  turn={snapshot.state.turn}
+                  waiting={request !== undefined}
+                  requestId={request?.id}
+                  endSpace={panelHeight}
+                  memory={memory}
+                  expanded={expanded}
+                  onToggleFold={toggleFold}
+                  onRespond={onRespond}
+                  onAnswered={focusAfterAnswer}
+                  onFailure={setFailure}
+                />
+              </ChatFocusContext.Provider>
             </div>
           </div>
           <div

@@ -174,8 +174,7 @@ function controlOverrides(program, diagnostics, line) {
     "TreeRow",
     "VisualResizeHandle",
     "VisualSidebar",
-    "VisualCompanion",
-    "VisualSplitHandle",
+    "VisualWorkspaceGroups",
     "VisualTabPanel",
     "VisualTabStrip",
   ]);

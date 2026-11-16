@@ -8,7 +8,7 @@ declare global {
 }
 
 /** Publishes the terminal's text for tests; the returned function removes it again. */
-export function publishScreenText(terminal: Terminal): () => void {
+export function publishScreenText(terminal: Terminal, host: HTMLElement): () => void {
   const read = () => {
     const buffer = terminal.buffer.active;
     const lines: string[] = [];
@@ -16,8 +16,13 @@ export function publishScreenText(terminal: Terminal): () => void {
       lines.push(buffer.getLine(row)?.translateToString(true) ?? "");
     return lines.join("\n");
   };
-  window.corralScreenText = read;
+  const activate = () => {
+    window.corralScreenText = read;
+  };
+  activate();
+  host.addEventListener("focusin", activate);
   return () => {
+    host.removeEventListener("focusin", activate);
     if (window.corralScreenText === read) delete window.corralScreenText;
   };
 }

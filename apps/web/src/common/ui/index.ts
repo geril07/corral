@@ -92,10 +92,10 @@ export {
 } from "./visual-shell.tsx";
 export {
   VisualAddMenu,
-  VisualCompanion,
-  VisualSplitHandle,
   VisualTabPanel,
   VisualTabStrip,
+  VisualWorkspaceGroups,
+  type VisualTabDrop,
   type VisualTabItem,
   type VisualTabKind,
 } from "./visual-tabs.tsx";

@@ -1,15 +1,13 @@
 import type { Session, Task } from "@corral/protocol/rpc";
 import { recordOf } from "./json-record.ts";
 
-/**
- * A task's working area is one layout with two groups. The
- * main group is always visible; the companion group is hidden until it has a tab and the user
- * opens it. Closing a session tab ends the session behind it: the workspace stops the process or
- * chat driver before the view leaves. The layout is device-local and stored per task; the server
- * owns none of it.
- */
+/** A device-local layout; the server owns the sessions, not their presentation. */
 export type TaskTabKind = "session" | "file";
 export type TaskTabGroup = "main" | "companion";
+
+export const COMPANION_MIN_WIDTH = 320;
+export const COMPANION_DEFAULT_WIDTH = 600;
+export const COMPANION_MAX_WIDTH = 900;
 
 export interface TaskTab {
   kind: TaskTabKind;
@@ -22,10 +20,11 @@ export interface TaskTab {
 
 export interface TaskTabLayout {
   tabs: readonly TaskTab[];
-  /** The current tab id in each visible group. */
+  /** The selected tab of each group, including a temporarily hidden group. */
   active: { main?: string; companion?: string };
-  /** The companion group keeps this preference while it is shut. */
-  companionOpen: boolean;
+  focused: TaskTabGroup;
+  expanded: TaskTabGroup | null;
+  companionWidth: number;
   /**
    * Every session this layout has ever shown. A session missing from `tabs` was closed; a session
    * missing here arrived from the server (a restore, or another view) and joins the main group.
@@ -77,6 +76,7 @@ export function orderedTaskSessions(
 export function defaultLayout(
   task: Pick<Task, "id" | "primarySessionId">,
   sessions: readonly Session[],
+  companionWidth = COMPANION_DEFAULT_WIDTH,
 ): TaskTabLayout {
   const ordered = orderedTaskSessions(task, sessions);
   const tabs = ordered.map<TaskTab>((session) => ({
@@ -88,7 +88,9 @@ export function defaultLayout(
   return {
     tabs,
     active: first === undefined ? {} : { main: tabId(first) },
-    companionOpen: false,
+    focused: "main",
+    expanded: null,
+    companionWidth,
     seenSessions: ordered.map((session) => session.id),
   };
 }
@@ -126,12 +128,16 @@ function fallbackActive(
 
 function sameLayout(a: TaskTabLayout, b: TaskTabLayout): boolean {
   return (
-    a.companionOpen === b.companionOpen &&
+    a.focused === b.focused &&
+    a.expanded === b.expanded &&
+    a.companionWidth === b.companionWidth &&
     a.active.main === b.active.main &&
     a.active.companion === b.active.companion &&
     a.tabs.length === b.tabs.length &&
     a.seenSessions.length === b.seenSessions.length &&
-    a.tabs.every((tab, index) => tabId(tab) === tabId(b.tabs[index]!)) &&
+    a.tabs.every(
+      (tab, index) => tabId(tab) === tabId(b.tabs[index]!) && tab.group === b.tabs[index]!.group,
+    ) &&
     a.seenSessions.every((id, index) => id === b.seenSessions[index])
   );
 }
@@ -145,8 +151,9 @@ export function reconcileLayout(
   stored: TaskTabLayout | undefined,
   task: Pick<Task, "id" | "primarySessionId">,
   sessions: readonly Session[],
+  defaultWidth = COMPANION_DEFAULT_WIDTH,
 ): TaskTabLayout {
-  if (stored === undefined) return defaultLayout(task, sessions);
+  if (stored === undefined) return defaultLayout(task, sessions, defaultWidth);
   const available = new Set(taskSessions(task, sessions).map((session) => session.id));
   const known = new Set(stored.seenSessions.filter((id) => available.has(id)));
   const tabs = uniqueTabs(stored.tabs.filter((tab) => hasSession(available, tab))).map((tab) => {
@@ -158,52 +165,55 @@ export function reconcileLayout(
     known.add(session.id);
     tabs.push({ kind: "session", sessionId: session.id, group: "main" });
   }
-  // The primary role is not a position users can set: a stored layout that put it in the
-  // companion group, or after another main tab, is normalised back to the first main tab.
-  const primaryTab = tabs.find(
-    (tab) => tab.kind === "session" && tab.sessionId === task.primarySessionId,
-  );
-  const orderedTabs =
-    primaryTab === undefined
-      ? tabs
-      : [{ ...primaryTab, group: "main" as const }, ...tabs.filter((tab) => tab !== primaryTab)];
-  const companionOpen =
-    stored.companionOpen && orderedTabs.some((tab) => tab.group === "companion");
-  const main = fallbackActive(stored.tabs, orderedTabs, "main", stored.active.main);
-  const companion =
-    tabsInGroup({ tabs: orderedTabs }, "companion").length === 0
-      ? undefined
-      : fallbackActive(stored.tabs, orderedTabs, "companion", stored.active.companion);
+  const main = fallbackActive(stored.tabs, tabs, "main", stored.active.main);
+  const companion = fallbackActive(stored.tabs, tabs, "companion", stored.active.companion);
   const next: TaskTabLayout = {
-    tabs: orderedTabs,
+    ...stored,
+    tabs,
     active: {
       ...(main === undefined ? {} : { main }),
       ...(companion === undefined ? {} : { companion }),
     },
-    companionOpen,
     seenSessions: [...known],
   };
-  return sameLayout(stored, next) ? stored : next;
+  const normalized = normalizeGroups(next);
+  return sameLayout(stored, normalized) ? stored : normalized;
+}
+
+function normalizeGroups(layout: TaskTabLayout): TaskTabLayout {
+  const hasMain = layout.tabs.some((tab) => tab.group === "main");
+  const hasCompanion = layout.tabs.some((tab) => tab.group === "companion");
+  const focused =
+    layout.focused === "main"
+      ? hasMain || !hasCompanion
+        ? "main"
+        : "companion"
+      : hasCompanion
+        ? "companion"
+        : "main";
+  const expanded = hasMain && hasCompanion ? layout.expanded : null;
+  return focused === layout.focused && expanded === layout.expanded
+    ? layout
+    : { ...layout, focused, expanded };
 }
 
 export function selectTab(layout: TaskTabLayout, id: string): TaskTabLayout {
   const tab = layout.tabs.find((candidate) => tabId(candidate) === id);
   if (tab === undefined) return layout;
-  const active = { ...layout.active, [tab.group]: id };
-  if (tab.group === "main" && layout.active.main === id) return layout;
-  if (tab.group === "companion" && layout.active.companion === id && layout.companionOpen)
-    return layout;
+  if (layout.active[tab.group] === id && layout.focused === tab.group) return layout;
   return {
     ...layout,
-    active,
-    companionOpen: tab.group === "companion" ? true : layout.companionOpen,
+    active: { ...layout.active, [tab.group]: id },
+    focused: tab.group,
+    expanded: layout.expanded === null ? null : tab.group,
   };
 }
 
 export function addTab(layout: TaskTabLayout, tab: TaskTab): TaskTabLayout {
   const id = tabId(tab);
-  if (layout.tabs.some((candidate) => tabId(candidate) === id)) {
-    return selectTab(layout, id);
+  const existing = layout.tabs.find((candidate) => tabId(candidate) === id);
+  if (existing !== undefined) {
+    return existing.group === tab.group ? selectTab(layout, id) : moveTab(layout, id, tab.group);
   }
   const tabs = [...layout.tabs, tab];
   const seenSessions =
@@ -217,7 +227,8 @@ export function addTab(layout: TaskTabLayout, tab: TaskTab): TaskTabLayout {
     ...layout,
     tabs,
     active,
-    companionOpen: tab.group === "companion" ? true : layout.companionOpen,
+    focused: tab.group,
+    expanded: layout.expanded === null ? null : tab.group,
     seenSessions,
   };
 }
@@ -263,15 +274,11 @@ export function closeTab(
     if (next === undefined) delete active[tab.group];
     else active[tab.group] = next;
   }
-  return {
+  return normalizeGroups({
     ...layout,
     tabs,
     active,
-    companionOpen:
-      tab.group === "companion" && tabsInGroup({ tabs }, "companion").length === 0
-        ? false
-        : layout.companionOpen,
-  };
+  });
 }
 
 /** Drops a session that the server really removed, from the strip and `seen`. */
@@ -286,59 +293,63 @@ export function removeSession(layout: TaskTabLayout, sessionId: string): TaskTab
     if (next === undefined) delete active[removed.group];
     else active[removed.group] = next;
   }
-  return {
+  return normalizeGroups({
     ...layout,
     tabs,
     active,
     seenSessions: layout.seenSessions.filter((id) => id !== sessionId),
-    companionOpen: tabsInGroup({ tabs }, "companion").length === 0 ? false : layout.companionOpen,
-  };
+  });
 }
 
-/**
- * The keyboard's move-to-the-other-group. Moving the last main tab is refused, so this command
- * never leaves the main group empty.
- */
+/** Move to an index in the destination after removing the tab from its old position. */
 export function moveTab(
   layout: TaskTabLayout,
   id: string,
-  primarySessionId: string | null,
+  target: TaskTabGroup,
+  index?: number,
 ): TaskTabLayout {
   const tab = layout.tabs.find((candidate) => tabId(candidate) === id);
   if (tab === undefined) return layout;
-  if (tab.kind === "session" && tab.sessionId === primarySessionId) return layout;
-  if (tab.group === "main" && tabsInGroup(layout, "main").length === 1) return layout;
-  const target: TaskTabGroup = tab.group === "main" ? "companion" : "main";
-  const moved: TaskTab = { ...tab, group: target };
-  const tabs = [...layout.tabs.filter((candidate) => tabId(candidate) !== id), moved];
+  const remaining = layout.tabs.filter((candidate) => tabId(candidate) !== id);
+  const targetTabs = tabsInGroup({ tabs: remaining }, target);
+  const at = Math.max(0, Math.min(index ?? targetTabs.length, targetTabs.length));
+  const inTarget = [...targetTabs];
+  inTarget.splice(at, 0, { ...tab, group: target });
+  const other: TaskTabGroup = target === "main" ? "companion" : "main";
+  const otherTabs = tabsInGroup({ tabs: remaining }, other);
+  const tabs = target === "main" ? [...inTarget, ...otherTabs] : [...otherTabs, ...inTarget];
   const active = { ...layout.active };
-  if (layout.active[tab.group] === id) {
+  if (tab.group !== target && layout.active[tab.group] === id) {
     const next = nextActiveAfterRemoval(layout.tabs, tabs, tab.group, tab);
     if (next === undefined) delete active[tab.group];
     else active[tab.group] = next;
   }
   active[target] = id;
-  const companionRemains = tabsInGroup({ tabs }, "companion").length > 0;
-  return {
+  const next = normalizeGroups({
     ...layout,
     tabs,
     active,
-    companionOpen: target === "companion" ? true : companionRemains ? layout.companionOpen : false,
-  };
+    focused: target,
+    expanded: layout.expanded === null ? null : target,
+  });
+  return sameLayout(layout, next) ? layout : next;
 }
 
-/**
- * Toggling the companion group. A group with no tab has nothing to open, so the toggle leaves the
- * layout as it is rather than mounting an empty half.
- */
-export function toggleCompanion(layout: TaskTabLayout): TaskTabLayout {
-  if (layout.companionOpen) {
-    return { ...layout, companionOpen: false };
-  }
-  if (tabsInGroup(layout, "companion").length > 0) {
-    return { ...layout, companionOpen: true };
-  }
-  return layout;
+export function focusGroup(layout: TaskTabLayout, group: TaskTabGroup): TaskTabLayout {
+  if (tabsInGroup(layout, group).length === 0) return layout;
+  const expanded = layout.expanded === null ? null : group;
+  if (layout.focused === group && layout.expanded === expanded) return layout;
+  return { ...layout, focused: group, expanded };
+}
+
+export function toggleExpanded(layout: TaskTabLayout, group: TaskTabGroup): TaskTabLayout {
+  if (tabsInGroup(layout, "main").length === 0 || tabsInGroup(layout, "companion").length === 0)
+    return layout;
+  return {
+    ...layout,
+    focused: group,
+    expanded: layout.expanded === group ? null : group,
+  };
 }
 
 /** Session tabs carry 1–9 within their own group; file tabs carry no number. */
@@ -392,10 +403,12 @@ interface StoredTab {
 }
 
 interface StoredLayout {
-  version: 1;
+  version: 2;
   tabs: StoredTab[];
   active: { main?: string; companion?: string };
-  companionOpen: boolean;
+  focused: TaskTabGroup;
+  expanded: TaskTabGroup | null;
+  companionWidth: number;
   seenSessions: string[];
 }
 
@@ -416,13 +429,15 @@ export function serializeLayout(layout: TaskTabLayout): string {
     tabsInGroup(layout, group).forEach((tab, order) => tabs.push(storedTab(tab, order)));
   }
   const stored: StoredLayout = {
-    version: 1,
+    version: 2,
     tabs,
     active: {
       ...(layout.active.main === undefined ? {} : { main: layout.active.main }),
       ...(layout.active.companion === undefined ? {} : { companion: layout.active.companion }),
     },
-    companionOpen: layout.companionOpen,
+    focused: layout.focused,
+    expanded: layout.expanded,
+    companionWidth: layout.companionWidth,
     seenSessions: [...layout.seenSessions],
   };
   return JSON.stringify(stored);
@@ -472,10 +487,13 @@ function readStoredTab(value: unknown): ReadTab | undefined {
 /**
  * A stored record, or `undefined` when it is absent, another version or malformed. A record from
  * before the closed-tab history was removed still carries `closed`, and one from before the
- * Changes tab was removed still carries a `changes` tab; both are read without them, so the
- * device-local state needs no migration.
+ * Changes tab was removed still carries a `changes` tab; both are read without them. Version 1's
+ * companion visibility and shared width are imported into the per-task layout.
  */
-export function parseLayout(raw: string | null): TaskTabLayout | undefined {
+export function parseLayout(
+  raw: string | null,
+  legacyWidth = COMPANION_DEFAULT_WIDTH,
+): TaskTabLayout | undefined {
   if (raw === null) return undefined;
   let parsed: unknown;
   try {
@@ -485,7 +503,8 @@ export function parseLayout(raw: string | null): TaskTabLayout | undefined {
   }
   const record = recordOf(parsed);
   if (record === undefined) return undefined;
-  if (record["version"] !== 1 || !Array.isArray(record["tabs"])) return undefined;
+  if ((record["version"] !== 1 && record["version"] !== 2) || !Array.isArray(record["tabs"]))
+    return undefined;
   const tabs = record["tabs"].flatMap((value) => {
     const entry = readStoredTab(value);
     return entry === undefined ? [] : [entry];
@@ -509,15 +528,26 @@ export function parseLayout(raw: string | null): TaskTabLayout | undefined {
     typeof activeCompanion === "string" && namesTab("companion", activeCompanion)
       ? activeCompanion
       : undefined;
-  return {
+  const width = record["companionWidth"];
+  const focused = asGroup(record["focused"]) ?? "main";
+  const expanded =
+    record["version"] === 1
+      ? record["companionOpen"] === true
+        ? null
+        : "main"
+      : (asGroup(record["expanded"]) ?? null);
+  return normalizeGroups({
     tabs: ordered,
     active: {
       ...(main === undefined ? {} : { main }),
       ...(companion === undefined ? {} : { companion }),
     },
-    // A group with no stored tab is shut, including one whose only tab this parser dropped.
-    companionOpen:
-      record["companionOpen"] === true && ordered.some((tab) => tab.group === "companion"),
+    focused,
+    expanded,
+    companionWidth:
+      typeof width === "number" && Number.isFinite(width)
+        ? Math.round(Math.max(COMPANION_MIN_WIDTH, Math.min(COMPANION_MAX_WIDTH, width)))
+        : legacyWidth,
     seenSessions,
-  };
+  });
 }
