@@ -1,5 +1,5 @@
 import { expect, test } from "vite-plus/test";
-import { diffContentLines } from "./diff-lines.ts";
+import { diffFiles } from "./diff-lines.ts";
 
 const patchFor = (path: string, lines: number) =>
   [
@@ -11,16 +11,20 @@ const patchFor = (path: string, lines: number) =>
     "",
   ].join("\n");
 
-test("content lines exclude file and hunk headers", () => {
-  expect(diffContentLines(patchFor("src/a.ts", 40))).toBe(40);
+test("a patch's file is named, and its content lines exclude the file and hunk headers", () => {
+  const files = diffFiles(patchFor("src/a.ts", 40));
+  expect(files.map((file) => file.name)).toEqual(["src/a.ts"]);
+  expect(files[0]?.unifiedLineCount).toBe(40);
 });
 
-test("a multi-file patch counts each file without counting its headers", () => {
-  expect(diffContentLines([patchFor("src/a.ts", 30), patchFor("src/b.ts", 30)].join("\n"))).toBe(
-    60,
-  );
+test("a multi-file patch lists each file with its own lines instead of becoming one body", () => {
+  const files = diffFiles([patchFor("src/a.ts", 30), patchFor("src/b.ts", 20)].join("\n"));
+  expect(files.map((file) => [file.name, file.unifiedLineCount])).toEqual([
+    ["src/a.ts", 30],
+    ["src/b.ts", 20],
+  ]);
 });
 
-test("a malformed patch counts zero instead of claiming a fold", () => {
-  expect(diffContentLines("not a patch")).toBe(0);
+test("a malformed patch parses to no file instead of claiming one", () => {
+  expect(diffFiles("not a patch")).toEqual([]);
 });

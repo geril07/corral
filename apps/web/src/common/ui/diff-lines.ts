@@ -1,19 +1,14 @@
-import { parsePatchFiles } from "@pierre/diffs";
+import { parsePatchFiles, type FileDiffMetadata } from "@pierre/diffs";
 
 /**
- * Counts the unified-view line boxes of a patch through `@pierre/diffs`' own parser, so repeated
- * file headers (`diff --git`/`---`/`+++`) in a multi-file patch are not counted as content. Each
- * hunk's `unifiedLineCount` is the rows it renders; a malformed patch counts as zero and stays
- * unfolded for `PatchDiff` to report.
+ * The files a patch touches, parsed by `@pierre/diffs`' own parser, so repeated file headers
+ * (`diff --git`/`---`/`+++`) name each file and are not counted as content. A malformed patch
+ * parses to nothing and stays for the renderer to report.
  */
-export function diffContentLines(text: string): number {
+export function diffFiles(text: string): FileDiffMetadata[] {
   try {
-    return parsePatchFiles(text).reduce(
-      (total, patch) =>
-        total + patch.files.reduce((lines, file) => lines + file.unifiedLineCount, 0),
-      0,
-    );
+    return parsePatchFiles(text).flatMap((patch) => patch.files);
   } catch {
-    return 0;
+    return [];
   }
 }

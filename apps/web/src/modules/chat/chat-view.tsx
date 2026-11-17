@@ -252,33 +252,39 @@ export function ChatView({
 
   return (
     <LocalLinks files={files} texts={texts}>
-      <div className="flex h-full min-h-0 justify-center px-4">
-        <ContentLane className="relative h-full min-h-0">
-          <div className="relative min-h-0 flex-1">
-            <div className="absolute inset-0" ref={transcriptRef}>
-              <ChatFocusContext.Provider value={focusAllowed}>
-                <ChatTimeline
-                  items={snapshot.items}
-                  turn={snapshot.state.turn}
-                  waiting={request !== undefined}
-                  requestId={request?.id}
-                  endSpace={panelHeight}
-                  memory={memory}
-                  expanded={expanded}
-                  onToggleFold={toggleFold}
-                  onRespond={onRespond}
-                  onAnswered={focusAfterAnswer}
-                  onFailure={setFailure}
-                />
-              </ChatFocusContext.Provider>
-            </div>
-          </div>
-          <div
-            ref={panelRef}
+      {/* The scroller spans the pane so its bar sits at the pane's edge, not at the lane's; the
+          rows and the composer keep the same lane width inside it (T3's centered session column). */}
+      <div className="relative h-full min-h-0">
+        <div className="absolute inset-0" ref={transcriptRef}>
+          <ChatFocusContext.Provider value={focusAllowed}>
+            <ChatTimeline
+              items={snapshot.items}
+              turn={snapshot.state.turn}
+              waiting={request !== undefined}
+              requestId={request?.id}
+              endSpace={panelHeight}
+              memory={memory}
+              expanded={expanded}
+              onToggleFold={toggleFold}
+              onRespond={onRespond}
+              onAnswered={focusAfterAnswer}
+              onFailure={setFailure}
+            />
+          </ChatFocusContext.Provider>
+        </div>
+        <div
+          ref={panelRef}
+          className={
+            empty
+              ? "pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center px-4"
+              : "pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-4"
+          }
+        >
+          {/* The lane, not the pane, carries the backdrop, so the pane's scrollbar stays visible
+              beside the composer instead of ending under it. */}
+          <ContentLane
             className={
-              empty
-                ? "absolute inset-x-0 top-1/2 flex -translate-y-1/2 flex-col gap-2 pt-2"
-                : "absolute inset-x-0 bottom-0 flex flex-col gap-2 bg-canvas pt-2"
+              empty ? "pointer-events-auto gap-2 pt-2" : "pointer-events-auto gap-2 bg-canvas pt-2"
             }
           >
             {snapshot.failure !== null && (
@@ -411,8 +417,8 @@ export function ChatView({
                 </ComposerToolbar>
               </ComposerSurface>
             </form>
-          </div>
-        </ContentLane>
+          </ContentLane>
+        </div>
       </div>
       <SelectionAction
         scope={transcriptRef}

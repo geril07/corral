@@ -16,7 +16,7 @@ import { measureTranscriptPerf } from "../../../test/chat-transcript-perf.tsx";
 import { stubClipboard } from "../../../test/clipboard.ts";
 import type { ChatFiles } from "./local-links.tsx";
 import { chatTranscriptStore, type ChatTranscriptStore } from "./chat-transcript.ts";
-import { chatRows } from "./chat-rows.ts";
+import { chatRows, type ChatRow } from "./chat-rows.ts";
 import { TranscriptRow } from "./chat-items.tsx";
 import { usePrefixMode } from "../keymap/index.ts";
 import { prefixThen } from "../../../test/real-client.ts";
@@ -1251,6 +1251,59 @@ test("a message's copy action is mounted, tabbable and revealed by hover or focu
   await expect.element(copies.last()).toHaveFocus();
 });
 
+test("only a turn's answer carries the actions row, so commentary leaves no gap", async () => {
+  const items: ChatItem[] = [
+    { kind: "user-message", id: "u1", text: "Fix it." },
+    { kind: "assistant-message", id: "a1", streaming: false, text: "First." },
+    { kind: "assistant-message", id: "a2", streaming: false, text: "Second." },
+  ];
+  const chat = await renderChat(recorded([], { state: { ...IDLE_CHAT, turn: "settled" }, items }));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  await vi.waitFor(() =>
+    expect(page.getByRole("button", { name: "Copy message" }).elements()).toHaveLength(2),
+  );
+  const messages = page.getByRole("article", { name: "Agent message" }).elements();
+  expect(messages).toHaveLength(2);
+  // The commentary has no actions row of its own; the answer under it does.
+  expect(messages[0]?.parentElement?.querySelector("button") ?? null).toBeNull();
+  expect(messages[1]?.parentElement?.querySelector("button") ?? null).not.toBeNull();
+});
+
+test("a turn's answer starts where its fold header does, and its commentary in the work column", async () => {
+  const items: ChatItem[] = [
+    { kind: "user-message", id: "u1", text: "Fix it." },
+    READ("t1", "src/a.ts"),
+    { kind: "assistant-message", id: "a1", streaming: false, text: "First." },
+    { kind: "assistant-message", id: "a2", streaming: false, text: "Second." },
+  ];
+  const chat = await renderChat(recorded([], { state: { ...IDLE_CHAT, turn: "settled" }, items }));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  const fold = page.getByRole("button", { name: "Worked" });
+  await expect.element(fold).toBeVisible();
+  const headerText = fold.element().querySelector("span");
+  if (headerText === null) throw new Error("the fold header has no label");
+  const answer = page.getByRole("article", { name: "Agent message" }).last();
+  // The answer is the turn's text, so it takes the header's column rather than the work column.
+  expect(
+    Math.abs(
+      answer.element().getBoundingClientRect().left - headerText.getBoundingClientRect().left,
+    ),
+  ).toBeLessThanOrEqual(1);
+
+  await userEvent.click(fold);
+  const commentary = page.getByRole("article", { name: "Agent message" }).first();
+  const call = page.getByRole("button", { name: "Read src/a.ts" });
+  const callText = [...call.element().querySelectorAll("span")][1];
+  if (callText === undefined) throw new Error("the call row has no label");
+  // A commentary block narrates the work, so it lines up with the rows it narrates.
+  expect(
+    Math.abs(
+      commentary.element().getBoundingClientRect().left - callText.getBoundingClientRect().left,
+    ),
+  ).toBeLessThanOrEqual(1);
+});
+
 test("copy writes the message's own text and answers with a check", async () => {
   const clipboard = stubClipboard(async () => undefined);
   const chat = await renderChat(
@@ -1258,7 +1311,11 @@ test("copy writes the message's own text and answers with a check", async () => 
   );
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
 
-  const answerCopy = page.getByRole("button", { name: "Copy message" }).last();
+  // `loaded` is the store's state, not the transcript's: the rows commit a render later, and
+  // reading the button in between finds nothing under load.
+  const copies = page.getByRole("button", { name: "Copy message" });
+  await vi.waitFor(() => expect(copies.elements()).toHaveLength(2));
+  const answerCopy = copies.last();
   expect(answerCopy.element().querySelector("svg")?.getAttribute("class") ?? "").toContain(
     "lucide-copy",
   );
@@ -1499,6 +1556,144 @@ test("the live rows shimmer only when motion is allowed", async () => {
   expect(getComputedStyle(thinking).animationName).toBe("tw-shimmer");
 });
 
+test("a call's body is what it produced, not the arguments its row already names", async () => {
+  const run: ChatItem = {
+    kind: "tool-call",
+    id: "t-run",
+    name: "bash",
+    arguments: '{"command":"pnpm test"}',
+    status: "running",
+    output: "1 failed | 11 passed",
+    diff: null,
+  };
+  const write: ChatItem = {
+    kind: "tool-call",
+    id: "t-write",
+    name: "Write",
+    arguments: '{"file_path":"src/new.ts","content":"export {}"}',
+    status: "done",
+    output: null,
+    diff: null,
+  };
+  const patch: ChatItem = {
+    kind: "tool-call",
+    id: "t-patch",
+    name: "apply_patch",
+    arguments: "",
+    status: "done",
+    output: null,
+    diff: {
+      path: null,
+      text: [
+        "--- src/x.ts",
+        "+++ src/x.ts",
+        "@@ -1 +1 @@",
+        "-old",
+        "+new",
+        "--- src/y.ts",
+        "+++ src/y.ts",
+        "@@ -1 +1 @@",
+        "-a",
+        "+b",
+        "",
+      ].join("\n"),
+    },
+  };
+  await render(
+    <div className="h-screen w-full">
+      {[run, write, patch].map((item) => (
+        <TranscriptRow
+          key={item.id}
+          row={{ kind: "item", key: item.id, item }}
+          expanded={new Set([run.id, write.id, patch.id])}
+          onToggleFold={() => {}}
+          onRespond={async () => {}}
+          onAnswered={() => {}}
+          onFailure={() => {}}
+          waiting={false}
+        />
+      ))}
+    </div>,
+  );
+
+  // The command is the row's label, so the open body is the output it produced.
+  await expect.element(page.getByText("1 failed | 11 passed")).toBeVisible();
+  expect(page.getByText('{"command":"pnpm test"}').elements()).toHaveLength(0);
+  // The row truncates a long command, so the body carries the whole command above its output.
+  await expect.element(page.getByText("pnpm test", { exact: true })).toBeVisible();
+  // A write carries a whole file, so its card heads the new text with the path it wrote.
+  await expect.element(page.getByText("src/new.ts")).toBeVisible();
+  await expect.element(page.getByText("export {}", { exact: true })).toBeVisible();
+  expect(
+    page.getByText('{"file_path":"src/new.ts","content":"export {}"}').elements(),
+  ).toHaveLength(0);
+  // A patch that changed several files names each of them in its own section.
+  await expect.element(page.getByText("src/x.ts")).toBeVisible();
+  await expect.element(page.getByText("src/y.ts")).toBeVisible();
+  await expect.element(page.getByText("Changed 2 files")).toBeVisible();
+});
+
+test("an open call pins under its open group while the call's body scrolls past", async () => {
+  const long: ChatItem = {
+    kind: "tool-call",
+    id: "t-long",
+    name: "bash",
+    arguments: '{"command":"pnpm test --coverage"}',
+    status: "done",
+    output: Array.from({ length: 60 }, (_, line) => `line ${line + 1}`).join("\n"),
+    diff: null,
+  };
+  const short: ChatItem = {
+    kind: "tool-call",
+    id: "t-short",
+    name: "bash",
+    arguments: '{"command":"pnpm lint"}',
+    status: "done",
+    output: "ok",
+    diff: null,
+  };
+  const group: ChatRow = {
+    kind: "group",
+    key: "group:t-long",
+    items: [long, short],
+    label: "Ran 2 commands",
+    action: "run",
+    failed: false,
+  };
+  const rendered = await render(
+    <div className="h-40">
+      <div data-testid="scroller" className="h-full overflow-y-auto">
+        <TranscriptRow
+          row={group}
+          expanded={new Set(["group:t-long", "t-long"])}
+          onToggleFold={() => {}}
+          onRespond={async () => {}}
+          onAnswered={() => {}}
+          onFailure={() => {}}
+          waiting={false}
+        />
+      </div>
+    </div>,
+  );
+  const scroller = rendered.container.querySelector<HTMLElement>('[data-testid="scroller"]');
+  if (scroller === null) throw new Error("the scroller is missing");
+  const row = (name: string): HTMLElement => {
+    const found = [...scroller.querySelectorAll<HTMLElement>("[aria-expanded]")].find((node) =>
+      node.textContent?.includes(name),
+    );
+    if (found === undefined) throw new Error(`the ${name} row is missing`);
+    return found;
+  };
+  const offset = (name: string) =>
+    Math.round(row(name).getBoundingClientRect().top - scroller.getBoundingClientRect().top);
+
+  scroller.scrollTop = 100;
+  await vi.waitFor(() => expect(offset("Ran 2 commands")).toBe(0));
+  // The open call stacks under the group's pinned row rather than covering it.
+  const groupHeight = row("Ran 2 commands").getBoundingClientRect().height;
+  expect(Math.abs(offset("pnpm test --coverage") - groupHeight)).toBeLessThanOrEqual(1);
+});
+
 test("opening a turn fold at the end keeps the row that was clicked where it is", async () => {
   // A long turn, then a finished turn whose fold sits at the tail: the shape a settled transcript
   // ends in. The fold must not re-pin the end under the pointer that opened it.
@@ -1539,7 +1734,9 @@ test("an activity row carries a 16 px glyph and a 12 px disclosure", async () =>
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
 
   // The group's own row: the action glyph in T3's 24 px slot, then the one disclosure chevron.
-  const group = page.getByRole("button", { name: /^Ran 1 command/ }).element();
+  const groupRow = page.getByRole("button", { name: /^Ran 1 command/ });
+  await expect.element(groupRow).toBeVisible();
+  const group = groupRow.element();
   const glyphs = [...group.querySelectorAll("svg")].map((svg) => svg.getBoundingClientRect().width);
   expect(glyphs[0]).toBe(16);
   expect(glyphs[1]).toBe(12);

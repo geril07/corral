@@ -6,9 +6,12 @@ import {
   pendingRequest,
   searchLabel,
   toolAction,
+  toolCommand,
   toolGroupSummary,
   toolLabel,
   toolSummary,
+  toolWrite,
+  terminalAssistantIds,
 } from "./chat-rows.ts";
 
 const call = (
@@ -63,7 +66,7 @@ test("a single finished call is not a group", () => {
   ]);
 });
 
-test("a finished turn folds its work behind one row and keeps its terminal message", () => {
+test("a finished turn folds its work and leaves its answer as the row after it", () => {
   const answer: ChatItem = {
     kind: "assistant-message",
     id: "a1",
@@ -74,12 +77,12 @@ test("a finished turn folds its work behind one row and keeps its terminal messa
     items: [user("u1"), call("t1", "done"), call("t2", "done"), answer, user("u2")],
     ...settled,
   });
-  expect(rows.map((row) => row.key)).toEqual(["u1", "turn:u1", "u2"]);
+  // The answer is the turn's text, not its work: it keeps its own row, so a pinned `Worked` header
+  // never holds over it (T3 keeps the run's terminal entry out of the folded work too).
+  expect(rows.map((row) => row.key)).toEqual(["u1", "turn:u1", "a1", "u2"]);
   const fold = rows[1];
   if (fold?.kind !== "turn") throw new Error("the turn did not fold");
-  expect(fold.rows.map((row) => row.key)).toEqual(["group:t1", "a1"]);
-  // The turn's terminal message is the one row the fold leaves in place (T3 hides every other
-  // entry of the run, `MessagesTimeline.logic.ts`).
+  expect(fold.rows.map((row) => row.key)).toEqual(["group:t1"]);
   expect([...fold.hidden]).toEqual(["group:t1"]);
 });
 
@@ -98,10 +101,11 @@ test("a narrating turn folds its intermediate messages and keeps only the last o
   });
   const fold = rows[1];
   if (fold?.kind !== "turn") throw new Error("the turn did not fold");
-  // Every text block is its own item (`pi-projection.test.ts`), so a turn normally has
-  // several; only the terminal one survives the fold.
-  expect(fold.rows.map((row) => row.key)).toEqual(["a1", "t1", "a2", "t2", "a3"]);
+  // Every text block is its own item (`pi-projection.test.ts`), so a turn normally has several;
+  // the commentary folds with the work, and only the terminal message survives — as its own row.
+  expect(fold.rows.map((row) => row.key)).toEqual(["a1", "t1", "a2", "t2"]);
   expect([...fold.hidden]).toEqual(["a1", "t1", "a2", "t2"]);
+  expect(rows.map((row) => row.key)).toEqual(["u1", "turn:u1", "a3", "u2"]);
 });
 
 test("a notice, an error and a request inside a turn are never hidden", () => {
@@ -159,6 +163,25 @@ test("the live tail is absent while the agent waits on the user", () => {
   ).toEqual(["item", "tool"]);
 });
 
+test("a streaming reasoning row is the live row, so no Working line stacks under it", () => {
+  const thinking: ChatItem = {
+    kind: "reasoning",
+    id: "r1",
+    text: "Weighing the two fixes.",
+    streaming: true,
+  };
+  expect(chatRows({ items: [user("u1"), thinking], ...working }).map((row) => row.key)).toEqual([
+    "u1",
+    "r1",
+  ]);
+  // A call after it is the newest row, so the turn is working again.
+  expect(
+    chatRows({ items: [user("u1"), thinking, call("t1", "running")], ...working }).map(
+      (row) => row.kind,
+    ),
+  ).toEqual(["item", "item", "tool", "working"]);
+});
+
 test("an action is read from the call's shape, never its name", () => {
   expect(toolAction(call("a", "done", { name: "whatever", arguments: '{"path":"x"}' }))).toBe(
     "read",
@@ -209,6 +232,71 @@ test("a call's row says what it did, in the reference's words", () => {
     "Changed 1 file",
   );
   expect(toolLabel(call("g", "done", { arguments: '{"note":"looking"}' }))).toBe("looking");
+});
+
+test("a patch that changed several files counts them in its row", () => {
+  const twoFiles = [
+    "--- src/a.ts",
+    "+++ src/a.ts",
+    "@@ -1 +1 @@",
+    "-a",
+    "+b",
+    "--- src/b.ts",
+    "+++ src/b.ts",
+    "@@ -1 +1 @@",
+    "-c",
+    "+d",
+    "",
+  ].join("\n");
+  const both = call("a", "done", { diff: { path: null, text: twoFiles } });
+  expect(toolLabel(both)).toBe("Changed 2 files");
+  // A folded run counts the files its patches touched, not the calls it made.
+  expect(toolGroupSummary([both, editCall("b")])).toEqual({
+    label: "Changed 3 files",
+    action: "edit",
+  });
+});
+
+test("a turn's answer is the message that carries its actions, not its commentary", () => {
+  const items: ChatItem[] = [
+    user("u1"),
+    message("a1", "First."),
+    message("a2", "Second."),
+    user("u2"),
+    message("a3", "Third."),
+  ];
+  expect([...terminalAssistantIds(items)]).toEqual(["a2", "a3"]);
+});
+
+test("the expanded body carries the command the row truncated", () => {
+  expect(
+    toolCommand(call("a", "done", { arguments: '{"command":"pnpm vitest run --coverage"}' })),
+  ).toBe("pnpm vitest run --coverage");
+  expect(toolCommand(call("b", "done", { arguments: '{"path":"src/a.ts"}' }))).toBeUndefined();
+  expect(toolCommand(call("c", "done", { arguments: "not json" }))).toBeUndefined();
+});
+
+test("a whole-file write is its path and its text, with the file's own line breaks", () => {
+  expect(
+    toolWrite(
+      call("a", "done", {
+        arguments: JSON.stringify({ file_path: "src/new.ts", content: "export {}\n\nexport *;\n" }),
+      }),
+    ),
+  ).toEqual({ path: "src/new.ts", text: "export {}\n\nexport *;\n" });
+  // A patch carries its own diff, and an edit of two strings has no whole file to show.
+  expect(
+    toolWrite(
+      call("b", "done", {
+        diff: { path: "src/a.ts", text: "--- a\n+++ b\n" },
+        arguments: '{"path":"src/a.ts"}',
+      }),
+    ),
+  ).toBeUndefined();
+  expect(
+    toolWrite(call("c", "done", { arguments: '{"old_string":"a","new_string":"b"}' })),
+  ).toBeUndefined();
+  expect(toolWrite(call("d", "done", { arguments: "not json" }))).toBeUndefined();
 });
 
 test("a folded run counts its verbs and names at most two of them", () => {
