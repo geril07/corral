@@ -13,6 +13,18 @@ const patchFor = (path: string, lines: number) =>
     "",
   ].join("\n");
 
+const changeFor = (path: string) =>
+  [
+    `diff --git a/${path} b/${path}`,
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    "@@ -1,1 +1,2 @@",
+    "-old",
+    "+new",
+    "+added",
+    "",
+  ].join("\n");
+
 function diffRoot(): ShadowRoot {
   const root = document.querySelector("diffs-container")?.shadowRoot;
   if (root === null || root === undefined) throw new Error("the diff has not rendered yet");
@@ -22,7 +34,7 @@ function diffRoot(): ShadowRoot {
 test("a diff over 20 content lines folds at 20 fully visible line boxes and expands on demand", async () => {
   await render(
     <div className="h-screen w-full">
-      <DiffView text={patchFor("src/auth.test.ts", 40)} path="src/auth.test.ts" />
+      <DiffView text={patchFor("src/auth.test.ts", 40)} />
     </div>,
   );
   await vi.waitFor(() =>
@@ -55,4 +67,28 @@ test("a diff over 20 content lines folds at 20 fully visible line boxes and expa
   await vi.waitFor(() => expect(document.querySelector("button")).toBeNull());
   expect(getComputedStyle(body).maxHeight).toBe("none");
   expect(body.getBoundingClientRect().height).toBeGreaterThan(408);
+});
+
+test("a patch over several files becomes one named section per file", async () => {
+  await render(
+    <div className="h-screen w-full">
+      <DiffView text={[changeFor("src/auth.test.ts"), changeFor("src/session.ts")].join("\n")} />
+    </div>,
+  );
+  await vi.waitFor(() => expect(document.querySelectorAll("diffs-container")).toHaveLength(2));
+  const names = [...document.querySelectorAll('[data-testid="diff-file-name"]')].map(
+    (node) => node.textContent,
+  );
+  expect(names).toEqual(["src/auth.test.ts", "src/session.ts"]);
+  // Each section carries the change counts of its own file.
+  expect(document.querySelectorAll('[aria-label="2 additions, 1 deletions"]')).toHaveLength(2);
+});
+
+test("text no diff renderer can read stays text instead of taking the transcript down", async () => {
+  const rendered = await render(
+    <div className="h-screen w-full">
+      <DiffView text="not a patch" />
+    </div>,
+  );
+  expect(rendered.container.textContent).toContain("not a patch");
 });

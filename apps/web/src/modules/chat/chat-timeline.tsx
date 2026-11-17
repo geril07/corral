@@ -1,7 +1,8 @@
 import type { ChatAnswer, ChatItem, ChatTurnState } from "@corral/protocol/chat";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import { ContentLane } from "../../common/ui/index.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { chatRows, type ChatRow } from "./chat-rows.ts";
+import { chatRows, terminalAssistantIds, type ChatRow } from "./chat-rows.ts";
 import { TranscriptRow } from "./chat-items.tsx";
 import type { ChatTranscriptStore } from "./chat-transcript.ts";
 
@@ -52,6 +53,9 @@ export function ChatTimeline({
   onFailure,
 }: ChatTimelineProps) {
   const rows = useMemo(() => chatRows({ items, turn, waiting }), [items, turn, waiting]);
+  // The actions row belongs to each turn's answer; the projection's rows put it under the last
+  // assistant message the same way (`hiddenKeys`).
+  const actionsFor = useMemo(() => terminalAssistantIds(items), [items]);
   const list = useRef<LegendListRef>(null);
   /** What this session was left with; read once, because a later mount is not a restore. */
   const [restored] = useState(() => memory.read());
@@ -195,21 +199,35 @@ export function ChatTimeline({
 
   const renderItem = useCallback(
     ({ item }: { item: ChatRow }) => (
-      // The row's identity in the DOM: a restore and a test can both name the row they mean.
-      <div data-row-key={item.key}>
-        <TranscriptRow
-          row={item}
-          expanded={expanded}
-          onToggleFold={toggleFold}
-          onRespond={onRespond}
-          onAnswered={onAnswered}
-          onFailure={onFailure}
-          waiting={waiting}
-          focusedRequest={revealedRequest === requestId ? requestId : undefined}
-        />
-      </div>
+      // The list spans the pane for its scrollbar, so each row carries the session lane itself.
+      <ContentLane className="mx-auto">
+        {/* The row's identity in the DOM: a restore and a test can both name the row they mean. */}
+        <div data-row-key={item.key}>
+          <TranscriptRow
+            row={item}
+            expanded={expanded}
+            onToggleFold={toggleFold}
+            onRespond={onRespond}
+            onAnswered={onAnswered}
+            onFailure={onFailure}
+            waiting={waiting}
+            focusedRequest={revealedRequest === requestId ? requestId : undefined}
+            actionsFor={actionsFor}
+          />
+        </div>
+      </ContentLane>
     ),
-    [expanded, toggleFold, onRespond, onAnswered, onFailure, waiting, revealedRequest, requestId],
+    [
+      expanded,
+      toggleFold,
+      onRespond,
+      onAnswered,
+      onFailure,
+      waiting,
+      revealedRequest,
+      requestId,
+      actionsFor,
+    ],
   );
 
   /**
@@ -250,7 +268,14 @@ export function ChatTimeline({
       onScroll={syncFollow}
       onUserScroll={syncFollow}
       onKeyDown={onKeyDown}
-      contentContainerStyle={{ paddingTop: 8, paddingBottom: endSpace + 8 }}
+      contentContainerStyle={{
+        paddingTop: 8,
+        paddingBottom: endSpace + 8,
+        // The gutter the scrollbar will take is inside the scroller, so the bar stays at the pane's
+        // edge; the rows keep the same inset from the pane's sides at narrow widths.
+        paddingLeft: 16,
+        paddingRight: 16,
+      }}
     />
   );
 }

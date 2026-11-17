@@ -7,7 +7,17 @@ import type {
   ChatToolCall,
   ChatUserMessage,
 } from "@corral/protocol/chat";
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { describeError } from "@corral/client/rpc-errors";
 import {
   Button,
@@ -18,10 +28,18 @@ import {
   Markdown,
   StatusGlyph,
   buttonVariants,
+  useTruncatedText,
   type IconName,
 } from "../../common/ui/index.ts";
 import { ChatRequestItem } from "./chat-request.tsx";
-import { toolAction, toolLabel, type ChatRow, type ChatToolAction } from "./chat-rows.ts";
+import {
+  toolAction,
+  toolCommand,
+  toolLabel,
+  toolWrite,
+  type ChatRow,
+  type ChatToolAction,
+} from "./chat-rows.ts";
 import { useMarkdownLinks } from "./local-links.tsx";
 
 /** How long a copied message shows the check, as T3's copy state does (~1.2 s, no toast). */
@@ -41,13 +59,14 @@ const ACTION_ICON: Readonly<Record<ChatToolAction | "mixed", IconName>> = {
 };
 
 /**
- * One activity row: the icon slot, the label and the disclosure, in T3's work-row geometry
- * (`WorkLog.tsx`, `MessagesTimeline.tsx`). A row without an icon is a turn-level row — the
- * fold's `Worked` — and starts at the lane's edge, as T3's turn fold does.
+ * One activity row: the icon slot, the label and the disclosure. The row sizes to its content so
+ * the disclosure sits beside the label (OpenCode's `BasicTool` trigger), inside T3's icon slot and
+ * row height (`WorkLog.tsx`). A row without an icon is a turn-level row — the fold's `Worked`.
  */
 function ActivityRow({
   icon,
   label,
+  labelRef,
   expanded,
   live = false,
   failed = false,
@@ -58,6 +77,8 @@ function ActivityRow({
 }: {
   icon?: IconName | undefined;
   label: string;
+  /** Measures the label, so a row can tell whether its text was cut off (see `ToolCallItem`). */
+  labelRef?: Ref<HTMLSpanElement> | undefined;
   expanded?: boolean | undefined;
   live?: boolean;
   failed?: boolean;
@@ -80,8 +101,9 @@ function ActivityRow({
         </span>
       )}
       <span
+        ref={labelRef}
         className={[
-          "min-w-0 flex-1 truncate text-left",
+          "min-w-0 truncate text-left",
           shimmer ? "shimmer" : "",
           live || shimmer ? "text-foreground" : "text-muted-foreground",
         ].join(" ")}
@@ -89,21 +111,38 @@ function ActivityRow({
         {label}
       </span>
       {running && <StatusGlyph state="working" />}
-      {expanded !== undefined && <DisclosureIcon open={expanded} />}
+      {expanded !== undefined && (
+        <span
+          className={[
+            "flex w-3 shrink-0 items-center transition-opacity duration-200 motion-reduce:transition-none",
+            expanded
+              ? "opacity-100"
+              : "opacity-0 group-hover/activity:opacity-100 group-focus-visible/activity:opacity-100",
+          ].join(" ")}
+        >
+          <DisclosureIcon open={expanded} />
+        </span>
+      )}
     </>
   );
   if (onClick === undefined) {
     // The same recipe as the button below, so a row that cannot be clicked is not a second skin:
     // one kit change reaches both.
     return (
-      <div className={buttonVariants({ variant: "ghost", layout: "activity", size: "activity" })}>
+      <div
+        className={buttonVariants({
+          variant: "activity",
+          layout: "activity",
+          size: "activity",
+        })}
+      >
         {content}
       </div>
     );
   }
   return (
     <Button
-      variant="ghost"
+      variant="activity"
       layout="activity"
       size="activity"
       aria-label={ariaLabel}
@@ -112,6 +151,72 @@ function ActivityRow({
     >
       {content}
     </Button>
+  );
+}
+
+/** A shallower pinned header paints over the ones it holds: turn fold, then group, then call. */
+const STACK_Z = ["z-30", "z-20", "z-10"] as const;
+
+function stackZ(depth: number): string {
+  return STACK_Z[depth] ?? "z-10";
+}
+
+/**
+ * Where a pinned header sits and how deep it is in the stack. A nested header pins below its
+ * parent, and the outermost paints over the ones it holds: an outgoing call's header must slide
+ * under the group's header, not over it.
+ */
+const StickyStackContext = createContext<{ top: number; depth: number }>({ top: 0, depth: 0 });
+
+/**
+ * A row whose header pins to the top of the transcript while its own body scrolls past, so a long
+ * call or a run of calls keeps its name in view; OpenCode pins a tool group's trigger the same way
+ * (`message-part.css`, `[data-component="collapsed-tool-group"]`). An open group pushes the rows
+ * inside it below its own header, as OpenCode's `--sticky-accordion-top` stack does. Only an open
+ * section pins: a closed row is one line with nothing to scroll under it.
+ */
+function StickySection({
+  open,
+  header,
+  children,
+}: {
+  open: boolean;
+  header: ReactNode;
+  children: ReactNode;
+}) {
+  const stack = useContext(StickyStackContext);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(0);
+  useLayoutEffect(() => {
+    const node = headerRef.current;
+    if (node === null) return undefined;
+    const measure = () => setHeight(node.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  // The offset is measured rather than named as a length token: the row's height comes from its
+  // type and padding, and a copy of those values would drift on the next recipe change.
+  useLayoutEffect(() => {
+    const node = headerRef.current;
+    if (node === null || !open) return undefined;
+    node.style.top = `${stack.top}px`;
+    return () => {
+      node.style.top = "";
+    };
+  }, [open, stack.top]);
+  const nested = useMemo(
+    () => ({ top: stack.top + height, depth: stack.depth + 1 }),
+    [stack.top, stack.depth, height],
+  );
+  return (
+    <div className="flex flex-col">
+      <div ref={headerRef} className={open ? `sticky bg-canvas ${stackZ(stack.depth)}` : undefined}>
+        {header}
+      </div>
+      <StickyStackContext.Provider value={nested}>{children}</StickyStackContext.Provider>
+    </div>
   );
 }
 
@@ -176,22 +281,32 @@ export function UserMessageItem({
   );
 }
 
-/** The agent's answer, rendered as streaming Markdown by the kit's Streamdown wrapper. */
+/**
+ * The agent's message, rendered as streaming Markdown by the kit's Streamdown wrapper. A turn's
+ * answer sits at the turn's own edge, where its `Worked` header is, and carries the actions row;
+ * the commentary inside the fold stays in the work column, beside the rows it narrates. Only the
+ * answer takes the actions row: it reserves height, and one under every message would open a gap
+ * in the middle of a turn's work.
+ */
 export function AssistantMessageItem({
   item,
+  answer,
   onFailure,
 }: {
   item: ChatAssistantMessage;
+  answer: boolean;
   onFailure: (message: string) => void;
 }) {
   const links = useMarkdownLinks();
   return (
-    <div className="group/message flex flex-col gap-1">
+    <div
+      className={["group/message flex flex-col gap-1 py-1", answer ? "ps-0.5" : "ms-8"].join(" ")}
+    >
       {/* A selection inside this message can be quoted into the composer (`SelectionAction`). */}
       <article aria-label="Agent message" data-selection-action>
         <Markdown text={item.text} streaming={item.streaming} links={links} />
       </article>
-      {!item.streaming && (
+      {answer && !item.streaming && (
         <div className="px-1">
           <MessageActions text={item.text} onFailure={onFailure} />
         </div>
@@ -230,7 +345,7 @@ export function ReasoningItem({
         onClick={onToggle}
       />
       {expanded && (
-        <p className="m-0 ms-7 text-sm whitespace-pre-wrap text-muted-foreground italic">
+        <p className="m-0 ms-8 my-1 text-sm whitespace-pre-wrap text-muted-foreground italic">
           {item.text}
         </p>
       )}
@@ -259,50 +374,170 @@ export function ToolCallItem({
 }) {
   const failed = call.status === "error";
   const running = call.status === "running";
+  // A running command's label is only the program name, and a long one truncates; either way the
+  // row cannot carry the command, so the body repeats it in full.
+  const { observe: observeLabel, clipped } = useTruncatedText(label);
   return (
-    <div className="flex flex-col">
-      <ActivityRow
-        icon={ACTION_ICON[action]}
-        label={label}
-        expanded={expanded}
-        live={running}
-        failed={failed}
-        running={running}
-        // A command's own words already say `Running …`; every other action needs the state in its
-        // name, because a running read, search or edit would otherwise read as finished.
-        ariaLabel={
-          failed
-            ? `${label}, tool call failed`
-            : running && action !== "run"
-              ? `${label}, running`
-              : label
-        }
-        onClick={onToggle}
-      />
-      {expanded && <ToolCallBody item={call} />}
+    <StickySection
+      open={expanded}
+      header={
+        <ActivityRow
+          icon={ACTION_ICON[action]}
+          label={label}
+          labelRef={observeLabel}
+          expanded={expanded}
+          live={running}
+          failed={failed}
+          running={running}
+          // A command's own words already say `Running …`; every other action needs the state in
+          // its name, because a running read, search or edit would otherwise read as finished.
+          ariaLabel={
+            failed
+              ? `${label}, tool call failed`
+              : running && action !== "run"
+                ? `${label}, running`
+                : label
+          }
+          onClick={onToggle}
+        />
+      }
+    >
+      {expanded && <ToolCallBody item={call} action={action} showCommand={clipped || running} />}
+    </StickySection>
+  );
+}
+
+const CARD_TEXT_CLASS = "m-0 max-h-64 overflow-auto p-2 font-mono text-xs whitespace-pre-wrap";
+
+/**
+ * One expanded body, drawn as a card: a header bar that names its subject — the command, the file —
+ * and the result under it. OpenCode reads a tool the same way (`ConsoleOutput` repeats the command,
+ * `FileTool` heads a change with its path), so a run, a diff, a whole-file write and a plain result
+ * are one kind of block instead of four inventions.
+ */
+function ToolCard({
+  title,
+  failed,
+  children,
+}: {
+  /** What the body is about; a body the row's label already names has none. */
+  title?: string | undefined;
+  failed: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={[
+        "overflow-hidden rounded-md border",
+        failed ? "border-destructive/50 bg-destructive/5" : "border-border bg-muted/40",
+      ].join(" ")}
+    >
+      {title !== undefined && (
+        <p
+          className={[
+            "m-0 border-b px-2 py-1.5 font-mono text-xs break-words whitespace-pre-wrap",
+            failed ? "border-destructive/40 text-destructive" : "border-border/60 text-foreground",
+          ].join(" ")}
+        >
+          {title}
+        </p>
+      )}
+      {children}
     </div>
   );
 }
 
-function ToolCallBody({ item }: { item: ChatToolCall }) {
-  const argumentsText = item.arguments.trim();
-  const output = item.output?.trim() ?? "";
+/**
+ * A block of text inside a card. `content` is what the call fed in — arguments or a whole file —
+ * and reads in the foreground colour; `result` is what came back, kept quiet; `error` is a
+ * failure's own words. `divided` separates it from the block above with the card's hairline.
+ */
+function CardText({
+  text,
+  tone,
+  divided = false,
+}: {
+  text: string;
+  tone: "content" | "result" | "error";
+  divided?: boolean;
+}) {
   return (
-    <div className="flex flex-col gap-2 ms-7">
-      {argumentsText !== "" && (
-        <pre className="m-0 max-h-64 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap">
-          {argumentsText}
-        </pre>
-      )}
-      {item.diff !== null ? (
-        <DiffView text={item.diff.text} path={item.diff.path} />
-      ) : (
-        output !== "" && (
-          <pre className="m-0 max-h-64 overflow-auto rounded-md border border-border bg-muted/40 p-2 font-mono text-xs whitespace-pre-wrap">
-            {output}
-          </pre>
-        )
-      )}
+    <pre
+      className={[
+        CARD_TEXT_CLASS,
+        tone === "content"
+          ? "text-foreground"
+          : tone === "result"
+            ? "text-muted-foreground"
+            : "text-destructive",
+        divided
+          ? tone === "error"
+            ? "border-t border-destructive/40"
+            : "border-t border-border/60"
+          : "",
+      ].join(" ")}
+    >
+      {text}
+    </pre>
+  );
+}
+
+/**
+ * What the call returned, rendered by what it did rather than by the driver's name. A card's header
+ * carries what the row's label cannot: the whole command when the row truncates it or the call is
+ * still running, the file a change or a write touched. A read or a search names its path or query
+ * in the row itself, so its card is the result alone, and an unclassified call has its arguments
+ * as the body because nothing else describes it.
+ */
+function ToolCallBody({
+  item,
+  action,
+  showCommand,
+}: {
+  item: ChatToolCall;
+  action: ChatToolAction;
+  showCommand: boolean;
+}) {
+  const output = item.output?.trim() ?? "";
+  const failed = item.status === "error";
+  const bodyClass = "ms-8 my-1 flex flex-col gap-2";
+  if (action === "run") {
+    const command = showCommand ? toolCommand(item) : undefined;
+    if (command === undefined && output === "") return null;
+    return (
+      <div className={bodyClass}>
+        <ToolCard title={command} failed={failed}>
+          {output !== "" && <CardText text={output} tone={failed ? "error" : "result"} />}
+        </ToolCard>
+      </div>
+    );
+  }
+  if (item.diff !== null) {
+    return (
+      <div className={bodyClass}>
+        {/* The patch names each file it touched, so the card adds no header of its own. */}
+        <ToolCard failed={failed}>
+          <DiffView text={item.diff.text} />
+          {failed && output !== "" && <CardText text={output} tone="error" divided />}
+        </ToolCard>
+      </div>
+    );
+  }
+  // A write's arguments are the file's whole new text, so the card shows that under the path
+  // instead of the JSON envelope around it. An edit that does not carry a whole file keeps its
+  // arguments as text, as an unclassified call does.
+  const write = action === "edit" ? toolWrite(item) : undefined;
+  const text =
+    write?.text ?? (action === "edit" || action === "other" ? item.arguments.trim() : "");
+  if (text === "" && output === "") return null;
+  return (
+    <div className={bodyClass}>
+      <ToolCard title={write?.path} failed={failed}>
+        {text !== "" && <CardText text={text} tone="content" />}
+        {output !== "" && (
+          <CardText text={output} tone={failed ? "error" : "result"} divided={text !== ""} />
+        )}
+      </ToolCard>
     </div>
   );
 }
@@ -333,15 +568,19 @@ export function ToolGroupItem({
   onToggleFold: (key: string) => void;
 }) {
   return (
-    <div className="flex flex-col">
-      <ActivityRow
-        icon={ACTION_ICON[action]}
-        label={label}
-        expanded={expanded}
-        failed={failed}
-        ariaLabel={failed ? `${label}, tool call failed` : label}
-        onClick={onToggle}
-      />
+    <StickySection
+      open={expanded}
+      header={
+        <ActivityRow
+          icon={ACTION_ICON[action]}
+          label={label}
+          expanded={expanded}
+          failed={failed}
+          ariaLabel={failed ? `${label}, tool call failed` : label}
+          onClick={onToggle}
+        />
+      }
+    >
       {expanded &&
         items.map((item) => (
           <ToolCallItem
@@ -353,15 +592,15 @@ export function ToolGroupItem({
             onToggle={() => onToggleFold(item.id)}
           />
         ))}
-    </div>
+    </StickySection>
   );
 }
 
 /**
  * A finished turn folds to one line: T3's `Worked` is the label it uses when the contract carries
  * no timestamps (`MessagesTimeline.logic.ts`). What it hides is the projection's answer
- * (`chat-rows.ts`, `hiddenKeys`): the turn's work and its intermediate messages, while the turn's
- * terminal message stays in place below the fold.
+ * (`chat-rows.ts`, `hiddenKeys`): the turn's work and its intermediate messages. The turn's answer
+ * is the row after this one, so a pinned header never holds over text that is not work.
  */
 export function TurnFoldItem({
   expanded,
@@ -373,22 +612,18 @@ export function TurnFoldItem({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col">
-      <div className="border-b border-border/60">
-        <ActivityRow label="Worked" expanded={expanded} onClick={onToggle} />
-      </div>
+    <StickySection
+      open={expanded}
+      header={<ActivityRow label="Worked" expanded={expanded} onClick={onToggle} />}
+    >
       {children}
-    </div>
+    </StickySection>
   );
 }
 
 /** The live tail of a running turn: OpenCode's `Working` with its shimmer. */
 export function WorkingItem() {
-  return (
-    <div className="border-b border-border/60">
-      <ActivityRow label="Working" live shimmer />
-    </div>
-  );
+  return <ActivityRow label="Working" live shimmer />;
 }
 
 /** A quiet line for a compaction, a retry or another note from the agent or driver. */
@@ -402,7 +637,7 @@ export function NoticeItem({ item }: { item: ChatNotice }) {
 
 export function ErrorItem({ item }: { item: ChatError }) {
   return (
-    <p className="m-0 text-sm text-destructive" role="alert">
+    <p className="m-0 ps-0.5 py-1 text-sm text-destructive" role="alert">
       {item.text}
     </p>
   );
@@ -420,6 +655,11 @@ export interface TranscriptRowProps {
   /** The agent is blocked on the user, so a streaming reasoning row is not live work. */
   waiting: boolean;
   focusedRequest?: string | undefined;
+  /**
+   * The assistant messages that show their actions row: a turn's answer, not its commentary
+   * (`terminalAssistantIds`). Absent, no message shows one.
+   */
+  actionsFor?: ReadonlySet<string> | undefined;
 }
 
 /**
@@ -435,6 +675,7 @@ export function TranscriptRow({
   onFailure,
   waiting,
   focusedRequest,
+  actionsFor,
 }: TranscriptRowProps) {
   if (row.kind === "working") return <WorkingItem />;
   if (row.kind === "turn") {
@@ -454,6 +695,7 @@ export function TranscriptRow({
               onFailure={onFailure}
               waiting={waiting}
               focusedRequest={focusedRequest}
+              actionsFor={actionsFor}
             />
           ) : null,
         )}
@@ -490,7 +732,13 @@ export function TranscriptRow({
     case "user-message":
       return <UserMessageItem item={item} onFailure={onFailure} />;
     case "assistant-message":
-      return <AssistantMessageItem item={item} onFailure={onFailure} />;
+      return (
+        <AssistantMessageItem
+          item={item}
+          answer={actionsFor?.has(item.id) === true}
+          onFailure={onFailure}
+        />
+      );
     case "reasoning":
       return (
         <ReasoningItem

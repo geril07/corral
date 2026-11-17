@@ -68,19 +68,38 @@ export function chatRows({ items, turn, waiting }: ChatRowInput): ChatRow[] {
     // A steer is another user message, indistinguishable from a turn boundary in the contract.
     if (folds(work, turn === "working" ? turn : end === items.length ? turn : "settled")) {
       const turnRows = projectRows(work);
+      // The turn's answer is not part of its work: it stays a row of its own after the fold, so
+      // the fold's header does not pin over it and closing the fold does not take it away. Only a
+      // lasting last row can move out without reordering what stays inside.
+      const last = turnRows.at(-1);
+      const answer =
+        last?.kind === "item" && last.item.kind === "assistant-message" ? last : undefined;
+      const foldedRows = answer === undefined ? turnRows : turnRows.slice(0, -1);
       rows.push({
         kind: "turn",
         key: `turn:${item.id}`,
-        rows: turnRows,
+        rows: foldedRows,
+        // Read from the whole turn: a commentary block must not become the kept message just
+        // because the answer moved out of the fold.
         hidden: hiddenKeys(turnRows),
       });
+      if (answer !== undefined) rows.push(answer);
     } else {
       rows.push(...projectRows(work));
     }
     index = end;
   }
-  if (turn === "working" && !waiting) rows.push({ kind: "working", key: "working" });
+  // A streaming reasoning row is already the turn's live row, so a `Working` line under it would
+  // claim a second activity. OpenCode's turn phase is one value there, and thinking replaces
+  // working instead of stacking on it.
+  if (turn === "working" && !waiting && !liveReasoning(rows.at(-1))) {
+    rows.push({ kind: "working", key: "working" });
+  }
   return rows;
+}
+
+function liveReasoning(row: ChatRow | undefined): boolean {
+  return row?.kind === "item" && row.item.kind === "reasoning" && row.item.streaming;
 }
 
 function nextTurnStart(items: readonly ChatItem[], from: number): number {
@@ -148,10 +167,11 @@ function projectRows(items: readonly ChatItem[]): ChatRow[] {
 }
 
 /**
- * What a finished turn's fold hides: its work rows and every assistant message but the turn's
- * terminal one. T3 hides every entry of the run except `group.terminalEntry`
- * (`MessagesTimeline.logic.ts`), and a Corral turn normally carries several messages
- * because each text block is its own item (`apps/server/src/chat/pi-projection.test.ts`).
+ * What a finished turn's fold hides: its work rows and its messages, except the turn's terminal one
+ * when that one could not move out of the fold (see `chatRows`) and stays visible in place. T3 hides
+ * every entry of the run except `group.terminalEntry` (`MessagesTimeline.logic.ts`), and a Corral
+ * turn normally carries several messages because each text block is its own item
+ * (`apps/server/src/chat/pi-projection.test.ts`).
  * A notice, an error and a request are never hidden: a request owns the keyboard.
  */
 function hiddenKeys(rows: readonly ChatRow[]): ReadonlySet<string> {
@@ -181,6 +201,26 @@ export function pendingRequest(items: readonly ChatItem[]) {
     if (item?.kind === "user-request" && item.status === "pending") return item;
   }
   return undefined;
+}
+
+/**
+ * The assistant messages a turn answers with: its last one. T3 gives only a turn's terminal message
+ * its meta row (`terminalAssistantMessageIds`), and the copy action lives there — a message action
+ * reserves its own height, so one under every block leaves a gap inside a turn's work.
+ */
+export function terminalAssistantIds(items: readonly ChatItem[]): ReadonlySet<string> {
+  const ids = new Set<string>();
+  let terminal: string | undefined;
+  for (const item of items) {
+    if (item.kind === "user-message") {
+      if (terminal !== undefined) ids.add(terminal);
+      terminal = undefined;
+      continue;
+    }
+    if (item.kind === "assistant-message") terminal = item.id;
+  }
+  if (terminal !== undefined) ids.add(terminal);
+  return ids;
 }
 
 /** What a call did, read from its shape: the protocol's names change with the agent. */
@@ -221,10 +261,19 @@ function firstString(
   record: Record<string, unknown> | undefined,
   keys: readonly string[],
 ): string | undefined {
+  const value = firstText(record, keys);
+  return value === undefined ? undefined : oneLine(value);
+}
+
+/** The first non-empty string under any of `keys`, exactly as the call wrote it. */
+function firstText(
+  record: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): string | undefined {
   if (record === undefined) return undefined;
   for (const key of keys) {
     const value = record[key];
-    if (typeof value === "string" && value.trim() !== "") return oneLine(value);
+    if (typeof value === "string" && value.trim() !== "") return value;
   }
   return undefined;
 }
@@ -293,7 +342,10 @@ function labelFor(
     if (call.status === "running") return `Running ${commandProgramName(command) ?? "command"}`;
     return command;
   }
-  if (action === "edit") return changedFilesLabel(1);
+  if (action === "edit") {
+    const count = call.diff === null ? 1 : Math.max(patchFileCount(call.diff.text), 1);
+    return changedFilesLabel(count);
+  }
   // T3's search sentence answers nothing when the call named neither a query nor a glob
   // (`toolActivity.ts` returns `undefined`), so the argument hint answers instead.
   if (action === "search") return searchLabel(record) ?? summaryFor(call.arguments, record);
@@ -302,6 +354,23 @@ function labelFor(
 
 function changedFilesLabel(count: number): string {
   return `Changed ${count} ${count === 1 ? "file" : "files"}`;
+}
+
+/**
+ * How many files a patch touched, from the diff's own grammar: a git patch names each file in a
+ * `diff --git` line, and a plain one opens each with `---`/`+++` headers. The git line is counted
+ * first, because a removed line whose text starts with `--` also begins with `---`.
+ */
+function patchFileCount(text: string): number {
+  const lines = text.split("\n");
+  let gitFiles = 0;
+  for (const line of lines) if (line.startsWith("diff --git ")) gitFiles += 1;
+  if (gitFiles > 0) return gitFiles;
+  let headers = 0;
+  for (let index = 0; index < lines.length - 1; index += 1) {
+    if (lines[index]?.startsWith("--- ") && lines[index + 1]?.startsWith("+++ ")) headers += 1;
+  }
+  return headers;
 }
 
 /**
@@ -325,6 +394,34 @@ function searchTargetName(path: string | undefined): string | undefined {
   if (path === undefined) return undefined;
   const parts = path.split(/[\\/]/u).filter((part) => part !== "" && part !== ".");
   return parts.at(-1);
+}
+
+/**
+ * The command a run call issued, verbatim: the row's label collapses it onto one line, while the
+ * expanded body shows the whole command because a long one truncates there.
+ */
+export function toolCommand(call: ChatToolCall): string | undefined {
+  const record = argumentRecord(call.arguments);
+  if (record === undefined) return undefined;
+  for (const key of RUN_KEYS) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim() !== "") return value.trim();
+  }
+  return undefined;
+}
+
+/**
+ * A call that writes a whole file instead of a patch: the path it names and the text it puts
+ * there, with the file's own line breaks kept (Claude's `Write` is `{file_path, content}`). A
+ * change carries its diff, and an edit that names only the changed strings has no whole file.
+ */
+export function toolWrite(call: ChatToolCall): { path: string; text: string } | undefined {
+  const record = argumentRecord(call.arguments);
+  if (record === undefined) return undefined;
+  const path = firstString(record, READ_KEYS);
+  const text = firstText(record, WRITE_KEYS);
+  if (path === undefined || text === undefined) return undefined;
+  return { path, text };
 }
 
 /**
@@ -435,7 +532,9 @@ function actionCount(action: ChatToolAction, calls: readonly ChatToolCall[]): nu
   const files = new Set<string>();
   let withoutPath = 0;
   for (const call of calls) {
-    if (call.diff === null || call.diff.path === null) withoutPath += 1;
+    // One call can carry a patch for several files, so its row's count is the patch's, not 1.
+    const count = call.diff === null ? 1 : Math.max(patchFileCount(call.diff.text), 1);
+    if (call.diff === null || call.diff.path === null) withoutPath += count;
     else files.add(call.diff.path);
   }
   return files.size + withoutPath;
