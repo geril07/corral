@@ -45,6 +45,10 @@ const buttonVariants = cva(
         // inset ring because it lives in the timeline's scroll container (T3's `WorkLogButton` in
         // `WorkLog.tsx`).
         activity: "w-full min-w-0 justify-start overflow-hidden text-left focus-visible:ring-inset",
+        // A message's action control: bare and inline under the message, inside the timeline's
+        // scroll container, so the inset ring is what the transcript's edge cannot cut (T3's
+        // `MessageCopyButton`, whose Button base rings inset).
+        message: "focus-visible:ring-inset",
       },
       size: {
         default:

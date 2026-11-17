@@ -140,6 +140,7 @@ function MessageActions({
         icon={copied ? "status-done" : "copy"}
         size="icon-xs"
         variant="ghost"
+        layout="message"
         onClick={() => {
           void navigator.clipboard.writeText(text).then(
             () => setCopied(true),
