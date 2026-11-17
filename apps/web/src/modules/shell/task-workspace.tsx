@@ -1232,6 +1232,7 @@ export function useTaskWorkspace({
           companion={groupPane("companion")}
           mainVisible={mainVisible}
           companionVisible={companionVisible}
+          expanded={layout.expanded}
           width={companionWidth}
           min={companionLimits.min}
           max={companionLimits.max}

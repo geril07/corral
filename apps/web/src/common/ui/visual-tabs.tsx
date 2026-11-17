@@ -18,6 +18,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -70,9 +71,24 @@ export interface VisualTabDrop {
 interface TabDragState {
   active: string | undefined;
   target: VisualTabDrop | undefined;
+  /** The pointer is over the column a drop gives the other group, strip row included. */
+  zone: boolean;
 }
 
-const TabDragContext = createContext<TabDragState>({ active: undefined, target: undefined });
+const IDLE_DRAG: TabDragState = { active: undefined, target: undefined, zone: false };
+
+/** The column is its own element, so the zone comes from its box rather than a second definition. */
+const TabDragContext = createContext<{
+  drag: TabDragState;
+  zoneRef: RefObject<HTMLDivElement | null>;
+}>({ drag: IDLE_DRAG, zoneRef: { current: null } });
+
+/** Where the pointer is now: the activator it went down at plus the drag's own translation. */
+function pointerOf(event: DragMoveEvent | DragEndEvent): { x: number; y: number } | undefined {
+  const activator = event.activatorEvent;
+  if (!(activator instanceof PointerEvent)) return undefined;
+  return { x: activator.clientX + event.delta.x, y: activator.clientY + event.delta.y };
+}
 
 function dropTarget(event: DragMoveEvent | DragEndEvent): VisualTabDrop | undefined {
   const { active, over } = event;
@@ -99,27 +115,43 @@ function VisualTabDrag({
   children: ReactNode;
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const [drag, setDrag] = useState<TabDragState>({ active: undefined, target: undefined });
+  const [drag, setDrag] = useState<TabDragState>(IDLE_DRAG);
   const [label, setLabel] = useState("");
+  const zoneRef = useRef<HTMLDivElement>(null);
+  const context = useMemo(() => ({ drag, zoneRef }), [drag]);
+  // A drop on a tab is a reorder, so the tab wins the drop; the column keeps painting, otherwise
+  // crossing the strip inside it would blink the preview away.
+  const inZone = (event: DragMoveEvent | DragEndEvent) => {
+    const box = zoneRef.current?.getBoundingClientRect();
+    const point = pointerOf(event);
+    if (box === undefined || point === undefined) return false;
+    return (
+      point.x >= box.left && point.x <= box.right && point.y >= box.top && point.y <= box.bottom
+    );
+  };
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={pointerWithin}
       onDragStart={({ active }) => {
         setLabel(String(active.data.current?.["label"] ?? ""));
-        setDrag({ active: String(active.id), target: undefined });
+        setDrag({ active: String(active.id), target: undefined, zone: false });
       }}
       onDragMove={(event) =>
-        setDrag({ active: String(event.active.id), target: dropTarget(event) })
+        setDrag({
+          active: String(event.active.id),
+          target: dropTarget(event),
+          zone: inZone(event),
+        })
       }
       onDragEnd={(event) => {
         const target = dropTarget(event);
-        setDrag({ active: undefined, target: undefined });
+        setDrag(IDLE_DRAG);
         if (target !== undefined) onDrop(target);
       }}
-      onDragCancel={() => setDrag({ active: undefined, target: undefined })}
+      onDragCancel={() => setDrag(IDLE_DRAG)}
     >
-      <TabDragContext.Provider value={drag}>{children}</TabDragContext.Provider>
+      <TabDragContext.Provider value={context}>{children}</TabDragContext.Provider>
       <DragOverlay dropAnimation={null}>
         {drag.active === undefined ? null : (
           <div className="visual-tab-drag-overlay" aria-hidden="true">
@@ -131,21 +163,26 @@ function VisualTabDrag({
   );
 }
 
-/** The edge is reachable only during a drag, so the one-group layout keeps its full width. */
+/**
+ * The column the other group will take: the zone is the box it paints, strip row included, so a
+ * drop on its strip places the tab there instead of moving it in its own.
+ */
 function VisualTabDropEdge({ group }: { group: VisualTabGroup }) {
-  const drag = useContext(TabDragContext);
-  const { setNodeRef, isOver } = useDroppable({
+  const { drag, zoneRef } = useContext(TabDragContext);
+  const { setNodeRef } = useDroppable({
     id: `group:${group}`,
     data: { group, edge: true },
     disabled: drag.active === undefined,
   });
   return (
     <div
-      ref={setNodeRef}
+      ref={(node) => {
+        zoneRef.current = node;
+        setNodeRef(node);
+      }}
       className="visual-tab-drop-edge"
       data-side={group === "main" ? "left" : "right"}
-      data-active={drag.active === undefined ? undefined : "true"}
-      data-over={isOver ? "true" : undefined}
+      data-visible={drag.zone ? "true" : undefined}
       aria-hidden="true"
     />
   );
@@ -156,6 +193,7 @@ export function VisualWorkspaceGroups({
   companion,
   mainVisible,
   companionVisible,
+  expanded,
   width,
   min,
   max,
@@ -167,6 +205,8 @@ export function VisualWorkspaceGroups({
   companion: ReactNode;
   mainVisible: boolean;
   companionVisible: boolean;
+  /** The group occupying the whole working area, if any: a drop then expands its target. */
+  expanded: VisualTabGroup | null;
   width: number;
   min: number;
   max: number;
@@ -179,7 +219,9 @@ export function VisualWorkspaceGroups({
     <div
       className="visual-workspace-groups"
       data-split={split ? "true" : undefined}
-      style={split ? ({ "--group-companion-width": `${width}px` } as CSSProperties) : undefined}
+      // The drop preview reads the width the split will give the companion, split or not.
+      data-drop-full={expanded === null ? undefined : "true"}
+      style={{ "--group-companion-width": `${width}px` } as CSSProperties}
     >
       <VisualTabDrag onDrop={onDrop}>
         <div
@@ -469,7 +511,7 @@ function TabCell({ item, onSelect, onClose, onStep }: TabCellProps) {
 
 function SortableTabCell(props: TabCellProps & { group: VisualTabGroup }) {
   const { item, group } = props;
-  const drag = useContext(TabDragContext);
+  const { drag } = useContext(TabDragContext);
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.id,
     data: { group, label: item.label },

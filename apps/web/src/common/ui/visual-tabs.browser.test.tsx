@@ -2,7 +2,12 @@ import { expect, test } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { useState, type CSSProperties } from "react";
 import { render } from "vitest-browser-react";
-import { VisualTabStrip, VisualWorkspaceGroups, type VisualTabItem } from "./visual-tabs.tsx";
+import {
+  VisualTabStrip,
+  VisualWorkspaceGroups,
+  type VisualTabDrop,
+  type VisualTabItem,
+} from "./visual-tabs.tsx";
 
 function items(count: number, selected: string): VisualTabItem[] {
   return Array.from({ length: count }, (_unused, index) => {
@@ -206,6 +211,7 @@ function CompanionHarness() {
         }
         mainVisible
         companionVisible={open}
+        expanded={null}
         width={width}
         min={320}
         max={480}
@@ -264,5 +270,223 @@ test("the companion keeps its contents mounted while it is shut, with an 8 px ga
   await expect.poll(() => getComputedStyle(companion).visibility).toBe("hidden");
   expect(companion.getBoundingClientRect().width).toBe(0);
   expect(container.querySelector('[data-testid="kept"]')).not.toBeNull();
+  await unmount();
+});
+
+function PreviewHarness({
+  side,
+  width = 1000,
+  onDrop,
+}: {
+  side: "right" | "left";
+  width?: number;
+  onDrop: (drop: VisualTabDrop) => void;
+}) {
+  const strip = (
+    <VisualTabStrip
+      label={side === "right" ? "Main tabs" : "Companion tabs"}
+      items={items(3, "tab-1")}
+      onSelect={() => undefined}
+      onClose={() => undefined}
+      dragGroup={side === "right" ? "main" : "companion"}
+    />
+  );
+  return (
+    <div
+      style={
+        {
+          width,
+          height: 600,
+          display: "flex",
+          "--workspace-gutter": "6px",
+        } as CSSProperties
+      }
+    >
+      <VisualWorkspaceGroups
+        main={side === "right" ? strip : <div>main</div>}
+        companion={side === "right" ? <div>companion</div> : strip}
+        mainVisible={side === "right"}
+        companionVisible={side === "left"}
+        expanded={null}
+        width={320}
+        min={160}
+        max={480}
+        onResize={() => undefined}
+        onFocusGroup={() => undefined}
+        onDrop={onDrop}
+      />
+    </div>
+  );
+}
+
+/** dnd-kit's PointerSensor: pointerdown on the tab, moves and the release on the document. */
+async function dragToEdge(tab: Element, x: number, y: number) {
+  for (const name of ["setPointerCapture", "releasePointerCapture", "hasPointerCapture"] as const) {
+    Object.defineProperty(tab, name, { configurable: true, value: () => true });
+  }
+  const from = tab.getBoundingClientRect();
+  const start = { x: from.left + from.width / 2, y: from.top + from.height / 2 };
+  tab.dispatchEvent(
+    new PointerEvent("pointerdown", {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      ...start,
+    }),
+  );
+  for (let step = 1; step <= 8; step += 1) {
+    document.dispatchEvent(
+      new PointerEvent("pointermove", {
+        bubbles: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true,
+        buttons: 1,
+        clientX: start.x + ((x - start.x) * step) / 8,
+        clientY: start.y + ((y - start.y) * step) / 8,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 24));
+  }
+}
+
+function dragOver(container: HTMLElement) {
+  return container.querySelector(".visual-tab-drop-edge[data-visible]") !== null;
+}
+
+test.for([
+  { side: "right", width: 320 },
+  { side: "left", width: 672 },
+] as const)(
+  "the split's drop zone is the body it will give that group on the $side edge",
+  async ({ side, width }) => {
+    const drops: VisualTabDrop[] = [];
+    const { container, unmount } = await render(
+      <PreviewHarness side={side} onDrop={(drop) => drops.push(drop)} />,
+    );
+    const groups = container.querySelector<HTMLElement>(".visual-workspace-groups")!;
+    const edge = container.querySelector<HTMLElement>(".visual-tab-drop-edge")!;
+    const box = groups.getBoundingClientRect();
+    expect(getComputedStyle(edge).opacity).toBe("0");
+
+    // Aim at the middle of the body, not at the edge of the window.
+    await dragToEdge(
+      page.getByRole("tab", { name: "session 2" }).element(),
+      side === "right" ? box.right - width / 2 : box.left + width / 2,
+      box.top + box.height / 2,
+    );
+    await expect.poll(() => dragOver(container)).toBe(true);
+
+    // The zone is the box it paints: below the strip, the width the split gives the group.
+    const area = edge.getBoundingClientRect();
+    expect(area.width).toBe(width);
+    expect(area.top).toBe(box.top);
+    expect(area.bottom).toBe(box.bottom);
+    // The group card's own corners: square where the strip would sit, 8 px at the bottom.
+    expect(getComputedStyle(edge).borderTopLeftRadius).toBe("0px");
+    expect(getComputedStyle(edge).borderBottomLeftRadius).toBe("8px");
+    expect(getComputedStyle(edge).opacity).toBe("1");
+
+    // A release anywhere inside it creates that group.
+    document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1 }));
+    await expect.poll(() => drops.length).toBe(1);
+    expect(drops[0]?.group).toBe(side === "right" ? "companion" : "main");
+    await unmount();
+  },
+);
+
+test("a drop beside an expanded group covers the whole body", async () => {
+  const drops: VisualTabDrop[] = [];
+  const { container, unmount } = await render(
+    <div
+      style={
+        {
+          width: 1000,
+          height: 600,
+          display: "flex",
+          "--workspace-gutter": "6px",
+        } as CSSProperties
+      }
+    >
+      <VisualWorkspaceGroups
+        main={<div>main</div>}
+        companion={
+          <VisualTabStrip
+            label="Companion tabs"
+            items={items(3, "tab-1")}
+            onSelect={() => undefined}
+            onClose={() => undefined}
+            dragGroup="companion"
+          />
+        }
+        mainVisible={false}
+        companionVisible
+        expanded="companion"
+        width={320}
+        min={160}
+        max={480}
+        onResize={() => undefined}
+        onFocusGroup={() => undefined}
+        onDrop={(drop) => drops.push(drop)}
+      />
+    </div>,
+  );
+  const groups = container.querySelector<HTMLElement>(".visual-workspace-groups")!;
+  const edge = container.querySelector<HTMLElement>(".visual-tab-drop-edge")!;
+  const box = groups.getBoundingClientRect();
+  await dragToEdge(
+    page.getByRole("tab", { name: "session 2" }).element(),
+    box.left + box.width / 2,
+    box.top + box.height / 2,
+  );
+  await expect.poll(() => dragOver(container)).toBe(true);
+  expect(edge.getBoundingClientRect().width).toBe(1000);
+  document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1 }));
+  await expect.poll(() => drops.length).toBe(1);
+  expect(drops[0]?.group).toBe("main");
+  await unmount();
+});
+
+test("the strip row inside the column is a target, like the body", async () => {
+  const drops: VisualTabDrop[] = [];
+  const { container, unmount } = await render(
+    <PreviewHarness side="right" onDrop={(drop) => drops.push(drop)} />,
+  );
+  const groups = container.querySelector<HTMLElement>(".visual-workspace-groups")!;
+  const box = groups.getBoundingClientRect();
+  // Inside the column, on the strip row, clear of every tab.
+  await dragToEdge(
+    page.getByRole("tab", { name: "session 1" }).element(),
+    box.right - 40,
+    box.top + 20,
+  );
+  await expect.poll(() => dragOver(container)).toBe(true);
+  document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1 }));
+  await expect.poll(() => drops.length).toBe(1);
+  expect(drops[0]?.group).toBe("companion");
+  await unmount();
+});
+
+test("a tab inside the column still wins the drop, and the column keeps painting", async () => {
+  const drops: VisualTabDrop[] = [];
+  const { container, unmount } = await render(
+    <PreviewHarness side="right" width={400} onDrop={(drop) => drops.push(drop)} />,
+  );
+  // A 400 px strip: the third tab sits inside the 320 px column.
+  const target = page.getByRole("tab", { name: "session 3" }).element();
+  const at = target.getBoundingClientRect();
+  await dragToEdge(
+    page.getByRole("tab", { name: "session 1" }).element(),
+    at.left + at.width / 2,
+    at.top + at.height / 2,
+  );
+  await expect.poll(() => dragOver(container)).toBe(true);
+  document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1 }));
+  await expect.poll(() => drops.length).toBe(1);
+  expect(drops[0]).toMatchObject({ group: "main", over: "tab-3" });
   await unmount();
 });

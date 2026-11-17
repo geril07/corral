@@ -189,7 +189,7 @@ test("dragging and expanding groups keeps the agent and shell alive", async ({
   await window.mouse.move(moved.x + moved.width / 2, moved.y + moved.height / 2);
   await window.mouse.down();
   await window.mouse.move(area.x + area.width - 10, area.y + area.height / 2, { steps: 20 });
-  await expect(window.locator(".visual-tab-drop-edge")).toHaveAttribute("data-over", "true");
+  await expect(window.locator(".visual-tab-drop-edge")).toHaveAttribute("data-visible", "true");
   await window.mouse.up();
   const companion = window.getByRole("tablist", { name: "Companion tabs" });
   const rightAgent = companion.getByRole("tab", { name: "claude", exact: true });
