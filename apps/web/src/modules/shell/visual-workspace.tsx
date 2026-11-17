@@ -790,12 +790,7 @@ export function VisualWorkspace({
       />
       {taskWorkspace.dialogs}
       {finding && (
-        <FindTaskDialog
-          projects={projects.projects}
-          tasks={tasks.tasks}
-          onOpen={(task) => selectTask(task.id)}
-          onClose={() => setFinding(false)}
-        />
+        <FindTaskDialog rows={listedRows} onOpen={selectTask} onClose={() => setFinding(false)} />
       )}
       {addingProject && (
         <AddProjectDialog

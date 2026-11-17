@@ -65,6 +65,10 @@ export interface VisualTaskRow {
   /** The server-owned task state: a settled row names `Unsettle task` in its menu and action. */
   settled?: boolean | undefined;
   status?: VisualCardStatus | undefined;
+  /** When the row last moved: its primary status report, else the task's creation. */
+  activityAt?: number | undefined;
+  /** The same moment as a compact age, so the finder can date a row without a clock of its own. */
+  activityAge?: string | undefined;
   metadata: VisualTaskMetadata;
 }
 
@@ -366,6 +370,33 @@ function statusIcon(tone: VisualCardStatus["tone"]): IconName | undefined {
   return undefined;
 }
 
+/** The one status recipe: glyph, label and (on a card) age, shared by the card and the finder. */
+export function VisualTaskStatus({
+  status,
+  showTime = true,
+}: {
+  status: VisualCardStatus;
+  /** A list that dates the whole row itself hides the status's own age. */
+  showTime?: boolean;
+}) {
+  const icon = statusIcon(status.tone);
+  return (
+    <span
+      className="visual-task-status"
+      data-tone={status.tone}
+      data-muted={status.muted === true ? "true" : undefined}
+    >
+      {icon !== undefined && <Icon name={icon} size="row" />}
+      {status.label !== undefined && (
+        <span className="visual-task-status-label">{status.label}</span>
+      )}
+      {showTime && status.time !== undefined && (
+        <span className="visual-task-status-time">{status.time}</span>
+      )}
+    </span>
+  );
+}
+
 function metadataAgentText(agent: VisualTaskAgent): string {
   const identity =
     agent.model !== undefined && agent.provider !== undefined
@@ -454,7 +485,6 @@ export function VisualTaskCard({
   const { status, settled = false } = row;
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const icon = status === undefined ? undefined : statusIcon(status.tone);
   const settleLabel = settled ? "Unsettle task" : "Settle task";
 
   const hit = (
@@ -522,21 +552,7 @@ export function VisualTaskCard({
         </ContextMenu.Root>
       )}
       <div className="visual-task-slot">
-        {status !== undefined && (
-          <span
-            className="visual-task-status"
-            data-tone={status.tone}
-            data-muted={status.muted === true ? "true" : undefined}
-          >
-            {icon !== undefined && <Icon name={icon} size="row" />}
-            {status.label !== undefined && (
-              <span className="visual-task-status-label">{status.label}</span>
-            )}
-            {status.time !== undefined && (
-              <span className="visual-task-status-time">{status.time}</span>
-            )}
-          </span>
-        )}
+        {status !== undefined && <VisualTaskStatus status={status} />}
         <span className="visual-task-slot-action">
           {onToggleSettle !== undefined && (
             <CompactTooltip label={settleLabel}>

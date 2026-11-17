@@ -18,15 +18,17 @@ export interface PickerFrameMessage {
 
 /**
  * The Add project environment. The field is one bordered row rather than an inset box, the list
- * scrolls inside its own frame so rows clip at the edge, and a settled empty or error answer is
- * one message row under the list. Both path and project pickers render through it, so the frame
- * has one definition; only the row contents and the field wiring differ.
+ * scrolls inside its own frame so rows clip at the edge, a settled empty answer replaces the list
+ * with one centered line, and a settled error is one message row. Both path and project pickers
+ * render through it, so the frame has one definition; only the row contents and the field wiring
+ * differ.
  */
 export function PickerFrame({
   input,
   action,
   label,
   list,
+  empty,
   message,
 }: {
   /** The field element; the picker autocomplete owns its appearance. */
@@ -36,6 +38,8 @@ export function PickerFrame({
   label: string;
   /** The list's scrolling element; omitted when a message replaces it. */
   list?: ReactNode | undefined;
+  /** A settled empty answer, drawn in place of the list; the caller already filtered to none. */
+  empty?: ReactNode | undefined;
   message?: PickerFrameMessage | undefined;
 }) {
   return (
@@ -45,22 +49,36 @@ export function PickerFrame({
         {action}
       </div>
       <div className="px-4 pt-3 text-xs text-muted-foreground">{label}</div>
-      {list !== undefined && <div className="visual-path-list-frame">{list}</div>}
-      {(list === undefined || message !== undefined) && (
-        <div className="visual-path-message-row">
-          <div
-            className="visual-path-message"
-            data-slot="path-picker-message"
-            role={message === undefined ? undefined : message.error === true ? "alert" : "status"}
-            data-error={message?.error === true ? "" : undefined}
-          >
-            {message !== undefined && (
-              <span title={typeof message.text === "string" ? message.text : undefined}>
-                {message.text}
-              </span>
-            )}
-          </div>
+      {empty !== undefined ? (
+        <div
+          data-slot="picker-empty"
+          role="status"
+          className="px-4 py-2 text-center text-sm text-muted-foreground"
+        >
+          {empty}
         </div>
+      ) : (
+        <>
+          {list !== undefined && <div className="visual-path-list-frame">{list}</div>}
+          {(list === undefined || message !== undefined) && (
+            <div className="visual-path-message-row">
+              <div
+                className="visual-path-message"
+                data-slot="path-picker-message"
+                role={
+                  message === undefined ? undefined : message.error === true ? "alert" : "status"
+                }
+                data-error={message?.error === true ? "" : undefined}
+              >
+                {message !== undefined && (
+                  <span title={typeof message.text === "string" ? message.text : undefined}>
+                    {message.text}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </>
   );

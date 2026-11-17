@@ -85,6 +85,7 @@ export {
   VisualShelfToggle,
   VisualSidebar,
   VisualTaskCard,
+  VisualTaskStatus,
   type VisualCardStatus,
   type VisualShortcut,
   type VisualTaskAgent,

@@ -1,102 +1,92 @@
-import { searchTasks } from "@corral/client/task-search";
-import type { Project, Task } from "@corral/protocol/rpc";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  Badge,
-  Command,
-  CommandInput,
-  CommandList,
-  CommandGroup,
-  CommandItem,
-  CommandEmpty,
-  TaskCommandDialog,
+  PickerAutocomplete,
+  TaskDialog,
+  VisualTaskStatus,
+  type VisualTaskRow,
 } from "../../common/ui/index.ts";
-import { recordedBranchAccessible, recordedBranchParts } from "../tasks/index.ts";
+import { searchTasks } from "./task-search.ts";
 
 export interface FindTaskDialogProps {
-  projects: readonly Project[];
-  tasks: readonly Task[];
-  /** Shows the task's existing context without changing any task's state. */
-  onOpen: (task: Task) => void;
+  /** The sidebar's rows, active first: the finder searches what the client already watches. */
+  rows: readonly VisualTaskRow[];
+  onOpen: (id: string) => void;
   onClose: () => void;
 }
 
 /**
- * The command palette over the tasks already watched by the client: one field, one grouped
- * list, no title, description or footer actions. Enter opens the highlighted task, and a
- * settled one opens as it is — starting work in it is what makes it active (#277).
+ * The task finder: the picker frame — one field, a `Tasks` label, a scrolling list — over the same
+ * rows the sidebar shows, so a settled row opens as it is and starting work in it is what makes it
+ * active (#277). Every visible fact (title, project, branch, state) finds its task, locally.
  */
-export function FindTaskDialog({ projects, tasks, onOpen, onClose }: FindTaskDialogProps) {
+export function FindTaskDialog({ rows, onOpen, onClose }: FindTaskDialogProps) {
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string>();
-  const results = searchTasks(query, projects, tasks);
-  const selected = results.find(({ task }) => task.id === selectedId) ?? results[0];
+  const results = useMemo(() => searchTasks(query, rows), [query, rows]);
 
-  const open = (task: Task) => {
-    onOpen(task);
+  const open = (row: VisualTaskRow) => {
+    onOpen(row.id);
     onClose();
   };
 
   return (
-    <TaskCommandDialog title="Find task" onClose={onClose}>
-      <Command
+    <TaskDialog title="Find task" layout="path-picker" showCloseButton={false} onClose={onClose}>
+      <PickerAutocomplete
         label="Tasks"
-        loop
-        shouldFilter={false}
-        value={selected?.task.id ?? ""}
-        onValueChange={setSelectedId}
-      >
-        <CommandInput
-          aria-label="Search tasks"
-          placeholder="Search tasks…"
-          autoFocus
-          value={query}
-          onValueChange={(value) => {
-            setQuery(value);
-            setSelectedId(undefined);
-          }}
-        />
-        <CommandList variant="fixed">
-          <CommandGroup heading="Tasks">
-            {results.map(({ task, project }) => {
-              // A task created without a branch is still findable; the qualifier says so.
-              const recordedBranch = task.branch ?? "HEAD";
-              const branch = recordedBranchParts(recordedBranch);
-              const projectName = project?.name ?? "No project";
-              return (
-                <CommandItem
-                  key={task.id}
-                  value={task.id}
-                  aria-label={[
-                    task.title,
-                    recordedBranchAccessible(recordedBranch),
-                    projectName,
-                    task.state === "settled" ? "settled" : undefined,
-                  ]
-                    .filter((part): part is string => part !== undefined)
-                    .join(" — ")}
-                  onSelect={() => open(task)}
-                >
-                  <span className="flex-1 truncate">{task.title}</span>
-                  <span className="flex min-w-0 max-w-1/3 flex-col text-muted-foreground">
-                    {branch.name !== undefined && (
-                      <span className="min-w-0 truncate" data-recorded-name="">
-                        {branch.name}
-                      </span>
-                    )}
-                    <span className="shrink-0 text-xs" data-recorded-qualifier="">
-                      {branch.qualifier}
-                    </span>
-                  </span>
-                  <Badge variant="secondary">{projectName}</Badge>
-                  {task.state === "settled" && <Badge variant="secondary">settled</Badge>}
-                </CommandItem>
-              );
-            })}
-          </CommandGroup>
-          <CommandEmpty>No results found</CommandEmpty>
-        </CommandList>
-      </Command>
-    </TaskCommandDialog>
+        inputLabel="Search tasks"
+        placeholder="Search tasks…"
+        autoHighlight="always"
+        items={results}
+        query={query}
+        onQueryChange={setQuery}
+        filter={null}
+        itemKey={(row) => row.id}
+        itemToStringValue={(row) => row.title}
+        itemLabel={taskLabel}
+        renderItem={(row) => <TaskRow row={row} />}
+        onChoose={open}
+        onClose={onClose}
+        empty={results.length === 0 ? "No results found" : undefined}
+      />
+    </TaskDialog>
   );
+}
+
+function TaskRow({ row }: { row: VisualTaskRow }) {
+  const context = [row.project, row.copyBranch, row.settled === true ? "settled" : undefined]
+    .filter((part) => part !== undefined)
+    .join(" · ");
+  return (
+    <>
+      <span className="visual-project-avatar" aria-hidden="true">
+        {row.projectInitial}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col text-left">
+        <span className="truncate">{row.title}</span>
+        <span className="truncate text-xs text-muted-foreground">{context}</span>
+      </span>
+      {row.status !== undefined && <VisualTaskStatus status={row.status} showTime={false} />}
+      {row.activityAge !== undefined && (
+        <span
+          className="min-w-10 shrink-0 text-right text-xs text-muted-foreground tabular-nums"
+          title={
+            row.activityAt === undefined ? undefined : new Date(row.activityAt).toLocaleString()
+          }
+        >
+          {row.activityAge}
+        </span>
+      )}
+    </>
+  );
+}
+
+/** The row's accessible name spells out the facts the visual row shows compactly. */
+function taskLabel(row: VisualTaskRow): string {
+  return [
+    row.title,
+    row.copyBranch === undefined ? undefined : `branch ${row.copyBranch}`,
+    row.project,
+    row.settled === true ? "settled" : undefined,
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join(" — ");
 }
