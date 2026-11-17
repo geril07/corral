@@ -35,7 +35,14 @@ import type { NamingPlan, NamingSettingsSource } from "../naming/naming.ts";
 import { sanitizeGeneratedSlug } from "../naming/naming-output.ts";
 import type { NamingName } from "../naming/naming-output.ts";
 import { newId } from "../storage/ids.ts";
-import { BlankTaskTitleError, TaskNotFoundError, WorktreeDirtyError } from "./errors.ts";
+import {
+  BlankTaskTitleError,
+  SettledTaskSnoozeError,
+  SnoozeTimeError,
+  TaskNeedsUserError,
+  TaskNotFoundError,
+  WorktreeDirtyError,
+} from "./errors.ts";
 import { SerialQueue } from "./serial-queue.ts";
 import { seedTitle } from "./seed-title.ts";
 import type { TaskSettings } from "./task-settings.ts";
@@ -71,6 +78,8 @@ const gitWorktrees: WorktreeOperations = {
 /** What tasks need from the sessions that run in them. */
 export interface TaskSessions {
   hasRunningIn(taskIds: ReadonlySet<string>): boolean;
+  /** Whether any session of the tasks is running and waiting on a permission or a question. */
+  blockedIn(taskIds: ReadonlySet<string>): boolean;
   /** Stops and forgets every session of the tasks; resolves once the processes are gone. */
   removeAllIn(taskIds: ReadonlySet<string>): Promise<void>;
   /**
@@ -141,6 +150,36 @@ export class TaskService implements ProjectTasks {
     return this.#mutations.run(() => this.#setState(id, state));
   }
 
+  /**
+   * Leaves the active list until `snoozedUntil` without touching the state: the sessions keep
+   * running. A blocked agent is refused because the wake rule returns a waiting task at once, and
+   * a past time because it would leave the row in the active list while claiming a snooze.
+   */
+  snooze(id: string, snoozedUntil: number): Promise<Task> {
+    return this.#mutations.run(async () => {
+      const task = this.get(id);
+      if (task.state === "settled") throw new SettledTaskSnoozeError();
+      if (!Number.isSafeInteger(snoozedUntil) || snoozedUntil <= Date.now())
+        throw new SnoozeTimeError(snoozedUntil);
+      // The refusal is the wake rule's own test, so the two can never disagree about "waiting".
+      if (this.#sessions.blockedIn(new Set([id]))) throw new TaskNeedsUserError();
+      this.#store.setSnooze(id, snoozedUntil, Date.now());
+      this.#changes.notify();
+      return this.get(id);
+    });
+  }
+
+  /** Ends a snooze now; a task that is not snoozed is returned without a write. */
+  unsnooze(id: string): Promise<Task> {
+    return this.#mutations.run(async () => {
+      const task = this.get(id);
+      if (task.snoozedUntil === null && task.snoozedAt === null) return task;
+      this.#store.clearSnooze(id);
+      this.#changes.notify();
+      return this.get(id);
+    });
+  }
+
   rename(id: string, title: string): Promise<Task> {
     // Queued like every other task mutation: a removal that is stopping sessions must finish
     // first, so a rename never writes into a task that is going away. A4's generated title has to
@@ -200,6 +239,8 @@ export class TaskService implements ProjectTasks {
    */
   taskActivated(taskId: string): void {
     this.#store.setState(taskId, "active");
+    // New work in a snoozed task is the user coming back to it; a hidden row would lose the session.
+    this.#store.clearSnooze(taskId);
     this.#changes.notify();
   }
 
@@ -240,6 +281,8 @@ export class TaskService implements ProjectTasks {
           ownsWorktree: false,
           state: "active",
           seenAt: null,
+          snoozedUntil: null,
+          snoozedAt: null,
           createdAt: Date.now(),
           ...(input.source === undefined ? {} : { source: input.source }),
         };
@@ -309,6 +352,8 @@ export class TaskService implements ProjectTasks {
       ownsWorktree: false,
       state: "active",
       seenAt: null,
+      snoozedUntil: null,
+      snoozedAt: null,
       createdAt: Date.now(),
     };
   }
@@ -516,6 +561,8 @@ export class TaskService implements ProjectTasks {
     // Settling is a shelf state and nothing else: the task's sessions keep running, and un-settling
     // starts nothing. A start or prompt in a settled task makes it active on its own.
     this.#store.setState(id, state);
+    // Settle wins over snooze: two hidden states would need a rule for which one the shelf shows.
+    if (state === "settled") this.#store.clearSnooze(id);
     this.#changes.notify();
     return this.get(id);
   }

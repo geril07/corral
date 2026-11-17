@@ -1,4 +1,11 @@
 import { hasUnseen, sessionStatus, type TaskStatus } from "@corral/client/agent-status";
+import {
+  canSnoozeTask,
+  isSnoozeWokeUnseen,
+  isTaskSnoozed,
+  snoozeClockLabel,
+  snoozeWakeLabel,
+} from "@corral/client/snooze";
 import type { AgentStatus, Project, Session, Task } from "@corral/protocol/rpc";
 import type { VisualCardStatus, VisualTaskAgent, VisualTaskRow } from "../../common/ui/index.ts";
 import { branchName } from "../tasks/index.ts";
@@ -120,6 +127,9 @@ interface RowEntry {
   title: string;
   createdAt: number;
   id: string;
+  /** Whether the wake rule keeps this task off the active list, and until when. */
+  snoozed: boolean;
+  snoozedUntil: number | null;
 }
 
 /** One task's row, or `undefined` when its project is not among the ones the client knows. */
@@ -137,12 +147,17 @@ function rowOf(
   const primaryStatus = primary === undefined ? undefined : sessionStatus(primary);
   const agent = visualAgent(primary);
   const activity = primaryStatus?.updatedAt ?? task.createdAt;
+  const own = sessions.filter((session) => session.taskId === task.id);
+  const snoozed = isTaskSnoozed(task, own, now);
+  const woke = isSnoozeWokeUnseen(task, own, now);
   return {
     priority: cardPriority(task, primaryStatus),
     activity,
     title: task.title,
     createdAt: task.createdAt,
     id: task.id,
+    snoozed,
+    snoozedUntil: task.snoozedUntil,
     row: {
       id: task.id,
       title: task.title,
@@ -152,6 +167,15 @@ function rowOf(
       hasSource: task.source !== undefined,
       ...(copyBranch === undefined ? {} : { copyBranch }),
       ...(task.state === "settled" ? { settled: true } : {}),
+      ...(snoozed && task.snoozedUntil !== null
+        ? {
+            snoozed: true,
+            snoozeWake: snoozeWakeLabel(task.snoozedUntil, now),
+            snoozeAt: snoozeClockLabel(new Date(task.snoozedUntil)),
+          }
+        : {}),
+      canSnooze: canSnoozeTask(own),
+      ...(woke ? { woke: true } : {}),
       status: cardStatus(task, primaryStatus, now),
       activityAt: activity,
       activityAge: formatCompactAge(now, activity),
@@ -167,7 +191,8 @@ function rowOf(
 
 /**
  * The sidebar's active rows: tasks of projects the client already knows, flat and sorted by status
- * priority, then by the last reported status or the task's creation.
+ * priority, then by the last reported status or the task's creation. A snoozed task is not one:
+ * it waits in the Snoozed shelf until its wake or a raised hand.
  */
 export function buildTaskRows(
   projects: readonly Project[],
@@ -180,13 +205,41 @@ export function buildTaskRows(
   for (const task of tasks) {
     if (task.state !== "active") continue;
     const entry = rowOf(task, projectById, sessions, now);
-    if (entry !== undefined) rows.push(entry);
+    if (entry !== undefined && !entry.snoozed) rows.push(entry);
   }
   return rows
     .toSorted(
       (a, b) =>
         a.priority - b.priority ||
         b.activity - a.activity ||
+        (a.title < b.title ? -1 : a.title > b.title ? 1 : 0) ||
+        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    )
+    .map(({ row }) => row);
+}
+
+/**
+ * The Snoozed shelf's rows across every project, soonest wake first: the first task to come back
+ * is the one the user asked about next. Two tasks waking in the same minute fall back to the
+ * active list's own tie-breaks.
+ */
+export function buildSnoozedRows(
+  projects: readonly Project[],
+  tasks: readonly Task[],
+  sessions: readonly Session[],
+  now: number,
+): VisualTaskRow[] {
+  const projectById = new Map(projects.map((project) => [project.id, project]));
+  const rows: RowEntry[] = [];
+  for (const task of tasks) {
+    if (task.state !== "active") continue;
+    const entry = rowOf(task, projectById, sessions, now);
+    if (entry !== undefined && entry.snoozed) rows.push(entry);
+  }
+  return rows
+    .toSorted(
+      (a, b) =>
+        (a.snoozedUntil ?? 0) - (b.snoozedUntil ?? 0) ||
         (a.title < b.title ? -1 : a.title > b.title ? 1 : 0) ||
         (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
     )

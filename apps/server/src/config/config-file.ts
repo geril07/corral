@@ -5,11 +5,13 @@ import {
   DEFAULT_DIRECT_BINDINGS,
   DEFAULT_PREFIX,
   DirectActionId,
+  MAX_SNOOZE_PRESETS,
   TaskView,
   WorkspaceMode,
   SlugMode,
   defaultClientConfig,
   defaultNamingSettings,
+  parseSnoozePreset,
   type ClientConfig,
   type ConfigProblem,
   type EnvRef,
@@ -17,6 +19,7 @@ import {
   type NamingSettings,
   type ResolvedTaskSettings,
   type SettingSource,
+  type SnoozePreset,
 } from "@corral/protocol/config";
 import {
   formatChord,
@@ -43,6 +46,7 @@ const DIRECT_PATH = "keys.direct";
 const PROFILES_PATH = "profiles";
 const TASKS_PATH = "tasks";
 const NAMING_PATH = "naming";
+const SNOOZE_PATH = "snooze";
 const AGENTS_PATH = "agents";
 const EDITOR_PATH = "editor";
 const PROJECTS_PATH = "projects";
@@ -51,6 +55,7 @@ const SECTIONS = new Set([
   PROFILES_PATH,
   TASKS_PATH,
   NAMING_PATH,
+  SNOOZE_PATH,
   AGENTS_PATH,
   EDITOR_PATH,
   PROJECTS_PATH,
@@ -86,6 +91,7 @@ const TASK_KEYS: ReadonlySet<string> = new Set([
   "view",
 ]);
 const NAMING_KEYS: ReadonlySet<string> = new Set(["profile", "agent", "model", "timeout-seconds"]);
+const SNOOZE_KEYS: ReadonlySet<string> = new Set(["presets"]);
 
 /** One full set of task settings, before or after a layer is applied. */
 interface TaskValues {
@@ -203,6 +209,7 @@ export function parseConfigFile(
   const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
   const tasks = taskLayer(document[TASKS_PATH], TASKS_PATH, problems, profilesById, disabled);
   const naming = namingLayer(document[NAMING_PATH], problems, profilesById, disabled);
+  const snooze = snoozeLayer(document[SNOOZE_PATH], problems);
   config.tasks = chatViewKeepingAgent(
     resolveTaskSettings(tasks, undefined, dataDir),
     TASKS_PATH,
@@ -211,6 +218,8 @@ export function parseConfigFile(
     hasDriver,
   );
   config.naming = resolvedNaming(naming);
+  if (snooze.presets !== undefined)
+    config.snooze.presets = { value: snooze.presets, source: "global" };
   config.projects = resolvedProjects(
     document[PROJECTS_PATH],
     tasks,
@@ -493,6 +502,60 @@ function editorLayer(value: unknown, problems: ConfigProblem[]): EditorLayer {
     return {};
   }
   return { command };
+}
+
+/**
+ * `[snooze]` presets. A bad entry drops alone, so one typo keeps the rest of the menu; an empty
+ * list is a menu that offers only the custom time.
+ */
+function snoozeLayer(value: unknown, problems: ConfigProblem[]): { presets?: SnoozePreset[] } {
+  if (value === undefined) return {};
+  if (!isTable(value)) {
+    problems.push(errorAt(SNOOZE_PATH, `expected a table, got ${describe(value)}`));
+    return {};
+  }
+  for (const key of Object.keys(value)) {
+    if (!SNOOZE_KEYS.has(key))
+      problems.push(errorAt(`${SNOOZE_PATH}.${key}`, `unknown key "${key}"`));
+  }
+  const raw = value["presets"];
+  if (raw === undefined) return {};
+  if (!Array.isArray(raw)) {
+    problems.push(errorAt(`${SNOOZE_PATH}.presets`, `expected an array, got ${describe(raw)}`));
+    return {};
+  }
+  const presets: SnoozePreset[] = [];
+  let full = false;
+  raw.forEach((entry, index) => {
+    const path = `${SNOOZE_PATH}.presets.${index}`;
+    if (presets.length >= MAX_SNOOZE_PRESETS) {
+      if (!full)
+        problems.push(
+          errorAt(
+            `${SNOOZE_PATH}.presets`,
+            `at most ${MAX_SNOOZE_PRESETS} presets; the rest are ignored`,
+          ),
+        );
+      full = true;
+      return;
+    }
+    if (typeof entry !== "string") {
+      problems.push(errorAt(path, `expected a string, got ${describe(entry)}`));
+      return;
+    }
+    const preset = parseSnoozePreset(entry);
+    if (preset === undefined) {
+      problems.push(
+        errorAt(
+          path,
+          `"${entry}" is not a wake time; write "90m", "2h", "1d", "today 18:00", "tomorrow 09:00" or "monday 09:00"`,
+        ),
+      );
+      return;
+    }
+    presets.push(preset);
+  });
+  return { presets };
 }
 
 /**

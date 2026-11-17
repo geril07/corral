@@ -127,6 +127,8 @@ function seededTask(projectId: string, workspacePath: string): Task {
     ownsWorktree: false,
     state: "active",
     seenAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
     createdAt: 1,
   };
 }

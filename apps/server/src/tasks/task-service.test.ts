@@ -49,6 +49,7 @@ function service(repo: string, closeTerminalsIn: (workspacePath: string) => Prom
   const removed: string[] = [];
   const sessions: TaskSessions = {
     hasRunningIn: () => false,
+    blockedIn: () => false,
     removeAllIn: (ids) => {
       removed.push(...ids);
       return Promise.resolve();

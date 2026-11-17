@@ -2,6 +2,7 @@ import type { AgentStatus, Project, Session, Task, TaskSource } from "@corral/pr
 import { describe, expect, test } from "vite-plus/test";
 import {
   buildSettledRows,
+  buildSnoozedRows,
   buildTaskRows,
   cardPriority,
   cardStatus,
@@ -44,6 +45,8 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     ownsWorktree: true,
     state: "active",
     seenAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
     createdAt: NOW - 60_000,
     ...overrides,
   };
@@ -294,5 +297,68 @@ describe("sidebar order", () => {
     const shown = cardStatus(task("task-1", { seenAt: NOW }), status("blocked"), NOW);
     expect(cardPriority(task("task-1", { seenAt: NOW }), status("blocked"))).toBe(0);
     expect(shown?.tone).toBe("blocked");
+  });
+});
+
+describe("the snoozed shelf", () => {
+  const HOUR = 60 * 60 * 1000;
+
+  test("a snoozed task leaves the active list for the shelf, soonest wake first", () => {
+    const tasks = [
+      task("later", { snoozedUntil: NOW + 3 * HOUR, snoozedAt: NOW - 1_000 }),
+      task("soonest", { snoozedUntil: NOW + HOUR, snoozedAt: NOW - 1_000 }),
+      task("quiet", { createdAt: NOW - 30_000 }),
+    ];
+
+    expect(buildTaskRows([PROJECT], tasks, [], NOW).map((row) => row.id)).toEqual(["quiet"]);
+    expect(buildSnoozedRows([PROJECT], tasks, [], NOW).map((row) => row.id)).toEqual([
+      "soonest",
+      "later",
+    ]);
+    const [row] = buildSnoozedRows([PROJECT], tasks, [], NOW);
+    expect(row).toMatchObject({ snoozed: true, snoozeWake: "1h" });
+  });
+
+  test("a wake time that has passed and a waiting agent both put the task back", () => {
+    const passed = task("passed", { snoozedUntil: NOW - 1, snoozedAt: NOW - HOUR });
+    const blocked = task("blocked", { snoozedUntil: NOW + HOUR, snoozedAt: NOW - 1_000 });
+    const sessions = [
+      session("waiting", {
+        taskId: "blocked",
+        status: { ...status("blocked", NOW - 5_000), kind: "permission" },
+      }),
+    ];
+
+    expect(buildTaskRows([PROJECT], [passed, blocked], sessions, NOW).map((row) => row.id)).toEqual(
+      ["blocked", "passed"],
+    );
+    expect(buildSnoozedRows([PROJECT], [passed, blocked], sessions, NOW)).toEqual([]);
+  });
+
+  test("a wake that ended after the last visit marks the row Woke", () => {
+    const woken = task("w", { snoozedUntil: NOW - 1, snoozedAt: NOW - HOUR, seenAt: null });
+    expect(buildTaskRows([PROJECT], [woken], [], NOW)[0]?.woke).toBe(true);
+    // Looking at the task after the wake clears it.
+    expect(buildTaskRows([PROJECT], [{ ...woken, seenAt: NOW }], [], NOW)[0]?.woke).toBeUndefined();
+    // A snooze still running has nothing to announce yet.
+    const waiting = task("w", { snoozedUntil: NOW + HOUR, snoozedAt: NOW, seenAt: null });
+    expect(buildTaskRows([PROJECT], [waiting], [], NOW)[0]?.woke).toBeUndefined();
+  });
+
+  test("the menu may offer a snooze unless the agent is waiting on the user", () => {
+    const cancelled = buildSnoozedRows(
+      [PROJECT],
+      [task("t", { snoozedUntil: NOW + HOUR, snoozedAt: NOW })],
+      [session("s", { taskId: "t", status: { ...status("blocked", NOW), kind: "question" } })],
+      NOW,
+    );
+    expect(cancelled).toEqual([]);
+    const [waiting] = buildTaskRows(
+      [PROJECT],
+      [task("t", { snoozedUntil: NOW + HOUR, snoozedAt: NOW })],
+      [session("s", { taskId: "t", status: { ...status("blocked", NOW), kind: "question" } })],
+      NOW,
+    );
+    expect(waiting?.canSnooze).toBe(false);
   });
 });

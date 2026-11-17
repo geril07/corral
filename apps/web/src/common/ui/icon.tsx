@@ -13,6 +13,7 @@ import {
   CircleX,
   Circle,
   CircleDot,
+  Clock,
   Check,
   Command,
   Copy,
@@ -78,6 +79,7 @@ const ICONS = {
   // The chat transcript's activity glyphs: T3 gives its work rows one per action (`presentation.ts`,
   // `toolGroupActionLabel`): eye for a read, square-pen for an edit, terminal for a command,
   // search for code search, wrench for anything else, hammer for a mixed group, brain for thinking.
+  clock: Clock,
   edit: SquarePen,
   file: File,
   find: Search,

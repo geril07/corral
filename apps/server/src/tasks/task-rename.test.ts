@@ -29,6 +29,8 @@ const storedTask = (id: string): Task => ({
   ownsWorktree: false,
   state: "active",
   seenAt: null,
+  snoozedUntil: null,
+  snoozedAt: null,
   createdAt: 1,
 });
 
@@ -61,6 +63,7 @@ test("a rename queued behind a removal waits for it and fails without writing th
   const stopping = new Promise<void>((resolve) => (finishRemoval = resolve));
   const sessions: TaskSessions = {
     hasRunningIn: () => false,
+    blockedIn: () => false,
     removeAllIn: () => {
       removalStarted();
       return stopping;
@@ -90,6 +93,7 @@ test("a rename queued behind a removal waits for it and fails without writing th
 test("a blank title is refused before anything is written, so the task list still reads", async () => {
   const sessions: TaskSessions = {
     hasRunningIn: () => false,
+    blockedIn: () => false,
     removeAllIn: () => Promise.resolve(),
     closeTerminalsIn: () => Promise.resolve(),
     startPrimary: () => {
@@ -109,6 +113,7 @@ test("a blank title is refused before anything is written, so the task list stil
 test("a rename that runs before a removal applies, and the removal then takes the task away", async () => {
   const sessions: TaskSessions = {
     hasRunningIn: () => false,
+    blockedIn: () => false,
     removeAllIn: () => Promise.resolve(),
     closeTerminalsIn: () => Promise.resolve(),
     startPrimary: () => {

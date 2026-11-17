@@ -178,18 +178,25 @@ function menuActions() {
     onRemove: vi.fn<(id: string) => void>(),
     onViewSource: vi.fn<(id: string) => void>(),
     onToggleSettle: vi.fn<(id: string) => Promise<boolean>>(() => Promise.resolve(true)),
+    onSnooze: vi.fn<(id: string, until: number) => Promise<{ accepted: boolean }>>(() =>
+      Promise.resolve({ accepted: true }),
+    ),
+    onUnsnooze: vi.fn<(id: string) => Promise<boolean>>(() => Promise.resolve(true)),
+    onSnoozeCustom: vi.fn<(id: string) => void>(),
   };
 }
 
 function MenuHarness({
   actions,
   rows = VISUAL_REVIEW_ROWS,
+  snoozedRows = NO_SETTLED_ROWS,
   settledRows = NO_SETTLED_ROWS,
   composerOpen = false,
   selectedId,
 }: {
   actions: VisualTaskActions;
   rows?: readonly VisualTaskRow[];
+  snoozedRows?: readonly VisualTaskRow[];
   settledRows?: readonly VisualTaskRow[];
   composerOpen?: boolean;
   /** The selection a route would name on load; absent starts on the first active row. */
@@ -201,6 +208,7 @@ function MenuHarness({
   return (
     <VisualShellView
       rows={rows}
+      snoozedRows={snoozedRows}
       settledRows={settledRows}
       selectedId={selected}
       projectsLoaded
@@ -262,6 +270,8 @@ function taskOf(row: VisualTaskRow): Task {
     ownsWorktree: true,
     state: "active",
     seenAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
     createdAt: 0,
   };
 }
@@ -857,6 +867,7 @@ test("the row menu is copy, rename, settle, source, remove, with live shortcut c
     "Copy",
     "Rename task…",
     "Settle task",
+    "Snooze",
     "View issue source…",
     "Remove task…",
   ]);
@@ -871,14 +882,9 @@ test("the row menu is copy, rename, settle, source, remove, with live shortcut c
     page.getByRole("menuitem", { name: "Settle task" }).element().getAttribute("aria-keyshortcuts"),
   ).toBe("alt+a d");
 
-  // The menu refuses the reference features whose contracts do not exist.
-  for (const absent of [
-    "Pin task",
-    "Snooze",
-    "Mark unread",
-    "Regenerate title",
-    "Turn into project",
-  ]) {
+  // The menu refuses the reference features whose contracts do not exist. Snooze is no longer
+  // one of them: it has a wake time on the task, its own procedures and a shelf.
+  for (const absent of ["Pin task", "Mark unread", "Regenerate title", "Turn into project"]) {
     expect(page.getByRole("menuitem", { name: absent }).elements()).toHaveLength(0);
   }
   await unmount();
@@ -1173,6 +1179,38 @@ test("the open shelf mounts one page and appends the next only when asked", asyn
   );
   // The disclosure's count is the whole shelf, not the mounted page.
   await expect.element(page.getByRole("button", { name: "Settled (40)" })).toBeVisible();
+  await unmount();
+});
+
+test("the Snoozed shelf runs its own page and keeps the keyboard when the last one lands", async () => {
+  const snoozed = Array.from({ length: 12 }, (_, index) => ({
+    ...VISUAL_REVIEW_ROWS[0]!,
+    id: `fixture-snoozed-${index}`,
+    title: `Snoozed row ${index}`,
+    snoozed: true,
+    snoozeWake: "1h",
+    status: undefined,
+  }));
+  const { container, unmount } = await render(
+    <MenuHarness actions={menuActions()} snoozedRows={snoozed} />,
+  );
+  await page.getByRole("button", { name: "Snoozed (12)" }).click();
+  const shelfRows = () => [
+    ...container.querySelectorAll<HTMLElement>("#visual-snoozed-list [data-task-id]"),
+  ];
+  await vi.waitFor(() => expect(shelfRows()).toHaveLength(10));
+  const more = page.getByRole("button", { name: "Show 2 more" });
+  await expect.element(more).toBeVisible();
+
+  shelfRows().at(-1)!.focus();
+  await userEvent.keyboard("{ArrowDown}");
+  expect(document.activeElement).toBe(more.element());
+  await userEvent.keyboard("{Enter}");
+
+  await vi.waitFor(() => expect(shelfRows()).toHaveLength(12));
+  await vi.waitFor(() =>
+    expect(document.activeElement?.getAttribute("data-task-id")).toBe(snoozed[10]!.id),
+  );
   await unmount();
 });
 

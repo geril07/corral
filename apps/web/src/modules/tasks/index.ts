@@ -1,4 +1,5 @@
 export { RemoveTaskDialog } from "./remove-task-dialog.tsx";
+export { SnoozeDialog } from "./snooze-dialog.tsx";
 export {
   branchName,
   recordedBranchAccessible,

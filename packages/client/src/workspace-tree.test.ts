@@ -40,6 +40,8 @@ const task = (id: string, projectId: string, state: Task["state"] = "active"): T
   ownsWorktree: true,
   state,
   seenAt: null,
+  snoozedUntil: null,
+  snoozedAt: null,
   createdAt: 0,
 });
 const session = (
@@ -344,8 +346,20 @@ test("a flat row without a status is ordered by its own age, the time its row sh
   const withStatusless = buildWorkspaceTree(
     [project("p1")],
     [
-      { ...task("old-idle", "p1"), seenAt: null, createdAt: 1 },
-      { ...task("fresh", "p1"), seenAt: null, createdAt: 5_000 },
+      {
+        ...task("old-idle", "p1"),
+        seenAt: null,
+        snoozedUntil: null,
+        snoozedAt: null,
+        createdAt: 1,
+      },
+      {
+        ...task("fresh", "p1"),
+        seenAt: null,
+        snoozedUntil: null,
+        snoozedAt: null,
+        createdAt: 5_000,
+      },
     ],
     [reported("si", "old-idle", "idle", 900)],
     [],

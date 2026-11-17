@@ -22,7 +22,7 @@ import { SETTINGS_GROUPS, SETTINGS_SECTIONS, type SettingsSectionId } from "./se
 import { searchSettings, settingsSearchItems, type SettingsSearchItem } from "./settings-search.ts";
 import { SettingsCard, SettingsSection, SettingsRow } from "./settings-primitives.tsx";
 import { useSettingsActivity } from "./settings-activity.tsx";
-import { NamingSection, TaskDefaultsSection } from "./task-sections.tsx";
+import { NamingSection, SnoozeSection, TaskDefaultsSection } from "./task-sections.tsx";
 
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -376,6 +376,9 @@ export function SettingsScreen({
             </SettingsSection>
             <SettingsSection id="defaults" current={current}>
               <TaskDefaultsSection />
+            </SettingsSection>
+            <SettingsSection id="snooze" current={current}>
+              <SnoozeSection />
             </SettingsSection>
             <SettingsSection id="naming" current={current}>
               <NamingSection />

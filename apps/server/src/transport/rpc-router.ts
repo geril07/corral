@@ -76,7 +76,14 @@ import type { SessionKind } from "@corral/protocol/rpc";
 import type { AgentKind } from "@corral/protocol/config";
 import type { IssueProvider } from "@corral/protocol/rpc";
 import type { SessionService } from "../sessions/session-service.ts";
-import { BlankTaskTitleError, TaskNotFoundError, WorktreeDirtyError } from "../tasks/errors.ts";
+import {
+  BlankTaskTitleError,
+  SettledTaskSnoozeError,
+  SnoozeTimeError,
+  TaskNeedsUserError,
+  TaskNotFoundError,
+  WorktreeDirtyError,
+} from "../tasks/errors.ts";
 import type { TaskService } from "../tasks/task-service.ts";
 import type { TerminalRegistry } from "../terminals/terminal-registry.ts";
 
@@ -459,6 +466,32 @@ export function createRpcRouter({
       setState: os.tasks.setState.handler(({ input, errors }) =>
         translating(
           () => tasks.setState(input.id, input.state),
+          (error) => {
+            if (error instanceof TaskNotFoundError)
+              return errors.TASK_NOT_FOUND({ data: { id: error.id } });
+            return undefined;
+          },
+        ),
+      ),
+      snooze: os.tasks.snooze.handler(({ input, errors }) =>
+        translating(
+          () => tasks.snooze(input.id, input.snoozedUntil),
+          (error) => {
+            if (error instanceof TaskNotFoundError)
+              return errors.TASK_NOT_FOUND({ data: { id: error.id } });
+            if (
+              error instanceof SnoozeTimeError ||
+              error instanceof TaskNeedsUserError ||
+              error instanceof SettledTaskSnoozeError
+            )
+              return errors.BAD_REQUEST({ data: { message: error.message } });
+            return undefined;
+          },
+        ),
+      ),
+      unsnooze: os.tasks.unsnooze.handler(({ input, errors }) =>
+        translating(
+          () => tasks.unsnooze(input.id),
           (error) => {
             if (error instanceof TaskNotFoundError)
               return errors.TASK_NOT_FOUND({ data: { id: error.id } });

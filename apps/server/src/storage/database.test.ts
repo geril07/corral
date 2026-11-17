@@ -144,6 +144,8 @@ const storedTask = (id: string, titleSource: Task["titleSource"]): Task => ({
   ownsWorktree: false,
   state: "active",
   seenAt: null,
+  snoozedUntil: null,
+  snoozedAt: null,
   createdAt: 1,
 });
 

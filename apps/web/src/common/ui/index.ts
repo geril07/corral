@@ -36,6 +36,7 @@ export {
 export { FieldSet, FieldLegend } from "./field.tsx";
 export { FormField, RadioChoice } from "./form-field.tsx";
 export { Hint } from "./hint.tsx";
+export { SegmentedControl, SegmentedOption } from "./segmented-control.tsx";
 export { SelectionAction } from "./selection-action.tsx";
 export { TooltipProvider } from "./tooltip.tsx";
 export { DisclosureIcon, Icon, type IconName, type IconSize } from "./icon.tsx";

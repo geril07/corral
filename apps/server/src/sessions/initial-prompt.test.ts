@@ -88,6 +88,8 @@ beforeEach(async () => {
       ownsWorktree: false,
       state: "active",
       seenAt: null,
+      snoozedUntil: null,
+      snoozedAt: null,
       createdAt: Date.now(),
     }),
   );

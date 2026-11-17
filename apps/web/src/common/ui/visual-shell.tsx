@@ -64,6 +64,16 @@ export interface VisualTaskRow {
   copyBranch?: string | undefined;
   /** The server-owned task state: a settled row names `Unsettle task` in its menu and action. */
   settled?: boolean | undefined;
+  /** A snoozed row waits in the Snoozed shelf; it names `Wake task` in its menu. */
+  snoozed?: boolean | undefined;
+  /** Remaining time until the wake (`3h`), shown in place of the status while snoozed. */
+  snoozeWake?: string | undefined;
+  /** The wake as a clock time, for the row's tooltip. */
+  snoozeAt?: string | undefined;
+  /** False while the agent waits on the user: the server refuses a snooze then. */
+  canSnooze?: boolean | undefined;
+  /** A snooze ended after the user last looked: the row says `Woke` until it is dismissed or visited. */
+  woke?: boolean | undefined;
   status?: VisualCardStatus | undefined;
   /** When the row last moved: its primary status report, else the task's creation. */
   activityAt?: number | undefined;
@@ -421,6 +431,9 @@ function metadataFacts(row: VisualTaskRow): TooltipMetadataFact[] {
             truncate: true,
           },
         ]),
+    ...(row.snoozed === true && row.snoozeAt !== undefined
+      ? [{ icon: "clock" as const, value: `Wakes at ${row.snoozeAt}` }]
+      : []),
     ...(error === undefined
       ? []
       : [{ icon: "status-error" as const, value: error, tone: "error" as const }]),
@@ -466,6 +479,8 @@ export interface VisualTaskCardProps {
    * the status instead of offering an action that could not run.
    */
   onToggleSettle?: (() => void) | undefined;
+  /** Dismisses a `Woke` notice. Absent in a host that cannot write the task's seen time. */
+  onAcknowledgeWoke?: (() => void) | undefined;
   /** The row's secondary actions; absent in a host that has no task store to act on. */
   menu?: ReactNode | undefined;
   /** The menu took the keyboard; the shell's transient copy confirmation can go. */
@@ -479,6 +494,7 @@ export function VisualTaskCard({
   onSelect,
   onNavigate,
   onToggleSettle,
+  onAcknowledgeWoke,
   menu,
   onMenuOpen,
 }: VisualTaskCardProps) {
@@ -521,6 +537,7 @@ export function VisualTaskCard({
       className="visual-task-card"
       data-selected={selected ? "true" : undefined}
       data-settled={settled ? "true" : undefined}
+      data-woke={row.woke === true ? "true" : undefined}
     >
       {menu === undefined ? (
         <TaskMetadataTooltip row={row} open={tooltipOpen} onOpenChange={setTooltipOpen}>
@@ -552,7 +569,27 @@ export function VisualTaskCard({
         </ContextMenu.Root>
       )}
       <div className="visual-task-slot">
-        {status !== undefined && <VisualTaskStatus status={status} />}
+        {row.woke === true && onAcknowledgeWoke !== undefined ? (
+          <CompactTooltip label="Dismiss Woke notification">
+            <button
+              type="button"
+              className="visual-task-woke"
+              aria-label="Dismiss Woke notification"
+              onClick={onAcknowledgeWoke}
+            >
+              <Icon name="clock" size="row" />
+              Woke
+            </button>
+          </CompactTooltip>
+        ) : row.snoozed === true && row.snoozeWake !== undefined ? (
+          <span className="visual-task-status" data-tone="snoozed">
+            <Icon name="clock" size="row" />
+            <span className="visual-task-status-label">{row.snoozeWake}</span>
+            {row.snoozeAt !== undefined && <span className="sr-only">until {row.snoozeAt}</span>}
+          </span>
+        ) : (
+          status !== undefined && <VisualTaskStatus status={status} />
+        )}
         <span className="visual-task-slot-action">
           {onToggleSettle !== undefined && (
             <CompactTooltip label={settleLabel}>

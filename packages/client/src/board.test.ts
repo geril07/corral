@@ -27,6 +27,8 @@ const task = (
   ownsWorktree: true,
   state,
   seenAt: null,
+  snoozedUntil: null,
+  snoozedAt: null,
   createdAt,
 });
 const session = (

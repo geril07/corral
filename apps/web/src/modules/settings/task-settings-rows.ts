@@ -1,4 +1,10 @@
-import type { NamingSettings, ResolvedTaskSettings, SettingSource } from "@corral/protocol/config";
+import type {
+  NamingSettings,
+  ResolvedTaskSettings,
+  SettingSource,
+  SnoozeSettings,
+} from "@corral/protocol/config";
+import { formatSnoozePreset } from "@corral/protocol/config";
 
 /**
  * The rows the task sections and the search index share. A key is stable: it names the row's DOM
@@ -86,6 +92,21 @@ export function namingSettingRows(naming: NamingSettings): TaskSettingRow[] {
       label: "Timeout",
       value: `${naming.timeoutSeconds.value} seconds`,
       source: naming.timeoutSeconds.source,
+    },
+  ];
+}
+
+/** `[snooze]`: one row for the whole menu, because a preset is a wake time and not a key. */
+export function snoozeSettingRows(snooze: SnoozeSettings): TaskSettingRow[] {
+  return [
+    {
+      key: "presets",
+      label: "Presets",
+      value:
+        snooze.presets.value.length === 0
+          ? "none"
+          : snooze.presets.value.map(formatSnoozePreset).join(", "),
+      source: snooze.presets.source,
     },
   ];
 }

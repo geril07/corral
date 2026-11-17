@@ -9,7 +9,8 @@ const Row = Task.extend({
 
 const COLUMNS = `id, project_id AS projectId, title, title_source AS titleSource, source, prompt,
   primary_session_id AS primarySessionId, branch, workspace_path AS workspacePath,
-  owns_worktree AS ownsWorktree, state, seen_at AS seenAt, created_at AS createdAt`;
+  owns_worktree AS ownsWorktree, state, seen_at AS seenAt, snoozed_until AS snoozedUntil,
+  snoozed_at AS snoozedAt, created_at AS createdAt`;
 
 export class TaskStore {
   readonly #db: DatabaseSync;
@@ -41,8 +42,8 @@ export class TaskStore {
   insert(task: Task): void {
     this.#db
       .prepare(
-        `INSERT INTO tasks (id, project_id, title, title_source, source, prompt, primary_session_id, branch, workspace_path, owns_worktree, state, seen_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, project_id, title, title_source, source, prompt, primary_session_id, branch, workspace_path, owns_worktree, state, seen_at, snoozed_until, snoozed_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         task.id,
@@ -57,6 +58,8 @@ export class TaskStore {
         task.ownsWorktree ? 1 : 0,
         task.state,
         task.seenAt,
+        task.snoozedUntil,
+        task.snoozedAt,
         task.createdAt,
       );
   }
@@ -97,6 +100,19 @@ export class TaskStore {
 
   setSeenAt(id: string, seenAt: number): void {
     this.#db.prepare("UPDATE tasks SET seen_at = ? WHERE id = ?").run(seenAt, id);
+  }
+
+  /** Both fields together: a wake without its set time could not tell a fresh failure from an old one. */
+  setSnooze(id: string, snoozedUntil: number, snoozedAt: number): void {
+    this.#db
+      .prepare("UPDATE tasks SET snoozed_until = ?, snoozed_at = ? WHERE id = ?")
+      .run(snoozedUntil, snoozedAt, id);
+  }
+
+  clearSnooze(id: string): void {
+    this.#db
+      .prepare("UPDATE tasks SET snoozed_until = NULL, snoozed_at = NULL WHERE id = ?")
+      .run(id);
   }
 
   delete(id: string): void {
