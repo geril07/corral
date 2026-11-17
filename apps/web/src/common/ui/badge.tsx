@@ -4,14 +4,14 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../lib/cn.ts";
 
 const badgeVariants = cva(
-  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-full border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3!",
+  "visual-badge group/badge focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&>svg]:pointer-events-none [&>svg]:size-3!",
   {
     variants: {
       layout: { default: "", truncate: "min-w-0 max-w-1/3 justify-start overflow-hidden" },
       size: {
         default: "",
         // The armed-prefix chip: the chord, not a word, so it fits the footer at 140 %.
-        compact: "px-1",
+        compact: "visual-badge-compact",
       },
       variant: {
         default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",

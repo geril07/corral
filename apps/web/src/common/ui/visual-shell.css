@@ -1088,6 +1088,37 @@
   outline-offset: 2px;
 }
 
+/* A badge is OpenCode's tag at its standard appearance: 18 px tall, 6 px of side padding, the
+   smallest radius, 11 px at 530 in tabular figures. It is a fill, not an outline — the shell's
+   tags have always been borderless, and a hairline turns a tag into a small button. The compact
+   size is the tag's own compact form — 16 px, 4 px of padding, the 2 px radius the armed prefix
+   needs to sit in the footer without growing it. */
+.visual-badge {
+  display: inline-flex;
+  width: fit-content;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  height: 1.125rem;
+  padding: 0 0.375rem;
+  overflow: hidden;
+  border-radius: 0.125rem;
+  font-size: 0.6875rem;
+  font-weight: 530;
+  line-height: 1;
+  letter-spacing: 0.05px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.visual-badge-compact {
+  height: 1rem;
+  padding: 0 0.25rem;
+  border-radius: 0.125rem;
+}
+
 /* One field label: 13/16 at 530 in the base colour, OpenCode's `field-v2` label. */
 .visual-field-label {
   color: var(--visual-text-base);
