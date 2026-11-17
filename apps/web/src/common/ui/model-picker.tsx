@@ -357,8 +357,8 @@ function PickerContent({
           />
         </div>
         <div className="model-picker-models">
-          <div className="model-picker-search">
-            <SearchIcon aria-hidden="true" className="model-picker-search-icon" />
+          <div className="visual-search-band">
+            <SearchIcon aria-hidden="true" className="visual-search-band-icon" />
             <input
               ref={searchRef}
               aria-label="Search models"
@@ -371,7 +371,7 @@ function PickerContent({
               value={query}
               autoComplete="off"
               spellCheck={false}
-              className="model-picker-search-input"
+              className="visual-search-band-input"
               onChange={(event) => {
                 onQuery(event.target.value);
                 setHighlight(null);
@@ -459,7 +459,7 @@ function PickerContent({
                     )}
                   </div>
                   <div className="model-picker-option-tail">
-                    {item.model.default && <span className="model-picker-default">Default</span>}
+                    {item.model.default && <span className="visual-marker">Default</span>}
                     {item.model.favorite && (
                       <span aria-hidden="true" className="model-picker-star">
                         ★

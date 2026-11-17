@@ -2110,11 +2110,10 @@
   line-height: 16px;
   user-select: none;
 }
-/* The model picker: one viewport-bounded dialog with T3's three regions — a 44 px instance rail,
-   the searchable model list and a 192 px thinking column. Every state keeps the same geometry:
-   loading, empty and unsupported states are an empty track, never a sentence. Every metric is a
-   kit value here; a module supplies data and actions. */
-.model-picker-dialog {
+/* The one modal card the pickers and the palette share: as wide as T3's palette, bounded by the
+   viewport, with the floating shadow's hairline as its edge. A module supplies the body. */
+.model-picker-dialog,
+.visual-palette {
   width: min(37rem, calc(100vw - 2rem));
   max-width: none;
   max-height: calc(100dvh - 6rem);
@@ -2128,6 +2127,11 @@
   color: var(--visual-text-base);
   box-shadow: var(--visual-shadow-floating);
 }
+
+/* The model picker: T3's three regions — a 44 px instance rail, the searchable model list and a
+   192 px thinking column. Every state keeps the same geometry: loading, empty and unsupported
+   states are an empty track, never a sentence. Every metric is a kit value here; a module
+   supplies data and actions. */
 
 .model-picker-body {
   display: flex;
@@ -2235,7 +2239,10 @@
   border-left: 1px solid var(--visual-border-muted);
 }
 
-.model-picker-search {
+/* The one search band the picker and the palette open with: a bare field on the card, separated
+   from the list by a hairline. The caret is the focus indicator, so there is no box, border or
+   ring around the field itself. */
+.visual-search-band {
   display: flex;
   flex: 0 0 auto;
   height: 2.5rem;
@@ -2246,13 +2253,12 @@
   color: var(--visual-icon-muted);
 }
 
-.model-picker-search-icon {
+.visual-search-band-icon {
   width: 14px;
   height: 14px;
 }
 
-/* A bare field: the caret is the focus indicator, so there is no box, border or ring. */
-.model-picker-search-input {
+.visual-search-band-input {
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -2266,7 +2272,7 @@
   outline: none;
 }
 
-.model-picker-search-input::placeholder {
+.visual-search-band-input::placeholder {
   color: var(--visual-text-faint);
 }
 
@@ -2348,15 +2354,17 @@
   line-height: 1;
 }
 
-/* T3's Default badge: the configured default is a marked row, not a footer action. */
-.model-picker-default {
-  padding: 0 4px;
+/* One outlined mark for what qualifies a row — a model's Default, a task's project or state. Never
+   a filled chip: a compact row must not carry a second surface. */
+.visual-marker {
+  flex: none;
+  padding: 0 0.25rem;
   border: 1px solid var(--visual-border-muted);
   border-radius: 3px;
   color: var(--visual-text-muted);
   font-size: 0.625rem;
   font-weight: 530;
-  line-height: 14px;
+  line-height: 0.875rem;
 }
 
 .model-picker-keycap {
@@ -2652,4 +2660,147 @@
   .visual-toast-content {
     transition: none;
   }
+}
+
+/* ── Palette ─────────────────────────────────────────────────────────────── */
+
+/* A palette is the picker card with one column: the shared search band, then one grouped list that
+   keeps its box whatever the query finds, so the card never resizes as results change. T3 supplies
+   the structure — the modal card, one list, the row that carries its own meta — and OpenCode the
+   type: 13/16 rows 28 px high, one 4 px inset, a reserved trailing cell for a key. */
+.visual-command {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.visual-palette-list {
+  height: 18rem;
+  min-height: 0;
+  padding: 0.25rem 0.375rem 0.5rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  outline: none;
+}
+
+.visual-palette-list[data-variant="content"] {
+  height: auto;
+  max-height: 18rem;
+}
+
+/* Rows own the whole inset; the group adds no second one. */
+.visual-palette-group {
+  padding: 0;
+}
+
+.visual-palette-group + .visual-palette-group {
+  margin-top: 0.5rem;
+}
+
+.visual-palette-group [cmdk-group-heading] {
+  display: flex;
+  align-items: center;
+  height: 1.75rem;
+  padding: 0 0.375rem;
+  color: var(--visual-text-faint);
+  font-size: 0.6875rem;
+  font-weight: 530;
+  line-height: 1rem;
+  letter-spacing: 0.05px;
+  user-select: none;
+}
+
+/* A row grows only for content that needs it: a disabled entry's reason sits under its label. */
+.visual-palette-item {
+  position: relative;
+  display: flex;
+  min-height: 1.75rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.375rem;
+  border-radius: 0.25rem;
+  color: var(--visual-text-base);
+  font-size: 0.8125rem;
+  line-height: 1rem;
+  letter-spacing: -0.04px;
+  cursor: default;
+  outline: none;
+  user-select: none;
+}
+
+.visual-palette-item[data-selected="true"] {
+  background: var(--visual-hover);
+}
+
+.visual-palette-item[data-disabled="true"] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.visual-palette-item svg {
+  flex: none;
+}
+
+.visual-palette-empty {
+  display: flex;
+  height: 1.75rem;
+  align-items: center;
+  padding: 0 0.375rem;
+  color: var(--visual-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1rem;
+  letter-spacing: -0.04px;
+}
+
+/* Full-bleed inside the list's inset, as in the menus. */
+.visual-palette-separator {
+  height: 1px;
+  margin: 0.25rem -0.375rem;
+  background: var(--visual-border-muted);
+}
+
+.visual-palette-shortcut {
+  flex: none;
+  margin-left: auto;
+  color: var(--visual-text-faint);
+  font-size: 0.6875rem;
+  font-weight: 530;
+  line-height: 0.6875rem;
+  letter-spacing: 0.05px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A row reads left to right: what it is, then what qualifies it. */
+.visual-palette-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 530;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visual-palette-branch {
+  display: flex;
+  flex: 0 1 auto;
+  max-width: 33%;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.375rem;
+  color: var(--visual-text-muted);
+}
+
+.visual-palette-branch-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visual-palette-branch-qualifier {
+  flex: none;
+  color: var(--visual-text-faint);
+  font-size: 0.6875rem;
+  letter-spacing: 0.05px;
 }
