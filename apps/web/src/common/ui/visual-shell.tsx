@@ -209,7 +209,7 @@ export function VisualShelfToggle({
   );
 }
 
-/** The open shelf's last row while rows stay unmounted: the same wide ghost row, one step down. */
+/** The open shelf's last row while rows stay unmounted: a centered ghost button, not a disclosure. */
 export function VisualShelfMore({
   label,
   onClick,
@@ -228,10 +228,10 @@ export function VisualShelfMore({
       type="button"
       className="visual-sidebar-row"
       data-tone="muted"
+      data-align="center"
       onClick={onClick}
       onKeyDown={shelfStep(onStep)}
     >
-      <Icon name="show-more" />
       <span className="visual-sidebar-label">{label}</span>
     </button>
   );

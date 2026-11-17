@@ -277,6 +277,36 @@ export interface VisualShellViewProps {
   rowFocus?: Ref<VisualRowFocus> | undefined;
 }
 
+/**
+ * The scroller's edge fades: each appears only while rows stay hidden on that side, so a short
+ * list never looks clipped and a full one still says it can scroll without a scrollbar lane.
+ */
+function useScrollFade(node: HTMLDivElement | null) {
+  const update = useRef<() => void>(() => undefined);
+  useLayoutEffect(() => {
+    if (node === null) return undefined;
+    const sync = () => {
+      node.toggleAttribute("data-fade-top", node.scrollTop > 1);
+      node.toggleAttribute(
+        "data-fade-bottom",
+        node.scrollTop + node.clientHeight < node.scrollHeight - 1,
+      );
+    };
+    update.current = sync;
+    node.addEventListener("scroll", sync, { passive: true });
+    const observer = new ResizeObserver(sync);
+    observer.observe(node);
+    return () => {
+      node.removeEventListener("scroll", sync);
+      observer.disconnect();
+    };
+  }, [node]);
+  // Mounting a page or collapsing the shelf changes the content, not the scroller's own box.
+  useLayoutEffect(() => {
+    update.current();
+  });
+}
+
 function SidebarList({
   rows,
   projectsLoaded,
@@ -293,9 +323,11 @@ function SidebarList({
   /** The Settled shelf: the same scroller, so the sidebar stays one scrolling region. */
   shelf?: ReactNode | undefined;
 }) {
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+  useScrollFade(scroller);
   if (failure !== undefined) {
     return (
-      <div className="visual-task-scroll">
+      <div className="visual-task-scroll" ref={setScroller}>
         <div className="visual-list-state" role="alert">
           <WorkspaceState hasProjects={hasProjects} failure={failure} />
         </div>
@@ -304,7 +336,7 @@ function SidebarList({
   }
   if (!projectsLoaded || !tasksLoaded) {
     return (
-      <div className="visual-task-scroll">
+      <div className="visual-task-scroll" ref={setScroller}>
         <div className="visual-list-state" aria-live="polite">
           <span className="visual-list-state-title">Loading tasks…</span>
         </div>
@@ -312,7 +344,7 @@ function SidebarList({
     );
   }
   return (
-    <div className="visual-task-scroll">
+    <div className="visual-task-scroll" ref={setScroller}>
       {rows.length === 0 ? (
         <div className="visual-list-state">
           <WorkspaceState hasProjects={hasProjects} failure={undefined} />

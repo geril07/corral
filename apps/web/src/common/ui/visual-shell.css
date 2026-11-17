@@ -326,6 +326,11 @@
   color: var(--visual-text-muted);
 }
 
+/* Show more is an action, not the shelf's disclosure: its label centers and it has no chevron. */
+.visual-sidebar-row[data-align="center"] {
+  justify-content: center;
+}
+
 .visual-sidebar-row:hover,
 .visual-sidebar-row:focus-visible {
   background: var(--visual-hover);
@@ -365,10 +370,32 @@
   /* A scrollbar lane would shift every row by its width when the shelf opens and crosses the
      viewport. T3 hides its sidebar scrollbar for the same reason. */
   scrollbar-width: none;
+  --visual-scroll-fade: 12px;
+  --visual-scroll-fade-top: 0px;
+  --visual-scroll-fade-bottom: 0px;
 }
 
 .visual-task-scroll::-webkit-scrollbar {
   display: none;
+}
+
+.visual-task-scroll[data-fade-top] {
+  --visual-scroll-fade-top: var(--visual-scroll-fade);
+}
+
+.visual-task-scroll[data-fade-bottom] {
+  --visual-scroll-fade-bottom: var(--visual-scroll-fade);
+}
+
+.visual-task-scroll[data-fade-top],
+.visual-task-scroll[data-fade-bottom] {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black var(--visual-scroll-fade-top),
+    black calc(100% - var(--visual-scroll-fade-bottom)),
+    transparent 100%
+  );
 }
 
 .visual-task-list {

@@ -104,7 +104,6 @@ const ICONS = {
   restart: Play,
   settle: Archive,
   settings: Settings,
-  "show-more": ChevronDown,
   source: FileText,
   "hide-sidebar": PanelLeftClose,
   "show-sidebar": PanelLeftOpen,

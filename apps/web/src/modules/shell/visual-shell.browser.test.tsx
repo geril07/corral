@@ -1145,6 +1145,9 @@ test("the open shelf mounts one page and appends the next only when asked", asyn
   await vi.waitFor(() => expect(shelfRows()).toHaveLength(10));
   const more = page.getByRole("button", { name: "Show 25 more" });
   await expect.element(more).toBeVisible();
+  // It is a plain centered action, not the shelf's disclosure with a chevron.
+  expect(more.element().querySelector("svg")).toBeNull();
+  expect(getComputedStyle(more.element()).justifyContent).toBe("center");
 
   // The last mounted row's ArrowDown lands on the control instead of leaving the sidebar.
   shelfRows().at(-1)!.focus();
@@ -1195,9 +1198,15 @@ test("the overflowing shelf has no scrollbar lane and keeps its last row off the
   if (shelf === null || scroller === null || last === null || last === undefined) {
     throw new Error("the shelf is missing its scroller or last row");
   }
+  await vi.waitFor(() => expect(scroller.hasAttribute("data-fade-bottom")).toBe(true));
+  expect(scroller.hasAttribute("data-fade-top")).toBe(false);
+  expect(getComputedStyle(scroller).maskImage).not.toBe("none");
+
   scroller.scrollTop = scroller.scrollHeight;
-  // Hiding the lane must not hide the overflow: the rows still scroll.
+  // Hiding the lane must not hide the overflow: the rows still scroll and the fade follows.
   expect(scroller.scrollTop).toBeGreaterThan(0);
+  await vi.waitFor(() => expect(scroller.hasAttribute("data-fade-top")).toBe(true));
+  expect(scroller.hasAttribute("data-fade-bottom")).toBe(false);
   expect(getComputedStyle(scroller).scrollbarWidth).toBe("none");
   expect(getComputedStyle(scroller, "::-webkit-scrollbar").display).toBe("none");
 
