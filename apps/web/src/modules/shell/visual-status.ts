@@ -136,9 +136,10 @@ function rowOf(
   const primary = primarySession(task, sessions);
   const primaryStatus = primary === undefined ? undefined : sessionStatus(primary);
   const agent = visualAgent(primary);
+  const activity = primaryStatus?.updatedAt ?? task.createdAt;
   return {
     priority: cardPriority(task, primaryStatus),
-    activity: primaryStatus?.updatedAt ?? task.createdAt,
+    activity,
     title: task.title,
     createdAt: task.createdAt,
     id: task.id,
@@ -152,6 +153,8 @@ function rowOf(
       ...(copyBranch === undefined ? {} : { copyBranch }),
       ...(task.state === "settled" ? { settled: true } : {}),
       status: cardStatus(task, primaryStatus, now),
+      activityAt: activity,
+      activityAge: formatCompactAge(now, activity),
       metadata: {
         project: projectName,
         ...(task.branch === null ? {} : { branch: task.branch }),

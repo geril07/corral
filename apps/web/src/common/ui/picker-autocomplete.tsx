@@ -23,6 +23,8 @@ export interface PickerAutocompleteProps<K> {
   label: string;
   inputLabel: string;
   placeholder?: string | undefined;
+  /** A picker's first row is reachable with Enter before any arrow key: the finder opens on it. */
+  autoHighlight?: boolean | "always" | undefined;
   items: readonly K[];
   /** The input text; the caller owns it and receives every edit. */
   query: string;
@@ -38,8 +40,8 @@ export interface PickerAutocompleteProps<K> {
   /** The trailing input action, which may reflect whether a row is highlighted. */
   renderAction?: ((active: K | undefined) => ReactNode) | undefined;
   onChoose: (item: K) => void;
-  /** Enter with no highlight still reaches the caller; the caller decides what that means. */
-  onEnter: (active: K | undefined) => void;
+  /** Enter with no highlight still reaches the caller; Base UI clicks a highlighted row itself. */
+  onEnter?: (active: K | undefined) => void;
   onClose: () => void;
   /** Extra keys are handled before the autocomplete's own Escape, arrows and Enter. */
   onInputKeyDown?:
@@ -49,6 +51,8 @@ export interface PickerAutocompleteProps<K> {
   inputRef?: RefObject<HTMLInputElement | null> | undefined;
   /** A new key rebuilds the list and drops its highlight and scroll. */
   resetKey?: number | string | undefined;
+  /** A settled empty answer in place of the list; the caller already filtered to none. */
+  empty?: ReactNode | undefined;
   message?: PickerFrameMessage | undefined;
 }
 
@@ -61,6 +65,7 @@ export function PickerAutocomplete<K>({
   label,
   inputLabel,
   placeholder,
+  autoHighlight = false,
   items,
   query,
   onQueryChange,
@@ -77,6 +82,7 @@ export function PickerAutocomplete<K>({
   inputProps,
   inputRef,
   resetKey,
+  empty,
   message,
 }: PickerAutocompleteProps<K>) {
   const ownInput = useRef<HTMLInputElement>(null);
@@ -98,7 +104,7 @@ export function PickerAutocomplete<K>({
       onValueChange={onQueryChange}
       onItemHighlighted={onItemHighlighted}
       itemToStringValue={itemToStringValue}
-      autoHighlight={false}
+      autoHighlight={autoHighlight}
       highlightItemOnHover={false}
     >
       <PickerFrame
@@ -121,8 +127,12 @@ export function PickerAutocomplete<K>({
               }
               noteKey(event);
               if (event.key === "Enter") {
-                event.preventDefault();
-                onEnter(active);
+                // A highlighted row is Base UI's to click; only an unhighlighted Enter, such as a
+                // free-text path submission, reaches the caller here.
+                if (active === undefined) {
+                  event.preventDefault();
+                  onEnter?.(undefined);
+                }
               }
             }}
           />
@@ -144,6 +154,7 @@ export function PickerAutocomplete<K>({
             )}
           </Autocomplete.List>
         }
+        empty={empty}
         message={message}
       />
     </Autocomplete.Root>

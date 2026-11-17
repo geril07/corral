@@ -10,7 +10,7 @@ import { App } from "../../../test/render-app.tsx";
 const { newClient } = realServerClients();
 
 const findDialog = () => page.getByRole("dialog", { name: "Find task" });
-const searchInput = () => findDialog().getByRole("combobox", { name: "Tasks" });
+const searchInput = () => findDialog().getByRole("combobox", { name: "Search tasks" });
 const rowFor = (title: string) => page.getByRole("button", { name: new RegExp(title) });
 const stateOf = (client: CorralClient, id: string) =>
   client.tasks.getSnapshot().tasks.find((task) => task.id === id)?.state;
