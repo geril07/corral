@@ -27,6 +27,9 @@ import { isRecord } from "../../src/chat/pi-record.ts";
  * - `noeof`: ignores stdin EOF and keeps a `sleep` in its process group (its pid is written to
  *   `<home>/<session>.grandchild`), so a test can prove the group is killed on stop.
  *
+ * `$FAKE_PI_RPC_DIALOG=none` allows the edit without waiting, and `$FAKE_PI_RPC_CONTEXT=used/window`
+ * makes the model report a window plus every assistant turn's usage: the dev stack's composer meter.
+ *
  * The journal lives under `$FAKE_PI_RPC_HOME`, keyed by `--session-id`, so a real server restart
  * resumes the same conversation exactly as pi's own session store would.
  */
@@ -37,6 +40,11 @@ export function startFakePiRpc(argv: readonly string[]): void {
   const journalPath = join(home, `${safeSessionId}.json`);
   const mode = process.env["FAKE_PI_RPC"] ?? "normal";
   const delayMs = Number(process.env["FAKE_PI_RPC_DELAY_MS"] ?? 500);
+  // The composer's context meter reads what pi reports, and a real answer costs a model call.
+  // `FAKE_PI_RPC_CONTEXT="156000/200000"` is used tokens / window for this stand-in's turns; unset
+  // keeps the fake silent about context, exactly as it was before the meter existed.
+  const context = contextFixture(process.env["FAKE_PI_RPC_CONTEXT"]);
+  const reportedUsage = context.tokens > 0 ? contextUsage(context.tokens) : undefined;
   const history = readJournal(journalPath);
   const dialogs = new Map<string, (answer: FakeDialogAnswer) => void>();
   let models = [
@@ -134,9 +142,13 @@ export function startFakePiRpc(argv: readonly string[]): void {
           return;
         }
         respond(id, "get_available_models", {
-          models: existsSync(join(home, "catalog-extra"))
+          models: (existsSync(join(home, "catalog-extra"))
             ? [...models, { id: "stub-3", name: "Stub Three", provider: "stub" }]
-            : models,
+            : models
+          ).map((model) => ({
+            ...model,
+            ...(context.window > 0 ? { contextWindow: context.window } : {}),
+          })),
         });
         return;
       case "get_available_thinking_levels":
@@ -226,6 +238,7 @@ export function startFakePiRpc(argv: readonly string[]): void {
       content: [],
       stopReason: "pending",
       timestamp: Date.now(),
+      ...(reportedUsage === undefined ? {} : { usage: reportedUsage }),
     };
     currentUser = user;
     send({ type: "agent_start" });
@@ -291,7 +304,11 @@ export function startFakePiRpc(argv: readonly string[]): void {
       assistantMessageEvent: { type: "toolcall_end", contentIndex: 1, toolCall },
     });
     send({ type: "tool_execution_start", toolCallId: "call_1", toolName: "edit", args });
-    const confirmed = await askConfirm();
+    // A seeded dev task should land on a settled turn; a test that answers the dialog sets neither.
+    const confirmed =
+      process.env["FAKE_PI_RPC_DIALOG"] === "none"
+        ? { confirmed: true, cancelled: false }
+        : await askConfirm();
     if (aborted) return settleAborted();
     const result = {
       content: [{ type: "text", text: "Successfully replaced 1 block(s) in notes.txt." }],
@@ -340,6 +357,7 @@ export function startFakePiRpc(argv: readonly string[]): void {
         content: currentText === "" ? [] : [{ type: "text", text: currentText }],
         stopReason: "aborted",
         timestamp: Date.now(),
+        ...(reportedUsage === undefined ? {} : { usage: reportedUsage }),
       };
       append([currentUser, assistant]);
       send({ type: "message_end", message: assistant });
@@ -419,4 +437,20 @@ function argValue(argv: readonly string[], name: string): string | undefined {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** `FAKE_PI_RPC_CONTEXT` as `used/window` in tokens; a missing or malformed value reports nothing. */
+function contextFixture(value: string | undefined): { tokens: number; window: number } {
+  const [tokens, window] = (value ?? "").split("/").map(Number);
+  return { tokens: positiveInteger(tokens), window: positiveInteger(window) };
+}
+
+function positiveInteger(value: number | undefined): number {
+  return value !== undefined && Number.isInteger(value) && value > 0 ? value : 0;
+}
+
+/** pi's `Usage`, reduced to the counts the projection reads; `reasoning` sits inside `output`. */
+function contextUsage(tokens: number): Record<string, number> {
+  const output = Math.round(tokens / 10);
+  return { input: tokens - output, output, cacheRead: 0, cacheWrite: 0, totalTokens: tokens };
 }
