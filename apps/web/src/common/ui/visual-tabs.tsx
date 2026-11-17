@@ -483,6 +483,7 @@ function TabCell({ item, onSelect, onClose, onStep }: TabCellProps) {
       ) : (
         <RowMenu
           label={item.menuLabel ?? item.label}
+          skin="visual"
           trigger={
             <span className="visual-tab-trigger">
               <TabButton item={item} onSelect={onSelect} onStep={onStep} />

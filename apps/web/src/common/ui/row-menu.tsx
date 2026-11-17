@@ -36,11 +36,14 @@ export function RowMenu({
   trigger,
   label,
   hint,
+  skin = "stock",
   children,
 }: {
   trigger: ReactElement;
   label: string;
   hint?: ReactNode;
+  /** `visual` is the shell's floating-surface skin; the default is the stock kit menu. */
+  skin?: "stock" | "visual";
   children: ReactNode;
 }) {
   return (
@@ -48,7 +51,9 @@ export function RowMenu({
       <Hint content={hint}>
         <ContextMenu.Trigger render={trigger} />
       </Hint>
-      <RowMenuPopup label={label}>{children}</RowMenuPopup>
+      <RowMenuPopup label={label} skin={skin}>
+        {children}
+      </RowMenuPopup>
     </ContextMenu.Root>
   );
 }
