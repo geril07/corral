@@ -1895,11 +1895,22 @@
   bottom: 12px;
   z-index: 100;
   display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  max-width: calc(100vw - 24px);
   gap: 6px;
   padding: 6px;
   border-radius: 6px;
   background: var(--visual-bg-layer-01);
   box-shadow: var(--visual-shadow-floating);
+}
+
+.visual-review-label {
+  padding: 0 2px 0 4px;
+  color: var(--visual-text-muted);
+  font-size: 11px;
+  line-height: 16px;
+  user-select: none;
 }
 /* The model picker: one viewport-bounded dialog with T3's three regions — a 44 px instance rail,
    the searchable model list and a 192 px thinking column. Every state keeps the same geometry:

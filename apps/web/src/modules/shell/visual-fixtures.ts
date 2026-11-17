@@ -164,3 +164,18 @@ export const VISUAL_REVIEW_SETTLED_ROWS: readonly VisualTaskRow[] = [
     },
   },
 ];
+
+/**
+ * A Settled shelf of any length for the review host. The two rare fixtures alternate, so the
+ * overlay can reach paging and overflow without the server creating tasks.
+ */
+export function mockSettledRows(count: number): readonly VisualTaskRow[] {
+  return Array.from({ length: count }, (_, index) => {
+    const fixture = VISUAL_REVIEW_SETTLED_ROWS[index % VISUAL_REVIEW_SETTLED_ROWS.length]!;
+    return {
+      ...fixture,
+      id: `fixture-settled-${index}`,
+      title: `${fixture.title} · ${index + 1}`,
+    };
+  });
+}
