@@ -165,7 +165,13 @@ test("the prompt has no focus ring and cannot be resized by dragging", async () 
 
   const surface = composer().element().querySelector('[data-slot="composer-surface"]');
   if (!(surface instanceof HTMLElement)) throw new Error("the composer has no surface");
-  expect(visibleShadow(getComputedStyle(surface).boxShadow)).toBe("");
+  // The card radius of the shell's dialogs, not the field radius: OpenCode draws its composer so.
+  expect(getComputedStyle(surface).borderRadius).toBe("10px");
+  // The card is lifted at rest; taking the caret adds no ring layer to that drop.
+  const lifted = getComputedStyle(surface).boxShadow;
+  expect(visibleShadow(lifted)).not.toBe("");
+  field.blur();
+  expect(getComputedStyle(surface).boxShadow).toBe(lifted);
   await screen.unmount();
 });
 

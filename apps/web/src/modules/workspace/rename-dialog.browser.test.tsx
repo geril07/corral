@@ -36,6 +36,31 @@ test("the dialog is the shell's card: 30 rem wide, the kit's radius, the card's 
   expect(getComputedStyle(footer).backgroundColor).toBe("rgba(0, 0, 0, 0)");
 });
 
+test("the name field is the shell's field: 28 px tall, the control radius, the kit's 13 px type", async () => {
+  await render(
+    <RenameDialog
+      target={target}
+      onSave={vi.fn<(name: string | null) => void>()}
+      onClose={vi.fn<() => void>()}
+    />,
+  );
+
+  const field = name().element();
+  // While the card's enter animation runs, the whole popup is scaled to 95 %.
+  await vi.waitFor(() =>
+    expect(dialog().element().getAnimations({ subtree: true })).toHaveLength(0),
+  );
+  const style = getComputedStyle(field);
+  expect(field.getBoundingClientRect().height).toBe(28);
+  expect(style.borderRadius).toBe("6px");
+  expect(style.fontSize).toBe("13px");
+  // The label is the field's own: 13/16 at 530.
+  const label = dialog().element().querySelector<HTMLElement>('[data-slot="field-label"]');
+  if (label === null) throw new Error("the field has no label");
+  expect(getComputedStyle(label).fontSize).toBe("13px");
+  expect(getComputedStyle(label).fontWeight).toBe("530");
+});
+
 test("the name field starts focused with the current label, and Enter closes with the trimmed name before the save settles", async () => {
   // The save never settles: a closing dialog must not wait for it, nor hold its field.
   const onSave = vi.fn<(name: string | null) => Promise<void>>(() => new Promise(() => undefined));

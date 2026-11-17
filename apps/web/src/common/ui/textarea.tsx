@@ -1,23 +1,19 @@
-import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../lib/cn.ts";
 
-const textareaVariants = cva(
-  "flex resize-none field-sizing-content min-h-16 w-full rounded-(--control-radius) border border-input bg-transparent px-3 py-1.5 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
-  {
-    variants: {
-      frame: {
-        composer: "rounded-none border-0 bg-transparent shadow-none dark:bg-transparent",
-      },
-      layout: {
-        // The new-task prompt rests at four lines and grows to half the view.
-        prompt: "min-h-24 max-h-[50cqh] px-4 py-3",
-        // The chat composer rests at two lines and grows to 13 rem before it scrolls.
-        chat: "min-h-14 max-h-52 overflow-y-auto px-4 py-3",
-      },
+const textareaVariants = cva("visual-textarea resize-none field-sizing-content min-h-16 w-full", {
+  variants: {
+    frame: {
+      composer: "",
+    },
+    layout: {
+      // The new-task prompt rests at four lines and grows to half the view.
+      prompt: "min-h-24 max-h-[50cqh] px-4 py-3",
+      // The chat composer rests at two lines and grows to 13 rem before it scrolls.
+      chat: "min-h-14 max-h-52 overflow-y-auto px-4 py-3",
     },
   },
-);
+});
 
 function Textarea({
   className,
@@ -28,6 +24,7 @@ function Textarea({
   return (
     <textarea
       data-slot="textarea"
+      data-frame={frame}
       className={cn(textareaVariants({ layout, frame, className }))}
       {...props}
     />
