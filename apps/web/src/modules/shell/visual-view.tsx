@@ -302,7 +302,7 @@ export interface VisualShellViewProps {
   onAddProject?: (() => void) | undefined;
   /** The main area's composer when a draft is open; otherwise the selected task or empty state. */
   main?: ReactNode | undefined;
-  /** The task's identity row above the strip: title, project, branch, status. */
+  /** The task's identity row above the strip: project and title, never live state. */
   taskHeader?: ReactNode | undefined;
   /** One line above the whole working area: a refused action, never a tab-local error. */
   workingNotice?: ReactNode | undefined;
@@ -543,17 +543,7 @@ function useShelfPage(
   return { shown, hiddenCount, showMore: expanded && hiddenCount > 0, reveal };
 }
 
-function statusLine(row: VisualTaskRow): string | undefined {
-  const status = row.status;
-  if (status === undefined) return undefined;
-  if (status.tone === "working") return "Working";
-  return [status.label, status.time === undefined ? undefined : `${status.time} ago`]
-    .filter((part): part is string => part !== undefined)
-    .join(" · ");
-}
-
 export function TaskMain({ row }: { row: VisualTaskRow }) {
-  const status = statusLine(row);
   return (
     <div className="visual-main-task">
       <span className="visual-project-avatar" aria-hidden="true">
@@ -564,17 +554,6 @@ export function TaskMain({ row }: { row: VisualTaskRow }) {
         /
       </span>
       <h1 className="visual-main-title">{row.title}</h1>
-      {row.status !== undefined && (
-        <span className="visual-main-status" data-tone={row.status.tone}>
-          {status}
-        </span>
-      )}
-      {row.settled === true && <span className="visual-main-settled">Settled</span>}
-      {row.snoozed === true && (
-        <span className="visual-main-settled">
-          {row.snoozeAt === undefined ? "Snoozed" : `Snoozed until ${row.snoozeAt}`}
-        </span>
-      )}
     </div>
   );
 }
