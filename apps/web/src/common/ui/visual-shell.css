@@ -337,9 +337,11 @@
   color: var(--visual-text-base);
 }
 
+/* A full-width row inside the clipped sidebar gets the inset ring, so the column's edge cannot
+   cut it: the surface has no right inset, and the frame clips. */
 .visual-sidebar-row:focus-visible {
   outline: 2px solid var(--visual-border-focus);
-  outline-offset: 2.5px;
+  outline-offset: -2px;
 }
 
 .visual-sidebar-row[aria-disabled="true"] {
@@ -854,9 +856,11 @@
   color: var(--visual-icon-base);
 }
 
+/* Same reason as the sidebar rows: New task and the notice's dismiss sit on the clipped edge, so
+   the ring is drawn inside the control's box. */
 .visual-icon-button:focus-visible {
   outline: 2px solid var(--visual-border-focus);
-  outline-offset: 2.5px;
+  outline-offset: -2px;
 }
 
 .visual-icon-button[aria-disabled="true"] {
