@@ -971,15 +971,16 @@
   overflow: hidden;
 }
 
-/* A row menu is one floating shell surface, matching OpenCode's compact menu: the raised layer-01
-   panel with no border, the floating shadow's hairline as its edge, 13 px type and 28 px rows. */
+/* A row menu is one floating shell surface: OpenCode's compact menu surface, rows and type
+   (layer-01, no border, 6px radius, 28px rows, 13px) with Corral's roomier inner spacing. OpenCode's
+   2px inset and zero item padding read as cramped against the shell's 13px chrome. */
 .visual-menu {
   box-sizing: border-box;
   width: max-content;
   min-width: 160px;
   max-width: var(--available-width);
   max-height: var(--available-height);
-  padding: 2px;
+  padding: 4px;
   overflow-x: hidden;
   overflow-y: auto;
   border: 0;
@@ -1000,7 +1001,7 @@
   align-items: center;
   gap: 8px;
   height: 28px;
-  padding: 0 6px 0 12px;
+  padding: 0 6px;
   border-radius: 4px;
   color: inherit;
   font-size: 13px;
@@ -1049,7 +1050,7 @@
   display: flex;
   align-items: center;
   height: 28px;
-  padding: 0 12px;
+  padding: 0 6px;
   color: var(--visual-text-faint);
   font-size: 11px;
   font-weight: 530;
@@ -1058,9 +1059,9 @@
 }
 
 .visual-menu [data-slot="dropdown-menu-separator"] {
-  width: calc(100% + 4px);
+  width: calc(100% + 8px);
   height: 1px;
-  margin: 2px -2px;
+  margin: 4px -4px;
   background: var(--visual-border-muted);
 }
 
