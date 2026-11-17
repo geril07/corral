@@ -131,7 +131,7 @@ export function ModelManagement({
           <ComboboxButton layout="bounded" aria-label="Model tool/profile">
             {option?.name ?? scope.profileId ?? scope.kind}
           </ComboboxButton>
-          <ComboboxContent>
+          <ComboboxContent skin="visual">
             <ComboboxList>
               {options.map((o) => {
                 const key = modelScopeKey(o.scope);
@@ -159,10 +159,8 @@ export function ModelManagement({
           <ComboboxButton layout="bounded" aria-label="Catalog workspace">
             {projects.find((p) => p.id === context.projectId)?.name ?? "Server home"}
           </ComboboxButton>
-          <ComboboxContent>
-            <div className="p-1">
-              <ComboboxSearch aria-label="Search workspaces" placeholder="Search workspaces…" />
-            </div>
+          <ComboboxContent skin="visual">
+            <ComboboxSearch aria-label="Search workspaces" placeholder="Search workspaces…" />
             <ComboboxEmpty>No matching workspace.</ComboboxEmpty>
             <ComboboxList>
               {(id: string) => {
@@ -547,7 +545,7 @@ function ModelPolicyEditor({
           onValueChange={(value) => value && setView(value)}
         >
           <ComboboxButton aria-label="Model rows">{view}</ComboboxButton>
-          <ComboboxContent>
+          <ComboboxContent skin="visual">
             <ComboboxList>
               {["all", "visible", "hidden", "favorites"].map((v) => (
                 <ComboboxItem key={v} value={v}>

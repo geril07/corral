@@ -1,6 +1,6 @@
 import { ContextMenu } from "@base-ui/react/context-menu";
 import type { ReactElement, ReactNode } from "react";
-import { VISUAL_MENU_CLASS } from "./dropdown-menu.tsx";
+import { VISUAL_SURFACE_CLASS } from "./floating-surface.ts";
 import { Hint } from "./hint.tsx";
 
 const STOCK_POPUP_CLASS =
@@ -22,7 +22,7 @@ export function RowMenuPopup({
       <ContextMenu.Positioner className="isolate z-50 outline-none" sideOffset={4}>
         <ContextMenu.Popup
           aria-label={label}
-          className={skin === "visual" ? VISUAL_MENU_CLASS : STOCK_POPUP_CLASS}
+          className={skin === "visual" ? VISUAL_SURFACE_CLASS : STOCK_POPUP_CLASS}
         >
           {children}
         </ContextMenu.Popup>

@@ -12,6 +12,7 @@
   --visual-bg-deep: #fafafa;
   --visual-bg-base: #ffffff;
   --visual-bg-layer-01: #fafafa;
+  --visual-bg-layer-02: #f2f2f2;
   --visual-bg-layer-03: #eeeeee;
   --visual-text-base: #161616;
   --visual-text-muted: #5c5c5c;
@@ -35,6 +36,7 @@
   --visual-bg-deep: #080808;
   --visual-bg-base: #161616;
   --visual-bg-layer-01: #242424;
+  --visual-bg-layer-02: #2e2e2e;
   --visual-bg-layer-03: #3a3a3a;
   --visual-text-base: #fafafa;
   --visual-text-muted: #aeaeae;
@@ -971,10 +973,11 @@
   overflow: hidden;
 }
 
-/* A row menu is one floating shell surface: OpenCode's compact menu surface, rows and type
+/* Every shell popup is one floating surface: OpenCode's compact menu surface, rows and type
    (layer-01, no border, 6px radius, 28px rows, 13px) with Corral's roomier inner spacing. OpenCode's
-   2px inset and zero item padding read as cramped against the shell's 13px chrome. */
-.visual-menu {
+   2px inset and zero item padding read as cramped against the shell's 13px chrome. Menus and select
+   popups share this recipe, as OpenCode's `select-v2-content` is its `menu-v2-content`. */
+.visual-surface {
   box-sizing: border-box;
   width: max-content;
   min-width: 160px;
@@ -995,8 +998,8 @@
   outline: none;
 }
 
-.visual-menu [data-slot="dropdown-menu-item"],
-.visual-menu [data-slot="dropdown-menu-sub-trigger"] {
+.visual-surface [data-slot="dropdown-menu-item"],
+.visual-surface [data-slot="dropdown-menu-sub-trigger"] {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1013,27 +1016,28 @@
   user-select: none;
 }
 
-.visual-menu [data-slot="dropdown-menu-item"] svg,
-.visual-menu [data-slot="dropdown-menu-sub-trigger"] > svg:not(:last-child) {
+.visual-surface [data-slot="dropdown-menu-item"] svg,
+.visual-surface [data-slot="dropdown-menu-sub-trigger"] > svg:not(:last-child) {
   color: var(--visual-icon-base);
 }
 
-.visual-menu [data-slot="dropdown-menu-item"]:focus,
-.visual-menu [data-slot="dropdown-menu-sub-trigger"]:focus,
-.visual-menu [data-slot="dropdown-menu-sub-trigger"][data-popup-open] {
+.visual-surface [data-slot="dropdown-menu-item"]:focus,
+.visual-surface [data-slot="dropdown-menu-sub-trigger"]:focus,
+.visual-surface [data-slot="dropdown-menu-sub-trigger"][data-popup-open],
+.visual-surface [data-slot="combobox-item"][data-highlighted] {
   background: var(--visual-hover);
 }
 
-.visual-menu [data-slot="dropdown-menu-sub-trigger"] > svg:last-child {
+.visual-surface [data-slot="dropdown-menu-sub-trigger"] > svg:last-child {
   color: var(--visual-text-faint);
 }
 
-.visual-menu [data-slot="dropdown-menu-item"][data-variant="destructive"],
-.visual-menu [data-slot="dropdown-menu-item"][data-variant="destructive"] svg {
+.visual-surface [data-slot="dropdown-menu-item"][data-variant="destructive"],
+.visual-surface [data-slot="dropdown-menu-item"][data-variant="destructive"] svg {
   color: var(--visual-status-error);
 }
 
-.visual-menu [data-slot="dropdown-menu-shortcut"] {
+.visual-surface [data-slot="dropdown-menu-shortcut"] {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -1046,7 +1050,7 @@
   letter-spacing: 0.05px;
 }
 
-.visual-menu [data-slot="dropdown-menu-label"] {
+.visual-surface [data-slot="dropdown-menu-label"] {
   display: flex;
   align-items: center;
   height: 28px;
@@ -1058,10 +1062,100 @@
   letter-spacing: 0.05px;
 }
 
-.visual-menu [data-slot="dropdown-menu-separator"] {
+.visual-surface [data-slot="dropdown-menu-separator"] {
   width: calc(100% + 8px);
   height: 1px;
   margin: 4px -4px;
+  background: var(--visual-border-muted);
+}
+
+/* A select popup is that surface sized by the content it opens from. Settings rows and the composer
+   are rem-based content that follows the interface text scale, so this block states its sizes in rem;
+   the shell's own chrome stays px. At 100 % it is the menu's 13/16 type on 28 px rows. */
+.visual-select {
+  min-width: 10rem;
+  max-width: 23rem;
+  padding: 0.25rem;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  line-height: 1rem;
+}
+
+/* A select row's popup is its trigger's box; the surface's fit-content width would outgrow it. */
+.visual-select[data-layout="anchor"] {
+  width: var(--anchor-width);
+  min-width: var(--anchor-width);
+}
+
+.visual-select [data-slot="combobox-list"] {
+  max-height: min(18rem, calc(var(--available-height) - 2.5rem));
+  padding: 0;
+  scroll-padding-block: 0.25rem;
+}
+
+/* The check is a reserved trailing cell, as in OpenCode: every row keeps the same text width, and a
+   row's label never runs under the mark. */
+.visual-select [data-slot="combobox-item"] {
+  height: 1.75rem;
+  padding: 0 1.875rem 0 0.375rem;
+  border-radius: 0.25rem;
+  font-size: inherit;
+  line-height: 1rem;
+}
+
+.visual-select [data-slot="combobox-item-indicator"] {
+  position: absolute;
+  right: 0.375rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  color: var(--visual-icon-base);
+}
+
+/* The search row sits inside the panel's inset, filled one layer above it: a field, not a divider. */
+.visual-select [data-slot="combobox-search"] {
+  height: 2rem;
+  margin-bottom: 0.25rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: var(--visual-bg-layer-02);
+  box-shadow: none;
+  font-size: 0.8125rem;
+  line-height: 1rem;
+}
+
+.visual-select [data-slot="combobox-search"]:focus-visible {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+}
+
+.visual-select [data-slot="combobox-label"] {
+  display: flex;
+  align-items: center;
+  height: 1.75rem;
+  padding: 0 0.375rem;
+  color: var(--visual-text-faint);
+  font-size: 0.6875rem;
+  font-weight: 530;
+  line-height: 1rem;
+  letter-spacing: 0.05px;
+}
+
+.visual-select [data-slot="combobox-empty"] {
+  padding: 0.5rem 0.375rem;
+  color: var(--visual-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1rem;
+}
+
+.visual-select [data-slot="combobox-separator"] {
+  width: calc(100% + 0.5rem);
+  height: 1px;
+  margin: 0.25rem -0.25rem;
   background: var(--visual-border-muted);
 }
 

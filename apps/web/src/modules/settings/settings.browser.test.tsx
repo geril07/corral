@@ -1096,6 +1096,19 @@ test("session tab position is a select row with Top and Bottom", async () => {
     box.getBoundingClientRect().width,
   );
   await trigger.click();
+  // The popup is the shell's floating surface rather than the stock kit popup: no border, a 6 px
+  // radius, a 4 px inset and the shell's 28 px row at 13 px.
+  const popup = document.querySelector<HTMLElement>('[data-slot="combobox-content"]');
+  if (popup === null) throw new Error("the select popup did not open");
+  const popupStyle = getComputedStyle(popup);
+  expect(popupStyle.borderTopWidth).toBe("0px");
+  expect(popupStyle.borderRadius).toBe("6px");
+  expect(popupStyle.padding).toBe("4px");
+  const bottom = page.getByRole("option", { name: "Bottom", exact: true }).element();
+  // The enter animation scales the panel, so the row's own height is read once it settles.
+  await vi.waitFor(() => expect(popup.getAnimations({ subtree: true })).toHaveLength(0));
+  expect(bottom.getBoundingClientRect().height).toBe(28);
+  expect(getComputedStyle(bottom).fontSize).toBe("13px");
   await page.getByRole("option", { name: "Bottom", exact: true }).click();
   await expect.element(trigger).toHaveTextContent("Bottom");
 });

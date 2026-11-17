@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Combobox as ComboboxPrimitive } from "@base-ui/react";
 import { cn } from "../lib/cn.ts";
+import { VISUAL_SURFACE_CLASS } from "./floating-surface.ts";
 import { useTruncatedText } from "./truncated-text.tsx";
 
 import { Button } from "./button.tsx";
@@ -159,10 +160,11 @@ function ComboboxSearch({
 function ComboboxContent({
   className,
   side = "bottom",
-  sideOffset = 6,
+  sideOffset,
   align = "start",
   alignOffset = 0,
   layout = "popup",
+  skin = "stock",
   anchor,
   ...props
 }: ComboboxPrimitive.Popup.Props & {
@@ -171,6 +173,8 @@ function ComboboxContent({
    * which a select row wants; the popup is portalled, so the width cannot be a descendant rule.
    */
   layout?: "popup" | "anchor";
+  /** `visual` is the shell's floating-surface skin; the default is the stock kit popup. */
+  skin?: "stock" | "visual";
 } & Pick<
     ComboboxPrimitive.Positioner.Props,
     "side" | "align" | "sideOffset" | "alignOffset" | "anchor"
@@ -179,7 +183,7 @@ function ComboboxContent({
     <ComboboxPrimitive.Portal>
       <ComboboxPrimitive.Positioner
         side={side}
-        sideOffset={sideOffset}
+        sideOffset={sideOffset ?? (skin === "visual" ? 4 : 6)}
         align={align}
         alignOffset={alignOffset}
         anchor={anchor}
@@ -188,9 +192,16 @@ function ComboboxContent({
         <ComboboxPrimitive.Popup
           data-slot="combobox-content"
           data-chips={!!anchor}
+          data-layout={layout}
           className={cn(
-            "group/combobox-content relative max-h-(--available-height) max-w-(--available-width) min-w-0 origin-(--transform-origin) overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-floating data-[chips=true]:w-(--anchor-width) data-[side=bottom]:motion-safe:slide-in-from-top-2 data-[side=inline-end]:motion-safe:slide-in-from-left-2 data-[side=inline-start]:motion-safe:slide-in-from-right-2 data-[side=left]:motion-safe:slide-in-from-right-2 data-[side=right]:motion-safe:slide-in-from-left-2 data-[side=top]:motion-safe:slide-in-from-bottom-2 *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-8 *:data-[slot=input-group]:border-input/30 *:data-[slot=input-group]:bg-input/30 *:data-[slot=input-group]:shadow-none data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 data-open:motion-safe:zoom-in-95",
-            layout === "anchor" ? "w-(--anchor-width) min-w-(--anchor-width)" : "w-80",
+            "group/combobox-content relative max-h-(--available-height) max-w-(--available-width) min-w-0 origin-(--transform-origin) overflow-hidden data-[chips=true]:w-(--anchor-width) data-[side=bottom]:motion-safe:slide-in-from-top-2 data-[side=inline-end]:motion-safe:slide-in-from-left-2 data-[side=inline-start]:motion-safe:slide-in-from-right-2 data-[side=left]:motion-safe:slide-in-from-right-2 data-[side=right]:motion-safe:slide-in-from-left-2 data-[side=top]:motion-safe:slide-in-from-bottom-2 *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-8 *:data-[slot=input-group]:border-input/30 *:data-[slot=input-group]:bg-input/30 *:data-[slot=input-group]:shadow-none data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 data-open:motion-safe:zoom-in-95",
+            skin === "visual"
+              ? cn(VISUAL_SURFACE_CLASS, "visual-select")
+              : "rounded-lg border border-border bg-popover text-popover-foreground shadow-floating",
+            layout === "anchor" && skin === "stock"
+              ? "w-(--anchor-width) min-w-(--anchor-width)"
+              : undefined,
+            layout === "popup" && skin === "stock" ? "w-80" : undefined,
             className,
           )}
           {...props}
@@ -231,7 +242,10 @@ function ComboboxItem({ className, children, ...props }: ComboboxPrimitive.Item.
       {children}
       <ComboboxPrimitive.ItemIndicator
         render={
-          <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />
+          <span
+            data-slot="combobox-item-indicator"
+            className="pointer-events-none absolute right-2 flex size-4 items-center justify-center"
+          />
         }
       >
         <CheckIcon className="pointer-events-none" />
