@@ -2371,8 +2371,14 @@
   gap: 2px;
 }
 
+/* A keycap is OpenCode's keybind — 14 px tall, 4 px of side padding, the 2 px radius, 11 px at 530
+   in tabular figures over the third layer — and the one recipe for a key in the shell: the tooltip,
+   the path picker and the model picker all draw `Kbd`, so a key looks the same wherever it sits.
+   Uppercase is the reference's keycap voice; a chord is still one cap, because the binding arrives
+   as one formatted string. */
 .visual-keycap {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
   min-width: 14px;
@@ -2388,6 +2394,8 @@
   letter-spacing: 0.05px;
   text-transform: uppercase;
   font-variant-numeric: tabular-nums;
+  user-select: none;
+  pointer-events: none;
 }
 
 /* ── Card metadata tooltip ────────────────────────────────────────────────── */
@@ -2740,23 +2748,6 @@
   font-size: 0.625rem;
   font-weight: 530;
   line-height: 0.875rem;
-}
-
-.model-picker-keycap {
-  display: inline-flex;
-  min-width: 22px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 5px;
-  border-radius: 4px;
-  background: var(--visual-bg-layer-03);
-  color: var(--visual-text-muted);
-  font-family: inherit;
-  font-size: 11px;
-  font-weight: 440;
-  line-height: 12px;
-  font-variant-numeric: tabular-nums;
 }
 
 /* Reserved, so a current row and the others keep their trailing edge in one place. */

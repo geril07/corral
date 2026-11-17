@@ -8,6 +8,7 @@ import { AgentIcon } from "./agent-icon.tsx";
 import { Button } from "./button.tsx";
 import { Hint } from "./hint.tsx";
 import { Icon } from "./icon.tsx";
+import { Kbd } from "./kbd.tsx";
 import { FormError, TaskDialog, useTaskFinalFocus } from "./task-dialog.tsx";
 import { Dialog, DialogContent, DialogTitle } from "./dialog.tsx";
 import { useTruncatedText } from "./truncated-text.tsx";
@@ -465,9 +466,7 @@ function PickerContent({
                         ★
                       </span>
                     )}
-                    {item.index < 9 && !item.model.default && (
-                      <kbd className="model-picker-keycap">Ctrl+{item.index + 1}</kbd>
-                    )}
+                    {item.index < 9 && !item.model.default && <Kbd>Ctrl+{item.index + 1}</Kbd>}
                     <span className="model-picker-check">
                       {item.model.current && (
                         <CheckIcon aria-hidden="true" className="model-picker-check-icon" />

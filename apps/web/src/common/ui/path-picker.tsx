@@ -1,6 +1,7 @@
 import { Toast } from "@base-ui/react/toast";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "./icon.tsx";
+import { Kbd } from "./kbd.tsx";
 import { PickerAutocomplete } from "./picker-autocomplete.tsx";
 
 /** The Add action's shortcut follows whether a folder row is highlighted. */
@@ -76,7 +77,7 @@ export function PathPicker({
           onClick={onSubmit}
         >
           <span>{pending ? "Adding…" : "Add"}</span>
-          <kbd className="visual-keycap">{shortcutFor(active)}</kbd>
+          <Kbd>{shortcutFor(active)}</Kbd>
         </button>
       )}
       onChoose={pick}

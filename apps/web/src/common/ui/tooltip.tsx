@@ -1,6 +1,7 @@
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
 import { cn } from "../lib/cn.ts";
 import { Icon, type IconName } from "./icon.tsx";
+import { Kbd, KbdGroup } from "./kbd.tsx";
 
 /** The one cold hover delay for shell and hint tooltips, enabled or aria-disabled alike. */
 export const TOOLTIP_DELAY = 300;
@@ -101,10 +102,10 @@ function TooltipContent({
 
 function TooltipKeycaps({ shortcut }: { shortcut: TooltipShortcut }) {
   return (
-    <span className="visual-keycaps" aria-hidden="true">
-      <kbd className="visual-keycap">{shortcut.prefix}</kbd>
-      {shortcut.binding !== null && <kbd className="visual-keycap">{shortcut.binding}</kbd>}
-    </span>
+    <KbdGroup aria-hidden="true">
+      <Kbd>{shortcut.prefix}</Kbd>
+      {shortcut.binding !== null && <Kbd>{shortcut.binding}</Kbd>}
+    </KbdGroup>
   );
 }
 
