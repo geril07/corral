@@ -80,6 +80,14 @@ import { DRAFT_STORAGE_NOTICE } from "./use-task-drafts.ts";
 const DEFAULT_SIZE: TerminalSize = { cols: 80, rows: 24 };
 const MAIN_PANE_ID = "task-main-pane";
 const COMPANION_PANE_ID = "task-companion-pane";
+
+/** A loose terminal's tab label: its own name, else the program and the folder it runs in. */
+function terminalLabel(terminal: TerminalInfo): string {
+  if (terminal.label) return terminal.label;
+  const program = terminal.command.split("/").pop() || terminal.command;
+  const folder = terminal.cwd.replace(/\/+$/, "").split("/").pop() || "/";
+  return `${program} · ${folder}`;
+}
 /** The view `prefix v` offers this session, or the existing sentence saying why it cannot. */
 function viewOffer(
   session: Session,
@@ -131,6 +139,7 @@ export function useTaskWorkspace({
   task,
   sessions,
   terminals,
+  terminalsLoaded,
   config,
   profiles,
   drivers,
@@ -143,6 +152,8 @@ export function useTaskWorkspace({
   task: Task | undefined;
   sessions: readonly Session[];
   terminals: readonly TerminalInfo[];
+  /** False until `terminals.watch` has answered once, so cleanup never drops a tab on an empty first list. */
+  terminalsLoaded: boolean;
   config: ClientConfig;
   profiles: readonly LaunchProfile[];
   drivers: readonly {
@@ -200,6 +211,9 @@ export function useTaskWorkspace({
     [],
   );
   const fitSize = useRef<TerminalSize>(DEFAULT_SIZE);
+  // A terminal id whose tab was just added: the watch may not list it for a frame, and cleanup
+  // must not treat that gap as "closed elsewhere".
+  const pendingTerminals = useRef(new Set<string>());
   const mainPane = useRef<HTMLDivElement>(null);
   const companionPane = useRef<HTMLDivElement>(null);
   const mainModelAnchor = useRef<HTMLButtonElement>(null);
@@ -212,6 +226,10 @@ export function useTaskWorkspace({
     () => new Map(ofTask.map((session) => [session.id, session])),
     [ofTask],
   );
+  const terminalById = useMemo(
+    () => new Map(terminals.map((terminal) => [terminal.id, terminal])),
+    [terminals],
+  );
   const labels = useMemo(() => sessionLabels(ofTask), [ofTask]);
   const mainTab = layout === undefined ? undefined : activeTab(layout, "main");
   const companionTab = layout === undefined ? undefined : activeTab(layout, "companion");
@@ -219,6 +237,10 @@ export function useTaskWorkspace({
     mainTab?.kind === "session" ? sessionById.get(mainTab.sessionId ?? "") : undefined;
   const companionSession =
     companionTab?.kind === "session" ? sessionById.get(companionTab.sessionId ?? "") : undefined;
+  const mainTerminal =
+    mainTab?.kind === "terminal" ? terminalById.get(mainTab.terminalId ?? "") : undefined;
+  const companionTerminal =
+    companionTab?.kind === "terminal" ? terminalById.get(companionTab.terminalId ?? "") : undefined;
   const mainChat = useChatSession(client, mainSession);
   const companionChat = useChatSession(client, companionSession);
   const actionGroup = focusGroup;
@@ -236,6 +258,7 @@ export function useTaskWorkspace({
 
   const chatFiles = useMemo<ChatFiles | undefined>(() => {
     if (task === undefined) return undefined;
+    const owner = { id: task.id, primarySessionId: task.primarySessionId };
     const chatTaskId = task.id;
     return {
       resolve: async (paths) =>
@@ -243,16 +266,24 @@ export function useTaskWorkspace({
           .results,
       read: (path) => client.connection.api.files.read({ taskId: chatTaskId, path }),
       open: async (path, line, column) => {
-        await client.connection.api.files.openEditor({
+        const opened = await client.connection.api.files.openEditor({
           taskId: chatTaskId,
           path,
           size: fitSize.current,
           ...(line === undefined ? {} : { line }),
           ...(column === undefined ? {} : { column }),
         });
+        pendingTerminals.current.add(opened.terminalId);
+        changeFor(owner, (current) =>
+          addTab(current, {
+            kind: "terminal",
+            terminalId: opened.terminalId,
+            group: current.focused,
+          }),
+        );
       },
     };
-  }, [client, task]);
+  }, [changeFor, client, task]);
 
   const report = useCallback(
     (error: unknown) => {
@@ -399,6 +430,20 @@ export function useTaskWorkspace({
           return;
         }
       }
+      // A loose terminal is killed only while the server still lists it; one the watch has already
+      // dropped leaves nothing to close, and the tab just goes.
+      if (
+        tab.kind === "terminal" &&
+        tab.terminalId !== undefined &&
+        terminals.some((candidate) => candidate.id === tab.terminalId)
+      ) {
+        try {
+          await client.connection.api.terminals.close({ id: tab.terminalId });
+        } catch (error) {
+          if (stillOnOwner()) report(error);
+          return;
+        }
+      }
       const after = closeTab(layout, id, owner.primarySessionId);
       if (after === layout) return;
       changeFor(owner, (current) => closeTab(current, id, owner.primarySessionId));
@@ -426,6 +471,7 @@ export function useTaskWorkspace({
       setFailure,
       setFocusGroup,
       task,
+      terminals,
     ],
   );
 
@@ -461,6 +507,29 @@ export function useTaskWorkspace({
       void close(tabId(tab));
     }
   }, [close, layout, ofTask, task, terminals]);
+
+  // A loose terminal lives in the server's memory, not in the layout: once the watch no longer
+  // lists one, its tab has nothing to show. A terminal this view just created is exempt for the
+  // frame between `files.openEditor`'s reply and the watch that lists it.
+  useEffect(() => {
+    if (task === undefined || layout === undefined || !terminalsLoaded) return;
+    const present = new Set(terminals.map((terminal) => terminal.id));
+    for (const terminalId of pendingTerminals.current) {
+      if (present.has(terminalId)) pendingTerminals.current.delete(terminalId);
+    }
+    const stale = layout.tabs.filter(
+      (tab) =>
+        tab.kind === "terminal" &&
+        tab.terminalId !== undefined &&
+        !present.has(tab.terminalId) &&
+        !pendingTerminals.current.has(tab.terminalId),
+    );
+    if (stale.length === 0) return;
+    const owner = { id: task.id, primarySessionId: task.primarySessionId };
+    changeFor(owner, (current) =>
+      stale.reduce((next, tab) => closeTab(next, tabId(tab), owner.primarySessionId), current),
+    );
+  }, [changeFor, layout, task, terminals, terminalsLoaded]);
 
   const select = useCallback(
     (id: string) => {
@@ -964,6 +1033,46 @@ export function useTaskWorkspace({
           },
         ];
       }
+      if (tab.kind === "terminal") {
+        const terminal =
+          tab.terminalId === undefined ? undefined : terminalById.get(tab.terminalId);
+        if (terminal === undefined) return [];
+        const label = terminalLabel(terminal);
+        return [
+          {
+            id,
+            kind: "terminal" as const,
+            label,
+            menuLabel: `Terminal actions for ${label}`,
+            selected: layout.active[group] === id,
+            canClose: true,
+            title: terminal.exit === null ? label : `${label} · exited`,
+            paneId,
+            menu: (
+              <>
+                <DropdownMenuItem
+                  disabled={index === 0}
+                  onClick={() => moveTo(id, group, index - 1)}
+                >
+                  Move tab left
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={index === groupTabs.length - 1}
+                  onClick={() => moveTo(id, group, index + 1)}
+                >
+                  Move tab right
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => moveTo(id, group === "main" ? "companion" : "main")}
+                >
+                  Move tab to the other group
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void close(id)}>Close terminal</DropdownMenuItem>
+              </>
+            ),
+          },
+        ];
+      }
       return [
         {
           id,
@@ -1089,9 +1198,20 @@ export function useTaskWorkspace({
     return null;
   };
 
+  const terminalPane = (terminal: TerminalInfo, group: TaskTabGroup) => (
+    <TerminalView
+      key={terminal.id}
+      client={client}
+      terminal={terminal}
+      onFit={rememberFitSize}
+      autoFocus={focusGroup === group && (group === "main" ? mainVisible : companionVisible)}
+    />
+  );
+
   const groupPane = (group: TaskTabGroup) => {
     const selected = group === "main" ? mainTab : companionTab;
     const session = group === "main" ? mainSession : companionSession;
+    const terminal = group === "main" ? mainTerminal : companionTerminal;
     return (
       <>
         {position === "top" && strip(group)}
@@ -1102,10 +1222,14 @@ export function useTaskWorkspace({
           panelRef={group === "main" ? mainPane : companionPane}
         >
           <div className="visual-workspace-pane">
-            {session === undefined && group === "main" && !companionHasTabs ? (
+            {selected === undefined && group === "main" && !companionHasTabs ? (
               <div className="visual-main-empty visual-workspace-empty">
                 {emptyAddSessionControl}
               </div>
+            ) : selected?.kind === "terminal" ? (
+              terminal === undefined ? null : (
+                terminalPane(terminal, group)
+              )
             ) : (
               sessionPane(session, group)
             )}

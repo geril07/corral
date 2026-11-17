@@ -177,6 +177,18 @@ test("a resolved path is a link that opens the editor; an unresolved one stays t
   expect(opened.sessionId).toBeNull();
   // Clicking also shows it: the lane gives way to the terminal that was opened.
   await expect.element(page.getByRole("log", { name: "Chat transcript" })).not.toBeInTheDocument();
+  await expect.element(page.getByRole("tab", { name: /^cat · / })).toBeVisible();
+  await expect.element(page.getByRole("region", { name: "active terminal" })).toBeVisible();
+
+  // Closing that tab closes the process and the chat is the view left behind.
+  const editorTab = page.getByRole("tab", { name: /^cat · / });
+  await userEvent.hover(editorTab);
+  await userEvent.click(page.getByRole("button", { name: /^Close cat · .* tab$/ }));
+  await vi.waitFor(async () => {
+    const listed = await real.connection.api.terminals.list();
+    expect(listed.find((each) => each.command === "/bin/cat")).toBeUndefined();
+  });
+  await expect.element(page.getByRole("log", { name: "Chat transcript" })).toBeVisible();
 });
 
 test("an explicit Markdown link to a workspace path opens the editor", async () => {

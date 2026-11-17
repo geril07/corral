@@ -113,6 +113,32 @@ describe("closing views", () => {
 });
 
 const FILE_TAB = { kind: "file", path: "src/a.ts", group: "companion" } as const;
+const TERMINAL_TAB = { kind: "terminal", terminalId: "t1", group: "companion" } as const;
+
+describe("a loose terminal's view", () => {
+  test("opens as its own tab and closes without touching the task's sessions", () => {
+    const l = addTab(layout(), TERMINAL_TAB);
+    expect(l.active.companion).toBe("terminal:t1");
+    expect(l.focused).toBe("companion");
+
+    const closed = closeTab(l, "terminal:t1", "s1");
+    expect(ids(closed)).toEqual(["session:s1", "session:s2", "session:s3"]);
+    expect(closed.active.companion).toBeUndefined();
+  });
+
+  test("survives reconciliation while the server's sessions change", () => {
+    const l = addTab(layout(), TERMINAL_TAB);
+    const next = reconcileLayout(l, task("s1"), [...SESSIONS, session("s4", "shell", 40)]);
+    expect(ids(next)).toEqual([
+      "session:s1",
+      "session:s2",
+      "session:s3",
+      "terminal:t1",
+      "session:s4",
+    ]);
+    expect(next.active.companion).toBe("terminal:t1");
+  });
+});
 
 describe("the companion group", () => {
   test("a file view has its own active tab and leaves the main session alone", () => {
@@ -236,6 +262,24 @@ describe("the device-local record", () => {
     l = closeTab(l, "session:s2", "s1");
     const stored = serializeLayout(l);
     expect(parseLayout(stored)).toEqual(l);
+  });
+
+  test("round-trips a loose terminal's tab", () => {
+    const l = addTab(layout(), TERMINAL_TAB);
+    expect(parseLayout(serializeLayout(l))).toEqual(l);
+  });
+
+  test("drops a terminal tab whose terminal id is missing", () => {
+    const stored = JSON.stringify({
+      version: 2,
+      tabs: [{ kind: "terminal", group: "main", order: 0 }],
+      active: { main: "terminal:" },
+      focused: "main",
+      expanded: null,
+      companionWidth: 600,
+      seenSessions: [],
+    });
+    expect(parseLayout(stored)).toMatchObject({ tabs: [], active: {} });
   });
 
   test("reads a record that still carries the removed closed-tab history without it", () => {

@@ -674,6 +674,7 @@ export function VisualWorkspace({
     task: selectedTask,
     sessions: sessions.sessions,
     terminals: terminals.terminals,
+    terminalsLoaded: terminals.loaded,
     config,
     profiles,
     drivers: chatCapabilities.drivers,
