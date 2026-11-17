@@ -397,7 +397,7 @@ export function TaskComposer({
                   <Icon name={workspace.key === WORKTREE ? "add" : "project"} size="row" />
                   <span className="min-w-0 truncate">{workspace.label}</span>
                 </ComboboxButton>
-                <ComboboxContent align="start">
+                <ComboboxContent align="start" skin="visual">
                   <ComboboxList scrollbar="visible">
                     {(key: string) => {
                       const choice = COMPOSER_WORKSPACES.find((candidate) => candidate.key === key);
@@ -547,7 +547,7 @@ function BranchControl({
         <Icon name="branch" size="row" />
         <span className="min-w-0 truncate">from {value}</span>
       </ComboboxButton>
-      <ComboboxContent align="start">
+      <ComboboxContent align="start" skin="visual">
         <ComboboxSearch
           variant="band"
           aria-label="Search branches"

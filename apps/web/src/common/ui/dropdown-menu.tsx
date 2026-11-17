@@ -2,6 +2,7 @@ import * as React from "react";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { cn } from "../lib/cn.ts";
 import { ChevronRightIcon, CheckIcon } from "lucide-react";
+import { VISUAL_SURFACE_CLASS } from "./floating-surface.ts";
 import { Icon, type IconName } from "./icon.tsx";
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
@@ -15,10 +16,6 @@ function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props) {
 function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
   return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />;
 }
-
-/** The shell's floating-surface skin; a menu inside the visual shell opts into it. */
-export const VISUAL_MENU_CLASS =
-  "visual-menu origin-(--transform-origin) data-[side=bottom]:motion-safe:slide-in-from-top-2 data-[side=inline-end]:motion-safe:slide-in-from-left-2 data-[side=inline-start]:motion-safe:slide-in-from-right-2 data-[side=left]:motion-safe:slide-in-from-right-2 data-[side=right]:motion-safe:slide-in-from-left-2 data-[side=top]:motion-safe:slide-in-from-bottom-2 data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 data-open:motion-safe:zoom-in-95";
 
 const STOCK_MENU_CLASS =
   "z-50 max-h-(--available-height) w-max max-w-(--available-width) min-w-32 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-floating data-[side=bottom]:motion-safe:slide-in-from-top-2 data-[side=inline-end]:motion-safe:slide-in-from-left-2 data-[side=inline-start]:motion-safe:slide-in-from-right-2 data-[side=left]:motion-safe:slide-in-from-right-2 data-[side=right]:motion-safe:slide-in-from-left-2 data-[side=top]:motion-safe:slide-in-from-bottom-2 data-open:motion-safe:animate-in data-open:motion-safe:fade-in-0 data-open:motion-safe:zoom-in-95";
@@ -47,7 +44,7 @@ function DropdownMenuContent({
       >
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
-          className={cn(skin === "visual" ? VISUAL_MENU_CLASS : STOCK_MENU_CLASS, className)}
+          className={cn(skin === "visual" ? VISUAL_SURFACE_CLASS : STOCK_MENU_CLASS, className)}
           {...props}
         />
       </MenuPrimitive.Positioner>
