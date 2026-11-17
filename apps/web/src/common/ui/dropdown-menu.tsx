@@ -137,11 +137,13 @@ function DropdownMenuSubTrigger({
   );
 }
 
+// The kit menu's 4px inset: the submenu's first row meets the sub-trigger's row, and its outer
+// edge meets the parent's outer edge instead of covering the parent's inset and shadow.
 function DropdownMenuSubContent({
   align = "start",
-  alignOffset = -3,
+  alignOffset = -4,
   side = "right",
-  sideOffset = 0,
+  sideOffset = 4,
   skin = "stock",
   className,
   ...props
