@@ -971,24 +971,26 @@
   overflow: hidden;
 }
 
-/* A row menu is one floating shell surface: the same roles as the path dialog, not the stock
-   popover skin, so the menu, its items and its shortcut cells share one recipe. */
+/* A row menu is one floating shell surface, matching OpenCode's compact menu: the raised layer-01
+   panel with no border, the floating shadow's hairline as its edge, 13 px type and 28 px rows. */
 .visual-menu {
   box-sizing: border-box;
   width: max-content;
-  min-width: 176px;
+  min-width: 160px;
   max-width: var(--available-width);
   max-height: var(--available-height);
-  padding: 4px;
+  padding: 2px;
   overflow-x: hidden;
   overflow-y: auto;
-  border: 1px solid var(--visual-border-muted);
-  border-radius: 8px;
-  background: var(--visual-bg-base);
+  border: 0;
+  border-radius: 6px;
+  background: var(--visual-bg-layer-01);
   color: var(--visual-text-base);
   box-shadow: var(--visual-shadow-floating);
   font-size: 13px;
+  font-weight: 440;
   line-height: 16px;
+  letter-spacing: -0.04px;
   outline: none;
 }
 
@@ -996,16 +998,23 @@
 .visual-menu [data-slot="dropdown-menu-sub-trigger"] {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 26px;
-  padding: 3px 6px;
+  gap: 8px;
+  height: 28px;
+  padding: 0 6px 0 12px;
   border-radius: 4px;
   color: inherit;
   font-size: 13px;
+  font-weight: 440;
   line-height: 16px;
+  letter-spacing: -0.04px;
   cursor: default;
   outline: none;
   user-select: none;
+}
+
+.visual-menu [data-slot="dropdown-menu-item"] svg,
+.visual-menu [data-slot="dropdown-menu-sub-trigger"] > svg:not(:last-child) {
+  color: var(--visual-icon-base);
 }
 
 .visual-menu [data-slot="dropdown-menu-item"]:focus,
@@ -1014,22 +1023,44 @@
   background: var(--visual-hover);
 }
 
+.visual-menu [data-slot="dropdown-menu-sub-trigger"] > svg:last-child {
+  color: var(--visual-text-faint);
+}
+
 .visual-menu [data-slot="dropdown-menu-item"][data-variant="destructive"],
 .visual-menu [data-slot="dropdown-menu-item"][data-variant="destructive"] svg {
   color: var(--visual-status-error);
 }
 
 .visual-menu [data-slot="dropdown-menu-shortcut"] {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 11px;
   margin-left: auto;
   color: var(--visual-text-faint);
   font-size: 11px;
+  font-weight: 530;
+  line-height: 11px;
+  letter-spacing: 0.05px;
+}
+
+.visual-menu [data-slot="dropdown-menu-label"] {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
+  color: var(--visual-text-faint);
+  font-size: 11px;
+  font-weight: 530;
   line-height: 16px;
-  letter-spacing: 0;
+  letter-spacing: 0.05px;
 }
 
 .visual-menu [data-slot="dropdown-menu-separator"] {
+  width: calc(100% + 4px);
   height: 1px;
-  margin: 4px -4px;
+  margin: 2px -2px;
   background: var(--visual-border-muted);
 }
 
