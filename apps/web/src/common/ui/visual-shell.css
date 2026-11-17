@@ -933,6 +933,65 @@
   }
 }
 
+/* ── Alert ───────────────────────────────────────────────────────────────── */
+
+/* A message band on the shell's card: one layer above the canvas, a hairline edge, 13/20 text. A
+   destructive band is the error role at 8 % over the base colour, so it reads as a tint of the
+   surface rather than as a second card. */
+.visual-alert {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--visual-border-muted);
+  border-radius: 0.5rem;
+  background: var(--visual-bg-layer-01);
+  color: var(--visual-text-base);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  letter-spacing: -0.04px;
+}
+
+.visual-alert[data-variant="destructive"] {
+  border-color: color-mix(in srgb, var(--visual-status-error) 32%, transparent);
+  background: color-mix(in srgb, var(--visual-status-error) 8%, var(--visual-bg-base));
+  color: var(--visual-status-error);
+}
+
+.visual-alert-title {
+  font-weight: 530;
+}
+
+.visual-alert-action {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.visual-alert [data-slot="alert-description"] {
+  color: var(--visual-text-muted);
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.visual-alert[data-variant="destructive"] [data-slot="alert-description"] {
+  color: inherit;
+}
+
+/* One line of a chrome row keeps the row's height: no block padding, its own width. */
+.visual-alert[data-size="compact"] {
+  width: auto;
+  min-width: 0;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.375rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
 /* ── Controls ────────────────────────────────────────────────────────────── */
 
 /* A field is the shell's one input surface: 28 px tall, the kit's 6 px control radius, the base
