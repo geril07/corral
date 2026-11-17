@@ -16,6 +16,7 @@ export function emptyChatState(): ChatSessionState {
     models: [],
     reasoning: null,
     reasoningLevels: [],
+    context: null,
   };
 }
 

@@ -119,3 +119,27 @@ test("a rebuilt transcript maps history items and ends in the last turn's state"
     streaming: false,
   });
 });
+
+test("token usage measures the context from the last request, with the window it names", () => {
+  const { projection: project, timeline } = projection();
+  project.apply("thread/tokenUsage/updated", {
+    tokenUsage: {
+      total: { totalTokens: 9_000_000 },
+      last: { totalTokens: 61_500 },
+      modelContextWindow: 200_000,
+    },
+  });
+  expect(timeline.state.context).toEqual({ usedTokens: 61_500, maxTokens: 200_000 });
+
+  // An older app-server names no window; the count is still the agent's own reading.
+  project.apply("thread/tokenUsage/updated", {
+    tokenUsage: { total: { totalTokens: 9_000_000 }, last: { totalTokens: 62_000 } },
+  });
+  expect(timeline.state.context).toEqual({ usedTokens: 62_000, maxTokens: null });
+
+  // Zero is a frame without a measurement, not an empty conversation.
+  project.apply("thread/tokenUsage/updated", {
+    tokenUsage: { last: { totalTokens: 0 }, modelContextWindow: 200_000 },
+  });
+  expect(timeline.state.context).toEqual({ usedTokens: 62_000, maxTokens: null });
+});

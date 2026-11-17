@@ -381,7 +381,7 @@ export function toolResult(
   return message;
 }
 
-export function resultSuccess(text = ""): SDKMessage {
+export function resultSuccess(text = "", modelUsage: Record<string, unknown> = {}): SDKMessage {
   return scriptedMessage({
     type: "result",
     subtype: "success",
@@ -392,7 +392,7 @@ export function resultSuccess(text = ""): SDKMessage {
     stop_reason: "end_turn",
     total_cost_usd: 0,
     usage: {},
-    modelUsage: {},
+    modelUsage,
     permission_denials: [],
     result: text,
     errors: [],
@@ -473,13 +473,18 @@ export function sessionMessage(
   type: "user" | "assistant",
   uuid: string,
   content: unknown,
+  options: { usage?: Record<string, number>; parentToolUseId?: string | null } = {},
 ): SessionMessage {
   return scriptedSessionMessage({
     type,
     uuid,
     session_id: "session-1",
-    message: { role: type, content },
-    parent_tool_use_id: null,
+    message: {
+      role: type,
+      content,
+      ...(options.usage === undefined ? {} : { usage: options.usage }),
+    },
+    parent_tool_use_id: options.parentToolUseId ?? null,
     parent_agent_id: null,
   });
 }

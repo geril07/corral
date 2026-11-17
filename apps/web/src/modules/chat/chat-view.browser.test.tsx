@@ -1749,6 +1749,28 @@ test("a refused watch shows the store's failure and the view does not retry it i
   store.close();
 });
 
+test("the context ring beside Send carries the agent's reading and is not a submit", async () => {
+  const chat = await renderChat(
+    recorded([], {
+      state: workingChat({ context: { usedTokens: 45_000, maxTokens: 200_000 } }),
+    }),
+  );
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  const meter = page.getByRole("button", { name: "Context window 23% used" });
+  const composer = page.getByRole("textbox", { name: "Message" });
+  await expect.element(meter).toBeVisible();
+
+  await userEvent.hover(meter);
+  await expect.element(page.getByText("Context window · 23% · 45k/200k tokens")).toBeVisible();
+  await userEvent.unhover(meter);
+
+  // The ring is a reading inside the composer's form: a press must not submit the draft.
+  await composer.fill("Fix the test");
+  await userEvent.click(meter);
+  await vi.waitFor(() => expect(chat.sent).toEqual([]));
+  await expect.element(composer).toHaveValue("Fix the test");
+});
+
 test("the composer row shows the driver's model and reasoning and opens their choosers", async () => {
   const state = workingChat({
     model: { provider: "stub", id: "stub-1", name: "Stub One" },

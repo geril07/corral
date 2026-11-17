@@ -73,6 +73,8 @@ export class PiProjection {
   readonly #dialogs = new Map<string, PendingDialog>();
   /** Where the tool call's `path` argument came from, for the diff of its result. */
   readonly #toolPaths = new Map<string, string>();
+  /** Each listed model's context window, keyed `provider/id`; pi reports it on the model object. */
+  #modelWindows = new Map<string, number>();
   #nextId = 0;
   #live: LiveAssistant | undefined;
 
@@ -129,6 +131,9 @@ export class PiProjection {
       }
       case "compaction_start":
         this.#notice("Compacting the conversation…");
+        // The next request carries a different conversation, so the last reading no longer
+        // describes it; pi reports no figure of its own until that response arrives.
+        this.#timeline.setState({ context: null });
         return [];
       case "compaction_end":
         this.#compactionEnd(record);
@@ -175,6 +180,7 @@ export class PiProjection {
         const text = contentText(message["content"]);
         if (text !== "") this.#timeline.put({ kind: "user-message", id: prefix, text });
       } else if (role === "assistant") {
+        this.#recordContext(message);
         this.#historyAssistant(prefix, message);
       } else if (role === "toolResult") {
         this.#toolResult(message, "history");
@@ -186,6 +192,14 @@ export class PiProjection {
 
   /** What `get_state`, `get_available_models` and the level list say about the session's model. */
   loadModelState(state: PiRecord, models: readonly PiRecord[], levels: readonly string[]): void {
+    this.#modelWindows = new Map();
+    for (const model of models) {
+      const window = numberField(model, "contextWindow");
+      const provider = stringField(model, "provider");
+      const id = stringField(model, "id");
+      if (window === undefined || provider === undefined || id === undefined) continue;
+      this.#modelWindows.set(`${provider}/${id}`, window);
+    }
     const current = objectField(state, "model");
     this.#timeline.setState({
       model: current === undefined ? null : modelOf(current),
@@ -386,6 +400,7 @@ export class PiProjection {
     }
     this.#live = undefined;
     const actions: PiAction[] = [];
+    this.#recordContext(message);
     const stopReason = stringField(message, "stopReason");
     if (stopReason === "error") {
       this.#error(stringField(message, "errorMessage") ?? "The model call failed.");
@@ -396,6 +411,27 @@ export class PiProjection {
     }
     this.#stopStreaming();
     return actions;
+  }
+
+  /**
+   * A finished assistant message's usage: the prompt it was sent plus the answer it produced, which
+   * is what the next request carries. `reasoning` is already inside `output`.
+   */
+  #recordContext(message: PiRecord): void {
+    const usage = objectField(message, "usage");
+    if (usage === undefined) return;
+    const usedTokens =
+      (numberField(usage, "input") ?? 0) +
+      (numberField(usage, "cacheRead") ?? 0) +
+      (numberField(usage, "cacheWrite") ?? 0) +
+      (numberField(usage, "output") ?? 0);
+    if (usedTokens <= 0) return;
+    const model = this.#timeline.state.model;
+    const maxTokens =
+      model?.provider == null
+        ? null
+        : (this.#modelWindows.get(`${model.provider}/${model.id}`) ?? null);
+    this.#timeline.setState({ context: { usedTokens, maxTokens } });
   }
 
   #toolExecution(record: PiRecord): void {

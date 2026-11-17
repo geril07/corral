@@ -89,6 +89,11 @@ export class ClaudeProjection {
   /** The content blocks of the assistant message streaming now, in arrival order. */
   #live: LiveBlock[] = [];
   #streamMessageId: string | undefined;
+  /**
+   * The prompt size of the request streaming now. The answer's tokens are added as they arrive,
+   * so the reading describes what the next request will carry, not just what was sent.
+   */
+  #contextPromptTokens: number | undefined;
   #nextId = 0;
 
   constructor(timeline: ChatTimeline, options: ClaudeProjectionOptions) {
@@ -242,6 +247,8 @@ export class ClaudeProjection {
       reasoningLevels: levels,
       reasoning:
         current !== null && (levels as readonly string[]).includes(current) ? current : null,
+      // The window belongs to the model that reported it; the next request measures the new one.
+      context: null,
     });
   }
 
@@ -278,9 +285,24 @@ export class ClaudeProjection {
     for (const message of messages) {
       const body = recordOf(message.message);
       if (body === undefined) continue;
-      if (message.type === "assistant") this.#historyAssistant(message.uuid, body);
-      else if (message.type === "user") this.#historyUser(message.uuid, body);
+      if (message.type === "assistant") {
+        // A subagent's messages measure their own conversation, not this one.
+        if (message.parent_tool_use_id === null) this.#recordHistoryUsage(body);
+        this.#historyAssistant(message.uuid, body);
+      } else if (message.type === "user") this.#historyUser(message.uuid, body);
     }
+  }
+
+  /** The last main-loop request of a rebuilt transcript: what a resumed session starts from. */
+  #recordHistoryUsage(body: Record<string, unknown>): void {
+    const usage = recordOf(body["usage"]);
+    if (usage === undefined) return;
+    const usedTokens =
+      (numberOf(usage["input_tokens"]) ?? 0) +
+      (numberOf(usage["cache_creation_input_tokens"]) ?? 0) +
+      (numberOf(usage["cache_read_input_tokens"]) ?? 0) +
+      (numberOf(usage["output_tokens"]) ?? 0);
+    if (usedTokens > 0) this.#putContext(usedTokens);
   }
 
   #historyAssistant(uuid: string, body: Record<string, unknown>): void {
@@ -377,6 +399,10 @@ export class ClaudeProjection {
       case "message_start":
         this.#streamMessageId = event.message.id;
         this.#live = [];
+        this.#messageStarted(event.message.usage);
+        break;
+      case "message_delta":
+        this.#messageDelta(event.usage);
         break;
       case "content_block_start":
         this.#blockStart(event.index, event.content_block);
@@ -387,6 +413,63 @@ export class ClaudeProjection {
       default:
         break;
     }
+  }
+
+  /**
+   * The prompt of a request that just started: the conversation plus the system prompt and tools,
+   * which is what occupies the window. The window itself arrives on the turn's result.
+   */
+  #messageStarted(
+    usage:
+      | {
+          input_tokens: number;
+          cache_creation_input_tokens?: number | null;
+          cache_read_input_tokens?: number | null;
+        }
+      | undefined,
+  ): void {
+    const prompt =
+      usage === undefined
+        ? 0
+        : usage.input_tokens +
+          (usage.cache_creation_input_tokens ?? 0) +
+          (usage.cache_read_input_tokens ?? 0);
+    this.#contextPromptTokens = prompt > 0 ? prompt : undefined;
+    if (prompt > 0) this.#putContext(prompt);
+  }
+
+  /** The answer's final size, added to the prompt: the next request carries both. */
+  #messageDelta(usage: { output_tokens?: number | null }): void {
+    const prompt = this.#contextPromptTokens;
+    if (prompt === undefined) return;
+    this.#putContext(prompt + (usage.output_tokens ?? 0));
+  }
+
+  #putContext(usedTokens: number): void {
+    this.#timeline.setState({
+      context: {
+        usedTokens,
+        maxTokens: this.#timeline.state.context?.maxTokens ?? null,
+      },
+    });
+  }
+
+  /**
+   * The window the turn was measured against. The SDK keys `modelUsage` by the model the API
+   * served, which an alias in the model list does not have to equal, so the exact key is tried
+   * first and the busiest entry — the main loop, not a subagent — is the fallback.
+   */
+  #recordContextWindow(modelUsage: Record<string, { contextWindow?: unknown }> | undefined): void {
+    if (modelUsage === undefined) return;
+    const selected = this.#timeline.state.model?.id;
+    const exact = selected === undefined ? undefined : modelUsage[selected]?.contextWindow;
+    const window =
+      typeof exact === "number" && Number.isInteger(exact) && exact > 0
+        ? exact
+        : busiestWindow(modelUsage);
+    const context = this.#timeline.state.context;
+    if (window === null || context === null) return;
+    this.#timeline.setState({ context: { ...context, maxTokens: window } });
   }
 
   #blockStart(index: number, block: unknown): void {
@@ -532,6 +615,7 @@ export class ClaudeProjection {
 
   #result(message: Extract<SDKMessage, { type: "result" }>): ClaudeAction[] {
     const actions: ClaudeAction[] = [];
+    this.#recordContextWindow(message.modelUsage);
     for (const itemId of this.expireAll()) actions.push({ type: "request-closed", itemId });
     // Any text still streaming has ended, whatever the turn's outcome says next.
     this.#stopStreaming();
@@ -706,4 +790,21 @@ function stringOf(value: unknown): string | undefined {
 
 function numberOf(value: unknown): number | undefined {
   return typeof value === "number" ? value : undefined;
+}
+
+/**
+ * The window of the entry that did the most prompt work. A subagent adds its own entry, and the
+ * main loop's is the one that grew with every turn.
+ */
+function busiestWindow(
+  modelUsage: Record<string, { contextWindow?: unknown; inputTokens?: unknown }>,
+): number | null {
+  let busiest: { window: number; input: number } | null = null;
+  for (const entry of Object.values(modelUsage)) {
+    const window = numberOf(entry.contextWindow);
+    if (window === undefined || !Number.isInteger(window) || window <= 0) continue;
+    const input = numberOf(entry.inputTokens) ?? 0;
+    if (busiest === null || input > busiest.input) busiest = { window, input };
+  }
+  return busiest?.window ?? null;
 }

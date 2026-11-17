@@ -72,6 +72,7 @@ function emptyState(): ChatSessionState {
     models: [],
     reasoning: null,
     reasoningLevels: [],
+    context: null,
   };
 }
 

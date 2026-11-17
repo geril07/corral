@@ -30,6 +30,7 @@ import {
   useTruncatedText,
 } from "../../common/ui/index.ts";
 import { draftLeftAfterSend } from "./chat-draft.ts";
+import { ChatContextMeter } from "./chat-context.tsx";
 import { ChatFocusContext } from "./chat-focus.ts";
 import { pendingRequest } from "./chat-rows.ts";
 import { ChatTimeline } from "./chat-timeline.tsx";
@@ -363,6 +364,9 @@ export function ChatView({
                     </span>
                   </Button>
                   <span className="ml-auto flex items-center gap-1">
+                    {snapshot.state.context !== null && (
+                      <ChatContextMeter usage={snapshot.state.context} />
+                    )}
                     {working && (
                       <>
                         {followUpOffered && (

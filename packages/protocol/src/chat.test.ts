@@ -11,6 +11,7 @@ const idle = {
   models: [],
   reasoning: null,
   reasoningLevels: [],
+  context: null,
 } as const;
 
 test("a snapshot carries the whole timeline and the session state", () => {
@@ -26,6 +27,7 @@ test("a snapshot carries the whole timeline and the session state", () => {
         models: [{ provider: "anthropic", id: "claude-sonnet-4-5", name: "Sonnet 4.5" }],
         reasoning: "high",
         reasoningLevels: ["low", "high"],
+        context: { usedTokens: 45_000, maxTokens: 200_000 },
       },
       items: [
         { kind: "user-message", id: "u1", text: "Fix it" },
@@ -82,6 +84,7 @@ test("events are distinguished by type and every item kind is accepted", () => {
                   models: [],
                   reasoning: null,
                   reasoningLevels: [],
+                  context: null,
                 },
               },
     });
