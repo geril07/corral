@@ -1173,7 +1173,7 @@ test("the open shelf mounts one page and appends the next only when asked", asyn
   await unmount();
 });
 
-test("the shelf keeps its last row off the scroller's bottom edge", async () => {
+test("the overflowing shelf has no scrollbar lane and keeps its last row off the edge", async () => {
   const settled = Array.from({ length: 12 }, (_, index) => ({
     ...VISUAL_REVIEW_ROWS[0]!,
     id: `fixture-settled-${index}`,
@@ -1183,7 +1183,12 @@ test("the shelf keeps its last row off the scroller's bottom edge", async () => 
   const { container, unmount } = await render(
     <MenuHarness actions={menuActions()} rows={VISUAL_REVIEW_ROWS} settledRows={settled} />,
   );
+  // The test page's host has no height, so the shell would grow with its content and never scroll.
+  container.style.height = "100vh";
   await page.getByRole("button", { name: "Settled (12)" }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Settled (12)" }))
+    .toHaveAttribute("aria-expanded", "true");
   const shelf = container.querySelector<HTMLElement>(".visual-shelf");
   const scroller = container.querySelector<HTMLElement>(".visual-task-scroll");
   const last = shelf?.lastElementChild;
@@ -1191,6 +1196,10 @@ test("the shelf keeps its last row off the scroller's bottom edge", async () => 
     throw new Error("the shelf is missing its scroller or last row");
   }
   scroller.scrollTop = scroller.scrollHeight;
+  // Hiding the lane must not hide the overflow: the rows still scroll.
+  expect(scroller.scrollTop).toBeGreaterThan(0);
+  expect(getComputedStyle(scroller).scrollbarWidth).toBe("none");
+  expect(getComputedStyle(scroller, "::-webkit-scrollbar").display).toBe("none");
 
   const gap = scroller.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom;
   expect(gap).toBeGreaterThanOrEqual(7.5);
