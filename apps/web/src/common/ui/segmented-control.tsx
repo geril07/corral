@@ -25,7 +25,7 @@ function SegmentedOption({ className, children, ...props }: RadioPrimitive.Root.
     <RadioPrimitive.Root
       data-slot="segmented-option"
       className={cn(
-        "flex h-7 min-w-0 flex-1 items-center justify-center rounded-(--control-radius) px-2 text-sm text-muted-foreground select-none outline-hidden focus-visible:ring-2 focus-visible:ring-ring data-checked:bg-background data-checked:text-foreground data-checked:shadow-xs data-disabled:opacity-50",
+        "flex h-7 min-w-0 flex-1 items-center justify-center rounded-(--control-radius) px-2 text-sm text-muted-foreground select-none outline-hidden focus-visible:ring-2 focus-visible:ring-ring data-checked:bg-background data-checked:text-foreground data-disabled:opacity-50",
         className,
       )}
       {...props}
