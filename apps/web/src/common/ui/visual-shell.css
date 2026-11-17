@@ -1293,7 +1293,7 @@
   opacity: 0.5;
 }
 
-/* The task's identity row: title first, then the project/branch context and the status. */
+/* The task's identity row: the project context, then the task's title. */
 .visual-task-header {
   display: flex;
   flex: 0 0 auto;
@@ -1357,10 +1357,6 @@
   height: 20px;
   border-radius: 5px;
   font-size: 10px;
-}
-
-.visual-main-task .visual-main-status {
-  flex: 0 0 auto;
 }
 
 /* Chrome geometry: the row above the working area and the tab strip are one band, and the sidebar
@@ -1763,41 +1759,6 @@
   line-height: 20px;
   font-weight: 530;
   letter-spacing: -0.04px;
-}
-
-.visual-main-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--visual-text-muted);
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 530;
-}
-
-.visual-main-status[data-tone="working"] {
-  color: var(--visual-status-working);
-}
-
-.visual-main-status[data-tone="done"] {
-  color: var(--visual-status-done);
-}
-
-.visual-main-status[data-tone="error"] {
-  color: var(--visual-status-error);
-}
-
-.visual-main-status[data-tone="blocked"] {
-  color: var(--visual-status-blocked);
-}
-
-/* The server-owned settled state, named in the identity row as the sidebar names it. */
-.visual-main-settled {
-  flex: 0 0 auto;
-  color: var(--visual-text-muted);
-  font-size: 11px;
-  line-height: 16px;
-  font-weight: 530;
 }
 
 .visual-main-note {

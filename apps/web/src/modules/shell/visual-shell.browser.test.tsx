@@ -36,25 +36,23 @@ const FOCUS_SHORTCUT = { prefix: "alt+a", binding: "w" };
 const NO_SETTLED_ROWS: readonly VisualTaskRow[] = [];
 const FIRST = VISUAL_REVIEW_ROWS[0]!;
 
-for (const [status, line] of [
-  [{ tone: "working", label: "Working" }, "Working"],
-  [{ tone: "blocked", label: "Blocked", time: "2m" }, "Blocked · 2m ago"],
-  [{ tone: "error", label: "Error", time: "1h" }, "Error · 1h ago"],
-  [{ tone: "done", label: "Done", time: "4m" }, "Done · 4m ago"],
-  [{ tone: "neutral", muted: true, time: "4m" }, "4m ago"],
-  [{ tone: "neutral", label: "Idle", muted: true, time: "6h" }, "Idle · 6h ago"],
-] satisfies [NonNullable<VisualTaskRow["status"]>, string][]) {
-  test(`the header shows ${line} without explanatory clauses or the prompt`, async () => {
-    const { container } = await render(<TaskMain row={{ ...FIRST, status }} />);
-    expect(container.querySelector(".visual-main-status")?.textContent).toBe(line);
-    expect(container.textContent).not.toContain("Last reported");
-    expect(container.textContent).not.toContain("start time not available");
-    expect(container.querySelector(".visual-main-prompt")).toBeNull();
-    expect(getComputedStyle(container.querySelector(".visual-main-task")!).flexDirection).toBe(
-      "row",
-    );
-  });
-}
+test("the task header is the task's identity, never its live state", async () => {
+  const row: VisualTaskRow = {
+    ...FIRST,
+    status: { tone: "error", label: "Error", time: "1h" },
+    settled: true,
+    snoozed: true,
+    snoozeAt: "18:00",
+  };
+  const { container } = await render(<TaskMain row={row} />);
+  const identity = container.querySelector(".visual-main-task")!;
+  expect(container.querySelector(".visual-main-project")?.textContent).toBe(row.project);
+  expect(container.querySelector(".visual-main-title")?.textContent).toBe(row.title);
+  expect(container.querySelector(".visual-main-status")).toBeNull();
+  expect(container.querySelector(".visual-main-settled")).toBeNull();
+  expect(container.textContent).not.toContain("ago");
+  expect(getComputedStyle(identity).flexDirection).toBe("row");
+});
 
 for (const scale of [100, 140]) {
   test(`the fallback identity row stays at its natural height and content top at ${scale}%`, async () => {
@@ -89,15 +87,7 @@ for (const scale of [100, 140]) {
   });
 }
 
-test("a settled task keeps the live Working status beside its shelf marker", async () => {
-  const { container } = await render(
-    <TaskMain row={{ ...FIRST, settled: true, status: { tone: "working", label: "Working" } }} />,
-  );
-  expect(container.querySelector(".visual-main-status")?.textContent).toBe("Working");
-  expect(container.querySelector(".visual-main-settled")?.textContent).toBe("Settled");
-});
-
-test("an idle row and selected header retain Idle and their age", async () => {
+test("an idle row keeps Idle and its age in the sidebar", async () => {
   const row: VisualTaskRow = {
     ...FIRST,
     status: { tone: "neutral", label: "Idle", time: "6h", muted: true },
@@ -116,7 +106,6 @@ test("an idle row and selected header retain Idle and their age", async () => {
   );
   expect(container.querySelector(".visual-task-status-label")?.textContent).toBe("Idle");
   expect(container.querySelector(".visual-task-status-time")?.textContent).toBe("6h");
-  expect(container.querySelector(".visual-main-status")?.textContent).toBe("Idle · 6h ago");
 });
 
 for (const hasProjects of [false, true]) {
@@ -1369,9 +1358,8 @@ test("the keyboard reaches the shelf, opens it, and selects a settled task witho
   await vi.waitFor(() =>
     expect(document.activeElement?.getAttribute("data-task-id")).toBe(settled[0]!.id),
   );
-  // The settled row is the current one, and its working area names the state.
+  // The settled row is the current one, and its working area shows its identity.
   await expect.element(page.getByRole("heading", { name: settled[0]!.title })).toBeVisible();
-  await expect.element(page.getByText("Settled", { exact: true })).toBeVisible();
 
   // `prefix d` continues it: the same action the row's menu and card offer.
   await prefixThen("d");
@@ -1410,9 +1398,8 @@ test("a settled task's row is current, keeps its status slot, and its menu and c
       .querySelector<HTMLElement>('[data-task-id="fixture-blocked"]')
       ?.getAttribute("aria-current"),
   ).toBeNull();
-  // The working area names the server-owned state; the row keeps its status slot.
+  // The row keeps the server-owned state and its status slot; the working area stays identity.
   await expect.element(page.getByRole("heading", { name: settled.title })).toBeVisible();
-  await expect.element(page.getByText("Settled", { exact: true })).toBeVisible();
   expect(row?.closest(".visual-task-card")?.getAttribute("data-settled")).toBe("true");
   expect(row?.closest(".visual-task-card")?.querySelector(".visual-task-status")).not.toBeNull();
 
