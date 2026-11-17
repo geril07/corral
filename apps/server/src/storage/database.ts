@@ -39,6 +39,13 @@ export const MIGRATIONS: readonly Migration[] = [
      title TEXT NOT NULL, branch TEXT, base TEXT, state TEXT NOT NULL, state_reason TEXT,
      checks TEXT, fetched_at INTEGER, repository TEXT
    ) STRICT;`,
+  // A development database can already carry the columns, so each step looks before it writes.
+  (db) => {
+    if (!tableHasColumn(db, "tasks", "snoozed_until"))
+      db.exec("ALTER TABLE tasks ADD COLUMN snoozed_until INTEGER");
+    if (!tableHasColumn(db, "tasks", "snoozed_at"))
+      db.exec("ALTER TABLE tasks ADD COLUMN snoozed_at INTEGER");
+  },
 ];
 
 /** Whether `table` already has `column`; the guard a conditional schema step writes. */

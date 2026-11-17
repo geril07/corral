@@ -575,6 +575,17 @@ export class SessionService {
       .some((stored) => taskIds.has(stored.taskId) && stored.state === "running");
   }
 
+  blockedIn(taskIds: ReadonlySet<string>): boolean {
+    return this.#store
+      .list()
+      .some(
+        (stored) =>
+          taskIds.has(stored.taskId) &&
+          stored.state === "running" &&
+          this.#statuses.get(stored.id)?.state === "blocked",
+      );
+  }
+
   removeAllIn(taskIds: ReadonlySet<string>): Promise<void> {
     return this.#queue.run(async () => {
       const doomed = this.#store.list().filter((stored) => taskIds.has(stored.taskId));

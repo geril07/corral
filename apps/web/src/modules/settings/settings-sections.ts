@@ -7,7 +7,7 @@ import type { IconName } from "../../common/ui/index.ts";
  */
 export const SETTINGS_GROUPS = [
   { heading: "General", sections: ["appearance", "keyboard"] },
-  { heading: "Tasks", sections: ["defaults", "naming"] },
+  { heading: "Tasks", sections: ["defaults", "snooze", "naming"] },
   { heading: "Agents", sections: ["profiles", "agents"] },
   { heading: "Models", sections: ["models"] },
   { heading: "Code", sections: ["projects"] },
@@ -29,6 +29,11 @@ export const SETTINGS_SECTIONS = {
     title: "Defaults",
     description: "What a new task starts with, and the layer each value came from.",
     icon: "defaults",
+  },
+  snooze: {
+    title: "Snooze",
+    description: "The wake times a task's row menu offers. Edit config.toml to change them.",
+    icon: "clock",
   },
   naming: {
     title: "Naming",

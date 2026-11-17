@@ -48,10 +48,13 @@ import { z } from "zod";
  * the unreleased version is still the one shape). A 14 daemon from before the removal sends
  * that binding key; nothing parses `ConfigState` on the client, which rebuilds the record from
  * `ActionId.options`, so the key is dropped and the chord does nothing instead of the whole
- * reply being refused.
+ * reply being refused. Version 15 adds task snooze: two required task fields (`snoozedUntil`,
+ * `snoozedAt`), `tasks.snooze` and `tasks.unsnooze`, and `ClientConfig.snooze` with its default.
+ * A version 14 server's task rows lack the fields and answer both procedures as unknown, and its
+ * config has no preset list, so the client would offer a menu whose every choice fails.
  */
-// Version 14 adds the project defaults, base refs, model ordering and working-area tab actions.
-export const PROTOCOL_VERSION = 14;
+// Version 15 adds the snooze fields, procedures and preset config.
+export const PROTOCOL_VERSION = 15;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in

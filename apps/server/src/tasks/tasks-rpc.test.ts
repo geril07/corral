@@ -261,6 +261,8 @@ test("a new-branch task gets a branch named from its title, in a worktree under 
     ownsWorktree: true,
     state: "active",
     seenAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
     createdAt: expect.any(Number),
   });
   expect(runGit(expectedPath, "branch", "--show-current").trim()).toBe("fix-the-login-bug");
@@ -496,6 +498,34 @@ test("removing a main-worktree task leaves the repository and its uncommitted ch
 
   expect(existsSync(join(repo, "wip.txt"))).toBe(true);
   expect(await api.tasks.watch().then((updates) => updates.next())).toMatchObject({ value: [] });
+});
+
+test("snooze writes a future wake time, wakes on request, and refuses a past one", async () => {
+  const { project } = await addProject(server);
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    title: "x",
+    workspace: { type: "main-worktree" },
+  });
+  const until = Date.now() + 60_000;
+
+  const snoozed = await api.tasks.snooze({ id: task.id, snoozedUntil: until });
+  expect(snoozed).toMatchObject({ id: task.id, state: "active", snoozedUntil: until });
+  expect(await api.tasks.watch().then((updates) => updates.next())).toMatchObject({
+    value: [{ ...task, snoozedUntil: until, snoozedAt: expect.any(Number) }],
+  });
+
+  expect(await api.tasks.unsnooze({ id: task.id })).toEqual(task);
+  // A second wake has nothing to write and is not an error.
+  expect(await api.tasks.unsnooze({ id: task.id })).toEqual(task);
+
+  await expect(
+    api.tasks.snooze({ id: task.id, snoozedUntil: Date.now() - 1 }),
+  ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  await expect(api.tasks.snooze({ id: "nope", snoozedUntil: until })).rejects.toMatchObject({
+    code: "TASK_NOT_FOUND",
+  });
 });
 
 test("setState settles and reactivates a task; an unknown task fails with TASK_NOT_FOUND", async () => {
@@ -785,6 +815,9 @@ test("a task created under the old layout keeps its stored path and can still be
     state: "active",
     // A row from before seenAt; the migration leaves it NULL, as a task nobody has opened.
     seenAt: null,
+    // A row from before snooze; both columns are added by the same migration and stay NULL.
+    snoozedUntil: null,
+    snoozedAt: null,
     createdAt: 1,
   };
   const db = openDatabase(server.dataDir);

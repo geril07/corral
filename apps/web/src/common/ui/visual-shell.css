@@ -429,16 +429,24 @@
   overflow-wrap: anywhere;
 }
 
-/* The Settled shelf sits after the active rows in the same scroller and rests at the bottom while
-   the list is short; opening it grows the scroller's content, never the active list's rows. The
-   bottom inset keeps the last row's hover off the notice or footer the scroller ends against. */
+/* The shelves sit after the active rows in the same scroller and rest at the bottom while the
+   list is short; opening one grows the scroller's content, never the active list's rows. The free
+   space is one margin above the group; the insets are the group's too, because a per-shelf bottom
+   inset would double between two shelves and a per-shelf margin would push them apart. */
+.visual-shelves {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  padding: 8px 0;
+}
+
 .visual-shelf {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
   gap: 3px;
-  margin-top: auto;
-  padding: 8px 0;
 }
 
 /* One status sentence above the footer's actions: a copy confirmation or a refused action. */
@@ -629,6 +637,55 @@
 
 .visual-task-status[data-tone="blocked"] {
   color: var(--visual-status-blocked);
+}
+
+/* A woke row says so until the user looks at it or dismisses the notice. The slot ignores the
+   pointer for every other label; this button is the one thing in it that a click must reach. */
+.visual-task-woke {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--visual-status-blocked);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01px;
+  white-space: nowrap;
+  cursor: default;
+  pointer-events: auto;
+}
+
+/* The row's actions answer a hover with a pressed background and a default cursor; a link's
+   underline is not part of the shell's vocabulary. */
+.visual-task-woke:hover,
+.visual-task-woke:focus-visible {
+  background: var(--visual-pressed);
+}
+
+.visual-task-woke:focus-visible {
+  outline: 2px solid var(--visual-status-blocked);
+  outline-offset: 1px;
+}
+
+/* Unlike the status label, the pill stays while the row is hovered, so the settle action takes
+   its own place in the slot instead of covering it. */
+.visual-task-card[data-woke="true"] .visual-task-slot-action {
+  position: static;
+  flex: 0 0 auto;
+  width: auto;
+  margin-left: 4px;
+}
+
+/* A wake time is a state of its own, not a muted age: the accent keeps it visible at a glance. */
+.visual-task-status[data-tone="snoozed"] {
+  color: var(--visual-accent);
 }
 
 .visual-task-status[data-muted="true"] {

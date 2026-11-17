@@ -17,6 +17,8 @@ const task: Task = {
   ownsWorktree: true,
   state: "active",
   seenAt: null,
+  snoozedUntil: null,
+  snoozedAt: null,
   createdAt: 0,
 };
 

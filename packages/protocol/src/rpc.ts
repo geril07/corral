@@ -183,6 +183,17 @@ export const Task = z.object({
    * newer than this is completed and unseen (`tasks.markSeen`).
    */
   seenAt: z.number().nullable(),
+  /**
+   * Epoch milliseconds the task returns to the active list at, `null` when it is not snoozed. A
+   * snooze keeps `state` as it was: the task keeps its worktree, branch and running sessions and
+   * returns on its own, earlier if it needs the user. Settling clears it.
+   */
+  snoozedUntil: z.number().nullable(),
+  /**
+   * Epoch milliseconds the user set the snooze, `null` when there is none. A wake reads it: a
+   * failure or a request for the user newer than this ends the snooze early.
+   */
+  snoozedAt: z.number().nullable(),
   /** Epoch milliseconds. */
   createdAt: z.number(),
 });
@@ -869,6 +880,21 @@ export const contract = {
     setState: oc
       .errors(taskNotFound)
       .input(z.object({ id: TaskId, state: Task.shape.state }))
+      .output(Task),
+    /**
+     * Leaves the active list until `snoozedUntil`, an epoch millisecond time in the future. The
+     * state stays active: the sessions keep running, and the task returns on its own. A task whose
+     * agent is blocked on a permission or a question is refused, as is a time in the past, because
+     * the wake rule would return it at once. Snoozing again replaces the time.
+     */
+    snooze: oc
+      .errors({ ...taskNotFound, ...badRequest })
+      .input(z.object({ id: TaskId, snoozedUntil: z.number().int() }))
+      .output(Task),
+    /** Ends a snooze now. A task that is not snoozed is returned unchanged. */
+    unsnooze: oc
+      .errors(taskNotFound)
+      .input(z.object({ id: TaskId }))
       .output(Task),
     /**
      * Names the task for the user and records `titleSource = user`. Nothing else changes: the

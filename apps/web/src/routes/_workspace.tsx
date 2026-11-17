@@ -27,7 +27,11 @@ function WorkspaceRoute() {
           active={active}
           selectedTaskId={selectedTaskId}
           onSelectTask={(id) =>
-            void navigate({ to: "/", search: { ...search, task: id }, replace: true })
+            void navigate({
+              to: "/",
+              search: { ...search, task: id ?? NO_TASK },
+              replace: true,
+            })
           }
           onOpenSettings={openSettings}
         />

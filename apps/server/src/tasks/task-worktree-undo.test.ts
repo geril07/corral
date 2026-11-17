@@ -27,6 +27,7 @@ afterEach(async () => {
 
 const sessions: TaskSessions = {
   hasRunningIn: () => false,
+  blockedIn: () => false,
   removeAllIn: () => Promise.resolve(),
   closeTerminalsIn: () => Promise.resolve(),
   startPrimary: () => {

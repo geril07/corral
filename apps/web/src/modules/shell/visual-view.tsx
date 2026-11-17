@@ -1,6 +1,7 @@
 import type { ConnectionState } from "@corral/client/connection-state";
 import { createDirectKeymap, createPrefixKeymap } from "@corral/client/prefix-keymap";
-import { DirectActionId } from "@corral/protocol/config";
+import { resolveSnoozeChoices } from "@corral/client/snooze";
+import { DirectActionId, type SnoozePreset } from "@corral/protocol/config";
 import {
   useCallback,
   useEffect,
@@ -42,7 +43,16 @@ import {
   VISUAL_SIDEBAR_MAX_WIDTH,
   VISUAL_SIDEBAR_MIN_WIDTH,
 } from "./sidebar-pane.ts";
-import { useSettledShelf } from "./settled-shelf.ts";
+import { useSettledShelf, useSnoozedShelf } from "./shelves.ts";
+
+/**
+ * What a snooze write reported. A refusal carries the server's sentence, so the custom dialog can
+ * keep it on screen instead of closing onto a notice the user cannot see.
+ */
+export interface SnoozeOutcome {
+  accepted: boolean;
+  message?: string | undefined;
+}
 
 /** What a row's secondary actions do; every one reaches a real surface in the production host. */
 export interface VisualTaskActions {
@@ -55,12 +65,28 @@ export interface VisualTaskActions {
    * Absent in a host with no task store, which then offers no settle control at all.
    */
   onToggleSettle?: ((id: string) => Promise<boolean>) | undefined;
+  /**
+   * Leaves the task off the active list until `snoozedUntil` (epoch ms), sessions untouched.
+   * `accepted` is true only when the server wrote it; a refusal carries the sentence to show.
+   */
+  onSnooze?: ((id: string, snoozedUntil: number) => Promise<SnoozeOutcome>) | undefined;
+  /** Ends a snooze now. Resolves true only when the server wrote it. */
+  onUnsnooze?: ((id: string) => Promise<boolean>) | undefined;
+  /** Opens the custom wake-time dialog for the task. */
+  onSnoozeCustom?: ((id: string) => void) | undefined;
+  /** Clears a `Woke` notice by recording that the user has looked at the task. */
+  onAcknowledgeWoke?: ((id: string) => void) | undefined;
 }
 
 /** The list's mounted rows, for a closing dialog that has to name where the keyboard goes. */
 export interface VisualRowFocus {
   /** The row's button as mounted now. */
   rowElement: (id: string) => HTMLElement | null;
+  /**
+   * Snoozes the row with the same selection handoff as the row menu, so the custom dialog writes
+   * through one path and can keep a refusal on screen.
+   */
+  snooze: (id: string, snoozedUntil: number) => Promise<SnoozeOutcome>;
   /**
    * What takes the keyboard when the working area empties: its selected tab, else any tab, else
    * the selected row, else New task, else the sidebar toggle. Never `null` while the shell is
@@ -90,6 +116,11 @@ function TaskRowMenu({
   row,
   actions,
   onToggleSettle,
+  onSnooze,
+  onUnsnooze,
+  onSnoozeCustom,
+  snoozePresets,
+  now,
   renameShortcut,
   removeShortcut,
   settleShortcut,
@@ -99,6 +130,13 @@ function TaskRowMenu({
   actions: VisualTaskActions;
   /** Row-originated settle, so the moved row's new home can take the keyboard back. */
   onToggleSettle: ((id: string) => void) | undefined;
+  onSnooze: ((id: string, snoozedUntil: number) => void) | undefined;
+  onUnsnooze: ((id: string) => void) | undefined;
+  onSnoozeCustom: ((id: string) => void) | undefined;
+  /** The wake times the menu offers, from the server's config. */
+  snoozePresets: readonly SnoozePreset[];
+  /** The shell's clock: a duration counts from here, so the choices need no clock of their own. */
+  now: number;
   renameShortcut: VisualShortcut | undefined;
   removeShortcut: VisualShortcut | undefined;
   settleShortcut: VisualShortcut | undefined;
@@ -108,6 +146,12 @@ function TaskRowMenu({
   const renameChord = shortcutChord(renameShortcut);
   const removeChord = shortcutChord(removeShortcut);
   const settleChord = shortcutChord(settleShortcut);
+  // Resolved from the shell's clock, so a duration counts from the time on screen rather than
+  // from a Date the menu would read during render.
+  const snoozeChoices = useMemo(
+    () => (onSnooze === undefined ? [] : resolveSnoozeChoices(snoozePresets, new Date(now))),
+    [now, onSnooze, snoozePresets],
+  );
   return (
     <>
       <DropdownMenuSub>
@@ -163,6 +207,31 @@ function TaskRowMenu({
           )}
         </DropdownMenuItem>
       )}
+      {onSnooze !== undefined &&
+        onUnsnooze !== undefined &&
+        row.settled !== true &&
+        (row.snoozed === true ? (
+          <DropdownMenuItem icon="clock" onClick={() => onUnsnooze(row.id)}>
+            Wake task
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger disabled={row.canSnooze === false}>
+              <Icon name="clock" />
+              <span>Snooze</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent skin="visual">
+              {snoozeChoices.map((choice) => (
+                <DropdownMenuItem key={choice.id} onClick={() => onSnooze(row.id, choice.until)}>
+                  {`${choice.label} (${choice.when})`}
+                </DropdownMenuItem>
+              ))}
+              {onSnoozeCustom !== undefined && (
+                <DropdownMenuItem onClick={() => onSnoozeCustom(row.id)}>Custom…</DropdownMenuItem>
+              )}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ))}
       <DropdownMenuSeparator />
       {row.hasSource && (
         <DropdownMenuItem icon="source" onClick={() => actions.onViewSource(row.id)}>
@@ -183,17 +252,23 @@ function TaskRowMenu({
   );
 }
 
-/** The shelf's disclosure as one keyboard stop; task ids are UUIDs, so no row can take the name. */
-const SHELF_STOP = "shelf";
-/** The open shelf's Show more row, its last keyboard stop while settled rows stay unmounted. */
-const SHELF_MORE_STOP = "shelf-more";
+/** Each shelf's disclosure and Show more row are one keyboard stop; ids are UUIDs, so none clash. */
+const SNOOZE_SHELF_STOP = "snooze-shelf";
+const SNOOZE_SHELF_MORE_STOP = "snooze-shelf-more";
+const SETTLED_SHELF_STOP = "settled-shelf";
+const SETTLED_SHELF_MORE_STOP = "settled-shelf-more";
 
-/** Rows the open shelf mounts at first, and the step each Show more adds. */
-const SETTLED_INITIAL_COUNT = 10;
-const SETTLED_PAGE_COUNT = 25;
+/** Rows an open shelf mounts at first, and the step each Show more adds. */
+const SHELF_INITIAL_COUNT = 10;
+const SHELF_PAGE_COUNT = 25;
 
-/** No settled rows, as one stable value: an inline `[]` default would change on every render. */
-const NO_SETTLED_ROWS: readonly VisualTaskRow[] = [];
+/** Where a row can live in the sidebar: the active list, or one of the two shelves. */
+type RowHome = "active" | "snoozed" | "settled";
+
+/** No rows, as one stable value: an inline `[]` default would change on every render. */
+const NO_ROWS: readonly VisualTaskRow[] = [];
+/** No presets, for a host without a config: the menu then shows only Custom…. */
+const NO_SNOOZE_PRESETS: readonly SnoozePreset[] = [];
 
 export interface VisualShellViewProps {
   rows: readonly VisualTaskRow[];
@@ -202,6 +277,15 @@ export interface VisualShellViewProps {
    * the state itself is the server's `Task.state`, never a client fact.
    */
   settledRows?: readonly VisualTaskRow[] | undefined;
+  /**
+   * The Snoozed shelf's rows across every project, soonest wake first. Empty hides the shelf; the
+   * wake time is the server's, and whether it applies now is the wake rule's answer.
+   */
+  snoozedRows?: readonly VisualTaskRow[] | undefined;
+  /** The wake times the row menu offers, from the server's `[snooze]` config. */
+  snoozePresets?: readonly SnoozePreset[] | undefined;
+  /** The shell's clock, which the snooze menu resolves its choices against. */
+  snoozeNow?: number | undefined;
   /** `null` means the user explicitly chose no task; `undefined` falls back to the first row. */
   selectedId: string | null | undefined;
   projectsLoaded: boolean;
@@ -209,7 +293,8 @@ export interface VisualShellViewProps {
   tasksLoaded: boolean;
   failure: string | undefined;
   shortcut: VisualShortcut | undefined;
-  onSelectTask: (id: string) => void;
+  /** `null` clears the selection, as a snoozed current row does when no other row is left. */
+  onSelectTask: (id: string | null) => void;
   /** A real, safe path when the shell has one; absent in the review host. */
   onAddProject?: (() => void) | undefined;
   /** The main area's composer when a draft is open; otherwise the selected task or empty state. */
@@ -314,14 +399,14 @@ function SidebarList({
   tasksLoaded,
   failure,
   renderRow,
-  shelf,
+  shelves,
 }: Pick<
   VisualShellViewProps,
   "rows" | "projectsLoaded" | "hasProjects" | "tasksLoaded" | "failure"
 > & {
   renderRow: (row: VisualTaskRow) => ReactNode;
-  /** The Settled shelf: the same scroller, so the sidebar stays one scrolling region. */
-  shelf?: ReactNode | undefined;
+  /** The shelves: the same scroller, so the sidebar stays one scrolling region. */
+  shelves?: ReactNode | undefined;
 }) {
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
   useScrollFade(scroller);
@@ -354,21 +439,24 @@ function SidebarList({
           {rows.map(renderRow)}
         </ul>
       )}
-      {shelf}
+      {shelves}
     </div>
   );
 }
 
 /** The settled list's one id, so the disclosure's expanded state names the list it opens. */
 const SETTLED_LIST_ID = "visual-settled-list";
+/** The Snoozed shelf's id, one per list so `aria-controls` cannot name the other shelf. */
+const SNOOZED_LIST_ID = "visual-snoozed-list";
 
 /**
- * The settled tasks below the active list: one collapsed
- * group, the count in its label, and the same card rows as the active list. Collapsed, it keeps
- * the current task's row alone, so closing the shelf never hides what the main area shows.
+ * One shelf below the active list: the snoozed tasks or the settled ones. Collapsed, it keeps the
+ * current task's row alone, so closing a shelf never hides what the main area shows.
  */
-function SettledShelf({
-  rows,
+function TaskShelf({
+  label,
+  listId,
+  listLabel,
   shown,
   hiddenCount,
   expanded,
@@ -380,10 +468,12 @@ function SettledShelf({
   moreRef,
   renderRow,
 }: {
-  rows: readonly VisualTaskRow[];
+  label: string;
+  listId: string;
+  listLabel: string;
   /** The rows mounted now: one page expanded, the current one alone collapsed. */
   shown: readonly VisualTaskRow[];
-  /** Settled rows beyond the mounted page; positive ends the shelf with a Show more row. */
+  /** Rows beyond the mounted page; positive ends the shelf with a Show more row. */
   hiddenCount: number;
   expanded: boolean;
   onToggle: () => void;
@@ -399,20 +489,20 @@ function SettledShelf({
   return (
     <div className="visual-shelf">
       <VisualShelfToggle
-        label={`Settled (${rows.length})`}
+        label={label}
         expanded={expanded}
-        ariaControls={SETTLED_LIST_ID}
+        ariaControls={listId}
         onToggle={onToggle}
         onStep={onStep}
         buttonRef={toggleRef}
       />
       {/* Always mounted, so the disclosure's `aria-controls` names a real list in every state. */}
-      <ul id={SETTLED_LIST_ID} className="visual-task-list" aria-label="Settled tasks">
+      <ul id={listId} className="visual-task-list" aria-label={listLabel}>
         {shown.map(renderRow)}
       </ul>
       {hiddenCount > 0 && (
         <VisualShelfMore
-          label={`Show ${Math.min(hiddenCount, SETTLED_PAGE_COUNT)} more`}
+          label={`Show ${Math.min(hiddenCount, SHELF_PAGE_COUNT)} more`}
           onClick={onShowMore}
           onStep={onMoreStep}
           buttonRef={moreRef}
@@ -420,6 +510,34 @@ function SettledShelf({
       )}
     </div>
   );
+}
+
+/**
+ * One shelf's paging: the open shelf mounts one page and grows only on request, while a collapsed
+ * shelf mounts the current row alone. Both shelves share this rule, so a hidden row behaves alike.
+ */
+function useShelfPage(
+  rows: readonly VisualTaskRow[],
+  expanded: boolean,
+  currentId: string | undefined,
+) {
+  const [visibleCount, setVisibleCount] = useState(SHELF_INITIAL_COUNT);
+  const page = useMemo(() => rows.slice(0, visibleCount), [rows, visibleCount]);
+  const current = rows.find((row) => row.id === currentId);
+  const shown = useMemo(() => {
+    if (!expanded) return current === undefined ? [] : [current];
+    // A route can name a row below the mounted page: mount it on its own, as the closed shelf
+    // mounts its current row, rather than mounting every older row above it.
+    if (current === undefined || page.includes(current)) return page;
+    return [...page, current];
+  }, [current, expanded, page]);
+  const hiddenCount = Math.max(0, rows.length - visibleCount);
+  const reveal = useCallback(() => {
+    const next = rows[visibleCount]?.id;
+    setVisibleCount((count) => count + SHELF_PAGE_COUNT);
+    return next;
+  }, [rows, visibleCount]);
+  return { shown, hiddenCount, showMore: expanded && hiddenCount > 0, reveal };
 }
 
 function statusLine(row: VisualTaskRow): string | undefined {
@@ -449,6 +567,11 @@ export function TaskMain({ row }: { row: VisualTaskRow }) {
         </span>
       )}
       {row.settled === true && <span className="visual-main-settled">Settled</span>}
+      {row.snoozed === true && (
+        <span className="visual-main-settled">
+          {row.snoozeAt === undefined ? "Snoozed" : `Snoozed until ${row.snoozeAt}`}
+        </span>
+      )}
     </div>
   );
 }
@@ -506,7 +629,10 @@ function EmptyMain({
  */
 export function VisualShellView({
   rows,
-  settledRows: settled = NO_SETTLED_ROWS,
+  settledRows: settled = NO_ROWS,
+  snoozedRows = NO_ROWS,
+  snoozePresets = NO_SNOOZE_PRESETS,
+  snoozeNow = 0,
   selectedId,
   projectsLoaded,
   hasProjects = false,
@@ -544,14 +670,13 @@ export function VisualShellView({
 }: VisualShellViewProps) {
   const pane = useVisualSidebarPane();
   const shelf = useSettledShelf();
-  // The open shelf mounts one page and grows only on request; a collapsed shelf ignores this.
-  const [visibleSettledCount, setVisibleSettledCount] = useState(SETTLED_INITIAL_COUNT);
-  // The selection may name a settled task: the shelf is part of the one list, so a settled row is
-  // found before the fallback to the first active one.
+  const snoozedShelf = useSnoozedShelf();
+  // The selection may name a snoozed or settled task: both shelves are part of the one list, so a
+  // hidden row is found before the fallback to the first active one.
   const selected =
     selectedId === null
       ? undefined
-      : ([...rows, ...settled].find((row) => row.id === selectedId) ?? rows[0]);
+      : ([...rows, ...snoozedRows, ...settled].find((row) => row.id === selectedId) ?? rows[0]);
   const [copyNotice, setCopyNotice] = useState<CopyOutcome>();
   const clearCopyNotice = useCallback(() => setCopyNotice(undefined), []);
   const copy = useCallback((text: string, copied: string) => {
@@ -559,7 +684,7 @@ export function VisualShellView({
     void copyText(text, copied).then(setCopyNotice);
   }, []);
   const selectTask = useCallback(
-    (id: string) => {
+    (id: string | null) => {
       setCopyNotice(undefined);
       onSelectTask(id);
     },
@@ -577,20 +702,30 @@ export function VisualShellView({
   const newTaskButton = useRef<HTMLButtonElement>(null);
   const sidebarFrame = useRef<HTMLElement>(null);
   const shelfToggle = useRef<HTMLButtonElement>(null);
-  const shelfMore = useRef<HTMLButtonElement>(null);
-  // The row the last page reveals, so the keyboard lands in the list when Show more unmounts.
-  const pendingShelfRow = useRef<string | undefined>(undefined);
+  const settledMore = useRef<HTMLButtonElement>(null);
+  const snoozedShelfToggle = useRef<HTMLButtonElement>(null);
+  const snoozedMore = useRef<HTMLButtonElement>(null);
+  // The row a page reveals, so the keyboard lands in the list when Show more unmounts instead.
+  const pendingSettledRow = useRef<string | undefined>(undefined);
+  const pendingSnoozedRow = useRef<string | undefined>(undefined);
   const toggleLayer = useRef<HTMLDivElement>(null);
   const toggleButton = useRef<HTMLButtonElement>(null);
   const openToggleSlot = useRef<HTMLSpanElement>(null);
   const closedToggleSlot = useRef<HTMLSpanElement>(null);
   const pendingFocus = useRef<number | null>(null);
-  const settleFocus = useRef<{ id: string; settled: boolean } | undefined>(undefined);
-  // One transient-state clear for both: the copy confirmation and a settle's focus intent end on
-  // the user's next input, so neither can act after the user has moved on.
+  /** Where a moved row came from, until the row lands in its new list or the user moves on. */
+  const moveFocus = useRef<{ id: string; from: RowHome } | undefined>(undefined);
+  /**
+   * The row on screen when it was snoozed, until the watch removes it. A selection it would make
+   * must not overwrite a choice the user made while the write was in flight.
+   */
+  const parkFocus = useRef<{ id: string; index: number } | undefined>(undefined);
+  // One transient-state clear for all three: the copy confirmation, a moved row's focus intent and
+  // a parked selection end on the user's next input, so none can act after the user has moved on.
   const clearTransient = useCallback(() => {
     setCopyNotice(undefined);
-    settleFocus.current = undefined;
+    moveFocus.current = undefined;
+    parkFocus.current = undefined;
   }, []);
   const prefix =
     shortcut?.prefix ??
@@ -682,100 +817,185 @@ export function VisualShellView({
   );
   // The composer is a view, not a selected row: its open state also silences row chords.
   const currentTaskId = composerOpen ? undefined : selected?.id;
-  // What the shelf mounts: the current one alone when closed, one page when open.
-  const currentSettled = settled.find((row) => row.id === currentTaskId);
-  const settledPage = useMemo(
-    () => settled.slice(0, visibleSettledCount),
-    [settled, visibleSettledCount],
-  );
-  const hiddenSettled = Math.max(0, settled.length - visibleSettledCount);
-  const shownSettled = useMemo(() => {
-    if (!shelf.expanded) return currentSettled === undefined ? [] : [currentSettled];
-    // A route can name a settled task below the mounted page: mount it on its own, as the closed
-    // shelf mounts its current row, rather than mounting every older row above it.
-    if (currentSettled === undefined || settledPage.includes(currentSettled)) return settledPage;
-    return [...settledPage, currentSettled];
-  }, [currentSettled, settledPage, shelf.expanded]);
-  const moreSettled = shelf.expanded && hiddenSettled > 0;
-  // Navigation and the settle intent read the rows as they are *now*, through refs, so their
+  // What each shelf mounts: one page while open, the current row alone while closed.
+  const {
+    shown: shownSnoozed,
+    hiddenCount: hiddenSnoozed,
+    showMore: moreSnoozed,
+    reveal: revealSnoozed,
+  } = useShelfPage(snoozedRows, snoozedShelf.expanded, currentTaskId);
+  const {
+    shown: shownSettled,
+    hiddenCount: hiddenSettled,
+    showMore: moreSettled,
+    reveal: revealSettled,
+  } = useShelfPage(settled, shelf.expanded, currentTaskId);
+  // Navigation and a moved row's intent read the rows as they are *now*, through refs, so their
   // callbacks stay one identity across a status tick instead of re-rendering every mounted card.
   const rowsRef = useRef(rows);
+  const snoozedRef = useRef(snoozedRows);
   const settledRef = useRef(settled);
+  const shownSnoozedRef = useRef(shownSnoozed);
   const shownSettledRef = useRef(shownSettled);
-  const shelfMoreVisibleRef = useRef(moreSettled);
+  const moreSnoozedVisibleRef = useRef(moreSnoozed);
+  const moreSettledVisibleRef = useRef(moreSettled);
   useLayoutEffect(() => {
     rowsRef.current = rows;
+    snoozedRef.current = snoozedRows;
     settledRef.current = settled;
+    shownSnoozedRef.current = shownSnoozed;
     shownSettledRef.current = shownSettled;
-    shelfMoreVisibleRef.current = moreSettled;
-  }, [rows, settled, shownSettled, moreSettled]);
-  // Every keyboard stop in the sidebar's order: the active cards, the shelf toggle, its rows.
+    moreSnoozedVisibleRef.current = moreSnoozed;
+    moreSettledVisibleRef.current = moreSettled;
+  }, [rows, snoozedRows, settled, shownSnoozed, shownSettled, moreSnoozed, moreSettled]);
+  // Every keyboard stop in the sidebar's order: the active cards, then each shelf's toggle, the
+  // rows it mounts and its Show more.
   const navigate = useCallback(
     (from: string, direction: -1 | 1) => {
       const stops = rowsRef.current.map((row) => row.id);
+      if (snoozedRef.current.length > 0) {
+        stops.push(SNOOZE_SHELF_STOP);
+        for (const row of shownSnoozedRef.current) stops.push(row.id);
+        if (moreSnoozedVisibleRef.current) stops.push(SNOOZE_SHELF_MORE_STOP);
+      }
       if (settledRef.current.length > 0) {
-        stops.push(SHELF_STOP);
+        stops.push(SETTLED_SHELF_STOP);
         for (const row of shownSettledRef.current) stops.push(row.id);
-        if (shelfMoreVisibleRef.current) stops.push(SHELF_MORE_STOP);
+        if (moreSettledVisibleRef.current) stops.push(SETTLED_SHELF_MORE_STOP);
       }
       const index = stops.indexOf(from);
       if (index === -1) return;
       const next = stops[Math.min(stops.length - 1, Math.max(0, index + direction))];
       if (next === undefined || next === from) return;
-      if (next === SHELF_STOP) {
-        shelfToggle.current?.focus();
-        return;
+      switch (next) {
+        case SNOOZE_SHELF_STOP:
+          snoozedShelfToggle.current?.focus();
+          return;
+        case SNOOZE_SHELF_MORE_STOP:
+          snoozedMore.current?.focus();
+          return;
+        case SETTLED_SHELF_STOP:
+          shelfToggle.current?.focus();
+          return;
+        case SETTLED_SHELF_MORE_STOP:
+          settledMore.current?.focus();
+          return;
+        default:
+          selectRow(next);
       }
-      if (next === SHELF_MORE_STOP) {
-        shelfMore.current?.focus();
-        return;
-      }
-      selectRow(next);
     },
     [selectRow],
   );
+  const showMoreSnoozed = useCallback(() => {
+    pendingSnoozedRow.current = revealSnoozed();
+  }, [revealSnoozed]);
   const showMoreSettled = useCallback(() => {
-    pendingShelfRow.current = settledRef.current[visibleSettledCount]?.id;
-    setVisibleSettledCount((count) => count + SETTLED_PAGE_COUNT);
-  }, [visibleSettledCount]);
+    pendingSettledRow.current = revealSettled();
+  }, [revealSettled]);
   // Show more stays mounted while rows remain, so it keeps the keyboard; the appended page is
   // scrolled into view. Only the last page unmounts it, and then the keyboard lands on that row.
   useLayoutEffect(() => {
-    const pending = pendingShelfRow.current;
+    const pending = pendingSnoozedRow.current;
     if (pending === undefined) return;
-    pendingShelfRow.current = undefined;
-    if (settled.length > visibleSettledCount) {
+    // The new page is mounted by this render; an id that is gone means the list moved on.
+    if (!shownSnoozed.some((row) => row.id === pending)) {
+      pendingSnoozedRow.current = undefined;
+      return;
+    }
+    pendingSnoozedRow.current = undefined;
+    if (moreSnoozed) {
       rowElement(pending)?.scrollIntoView({ block: "nearest" });
       return;
     }
     rowElement(pending)?.focus();
-  }, [rowElement, settled.length, visibleSettledCount]);
+  }, [moreSnoozed, rowElement, shownSnoozed]);
+  useLayoutEffect(() => {
+    const pending = pendingSettledRow.current;
+    if (pending === undefined) return;
+    if (!shownSettled.some((row) => row.id === pending)) {
+      pendingSettledRow.current = undefined;
+      return;
+    }
+    pendingSettledRow.current = undefined;
+    if (moreSettled) {
+      rowElement(pending)?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    rowElement(pending)?.focus();
+  }, [moreSettled, rowElement, shownSettled]);
   const settle = taskActions?.onToggleSettle;
-  // The intent lives only until the user does something else or the row moves: a settle that
-  // reports success without moving (the server already had the state) must not take the keyboard
-  // back when another window's watch lands later.
-  const dropSettleFocus = useCallback(() => {
-    settleFocus.current = undefined;
-  }, []);
-  // Every row-originated settle: the row is about to move between two lists and remount, so its
-  // new home takes the keyboard back. A menu item lives in a portal, so this path cannot ask
-  // whether the sidebar held focus; `prefix d` asks that in `toggleSettle`.
-  const settleRow = useCallback(
-    (id: string) => {
-      if (settle === undefined) return;
-      settleFocus.current = { id, settled: settledRef.current.some((row) => row.id === id) };
-      void settle(id).then(
+  // Reads the props, not the refs: a changed list is a changed identity, which is what re-runs the
+  // effect that hands the keyboard to the row's new home.
+  const homeOf = useCallback(
+    (id: string): RowHome | undefined => {
+      if (rows.some((row) => row.id === id)) return "active";
+      if (snoozedRows.some((row) => row.id === id)) return "snoozed";
+      if (settled.some((row) => row.id === id)) return "settled";
+      return undefined;
+    },
+    [rows, snoozedRows, settled],
+  );
+  // Every row-originated action that moves the row between lists remounts it, so its new home
+  // takes the keyboard back. A menu item lives in a portal, so this path cannot ask whether the
+  // sidebar held focus; the prefix actions ask that in their own callback.
+  const moveRow = useCallback(
+    (id: string, run: () => Promise<boolean>) => {
+      const from = homeOf(id);
+      if (from === undefined) return;
+      moveFocus.current = { id, from };
+      void run().then(
         (accepted) => {
           // False means the server refused it or nothing moved; either way there is nothing to
           // hand the keyboard back to.
-          if (!accepted && settleFocus.current?.id === id) dropSettleFocus();
+          if (!accepted && moveFocus.current?.id === id) moveFocus.current = undefined;
         },
         () => {
-          if (settleFocus.current?.id === id) dropSettleFocus();
+          if (moveFocus.current?.id === id) moveFocus.current = undefined;
         },
       );
     },
-    [dropSettleFocus, settle],
+    [homeOf],
+  );
+  const settleRow = useCallback(
+    (id: string) => {
+      if (settle === undefined) return;
+      moveRow(id, () => settle(id));
+    },
+    [moveRow, settle],
+  );
+  const snooze = taskActions?.onSnooze;
+  /**
+   * Snoozing the row on screen leaves nothing to look at, so the row that took its place is
+   * selected once the watch lands, or `No task selected.` when it was the last one.
+   */
+  const snoozeRow = useCallback(
+    async (id: string, snoozedUntil: number): Promise<SnoozeOutcome> => {
+      if (snooze === undefined) return { accepted: false };
+      if (id !== currentTaskId) {
+        const from = homeOf(id);
+        if (from === undefined) return { accepted: false };
+        moveFocus.current = { id, from };
+        const outcome = await snooze(id, snoozedUntil);
+        if (!outcome.accepted && moveFocus.current?.id === id) moveFocus.current = undefined;
+        return outcome;
+      }
+      parkFocus.current = {
+        id,
+        index: rowsRef.current.findIndex((row) => row.id === id),
+      };
+      const outcome = await snooze(id, snoozedUntil);
+      if (!outcome.accepted && parkFocus.current?.id === id) parkFocus.current = undefined;
+      return outcome;
+    },
+    [currentTaskId, homeOf, snooze],
+  );
+  const unsnooze = taskActions?.onUnsnooze;
+  const wakeRow = useCallback(
+    (id: string) => {
+      if (unsnooze === undefined) return;
+      moveRow(id, () => unsnooze(id));
+    },
+    [moveRow, unsnooze],
   );
   const toggleSettle = useCallback(
     (id: string) => {
@@ -790,16 +1010,31 @@ export function VisualShellView({
     [settle, settleRow],
   );
   useLayoutEffect(() => {
-    const pending = settleFocus.current;
+    const parked = parkFocus.current;
+    if (parked === undefined) return;
+    // Wait for the watch: while the row is still active there is nothing to hand the keyboard to.
+    if (rows.some((row) => row.id === parked.id)) return;
+    parkFocus.current = undefined;
+    const next = rows[parked.index] ?? rows[0];
+    selectTask(next?.id ?? null);
+    if (next === undefined) {
+      newTaskButton.current?.focus();
+      return;
+    }
+    requestAnimationFrame(() => rowElement(next.id)?.focus());
+  }, [rows, rowElement, selectTask]);
+  useLayoutEffect(() => {
+    const pending = moveFocus.current;
     if (pending === undefined) return;
-    const home = settled.some((row) => row.id === pending.id);
-    if (home === pending.settled) return;
-    dropSettleFocus();
+    const home = homeOf(pending.id);
+    if (home === undefined || home === pending.from) return;
+    moveFocus.current = undefined;
     const row = rowElement(pending.id);
     // The row went into a collapsed shelf and is not mounted: its disclosure now names it.
     if (row !== null) row.focus();
-    else if (home) shelfToggle.current?.focus();
-  }, [dropSettleFocus, rowElement, settled]);
+    else if (home === "snoozed") snoozedShelfToggle.current?.focus();
+    else if (home === "settled") shelfToggle.current?.focus();
+  }, [homeOf, rowElement]);
   // A selection that arrives from outside the sidebar (a `?task=` URL on load) is not a focus
   // change, so the shelf has to reveal its current row the way the prior shelf did.
   useLayoutEffect(() => {
@@ -837,9 +1072,10 @@ export function VisualShellView({
     }
     return toggleButton.current;
   }, [hidden, rowElement, rows, selected]);
-  useImperativeHandle(rowFocus, () => ({ rowElement, fallbackElement }), [
+  useImperativeHandle(rowFocus, () => ({ rowElement, fallbackElement, snooze: snoozeRow }), [
     fallbackElement,
     rowElement,
+    snoozeRow,
   ]);
 
   // One toggle floats over both surfaces; its position is read from the sidebar's real width, so
@@ -952,12 +1188,24 @@ export function VisualShellView({
           onSelect={selectRow}
           onNavigate={navigate}
           onToggleSettle={settle === undefined ? undefined : () => settleRow(row.id)}
+          onAcknowledgeWoke={
+            taskActions?.onAcknowledgeWoke === undefined
+              ? undefined
+              : () => taskActions.onAcknowledgeWoke?.(row.id)
+          }
           menu={
             taskActions === undefined ? undefined : (
               <TaskRowMenu
                 row={row}
                 actions={taskActions}
                 onToggleSettle={settle === undefined ? undefined : settleRow}
+                onSnooze={
+                  snooze === undefined ? undefined : (id, until) => void snoozeRow(id, until)
+                }
+                onUnsnooze={unsnooze === undefined ? undefined : wakeRow}
+                onSnoozeCustom={taskActions.onSnoozeCustom}
+                snoozePresets={snoozePresets}
+                now={snoozeNow}
                 renameShortcut={renameShortcut}
                 removeShortcut={removeShortcut}
                 settleShortcut={settleShortcut}
@@ -980,24 +1228,53 @@ export function VisualShellView({
       settle,
       settleRow,
       settleShortcut,
+      snooze,
+      snoozeNow,
+      snoozePresets,
+      snoozeRow,
       taskActions,
+      unsnooze,
+      wakeRow,
     ],
   );
-  const shelfElement =
-    settled.length === 0 ? undefined : (
-      <SettledShelf
-        rows={settled}
-        shown={shownSettled}
-        hiddenCount={moreSettled ? hiddenSettled : 0}
-        expanded={shelf.expanded}
-        onToggle={shelf.toggle}
-        onStep={(direction) => navigate(SHELF_STOP, direction)}
-        onMoreStep={(direction) => navigate(SHELF_MORE_STOP, direction)}
-        onShowMore={showMoreSettled}
-        toggleRef={shelfToggle}
-        moreRef={shelfMore}
-        renderRow={renderRow}
-      />
+  const shelves =
+    snoozedRows.length + settled.length === 0 ? undefined : (
+      <div className="visual-shelves">
+        {snoozedRows.length > 0 && (
+          <TaskShelf
+            label={`Snoozed (${snoozedRows.length})`}
+            listId={SNOOZED_LIST_ID}
+            listLabel="Snoozed tasks"
+            shown={shownSnoozed}
+            hiddenCount={moreSnoozed ? hiddenSnoozed : 0}
+            expanded={snoozedShelf.expanded}
+            onToggle={snoozedShelf.toggle}
+            onStep={(direction) => navigate(SNOOZE_SHELF_STOP, direction)}
+            onMoreStep={(direction) => navigate(SNOOZE_SHELF_MORE_STOP, direction)}
+            onShowMore={showMoreSnoozed}
+            toggleRef={snoozedShelfToggle}
+            moreRef={snoozedMore}
+            renderRow={renderRow}
+          />
+        )}
+        {settled.length > 0 && (
+          <TaskShelf
+            label={`Settled (${settled.length})`}
+            listId={SETTLED_LIST_ID}
+            listLabel="Settled tasks"
+            shown={shownSettled}
+            hiddenCount={moreSettled ? hiddenSettled : 0}
+            expanded={shelf.expanded}
+            onToggle={shelf.toggle}
+            onStep={(direction) => navigate(SETTLED_SHELF_STOP, direction)}
+            onMoreStep={(direction) => navigate(SETTLED_SHELF_MORE_STOP, direction)}
+            onShowMore={showMoreSettled}
+            toggleRef={shelfToggle}
+            moreRef={settledMore}
+            renderRow={renderRow}
+          />
+        )}
+      </div>
     );
 
   return (
@@ -1067,7 +1344,7 @@ export function VisualShellView({
             tasksLoaded={tasksLoaded}
             failure={failure}
             renderRow={renderRow}
-            shelf={shelfElement}
+            shelves={shelves}
           />
         </TooltipProvider>
         {status === undefined && shownNotice !== undefined && (

@@ -1,10 +1,11 @@
-import { hasUnseen } from "@corral/client/agent-status";
 import { describeError } from "@corral/client/rpc-errors";
+import { nextSnoozeWake, snoozeWokeAt } from "@corral/client/snooze";
 import { activeAfterClose } from "@corral/client/terminal-selection";
 import { taskSettingsFor, type ActionId } from "@corral/protocol/config";
 import type { CreateTaskInput, Task } from "@corral/protocol/rpc";
 import { workspaceMissingPath } from "@corral/protocol/workspace";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useDeadline } from "../../common/hooks/use-deadline.ts";
 import { useNow } from "../../common/hooks/use-now.ts";
 import {
   useDialogFocus,
@@ -19,6 +20,7 @@ import { defaultLaunch, describeLaunchError } from "../sessions/index.ts";
 import { useAppearance } from "../settings/index.ts";
 import {
   RemoveTaskDialog,
+  SnoozeDialog,
   TaskComposer,
   TaskSourceDialog,
   workspaceGoneNotice,
@@ -41,7 +43,12 @@ import {
   type VisualShellNotice,
   type VisualTaskActions,
 } from "./visual-view.tsx";
-import { buildSettledRows, buildTaskRows, primaryTaskStatus } from "./visual-status.ts";
+import {
+  buildSettledRows,
+  buildSnoozedRows,
+  buildTaskRows,
+  primaryTaskStatus,
+} from "./visual-status.ts";
 
 /** The open removal and its preflight answer. */
 interface RemoveState {
@@ -85,7 +92,8 @@ export function VisualWorkspace({
   active = true,
 }: {
   selectedTaskId: string | null | undefined;
-  onSelectTask: (id: string) => void;
+  /** `null` is the explicit `No task selected.` state, not the fallback to the first row. */
+  onSelectTask: (id: string | null) => void;
   onOpenSettings: () => void;
   /** False while Settings or the board covers the shell, so neither route's keys are stolen. */
   active?: boolean;
@@ -95,7 +103,9 @@ export function VisualWorkspace({
   const dialogFocus = useDialogFocus();
   const { config, profiles, loaded: configLoaded, problems: configProblems } = useConfig();
   const { appearance } = useAppearance();
-  const now = useNow(30_000);
+  // Labels tick every 30 s; a wake also lands exactly, so a snoozed row returns on time.
+  const [passedWake, setPassedWake] = useState(0);
+  const now = Math.max(useNow(30_000), passedWake);
   const projects = useSyncExternalStore(client.projects.subscribe, client.projects.getSnapshot);
   const tasks = useSyncExternalStore(client.tasks.subscribe, client.tasks.getSnapshot);
   const sessions = useSyncExternalStore(client.sessions.subscribe, client.sessions.getSnapshot);
@@ -145,6 +155,7 @@ export function VisualWorkspace({
   const createError = activeDraft === undefined ? undefined : createErrors.get(activeDraft.key);
   const [rename, setRename] = useState<RenameTarget>();
   const [remove, setRemove] = useState<RemoveState>();
+  const [snooze, setSnooze] = useState<Task>();
   const [source, setSource] = useState<Task>();
   const [notice, setNotice] = useState<VisualShellNotice>();
   const [connectionOpen, setConnectionOpen] = useState(false);
@@ -173,13 +184,23 @@ export function VisualWorkspace({
     () => buildTaskRows(projects.projects, tasks.tasks, sessions.sessions, now),
     [now, projects.projects, sessions.sessions, tasks.tasks],
   );
+  const snoozedRows = useMemo(
+    () => buildSnoozedRows(projects.projects, tasks.tasks, sessions.sessions, now),
+    [now, projects.projects, sessions.sessions, tasks.tasks],
+  );
   const settledRows = useMemo(
     () => buildSettledRows(projects.projects, tasks.tasks, sessions.sessions, now),
     [now, projects.projects, sessions.sessions, tasks.tasks],
   );
+  // The wake the shell re-reads the list at: the soonest future one across every task.
+  const wakeAt = useMemo(() => nextSnoozeWake(tasks.tasks, now), [now, tasks.tasks]);
+  useDeadline(wakeAt, setPassedWake);
   // The shelf is part of the one list: a settled task stays selectable, and its working area keeps
   // its tabs and its running sessions, because settling is metadata only.
-  const listedRows = useMemo(() => [...rows, ...settledRows], [rows, settledRows]);
+  const listedRows = useMemo(
+    () => [...rows, ...snoozedRows, ...settledRows],
+    [rows, snoozedRows, settledRows],
+  );
   const selectedRow =
     selectedTaskId === null
       ? undefined
@@ -282,6 +303,40 @@ export function VisualWorkspace({
           setNotice({ message: describeError(error), tone: "error" });
           return false;
         }
+      },
+      onSnooze: async (id, snoozedUntil) => {
+        const task = findTask(id);
+        if (task === undefined) return { accepted: false };
+        setNotice(undefined);
+        try {
+          const updated = await client.connection.api.tasks.snooze({ id, snoozedUntil });
+          // A snooze replaces the wake time, so the row moves only when the answer names this one.
+          return { accepted: updated.snoozedUntil === snoozedUntil };
+        } catch (error) {
+          const message = describeError(error);
+          setNotice({ message, tone: "error" });
+          return { accepted: false, message };
+        }
+      },
+      onUnsnooze: async (id) => {
+        setNotice(undefined);
+        try {
+          const updated = await client.connection.api.tasks.unsnooze({ id });
+          return updated.snoozedUntil === null;
+        } catch (error) {
+          setNotice({ message: describeError(error), tone: "error" });
+          return false;
+        }
+      },
+      onSnoozeCustom: (id) => {
+        const task = findTask(id);
+        if (task !== undefined) setSnooze(task);
+      },
+      onAcknowledgeWoke: (id) => {
+        // The stamp is the acknowledgement; a refused write leaves the notice for the next click.
+        void client.connection.api.tasks.markSeen({ id }).catch((error: unknown) => {
+          setNotice({ message: describeError(error), tone: "error" });
+        });
       },
     }),
     [client, findTask],
@@ -512,7 +567,7 @@ export function VisualWorkspace({
   );
 
   const selectTask = useCallback(
-    (id: string) => {
+    (id: string | null) => {
       hideDraft();
       setProjectChoice(false);
       setNotice(undefined);
@@ -578,24 +633,38 @@ export function VisualWorkspace({
   const selectedTask =
     selectedRow === undefined ? undefined : tasks.tasks.find((task) => task.id === selectedRow.id);
   // The server owns `seenAt`, so opening a task or watching its status change clears the same
-  // completion on every client. One mark per task/seenAt/status update: the next watched task
-  // carries the new time, and a refused mark is retried on the next selection or status change.
+  // completion and the same `Woke` notice on every client. One mark per task, status update and
+  // wake instant: a refused mark is retried on the next selection or status change.
   const selectedStatus = primaryTaskStatus(
     selectedTask ?? { primarySessionId: null },
     sessions.sessions,
   )?.status;
+  // A selected row can wake while it is on screen, so its wake instant is part of the visit too.
+  const selectedWokeAt =
+    selectedTask === undefined
+      ? null
+      : snoozeWokeAt(
+          selectedTask,
+          sessions.sessions.filter((session) => session.taskId === selectedTask.id),
+          now,
+        );
   const seenRequest = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (!active || selectedTask === undefined || !hasUnseen(selectedTask, selectedStatus)) return;
-    const key = [selectedTask.id, selectedTask.seenAt ?? "never", selectedStatus?.updatedAt].join(
-      ":",
-    );
+    if (!active || selectedTask === undefined) return;
+    // A look is a visit, not only a completion: the same stamp is what clears a `Woke` notice, so
+    // it is written on every selection, when the status changes under it, and when it wakes while
+    // selected. `seenAt` itself is not part of the key, or the write would re-trigger this effect.
+    const key = [
+      selectedTask.id,
+      selectedStatus?.updatedAt ?? "none",
+      selectedWokeAt ?? "none",
+    ].join(":");
     if (seenRequest.current === key) return;
     seenRequest.current = key;
     client.connection.api.tasks.markSeen({ id: selectedTask.id }).catch(() => {
       seenRequest.current = undefined;
     });
-  }, [active, client, selectedStatus, selectedTask]);
+  }, [active, client, selectedStatus?.updatedAt, selectedTask, selectedWokeAt]);
   const selectedProject =
     selectedTask?.projectId === null || selectedTask === undefined
       ? undefined
@@ -677,7 +746,10 @@ export function VisualWorkspace({
     <>
       <VisualShellView
         rows={rows}
+        snoozedRows={snoozedRows}
         settledRows={settledRows}
+        snoozePresets={config.snooze.presets.value}
+        snoozeNow={now}
         selectedId={selectedTaskId}
         projectsLoaded={projects.loaded}
         hasProjects={projects.projects.length > 0}
@@ -771,6 +843,7 @@ export function VisualWorkspace({
           rename === undefined &&
           remove === undefined &&
           source === undefined &&
+          snooze === undefined &&
           !connectionOpen &&
           !configProblemsOpen &&
           taskWorkspace.prefixEnabled
@@ -849,6 +922,19 @@ export function VisualWorkspace({
           source={source.source}
           taskTitle={source.title}
           onClose={() => setSource(undefined)}
+        />
+      )}
+      {snooze !== undefined && (
+        <SnoozeDialog
+          taskTitle={snooze.title}
+          onSnooze={async (snoozedUntil) => {
+            // Through the shell handle, not the action: the dialog gets the same selection handoff
+            // as the row menu, and the answer's sentence for a refusal.
+            const outcome = await listFocus.current?.snooze(snooze.id, snoozedUntil);
+            if (outcome?.accepted === true) return null;
+            return outcome?.message ?? "The snooze was not recorded.";
+          }}
+          onClose={() => setSnooze(undefined)}
         />
       )}
       {connectionOpen && <ConnectionRecoveryDialog onClose={() => setConnectionOpen(false)} />}

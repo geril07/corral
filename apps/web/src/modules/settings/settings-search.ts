@@ -165,6 +165,15 @@ const NAMING_ITEMS: readonly SettingsSearchItem[] = [
   },
 ];
 
+const SNOOZE_ITEMS: readonly SettingsSearchItem[] = [
+  {
+    id: "settings-snooze-presets",
+    title: "Snooze presets",
+    section: "snooze",
+    aliases: ["wake", "later", "remind", "wake time"],
+  },
+];
+
 const AUTHORED_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: "settings-appearance-tabs",
@@ -299,6 +308,7 @@ export function settingsSearchItems({
   return [
     ...AUTHORED_ITEMS,
     ...DEFAULT_ITEMS,
+    ...SNOOZE_ITEMS,
     ...NAMING_ITEMS,
     ...taskRows,
     ...profileRows,

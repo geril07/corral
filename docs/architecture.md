@@ -17,6 +17,11 @@ fresh and an agent resumes its native conversation. A stopped or exited session 
 Settling a task only changes its shelf state; it must not stop sessions or discard work. Returning
 it to the active list starts nothing.
 
+Snooze is an overlay on the active state, not a third state: the server stores the wake instant,
+and every client derives whether it still applies from that instant, its own clock and the task's
+agent statuses. Nothing sweeps an expired snooze, so a stale field is inert rather than a leftover
+timer to reconcile.
+
 A generated task title must not overwrite a title the user chose or accepted from an issue.
 
 Server settings are shared between clients; device presentation state is local. Shared model

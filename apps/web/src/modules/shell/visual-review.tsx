@@ -37,7 +37,7 @@ const REVIEW_SHELF_OPEN = import.meta.env.DEV ? initialShelfOpen() : false;
  */
 export function VisualReview() {
   const { config } = useConfig();
-  const [selectedId, setSelectedId] = useState(VISUAL_REVIEW_SELECTED);
+  const [selectedId, setSelectedId] = useState<string | null>(VISUAL_REVIEW_SELECTED);
   const [dark, setDark] = useState(true);
   const [settledCount, setSettledCount] = useState<number>(INITIAL_MOCK_SETTLED);
   const [shelfOpen, setShelfOpen] = useState(REVIEW_SHELF_OPEN);

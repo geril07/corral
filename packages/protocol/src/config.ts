@@ -32,6 +32,9 @@ import { z } from "zod";
  * agent = "claude"
  * model = "claude-haiku-4-5"
  *
+ * [snooze]            # the row menu's wake times: a duration from now, or a local day and time
+ * presets = ["90m", "3h", "today 18:00", "tomorrow 09:00", "monday 09:00"]
+ *
  * [agents.pi]         # per agent; no per-project layer
  * enabled = true      # false hides it from every picker and refuses a new launch
  * command = "/opt/pi/bin/pi"  # an absolute path overriding the PATH lookup
@@ -292,6 +295,91 @@ export type SlugMode = z.infer<typeof SlugMode>;
 export const TaskView = z.enum(["terminal", "chat"]);
 export type TaskView = z.infer<typeof TaskView>;
 
+/** A local day a snooze preset wakes on: that day's next occurrence, today included. */
+const SNOOZE_PRESET_DAYS = [
+  "today",
+  "tomorrow",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+] as const;
+export const SnoozePresetDay = z.enum(SNOOZE_PRESET_DAYS);
+export type SnoozePresetDay = (typeof SNOOZE_PRESET_DAYS)[number];
+
+/** At most this many presets: the row menu is a list, not a settings screen. */
+export const MAX_SNOOZE_PRESETS = 8;
+/** The longest a snooze may run, so a typo cannot hide a task for a month. */
+export const MAX_SNOOZE_MINUTES = 30 * 24 * 60;
+
+/**
+ * One menu choice. `after` wakes a fixed time from now; `at` wakes at a local time on the next
+ * occurrence of `day`, which only the client can compute. The server stores the resolved instant,
+ * never the preset.
+ */
+export const SnoozePreset = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("after"),
+    minutes: z.number().int().positive().max(MAX_SNOOZE_MINUTES),
+  }),
+  z.object({
+    kind: z.literal("at"),
+    day: SnoozePresetDay,
+    time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  }),
+]);
+export type SnoozePreset = z.infer<typeof SnoozePreset>;
+
+/** The presets before the file: the reference menu, Corral words aside. */
+export const DEFAULT_SNOOZE_PRESETS: readonly SnoozePreset[] = [
+  { kind: "after", minutes: 60 },
+  { kind: "after", minutes: 180 },
+  { kind: "at", day: "today", time: "18:00" },
+  { kind: "at", day: "tomorrow", time: "09:00" },
+  { kind: "at", day: "monday", time: "09:00" },
+];
+
+function isSnoozePresetDay(value: string): value is SnoozePresetDay {
+  return SNOOZE_PRESET_DAYS.some((day) => day === value);
+}
+
+/**
+ * One preset as `config.toml` writes it: `"90m"`, `"2h"`, `"1d"` is a duration from now, and
+ * `"today 18:00"`, `"tomorrow 09:00"`, `"monday 09:00"` is a local time. Anything else has none,
+ * so the file can drop a bad entry without dropping the rest.
+ */
+export function parseSnoozePreset(text: string): SnoozePreset | undefined {
+  const duration = /^(\d+)\s*(m|h|d)$/i.exec(text.trim());
+  if (duration !== null) {
+    const amount = Number(duration[1]);
+    const unit = duration[2]!.toLowerCase();
+    const minutes = unit === "h" ? amount * 60 : unit === "d" ? amount * 24 * 60 : amount;
+    return Number.isSafeInteger(minutes) && minutes > 0 && minutes <= MAX_SNOOZE_MINUTES
+      ? { kind: "after", minutes }
+      : undefined;
+  }
+  const at =
+    /^(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+(([01]\d|2[0-3]):[0-5]\d)$/i.exec(
+      text.trim(),
+    );
+  if (at === null) return undefined;
+  const day = at[1]!.toLowerCase();
+  if (!isSnoozePresetDay(day)) return undefined;
+  return { kind: "at", day, time: at[2]! };
+}
+
+/** The presets as `config.toml` writes them, canonical: `2h` rather than `120m`, `1d` rather than `24h`. */
+export function formatSnoozePreset(preset: SnoozePreset): string {
+  if (preset.kind === "at") return `${preset.day} ${preset.time}`;
+  const { minutes } = preset;
+  if (minutes % (24 * 60) === 0) return `${minutes / (24 * 60)}d`;
+  if (minutes % 60 === 0) return `${minutes / 60}h`;
+  return `${minutes}m`;
+}
+
 function sourced<T extends z.ZodType>(value: T) {
   return z.object({ value, source: SettingSource });
 }
@@ -327,6 +415,15 @@ export const NamingSettings = z.object({
 });
 export type NamingSettings = z.infer<typeof NamingSettings>;
 
+/**
+ * `[snooze]`: the row menu's wake times, with the layer they came from. There is no per-project
+ * layer: one menu for the server.
+ */
+export const SnoozeSettings = z.object({
+  presets: sourced(z.array(SnoozePreset)),
+});
+export type SnoozeSettings = z.infer<typeof SnoozeSettings>;
+
 /** The default wait for a naming request, in seconds. */
 export const DEFAULT_NAMING_TIMEOUT_SECONDS = 8;
 
@@ -357,6 +454,11 @@ export function defaultNamingSettings(): NamingSettings {
     model: builtin<string | null>(null),
     timeoutSeconds: builtin(DEFAULT_NAMING_TIMEOUT_SECONDS),
   };
+}
+
+/** The snooze menu before the file: the built-in presets. */
+export function defaultSnoozeSettings(): SnoozeSettings {
+  return { presets: builtin([...DEFAULT_SNOOZE_PRESETS]) };
 }
 
 /** Corral's default worktree root: `<data dir>/worktrees`, where the server keeps its data. */
@@ -390,6 +492,7 @@ export function defaultClientConfig(dataDir: string): ClientConfig {
       view: builtin<TaskView>("chat"),
     },
     naming: defaultNamingSettings(),
+    snooze: defaultSnoozeSettings(),
     agents: defaultAgentSettings(),
     editor: defaultEditorSetting(),
     projects: {},
@@ -413,6 +516,8 @@ export const ClientConfig = z.object({
   /** The `[tasks]` values every project without an override gets. */
   tasks: ResolvedTaskSettings,
   naming: NamingSettings,
+  /** `[snooze]`: the wake times the row menu offers, resolved once for every client. */
+  snooze: SnoozeSettings.default(() => defaultSnoozeSettings()),
   /**
    * `[agents.<kind>]`: every agent's `enabled` and `command`, with the layer each came from. The
    * default keeps "absent means every agent offered by its own name" one definition for a

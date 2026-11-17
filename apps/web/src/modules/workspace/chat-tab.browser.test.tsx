@@ -150,6 +150,8 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
     ownsWorktree: false,
     state: "active",
     seenAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
     createdAt: 1,
   };
   const session: Session = {
@@ -279,6 +281,8 @@ test("the matched driver decides the follow-up offer: Codex has no Queue, pi kee
     ownsWorktree: false,
     state: "active",
     seenAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
     createdAt: 1,
   };
   const codexSession: Session = {
@@ -381,6 +385,8 @@ test("an unknown capability keeps Queue and a loaded Codex answer removes it wit
     ownsWorktree: false,
     state: "active",
     seenAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
     createdAt: 1,
   };
   const session: Session = {
@@ -458,6 +464,8 @@ test("the chat model and reasoning controls apply what the driver reports, from 
     ownsWorktree: false,
     state: "active",
     seenAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
     createdAt: 1,
   };
   const session: Session = {
@@ -572,6 +580,8 @@ test("a reported model with empty levels keeps the thinking column busy until le
     ownsWorktree: false,
     state: "active",
     seenAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
     createdAt: 1,
   };
   const session: Session = {
@@ -658,6 +668,8 @@ test("with no reported thinking levels, Thinking opens an empty track without pr
     ownsWorktree: false,
     state: "active",
     seenAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
     createdAt: 1,
   };
   const session: Session = {
@@ -742,6 +754,8 @@ test("a refused model keeps the chooser open with a sentence, not the RPC code",
     ownsWorktree: false,
     state: "active",
     seenAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
     createdAt: 1,
   };
   const session: Session = {
