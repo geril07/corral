@@ -509,7 +509,7 @@ test("a reasoning level set before the first turn survives the init frame", asyn
   }
 });
 
-test("an untested claude version refuses chat with the sentence and starts nothing", async () => {
+test("a claude below the measured version refuses chat with the sentence and starts nothing", async () => {
   vi.stubEnv("FAKE_CLAUDE_VERSION", "2.1.300");
   const h = await harness();
   try {
@@ -521,6 +521,32 @@ test("an untested claude version refuses chat with the sentence and starts nothi
     expect(h.sdk.queries).toHaveLength(0);
     expect(h.recordedPids).toEqual([]);
     expect(h.driver.closed).toBe(true);
+  } finally {
+    await h.stop();
+  }
+});
+
+test("a newer claude starts chat instead of being refused", async () => {
+  // Corral cannot pin the user's CLI: `claude` updates on its own, and an exact-version gate took
+  // chat down on every release.
+  vi.stubEnv("FAKE_CLAUDE_VERSION", "2.1.325");
+  const h = await harness();
+  try {
+    await started(h);
+    expect(h.sdk.queries).toHaveLength(1);
+    expect(h.driver.closed).toBe(false);
+  } finally {
+    await h.stop();
+  }
+});
+
+test("the version gate compares numerically, not as text", async () => {
+  // `2.10.0` is newer than `2.9.0`; a string compare would refuse it.
+  vi.stubEnv("FAKE_CLAUDE_VERSION", "2.10.0");
+  const h = await harness();
+  try {
+    await started(h);
+    expect(h.sdk.queries).toHaveLength(1);
   } finally {
     await h.stop();
   }

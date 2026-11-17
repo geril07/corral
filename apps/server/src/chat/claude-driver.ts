@@ -37,8 +37,12 @@ import type { ChatTimeline } from "./timeline.ts";
 /** What Claude's chat frontend is started with: the resolved launch and the deadlines. */
 export interface ClaudeDriverRequest extends ChatDriverLaunch, ChatTimeouts {}
 
-/** The claude this build's driver was written and measured against (2.1.316, plan C2). */
-export const TESTED_CLAUDE_VERSION = "2.1.316";
+/**
+ * The oldest claude this build's driver was measured on; newer installs start too. `claude` updates
+ * independently of Corral, so an exact requirement took chat down on every release, while a floor
+ * still refuses an install older than the one measured.
+ */
+export const MINIMUM_CLAUDE_VERSION = "2.1.316";
 
 /** How long `claude --version` may take before chat refuses rather than hanging. */
 const VERSION_TIMEOUT_MS = 5000;
@@ -71,10 +75,10 @@ export const CLAUDE_SDK: ClaudeSdk = {
  * One Claude Code chat session through the Claude Agent SDK, `handoff-only`.
  *
  * The SDK runs the user's own `claude` (the launch's `command`, `[agents.claude].command` or
- * `PATH`): `pathToClaudeCodeExecutable` names it, the version gate refuses an untested install, and
- * the launch environment — `CLAUDE_CONFIG_DIR` included — is passed through, so the SDK uses the
- * user's login exactly as a terminal launch does and the TUI's `claude --resume <id>` continues
- * what chat wrote.
+ * `PATH`): `pathToClaudeCodeExecutable` names it, the version gate refuses an install below the
+ * measured floor, and the launch environment — `CLAUDE_CONFIG_DIR` included — is passed through, so
+ * the SDK uses the user's login exactly as a terminal launch does and the TUI's `claude --resume
+ * <id>` continues what chat wrote.
  *
  * - `start` names our id (`Options.sessionId`) or resumes it (`Options.resume`); history is rebuilt
  *   from `getSessionMessages` before any live frame is applied, and the task prompt is handed over
@@ -148,8 +152,8 @@ export class ClaudeDriver implements ChatDriver {
     void this.#open();
   }
 
-  /** Version gate, then the SDK query and its reader. The gate runs first: an untested CLI never
-   * starts, so no transcript is created and no half-supported option is sent. */
+  /** Version gate, then the SDK query and its reader. The gate runs first: a CLI below the measured
+   * floor never starts, so no transcript is created and no half-supported option is sent. */
   async #open(): Promise<void> {
     const id = this.#request.agentSessionId;
     if (id === null) {
@@ -164,9 +168,9 @@ export class ClaudeDriver implements ChatDriver {
       return;
     }
     if (this.#closed || this.#stopping) return;
-    if (version !== TESTED_CLAUDE_VERSION) {
+    if (!claudeVersionAtLeast(version, MINIMUM_CLAUDE_VERSION)) {
       this.#finish(
-        `the installed claude is ${version}; this Corral build runs Claude chat on ${TESTED_CLAUDE_VERSION}. ` +
+        `the installed claude is ${version}; this Corral build needs ${MINIMUM_CLAUDE_VERSION} or newer. ` +
           "Chat is unavailable for this version — the session can still run in the terminal.",
       );
       return;
@@ -215,7 +219,7 @@ export class ClaudeDriver implements ChatDriver {
     const version = claudeVersionOf(output);
     if (version === null) {
       throw new Error(
-        `could not read the version of the claude at ${command}; this Corral build runs chat on ${TESTED_CLAUDE_VERSION}`,
+        `could not read the version of the claude at ${command}; this Corral build needs ${MINIMUM_CLAUDE_VERSION} or newer`,
       );
     }
     return version;
@@ -717,6 +721,20 @@ export function claudeVersionError(
 export function claudeVersionOf(output: string): string | null {
   const match = /(\d+\.\d+\.\d+)/.exec(output);
   return match?.[1] ?? null;
+}
+
+/**
+ * Whether `version` is at least `minimum`, both `x.y.z`. Compared numerically: a string compare
+ * reads `2.10.0` as older than `2.9.0`.
+ */
+export function claudeVersionAtLeast(version: string, minimum: string): boolean {
+  const installed = version.split(".").map(Number);
+  const floor = minimum.split(".").map(Number);
+  for (const [index, part] of floor.entries()) {
+    const other = installed[index] ?? 0;
+    if (other !== part) return other > part;
+  }
+  return true;
 }
 
 /**
