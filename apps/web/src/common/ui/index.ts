@@ -81,6 +81,7 @@ export {
   VisualIconButton,
   VisualResizeHandle,
   VisualSearchAction,
+  VisualShelfMore,
   VisualShelfToggle,
   VisualSidebar,
   VisualTaskCard,

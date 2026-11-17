@@ -396,14 +396,15 @@
 }
 
 /* The Settled shelf sits after the active rows in the same scroller and rests at the bottom while
-   the list is short; opening it grows the scroller's content, never the active list's rows. */
+   the list is short; opening it grows the scroller's content, never the active list's rows. The
+   bottom inset keeps the last row's hover off the notice or footer the scroller ends against. */
 .visual-shelf {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
   gap: 3px;
   margin-top: auto;
-  padding-top: 8px;
+  padding: 8px 0;
 }
 
 /* One status sentence above the footer's actions: a copy confirmation or a refused action. */
