@@ -13,6 +13,29 @@ const target: RenameTarget = {
 const dialog = () => page.getByRole("dialog", { name: "Rename shell 2" });
 const name = () => dialog().getByRole("textbox", { name: "Name" });
 
+test("the dialog is the shell's card: 30 rem wide, the kit's radius, the card's title and text", async () => {
+  await render(
+    <RenameDialog
+      target={target}
+      onSave={vi.fn<(name: string | null) => void>()}
+      onClose={vi.fn<() => void>()}
+    />,
+  );
+
+  const card = dialog().element();
+  await vi.waitFor(() => expect(card.getAnimations({ subtree: true })).toHaveLength(0));
+  expect(card.getBoundingClientRect().width).toBe(480);
+  expect(getComputedStyle(card).borderRadius).toBe("10px");
+  const heading = card.querySelector<HTMLElement>('[data-slot="dialog-title"]');
+  if (heading === null) throw new Error("the dialog has no title");
+  expect(getComputedStyle(heading).fontSize).toBe("15px");
+  // The footer is the card's own bar: one hairline, no fill.
+  const footer = card.querySelector<HTMLElement>('[data-slot="dialog-footer"]');
+  if (footer === null) throw new Error("the dialog has no footer");
+  expect(getComputedStyle(footer).borderTopWidth).toBe("1px");
+  expect(getComputedStyle(footer).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+});
+
 test("the name field starts focused with the current label, and Enter closes with the trimmed name before the save settles", async () => {
   // The save never settles: a closing dialog must not wait for it, nor hold its field.
   const onSave = vi.fn<(name: string | null) => Promise<void>>(() => new Promise(() => undefined));

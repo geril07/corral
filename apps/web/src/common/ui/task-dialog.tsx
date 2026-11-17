@@ -175,7 +175,7 @@ export function TaskDialog({
               ? "visual-dialog-anchored visual-path-dialog flex w-[32rem] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-6rem)] flex-col gap-0 overflow-hidden sm:max-w-none"
               : layout === "picker"
                 ? "visual-dialog-anchored flex w-[36rem] max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-6rem)] flex-col gap-0 overflow-hidden sm:max-w-none"
-                : "max-h-[calc(100dvh-2rem)] overflow-y-auto"
+                : undefined
         }
         padding={layout === "default" ? "default" : "none"}
         closeLabel={closeLabel ?? (layout === "settings" ? "Close settings" : "Close")}
@@ -225,10 +225,7 @@ export function DestructiveTaskDialog({
       }}
       onOpenChangeComplete={(next) => !next && onClose()}
     >
-      <AlertDialogContent
-        className="max-h-[calc(100dvh-2rem)] overflow-y-auto [overflow-wrap:anywhere]"
-        finalFocus={finalFocus}
-      >
+      <AlertDialogContent className="[overflow-wrap:anywhere]" finalFocus={finalFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {description && <AlertDialogDescription>{description}</AlertDialogDescription>}

@@ -57,6 +57,119 @@
     0 -0.5px 0 0 rgb(255 255 255 / 6%);
 }
 
+/* ── Dialog card ─────────────────────────────────────────────────────────── */
+
+/* The one modal card, for a dialog and for a confirm. It takes the picker's surface — the base
+   colour, the floating shadow's hairline as its edge, the kit's radius — and OpenCode's dialog
+   type: a 15/20 title at 530 over 13/20 text. A card that places its own parts (settings, the
+   pickers, the palette) passes `padding="none"` and keeps them. */
+.visual-dialog {
+  max-width: none;
+  border: 1px solid var(--visual-border-muted);
+  border-radius: var(--radius-lg);
+  background: var(--visual-bg-base);
+  color: var(--visual-text-base);
+  box-shadow: var(--visual-shadow-floating);
+  font-size: 0.8125rem;
+  line-height: 1rem;
+}
+
+/* 16 px around the parts and between them; the card scrolls instead of overgrowing the viewport. */
+.visual-dialog[data-padding="default"] {
+  display: flex;
+  width: min(30rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+/* The page-level notice is the same card standing on the canvas rather than on the scrim. */
+.visual-notice {
+  border: 1px solid var(--visual-border-muted);
+  border-radius: var(--radius-lg);
+  background: var(--visual-bg-base);
+  color: var(--visual-text-base);
+  font-size: 0.8125rem;
+  line-height: 1rem;
+}
+
+/* One set of type roles for a card that is not a row — a dialog, the notice, the prose inside
+   them: OpenCode's dialog type, a 15/20 title at 530 over 13/20 text. */
+.visual-card-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.visual-card-eyebrow {
+  color: var(--visual-text-faint);
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  font-weight: 530;
+  letter-spacing: 0.05px;
+}
+
+.visual-card-title {
+  color: var(--visual-text-base);
+  font-size: 0.9375rem;
+  line-height: 1.25rem;
+  font-weight: 530;
+  letter-spacing: -0.13px;
+  overflow-wrap: anywhere;
+  user-select: none;
+}
+
+.visual-card-text {
+  color: var(--visual-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  font-weight: 440;
+  letter-spacing: -0.04px;
+  overflow-wrap: anywhere;
+}
+
+/* What the card asks the reader to do; it keeps the muted text's measure and takes the base colour. */
+.visual-card-emphasis {
+  color: var(--visual-text-base);
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  font-weight: 530;
+  letter-spacing: -0.04px;
+}
+
+/* The close control sits in the corner of a padded card, so the title stops before it; a confirm
+   closes from its own actions, and a card that places its own parts keeps its own geometry. */
+.visual-dialog[data-padding="default"]:has(> [data-slot="dialog-close"]) .visual-card-header {
+  padding-right: 1.75rem;
+}
+
+.visual-dialog-footer {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+/* The footer is the card's own bar: it bleeds to the card's edges and keeps one hairline, as the
+   picker's footer does. No fill. */
+.visual-dialog[data-padding="default"] .visual-dialog-footer {
+  margin: 0 -1rem -1rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--visual-border-muted);
+}
+
+.visual-dialog-close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+}
+
+.visual-dialog-close:hover {
+  background: var(--visual-hover);
+}
+
 /* Search and picker dialogs hang from a stable top edge. Centering them moves the input every time
    the result count changes the dialog's height; OpenCode anchors its results-grow-down pickers the
    same way (`max(48px, (100vh - 480px) / 2)`), and T3 anchors its palette at 10vh. */
