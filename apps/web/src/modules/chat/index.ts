@@ -1,4 +1,5 @@
 export { ChatChoiceDialog, type ChatChoiceDialogProps } from "./chat-choice-dialog.tsx";
+export { ChatReview } from "./chat-review.tsx";
 export { ChatView, type ChatSend, type ChatViewProps } from "./chat-view.tsx";
 export {
   chatTranscriptStore,

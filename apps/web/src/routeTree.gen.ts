@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WorkspaceRouteImport } from './routes/_workspace'
+import { Route as ChatReviewRouteImport } from './routes/chat-review'
 import { Route as VisualReviewRouteImport } from './routes/visual-review'
 import { Route as WorkspaceIndexRouteImport } from './routes/_workspace.index'
 import { Route as WorkspaceSettingsRouteImport } from './routes/_workspace.settings'
 
 const WorkspaceRoute = WorkspaceRouteImport.update({
   id: '/_workspace',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChatReviewRoute = ChatReviewRouteImport.update({
+  id: '/chat-review',
+  path: '/chat-review',
   getParentRoute: () => rootRouteImport,
 } as any)
 const VisualReviewRoute = VisualReviewRouteImport.update({
@@ -36,10 +42,12 @@ const WorkspaceSettingsRoute = WorkspaceSettingsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof WorkspaceIndexRoute
+  '/chat-review': typeof ChatReviewRoute
   '/visual-review': typeof VisualReviewRoute
   '/settings': typeof WorkspaceSettingsRoute
 }
 export interface FileRoutesByTo {
+  '/chat-review': typeof ChatReviewRoute
   '/visual-review': typeof VisualReviewRoute
   '/settings': typeof WorkspaceSettingsRoute
   '/': typeof WorkspaceIndexRoute
@@ -47,18 +55,20 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_workspace': typeof WorkspaceRouteWithChildren
+  '/chat-review': typeof ChatReviewRoute
   '/visual-review': typeof VisualReviewRoute
   '/_workspace/settings': typeof WorkspaceSettingsRoute
   '/_workspace/': typeof WorkspaceIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/visual-review' | '/settings'
+  fullPaths: '/' | '/chat-review' | '/visual-review' | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/visual-review' | '/settings' | '/'
+  to: '/chat-review' | '/visual-review' | '/settings' | '/'
   id:
     | '__root__'
     | '/_workspace'
+    | '/chat-review'
     | '/visual-review'
     | '/_workspace/settings'
     | '/_workspace/'
@@ -66,6 +76,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   WorkspaceRoute: typeof WorkspaceRouteWithChildren
+  ChatReviewRoute: typeof ChatReviewRoute
   VisualReviewRoute: typeof VisualReviewRoute
 }
 
@@ -76,6 +87,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof WorkspaceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/chat-review': {
+      id: '/chat-review'
+      path: '/chat-review'
+      fullPath: '/chat-review'
+      preLoaderRoute: typeof ChatReviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/visual-review': {
@@ -118,6 +136,7 @@ const WorkspaceRouteWithChildren = WorkspaceRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   WorkspaceRoute: WorkspaceRouteWithChildren,
+  ChatReviewRoute: ChatReviewRoute,
   VisualReviewRoute: VisualReviewRoute,
 }
 export const routeTree = rootRouteImport
