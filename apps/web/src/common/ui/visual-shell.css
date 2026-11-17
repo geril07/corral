@@ -1081,6 +1081,39 @@
   padding: 0;
 }
 
+/* The one control that floats over content instead of sitting in a row: the chat composer's way
+   back to the newest row. OpenCode's jump-to-latest button
+   (`session/timeline/virtualizer.tsx`): 32×28 at an 8 px radius, no hairline, and a fill of the
+   base colour at 92% over a 2 px backdrop blur, so a row scrolling under it does not show through.
+   Its elevation is the raised shadow plus an 8 px glow in the base colour, which is what separates
+   the chip from the row it covers; hover and pressed are the shell's overlays laid over the fill,
+   the way OpenCode stacks its `overlay-simple` gradient. The width is a floor, not a size: the
+   transcript's count widens the chip when it has one. */
+.visual-floating-control {
+  min-width: 2rem;
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  gap: 0.25rem;
+  border: none;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  background-color: color-mix(in srgb, var(--visual-bg-base) 92%, transparent);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  box-shadow:
+    var(--visual-shadow-raised),
+    0 2px 8px var(--visual-bg-base);
+}
+
+.visual-floating-control:hover {
+  background-image: linear-gradient(var(--visual-hover), var(--visual-hover));
+}
+
+.visual-floating-control:active {
+  background-image: linear-gradient(var(--visual-pressed), var(--visual-pressed));
+}
+
 /* The composer card is a card, not a field: OpenCode draws its composer at `rounded-xl` (10 px,
    the kit's card radius) over the base colour and lifts it with the raised elevation, so the
    textarea inside carries no surface of its own. The edge is a hairline like the dialog card's,

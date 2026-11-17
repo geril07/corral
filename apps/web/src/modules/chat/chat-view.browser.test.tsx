@@ -1852,6 +1852,96 @@ test("a wheel back to the bottom re-arms the follow after a keyboard release", a
   await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
 });
 
+test("a scroll-to-end control counts what arrived while the view was away and returns on Enter", async () => {
+  const chat = await renderChat(longChat(160));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+
+  // At the end there is no control: the newest row is already in view.
+  expect(page.getByRole("button", { name: /^Scroll to end/ }).elements()).toHaveLength(0);
+
+  await userEvent.wheel(page.getByTestId("chat-timeline"), { delta: { y: -1500 } });
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(false));
+
+  // Away with nothing new, the control is the direction alone.
+  await expect.element(page.getByRole("button", { name: "Scroll to end" })).toBeVisible();
+
+  const push = (sequence: number, id: string) =>
+    chat.script.push({
+      type: "event",
+      sequence,
+      event: { type: "item", item: { kind: "user-message", id, text: `While away ${id}.` } },
+    });
+  push(1, "u-away-1");
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(1));
+  await expect
+    .element(page.getByRole("button", { name: "Scroll to end, 1 new row" }))
+    .toBeVisible();
+  push(2, "u-away-2");
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(2));
+  const control = page.getByRole("button", { name: "Scroll to end, 2 new rows" });
+  await expect.element(control).toBeVisible();
+  // It floats at the composer's top edge instead of taking a row of the composer's column: the
+  // transcript's last rows stay where they are when it appears.
+  const pill = control.element().getBoundingClientRect();
+  const composerTop = page
+    .getByRole("textbox", { name: "Message" })
+    .element()
+    .getBoundingClientRect().top;
+  expect(pill.bottom).toBeLessThanOrEqual(composerTop);
+
+  // The transcript's last Tab stop is the control, so the composer reaches it backwards.
+  page.getByRole("textbox", { name: "Message" }).element().focus();
+  await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+  await expect.element(control).toHaveFocus();
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+  await vi.waitFor(() =>
+    expect(page.getByRole("button", { name: /^Scroll to end/ }).elements()).toHaveLength(0),
+  );
+  // The control unmounts under the keyboard, so the transcript takes the keys, not the body.
+  await expect.element(page.getByRole("log", { name: "Chat transcript" })).toHaveFocus();
+
+  // The follow is live again, so the next row arrives at the bottom and no count comes back.
+  push(3, "u-away-3");
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(3));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+});
+
+test("a request arriving while the view is away takes it and leaves no scroll-to-end control", async () => {
+  const chat = await renderChat(longChat(80));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+  await userEvent.wheel(page.getByTestId("chat-timeline"), { delta: { y: -3000 } });
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(false));
+  await expect.element(page.getByRole("button", { name: "Scroll to end" })).toBeVisible();
+
+  chat.script.push({
+    type: "event",
+    sequence: 1,
+    event: {
+      type: "item",
+      item: {
+        kind: "user-request",
+        id: "away-request",
+        request: "confirm",
+        title: "Proceed?",
+        body: null,
+        options: [],
+        placeholder: null,
+        prefill: null,
+        expiresAt: null,
+        status: "pending",
+      },
+    },
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(1));
+
+  // The jump already returned the view to what arrived; a control here would be a second answer.
+  await expect.element(page.getByRole("radio", { name: "Yes" })).toHaveFocus();
+  expect(page.getByRole("button", { name: /^Scroll to end/ }).elements()).toHaveLength(0);
+});
+
 test("a composition-confirming Enter never sends; the next real Enter sends once", async () => {
   const chat = await renderChat(recorded([], { state: IDLE_CHAT }));
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
