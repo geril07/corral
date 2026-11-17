@@ -33,6 +33,8 @@ export const initialChatSnapshot: ChatStoreSnapshot = {
   sequence: null,
   state: {
     turn: "idle",
+    turnStartedAt: null,
+    turnEndedAt: null,
     steering: [],
     followUp: [],
     model: null,

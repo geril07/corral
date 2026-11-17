@@ -10,6 +10,8 @@ import type {
 export function emptyChatState(): ChatSessionState {
   return {
     turn: "idle",
+    turnStartedAt: null,
+    turnEndedAt: null,
     steering: [],
     followUp: [],
     model: null,
@@ -50,12 +52,15 @@ export class ChatTimeline {
   #listeners = new Set<() => void>();
   /** Observers of every item put, outside the streaming watch: who else needs to know it happened. */
   #itemObservers = new Set<(item: ChatItem) => void>();
+  /** The clock the turn's start and end are stamped with; injectable so a test can pin it. */
+  readonly #now: () => number;
   #closed = false;
 
-  constructor(startAt = 0) {
+  constructor(startAt = 0, now: () => number = Date.now) {
     if (!Number.isInteger(startAt) || startAt < 0) throw new Error(`bad chat start ${startAt}`);
     this.#startAt = startAt;
     this.#sequence = startAt;
+    this.#now = now;
   }
 
   get sequence(): number {
@@ -120,9 +125,22 @@ export class ChatTimeline {
     this.#emit({ type: "delta", itemId, text });
   }
 
-  /** Replaces the whole session state and streams it. */
+  /**
+   * Replaces the whole session state and streams it. The turn's clock is stamped here, at the one
+   * place every driver changes the turn: entering `working` starts it, leaving `working` ends it,
+   * and a repeated report of the same turn changes neither.
+   */
   setState(patch: Partial<ChatSessionState>): void {
-    this.#state = { ...this.#state, ...patch };
+    const next = { ...this.#state, ...patch };
+    if (patch.turn !== undefined && patch.turn !== this.#state.turn) {
+      if (patch.turn === "working") {
+        next.turnStartedAt = this.#now();
+        next.turnEndedAt = null;
+      } else if (this.#state.turn === "working") {
+        next.turnEndedAt = this.#now();
+      }
+    }
+    this.#state = next;
     this.#emit({ type: "state", state: { ...this.#state } });
   }
 

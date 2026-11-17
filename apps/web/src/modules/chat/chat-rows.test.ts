@@ -45,8 +45,8 @@ const message = (id: string, text: string): ChatItem => ({
   streaming: false,
 });
 
-const settled = { turn: "settled", waiting: false } as const;
-const working = { turn: "working", waiting: false } as const;
+const settled = { turn: "settled" } as const;
+const working = { turn: "working" } as const;
 
 test("consecutive finished tool calls fold; a running call stays its own row", () => {
   expect(
@@ -133,53 +133,113 @@ test("a notice, an error and a request inside a turn are never hidden", () => {
   expect([...fold.hidden]).toEqual(["t1"]);
 });
 
-test("a turn with nothing to hide, and the live turn, stay unfolded", () => {
+test("a settled turn with nothing to hide stays unfolded", () => {
   const answer: ChatItem = { kind: "assistant-message", id: "a1", text: "Hi.", streaming: false };
   expect(chatRows({ items: [user("u1"), answer], ...settled })).toEqual([
     { kind: "item", key: "u1", item: user("u1") },
     { kind: "item", key: "a1", item: answer },
   ]);
-  // The newest turn is the one running, so its work is what the user is watching.
-  expect(
-    chatRows({ items: [user("u1"), call("t1", "done")], ...working }).map((row) => row.kind),
-  ).toEqual(["item", "tool", "working"]);
+});
+
+test("the live turn folds its work under one Working row", () => {
+  const rows = chatRows({ items: [user("u1"), call("t1", "done")], ...working });
+  expect(rows.map((row) => row.kind)).toEqual(["item", "turn"]);
+  const fold = rows[1];
+  if (fold?.kind !== "turn") throw new Error("the live turn did not fold");
+  expect(fold).toMatchObject({ key: "turn:u1", live: true, startedAt: null, endedAt: null });
+  expect(fold.rows.map((row) => row.key)).toEqual(["t1"]);
+  expect([...fold.hidden]).toEqual(["t1"]);
+});
+
+test("a live turn with nothing to hide is a plain Working row", () => {
+  const answer: ChatItem = {
+    kind: "assistant-message",
+    id: "a1",
+    text: "Streaming…",
+    streaming: true,
+  };
+  const rows = chatRows({ items: [user("u1"), answer], ...working });
+  // The answer is not work, so it stays outside the fold; the fold has nothing to disclose.
+  expect(rows.map((row) => row.key)).toEqual(["u1", "turn:u1", "a1"]);
+  const fold = rows[1];
+  if (fold?.kind !== "turn") throw new Error("the live turn did not fold");
+  expect(fold.hidden.size).toBe(0);
+  expect(fold.rows).toEqual([]);
+  expect(fold.live).toBe(true);
+});
+
+test("a working session with no prompt yet keeps a plain Working row", () => {
+  expect(chatRows({ items: [], turn: "working", turnStartedAt: 1_000 })).toEqual([
+    { kind: "working", key: "working", startedAt: 1_000 },
+  ]);
 });
 
 test("an aborted or failed turn does not fold, so the stopped work stays visible", () => {
   for (const turn of ["aborted", "error"] as const) {
     expect(
-      chatRows({ items: [user("u1"), call("t1", "done")], turn, waiting: false }).map(
-        (row) => row.kind,
-      ),
+      chatRows({ items: [user("u1"), call("t1", "done")], turn }).map((row) => row.kind),
     ).toEqual(["item", "tool"]);
   }
 });
 
-test("the live tail is absent while the agent waits on the user", () => {
-  expect(
-    chatRows({ items: [user("u1"), call("t1", "running")], turn: "working", waiting: true }).map(
-      (row) => row.kind,
-    ),
-  ).toEqual(["item", "tool"]);
+test("a pending request is never hidden by the live fold", () => {
+  const request: ChatItem = {
+    kind: "user-request",
+    id: "q1",
+    request: "confirm",
+    title: "Proceed?",
+    body: null,
+    options: [],
+    placeholder: null,
+    prefill: null,
+    expiresAt: null,
+    status: "pending",
+    answer: null,
+  };
+  const rows = chatRows({ items: [user("u1"), call("t1", "running"), request], ...working });
+  const fold = rows[1];
+  if (fold?.kind !== "turn") throw new Error("the live turn did not fold");
+  expect([...fold.hidden]).toEqual(["t1"]);
 });
 
-test("a streaming reasoning row is the live row, so no Working line stacks under it", () => {
+test("a streaming reasoning row is hidden inside the live fold", () => {
   const thinking: ChatItem = {
     kind: "reasoning",
     id: "r1",
     text: "Weighing the two fixes.",
     streaming: true,
   };
-  expect(chatRows({ items: [user("u1"), thinking], ...working }).map((row) => row.key)).toEqual([
-    "u1",
-    "r1",
-  ]);
-  // A call after it is the newest row, so the turn is working again.
-  expect(
-    chatRows({ items: [user("u1"), thinking, call("t1", "running")], ...working }).map(
-      (row) => row.kind,
-    ),
-  ).toEqual(["item", "item", "tool", "working"]);
+  const rows = chatRows({ items: [user("u1"), thinking], ...working });
+  expect(rows.map((row) => row.key)).toEqual(["u1", "turn:u1"]);
+  const fold = rows[1];
+  if (fold?.kind !== "turn") throw new Error("the live turn did not fold");
+  expect([...fold.hidden]).toEqual(["r1"]);
+
+  // A running call joins the same fold: the turn is one row whatever it is doing.
+  const withCall = chatRows({ items: [user("u1"), thinking, call("t1", "running")], ...working });
+  expect(withCall.map((row) => row.key)).toEqual(["u1", "turn:u1"]);
+  const callFold = withCall[1];
+  if (callFold?.kind !== "turn") throw new Error("the live turn did not fold");
+  expect([...callFold.hidden]).toEqual(["r1", "t1"]);
+});
+
+test("the last turn carries the server's times; an earlier turn does not", () => {
+  const rows = chatRows({
+    items: [
+      user("u1"),
+      call("t1", "done"),
+      message("a1", "One."),
+      user("u2"),
+      call("t2", "done"),
+      message("a2", "Two."),
+    ],
+    turn: "settled",
+    turnStartedAt: 1_000,
+    turnEndedAt: 5_000,
+  });
+  const folds = rows.filter((row) => row.kind === "turn");
+  expect(folds[0]).toMatchObject({ startedAt: null, endedAt: null, live: false });
+  expect(folds[1]).toMatchObject({ startedAt: 1_000, endedAt: 5_000, live: false });
 });
 
 test("an action is read from the call's shape, never its name", () => {

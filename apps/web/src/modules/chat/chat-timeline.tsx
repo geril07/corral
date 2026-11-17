@@ -16,9 +16,13 @@ import type { ChatTranscriptStore } from "./chat-transcript.ts";
 
 export interface ChatTimelineProps {
   items: readonly ChatItem[];
-  /** A working session keeps all turns unfolded and shows the live tail. */
+  /** The last turn is live while the session works; every turn before it has settled. */
   turn: ChatTurnState;
-  /** The agent is waiting on the user, so no work is happening and the live tail is not shown. */
+  /** When the server saw the current turn enter `working`; `null` before the first turn. */
+  turnStartedAt: number | null;
+  /** When it left `working`; `null` while it runs and before the first turn. */
+  turnEndedAt: number | null;
+  /** The agent is waiting on the user, so no work is happening and a reasoning row is not live. */
   waiting: boolean;
   /** The pending request, when one needs the keyboard and must be scrolled into view. */
   requestId: string | undefined;
@@ -70,6 +74,8 @@ function atEnd(node: HTMLElement): boolean {
 export function ChatTimeline({
   items,
   turn,
+  turnStartedAt,
+  turnEndedAt,
   waiting,
   requestId,
   endSpace,
@@ -82,7 +88,10 @@ export function ChatTimeline({
   onAway,
   scrollToEnd,
 }: ChatTimelineProps) {
-  const rows = useMemo(() => chatRows({ items, turn, waiting }), [items, turn, waiting]);
+  const rows = useMemo(
+    () => chatRows({ items, turn, turnStartedAt, turnEndedAt }),
+    [items, turn, turnStartedAt, turnEndedAt],
+  );
   // The actions row belongs to each turn's answer; the projection's rows put it under the last
   // assistant message the same way (`hiddenKeys`).
   const actionsFor = useMemo(() => terminalAssistantIds(items), [items]);
@@ -92,12 +101,19 @@ export function ChatTimeline({
   const restoredAtEnd = restored.anchor === undefined || restored.atEnd;
   /** False after the user moved up, so a layout change below does not drag the view back. */
   const [follow, setFollow] = useState(restoredAtEnd);
+  /** The same latch the effects below read; a programmatic move can clear it before a render. */
+  const followRef = useRef(follow);
+  useEffect(() => {
+    followRef.current = follow;
+  }, [follow]);
+  /** A disclosure in flight moves the view on purpose; growth must not drag it back. */
+  const disclosureRef = useRef(false);
   const [revealedRequest, setRevealedRequest] = useState<string>();
   /**
-   * The row count the view held when it left the end. What the control above the composer counts
+   * The item count the view held when it left the end. What the control above the composer counts
    * is everything past it, so a return to the end forgets it and the next release starts again.
    */
-  const [leftAt, setLeftAt] = useState<number | null>(() => (restoredAtEnd ? null : rows.length));
+  const [leftAt, setLeftAt] = useState<number | null>(() => (restoredAtEnd ? null : items.length));
   const followConfig = useMemo(() => ({ on: { dataAppend: true, dataChange: true } }), []);
   const extraData = useMemo(
     () => ({ expanded, revealedRequest, requestId }),
@@ -110,19 +126,20 @@ export function ChatTimeline({
   }, []);
 
   /**
-   * The count a release stamps comes from the last commit, through a ref so this stays stable:
-   * `toggleFold` feeds `renderItem`, and a new identity there re-renders every mounted row on
-   * every appended row.
+   * The item count a release stamps comes from the last commit, through a ref so this stays
+   * stable: `toggleFold` feeds `renderItem`, and a new identity there re-renders every mounted row
+   * on every appended row. Items, not rows: the projection's rows come and go (a live turn's row
+   * settles into nothing when it carried no work), while an item that arrived never leaves.
    */
-  const rowCount = useRef(rows.length);
+  const itemCount = useRef(items.length);
   useEffect(() => {
-    rowCount.current = rows.length;
-  }, [rows.length]);
+    itemCount.current = items.length;
+  }, [items.length]);
 
-  /** Takes the end back, or releases it at the row the view is leaving from. */
+  /** Takes the end back, or releases it at the item the view is leaving from. */
   const setFollowing = useCallback((following: boolean) => {
     setFollow(following);
-    setLeftAt((current) => (following ? null : (current ?? rowCount.current)));
+    setLeftAt((current) => (following ? null : (current ?? itemCount.current)));
   }, []);
 
   /**
@@ -133,7 +150,10 @@ export function ChatTimeline({
    */
   const syncFollow = useCallback(() => {
     const state = list.current?.getState();
-    if (state !== undefined) setFollowing(state.isAtEnd);
+    if (state !== undefined) {
+      followRef.current = state.isAtEnd;
+      setFollowing(state.isAtEnd);
+    }
     // The row under the top edge is the one a remount has to put back there; the list's own
     // anchor reports the row above it, which lands a turn early.
     const node = scrollNode();
@@ -150,10 +170,38 @@ export function ChatTimeline({
     );
   }, [memory, rows, scrollNode, setFollowing]);
 
-  const away = follow || leftAt === null ? null : Math.max(0, rows.length - leftAt);
+  const away = follow || leftAt === null ? null : Math.max(0, items.length - leftAt);
   useEffect(() => {
     onAway(away);
   }, [away, onAway]);
+
+  /**
+   * The list follows appends, but content can grow inside a row — an open live fold taking a new
+   * call, a notice after the answer, a diff finishing its render — and that changes no top-level
+   * key. The list's own content box is sized to the whole transcript, so its resize is the moment
+   * the new height exists; the tail is pinned then. A user who scrolled up has already cleared
+   * the latch, and a disclosure in flight owns the view until its two frames are done.
+   */
+  useEffect(() => {
+    const node = scrollNode();
+    const content = node?.firstElementChild;
+    if (!(content instanceof HTMLElement)) return undefined;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      if (!followRef.current || disclosureRef.current) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const current = scrollNode();
+        if (current === null || atEnd(current)) return;
+        void list.current?.scrollToEnd({ animated: false });
+      });
+    });
+    observer.observe(content);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [scrollNode]);
 
   /**
    * Opens or closes a fold without letting the list drag the view to it. A list that is following
@@ -166,11 +214,17 @@ export function ChatTimeline({
   const toggleFold = useCallback(
     (key: string) => {
       if (list.current?.getState().isFollowingEnd === true) list.current.cancelScroll();
+      disclosureRef.current = true;
       onToggleFold(key);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           const node = scrollNode();
-          if (node !== null) setFollowing(atEnd(node));
+          if (node !== null) {
+            const end = atEnd(node);
+            followRef.current = end;
+            setFollowing(end);
+          }
+          disclosureRef.current = false;
         });
       });
     },
@@ -186,8 +240,13 @@ export function ChatTimeline({
     const target = Math.max(0, Math.min(max, before + delta));
     await list.current?.scrollToOffset({ offset: target, animated: false });
     const after = node.scrollTop;
-    if (after < before - 1) setFollowing(false);
-    else if (atEnd(node)) setFollowing(true);
+    if (after < before - 1) {
+      followRef.current = false;
+      setFollowing(false);
+    } else if (atEnd(node)) {
+      followRef.current = true;
+      setFollowing(true);
+    }
   };
 
   /**
@@ -199,7 +258,10 @@ export function ChatTimeline({
     scrollToEnd,
     () => ({
       scrollToEnd: () => {
-        void list.current?.scrollToEnd({ animated: false }).then(() => setFollowing(true));
+        void list.current?.scrollToEnd({ animated: false }).then(() => {
+          followRef.current = true;
+          setFollowing(true);
+        });
         const node = scrollNode();
         return node?.closest<HTMLElement>('[role="log"]') ?? node;
       },
@@ -231,14 +293,20 @@ export function ChatTimeline({
         return;
       case "Home":
         event.preventDefault();
+        followRef.current = false;
         setFollowing(false);
         void list.current?.scrollToOffset({ offset: 0, animated: false }).then(() => {
-          if (atEnd(node)) setFollowing(true);
+          if (!atEnd(node)) return;
+          followRef.current = true;
+          setFollowing(true);
         });
         return;
       case "End":
         event.preventDefault();
-        void list.current?.scrollToEnd({ animated: false }).then(() => setFollowing(true));
+        void list.current?.scrollToEnd({ animated: false }).then(() => {
+          followRef.current = true;
+          setFollowing(true);
+        });
         return;
       default:
         return;
@@ -260,6 +328,7 @@ export function ChatTimeline({
     const target = list.current;
     if (target === null) return undefined;
     target.cancelScroll();
+    followRef.current = false;
     setFollow(false);
     // The jump spends the count: what arrived before it is not what waits below the request.
     setLeftAt(null);

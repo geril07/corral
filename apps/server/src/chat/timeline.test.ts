@@ -129,3 +129,33 @@ test("a replacement keeps its place and the snapshot stays authoritative", () =>
     { kind: "user-message", id: "u", text: "after" },
   ]);
 });
+
+test("a turn's clock starts when it enters working and stops when it leaves", () => {
+  let now = 1_000;
+  const timeline = new ChatTimeline(0, () => now);
+
+  timeline.setState({ turn: "working" });
+  expect(timeline.state.turnStartedAt).toBe(1_000);
+  expect(timeline.state.turnEndedAt).toBeNull();
+
+  // A repeated working report is the same turn, not a new one.
+  now = 2_000;
+  timeline.setState({ turn: "working" });
+  expect(timeline.state.turnStartedAt).toBe(1_000);
+
+  // A patch that does not change the turn leaves the clock alone.
+  now = 2_500;
+  timeline.setState({ steering: ["tighten the test"] });
+  expect(timeline.state.turnStartedAt).toBe(1_000);
+  expect(timeline.state.turnEndedAt).toBeNull();
+
+  now = 3_000;
+  timeline.setState({ turn: "settled" });
+  expect(timeline.state.turnEndedAt).toBe(3_000);
+
+  // The next turn starts its own clock and clears the previous end.
+  now = 4_000;
+  timeline.setState({ turn: "working" });
+  expect(timeline.state.turnStartedAt).toBe(4_000);
+  expect(timeline.state.turnEndedAt).toBeNull();
+});

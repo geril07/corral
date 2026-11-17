@@ -54,10 +54,13 @@ import { z } from "zod";
  * config has no preset list, so the client would offer a menu whose every choice fails. Version 16
  * adds the required `ChatSessionState.context`: a version 15 daemon never sends a session's
  * context-window usage, so a 16 client would show no reading for a conversation the daemon could
- * have measured, and the refusal names the version instead.
+ * have measured, and the refusal names the version instead. Version 17 adds the required
+ * `ChatSessionState.turnStartedAt`/`turnEndedAt`: a version 16 daemon never sends them, so a 17
+ * client's live `Working` row would carry no time and its last `Worked` row no duration, and the
+ * refusal names the version instead.
  */
-// Version 16 adds the chat session's context-window usage; 15 added the snooze fields.
-export const PROTOCOL_VERSION = 16;
+// Version 17 adds the chat turn's start and end; 16 added the context-window usage.
+export const PROTOCOL_VERSION = 17;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in

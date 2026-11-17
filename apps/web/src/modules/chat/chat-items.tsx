@@ -19,6 +19,7 @@ import {
   type Ref,
 } from "react";
 import { describeError } from "@corral/client/rpc-errors";
+import { useNow } from "../../common/hooks/use-now.ts";
 import {
   Button,
   DiffView,
@@ -31,6 +32,7 @@ import {
   useTruncatedText,
   type IconName,
 } from "../../common/ui/index.ts";
+import { formatTurnDuration } from "./chat-duration.ts";
 import { ChatRequestItem } from "./chat-request.tsx";
 import {
   toolAction,
@@ -72,11 +74,12 @@ function ActivityRow({
   failed = false,
   running = false,
   shimmer = false,
+  numeric = false,
   ariaLabel,
   onClick,
 }: {
   icon?: IconName | undefined;
-  label: string;
+  label: ReactNode;
   /** Measures the label, so a row can tell whether its text was cut off (see `ToolCallItem`). */
   labelRef?: Ref<HTMLSpanElement> | undefined;
   expanded?: boolean | undefined;
@@ -85,6 +88,8 @@ function ActivityRow({
   /** A call still running: the row keeps a status glyph, not only a colour. */
   running?: boolean;
   shimmer?: boolean;
+  /** A label that carries a duration: the digits keep one width while the clock ticks. */
+  numeric?: boolean;
   ariaLabel?: string | undefined;
   onClick?: (() => void) | undefined;
 }) {
@@ -104,6 +109,7 @@ function ActivityRow({
         ref={labelRef}
         className={[
           "min-w-0 truncate text-left",
+          numeric ? "tabular-nums" : "",
           shimmer ? "shimmer" : "",
           live || shimmer ? "text-foreground" : "text-muted-foreground",
         ].join(" ")}
@@ -597,33 +603,68 @@ export function ToolGroupItem({
 }
 
 /**
- * A finished turn folds to one line: T3's `Worked` is the label it uses when the contract carries
- * no timestamps (`MessagesTimeline.logic.ts`). What it hides is the projection's answer
- * (`chat-rows.ts`, `hiddenKeys`): the turn's work and its intermediate messages. The turn's answer
- * is the row after this one, so a pinned header never holds over text that is not work.
+ * A turn folds to one line: `Working` while it runs, `Worked` once it has settled. The label
+ * carries the turn's time when the server sent one — T3's words and format
+ * (`MessagesTimeline.logic.ts`, `orchestrationTiming.ts`). What it hides is the projection's
+ * answer (`chat-rows.ts`, `hiddenKeys`): the turn's work and its intermediate messages. The turn's
+ * answer is the row after this one, so a pinned header never holds over text that is not work.
+ *
+ * A turn with nothing to hide has no disclosure: its header is a plain row, as `Working` was.
  */
 export function TurnFoldItem({
   expanded,
   onToggle,
+  live,
+  startedAt,
+  endedAt,
+  collapsible,
   children,
 }: {
   expanded: boolean;
   onToggle: () => void;
+  live: boolean;
+  startedAt: number | null;
+  endedAt: number | null;
+  collapsible: boolean;
   children: ReactNode;
 }) {
+  // A settled fold reads its end once; only a running turn mounts the ticking label.
+  const duration = live || startedAt === null || endedAt === null ? null : endedAt - startedAt;
   return (
     <StickySection
-      open={expanded}
-      header={<ActivityRow label="Worked" expanded={expanded} onClick={onToggle} />}
+      open={expanded && collapsible}
+      header={
+        <ActivityRow
+          label={live ? <LiveTurnLabel startedAt={startedAt} /> : workedLabel(duration)}
+          expanded={collapsible ? expanded : undefined}
+          onClick={collapsible ? onToggle : undefined}
+          live={live}
+          shimmer={live}
+          numeric
+        />
+      }
     >
       {children}
     </StickySection>
   );
 }
 
-/** The live tail of a running turn: OpenCode's `Working` with its shimmer. */
-export function WorkingItem() {
-  return <ActivityRow label="Working" live shimmer />;
+/** The live tail of a working session that has no prompt to fold under yet. */
+export function WorkingItem({ startedAt }: { startedAt: number | null }) {
+  return <ActivityRow label={<LiveTurnLabel startedAt={startedAt} />} live shimmer numeric />;
+}
+
+/**
+ * The live label, in its own component so the clock re-renders one text node instead of the fold
+ * and every row inside it (`useNow` is a state tick, not a DOM write).
+ */
+function LiveTurnLabel({ startedAt }: { startedAt: number | null }) {
+  const now = useNow(1000);
+  return startedAt === null ? "Working" : <>Working for {formatTurnDuration(now - startedAt)}</>;
+}
+
+function workedLabel(durationMs: number | null): string {
+  return durationMs === null ? "Worked" : `Worked for ${formatTurnDuration(durationMs)}`;
 }
 
 /** A quiet line for a compaction, a retry or another note from the agent or driver. */
@@ -677,11 +718,18 @@ export function TranscriptRow({
   focusedRequest,
   actionsFor,
 }: TranscriptRowProps) {
-  if (row.kind === "working") return <WorkingItem />;
+  if (row.kind === "working") return <WorkingItem startedAt={row.startedAt} />;
   if (row.kind === "turn") {
     const open = expanded.has(row.key);
     return (
-      <TurnFoldItem expanded={open} onToggle={() => onToggleFold(row.key)}>
+      <TurnFoldItem
+        expanded={open}
+        onToggle={() => onToggleFold(row.key)}
+        live={row.live}
+        startedAt={row.startedAt}
+        endedAt={row.endedAt}
+        collapsible={row.hidden.size > 0}
+      >
         {row.rows.map((inner) =>
           // Closed, the fold hides what the projection named; everything else keeps its place.
           open || !row.hidden.has(inner.key) ? (

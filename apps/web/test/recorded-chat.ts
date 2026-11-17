@@ -11,6 +11,8 @@ import { Store } from "@corral/client/store";
 /** The B0 session state a fresh chat starts with, for fixtures that only need a turn. */
 export const IDLE_CHAT: ChatSessionState = {
   turn: "idle",
+  turnStartedAt: null,
+  turnEndedAt: null,
   steering: [],
   followUp: [],
   model: null,
