@@ -33,7 +33,7 @@ import { draftLeftAfterSend } from "./chat-draft.ts";
 import { ChatContextMeter } from "./chat-context.tsx";
 import { ChatFocusContext } from "./chat-focus.ts";
 import { pendingRequest } from "./chat-rows.ts";
-import { ChatTimeline } from "./chat-timeline.tsx";
+import { ChatTimeline, type ChatTimelineScroll } from "./chat-timeline.tsx";
 import { insertQuote as quoteIntoDraft, type ChatTranscriptStore } from "./chat-transcript.ts";
 import {
   LocalLinkFailure,
@@ -117,6 +117,9 @@ export function ChatView({
   const transcriptRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [panelHeight, setPanelHeight] = useState(0);
+  /** The view reports what the end gained while it was away; the control that says so is here. */
+  const [away, setAway] = useState<number | null>(null);
+  const timeline = useRef<ChatTimelineScroll>(null);
   const guard = useEnterGuard();
   const request = pendingRequest(snapshot.items);
   // Only assistant text is linkified: a user's own words, reasoning and tool output stay as written.
@@ -269,6 +272,8 @@ export function ChatView({
               onRespond={onRespond}
               onAnswered={focusAfterAnswer}
               onFailure={setFailure}
+              onAway={setAway}
+              scrollToEnd={timeline}
             />
           </ChatFocusContext.Provider>
         </div>
@@ -299,6 +304,34 @@ export function ChatView({
             )}
             <LocalLinkFailure />
             <LocalLinksUnavailable />
+            {/* It floats at the composer's top edge (T3's `ScrollToEndButton`) rather than taking a
+                row of the composer's column: that column's height is the list's end spacer, so a
+                control in it would move the edge it stands in front of. */}
+            {away !== null && request === undefined && (
+              <div className="absolute bottom-full left-1/2 mb-2 flex -translate-x-1/2">
+                <Button
+                  variant="floating"
+                  aria-label={
+                    away === 0
+                      ? "Scroll to end"
+                      : `Scroll to end, ${away} new ${away === 1 ? "row" : "rows"}`
+                  }
+                  // A press returns the view; it does not choose the row the user is reading.
+                  onPointerDown={(event) => event.preventDefault()}
+                  onClick={(event) => {
+                    const focus = timeline.current?.scrollToEnd() ?? null;
+                    // The control goes away as the follow is taken again, so a press from the
+                    // keyboard hands the keys to the transcript instead of dropping them on the body.
+                    if (event.currentTarget === document.activeElement) {
+                      focus?.focus({ preventScroll: true });
+                    }
+                  }}
+                >
+                  <Icon name="down" />
+                  {away === 0 ? null : <span>{away} new</span>}
+                </Button>
+              </div>
+            )}
             {hints}
             <form
               aria-label="Chat message"

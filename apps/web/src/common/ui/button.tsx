@@ -20,6 +20,10 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 dark:bg-destructive/20 dark:hover:bg-destructive/30",
         link: "text-primary-text underline-offset-4 hover:underline",
+        // A control that floats over content rather than sitting in a row: the composer's way back
+        // to the transcript's end. The kit's stylesheet owns its box, fill and elevation, which an
+        // OpenCode-derived control needs and the class scale cannot name.
+        floating: "visual-floating-control",
       },
       layout: {
         default: "",

@@ -1,7 +1,15 @@
 import type { ChatAnswer, ChatItem, ChatTurnState } from "@corral/protocol/chat";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { ContentLane } from "../../common/ui/index.ts";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 import { chatRows, terminalAssistantIds, type ChatRow } from "./chat-rows.ts";
 import { TranscriptRow } from "./chat-items.tsx";
 import type { ChatTranscriptStore } from "./chat-transcript.ts";
@@ -25,6 +33,24 @@ export interface ChatTimelineProps {
   onAnswered: (requestId: string) => void;
   /** A message action that failed says so in the pane's one failure line. */
   onFailure: (message: string) => void;
+  /**
+   * The rows that arrived since the follow was released, or `null` while it holds. The control
+   * that says so floats at the composer's top edge, which is the pane's to draw (`ScrollToEndButton`
+   * in T3's `TimelineOverlays.tsx`), so the view reports the count and keeps the action.
+   */
+  onAway: (away: number | null) => void;
+  /** That control's action; the view owns the list, so it owns the way back to the end. */
+  scrollToEnd?: Ref<ChatTimelineScroll> | undefined;
+}
+
+/** The way back to the newest row, for the control above the composer. */
+export interface ChatTimelineScroll {
+  /**
+   * Returns the view to the newest row and re-arms the follow. Returns the transcript's focusable
+   * root: a keyboard press unmounts the control under the user, and the keys belong to the
+   * transcript next, not to the body.
+   */
+  scrollToEnd: () => HTMLElement | null;
 }
 
 function atEnd(node: HTMLElement): boolean {
@@ -34,7 +60,9 @@ function atEnd(node: HTMLElement): boolean {
 /**
  * The virtualized timeline (`@legendapp/list`): only the rows in and around the viewport are in
  * the DOM, and a streamed delta re-renders the list without mounting the transcript. It follows
- * the end while the user is at the end and releases the follow as soon as the user scrolls up.
+ * the end while the user is at the end and releases the follow as soon as the user scrolls up;
+ * while it is released, one control above the composer returns the view to the end and counts the
+ * rows that arrived since (T3's `ScrollToEndButton` in `TimelineOverlays.tsx`).
  *
  * A mount is not a fresh session: the row the user was reading and the open folds come from the
  * workspace's memory for this session, so closing the tab and coming back lands where they were.
@@ -51,6 +79,8 @@ export function ChatTimeline({
   onRespond,
   onAnswered,
   onFailure,
+  onAway,
+  scrollToEnd,
 }: ChatTimelineProps) {
   const rows = useMemo(() => chatRows({ items, turn, waiting }), [items, turn, waiting]);
   // The actions row belongs to each turn's answer; the projection's rows put it under the last
@@ -59,9 +89,15 @@ export function ChatTimeline({
   const list = useRef<LegendListRef>(null);
   /** What this session was left with; read once, because a later mount is not a restore. */
   const [restored] = useState(() => memory.read());
+  const restoredAtEnd = restored.anchor === undefined || restored.atEnd;
   /** False after the user moved up, so a layout change below does not drag the view back. */
-  const [follow, setFollow] = useState(() => restored.anchor === undefined || restored.atEnd);
+  const [follow, setFollow] = useState(restoredAtEnd);
   const [revealedRequest, setRevealedRequest] = useState<string>();
+  /**
+   * The row count the view held when it left the end. What the control above the composer counts
+   * is everything past it, so a return to the end forgets it and the next release starts again.
+   */
+  const [leftAt, setLeftAt] = useState<number | null>(() => (restoredAtEnd ? null : rows.length));
   const followConfig = useMemo(() => ({ on: { dataAppend: true, dataChange: true } }), []);
   const extraData = useMemo(
     () => ({ expanded, revealedRequest, requestId }),
@@ -74,6 +110,22 @@ export function ChatTimeline({
   }, []);
 
   /**
+   * The count a release stamps comes from the last commit, through a ref so this stays stable:
+   * `toggleFold` feeds `renderItem`, and a new identity there re-renders every mounted row on
+   * every appended row.
+   */
+  const rowCount = useRef(rows.length);
+  useEffect(() => {
+    rowCount.current = rows.length;
+  }, [rows.length]);
+
+  /** Takes the end back, or releases it at the row the view is leaving from. */
+  const setFollowing = useCallback((following: boolean) => {
+    setFollow(following);
+    setLeftAt((current) => (following ? null : (current ?? rowCount.current)));
+  }, []);
+
+  /**
    * The latch follows the list's own at-end state on every scroll, whatever moved it: a wheel, a
    * scrollbar or a key. That makes it reversible — a wheel back to the bottom re-arms it even after
    * a keyboard PageUp released it — instead of only the key handler writing the flag. The row
@@ -81,7 +133,7 @@ export function ChatTimeline({
    */
   const syncFollow = useCallback(() => {
     const state = list.current?.getState();
-    if (state !== undefined) setFollow(state.isAtEnd);
+    if (state !== undefined) setFollowing(state.isAtEnd);
     // The row under the top edge is the one a remount has to put back there; the list's own
     // anchor reports the row above it, which lands a turn early.
     const node = scrollNode();
@@ -96,7 +148,12 @@ export function ChatTimeline({
       { key, index: rows.findIndex((row) => row.key === key) },
       state?.isAtEnd ?? atEnd(node),
     );
-  }, [memory, rows, scrollNode]);
+  }, [memory, rows, scrollNode, setFollowing]);
+
+  const away = follow || leftAt === null ? null : Math.max(0, rows.length - leftAt);
+  useEffect(() => {
+    onAway(away);
+  }, [away, onAway]);
 
   /**
    * Opens or closes a fold without letting the list drag the view to it. A list that is following
@@ -113,11 +170,11 @@ export function ChatTimeline({
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           const node = scrollNode();
-          if (node !== null) setFollow(atEnd(node));
+          if (node !== null) setFollowing(atEnd(node));
         });
       });
     },
-    [onToggleFold, scrollNode],
+    [onToggleFold, scrollNode, setFollowing],
   );
 
   /** Keyboard scrolling: a move up releases the end follow, reaching the end takes it again. */
@@ -129,9 +186,26 @@ export function ChatTimeline({
     const target = Math.max(0, Math.min(max, before + delta));
     await list.current?.scrollToOffset({ offset: target, animated: false });
     const after = node.scrollTop;
-    if (after < before - 1) setFollow(false);
-    else if (atEnd(node)) setFollow(true);
+    if (after < before - 1) setFollowing(false);
+    else if (atEnd(node)) setFollowing(true);
   };
+
+  /**
+   * The pointer's way back to the end, called by the control above the composer. End does the
+   * same from the keyboard. The focusable root comes back with it because a keyboard press
+   * unmounts the control under the user: the transcript, not the body, owns the keys next.
+   */
+  useImperativeHandle(
+    scrollToEnd,
+    () => ({
+      scrollToEnd: () => {
+        void list.current?.scrollToEnd({ animated: false }).then(() => setFollowing(true));
+        const node = scrollNode();
+        return node?.closest<HTMLElement>('[role="log"]') ?? node;
+      },
+    }),
+    [scrollNode, setFollowing],
+  );
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     // Rows carry their own buttons; arrows in a row must not scroll the transcript.
@@ -157,14 +231,14 @@ export function ChatTimeline({
         return;
       case "Home":
         event.preventDefault();
-        setFollow(false);
+        setFollowing(false);
         void list.current?.scrollToOffset({ offset: 0, animated: false }).then(() => {
-          if (atEnd(node)) setFollow(true);
+          if (atEnd(node)) setFollowing(true);
         });
         return;
       case "End":
         event.preventDefault();
-        void list.current?.scrollToEnd({ animated: false }).then(() => setFollow(true));
+        void list.current?.scrollToEnd({ animated: false }).then(() => setFollowing(true));
         return;
       default:
         return;
@@ -187,6 +261,8 @@ export function ChatTimeline({
     if (target === null) return undefined;
     target.cancelScroll();
     setFollow(false);
+    // The jump spends the count: what arrived before it is not what waits below the request.
+    setLeftAt(null);
     void target
       .scrollToIndex({ index: requestIndex, animated: false, viewPosition: 0 })
       .then(() => {
