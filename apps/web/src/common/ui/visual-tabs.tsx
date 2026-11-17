@@ -566,7 +566,9 @@ export function VisualAddMenu({
             }
           />
         </Hint>
-        <DropdownMenuContent align="end">{children}</DropdownMenuContent>
+        <DropdownMenuContent align="end" skin="visual">
+          {children}
+        </DropdownMenuContent>
       </DropdownMenu>
     );
   }
@@ -588,7 +590,9 @@ export function VisualAddMenu({
               </button>
             }
           />
-          <DropdownMenuContent align="end">{children}</DropdownMenuContent>
+          <DropdownMenuContent align="end" skin="visual">
+            {children}
+          </DropdownMenuContent>
         </DropdownMenu>
       </span>
     </Hint>
