@@ -6,7 +6,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 // oxlint-disable-next-line import/no-unassigned-import -- xterm's own stylesheet
 import "@xterm/xterm/css/xterm.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Alert, AlertDescription } from "../../common/ui/index.ts";
 import { publishScreenText } from "./screen-text-hook.ts";
 
@@ -78,6 +78,11 @@ export function TerminalView({
     attempt: 1,
     startedAt: 0,
   });
+  // The banner above the work area already reports a lost server; this pane speaks only for its
+  // own stream, so a server outage does not produce a second notice.
+  const appConnected =
+    useSyncExternalStore(client.connection.state.subscribe, client.connection.state.getSnapshot)
+      .status === "connected";
   const terminalId = terminal.id;
 
   useEffect(() => {
@@ -180,7 +185,12 @@ export function TerminalView({
     <section className="absolute inset-0 flex flex-col p-2" aria-label="active terminal">
       {/* The 8 px frame sits on the tab area, so xterm fits the padded box. */}
       <div className="terminal-host min-h-0 flex-1 overflow-hidden" ref={hostRef} />
-      <TerminalNotice terminal={terminal} streamState={streamState} exitHint={exitHint} />
+      <TerminalNotice
+        terminal={terminal}
+        streamState={streamState}
+        exitHint={exitHint}
+        appConnected={appConnected}
+      />
     </section>
   );
 }
@@ -189,10 +199,12 @@ function TerminalNotice({
   terminal,
   streamState,
   exitHint,
+  appConnected,
 }: {
   terminal: TerminalInfo;
   streamState: TerminalStreamState;
   exitHint: string | undefined;
+  appConnected: boolean;
 }) {
   if (terminal.exit) {
     const { exitCode, signal } = terminal.exit;
@@ -206,6 +218,7 @@ function TerminalNotice({
     );
   }
   if (streamState.status === "disconnected") {
+    if (!appConnected) return null;
     return (
       <Alert role="status" aria-label="terminal connection">
         <AlertDescription>Connection lost. Reconnecting…</AlertDescription>

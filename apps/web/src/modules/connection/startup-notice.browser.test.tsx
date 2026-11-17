@@ -259,3 +259,42 @@ test("a refused capability names itself in the banner and leaves the task intact
     window.history.replaceState(null, "", original);
   }
 });
+
+test("a lost server is named by the banner, not by the terminal pane", async () => {
+  // A closed port, and not one the browser refuses to open, keeps both sockets down while the
+  // test server stays up.
+  const dead = "ws://127.0.0.1:65534";
+  let down = false;
+  const sockets: WebSocket[] = [];
+  const retried: string[] = [];
+  const createSocket: CreateSocket = (url, protocols) => {
+    if (down) retried.push(url);
+    const socket = new WebSocket(down ? dead : url, protocols);
+    if (!down) sockets.push(socket);
+    return socket;
+  };
+  const client = newClient(serverTarget(), createSocket);
+  await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
+  const { project } = await appWithProject(client);
+  await taskWithShell(client, project.id, "Keeps its place");
+  await userEvent.keyboard("echo keep-$((2+3)){Enter}");
+  await expect.poll(screenText).toContain("keep-5");
+
+  down = true;
+  for (const socket of sockets) socket.close();
+
+  // The terminal's own stream is down and trying again, not merely unread.
+  await vi.waitFor(() => {
+    if (!retried.some((url) => url.includes("/terminals/")))
+      throw new Error("the terminal has not retried");
+  });
+  // The banner waits out its grace, then speaks for the outage.
+  await vi.waitFor(
+    () => expect(page.getByText(/^Cannot reach the server · /).elements()).toHaveLength(1),
+    { timeout: 5000 },
+  );
+  // The pane dropped with the server, but the banner is the only notice for that one outage.
+  expect(page.getByRole("status", { name: "terminal connection" }).elements()).toHaveLength(0);
+  await expect.element(page.getByRole("region", { name: "active terminal" })).toBeVisible();
+  expect(screenText()).toContain("keep-5");
+});
