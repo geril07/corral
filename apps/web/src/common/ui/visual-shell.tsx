@@ -16,6 +16,7 @@ import {
   TooltipContent,
   TooltipExplanation,
   TooltipMetadata,
+  TooltipProvider,
   TooltipTrigger,
   type TooltipMetadataFact,
   type TooltipShortcut,
@@ -568,43 +569,47 @@ export function VisualTaskCard({
           </RowMenuPopup>
         </ContextMenu.Root>
       )}
-      <div className="visual-task-slot">
-        {row.woke === true && onAcknowledgeWoke !== undefined ? (
-          <CompactTooltip label="Dismiss Woke notification">
-            <button
-              type="button"
-              className="visual-task-woke"
-              aria-label="Dismiss Woke notification"
-              onClick={onAcknowledgeWoke}
-            >
-              <Icon name="clock" size="row" />
-              Woke
-            </button>
-          </CompactTooltip>
-        ) : row.snoozed === true && row.snoozeWake !== undefined ? (
-          <span className="visual-task-status" data-tone="snoozed">
-            <Icon name="clock" size="row" />
-            <span className="visual-task-status-label">{row.snoozeWake}</span>
-            {row.snoozeAt !== undefined && <span className="sr-only">until {row.snoozeAt}</span>}
-          </span>
-        ) : (
-          status !== undefined && <VisualTaskStatus status={status} />
-        )}
-        <span className="visual-task-slot-action">
-          {onToggleSettle !== undefined && (
-            <CompactTooltip label={settleLabel}>
+      {/* A row's controls are not peers of the row list: sharing its warm group makes a control
+          label and the metadata card hand off with no delay, in either direction. */}
+      <TooltipProvider>
+        <div className="visual-task-slot">
+          {row.woke === true && onAcknowledgeWoke !== undefined ? (
+            <CompactTooltip label="Dismiss Woke notification">
               <button
                 type="button"
-                className="visual-task-action"
-                aria-label={settleLabel}
-                onClick={onToggleSettle}
+                className="visual-task-woke"
+                aria-label="Dismiss Woke notification"
+                onClick={onAcknowledgeWoke}
               >
-                <Icon name={settled ? "unsettle" : "settle"} />
+                <Icon name="clock" size="row" />
+                Woke
               </button>
             </CompactTooltip>
+          ) : row.snoozed === true && row.snoozeWake !== undefined ? (
+            <span className="visual-task-status" data-tone="snoozed">
+              <Icon name="clock" size="row" />
+              <span className="visual-task-status-label">{row.snoozeWake}</span>
+              {row.snoozeAt !== undefined && <span className="sr-only">until {row.snoozeAt}</span>}
+            </span>
+          ) : (
+            status !== undefined && <VisualTaskStatus status={status} />
           )}
-        </span>
-      </div>
+          <span className="visual-task-slot-action">
+            {onToggleSettle !== undefined && (
+              <CompactTooltip label={settleLabel}>
+                <button
+                  type="button"
+                  className="visual-task-action"
+                  aria-label={settleLabel}
+                  onClick={onToggleSettle}
+                >
+                  <Icon name={settled ? "unsettle" : "settle"} />
+                </button>
+              </CompactTooltip>
+            )}
+          </span>
+        </div>
+      </TooltipProvider>
     </div>
   );
 }

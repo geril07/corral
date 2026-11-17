@@ -6,6 +6,11 @@ import { page, userEvent } from "vite-plus/test/browser";
 import { useState } from "react";
 import { render } from "vitest-browser-react";
 import type { VisualTaskRow } from "../../common/ui/index.ts";
+import {
+  TOOLTIP_CLOSE_DELAY,
+  TOOLTIP_DELAY,
+  TOOLTIP_WARM_WINDOW,
+} from "../../common/ui/tooltip.tsx";
 import { removeClipboard, stubClipboard } from "../../../test/clipboard.ts";
 import { prefixShifted, prefixThen } from "../../../test/real-client.ts";
 import { KeymapProvider } from "../keymap/index.ts";
@@ -280,6 +285,10 @@ function tooltipText(): string | null {
   return document.querySelector('[role="tooltip"]')?.textContent ?? null;
 }
 
+function compactTooltipText(): string | null {
+  return document.querySelector(".visual-tooltip")?.textContent ?? null;
+}
+
 function nextFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
@@ -427,6 +436,37 @@ test("the card status strip is not a pointer dead zone, and Settle replaces rath
   await userEvent.hover(hit);
   await expect.poll(tooltipText).toContain(FIRST.title);
   expect(document.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
+  await unmount();
+});
+
+test("a card's Settle label and its metadata card each wait the cold delay", async () => {
+  const { container, unmount } = await render(<MenuHarness actions={menuActions()} />);
+  const hit = container.querySelector<HTMLElement>(`[data-task-id="${FIRST.id}"]`);
+  if (hit === null) throw new Error("card is missing");
+  const settle = hit
+    .closest(".visual-task-card")
+    ?.querySelector<HTMLElement>(".visual-task-action");
+  if (settle == null) throw new Error("Settle action is missing");
+
+  await userEvent.hover(hit);
+  await expect.poll(tooltipText).toContain(FIRST.title);
+  await userEvent.hover(settle);
+  await nextFrame();
+  expect(compactTooltipText()).toBeNull();
+  await expect.poll(compactTooltipText).toContain("Settle task");
+
+  // Nothing observable marks the end of the list's warm window, and a control inside a card keeps
+  // its label open past it: only a shared group could open the card without a wait from here.
+  await new Promise((resolve) =>
+    setTimeout(resolve, TOOLTIP_DELAY + TOOLTIP_CLOSE_DELAY + TOOLTIP_WARM_WINDOW),
+  );
+
+  await userEvent.hover(hit);
+  await nextFrame();
+  expect(document.querySelector(".visual-metadata-tooltip")).toBeNull();
+  await expect
+    .poll(() => document.querySelector(".visual-metadata-tooltip")?.textContent ?? null)
+    .toContain(FIRST.title);
   await unmount();
 });
 
