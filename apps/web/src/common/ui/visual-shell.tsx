@@ -2,6 +2,7 @@ import { ContextMenu } from "@base-ui/react/context-menu";
 import {
   useEffect,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
@@ -164,6 +165,15 @@ export function VisualSearchAction({
   );
 }
 
+/** The arrow walk the shelf's two controls share: one stop in the sidebar's order at a time. */
+function shelfStep(onStep: (direction: -1 | 1) => void) {
+  return (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    onStep(event.key === "ArrowDown" ? 1 : -1);
+  };
+}
+
 /** The sidebar's one disclosure row: the wide ghost row with a chevron and a label. */
 export function VisualShelfToggle({
   label,
@@ -191,13 +201,37 @@ export function VisualShelfToggle({
       aria-expanded={expanded}
       aria-controls={ariaControls}
       onClick={onToggle}
-      onKeyDown={(event) => {
-        if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-        event.preventDefault();
-        onStep(event.key === "ArrowDown" ? 1 : -1);
-      }}
+      onKeyDown={shelfStep(onStep)}
     >
       <Icon name={expanded ? "collapse" : "expand"} />
+      <span className="visual-sidebar-label">{label}</span>
+    </button>
+  );
+}
+
+/** The open shelf's last row while rows stay unmounted: the same wide ghost row, one step down. */
+export function VisualShelfMore({
+  label,
+  onClick,
+  onStep,
+  buttonRef,
+}: {
+  label: string;
+  onClick: () => void;
+  /** An arrow from this row: the next stop in the sidebar's order. */
+  onStep: (direction: -1 | 1) => void;
+  buttonRef?: Ref<HTMLButtonElement> | undefined;
+}) {
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      className="visual-sidebar-row"
+      data-tone="muted"
+      onClick={onClick}
+      onKeyDown={shelfStep(onStep)}
+    >
+      <Icon name="show-more" />
       <span className="visual-sidebar-label">{label}</span>
     </button>
   );

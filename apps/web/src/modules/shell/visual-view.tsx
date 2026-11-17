@@ -27,6 +27,7 @@ import {
   VisualIconButton,
   VisualResizeHandle,
   VisualSearchAction,
+  VisualShelfMore,
   VisualShelfToggle,
   VisualSidebar,
   VisualTaskCard,
@@ -184,6 +185,12 @@ function TaskRowMenu({
 
 /** The shelf's disclosure as one keyboard stop; task ids are UUIDs, so no row can take the name. */
 const SHELF_STOP = "shelf";
+/** The open shelf's Show more row, its last keyboard stop while settled rows stay unmounted. */
+const SHELF_MORE_STOP = "shelf-more";
+
+/** Rows the open shelf mounts at first, and the step each Show more adds. */
+const SETTLED_INITIAL_COUNT = 10;
+const SETTLED_PAGE_COUNT = 25;
 
 /** No settled rows, as one stable value: an inline `[]` default would change on every render. */
 const NO_SETTLED_ROWS: readonly VisualTaskRow[] = [];
@@ -331,20 +338,30 @@ const SETTLED_LIST_ID = "visual-settled-list";
 function SettledShelf({
   rows,
   shown,
+  hiddenCount,
   expanded,
   onToggle,
   onStep,
+  onMoreStep,
+  onShowMore,
   toggleRef,
+  moreRef,
   renderRow,
 }: {
   rows: readonly VisualTaskRow[];
-  /** The rows mounted now: all of them expanded, the current one alone collapsed. */
+  /** The rows mounted now: one page expanded, the current one alone collapsed. */
   shown: readonly VisualTaskRow[];
+  /** Settled rows beyond the mounted page; positive ends the shelf with a Show more row. */
+  hiddenCount: number;
   expanded: boolean;
   onToggle: () => void;
-  /** An arrow from the toggle: the next stop in the sidebar's order. */
+  /** An arrow from the disclosure: the next stop in the sidebar's order. */
   onStep: (direction: -1 | 1) => void;
+  /** An arrow from Show more: the same walk, from that row's place in it. */
+  onMoreStep: (direction: -1 | 1) => void;
+  onShowMore: () => void;
   toggleRef: RefObject<HTMLButtonElement | null>;
+  moreRef: RefObject<HTMLButtonElement | null>;
   renderRow: (row: VisualTaskRow) => ReactNode;
 }) {
   return (
@@ -361,6 +378,14 @@ function SettledShelf({
       <ul id={SETTLED_LIST_ID} className="visual-task-list" aria-label="Settled tasks">
         {shown.map(renderRow)}
       </ul>
+      {hiddenCount > 0 && (
+        <VisualShelfMore
+          label={`Show ${Math.min(hiddenCount, SETTLED_PAGE_COUNT)} more`}
+          onClick={onShowMore}
+          onStep={onMoreStep}
+          buttonRef={moreRef}
+        />
+      )}
     </div>
   );
 }
@@ -487,6 +512,8 @@ export function VisualShellView({
 }: VisualShellViewProps) {
   const pane = useVisualSidebarPane();
   const shelf = useSettledShelf();
+  // The open shelf mounts one page and grows only on request; a collapsed shelf ignores this.
+  const [visibleSettledCount, setVisibleSettledCount] = useState(SETTLED_INITIAL_COUNT);
   // The selection may name a settled task: the shelf is part of the one list, so a settled row is
   // found before the fallback to the first active one.
   const selected =
@@ -518,6 +545,9 @@ export function VisualShellView({
   const newTaskButton = useRef<HTMLButtonElement>(null);
   const sidebarFrame = useRef<HTMLElement>(null);
   const shelfToggle = useRef<HTMLButtonElement>(null);
+  const shelfMore = useRef<HTMLButtonElement>(null);
+  // The row the last page reveals, so the keyboard lands in the list when Show more unmounts.
+  const pendingShelfRow = useRef<string | undefined>(undefined);
   const toggleLayer = useRef<HTMLDivElement>(null);
   const toggleButton = useRef<HTMLButtonElement>(null);
   const openToggleSlot = useRef<HTMLSpanElement>(null);
@@ -620,22 +650,33 @@ export function VisualShellView({
   );
   // The composer is a view, not a selected row: its open state also silences row chords.
   const currentTaskId = composerOpen ? undefined : selected?.id;
-  // What the shelf mounts: every settled row when open, the current one alone when closed.
+  // What the shelf mounts: the current one alone when closed, one page when open.
   const currentSettled = settled.find((row) => row.id === currentTaskId);
-  const shownSettled = useMemo(
-    () => (shelf.expanded ? settled : currentSettled === undefined ? [] : [currentSettled]),
-    [currentSettled, settled, shelf.expanded],
+  const settledPage = useMemo(
+    () => settled.slice(0, visibleSettledCount),
+    [settled, visibleSettledCount],
   );
+  const hiddenSettled = Math.max(0, settled.length - visibleSettledCount);
+  const shownSettled = useMemo(() => {
+    if (!shelf.expanded) return currentSettled === undefined ? [] : [currentSettled];
+    // A route can name a settled task below the mounted page: mount it on its own, as the closed
+    // shelf mounts its current row, rather than mounting every older row above it.
+    if (currentSettled === undefined || settledPage.includes(currentSettled)) return settledPage;
+    return [...settledPage, currentSettled];
+  }, [currentSettled, settledPage, shelf.expanded]);
+  const moreSettled = shelf.expanded && hiddenSettled > 0;
   // Navigation and the settle intent read the rows as they are *now*, through refs, so their
   // callbacks stay one identity across a status tick instead of re-rendering every mounted card.
   const rowsRef = useRef(rows);
   const settledRef = useRef(settled);
   const shownSettledRef = useRef(shownSettled);
+  const shelfMoreVisibleRef = useRef(moreSettled);
   useLayoutEffect(() => {
     rowsRef.current = rows;
     settledRef.current = settled;
     shownSettledRef.current = shownSettled;
-  }, [rows, settled, shownSettled]);
+    shelfMoreVisibleRef.current = moreSettled;
+  }, [rows, settled, shownSettled, moreSettled]);
   // Every keyboard stop in the sidebar's order: the active cards, the shelf toggle, its rows.
   const navigate = useCallback(
     (from: string, direction: -1 | 1) => {
@@ -643,6 +684,7 @@ export function VisualShellView({
       if (settledRef.current.length > 0) {
         stops.push(SHELF_STOP);
         for (const row of shownSettledRef.current) stops.push(row.id);
+        if (shelfMoreVisibleRef.current) stops.push(SHELF_MORE_STOP);
       }
       const index = stops.indexOf(from);
       if (index === -1) return;
@@ -652,10 +694,30 @@ export function VisualShellView({
         shelfToggle.current?.focus();
         return;
       }
+      if (next === SHELF_MORE_STOP) {
+        shelfMore.current?.focus();
+        return;
+      }
       selectRow(next);
     },
     [selectRow],
   );
+  const showMoreSettled = useCallback(() => {
+    pendingShelfRow.current = settledRef.current[visibleSettledCount]?.id;
+    setVisibleSettledCount((count) => count + SETTLED_PAGE_COUNT);
+  }, [visibleSettledCount]);
+  // Show more stays mounted while rows remain, so it keeps the keyboard; the appended page is
+  // scrolled into view. Only the last page unmounts it, and then the keyboard lands on that row.
+  useLayoutEffect(() => {
+    const pending = pendingShelfRow.current;
+    if (pending === undefined) return;
+    pendingShelfRow.current = undefined;
+    if (settled.length > visibleSettledCount) {
+      rowElement(pending)?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    rowElement(pending)?.focus();
+  }, [rowElement, settled.length, visibleSettledCount]);
   const settle = taskActions?.onToggleSettle;
   // The intent lives only until the user does something else or the row moves: a settle that
   // reports success without moving (the server already had the state) must not take the keyboard
@@ -894,10 +956,14 @@ export function VisualShellView({
       <SettledShelf
         rows={settled}
         shown={shownSettled}
+        hiddenCount={moreSettled ? hiddenSettled : 0}
         expanded={shelf.expanded}
         onToggle={shelf.toggle}
         onStep={(direction) => navigate(SHELF_STOP, direction)}
+        onMoreStep={(direction) => navigate(SHELF_MORE_STOP, direction)}
+        onShowMore={showMoreSettled}
         toggleRef={shelfToggle}
+        moreRef={shelfMore}
         renderRow={renderRow}
       />
     );

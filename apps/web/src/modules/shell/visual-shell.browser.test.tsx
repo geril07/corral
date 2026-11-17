@@ -1128,6 +1128,75 @@ test("an expanded shelf reveals the current row when the selection arrives from 
   await unmount();
 });
 
+test("the open shelf mounts one page and appends the next only when asked", async () => {
+  const settled = Array.from({ length: 40 }, (_, index) => ({
+    ...VISUAL_REVIEW_ROWS[0]!,
+    id: `fixture-settled-${index}`,
+    title: `Settled row ${index}`,
+    settled: true,
+  }));
+  const { container, unmount } = await render(
+    <MenuHarness actions={menuActions()} rows={VISUAL_REVIEW_ROWS} settledRows={settled} />,
+  );
+  await page.getByRole("button", { name: "Settled (40)" }).click();
+  const shelfRows = () => [
+    ...container.querySelectorAll<HTMLElement>(".visual-shelf [data-task-id]"),
+  ];
+  await vi.waitFor(() => expect(shelfRows()).toHaveLength(10));
+  const more = page.getByRole("button", { name: "Show 25 more" });
+  await expect.element(more).toBeVisible();
+
+  // The last mounted row's ArrowDown lands on the control instead of leaving the sidebar.
+  shelfRows().at(-1)!.focus();
+  await userEvent.keyboard("{ArrowDown}");
+  expect(document.activeElement).toBe(more.element());
+
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(shelfRows()).toHaveLength(35));
+  await expect.element(page.getByRole("button", { name: "Show 5 more" })).toHaveFocus();
+  const firstNew = container.querySelector<HTMLElement>(`[data-task-id="${settled[10]!.id}"]`);
+  const scroller = container.querySelector<HTMLElement>(".visual-task-scroll");
+  if (firstNew === null || scroller === null) throw new Error("the appended page is missing");
+  // The appended page starts in view while the focused control stays where it was.
+  const firstNewBox = firstNew.getBoundingClientRect();
+  const scrollerBox = scroller.getBoundingClientRect();
+  expect(firstNewBox.top).toBeGreaterThanOrEqual(scrollerBox.top - 1);
+  expect(firstNewBox.top).toBeLessThanOrEqual(scrollerBox.bottom);
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(shelfRows()).toHaveLength(40));
+  // The control is gone, so the keyboard lands on the first row the last page revealed.
+  await vi.waitFor(() =>
+    expect(document.activeElement?.getAttribute("data-task-id")).toBe(settled[35]!.id),
+  );
+  // The disclosure's count is the whole shelf, not the mounted page.
+  await expect.element(page.getByRole("button", { name: "Settled (40)" })).toBeVisible();
+  await unmount();
+});
+
+test("the shelf keeps its last row off the scroller's bottom edge", async () => {
+  const settled = Array.from({ length: 12 }, (_, index) => ({
+    ...VISUAL_REVIEW_ROWS[0]!,
+    id: `fixture-settled-${index}`,
+    title: `Settled row ${index}`,
+    settled: true,
+  }));
+  const { container, unmount } = await render(
+    <MenuHarness actions={menuActions()} rows={VISUAL_REVIEW_ROWS} settledRows={settled} />,
+  );
+  await page.getByRole("button", { name: "Settled (12)" }).click();
+  const shelf = container.querySelector<HTMLElement>(".visual-shelf");
+  const scroller = container.querySelector<HTMLElement>(".visual-task-scroll");
+  const last = shelf?.lastElementChild;
+  if (shelf === null || scroller === null || last === null || last === undefined) {
+    throw new Error("the shelf is missing its scroller or last row");
+  }
+  scroller.scrollTop = scroller.scrollHeight;
+
+  const gap = scroller.getBoundingClientRect().bottom - last.getBoundingClientRect().bottom;
+  expect(gap).toBeGreaterThanOrEqual(7.5);
+  await unmount();
+});
+
 test("the shelf's writer keeps the prior sidebar's page in the shared device preference", async () => {
   window.localStorage.setItem("corral.sidebar-shelf", JSON.stringify({ expanded: false, page: 2 }));
   const { unmount } = await render(
