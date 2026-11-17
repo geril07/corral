@@ -361,3 +361,60 @@ test("unknown and malformed fields are ignored instead of throwing", () => {
   ).toEqual([]);
   expect(timeline.snapshot().items).toEqual([]);
 });
+
+test("an assistant message's usage becomes the context reading, against the model's own window", () => {
+  const { timeline, created, apply } = projection();
+  created.loadModelState(
+    { model: { id: "stub-1", name: "Stub One", provider: "stub" } },
+    [{ id: "stub-1", name: "Stub One", provider: "stub", contextWindow: 200_000 }],
+    [],
+  );
+  apply(
+    { type: "message_start", message: { role: "assistant", content: [] } },
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        stopReason: "stop",
+        usage: {
+          input: 1_000,
+          output: 500,
+          cacheRead: 40_000,
+          cacheWrite: 100,
+          totalTokens: 41_600,
+        },
+      },
+    },
+  );
+  expect(timeline.state.context).toEqual({ usedTokens: 41_600, maxTokens: 200_000 });
+
+  // The compaction replaces the conversation the reading described; pi reports nothing until the
+  // next response arrives.
+  apply({ type: "compaction_start", reason: "auto" });
+  expect(timeline.state.context).toBeNull();
+});
+
+test("a rebuilt transcript reads its last assistant message on resume", () => {
+  const { timeline, created } = projection();
+  created.loadModelState(
+    { model: { id: "stub-1", name: "Stub One", provider: "stub" } },
+    [{ id: "stub-1", name: "Stub One", provider: "stub", contextWindow: 200_000 }],
+    [],
+  );
+  created.loadHistory([
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "older" }],
+      stopReason: "stop",
+      usage: { input: 1_000, output: 100, cacheRead: 10_000, cacheWrite: 0 },
+    },
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "newest" }],
+      stopReason: "stop",
+      usage: { input: 2_000, output: 300, cacheRead: 30_000, cacheWrite: 0 },
+    },
+  ]);
+  expect(timeline.state.context).toEqual({ usedTokens: 32_300, maxTokens: 200_000 });
+});

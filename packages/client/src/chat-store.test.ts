@@ -32,6 +32,7 @@ const idle: ChatSessionState = {
   models: [],
   reasoning: null,
   reasoningLevels: [],
+  context: null,
 };
 
 const user: ChatItem = { kind: "user-message", id: "u1", text: "Fix the flaky test" };

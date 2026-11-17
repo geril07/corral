@@ -74,6 +74,8 @@ export class OpenCodeProjection {
   readonly #requests = new Map<string, PendingRequest>();
   /** Tool input streamed before `session.tool.called` replaces it with the parsed object. */
   readonly #toolArguments = new Map<string, string>();
+  /** Each catalogued model's context window, keyed `provider/id`; empty until the driver loads it. */
+  #modelWindows = new Map<string, number>();
 
   constructor(timeline: ChatTimeline, options: OpenCodeProjectionOptions) {
     this.#timeline = timeline;
@@ -94,6 +96,15 @@ export class OpenCodeProjection {
     const model = modelOf(info.model);
     if (model !== null) this.#timeline.setState({ model });
     if (busy(info.time)) this.#timeline.setState({ turn: "working" });
+  }
+
+  /**
+   * The context windows of the server's model catalog (`GET /api/model`). A session's messages name
+   * their model but carry no window, so the limit has to come from the catalog; without it the
+   * reading has no percentage.
+   */
+  setModelWindows(windows: ReadonlyMap<string, number>): void {
+    this.#modelWindows = new Map(windows);
   }
 
   /**
@@ -197,6 +208,9 @@ export class OpenCodeProjection {
         this.#timeline.setState({ turn: "working" });
         actions.push({ type: "status", state: "working" });
         break;
+      case "session.step.ended":
+        this.#recordUsage(data["tokens"], this.#timeline.state.model);
+        break;
       case "session.execution.started":
         this.#timeline.setState({ turn: "working" });
         actions.push({ type: "status", state: "working" });
@@ -219,6 +233,7 @@ export class OpenCodeProjection {
       case "session.step.failed": {
         const message = errorMessage(data["error"]) ?? "the turn failed";
         const messageId = stringOf(data["assistantMessageID"]);
+        this.#recordUsage(data["tokens"], this.#timeline.state.model);
         this.#timeline.put({
           kind: "error",
           id: messageId === undefined ? "error:last" : `error:${messageId}`,
@@ -313,9 +328,33 @@ export class OpenCodeProjection {
     return this.#dialogTimeoutMs;
   }
 
+  /**
+   * The usage of one completed step: its prompt plus the tokens it produced, which is what the next
+   * step carries. A rebuilt transcript's assistant message reports the same figures as the step's
+   * own event, so hydration and the live stream agree.
+   */
+  #recordUsage(tokens: unknown, model: ChatModel | null): void {
+    const usage = asRecord(tokens);
+    if (usage === undefined) return;
+    const cache = asRecord(usage["cache"]);
+    const usedTokens =
+      (numberOf(usage["input"]) ?? 0) +
+      (numberOf(usage["output"]) ?? 0) +
+      (numberOf(usage["reasoning"]) ?? 0) +
+      (numberOf(cache?.["read"]) ?? 0) +
+      (numberOf(cache?.["write"]) ?? 0);
+    if (usedTokens <= 0) return;
+    const maxTokens =
+      model?.provider == null
+        ? null
+        : (this.#modelWindows.get(`${model.provider}/${model.id}`) ?? null);
+    this.#timeline.setState({ context: { usedTokens, maxTokens } });
+  }
+
   #loadAssistant(messageId: string, message: Record<string, unknown>): void {
     const model = modelOf(message["model"]);
     if (model !== null) this.#timeline.setState({ model });
+    this.#recordUsage(message["tokens"], model ?? this.#timeline.state.model);
     const content = Array.isArray(message["content"]) ? message["content"] : [];
     let textOrdinal = 0;
     let reasoningOrdinal = 0;

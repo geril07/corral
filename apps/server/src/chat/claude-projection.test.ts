@@ -6,6 +6,9 @@ import {
   assistantText,
   assistantToolUse,
   replayOf,
+  resultSuccess,
+  scriptedMessage,
+  sessionMessage,
   streamText,
   toolResult,
 } from "../../test/fake-agents/fake-claude-sdk.ts";
@@ -127,4 +130,65 @@ test("an 'always allow' answer carries the CLI's own permission rules", async ()
     decisionClassification: "user_permanent",
   });
   expect(timeline.item(itemId)).toMatchObject({ status: "answered", answer: "allow-always" });
+});
+
+test("the context reading is the request's prompt plus its answer, against the window on the result", () => {
+  const { projection: map, timeline } = projection();
+  map.apply(
+    scriptedMessage({
+      type: "stream_event",
+      event: {
+        type: "message_start",
+        message: {
+          id: "msg_ctx",
+          role: "assistant",
+          content: [],
+          usage: {
+            input_tokens: 1_200,
+            cache_creation_input_tokens: 300,
+            cache_read_input_tokens: 40_000,
+            output_tokens: 1,
+          },
+        },
+      },
+    }),
+  );
+  expect(timeline.state.context).toEqual({ usedTokens: 41_500, maxTokens: null });
+
+  map.apply(
+    scriptedMessage({
+      type: "stream_event",
+      event: {
+        type: "message_delta",
+        delta: { stop_reason: "end_turn" },
+        usage: { output_tokens: 800 },
+      },
+    }),
+  );
+  expect(timeline.state.context).toEqual({ usedTokens: 42_300, maxTokens: null });
+
+  // The result names no model the session list knows, so the entry that did the most prompt work
+  // — the main loop, not the subagent — provides the window.
+  map.apply(
+    resultSuccess("", {
+      "claude-haiku-5-5": { inputTokens: 4_000, contextWindow: 200_000 },
+      "claude-sonnet-5": { inputTokens: 500_000, contextWindow: 1_000_000 },
+    }),
+  );
+  expect(timeline.state.context).toEqual({ usedTokens: 42_300, maxTokens: 1_000_000 });
+});
+
+test("a resumed transcript reads the last main-loop request, never a subagent's", () => {
+  const { projection: map, timeline } = projection();
+  map.loadHistory([
+    sessionMessage("assistant", "h-1", [{ type: "text", text: "older" }], {
+      usage: { input_tokens: 1_000, cache_read_input_tokens: 40_000, output_tokens: 500 },
+    }),
+    // Last in the transcript, but another conversation: it must not replace the reading.
+    sessionMessage("assistant", "h-2", [{ type: "text", text: "subagent" }], {
+      usage: { input_tokens: 9_000, output_tokens: 5 },
+      parentToolUseId: "tool-1",
+    }),
+  ]);
+  expect(timeline.state.context).toEqual({ usedTokens: 41_500, maxTokens: null });
 });

@@ -51,10 +51,13 @@ import { z } from "zod";
  * reply being refused. Version 15 adds task snooze: two required task fields (`snoozedUntil`,
  * `snoozedAt`), `tasks.snooze` and `tasks.unsnooze`, and `ClientConfig.snooze` with its default.
  * A version 14 server's task rows lack the fields and answer both procedures as unknown, and its
- * config has no preset list, so the client would offer a menu whose every choice fails.
+ * config has no preset list, so the client would offer a menu whose every choice fails. Version 16
+ * adds the required `ChatSessionState.context`: a version 15 daemon never sends a session's
+ * context-window usage, so a 16 client would show no reading for a conversation the daemon could
+ * have measured, and the refusal names the version instead.
  */
-// Version 15 adds the snooze fields, procedures and preset config.
-export const PROTOCOL_VERSION = 15;
+// Version 16 adds the chat session's context-window usage; 15 added the snooze fields.
+export const PROTOCOL_VERSION = 16;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in

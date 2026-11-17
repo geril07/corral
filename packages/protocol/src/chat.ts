@@ -187,6 +187,19 @@ export const ChatModel = ChatModelRef.extend({
 });
 export type ChatModel = z.infer<typeof ChatModel>;
 
+/**
+ * How full the session's context window is, as the agent itself reports it. `maxTokens` is
+ * `null` when the agent reports tokens but no window: the reading is still the agent's, so the
+ * client shows the count without a percentage instead of inventing a limit.
+ */
+export const ChatContextUsage = z.object({
+  /** Tokens the conversation's next request carries, as the agent reported them. */
+  usedTokens: z.number().int().nonnegative(),
+  /** The window those tokens are measured against; `null` when the agent reported none. */
+  maxTokens: z.number().int().positive().nullable(),
+});
+export type ChatContextUsage = z.infer<typeof ChatContextUsage>;
+
 /** Everything about a session that is not one item of its timeline. */
 export const ChatSessionState = z.object({
   turn: ChatTurnState,
@@ -202,6 +215,12 @@ export const ChatSessionState = z.object({
   reasoning: z.string().nullable(),
   /** Levels the driver accepts, in its order; empty when it has none. */
   reasoningLevels: z.array(z.string()),
+  /**
+   * The session's context-window usage as the agent last reported it; `null` until it reports one,
+   * and for a driver whose protocol carries no usage. It is session state rather than a timeline
+   * item: a compaction replaces the reading instead of adding a row to the transcript.
+   */
+  context: ChatContextUsage.nullable(),
 });
 export type ChatSessionState = z.infer<typeof ChatSessionState>;
 

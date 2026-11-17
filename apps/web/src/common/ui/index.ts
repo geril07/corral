@@ -47,6 +47,7 @@ export { ActionLink, TextLink, LinkAnchor } from "./text-link.tsx";
 export { MediaPreview, type MediaSource } from "./media-preview.tsx";
 export { Textarea } from "./textarea.tsx";
 export { ComposerSurface, ComposerToolbar } from "./composer.tsx";
+export { ProgressRing, type ProgressRingTone } from "./progress-ring.tsx";
 export { Markdown, type MarkdownAnchorProps, type MarkdownLinks } from "./streamdown.tsx";
 export { DiffView } from "./diff-view.tsx";
 export { Kbd } from "./kbd.tsx";

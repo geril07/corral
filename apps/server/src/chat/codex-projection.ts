@@ -29,6 +29,7 @@ export const CODEX_NOTIFICATIONS = [
   "thread/closed",
   "thread/status/changed",
   "thread/compacted",
+  "thread/tokenUsage/updated",
   "turn/started",
   "turn/completed",
   "turn/diff/updated",
@@ -233,6 +234,20 @@ export class CodexProjection {
       case "thread/compacted":
         this.#notice("codex-notice:compacted", "Codex compacted the conversation.");
         return [];
+      case "thread/tokenUsage/updated": {
+        // `last` is the newest request's usage and therefore what fills the window; `total` is the
+        // whole thread's spend, which keeps growing after a compaction and never measures context.
+        const usage = recordOf(params["tokenUsage"]);
+        const usedTokens = positiveInteger(recordOf(usage?.["last"])?.["totalTokens"]);
+        if (usedTokens === undefined) return [];
+        this.#timeline.setState({
+          context: {
+            usedTokens,
+            maxTokens: positiveInteger(usage?.["modelContextWindow"]) ?? null,
+          },
+        });
+        return [];
+      }
       default:
         return [];
     }
@@ -680,4 +695,9 @@ function arrayOf(value: unknown): unknown[] {
 
 function stringOf(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+/** A count a frame reported; zero is no measurement for tokens a request cannot send. */
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
 }

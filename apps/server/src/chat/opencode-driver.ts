@@ -274,6 +274,18 @@ export class OpenCodeDriver implements ChatDriver {
     }
   }
 
+  /**
+   * Each catalogued model's context window. A server whose catalog cannot be read still has a
+   * transcript worth showing, so the reading loses its percentage instead of the session failing.
+   */
+  async #modelWindows(): Promise<Map<string, number>> {
+    try {
+      return modelWindowsOf(await this.#json("GET", "/api/model"));
+    } catch {
+      return new Map();
+    }
+  }
+
   /** Rebuilds transcript, session state and pending permissions from the server. */
   async #hydrate(): Promise<string | undefined> {
     const session = this.#session();
@@ -284,11 +296,15 @@ export class OpenCodeDriver implements ChatDriver {
         model: recordField(data, "model"),
         time: recordField(data, "time"),
       });
-      const messages = await this.#json(
-        "GET",
-        `/api/session/${encodeURIComponent(session)}/message?limit=200&order=asc`,
-      );
+      const [messages, windows] = await Promise.all([
+        this.#json(
+          "GET",
+          `/api/session/${encodeURIComponent(session)}/message?limit=200&order=asc`,
+        ),
+        this.#modelWindows(),
+      ]);
       const list = arrayField(messages, "data") ?? [];
+      this.#projection.setModelWindows(windows);
       this.#projection.loadHistory(list);
       const permissions = await this.#json(
         "GET",
@@ -582,6 +598,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function recordField(value: unknown, key: string): unknown {
   return recordOf(value)?.[key];
+}
+
+/**
+ * The `limit.context` of every model in the catalog (`GET /api/model`), keyed the way a session's
+ * message names its model. A catalog entry carries both `id` and `modelID`; a message's ref uses
+ * `id`, which is the key that has to match.
+ */
+function modelWindowsOf(body: unknown): Map<string, number> {
+  const windows = new Map<string, number>();
+  for (const entry of arrayField(body, "data") ?? []) {
+    const provider = stringField(entry, "providerID");
+    const id = stringField(entry, "id") ?? stringField(entry, "modelID");
+    const context = recordField(recordField(entry, "limit"), "context");
+    if (provider === undefined || id === undefined || typeof context !== "number") continue;
+    if (!Number.isInteger(context) || context <= 0) continue;
+    windows.set(`${provider}/${id}`, context);
+  }
+  return windows;
 }
 
 function stringField(value: unknown, key: string): string | undefined {

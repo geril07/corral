@@ -17,6 +17,7 @@ export const IDLE_CHAT: ChatSessionState = {
   models: [],
   reasoning: null,
   reasoningLevels: [],
+  context: null,
 };
 
 export function workingChat(overrides: Partial<ChatSessionState> = {}): ChatSessionState {
