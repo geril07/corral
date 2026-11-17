@@ -5,12 +5,12 @@ import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { useState } from "react";
 import { render } from "vitest-browser-react";
-import type { VisualTaskRow } from "../../common/ui/index.ts";
 import {
   TOOLTIP_CLOSE_DELAY,
   TOOLTIP_DELAY,
   TOOLTIP_WARM_WINDOW,
 } from "../../common/ui/tooltip.tsx";
+import { ToastProvider, type VisualTaskRow } from "../../common/ui/index.ts";
 import { removeClipboard, stubClipboard } from "../../../test/clipboard.ts";
 import { prefixShifted, prefixThen } from "../../../test/real-client.ts";
 import { KeymapProvider } from "../keymap/index.ts";
@@ -211,23 +211,25 @@ function MenuHarness({
     selectedId === undefined ? (rows[0]?.id ?? null) : selectedId,
   );
   return (
-    <VisualShellView
-      rows={rows}
-      snoozedRows={snoozedRows}
-      settledRows={settledRows}
-      selectedId={selected}
-      projectsLoaded
-      tasksLoaded
-      failure={undefined}
-      shortcut={SHORTCUT}
-      renameShortcut={RENAME_SHORTCUT}
-      removeShortcut={REMOVE_SHORTCUT}
-      settleShortcut={SETTLE_SHORTCUT}
-      focusSidebarShortcut={FOCUS_SHORTCUT}
-      taskActions={actions}
-      composerOpen={composerOpen}
-      onSelectTask={setSelected}
-    />
+    <ToastProvider>
+      <VisualShellView
+        rows={rows}
+        snoozedRows={snoozedRows}
+        settledRows={settledRows}
+        selectedId={selected}
+        projectsLoaded
+        tasksLoaded
+        failure={undefined}
+        shortcut={SHORTCUT}
+        renameShortcut={RENAME_SHORTCUT}
+        removeShortcut={REMOVE_SHORTCUT}
+        settleShortcut={SETTLE_SHORTCUT}
+        focusSidebarShortcut={FOCUS_SHORTCUT}
+        taskActions={actions}
+        composerOpen={composerOpen}
+        onSelectTask={setSelected}
+      />
+    </ToastProvider>
   );
 }
 
@@ -260,7 +262,9 @@ function shortcutCells(): (string | undefined)[] {
   );
 }
 
-const copyNotice = () => document.querySelector(".visual-shell-notice-message")?.textContent;
+const copyToast = () => document.querySelector('[data-slot="toast-title"]')?.textContent;
+const copyToastTone = () =>
+  document.querySelector('[data-slot="toast"]')?.getAttribute("data-tone") ?? "notice";
 
 function taskOf(row: VisualTaskRow): Task {
   return {
@@ -963,7 +967,7 @@ test("View issue source… exists only for a task that has a source", async () =
   await unmount();
 });
 
-test("copy writes the task path, branch and id, and each is confirmed in the copy notice", async () => {
+test("copy writes the task path, branch and id, and each is confirmed in the copy toast", async () => {
   const clipboard = stubClipboard(async () => undefined);
   try {
     const actions = menuActions();
@@ -975,7 +979,9 @@ test("copy writes the task path, branch and id, and each is confirmed in the cop
     await vi.waitFor(() =>
       expect(clipboard.writeText).toHaveBeenLastCalledWith(FIRST.workspacePath),
     );
-    expect(copyNotice()).toBe("Workspace path copied");
+    // The menu is gone by the time the clipboard answers, so the toast carries what was taken.
+    await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+    expect(copyToast()).toBe("Workspace path copied");
 
     await openRowMenu(FIRST.title);
     await page.getByRole("menuitem", { name: "Copy" }).click();
@@ -983,20 +989,23 @@ test("copy writes the task path, branch and id, and each is confirmed in the cop
     await vi.waitFor(() =>
       expect(clipboard.writeText).toHaveBeenLastCalledWith(FIRST.metadata.branch),
     );
-    expect(copyNotice()).toBe("Branch copied");
+    expect(copyToast()).toBe("Branch copied");
+    // Each copy keeps its own card, so the two answers stand in the corner's stack.
+    expect(document.querySelectorAll('[data-slot="toast"]')).toHaveLength(2);
 
     await openRowMenu(FIRST.title);
     await page.getByRole("menuitem", { name: "Copy" }).click();
     await page.getByRole("menuitem", { name: "Copy task ID" }).click();
     await vi.waitFor(() => expect(clipboard.writeText).toHaveBeenLastCalledWith(FIRST.id));
-    expect(copyNotice()).toBe("Task ID copied");
+    expect(copyToast()).toBe("Task ID copied");
+    expect(document.querySelectorAll('[data-slot="toast"]')).toHaveLength(3);
     await unmount();
   } finally {
     clipboard.restore();
   }
 });
 
-test("clipboard refusal is visible in the task notice", async () => {
+test("clipboard refusal is a high-priority error toast, not a sidebar notice", async () => {
   const clipboard = stubClipboard(() =>
     Promise.reject(new Error("The system denied clipboard access.")),
   );
@@ -1005,8 +1014,13 @@ test("clipboard refusal is visible in the task notice", async () => {
     await openRowMenu(FIRST.title);
     await page.getByRole("menuitem", { name: "Copy" }).click();
     await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
-    await vi.waitFor(() => expect(copyNotice()).toBe("The system denied clipboard access."));
-    await expect.element(page.getByRole("alert")).toBeVisible();
+    await vi.waitFor(() => expect(copyToast()).toBe("The system denied clipboard access."));
+    expect(copyToastTone()).toBe("error");
+    // `priority: "high"` is what makes the region announce the refusal at once, through the
+    // library's own visually hidden alert.
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent("The system denied clipboard access.");
     await unmount();
   } finally {
     clipboard.restore();
@@ -1020,8 +1034,8 @@ test("an unavailable clipboard is reported instead of claiming a copy", async ()
     await openRowMenu(FIRST.title);
     await page.getByRole("menuitem", { name: "Copy" }).click();
     await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
-    await vi.waitFor(() => expect(copyNotice()).toBe("Clipboard access is unavailable."));
-    await expect.element(page.getByRole("alert")).toBeVisible();
+    await vi.waitFor(() => expect(copyToast()).toBe("Clipboard access is unavailable."));
+    expect(copyToastTone()).toBe("error");
     await unmount();
   } finally {
     clipboard.restore();
@@ -1547,7 +1561,7 @@ test("a settle that reports success without moving cannot take the keyboard late
   await screen.unmount();
 });
 
-test("a copy confirmation clears on the next interaction", async () => {
+test("a copy toast stays put while the user acts elsewhere, and dismisses on request", async () => {
   const clipboard = stubClipboard(async () => undefined);
   try {
     const actions = menuActions();
@@ -1556,10 +1570,14 @@ test("a copy confirmation clears on the next interaction", async () => {
     await openRowMenu(FIRST.title);
     await page.getByRole("menuitem", { name: "Copy" }).click();
     await page.getByRole("menuitem", { name: "Copy workspace path" }).click();
-    await vi.waitFor(() => expect(copyNotice()).toBe("Workspace path copied"));
+    await vi.waitFor(() => expect(copyToast()).toBe("Workspace path copied"));
 
+    // Selecting another row is not a reason to retract an answer the user has not read yet.
     await userEvent.click(cardButton(0));
-    await expect.poll(copyNotice).toBeUndefined();
+    expect(copyToast()).toBe("Workspace path copied");
+
+    await page.getByRole("button", { name: "Dismiss notification" }).click();
+    await expect.poll(() => document.querySelector('[data-slot="toast"]')).toBeNull();
     await unmount();
   } finally {
     clipboard.restore();

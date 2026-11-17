@@ -484,8 +484,6 @@ export interface VisualTaskCardProps {
   onAcknowledgeWoke?: (() => void) | undefined;
   /** The row's secondary actions; absent in a host that has no task store to act on. */
   menu?: ReactNode | undefined;
-  /** The menu took the keyboard; the shell's transient copy confirmation can go. */
-  onMenuOpen?: (() => void) | undefined;
 }
 
 /** One 52 px, two-line task card. Selection stays a click; details open on hover and keyboard focus. */
@@ -497,7 +495,6 @@ export function VisualTaskCard({
   onToggleSettle,
   onAcknowledgeWoke,
   menu,
-  onMenuOpen,
 }: VisualTaskCardProps) {
   const { status, settled = false } = row;
   const [tooltipOpen, setTooltipOpen] = useState(false);
@@ -553,7 +550,6 @@ export function VisualTaskCard({
             if (open) {
               // A menu and the metadata card never stack; the mouse path opens the menu first.
               setTooltipOpen(false);
-              onMenuOpen?.();
             }
           }}
         >

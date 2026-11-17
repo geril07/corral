@@ -449,29 +449,6 @@
   gap: 3px;
 }
 
-/* One status sentence above the footer's actions: a copy confirmation or a refused action. */
-.visual-shell-notice {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 0;
-  border-top: 1px solid var(--visual-border-muted);
-}
-
-.visual-shell-notice-message {
-  flex: 1 1 auto;
-  min-width: 0;
-  color: var(--visual-text-muted);
-  font-size: 11px;
-  line-height: 16px;
-  overflow-wrap: anywhere;
-}
-
-.visual-shell-notice[data-tone="error"] .visual-shell-notice-message {
-  color: var(--visual-status-error);
-}
-
 /* Icon buttons centre a 16 px glyph in a 28 px box, so the row starts 6 px before the column the
    rows above use: the glyphs, not the boxes, are what line up. */
 .visual-sidebar-footer {
@@ -2406,4 +2383,143 @@
   gap: 0.5rem;
   padding: 0 1rem;
   border-top: 1px solid var(--visual-border-muted);
+}
+
+/* ── Toasts ──────────────────────────────────────────────────────────────── */
+
+/* One stack at the window's bottom-right. The manager keeps the newest toast first, so
+   `--toast-index: 0` is the card at the corner; the rest sit behind it, peeking 8 px and scaled
+   down, with their content hidden until the stack expands on hover or focus. The geometry is
+   shadcn's Base UI toast scaffold (`registry/bases/base/ui/toast.tsx`), in the shell's tokens. */
+.visual-toast-region {
+  --visual-toast-inset: 16px;
+  --visual-toast-width: 20rem;
+  --visual-toast-peek: 12px;
+  --visual-toast-gap: 12px;
+  position: fixed;
+  right: var(--visual-toast-inset);
+  bottom: var(--visual-toast-inset);
+  z-index: 100;
+  width: var(--visual-toast-width);
+  max-width: calc(100vw - var(--visual-toast-inset) * 2);
+  outline: none;
+  pointer-events: none;
+}
+
+.visual-toast {
+  --visual-toast-frame: var(--toast-frontmost-height, var(--toast-height));
+  --visual-toast-scale: calc(max(0, 1 - var(--toast-index) * 0.1));
+  /* Collapsed: peeking behind the front card. Expanded: a plain column, newest at the bottom. */
+  --visual-toast-stacked-y: calc(
+    var(--toast-swipe-movement-y) - var(--toast-index) * var(--visual-toast-peek) -
+      (1 - var(--visual-toast-scale)) * var(--visual-toast-frame)
+  );
+  --visual-toast-expanded-y: calc(
+    var(--toast-offset-y) * -1 + var(--toast-index) * var(--visual-toast-gap) * -1 +
+      var(--toast-swipe-movement-y)
+  );
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: calc(1000 - var(--toast-index));
+  width: 100%;
+  height: var(--visual-toast-frame);
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--visual-shadow-floating);
+  font-size: 14px;
+  line-height: 20px;
+  transform-origin: bottom center;
+  transform: translateX(var(--toast-swipe-movement-x)) translateY(var(--visual-toast-stacked-y))
+    scale(var(--visual-toast-scale));
+  transition:
+    transform 500ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 500ms,
+    height 150ms;
+  pointer-events: auto;
+}
+
+/* A click that lands in the gap still counts as the stack's own, so it does not collapse. */
+.visual-toast::after {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  height: calc(var(--visual-toast-gap) + 1px);
+  content: "";
+}
+
+.visual-toast[data-expanded] {
+  height: var(--toast-height);
+  transform: translateX(var(--toast-swipe-movement-x)) translateY(var(--visual-toast-expanded-y));
+}
+
+.visual-toast[data-starting-style] {
+  transform: translateY(150%);
+}
+
+/* Leaving: the direction comes from the swipe that dismissed it, so a card thrown at the right
+   edge keeps going right instead of dropping. A timeout or the close button has no direction. */
+.visual-toast[data-ending-style]:not([data-limited]):not([data-swipe-direction]) {
+  transform: translateY(150%);
+}
+
+.visual-toast[data-ending-style][data-swipe-direction="down"] {
+  transform: translateX(var(--toast-swipe-movement-x))
+    translateY(calc(var(--toast-swipe-movement-y) + 150%));
+}
+
+.visual-toast[data-ending-style][data-swipe-direction="up"] {
+  transform: translateX(var(--toast-swipe-movement-x))
+    translateY(calc(var(--toast-swipe-movement-y) - 150%));
+}
+
+.visual-toast[data-ending-style][data-swipe-direction="left"] {
+  transform: translateX(calc(var(--toast-swipe-movement-x) - 150%))
+    translateY(var(--visual-toast-expanded-y));
+}
+
+.visual-toast[data-ending-style][data-swipe-direction="right"] {
+  transform: translateX(calc(var(--toast-swipe-movement-x) + 150%))
+    translateY(var(--visual-toast-expanded-y));
+}
+
+.visual-toast[data-limited] {
+  opacity: 0;
+}
+
+.visual-toast-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  /* Room for the corner orb, T3's `pr-6` on a row with no trailing control. */
+  padding-right: 24px;
+  transition: opacity 200ms;
+}
+
+/* The orb sits half outside the corner, so it must stay opaque while hovered: the ghost variant's
+   hover background is translucent, and the page would show through the part over the gap. */
+.visual-toast-dismiss:hover {
+  background: var(--popover);
+}
+
+.visual-toast[data-behind]:not([data-expanded]) > .visual-toast-content {
+  opacity: 0;
+}
+
+/* A card behind the front one keeps its own dismiss, but only while the stack is expanded: a
+   collapsed card's button would sit in the peek, and it must not be reachable by keyboard. */
+.visual-toast[data-behind]:not([data-expanded]) > .visual-toast-dismiss {
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .visual-toast,
+  .visual-toast-content {
+    transition: none;
+  }
 }
