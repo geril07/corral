@@ -2,7 +2,7 @@ import type { Session, Task } from "@corral/protocol/rpc";
 import { recordOf } from "./json-record.ts";
 
 /** A device-local layout; the server owns the sessions, not their presentation. */
-export type TaskTabKind = "session" | "file";
+export type TaskTabKind = "session" | "file" | "terminal";
 export type TaskTabGroup = "main" | "companion";
 
 /** The narrowest a group gets; a strip with one tab still fits, and the split stays free. */
@@ -16,6 +16,8 @@ export interface TaskTab {
   sessionId?: string;
   /** `file` only. */
   path?: string;
+  /** `terminal` only: a terminal outside any session, such as the one `files.openEditor` starts. */
+  terminalId?: string;
   group: TaskTabGroup;
 }
 
@@ -37,6 +39,7 @@ export const TASK_TAB_STORAGE_PREFIX = "corral.task-tabs.";
 
 export function tabId(tab: TaskTab): string {
   if (tab.kind === "session") return `session:${tab.sessionId ?? ""}`;
+  if (tab.kind === "terminal") return `terminal:${tab.terminalId ?? ""}`;
   return `file:${tab.path ?? ""}`;
 }
 
@@ -102,6 +105,8 @@ function uniqueTabs(tabs: readonly TaskTab[]): TaskTab[] {
     const id = tabId(tab);
     if ((tab.kind === "session" && tab.sessionId === undefined) || seen.has(id)) return false;
     if (tab.kind === "file" && (tab.path === undefined || tab.path === "")) return false;
+    if (tab.kind === "terminal" && (tab.terminalId === undefined || tab.terminalId === ""))
+      return false;
     seen.add(id);
     return true;
   });
@@ -353,7 +358,7 @@ export function toggleExpanded(layout: TaskTabLayout, group: TaskTabGroup): Task
   };
 }
 
-/** Session tabs carry 1–9 within their own group; file tabs carry no number. */
+/** Session tabs carry 1–9 within their own group; file and terminal tabs carry no number. */
 export function tabNumber(layout: Pick<TaskTabLayout, "tabs">, id: string): number | undefined {
   const tab = layout.tabs.find((candidate) => tabId(candidate) === id);
   if (tab === undefined || tab.kind !== "session") return undefined;
@@ -399,6 +404,7 @@ interface StoredTab {
   kind: TaskTabKind;
   sessionId?: string;
   path?: string;
+  terminalId?: string;
   group: TaskTabGroup;
   order: number;
 }
@@ -418,6 +424,7 @@ function storedTab(tab: TaskTab, order: number): StoredTab {
     kind: tab.kind,
     ...(tab.sessionId === undefined ? {} : { sessionId: tab.sessionId }),
     ...(tab.path === undefined ? {} : { path: tab.path }),
+    ...(tab.terminalId === undefined ? {} : { terminalId: tab.terminalId }),
     group: tab.group,
     order,
   };
@@ -449,7 +456,7 @@ function asGroup(value: unknown): TaskTabGroup | undefined {
 }
 
 function asKind(value: unknown): TaskTabKind | undefined {
-  return value === "session" || value === "file" ? value : undefined;
+  return value === "session" || value === "file" || value === "terminal" ? value : undefined;
 }
 
 interface ReadTab {
@@ -472,14 +479,18 @@ function readStoredTab(value: unknown): ReadTab | undefined {
     return undefined;
   const sessionId = record["sessionId"];
   const path = record["path"];
+  const terminalId = record["terminalId"];
   if (kind === "session" && (typeof sessionId !== "string" || sessionId === "")) return undefined;
   if (kind === "file" && (typeof path !== "string" || path === "")) return undefined;
+  if (kind === "terminal" && (typeof terminalId !== "string" || terminalId === ""))
+    return undefined;
   return {
     tab: {
       kind,
       group,
       ...(typeof sessionId === "string" ? { sessionId } : {}),
       ...(typeof path === "string" ? { path } : {}),
+      ...(typeof terminalId === "string" ? { terminalId } : {}),
     },
     order: Math.max(0, Math.round(order)),
   };

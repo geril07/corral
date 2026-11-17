@@ -34,7 +34,7 @@ import { StatusGlyph } from "./status-glyph.tsx";
 import { VisualResizeHandle } from "./visual-shell.tsx";
 
 /** The tab's kind decides its glyph and whether it carries a number or status. */
-export type VisualTabKind = "session" | "file" | "draft";
+export type VisualTabKind = "session" | "file" | "terminal" | "draft";
 
 export interface VisualTabItem {
   id: string;
@@ -44,12 +44,12 @@ export interface VisualTabItem {
   ariaLabel?: string | undefined;
   /** The context-menu name, e.g. `Session actions for shell`. */
   menuLabel?: string | undefined;
-  /** Session and draft tabs carry 1–9 inside their group; file tabs carry none. */
+  /** Session and draft tabs carry 1–9 inside their group; file and terminal tabs carry none. */
   number?: number | undefined;
   agentKind?: Session["kind"] | undefined;
   status?: AgentStatus | undefined;
   selected: boolean;
-  /** The primary session is not a closable view; files and drafts are. */
+  /** The primary session is not a closable view; files, terminals and drafts are. */
   canClose: boolean;
   /** The whole label and the session's state, when the label clips. */
   title?: string | undefined;
@@ -262,6 +262,7 @@ export function VisualWorkspaceGroups({
 
 const GLYPH: Readonly<Record<Exclude<VisualTabKind, "session">, IconName>> = {
   file: "file",
+  terminal: "terminal",
   draft: "task",
 };
 
