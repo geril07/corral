@@ -66,6 +66,8 @@ function describe(value: unknown): string {
 function emptyState(): ChatSessionState {
   return {
     turn: "idle",
+    turnStartedAt: null,
+    turnEndedAt: null,
     steering: [],
     followUp: [],
     model: null,

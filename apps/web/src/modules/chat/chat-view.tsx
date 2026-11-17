@@ -263,6 +263,8 @@ export function ChatView({
             <ChatTimeline
               items={snapshot.items}
               turn={snapshot.state.turn}
+              turnStartedAt={snapshot.state.turnStartedAt}
+              turnEndedAt={snapshot.state.turnEndedAt}
               waiting={request !== undefined}
               requestId={request?.id}
               endSpace={panelHeight}

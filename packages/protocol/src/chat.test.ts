@@ -5,6 +5,8 @@ const assistant = { kind: "assistant-message", id: "a1", text: "Done", streaming
 
 const idle = {
   turn: "idle",
+  turnStartedAt: null,
+  turnEndedAt: null,
   steering: [],
   followUp: [],
   model: null,
@@ -21,6 +23,8 @@ test("a snapshot carries the whole timeline and the session state", () => {
       sequence: 3,
       state: {
         turn: "working",
+        turnStartedAt: 1_700_000_000_000,
+        turnEndedAt: null,
         steering: ["use the smaller helper"],
         followUp: [],
         model: { provider: "anthropic", id: "claude-sonnet-4-5", name: "Sonnet 4.5" },
@@ -78,6 +82,8 @@ test("events are distinguished by type and every item kind is accepted", () => {
                 type: "state",
                 state: {
                   turn: "settled",
+                  turnStartedAt: 1_700_000_000_000,
+                  turnEndedAt: 1_700_000_012_000,
                   steering: [],
                   followUp: [],
                   model: null,

@@ -26,6 +26,8 @@ function chatRefusal(reason: "no-driver" | "not-started" | "exited" = "no-driver
 
 const idle: ChatSessionState = {
   turn: "idle",
+  turnStartedAt: null,
+  turnEndedAt: null,
   steering: [],
   followUp: [],
   model: null,

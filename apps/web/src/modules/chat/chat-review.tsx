@@ -21,8 +21,14 @@ const NO_FILES: ChatFiles = {
   open: async () => undefined,
 };
 
+/** The fixtures' turn started this long ago, so a live or settled row reads at once. */
+const STARTED_AT = Date.now() - 12_000;
+const ENDED_AT = STARTED_AT + 10_000;
+
 const BASE_STATE: ChatSessionState = {
   turn: "working",
+  turnStartedAt: STARTED_AT,
+  turnEndedAt: null,
   steering: [],
   followUp: [],
   model: { provider: "anthropic", id: "claude-sonnet-4-5", name: "Sonnet 4.5" },
@@ -310,56 +316,56 @@ const FIXTURES: readonly Fixture[] = [
   {
     id: "finished",
     label: "Finished turn",
-    state: { ...BASE_STATE, turn: "settled" },
+    state: { ...BASE_STATE, turn: "settled", turnEndedAt: ENDED_AT },
     items: [PROMPT, REASONING_DONE, READ, RUN, EDIT, ANSWER],
     expanded: ["turn:u1", "group:t-read", "t-edit"],
   },
   {
     id: "write",
     label: "Wrote a file",
-    state: { ...BASE_STATE, turn: "settled" },
+    state: { ...BASE_STATE, turn: "settled", turnEndedAt: ENDED_AT },
     items: [PROMPT, WRITE, ANSWER],
     expanded: ["turn:u1", "t-write"],
   },
   {
     id: "several-files",
     label: "Several files",
-    state: { ...BASE_STATE, turn: "settled" },
+    state: { ...BASE_STATE, turn: "settled", turnEndedAt: ENDED_AT },
     items: [PROMPT, MULTI_EDIT, ANSWER],
     expanded: ["turn:u1", "t-nameless"],
   },
   {
     id: "long-command",
     label: "Long command",
-    state: { ...BASE_STATE, turn: "settled" },
+    state: { ...BASE_STATE, turn: "settled", turnEndedAt: ENDED_AT },
     items: [PROMPT, LONG_RUN],
     expanded: ["turn:u1", "t-long"],
   },
   {
     id: "failed",
     label: "Failed call",
-    state: { ...BASE_STATE, turn: "error" },
+    state: { ...BASE_STATE, turn: "error", turnEndedAt: ENDED_AT },
     items: [PROMPT, FAILED, ERROR],
     expanded: ["t-run"],
   },
   {
     id: "long-call",
     label: "Long call",
-    state: { ...BASE_STATE, turn: "settled" },
+    state: { ...BASE_STATE, turn: "settled", turnEndedAt: ENDED_AT },
     items: [PROMPT, ...longCalls(), ANSWER],
     expanded: ["turn:u1", "solo-1", "solo-2", "solo-3"],
   },
   {
     id: "long-group",
     label: "Long group",
-    state: { ...BASE_STATE, turn: "settled" },
+    state: { ...BASE_STATE, turn: "settled", turnEndedAt: ENDED_AT },
     items: [PROMPT, ...longGroup(), ANSWER],
     expanded: ["turn:u1", "group:g-run-1", "g-run-3", "g-run-4"],
   },
   {
     id: "long-transcript",
     label: "Long transcript",
-    state: { ...BASE_STATE, turn: "settled" },
+    state: { ...BASE_STATE, turn: "settled", turnEndedAt: ENDED_AT },
     items: longTranscript(),
     expanded: [],
   },

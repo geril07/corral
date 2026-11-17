@@ -203,6 +203,17 @@ export type ChatContextUsage = z.infer<typeof ChatContextUsage>;
 /** Everything about a session that is not one item of its timeline. */
 export const ChatSessionState = z.object({
   turn: ChatTurnState,
+  /**
+   * Epoch milliseconds when the turn entered `working`, or `null` before the first turn. The
+   * server stamps it where the turn changes, so a client that opens mid-turn measures from the
+   * turn's real start rather than from the mount.
+   */
+  turnStartedAt: z.number().nullable(),
+  /**
+   * Epoch milliseconds when the turn left `working`, or `null` while it runs and before the first
+   * turn. The state describes the current turn, so only the last settled turn carries an end.
+   */
+  turnEndedAt: z.number().nullable(),
   /** Messages sent to steer the turn the agent is working on, in send order. */
   steering: z.array(z.string()),
   /** Messages queued to run after the current turn, in send order. */

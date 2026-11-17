@@ -124,6 +124,9 @@ test("renders a recorded stream: text, reasoning, folded tools, a diff, a notice
     expect(token).not.toBeNull();
   });
 
+  // The reasoning and the tool group live inside the live turn's fold; open it.
+  await userEvent.click(page.getByRole("button", { name: /^Working/ }));
+
   // Reasoning is one collapsed row, `Thought` once it is no longer streaming.
   await expect.element(page.getByRole("button", { name: /Thought/ })).toBeVisible();
   await expect
@@ -1118,9 +1121,13 @@ const READ = (id: string, path: string): ChatItem => ({
 });
 
 async function expectSteeredWorkVisible() {
+  // Both segments keep their fold: the earlier one has settled, the last one is live, and the
+  // work the user opened stays reachable through the steering updates.
+  await expect.element(page.getByRole("button", { name: "Worked" }).first()).toBeVisible();
+  // A segment with no work yet is a plain `Working` row, not a disclosure.
+  await expect.element(page.getByText("Working", { exact: true })).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Read old.ts" })).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Read current.ts" })).toBeVisible();
-  expect(page.getByRole("button", { name: "Worked" }).elements()).toHaveLength(0);
 }
 
 test("steering queue changes never hide work while a turn runs, even with duplicate prompts", async () => {
@@ -1131,7 +1138,11 @@ test("steering queue changes never hide work while a turn runs, even with duplic
     READ("current-work", "current.ts"),
   ];
   const chat = await renderChat(recorded([], { state: workingChat(), items }));
-  await expect.element(page.getByRole("button", { name: "Read old.ts" })).toBeVisible();
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  // Open both folds: a steering update re-projects the turn and must not close what the user read.
+  await userEvent.click(page.getByRole("button", { name: "Worked" }));
+  await userEvent.click(page.getByRole("button", { name: /^Working/ }));
+  await expectSteeredWorkVisible();
   chat.script.push({
     type: "event",
     sequence: 1,
@@ -1154,10 +1165,11 @@ test("steering queue changes never hide work while a turn runs, even with duplic
     sequence: 4,
     event: { type: "state", state: { ...IDLE_CHAT, turn: "settled" } },
   });
+  // The live fold becomes the settled one under the same key, so the open work stays open.
   await vi.waitFor(() =>
     expect(page.getByRole("button", { name: "Worked" }).elements()).toHaveLength(2),
   );
-  expect(page.getByRole("button", { name: "Read current.ts" }).elements()).toHaveLength(0);
+  await expect.element(page.getByRole("button", { name: "Read current.ts" })).toBeVisible();
 });
 
 test("a narrating turn folds to one row, keeps its last message and expands back to its work", async () => {
@@ -1200,29 +1212,60 @@ test("a narrating turn folds to one row, keeps its last message and expands back
   await expect.element(page.getByRole("button", { name: "Read src/a.ts" })).toBeVisible();
 });
 
-test("the working row becomes the turn's fold when the turn ends", async () => {
+test("the live turn is one Working row that opens to its work and becomes Worked", async () => {
   const items: ChatItem[] = [
     { kind: "user-message", id: "u1", text: "Fix the auth test." },
     READ("t1", "src/a.ts"),
   ];
-  const chat = await renderChat(recorded([], { state: workingChat(), items }));
+  const startedAt = Date.now() - 12_000;
+  const chat = await renderChat(
+    recorded([], { state: workingChat({ turnStartedAt: startedAt }), items }),
+  );
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
 
-  // While the turn runs its work is visible and the tail says what is happening.
-  await expect.element(page.getByText("Working", { exact: true })).toBeVisible();
-  await expect.element(page.getByRole("button", { name: "Read src/a.ts" })).toBeVisible();
-  expect(page.getByRole("button", { name: "Worked" }).elements()).toHaveLength(0);
+  // The live turn is one row with the turn's time; its work is behind the disclosure.
+  const live = page.getByRole("button", { name: /^Working for 1[2-4]s$/ });
+  await expect.element(live).toBeVisible();
+  await expect.element(live).toHaveAttribute("aria-expanded", "false");
+  expect(page.getByRole("button", { name: "Read src/a.ts" }).elements()).toHaveLength(0);
 
+  await userEvent.click(live);
+  await expect.element(live).toHaveAttribute("aria-expanded", "true");
+  await expect.element(page.getByRole("button", { name: "Read src/a.ts" })).toBeVisible();
+
+  // The same fold settles: the row says Worked for the turn and the work stays open.
   chat.script.push({
     type: "event",
     sequence: 1,
-    event: { type: "state", state: { ...IDLE_CHAT, turn: "settled" } },
+    event: {
+      type: "state",
+      state: {
+        ...IDLE_CHAT,
+        turn: "settled",
+        turnStartedAt: startedAt,
+        turnEndedAt: startedAt + 12_000,
+      },
+    },
   });
+  await expect.element(page.getByRole("button", { name: "Worked for 12s" })).toBeVisible();
+  expect(page.getByRole("button", { name: /^Working/ }).elements()).toHaveLength(0);
+  await expect.element(page.getByRole("button", { name: "Read src/a.ts" })).toBeVisible();
+});
 
-  // The turn ended: the live row is gone and the same work is behind the turn's fold.
-  await expect.element(page.getByRole("button", { name: "Worked" })).toBeVisible();
-  expect(page.getByText("Working", { exact: true }).elements()).toHaveLength(0);
-  expect(page.getByRole("button", { name: "Read src/a.ts" }).elements()).toHaveLength(0);
+test("a live turn with nothing to hide is a plain Working row", async () => {
+  const items: ChatItem[] = [
+    { kind: "user-message", id: "u1", text: "Say hi." },
+    { kind: "assistant-message", id: "a1", text: "Hi", streaming: true },
+  ];
+  const chat = await renderChat(
+    recorded([], { state: workingChat({ turnStartedAt: Date.now() - 12_000 }), items }),
+  );
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  // Nothing to disclose, so the row is not a control; the streaming answer stays outside it.
+  await expect.element(page.getByText(/^Working for 1[2-4]s$/)).toBeVisible();
+  expect(page.getByRole("button", { name: /^Working/ }).elements()).toHaveLength(0);
+  await expect.element(page.getByText("Hi", { exact: true })).toBeVisible();
 });
 
 test("a message's copy action is mounted, tabbable and revealed by hover or focus", async () => {
@@ -1393,6 +1436,7 @@ test("a selection outside an assistant message raises no quote action", async ()
 test("a session's own memory opens its folds", async () => {
   // The workspace keeps one memory per session; a tab switch mounts the pane again with it.
   const memory = chatTranscriptStore();
+  memory.toggle("turn:u1");
   memory.toggle("group:t1");
   const chat = await renderChat(RECORDED_CHAT, {}, { memory });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
@@ -1404,8 +1448,9 @@ test("another session's memory leaves the same transcript closed", async () => {
   const chat = await renderChat(RECORDED_CHAT, {}, { memory: chatTranscriptStore() });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
 
-  await expect.element(page.getByRole("button", { name: /^Ran 1 command/ })).toBeVisible();
-  expect(page.getByRole("button", { name: "Changed 1 file" }).elements()).toHaveLength(0);
+  // No memory means the live turn is one closed row: its group is not rendered at all.
+  await expect.element(page.getByRole("button", { name: /^Working/ })).toBeVisible();
+  expect(page.getByRole("button", { name: /^Ran 1 command/ }).elements()).toHaveLength(0);
 });
 
 test("a session's memory reopens the transcript on the row it was reading", async () => {
@@ -1433,7 +1478,10 @@ test("coming back to a session that was at the end resumes the end follow", asyn
   chat.script.push({
     type: "event",
     sequence: 1,
-    event: { type: "item", item: { kind: "notice", id: "n-return", text: "After the return." } },
+    event: {
+      type: "item",
+      item: { kind: "user-message", id: "u-return", text: "After the return." },
+    },
   });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(1));
   await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
@@ -1442,11 +1490,7 @@ test("coming back to a session that was at the end resumes the end follow", asyn
 test("a remembered row that no longer exists reopens near where it was", async () => {
   const snapshot = longChat(160)[0];
   if (snapshot?.type !== "snapshot") throw new Error("longChat does not start with a snapshot");
-  const rows = chatRows({
-    items: snapshot.snapshot.items,
-    turn: "working",
-    waiting: false,
-  });
+  const rows = chatRows({ items: snapshot.snapshot.items, turn: "working" });
   const expected = rows[30]?.key;
   expect(expected).toBeDefined();
 
@@ -1480,6 +1524,9 @@ test("a streaming reasoning row is not live while the agent waits on the user", 
   ];
   const chat = await renderChat(recorded([], { state: workingChat(), items }));
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  // The reasoning lives inside the live fold; open it to read the row.
+  await userEvent.click(page.getByRole("button", { name: /^Working/ }));
 
   // The stream is open, but nothing is being thought: the row is `Thought`, and quiet.
   const log = page.getByRole("log", { name: "Chat transcript" });
@@ -1518,7 +1565,7 @@ test("the live rows shimmer only when motion is allowed", async () => {
   await render(
     <div className="h-screen w-full">
       <TranscriptRow
-        row={{ kind: "working", key: "working" }}
+        row={{ kind: "working", key: "working", startedAt: null }}
         expanded={new Set()}
         onToggleFold={() => {}}
         onRespond={async () => {}}
@@ -1733,6 +1780,9 @@ test("an activity row carries a 16 px glyph and a 12 px disclosure", async () =>
   const chat = await renderChat();
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
 
+  // The group lives inside the live turn's fold; open it to measure the row.
+  await userEvent.click(page.getByRole("button", { name: /^Working/ }));
+
   // The group's own row: the action glyph in T3's 24 px slot, then the one disclosure chevron.
   const groupRow = page.getByRole("button", { name: /^Ran 1 command/ });
   await expect.element(groupRow).toBeVisible();
@@ -1827,6 +1877,36 @@ test("a modified Home moves only through the keyboard handler and releases the f
   expect(atEnd(scrollNode())).toBe(false);
 });
 
+test("an open live fold keeps the end in view as work arrives", async () => {
+  const chat = await renderChat(longChat(160));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+
+  // The last turn is the live one; open it and read the bottom, where the new work will land.
+  await userEvent.click(page.getByRole("button", { name: /^Working/ }));
+  await userEvent.wheel(page.getByTestId("chat-timeline"), { delta: { y: 2000 }, times: 10 });
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+
+  chat.script.push({
+    type: "event",
+    sequence: 1,
+    event: {
+      type: "item",
+      item: {
+        kind: "tool-call",
+        id: "late-call",
+        name: "read",
+        arguments: '{"path":"src/late.ts"}',
+        status: "running",
+        output: null,
+        diff: null,
+      },
+    },
+  });
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(1));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+});
+
 test("a wheel back to the bottom re-arms the follow after a keyboard release", async () => {
   const chat = await renderChat(longChat(160));
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
@@ -1846,7 +1926,10 @@ test("a wheel back to the bottom re-arms the follow after a keyboard release", a
   chat.script.push({
     type: "event",
     sequence: 1,
-    event: { type: "item", item: { kind: "notice", id: "n-wheel", text: "After the wheel." } },
+    event: {
+      type: "item",
+      item: { kind: "user-message", id: "u-wheel", text: "After the wheel." },
+    },
   });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(1));
   await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));

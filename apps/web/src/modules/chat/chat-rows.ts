@@ -34,26 +34,45 @@ export type ChatRow =
    * it is expanded. The set is the projection's, not the renderer's: what a fold covers is a
    * question about the turn, not about an item's kind.
    */
-  | { kind: "turn"; key: string; rows: readonly ChatRow[]; hidden: ReadonlySet<string> }
+  | {
+      kind: "turn";
+      key: string;
+      rows: readonly ChatRow[];
+      hidden: ReadonlySet<string>;
+      /** The turn is still running: its header reads `Working` and its time ticks. */
+      live: boolean;
+      /** Epoch ms the turn entered `working`; only the last turn carries it. */
+      startedAt: number | null;
+      /** Epoch ms it left `working`; `null` while it runs and before the first turn. */
+      endedAt: number | null;
+    }
   /** The live tail while the turn runs; it becomes the turn's fold when the turn ends. */
-  | { kind: "working"; key: string };
+  | { kind: "working"; key: string; startedAt: number | null };
 
 export interface ChatRowInput {
   readonly items: readonly ChatItem[];
-  /** A working session keeps every turn unfolded because steer boundaries are not in the contract. */
+  /** The last turn is live while the session works; every turn before it has settled. */
   readonly turn: ChatTurnState;
-  /** The agent is waiting on the user, so the working row would claim work that is not happening. */
-  readonly waiting: boolean;
+  /** When the server saw the current turn enter `working`; `null` before the first turn. */
+  readonly turnStartedAt?: number | null;
+  /** When it left `working`; `null` while it runs and before the first turn. */
+  readonly turnEndedAt?: number | null;
 }
 
 /** What one row of the transcript is. */
-export function chatRows({ items, turn, waiting }: ChatRowInput): ChatRow[] {
+export function chatRows({
+  items,
+  turn,
+  turnStartedAt = null,
+  turnEndedAt = null,
+}: ChatRowInput): ChatRow[] {
   const rows: ChatRow[] = [];
   const firstTurn = items.findIndex((item) => item.kind === "user-message");
   const start = firstTurn === -1 ? items.length : firstTurn;
   // A notice or an error before the first prompt belongs to no turn, but a run of calls still groups.
   rows.push(...projectRows(items.slice(0, start)));
   let index = start;
+  let liveTurn = false;
   while (index < items.length) {
     const item = items[index];
     if (item === undefined) {
@@ -66,7 +85,11 @@ export function chatRows({ items, turn, waiting }: ChatRowInput): ChatRow[] {
     // The prompt is never hidden: the fold covers the turn's work, not what asked for it.
     if (prompt !== undefined) rows.push({ kind: "item", key: prompt.id, item: prompt });
     // A steer is another user message, indistinguishable from a turn boundary in the contract.
-    if (folds(work, turn === "working" ? turn : end === items.length ? turn : "settled")) {
+    const lastSegment = end === items.length;
+    // The last turn folds while it runs too: one `Working` row over its work, the same shape as
+    // `Worked`. Earlier turns in a working session have settled, so they fold as they will.
+    const live = lastSegment && turn === "working";
+    if (live || folds(work, lastSegment ? turn : "settled")) {
       const turnRows = projectRows(work);
       // The turn's answer is not part of its work: it stays a row of its own after the fold, so
       // the fold's header does not pin over it and closing the fold does not take it away. Only a
@@ -82,24 +105,22 @@ export function chatRows({ items, turn, waiting }: ChatRowInput): ChatRow[] {
         // Read from the whole turn: a commentary block must not become the kept message just
         // because the answer moved out of the fold.
         hidden: hiddenKeys(turnRows),
+        live,
+        startedAt: lastSegment ? turnStartedAt : null,
+        endedAt: lastSegment ? turnEndedAt : null,
       });
       if (answer !== undefined) rows.push(answer);
+      liveTurn ||= live;
     } else {
       rows.push(...projectRows(work));
     }
     index = end;
   }
-  // A streaming reasoning row is already the turn's live row, so a `Working` line under it would
-  // claim a second activity. OpenCode's turn phase is one value there, and thinking replaces
-  // working instead of stacking on it.
-  if (turn === "working" && !waiting && !liveReasoning(rows.at(-1))) {
-    rows.push({ kind: "working", key: "working" });
+  // A working session with no prompt yet has no segment to fold; the row still says it is live.
+  if (turn === "working" && !liveTurn) {
+    rows.push({ kind: "working", key: "working", startedAt: turnStartedAt });
   }
   return rows;
-}
-
-function liveReasoning(row: ChatRow | undefined): boolean {
-  return row?.kind === "item" && row.item.kind === "reasoning" && row.item.streaming;
 }
 
 function nextTurnStart(items: readonly ChatItem[], from: number): number {
