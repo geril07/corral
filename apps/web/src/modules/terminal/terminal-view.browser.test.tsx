@@ -6,6 +6,7 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { afterEach, expect, test, vi } from "vite-plus/test";
 import { cdp, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
+import { systemClipboard } from "../../../test/clipboard.ts";
 import { realServerClients, screenText } from "../../../test/real-client.ts";
 import { serverTarget } from "../../../test/server-url.ts";
 import { TerminalView } from "./terminal-view.tsx";
@@ -77,6 +78,39 @@ function canvas(name: string): HTMLElement {
 }
 
 const widthOf = (element: HTMLElement) => element.getBoundingClientRect().width;
+
+/** Selects the first `through`+1 columns of one visible line by dragging, as a reader copies it. */
+async function dragSelect(name: string, size: TerminalSize, row: number, through: number) {
+  const box = canvas(name).getBoundingClientRect();
+  const cellWidth = box.width / size.cols;
+  const cellHeight = box.height / size.rows;
+  const y = box.top + cellHeight * (row + 0.5);
+  const send = (
+    type: "mousePressed" | "mouseMoved" | "mouseReleased",
+    column: number,
+    buttons: number,
+  ) =>
+    cdp().send("Input.dispatchMouseEvent", {
+      type,
+      x: box.left + cellWidth * (column + 0.5),
+      y,
+      button: "left",
+      buttons,
+      clickCount: 1,
+    });
+  await send("mousePressed", 0, 1);
+  await send("mouseMoved", through, 1);
+  await send("mouseReleased", through, 0);
+}
+
+/** The grid a pane's terminal fitted to, once the server reports it instead of the created size. */
+async function fittedSize(client: CorralClient, terminalId: string): Promise<TerminalSize> {
+  return vi.waitFor(async () => {
+    const size = await serverSize(client, terminalId);
+    if (size.cols === SIZE.cols) throw new Error("the pane has not fitted its box yet");
+    return size;
+  });
+}
 
 /** Gives a pane's box a size; the terminal fits to it through its ResizeObserver. */
 function resizePane(name: string, width: number, height: number) {
@@ -665,4 +699,65 @@ test("unmounting the terminal disposes xterm", async () => {
   } finally {
     restoreGetContext();
   }
+});
+
+/** A terminal running `cat`, mounted in a pane of a size it fits, with its input focused. */
+async function catTerminal(name: string) {
+  const client = newClient();
+  await connected(client);
+  const terminal = await client.connection.api.terminals.create({
+    command: "/bin/cat",
+    size: SIZE,
+  });
+  await render(
+    <SizedPane name={name} width={500} height={340}>
+      <TerminalView client={client} terminal={terminal} onFit={() => {}} />
+    </SizedPane>,
+  );
+  const input = terminalHost(name).querySelector<HTMLTextAreaElement>(".xterm-helper-textarea");
+  if (!input) throw new Error(`the ${name} terminal has no input`);
+  input.focus();
+  expect(document.activeElement).toBe(input);
+  const size = await fittedSize(client, terminal.id);
+  return {
+    exit: async () =>
+      (await client.connection.api.terminals.list()).find((each) => each.id === terminal.id)
+        ?.exit ?? null,
+    size,
+  };
+}
+
+test("Control+C copies a selection and leaves the program running", async () => {
+  const { exit, size } = await catTerminal("copy");
+  await userEvent.keyboard("copy-me");
+  await expect.poll(screenText).toContain("copy-me");
+  const clipboard = systemClipboard();
+  await clipboard.write("stale");
+  // The echoed text starts at the pane's first column, so this drags over "copy-me" and the cell
+  // after it, which a copy trims. The pointer's cell is read from where it left, not where it
+  // entered, so the last column is named one past the text.
+  await dragSelect("copy", size, 0, "copy-me".length);
+
+  await userEvent.keyboard("{Control>}c{/Control}");
+
+  expect(await clipboard.read()).toBe("copy-me");
+  expect(await exit()).toBeNull();
+});
+
+test("Control+C without a selection still interrupts the program", async () => {
+  const { exit } = await catTerminal("interrupt");
+
+  await userEvent.keyboard("{Control>}c{/Control}");
+
+  await expect.poll(exit).not.toBeNull();
+});
+
+test("Control+V pastes the clipboard into the program", async () => {
+  await catTerminal("paste");
+  const clipboard = systemClipboard();
+  await clipboard.write("from-the-clipboard");
+
+  await userEvent.keyboard("{Control>}v{/Control}");
+
+  await expect.poll(screenText).toContain("from-the-clipboard");
 });

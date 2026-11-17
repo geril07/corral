@@ -49,6 +49,20 @@ function readTerminalTheme(host: HTMLElement | null) {
   };
 }
 
+/**
+ * The two chords xterm keeps for the shell: Control+C is its interrupt and Control+V a
+ * literal-next, so a selection could never be copied and the clipboard never reached the process.
+ * Letting the browser have them runs xterm's own handlers, which answer the copy with the
+ * selection and send the paste in the bracketed mode the program asked for. Copy needs a
+ * selection; without one Control+C stays the interrupt. `code` is the physical key, so a
+ * non-Latin layout still copies and pastes.
+ */
+function clipboardChord(event: KeyboardEvent, hasSelection: boolean): boolean {
+  if (event.type !== "keydown" || event.altKey || event.shiftKey) return false;
+  if (!event.ctrlKey && !event.metaKey) return false;
+  return event.code === "KeyV" || (event.code === "KeyC" && hasSelection);
+}
+
 /** One xterm.js bound to one server terminal. Output goes stream to xterm, never through React. */
 export function TerminalView({
   client,
@@ -100,6 +114,7 @@ export function TerminalView({
         if (document.visibilityState === "visible") proposeSize();
       },
     });
+    xterm.attachCustomKeyEventHandler((event) => !clipboardChord(event, xterm.hasSelection()));
     xterm.onData((data) => stream.input(data));
     // Legacy mouse reports arrive as a binary string: one byte per character.
     xterm.onBinary((data) => stream.input(Uint8Array.from(data, (char) => char.charCodeAt(0))));
