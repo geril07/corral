@@ -148,7 +148,7 @@ export function Icon({
 /**
  * The one disclosure chevron: it points right when the row is closed and turns a quarter turn
  * when it opens, over the kit's one 200 ms motion, and does not move under reduced motion. T3
- * rotates a single chevron the same way (`MessagesTimeline.tsx:1660-1668`) rather than swapping two
+ * rotates a single chevron the same way (`MessagesTimeline.tsx`) rather than swapping two
  * glyphs, so the two states share one shape.
  */
 export function DisclosureIcon({ open, size = "row" }: { open: boolean; size?: IconSize }) {

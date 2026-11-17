@@ -6,6 +6,8 @@ Keyboard-first workspace for running coding agents in terminals: a long-lived No
 - Reference checkouts, never bases: `.refs/t3code` (visual, composition, chat, type) and `.refs/orca`
   (terminal, status, daemon). Gitignored; refresh with `git -C .refs/<name> pull`.
 - Code organization, dependencies or tests: read `docs/engineering.md`.
+- Comments: `docs/engineering.md` § Comments. A comment carries a reason, trap, invariant,
+  measurement or test requirement, never a restatement or a line range.
 
 ## Commands
 

@@ -49,7 +49,7 @@ export function SelectionAction({
     const clear = () => setSelection(undefined);
     const update = () => {
       // A drag has not chosen its text yet: the pill appears when the gesture ends, as T3's
-      // `observeSelectionActions` does (`lib/selectionActions.ts:139-147,186-193`).
+      // `observeSelectionActions` does (`lib/selectionActions.ts`).
       if (dragging.current) {
         clear();
         return;
@@ -89,7 +89,7 @@ export function SelectionAction({
     const onPointerDown = (event: PointerEvent) => {
       if (!event.isPrimary) return;
       // Pressing the pill is the action, not a new selection gesture (T3 skips its own action
-      // targets the same way, `lib/selectionActions.ts:118-123`).
+      // targets the same way, `lib/selectionActions.ts`).
       const button = buttonRef.current;
       if (button !== null && event.target instanceof Node && button.contains(event.target)) return;
       dragging.current = event.button === 0;
@@ -155,8 +155,8 @@ export function SelectionAction({
     if (button === null || selection === undefined) return;
     const box = button.getBoundingClientRect();
     button.style.left = `${Math.max(EDGE, Math.min(selection.rect.right - box.width, window.innerWidth - box.width - EDGE))}px`;
-    // Below the last line, not over the row above it (T3 anchors at `selectionRect.bottom + 4`,
-    // `lib/selectionActions.ts:24`).
+    // Below the last line, not over the row above it (T3 anchors at `selectionRect.bottom + 4` in
+    // `lib/selectionActions.ts`).
     button.style.top = `${Math.max(EDGE, Math.min(selection.rect.bottom + EDGE, window.innerHeight - box.height - EDGE))}px`;
   }, [selection]);
 

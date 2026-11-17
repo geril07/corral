@@ -83,7 +83,7 @@ class FakeWatch implements AsyncIterable<ChatStreamMessage> {
           }
           if (this.#ended) return { done: true, value: undefined };
           // One message at a time, in order: a fake stream, not a batch to run in parallel.
-          // oxlint-disable-next-line eslint/no-await-in-loop
+          // oxlint-disable-next-line eslint/no-await-in-loop -- one message per pull, in order
           await new Promise<void>((resolve) => {
             this.#notify = resolve;
           });

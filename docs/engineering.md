@@ -84,3 +84,20 @@ An architecture decision record may retain the context, alternatives and consequ
 significant choice when that history is useful; mark it when superseded. Current constraints live
 in the relevant guidance, not in an obsolete decision record. Work status, plans and research
 artifacts belong in issues, PRs or commits.
+
+### Comments
+
+A comment must carry information the code cannot: the reason for this shape, the trap it avoids,
+an invariant, a measured external behavior, or the requirement a test pins. If deleting it loses
+nothing, delete it and let names, types or structure say it instead.
+
+Keep: the alternative rejected and why; what breaks on removal, reordering or retry; an external
+quirk with the version that showed it; a module's responsibility; a test's requirement or edge
+case, stated once; a suppression's reason after `--`.
+
+Drop: a sentence the names and types already say; control-flow narration; changelog or review
+history; commented-out code; `TODO`/`FIXME` (file an issue); section banners inside a function.
+A test comment states what the test guarantees, not how; the test name is not repeated.
+
+References name a symbol, or at least its file; never a line range, which rots silently. A task or
+decision code belongs to the issue that defines it; cite the issue number instead.

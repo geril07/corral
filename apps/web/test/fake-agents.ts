@@ -8,7 +8,7 @@ export interface AgentLaunch {
 }
 
 // Custom commands are not part of the library's types, which this package cannot augment.
-// oxlint-disable-next-line typescript/no-unsafe-type-assertion
+// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- custom commands are untyped
 const custom = commands as unknown as {
   agentLaunches: () => Promise<AgentLaunch[]>;
   serverEnv: (name: string, value: string | null) => Promise<string | null>;

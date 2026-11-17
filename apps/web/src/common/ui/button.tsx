@@ -42,8 +42,8 @@ const buttonVariants = cva(
         // A session tab takes its content width up to 200 px and the strip's height, then truncates.
         tab: "h-full min-w-0 max-w-50 justify-start overflow-hidden text-left focus-visible:ring-inset",
         // A transcript activity row: the whole lane's width, label first, disclosure last, and an
-        // inset ring because it lives in the timeline's scroll container (T3's `WorkLogButton`,
-        // `WorkLog.tsx:78`).
+        // inset ring because it lives in the timeline's scroll container (T3's `WorkLogButton` in
+        // `WorkLog.tsx`).
         activity: "w-full min-w-0 justify-start overflow-hidden text-left focus-visible:ring-inset",
       },
       size: {
@@ -54,8 +54,8 @@ const buttonVariants = cva(
         lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
         // Two-line sidebar task row: 52 px, content decides the rest.
         row: "min-h-13 gap-2 px-2 py-1.5",
-        // A transcript activity row is 24 px with the icon in a 24 px slot (T3's `WorkLogLine`,
-        // `WorkLog.tsx:51`: `min-h-6 gap-1.5 px-0.5 py-0.5 text-sm leading-relaxed`).
+        // A transcript activity row is 24 px with the icon in a 24 px slot (T3's `WorkLogLine` in
+        // `WorkLog.tsx`: `min-h-6 gap-1.5 px-0.5 py-0.5 text-sm leading-relaxed`).
         activity: "min-h-6 gap-1.5 px-0.5 py-0.5 text-sm leading-relaxed",
         icon: "size-8",
         "icon-micro": "size-5 rounded-sm p-0 [&_svg:not([class*='size-'])]:size-3",

@@ -27,7 +27,10 @@ import { useMarkdownLinks } from "./local-links.tsx";
 /** How long a copied message shows the check, as T3's copy state does (~1.2 s, no toast). */
 const COPIED_MS = 1200;
 
-/** The glyph of each action, from T3's `toolGroupSummaryIconName` (`TimelineWorkEntryRow.logic.ts:12`). */
+/**
+ * The glyph of each action, from T3's `toolGroupSummaryIconName` in
+ * `TimelineWorkEntryRow.logic.ts`.
+ */
 const ACTION_ICON: Readonly<Record<ChatToolAction | "mixed", IconName>> = {
   read: "read",
   search: "find",
@@ -39,7 +42,7 @@ const ACTION_ICON: Readonly<Record<ChatToolAction | "mixed", IconName>> = {
 
 /**
  * One activity row: the icon slot, the label and the disclosure, in T3's work-row geometry
- * (`WorkLog.tsx:51`, `MessagesTimeline.tsx:1637`). A row without an icon is a turn-level row — the
+ * (`WorkLog.tsx`, `MessagesTimeline.tsx`). A row without an icon is a turn-level row — the
  * fold's `Worked` — and starts at the lane's edge, as T3's turn fold does.
  */
 function ActivityRow({
@@ -114,7 +117,7 @@ function ActivityRow({
 
 /**
  * The message's actions, under it and revealed by hover or keyboard focus but always tabbable
- * (`TimelineAssistantRows.tsx:170`: `opacity-0 ... focus-within:opacity-100 group-hover:opacity-100`).
+ * (`TimelineAssistantRows.tsx`: `opacity-0 ... focus-within:opacity-100 group-hover:opacity-100`).
  * Copy is T3's `MessageCopyButton`: raw text, the icon turns into a check, no toast.
  */
 function MessageActions({
@@ -198,9 +201,9 @@ export function AssistantMessageItem({
 
 /**
  * Reasoning is one muted row, collapsed by default. While it streams the row is T3's live
- * `Thinking`; when the turn moves on it is `Thought` (`TimelineWorkGroupRows.tsx:361`). A request
+ * `Thinking`; when the turn moves on it is `Thought` (`TimelineWorkGroupRows.tsx`). A request
  * the agent waits on ends the live state, because nothing is being thought then
- * (`TimelineWorkGroupRows.tsx:366`). The contract carries no timestamps, so no duration is claimed.
+ * (`TimelineWorkGroupRows.tsx`). The contract carries no timestamps, so no duration is claimed.
  */
 export function ReasoningItem({
   item,
@@ -237,7 +240,7 @@ export function ReasoningItem({
 /**
  * One call: the action's glyph, its one-line label and its status, expandable in place. A failed
  * call keeps its action glyph in the error colour and says so in its accessible name, as T3 does
- * (`TimelineWorkGroupRows.tsx:449`).
+ * (`TimelineWorkGroupRows.tsx`).
  */
 export function ToolCallItem({
   call,
@@ -305,7 +308,7 @@ function ToolCallBody({ item }: { item: ChatToolCall }) {
 
 /**
  * A run of finished calls folds into one verb summary — `Read 4 files and ran 2 commands` — until
- * expanded (`presentation.ts:532`, `TimelineWorkGroupRows.tsx:583`). Its entries are listed without
+ * expanded (`presentation.ts`, `TimelineWorkGroupRows.tsx`). Its entries are listed without
  * a second indent: they are the group's own rows, not a body under one of them.
  */
 export function ToolGroupItem({
@@ -355,7 +358,7 @@ export function ToolGroupItem({
 
 /**
  * A finished turn folds to one line: T3's `Worked` is the label it uses when the contract carries
- * no timestamps (`MessagesTimeline.logic.ts:1181`). What it hides is the projection's answer
+ * no timestamps (`MessagesTimeline.logic.ts`). What it hides is the projection's answer
  * (`chat-rows.ts`, `hiddenKeys`): the turn's work and its intermediate messages, while the turn's
  * terminal message stays in place below the fold.
  */
@@ -378,7 +381,7 @@ export function TurnFoldItem({
   );
 }
 
-/** The live tail of a running turn: OpenCode's `Working` with its shimmer (`en.ts:656`). */
+/** The live tail of a running turn: OpenCode's `Working` with its shimmer. */
 export function WorkingItem() {
   return (
     <div className="border-b border-border/60">

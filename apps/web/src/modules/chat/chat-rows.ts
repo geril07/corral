@@ -93,7 +93,7 @@ function nextTurnStart(items: readonly ChatItem[], from: number): number {
 
 /**
  * A turn folds once it has ended: T3 folds a finished run and leaves the live one, an interrupted
- * one and a failed one open (`MessagesTimeline.logic.ts:1101-1110`). A turn with nothing to hide
+ * one and a failed one open (`MessagesTimeline.logic.ts`). A turn with nothing to hide
  * (no finished call, no reasoning) is not folded at all.
  */
 function folds(segment: readonly ChatItem[], turn: ChatTurnState): boolean {
@@ -150,8 +150,8 @@ function projectRows(items: readonly ChatItem[]): ChatRow[] {
 /**
  * What a finished turn's fold hides: its work rows and every assistant message but the turn's
  * terminal one. T3 hides every entry of the run except `group.terminalEntry`
- * (`MessagesTimeline.logic.ts:1118-1145`), and a Corral turn normally carries several messages
- * because each text block is its own item (`apps/server/src/chat/pi-projection.test.ts:311-320`).
+ * (`MessagesTimeline.logic.ts`), and a Corral turn normally carries several messages
+ * because each text block is its own item (`apps/server/src/chat/pi-projection.test.ts`).
  * A notice, an error and a request are never hidden: a request owns the keyboard.
  */
 function hiddenKeys(rows: readonly ChatRow[]): ReadonlySet<string> {
@@ -191,7 +191,7 @@ const READ_KEYS = ["path", "file_path", "filePath", "file", "filename"];
 const EDIT_KEYS = ["edits", "oldText", "newText", "old_string", "new_string", "patch"];
 /**
  * A write carries the file's new text next to its path. Claude's `Write` is `{file_path, content}`
- * and a create has no patch to carry, so its diff is `null` (`claude-projection.ts:648-658`) and
+ * and a create has no patch to carry, so its diff is `null` (`claude-projection.ts`) and
  * without these keys the call reads as a read. The path is required: a bare `text` belongs to
  * tools that are not about files.
  */
@@ -270,10 +270,10 @@ function classify(call: ChatToolCall, record: Record<string, unknown> | undefine
 }
 
 /**
- * The one-line label of a call, in T3's words: `Read <path>` (`toolActivity.ts:386`), the command
- * it ran (`MessagesTimeline.logic.ts:142`), `Changed 1 file` for an edit
- * (`presentation.ts:462`) and the search sentence (`toolActivity.ts:361`). A running command says
- * `Running <program>` instead (`MessagesTimeline.logic.ts:253`).
+ * The one-line label of a call, in T3's words: `Read <path>` (`toolActivity.ts`), the command
+ * it ran (`MessagesTimeline.logic.ts`), `Changed 1 file` for an edit
+ * (`presentation.ts`) and the search sentence (`toolActivity.ts`). A running command says
+ * `Running <program>` instead (`MessagesTimeline.logic.ts`).
  */
 export function toolLabel(call: ChatToolCall): string {
   return readCall(call).label;
@@ -295,7 +295,7 @@ function labelFor(
   }
   if (action === "edit") return changedFilesLabel(1);
   // T3's search sentence answers nothing when the call named neither a query nor a glob
-  // (`toolActivity.ts:358-384` returns `undefined`), so the argument hint answers instead.
+  // (`toolActivity.ts` returns `undefined`), so the argument hint answers instead.
   if (action === "search") return searchLabel(record) ?? summaryFor(call.arguments, record);
   return summaryFor(call.arguments, record);
 }
@@ -441,13 +441,13 @@ function actionCount(action: ChatToolAction, calls: readonly ChatToolCall[]): nu
   return files.size + withoutPath;
 }
 
-/** T3's `toolGroupActionLabel` (`presentation.ts:445`), in the actions this protocol can show. */
+/** T3's `toolGroupActionLabel` (`presentation.ts`), in the actions this protocol can show. */
 const ACTION_LABELS: Readonly<Record<ChatToolAction, (count: number) => string>> = {
   read: (count) => `Read ${count} ${count === 1 ? "file" : "files"}`,
   edit: changedFilesLabel,
   run: (count) => `Ran ${count} ${count === 1 ? "command" : "commands"}`,
-  // T3 keeps a web search and a code search apart by tool name (`search` vs `code-search`,
-  // `presentation.ts:471-474`); the contract's shape says only that a search happened, so the one
+  // T3 keeps a web search and a code search apart by tool name (`search` vs `code-search` in
+  // `presentation.ts`); the contract's shape says only that a search happened, so the one
   // noun covers both.
   search: (count) => `Searched code ${count} ${count === 1 ? "time" : "times"}`,
   other: (count) => `Used ${count} ${count === 1 ? "tool" : "tools"}`,
@@ -458,7 +458,7 @@ function actionLabel(action: ChatToolAction, count: number): string {
 }
 
 /**
- * The summary of a folded run (`summarizeToolGroup`, `presentation.ts:532`): at most two verb
+ * The summary of a folded run (`summarizeToolGroup` in `presentation.ts`): at most two verb
  * groups, the loudest first, and the rest counted rather than listed.
  */
 export function toolGroupSummary(calls: readonly ChatToolCall[]): ToolGroupSummary {

@@ -79,7 +79,7 @@ test("a finished turn folds its work behind one row and keeps its terminal messa
   if (fold?.kind !== "turn") throw new Error("the turn did not fold");
   expect(fold.rows.map((row) => row.key)).toEqual(["group:t1", "a1"]);
   // The turn's terminal message is the one row the fold leaves in place (T3 hides every other
-  // entry of the run, `MessagesTimeline.logic.ts:1118-1145`).
+  // entry of the run, `MessagesTimeline.logic.ts`).
   expect([...fold.hidden]).toEqual(["group:t1"]);
 });
 
@@ -98,7 +98,7 @@ test("a narrating turn folds its intermediate messages and keeps only the last o
   });
   const fold = rows[1];
   if (fold?.kind !== "turn") throw new Error("the turn did not fold");
-  // Every text block is its own item (`pi-projection.test.ts:311-320`), so a turn normally has
+  // Every text block is its own item (`pi-projection.test.ts`), so a turn normally has
   // several; only the terminal one survives the fold.
   expect(fold.rows.map((row) => row.key)).toEqual(["a1", "t1", "a2", "t2", "a3"]);
   expect([...fold.hidden]).toEqual(["a1", "t1", "a2", "t2"]);

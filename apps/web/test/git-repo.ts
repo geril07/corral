@@ -16,7 +16,7 @@ export function createGitRepo(
   files: Record<string, string> = {},
 ): Promise<string> {
   // Custom commands are not part of the library's types, which this package cannot augment.
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- custom commands are untyped
   const create = (commands as unknown as { createGitRepo: CreateGitRepo }).createGitRepo;
   return create(name, branches, files);
 }
@@ -28,7 +28,7 @@ type CreateGitRepoWithRemote = (name: string) => Promise<{ repo: string; origin:
  * push reaches and the fake `gh`/`glab` answer for (see `vite.config.ts`).
  */
 export function createGitRepoWithRemote(name: string): Promise<{ repo: string; origin: string }> {
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- custom commands are untyped
   const create = (commands as unknown as { createGitRepoWithRemote: CreateGitRepoWithRemote })
     .createGitRepoWithRemote;
   return create(name);

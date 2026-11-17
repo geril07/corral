@@ -36,7 +36,7 @@ import { AgentKind, taskSettingsFor } from "@corral/protocol/config";
 import type { Project } from "@corral/protocol/rpc";
 import { ProjectOption, projectOptionLabel } from "../projects/index.ts";
 // launch-choice is a leaf that imports no settings, so this avoids a settings/index cycle.
-// oxlint-disable-next-line import/no-restricted-imports
+// oxlint-disable-next-line import/no-restricted-imports -- avoids a settings/index cycle
 import { CONFIGURED_DEFAULT, configuredDefaultRow } from "../sessions/launch-choice.ts";
 import { useModelCatalog, useModelPreferences } from "./model-catalog.ts";
 import { modelFooterText } from "./model-footer.ts";

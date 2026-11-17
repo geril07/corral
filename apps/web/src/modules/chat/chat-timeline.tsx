@@ -100,7 +100,7 @@ export function ChatTimeline({
    * that follow is released before the layout changes; two frames later the latch is taken from
    * where the layout actually left the view, which keeps the end following after a disclosure that
    * closed and releases it after one that grew the content under the user. T3 suspends its
-   * end-scroll maintenance for a disclosure for the same reason (`MessagesTimeline.tsx:490-536`).
+   * end-scroll maintenance for a disclosure for the same reason (`MessagesTimeline.tsx`).
    */
   const toggleFold = useCallback(
     (key: string) => {

@@ -64,7 +64,7 @@ test("output flowing during an attach arrives without a gap or a duplicate acros
     const target = previous.outputBytes + 20_000;
     // oxlint-disable-next-line no-await-in-loop -- each attach happens at a later point of the stream
     await previous.waitFor(() => previous.outputBytes > target, "more output to flow");
-    // oxlint-disable-next-line no-await-in-loop
+    // oxlint-disable-next-line no-await-in-loop -- each client attaches later in the stream
     clients.push(await server.attach(info.id));
   }
 

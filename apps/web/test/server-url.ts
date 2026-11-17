@@ -5,7 +5,7 @@ import { SERVER_TARGET_KEY } from "./server-url-key.ts";
 /** The real server started by `real-server.ts`, with the capability every client must present. */
 export function serverTarget(): ServerTarget {
   // See real-server.ts: the key is typed `never`.
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the key is typed `never`
   const target: unknown = inject(SERVER_TARGET_KEY as never);
   if (!isServerTarget(target)) throw new Error("the browser test global setup did not run");
   return target;
