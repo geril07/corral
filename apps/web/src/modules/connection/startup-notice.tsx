@@ -277,15 +277,15 @@ export function StartupNotice({
       (problem.kind === "capability-refused" && host === "desktop"));
   return (
     <div className="flex h-full min-h-0 items-start justify-center overflow-y-auto p-6 sm:items-center">
-      <ContentLane className="gap-4 rounded-xl border border-border bg-card p-6">
-        <div className="flex flex-col gap-1">
-          <p className="m-0 text-xs font-medium text-muted-foreground">Corral</p>
-          <h1 className="m-0 text-base font-semibold">{content.heading}</h1>
-          <p className="m-0 text-sm leading-relaxed text-muted-foreground" role="alert">
+      <ContentLane className="visual-notice gap-4 p-6">
+        <div className="visual-card-header">
+          <p className="visual-card-eyebrow">Corral</p>
+          <h1 className="visual-card-title">{content.heading}</h1>
+          <p className="visual-card-text" role="alert">
             {content.cause}
           </p>
           {content.status !== undefined && (
-            <p className="m-0 text-xs text-muted-foreground" role="status">
+            <p className="visual-card-text" role="status">
               {content.status}
             </p>
           )}
@@ -294,10 +294,10 @@ export function StartupNotice({
           <CapabilityForm onSubmit={onUseCapability} hint={content.hint} />
         )}
         {content.hint !== undefined && !content.field && (
-          <p className="m-0 text-sm leading-relaxed text-muted-foreground">{content.hint}</p>
+          <p className="visual-card-text">{content.hint}</p>
         )}
         {content.instruction !== undefined && (
-          <p className="m-0 text-sm font-medium">{content.instruction}</p>
+          <p className="visual-card-emphasis">{content.instruction}</p>
         )}
         {(reload || retry) && (
           <div className="flex flex-wrap gap-2">
@@ -376,15 +376,15 @@ export function ConnectionRecoveryDialog({ onClose }: { onClose: () => void }) {
     <TaskDialog title={content.heading} description={content.cause} onClose={onClose}>
       <div className="flex flex-col gap-4">
         {content.status !== undefined && (
-          <p className="m-0 text-xs text-muted-foreground" role="status">
+          <p className="visual-card-text" role="status">
             {content.status}
           </p>
         )}
         {content.hint !== undefined && !content.field && (
-          <p className="m-0 text-sm leading-relaxed text-muted-foreground">{content.hint}</p>
+          <p className="visual-card-text">{content.hint}</p>
         )}
         {content.instruction !== undefined && (
-          <p className="m-0 text-sm font-medium">{content.instruction}</p>
+          <p className="visual-card-emphasis">{content.instruction}</p>
         )}
         {content.field && (
           <CapabilityForm
