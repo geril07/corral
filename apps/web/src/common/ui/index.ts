@@ -103,5 +103,6 @@ export {
   type VisualTabKind,
 } from "./visual-tabs.tsx";
 export { PathPicker, PickerToastProvider, usePickerToast } from "./path-picker.tsx";
+export { toast, ToastProvider } from "./toast.tsx";
 export { PickerFrame, type PickerFrameMessage } from "./picker-frame.tsx";
 export { PickerAutocomplete } from "./picker-autocomplete.tsx";

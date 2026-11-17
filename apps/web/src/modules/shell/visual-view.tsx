@@ -14,9 +14,8 @@ import {
   type Ref,
   type RefObject,
 } from "react";
-import { copyText, type CopyOutcome } from "../../common/lib/clipboard.ts";
+import { copyText } from "../../common/lib/clipboard.ts";
 import {
-  Button,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
@@ -25,6 +24,7 @@ import {
   DropdownMenuSubTrigger,
   Icon,
   TooltipProvider,
+  toast,
   VisualIconButton,
   VisualResizeHandle,
   VisualSearchAction,
@@ -270,6 +270,9 @@ const NO_ROWS: readonly VisualTaskRow[] = [];
 /** No presets, for a host without a config: the menu then shows only Custom…. */
 const NO_SNOOZE_PRESETS: readonly SnoozePreset[] = [];
 
+/** How long one copy confirmation stays; each copy raises its own, so they stack at the corner. */
+const COPY_TOAST_MS = 3000;
+
 export interface VisualShellViewProps {
   rows: readonly VisualTaskRow[];
   /**
@@ -346,8 +349,8 @@ export interface VisualShellViewProps {
   notice?: VisualShellNotice | undefined;
   onDismissNotice?: (() => void) | undefined;
   /**
-   * The live connection banner and its recovery surfaces. Absent in the fixture host, which keeps
-   * the local notice row instead of mounting a status the review fixtures cannot drive.
+   * The live connection banner and its recovery surfaces, and the footer that carries `notice`:
+   * a host without a status has no footer band, so a notice passed to it goes unmounted.
    */
   status?:
     | {
@@ -677,26 +680,27 @@ export function VisualShellView({
     selectedId === null
       ? undefined
       : ([...rows, ...snoozedRows, ...settled].find((row) => row.id === selectedId) ?? rows[0]);
-  const [copyNotice, setCopyNotice] = useState<CopyOutcome>();
-  const clearCopyNotice = useCallback(() => setCopyNotice(undefined), []);
+  // A copy answers where the window ends, not in the sidebar: the menu that asked is gone by the
+  // time the clipboard settles, so the toast is the only record of what was taken. Each copy gets
+  // its own card, so copying a path, then a branch, leaves both readable in the stack. A refusal
+  // is high priority, which is what makes the region announce it urgently.
   const copy = useCallback((text: string, copied: string) => {
-    setCopyNotice(undefined);
-    void copyText(text, copied).then(setCopyNotice);
+    void copyText(text, copied).then((outcome) => {
+      const failed = outcome.outcome === "refused";
+      toast.add({
+        title: outcome.message,
+        type: failed ? "error" : "success",
+        priority: failed ? "high" : "low",
+        timeout: COPY_TOAST_MS,
+      });
+    });
   }, []);
   const selectTask = useCallback(
     (id: string | null) => {
-      setCopyNotice(undefined);
       onSelectTask(id);
     },
     [onSelectTask],
   );
-  const shownNotice: VisualShellNotice | undefined =
-    copyNotice === undefined
-      ? notice
-      : {
-          message: copyNotice.message,
-          tone: copyNotice.outcome === "refused" ? "error" : "notice",
-        };
   const shellRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   const newTaskButton = useRef<HTMLButtonElement>(null);
@@ -720,10 +724,9 @@ export function VisualShellView({
    * must not overwrite a choice the user made while the write was in flight.
    */
   const parkFocus = useRef<{ id: string; index: number } | undefined>(undefined);
-  // One transient-state clear for all three: the copy confirmation, a moved row's focus intent and
-  // a parked selection end on the user's next input, so none can act after the user has moved on.
+  // One transient-state clear for both: a moved row's focus intent and a parked selection end
+  // on the user's next input, so neither can act after the user has moved on.
   const clearTransient = useCallback(() => {
-    setCopyNotice(undefined);
     moveFocus.current = undefined;
     parkFocus.current = undefined;
   }, []);
@@ -1213,12 +1216,10 @@ export function VisualShellView({
               />
             )
           }
-          onMenuOpen={clearCopyNotice}
         />
       </li>
     ),
     [
-      clearCopyNotice,
       copy,
       currentTaskId,
       navigate,
@@ -1347,30 +1348,6 @@ export function VisualShellView({
             shelves={shelves}
           />
         </TooltipProvider>
-        {status === undefined && shownNotice !== undefined && (
-          <div
-            className="visual-shell-notice"
-            data-tone={shownNotice.tone}
-            role={shownNotice.tone === "error" ? "alert" : "status"}
-          >
-            <span className="visual-shell-notice-message">{shownNotice.message}</span>
-            {shownNotice.action !== undefined && (
-              <Button variant="ghost" size="xs" onClick={shownNotice.action.run}>
-                {shownNotice.action.label}
-              </Button>
-            )}
-            {(onDismissNotice !== undefined || copyNotice !== undefined) && (
-              <VisualIconButton
-                label="Dismiss status"
-                icon="close"
-                onClick={() => {
-                  clearCopyNotice();
-                  onDismissNotice?.();
-                }}
-              />
-            )}
-          </div>
-        )}
         {status === undefined ? (
           <div className="visual-sidebar-footer">
             <VisualIconButton
@@ -1397,9 +1374,8 @@ export function VisualShellView({
             placement="footer"
             armed={armed}
             prefix={prefix}
-            failure={shownNotice}
+            failure={notice}
             onDismissFailure={() => {
-              clearCopyNotice();
               onDismissNotice?.();
             }}
             onOpenConfigProblems={status.onOpenConfigProblems}
@@ -1441,9 +1417,8 @@ export function VisualShellView({
             placement="strip"
             armed={armed}
             prefix={prefix}
-            failure={shownNotice}
+            failure={notice}
             onDismissFailure={() => {
-              clearCopyNotice();
               onDismissNotice?.();
             }}
             onOpenConfigProblems={status.onOpenConfigProblems}

@@ -47,6 +47,10 @@ parallel document-level popup lifecycle.
   attachments or drafts. Failed creation and refused sends retain the user's input.
 - **Motion:** no continuously looping animation; respect reduced motion. Do not animate dialog
   geometry when interface scale changes. Popup teardown and focus restoration must remain bounded.
+- **Feedback:** a copy confirmation is a toast in the window's bottom-right corner
+  (`common/ui/toast.tsx`), raised where the copy happened. Nothing transient is added to the
+  sidebar: its footer band is for a failed action, a persistent problem and the Undo that has to
+  stay reachable.
 - **Density:** use the kit's semantic type, spacing, radius and control roles rather than
   feature-specific copies. A monospace family is a role, not a font size.
 - **Accessibility tradeoff:** the current visual direction intentionally keeps non-text
