@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -26,8 +27,8 @@ export interface ChatTimelineProps {
   waiting: boolean;
   /** The pending request, when one needs the keyboard and must be scrolled into view. */
   requestId: string | undefined;
-  /** The composer's measured height, so the last item is not hidden behind it. */
-  endSpace: number;
+  /** The scroller's scrollbar width, so the composer's dock can reserve the same gutter. */
+  onScrollbarWidth?: (width: number) => void;
   /** This session's reading row and open folds; the workspace keeps them across a tab switch. */
   memory: ChatTranscriptStore;
   /** The folds the user opened in this session. */
@@ -78,7 +79,7 @@ export function ChatTimeline({
   turnEndedAt,
   waiting,
   requestId,
-  endSpace,
+  onScrollbarWidth,
   memory,
   expanded,
   onToggleFold,
@@ -125,6 +126,13 @@ export function ChatTimeline({
     return node instanceof HTMLElement ? node : null;
   }, []);
 
+  // The dock's side inset depends on the scrollbar the scroller took; report it before the first
+  // paint so the composer and the rows do not start a few pixels apart and settle later.
+  useLayoutEffect(() => {
+    const node = scrollNode();
+    if (node !== null) onScrollbarWidth?.(node.offsetWidth - node.clientWidth);
+  }, [onScrollbarWidth, scrollNode]);
+
   /**
    * The item count a release stamps comes from the last commit, through a ref so this stays
    * stable: `toggleFold` feeds `renderItem`, and a new identity there re-renders every mounted row
@@ -149,14 +157,15 @@ export function ChatTimeline({
    * under the top edge goes to this session's memory, which is what a later mount restores.
    */
   const syncFollow = useCallback(() => {
+    const node = scrollNode();
     const state = list.current?.getState();
-    if (state !== undefined) {
-      followRef.current = state.isAtEnd;
-      setFollowing(state.isAtEnd);
-    }
+    // The DOM is the authority on whether the end is visible: the list's own flag can lag a
+    // viewport resize by a frame and would release the follow when the composer shrinks.
+    const following = node === null ? (state?.isAtEnd ?? false) : atEnd(node);
+    followRef.current = following;
+    setFollowing(following);
     // The row under the top edge is the one a remount has to put back there; the list's own
     // anchor reports the row above it, which lands a turn early.
-    const node = scrollNode();
     if (node === null) return;
     const box = node.getBoundingClientRect();
     const reading = [...node.querySelectorAll<HTMLElement>("[data-row-key]")].find(
@@ -164,10 +173,7 @@ export function ChatTimeline({
     );
     const key = reading?.dataset["rowKey"];
     if (key === undefined) return;
-    memory.remember(
-      { key, index: rows.findIndex((row) => row.key === key) },
-      state?.isAtEnd ?? atEnd(node),
-    );
+    memory.remember({ key, index: rows.findIndex((row) => row.key === key) }, following);
   }, [memory, rows, scrollNode, setFollowing]);
 
   const away = follow || leftAt === null ? null : Math.max(0, items.length - leftAt);
@@ -181,27 +187,58 @@ export function ChatTimeline({
    * key. The list's own content box is sized to the whole transcript, so its resize is the moment
    * the new height exists; the tail is pinned then. A user who scrolled up has already cleared
    * the latch, and a disclosure in flight owns the view until its two frames are done.
+   *
+   * The scroller itself resizes when the composer's dock grows or the window changes. Pin then
+   * only if the end was in view before the resize: a shrinking viewport must not leave the last
+   * rows below the fold, and a reader who was away keeps their place.
    */
   useEffect(() => {
     const node = scrollNode();
     const content = node?.firstElementChild;
-    if (!(content instanceof HTMLElement)) return undefined;
+    if (node === null || !(content instanceof HTMLElement)) return undefined;
     let frame = 0;
-    const observer = new ResizeObserver(() => {
-      if (!followRef.current || disclosureRef.current) return;
+    let viewportHeight = node.clientHeight;
+    const reportScrollbar = () => onScrollbarWidth?.(node.offsetWidth - node.clientWidth);
+    const pin = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const current = scrollNode();
         if (current === null || atEnd(current)) return;
-        void list.current?.scrollToEnd({ animated: false });
+        void list.current?.scrollToEnd({ animated: false }).then(() => {
+          const scroller = scrollNode();
+          // The list's own metrics can lag the dock's resize by a frame; clamp to the DOM's end so
+          // the last row does not stay below the fold after the scroll command.
+          if (scroller !== null && !atEnd(scroller)) scroller.scrollTop = scroller.scrollHeight;
+          // A scroll event from the resize may have released the latch before this landed; the
+          // view is at the end now, so take it back rather than leaving a stale control behind.
+          followRef.current = true;
+          setFollowing(true);
+        });
       });
+    };
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target === node) {
+          reportScrollbar();
+          const wasAtEnd = node.scrollTop + viewportHeight >= node.scrollHeight - 2;
+          viewportHeight = node.clientHeight;
+          if (!wasAtEnd || disclosureRef.current) continue;
+          followRef.current = true;
+          setFollowing(true);
+          pin();
+        } else if (entry.target === content) {
+          if (!followRef.current || disclosureRef.current) continue;
+          pin();
+        }
+      }
     });
     observer.observe(content);
+    observer.observe(node);
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
     };
-  }, [scrollNode]);
+  }, [scrollNode, setFollowing, onScrollbarWidth]);
 
   /**
    * Opens or closes a fold without letting the list drag the view to it. A list that is following
@@ -405,7 +442,7 @@ export function ChatTimeline({
       alignItemsAtEnd
       maintainScrollAtEnd={follow && requestId === undefined ? followConfig : false}
       recycleItems={false}
-      className="h-full overflow-anchor-none"
+      className="chat-timeline h-full overflow-anchor-none"
       data-testid="chat-timeline"
       tabIndex={0}
       role="log"
@@ -415,11 +452,11 @@ export function ChatTimeline({
       onKeyDown={onKeyDown}
       contentContainerStyle={{
         paddingTop: 8,
-        paddingBottom: endSpace + 8,
+        paddingBottom: 8,
         // The gutter the scrollbar will take is inside the scroller, so the bar stays at the pane's
-        // edge; the rows keep the same inset from the pane's sides at narrow widths.
-        paddingLeft: 16,
-        paddingRight: 16,
+        // edge. The side inset is the composer dock's `px-4`, in rem, so both lanes scale together.
+        paddingLeft: "1rem",
+        paddingRight: "1rem",
       }}
     />
   );

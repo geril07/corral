@@ -479,54 +479,20 @@ test("a refused send keeps the whole draft and shows its sentence", async () => 
   await expect.element(send).toBeEnabled();
 });
 
-test("a deferred pointer queue keeps the keyboard in the composer", async () => {
-  const pending = Promise.withResolvers<void>();
-  const chat = await renderChat(recorded([], { state: workingChat() }), {
-    onSend: () => pending.promise,
-  });
+test("the submit control is Stop while a turn runs with an empty draft, Steer once there is text", async () => {
+  const chat = await renderChat(recorded([], { state: workingChat() }));
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
   const composer = page.getByRole("textbox", { name: "Message" });
-  const queue = page.getByRole("button", { name: "Queue" });
   await expect.element(composer).toHaveFocus();
-  await userEvent.keyboard("Queue this");
 
-  await userEvent.click(queue);
-  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Queue this", mode: "follow-up" }]));
-  await expect.element(queue).toBeDisabled();
-  await expect.element(composer).toHaveFocus();
-  await expect.element(queue).not.toHaveFocus();
-  await userEvent.keyboard(" now");
-  await expect.element(composer).toHaveValue("Queue this now");
+  // OpenCode's one control: with nothing typed, a running turn offers the stop square.
+  await expect.element(page.getByRole("button", { name: "Stop" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Steer" })).not.toBeInTheDocument();
 
-  pending.resolve();
-  await expect.element(queue).toBeEnabled();
-  await expect.element(composer).toHaveFocus();
-});
-
-test("a deferred keyboard queue returns the keyboard to the composer", async () => {
-  const pending = Promise.withResolvers<void>();
-  const chat = await renderChat(recorded([], { state: workingChat() }), {
-    onSend: () => pending.promise,
-  });
-  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
-  const composer = page.getByRole("textbox", { name: "Message" });
-  const queue = page.getByRole("button", { name: "Queue" });
-  await expect.element(composer).toHaveFocus();
-  await userEvent.keyboard("Queue this");
-
-  // The disabled model row is skipped; Thinking comes before Queue in the toolbar.
-  await userEvent.keyboard("{Tab}{Tab}");
-  await expect.element(queue).toHaveFocus();
-  await userEvent.keyboard("{Enter}");
-  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Queue this", mode: "follow-up" }]));
-  await expect.element(queue).toBeDisabled();
-  await expect.element(composer).toHaveFocus();
-  await userEvent.keyboard(" now");
-  await expect.element(composer).toHaveValue("Queue this now");
-
-  pending.resolve();
-  await expect.element(queue).toBeEnabled();
-  await expect.element(composer).toHaveFocus();
+  await userEvent.keyboard("Tighten it");
+  // A draft turns the same control into steer; Stop is behind an empty field.
+  await expect.element(page.getByRole("button", { name: "Steer" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Stop" })).not.toBeInTheDocument();
 });
 
 test("a deferred pointer abort keeps the keyboard in the composer", async () => {
@@ -536,10 +502,10 @@ test("a deferred pointer abort keeps the keyboard in the composer", async () => 
   });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
   const composer = page.getByRole("textbox", { name: "Message" });
-  const abort = page.getByRole("button", { name: "Abort" });
+  const stop = page.getByRole("button", { name: "Stop" });
   await expect.element(composer).toHaveFocus();
 
-  await userEvent.click(abort);
+  await userEvent.click(stop);
   await vi.waitFor(() => expect(chat.aborts).toHaveLength(1));
   const stopping = page.getByRole("button", { name: "Stopping…" });
   await expect.element(stopping).toBeDisabled();
@@ -547,9 +513,11 @@ test("a deferred pointer abort keeps the keyboard in the composer", async () => 
   await expect.element(stopping).not.toHaveFocus();
   await userEvent.keyboard("still typing");
   await expect.element(composer).toHaveValue("still typing");
+  // A draft turns the control into steer while the abort is in flight.
+  await expect.element(page.getByRole("button", { name: "Steer" })).toBeEnabled();
 
   pending.resolve();
-  await expect.element(page.getByRole("button", { name: "Abort" })).toBeEnabled();
+  await expect.element(page.getByRole("button", { name: "Steer" })).toBeEnabled();
   await expect.element(composer).toHaveFocus();
 });
 
@@ -560,25 +528,20 @@ test("a deferred keyboard abort returns the keyboard to the composer", async () 
   });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
   const composer = page.getByRole("textbox", { name: "Message" });
-  const abort = page.getByRole("button", { name: "Abort" });
+  const stop = page.getByRole("button", { name: "Stop" });
   await expect.element(composer).toHaveFocus();
-  await userEvent.keyboard("Keep this");
 
-  // A draft keeps Queue enabled, so the toolbar tab order is Thinking, Queue, then Abort.
+  // Nothing is typed, so the toolbar's last control is Stop.
   await userEvent.keyboard("{Tab}{Tab}");
-  await expect.element(page.getByRole("button", { name: "Queue" })).toHaveFocus();
-  await userEvent.keyboard("{Tab}");
-  await expect.element(abort).toHaveFocus();
+  await expect.element(stop).toHaveFocus();
   await userEvent.keyboard("{Enter}");
   await vi.waitFor(() => expect(chat.aborts).toHaveLength(1));
   const stopping = page.getByRole("button", { name: "Stopping…" });
   await expect.element(stopping).toBeDisabled();
   await expect.element(composer).toHaveFocus();
-  await userEvent.keyboard(" text");
-  await expect.element(composer).toHaveValue("Keep this text");
 
   pending.resolve();
-  await expect.element(page.getByRole("button", { name: "Abort" })).toBeEnabled();
+  await expect.element(page.getByRole("button", { name: "Stop" })).toBeEnabled();
   await expect.element(composer).toHaveFocus();
 });
 
@@ -589,33 +552,24 @@ test("a pending abort says it is stopping and marks the composer row busy", asyn
   });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
   const composer = page.getByRole("textbox", { name: "Message" });
-  const queue = page.getByRole("button", { name: "Queue" });
-  const steer = page.getByRole("button", { name: "Steer" });
-  const abort = page.getByRole("button", { name: "Abort" });
-  const row = abort.element().closest<HTMLElement>("[aria-busy]")!;
+  const stop = page.getByRole("button", { name: "Stop" });
+  const row = stop.element().closest<HTMLElement>("[aria-busy]")!;
   await expect.element(composer).toHaveFocus();
-  await userEvent.keyboard("Keep this");
 
-  await userEvent.click(abort);
+  await userEvent.click(stop);
   await vi.waitFor(() => expect(chat.aborts).toHaveLength(1));
 
-  // The visible label and the accessible name both say what is happening; the row is busy.
-  const stopping = page.getByRole("button", { name: "Stopping…" });
-  await expect.element(stopping).toBeDisabled();
-  await expect.element(stopping).toHaveTextContent("Stopping…");
+  // The accessible name says what is happening; the row is busy.
+  await expect.element(page.getByRole("button", { name: "Stopping…" })).toBeDisabled();
   await expect.poll(() => row.getAttribute("aria-busy")).toBe("true");
 
-  // The turn still reads working and the other actions keep their own rules; no hint sentence
-  // has reappeared beside them.
-  await expect.element(page.getByText(/Enter steer/)).not.toBeInTheDocument();
-  await expect.element(queue).toBeEnabled();
-  await expect.element(steer).toBeEnabled();
+  // The field stays free: a draft turns the control into steer while the abort is pending.
+  await userEvent.keyboard("Keep this");
+  await expect.element(page.getByRole("button", { name: "Steer" })).toBeEnabled();
 
   pending.resolve();
-  await expect.element(page.getByRole("button", { name: "Abort" })).toBeEnabled();
+  await expect.element(page.getByRole("button", { name: "Steer" })).toBeEnabled();
   await expect.poll(() => row.getAttribute("aria-busy")).toBe("false");
-  await expect.element(queue).toBeEnabled();
-  await expect.element(steer).toBeEnabled();
 });
 
 test("a rejected abort clears the stopping state and shows its sentence", async () => {
@@ -627,29 +581,28 @@ test("a rejected abort clears the stopping state and shows its sentence", async 
     },
   });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
-  const abort = page.getByRole("button", { name: "Abort" });
-  const row = abort.element().closest<HTMLElement>("[aria-busy]")!;
+  const stop = page.getByRole("button", { name: "Stop" });
+  const row = stop.element().closest<HTMLElement>("[aria-busy]")!;
 
-  await userEvent.click(abort);
+  await userEvent.click(stop);
   await vi.waitFor(() => expect(chat.aborts).toHaveLength(1));
   await expect.element(page.getByRole("button", { name: "Stopping…" })).toBeDisabled();
   await expect.poll(() => row.getAttribute("aria-busy")).toBe("true");
 
   pending.resolve();
   await expect.element(page.getByRole("alert")).toHaveTextContent("The agent refused the abort.");
-  await expect.element(page.getByRole("button", { name: "Abort" })).toBeEnabled();
+  await expect.element(page.getByRole("button", { name: "Stop" })).toBeEnabled();
   await expect.poll(() => row.getAttribute("aria-busy")).toBe("false");
 });
 
-test("a driver without follow-up hides Queue and turns Ctrl/Cmd+Enter into steer", async () => {
+test("a driver without follow-up turns Ctrl/Cmd+Enter into steer", async () => {
   const chat = await renderChat(recorded([], { state: workingChat() }), {}, { followUp: false });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
   const composer = page.getByRole("textbox", { name: "Message" });
   await expect.element(composer).toHaveFocus();
 
-  // Codex's declaration: no Queue, while Abort stays reachable.
-  await expect.element(page.getByRole("button", { name: "Queue" })).not.toBeInTheDocument();
-  await expect.element(page.getByRole("button", { name: "Abort" })).toBeVisible();
+  // Codex's declaration changes the chord, not the control: Stop stays reachable.
+  await expect.element(page.getByRole("button", { name: "Stop" })).toBeVisible();
 
   // Plain Enter still steers; the chord is the same action rather than a refused follow-up.
   await userEvent.keyboard("Steer this{Enter}");
@@ -658,14 +611,12 @@ test("a driver without follow-up hides Queue and turns Ctrl/Cmd+Enter into steer
   await vi.waitFor(() => expect(chat.sent[1]).toEqual({ text: "And this", mode: "steer" }));
 });
 
-test("an unanswered driver capability keeps the follow-up offer", async () => {
+test("an unanswered driver capability still queues a follow-up", async () => {
   // `undefined` is the store before its answer, or an agent without a record: not a refusal.
   const chat = await renderChat(recorded([], { state: workingChat() }), {}, {});
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
   const composer = page.getByRole("textbox", { name: "Message" });
   await expect.element(composer).toHaveFocus();
-
-  await expect.element(page.getByRole("button", { name: "Queue" })).toBeVisible();
 
   await userEvent.keyboard("Queue this{Control>}{Enter}{/Control}");
   await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "Queue this", mode: "follow-up" }]));
@@ -709,7 +660,8 @@ test("send, steer and queue a follow-up from the keyboard; Shift+Enter is a newl
     { type: "event", sequence: 2, event: { type: "state", state: workingChat() } },
   );
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().state.turn).toBe("working"));
-  await expect.element(page.getByRole("button", { name: "Queue" })).toBeVisible();
+  // The field is empty again, so the submit control is the stop square.
+  await expect.element(page.getByRole("button", { name: "Stop" })).toBeVisible();
 
   await userEvent.keyboard("Tighten the assertion{Enter}");
   await vi.waitFor(() =>
@@ -2003,6 +1955,42 @@ test("a wheel back to the bottom re-arms the follow after a keyboard release", a
   });
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(1));
   await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+});
+
+test("the composer's growth keeps the end pinned and a reader who was away in place", async () => {
+  const chat = await renderChat(longChat(160));
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+  const composer = page.getByRole("textbox", { name: "Message" });
+  const draft = "one\ntwo\nthree\nfour\nfive";
+
+  // The dock grows, so the transcript's viewport shrinks: the end stays in view.
+  const fullHeight = scrollNode().clientHeight;
+  await composer.fill(draft);
+  await vi.waitFor(() => expect(scrollNode().clientHeight).toBeLessThan(fullHeight));
+  const grownHeight = scrollNode().clientHeight;
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+  await vi.waitFor(() =>
+    expect(page.getByRole("button", { name: /^Scroll to end/ }).elements()).toHaveLength(0),
+  );
+
+  // Shrinking the dock grows the viewport; the end stays pinned instead of being released by the
+  // clamp the browser applies to the scroll position.
+  await composer.fill("");
+  await vi.waitFor(() => expect(scrollNode().clientHeight).toBeGreaterThan(grownHeight));
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(true));
+  await vi.waitFor(() =>
+    expect(page.getByRole("button", { name: /^Scroll to end/ }).elements()).toHaveLength(0),
+  );
+
+  // A reader away from the end keeps the row they are reading when the dock grows.
+  await userEvent.wheel(page.getByTestId("chat-timeline"), { delta: { y: -1200 } });
+  await vi.waitFor(() => expect(atEnd(scrollNode())).toBe(false));
+  const reading = scrollNode().scrollTop;
+  await composer.fill(draft);
+  await vi.waitFor(() => expect(scrollNode().clientHeight).toBeLessThan(fullHeight));
+  expect(scrollNode().scrollTop).toBe(reading);
+  await expect.element(page.getByRole("button", { name: "Scroll to end" })).toBeVisible();
 });
 
 test("a scroll-to-end control counts what arrived while the view was away and returns on Enter", async () => {

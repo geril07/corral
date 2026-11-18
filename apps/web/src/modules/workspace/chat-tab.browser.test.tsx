@@ -207,6 +207,8 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
 
     // `prefix .` runs the action's `chat.abort` with the selected session. The pending state
     // lives with the RPC, so this path and the button share the Stopping control and busy row.
+    // Stop is the empty field's control, so clear the draft the tab switch left behind.
+    await composer.fill("");
     const pendingAbort = Promise.withResolvers<void>();
     abort.mockImplementation(() => pendingAbort.promise);
     composer.element().focus();
@@ -215,12 +217,11 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
     await vi.waitFor(() => expect(abort).toHaveBeenCalledWith({ sessionId: chatSession }));
     const stopping = page.getByRole("button", { name: "Stopping…" });
     await expect.element(stopping).toBeDisabled();
-    await expect.element(stopping).toHaveTextContent("Stopping…");
     const row = stopping.element().closest<HTMLElement>("[aria-busy]")!;
     await expect.poll(() => row.getAttribute("aria-busy")).toBe("true");
 
     pendingAbort.resolve();
-    await expect.element(page.getByRole("button", { name: "Abort" })).toBeEnabled();
+    await expect.element(page.getByRole("button", { name: "Stop" })).toBeEnabled();
     await expect.poll(() => row.getAttribute("aria-busy")).toBe("false");
 
     // A refused button abort clears the same shared state and shows the composer's alert.
@@ -229,12 +230,12 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
       await rejectedAbort.promise;
       throw new Error("The agent refused the abort.");
     });
-    await page.getByRole("button", { name: "Abort" }).click();
+    await page.getByRole("button", { name: "Stop" }).click();
     await vi.waitFor(() => expect(abort).toHaveBeenCalledTimes(2));
     await expect.element(page.getByRole("button", { name: "Stopping…" })).toBeDisabled();
     rejectedAbort.resolve();
     await expect.element(page.getByRole("alert")).toHaveTextContent("The agent refused the abort.");
-    await expect.element(page.getByRole("button", { name: "Abort" })).toBeEnabled();
+    await expect.element(page.getByRole("button", { name: "Stop" })).toBeEnabled();
     await expect.poll(() => row.getAttribute("aria-busy")).toBe("false");
   } finally {
     // Nothing here reached the server as a task, session or driver; close what we seeded and prove
@@ -254,7 +255,7 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
   }
 });
 
-test("the matched driver decides the follow-up offer: Codex has no Queue, pi keeps it", async () => {
+test("the matched driver decides what Ctrl+Enter does: Codex steers, pi queues", async () => {
   const { client, real, tasks, sessions, send, chatStore, chatSession } = seededClient();
   const { repo } = await appWithProject(client);
   const project = await vi.waitFor(() => {
@@ -314,10 +315,7 @@ test("the matched driver decides the follow-up offer: Codex has no Queue, pi kee
       .toHaveAttribute("aria-selected", "true");
     const composer = page.getByRole("textbox", { name: "Message" });
 
-    // Codex declares `followUp:false`: the Queue button is absent and no hint sentence returns.
-    await expect.element(page.getByRole("button", { name: "Queue" })).not.toBeInTheDocument();
-    await expect.element(page.getByText(/Enter steer ·/)).not.toBeInTheDocument();
-
+    // Codex declares `followUp:false`: the chord is the same steer plain Enter does.
     // Ctrl+Enter steers the same turn plain Enter does, and the composer keeps its semantics.
     await composer.fill("Steer the Codex turn");
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
@@ -332,7 +330,7 @@ test("the matched driver decides the follow-up offer: Codex has no Queue, pi kee
 
     // pi declares `followUp:true`: the offer returns when the selected session changes.
     await page.getByRole("tab", { name: /^pi/ }).click();
-    await expect.element(page.getByRole("button", { name: "Queue" })).toBeVisible();
+    // pi declares `followUp:true`: the same chord queues.
     await composer.fill("Queue for pi");
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
     await vi.waitFor(() =>
@@ -353,14 +351,14 @@ test("the matched driver decides the follow-up offer: Codex has no Queue, pi kee
   }
 });
 
-test("an unknown capability keeps Queue and a loaded Codex answer removes it without reselect", async () => {
+test("an unknown capability queues a follow-up, and a loaded Codex answer turns the chord into steer", async () => {
   const capabilities = new Store<ChatCapabilitiesSnapshot>({ loaded: false, drivers: [] });
   const capabilityStore: ChatCapabilitiesStore = {
     subscribe: capabilities.subscribe,
     getSnapshot: capabilities.getSnapshot,
     close: () => {},
   };
-  const { client, real, tasks, sessions, chatStore, chatSession } = seededClient(
+  const { client, real, tasks, sessions, send, chatStore, chatSession } = seededClient(
     workingChat(),
     async () => undefined,
     capabilityStore,
@@ -416,15 +414,29 @@ test("an unknown capability keeps Queue and a loaded Codex answer removes it wit
 
     await openSeededTask("Unknown capability");
     const composer = page.getByRole("textbox", { name: "Message" });
-    // No answer yet: the composer keeps today's offer instead of stripping a mode it cannot see.
-    await expect.element(page.getByRole("button", { name: "Queue" })).toBeVisible();
+    // No answer yet: the chord keeps today's mode instead of stripping one it cannot see.
+    await composer.fill("Queue this");
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+    await vi.waitFor(() =>
+      expect(send).toHaveBeenCalledWith({
+        sessionId: chatSession,
+        text: "Queue this",
+        mode: "follow-up",
+      }),
+    );
 
-    // The loaded record hides it in place; the chat stays selected and keeps its draft.
+    // The loaded record changes the chord in place; the chat stays selected and keeps its draft.
     await composer.fill("Keep this while the answer loads");
     capabilities.set({ loaded: true, drivers: [codex] });
-    await expect.element(page.getByRole("button", { name: "Queue" })).not.toBeInTheDocument();
-    await expect.element(page.getByText(/follow-up/)).not.toBeInTheDocument();
     await expect.element(composer).toHaveValue("Keep this while the answer loads");
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+    await vi.waitFor(() =>
+      expect(send).toHaveBeenLastCalledWith({
+        sessionId: chatSession,
+        text: "Keep this while the answer loads",
+        mode: "steer",
+      }),
+    );
   } finally {
     tasks.set({ loaded: true, tasks: [] });
     sessions.set({ loaded: true, sessions: [] });
