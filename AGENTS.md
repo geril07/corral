@@ -29,14 +29,12 @@ entrypoints, group and heavy classification.
 - A pattern that exists in T3 or OpenCode is taken from there (T3: structure, geometry, behaviour;
   OpenCode: visual language). A pattern that exists in neither is new work and is reviewed as such.
 - Do not invent user-visible copy. No reference wording and no functional error means no sentence.
-- Before changing UI, read `docs/ui-kit.md` for visual direction and kit boundaries. Publish
-  before/after screenshots as specified in `.github/pull_request_template.md`.
+- Before changing UI, read `docs/ui-kit.md` for visual direction and kit boundaries.
 
-## Issues and pull requests
+## Pull requests
 
-- A change starts from a GitHub issue: `gh issue view N` for the report and the decision it settles. Bugs, features and behaviour changes alike.
-- Branch `<type>/<issue>-<slug>` (`fix/1-tilde-path`); the PR body ends with `Closes #N`.
-- One PR per issue, rebased onto `main` and merged with rebase-and-merge, so history stays linear.
+- Name branches `<type>/<slug>` (`fix/tilde-path`).
+- Rebase onto `main` and use rebase-and-merge.
 
 ## Commits
 

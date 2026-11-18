@@ -103,8 +103,7 @@ quirk with the version that showed it; a module's responsibility; a test's requi
 case, stated once; a suppression's reason after `--`.
 
 Drop: a sentence the names and types already say; control-flow narration; changelog or review
-history; commented-out code; `TODO`/`FIXME` (file an issue); section banners inside a function.
+history; commented-out code; `TODO`/`FIXME`; section banners inside a function.
 A test comment states what the test guarantees, not how; the test name is not repeated.
 
-References name a symbol, or at least its file; never a line range, which rots silently. A task or
-decision code belongs to the issue that defines it; cite the issue number instead.
+References name a symbol, or at least its file; never a line range, which rots silently.
