@@ -16,6 +16,8 @@
   --visual-bg-layer-03: #eeeeee;
   --visual-text-base: #161616;
   --visual-text-muted: #5c5c5c;
+  /* A live row's base: quieter than the finished label, so the moving highlight carries the state. */
+  --visual-text-active: #8f8f8f;
   --visual-text-faint: #808080;
   --visual-icon-base: #3a3a3a;
   --visual-icon-muted: #808080;
@@ -44,6 +46,7 @@
   --visual-bg-layer-03: #3a3a3a;
   --visual-text-base: #fafafa;
   --visual-text-muted: #aeaeae;
+  --visual-text-active: #737373;
   --visual-text-faint: #808080;
   --visual-icon-base: #dbdbdb;
   --visual-icon-muted: #808080;

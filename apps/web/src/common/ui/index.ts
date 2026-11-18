@@ -77,6 +77,7 @@ export {
 } from "./dropdown-menu.tsx";
 export { RadioGroup, RadioGroupItem } from "./radio-group.tsx";
 export { StatusGlyph, type StatusGlyphSize } from "./status-glyph.tsx";
+export { TextShimmer } from "./text-shimmer.tsx";
 export { useTruncatedText } from "./truncated-text.tsx";
 export { TreeIndent, TreeRow } from "./tree-row.tsx";
 export {

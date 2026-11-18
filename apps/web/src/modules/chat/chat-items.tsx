@@ -28,6 +28,7 @@ import {
   IconButton,
   Markdown,
   StatusGlyph,
+  TextShimmer,
   buttonVariants,
   useTruncatedText,
   type IconName,
@@ -70,10 +71,8 @@ function ActivityRow({
   label,
   labelRef,
   expanded,
-  live = false,
   failed = false,
   running = false,
-  shimmer = false,
   numeric = false,
   ariaLabel,
   onClick,
@@ -83,11 +82,9 @@ function ActivityRow({
   /** Measures the label, so a row can tell whether its text was cut off (see `ToolCallItem`). */
   labelRef?: Ref<HTMLSpanElement> | undefined;
   expanded?: boolean | undefined;
-  live?: boolean;
   failed?: boolean;
   /** A call still running: the row keeps a status glyph, not only a colour. */
   running?: boolean;
-  shimmer?: boolean;
   /** A label that carries a duration: the digits keep one width while the clock ticks. */
   numeric?: boolean;
   ariaLabel?: string | undefined;
@@ -99,7 +96,7 @@ function ActivityRow({
         <span
           className={[
             "flex w-6 shrink-0 items-center justify-center",
-            failed ? "text-destructive" : live ? "text-foreground" : "text-muted-foreground",
+            failed ? "text-destructive" : "text-muted-foreground",
           ].join(" ")}
         >
           <Icon name={icon} />
@@ -108,10 +105,8 @@ function ActivityRow({
       <span
         ref={labelRef}
         className={[
-          "min-w-0 truncate text-left",
+          "min-w-0 truncate text-left text-muted-foreground",
           numeric ? "tabular-nums" : "",
-          shimmer ? "shimmer" : "",
-          live || shimmer ? "text-foreground" : "text-muted-foreground",
         ].join(" ")}
       >
         {label}
@@ -344,10 +339,8 @@ export function ReasoningItem({
     <div className="flex flex-col">
       <ActivityRow
         icon="thinking"
-        label={live ? "Thinking" : "Thought"}
+        label={live ? <TextShimmer text="Thinking" active /> : "Thought"}
         expanded={expanded}
-        live={live}
-        shimmer={live}
         onClick={onToggle}
       />
       {expanded && (
@@ -389,10 +382,9 @@ export function ToolCallItem({
       header={
         <ActivityRow
           icon={ACTION_ICON[action]}
-          label={label}
+          label={running ? <TextShimmer text={label} active /> : label}
           labelRef={observeLabel}
           expanded={expanded}
-          live={running}
           failed={failed}
           running={running}
           // A command's own words already say `Running …`; every other action needs the state in
@@ -617,6 +609,7 @@ export function TurnFoldItem({
   live,
   startedAt,
   endedAt,
+  waiting,
   collapsible,
   children,
 }: {
@@ -625,6 +618,8 @@ export function TurnFoldItem({
   live: boolean;
   startedAt: number | null;
   endedAt: number | null;
+  /** The agent waits on the user, so the turn is open but no work is happening. */
+  waiting: boolean;
   collapsible: boolean;
   children: ReactNode;
 }) {
@@ -635,11 +630,11 @@ export function TurnFoldItem({
       open={expanded && collapsible}
       header={
         <ActivityRow
-          label={live ? <LiveTurnLabel startedAt={startedAt} /> : workedLabel(duration)}
+          label={
+            live ? <LiveTurnLabel startedAt={startedAt} active={!waiting} /> : workedLabel(duration)
+          }
           expanded={collapsible ? expanded : undefined}
           onClick={collapsible ? onToggle : undefined}
-          live={live}
-          shimmer={live}
           numeric
         />
       }
@@ -650,17 +645,26 @@ export function TurnFoldItem({
 }
 
 /** The live tail of a working session that has no prompt to fold under yet. */
-export function WorkingItem({ startedAt }: { startedAt: number | null }) {
-  return <ActivityRow label={<LiveTurnLabel startedAt={startedAt} />} live shimmer numeric />;
+export function WorkingItem({
+  startedAt,
+  waiting,
+}: {
+  startedAt: number | null;
+  waiting: boolean;
+}) {
+  return <ActivityRow label={<LiveTurnLabel startedAt={startedAt} active={!waiting} />} numeric />;
 }
 
 /**
  * The live label, in its own component so the clock re-renders one text node instead of the fold
- * and every row inside it (`useNow` is a state tick, not a DOM write).
+ * and every row inside it (`useNow` is a state tick, not a DOM write). `active` is false while the
+ * agent waits on the user: the label and its time stay, the shimmer does not claim work.
  */
-function LiveTurnLabel({ startedAt }: { startedAt: number | null }) {
+function LiveTurnLabel({ startedAt, active }: { startedAt: number | null; active: boolean }) {
   const now = useNow(1000);
-  return startedAt === null ? "Working" : <>Working for {formatTurnDuration(now - startedAt)}</>;
+  const label =
+    startedAt === null ? "Working" : `Working for ${formatTurnDuration(now - startedAt)}`;
+  return <TextShimmer text={label} active={active} />;
 }
 
 function workedLabel(durationMs: number | null): string {
@@ -718,7 +722,9 @@ export function TranscriptRow({
   focusedRequest,
   actionsFor,
 }: TranscriptRowProps) {
-  if (row.kind === "working") return <WorkingItem startedAt={row.startedAt} />;
+  if (row.kind === "working") {
+    return <WorkingItem startedAt={row.startedAt} waiting={waiting} />;
+  }
   if (row.kind === "turn") {
     const open = expanded.has(row.key);
     return (
@@ -728,6 +734,7 @@ export function TranscriptRow({
         live={row.live}
         startedAt={row.startedAt}
         endedAt={row.endedAt}
+        waiting={waiting}
         collapsible={row.hidden.size > 0}
       >
         {row.rows.map((inner) =>

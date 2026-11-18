@@ -1,4 +1,4 @@
-import type { ChatAnswer, ChatItem, ChatStreamMessage } from "@corral/protocol/chat";
+import type { ChatAnswer, ChatItem, ChatStreamMessage, ChatToolCall } from "@corral/protocol/chat";
 import {
   DEFAULT_BINDINGS,
   DEFAULT_DIRECT_BINDINGS,
@@ -1125,7 +1125,7 @@ async function expectSteeredWorkVisible() {
   // work the user opened stays reachable through the steering updates.
   await expect.element(page.getByRole("button", { name: "Worked" }).first()).toBeVisible();
   // A segment with no work yet is a plain `Working` row, not a disclosure.
-  await expect.element(page.getByText("Working", { exact: true })).toBeVisible();
+  await expect.element(page.getByText("Working", { exact: true }).first()).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Read old.ts" })).toBeVisible();
   await expect.element(page.getByRole("button", { name: "Read current.ts" })).toBeVisible();
 }
@@ -1263,7 +1263,10 @@ test("a live turn with nothing to hide is a plain Working row", async () => {
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
 
   // Nothing to disclose, so the row is not a control; the streaming answer stays outside it.
-  await expect.element(page.getByText(/^Working for 1[2-4]s$/)).toBeVisible();
+  // The base layer is the accessible text; the shimmer copy is hidden from assistive technology.
+  const base = document.querySelector('[data-slot="text-shimmer-base"]');
+  if (!(base instanceof HTMLElement)) throw new Error("the live label has no base layer");
+  await expect.element(page.elementLocator(base)).toMatchTextContent(/^Working for \d+s$/);
   expect(page.getByRole("button", { name: /^Working/ }).elements()).toHaveLength(0);
   await expect.element(page.getByText("Hi", { exact: true })).toBeVisible();
 });
@@ -1589,18 +1592,85 @@ test("the live rows shimmer only when motion is allowed", async () => {
     </div>,
   );
 
-  const working = page.getByText("Working", { exact: true }).element();
-  const thinking = page.getByText("Thinking", { exact: true }).element();
-  expect(working.parentElement!.getBoundingClientRect().height).toBeCloseTo(
-    thinking.parentElement!.getBoundingClientRect().height,
+  const roots = [...document.querySelectorAll<HTMLElement>('[data-component="text-shimmer"]')];
+  const sweeps = [...document.querySelectorAll<HTMLElement>('[data-slot="text-shimmer-sweep"]')];
+  if (roots.length !== 2 || sweeps.length !== 2)
+    throw new Error("the two live labels did not mount");
+  const [working, thinking] = roots;
+  const [workingSweep, thinkingSweep] = sweeps;
+  expect(working!.parentElement!.getBoundingClientRect().height).toBeCloseTo(
+    thinking!.parentElement!.getBoundingClientRect().height,
     1,
   );
-  expect(getComputedStyle(working).animationName).toBe("none");
-  expect(getComputedStyle(thinking).animationName).toBe("none");
+  expect(getComputedStyle(workingSweep!).animationName).toBe("none");
+  expect(getComputedStyle(thinkingSweep!).animationName).toBe("none");
 
   await emulateMotion("no-preference");
-  await vi.waitFor(() => expect(getComputedStyle(working).animationName).toBe("tw-shimmer"));
-  expect(getComputedStyle(thinking).animationName).toBe("tw-shimmer");
+  await vi.waitFor(() =>
+    expect(getComputedStyle(workingSweep!).animationName).toBe("text-shimmer-window"),
+  );
+  expect(getComputedStyle(thinkingSweep!).animationName).toBe("text-shimmer-window");
+});
+
+test("a live turn keeps its label and time but stops the shimmer while the agent waits", async () => {
+  await render(
+    <div className="h-screen w-full">
+      <TranscriptRow
+        row={{
+          kind: "turn",
+          key: "turn:u1",
+          rows: [],
+          hidden: new Set<string>(),
+          live: true,
+          startedAt: Date.now() - 12_000,
+          endedAt: null,
+        }}
+        expanded={new Set()}
+        onToggleFold={() => {}}
+        onRespond={async () => {}}
+        onAnswered={() => {}}
+        onFailure={() => {}}
+        waiting
+      />
+    </div>,
+  );
+
+  const base = document.querySelector('[data-slot="text-shimmer-base"]');
+  if (!(base instanceof HTMLElement)) throw new Error("the live label has no base layer");
+  await expect.element(page.elementLocator(base)).toMatchTextContent(/^Working for \d+s$/);
+  // The request owns the keyboard; the turn is open, but no work is happening.
+  expect(
+    document.querySelector('[data-component="text-shimmer"]')?.getAttribute("data-active"),
+  ).toBe("false");
+});
+
+test("a running call's label shimmers until the call finishes", async () => {
+  const call: ChatToolCall = {
+    kind: "tool-call",
+    id: "t-running",
+    name: "bash",
+    arguments: '{"command":"pnpm test"}',
+    status: "running",
+    output: null,
+    diff: null,
+  };
+  await render(
+    <div className="h-screen w-full">
+      <TranscriptRow
+        row={{ kind: "tool", key: "t-running", call, label: "Run pnpm test", action: "run" }}
+        expanded={new Set()}
+        onToggleFold={() => {}}
+        onRespond={async () => {}}
+        onAnswered={() => {}}
+        onFailure={() => {}}
+        waiting={false}
+      />
+    </div>,
+  );
+
+  expect(
+    document.querySelector('[data-component="text-shimmer"]')?.getAttribute("data-active"),
+  ).toBe("true");
 });
 
 test("a call's body is what it produced, not the arguments its row already names", async () => {
