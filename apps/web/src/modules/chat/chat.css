@@ -1,0 +1,14 @@
+/*
+ * The transcript and the composer are one lane. The scroller always reserves its scrollbar
+ * gutter, so the rows do not shift when the scrollbar appears; the dock reserves the measured
+ * width on the right, so both center in the same content box instead of the dock sitting a few
+ * pixels right of the cards.
+ */
+.chat-timeline {
+  scrollbar-gutter: stable;
+}
+
+.chat-composer-dock {
+  padding-left: 1rem;
+  padding-right: calc(1rem + var(--chat-scrollbar, 0px));
+}

@@ -80,9 +80,9 @@ export interface ChatViewProps {
 }
 
 /**
- * One session as chat: the 46 rem lane, the virtualized timeline, the
- * request the agent waits on, and the composer that overlays the lane's end. The view renders the
- * chat store; the workspace owns the connection calls, so no driver is needed here.
+ * One session as chat: the 46 rem lane, the virtualized timeline, the request the agent waits on,
+ * and the composer docked below the timeline. The view renders the chat store; the workspace owns
+ * the connection calls, so no driver is needed here.
  */
 export function ChatView({
   store,
@@ -115,8 +115,7 @@ export function ChatView({
     focusAllowed.current = autoFocus;
   }, [autoFocus]);
   const transcriptRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const [panelHeight, setPanelHeight] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
   /** The view reports what the end gained while it was away; the control that says so is here. */
   const [away, setAway] = useState<number | null>(null);
   const timeline = useRef<ChatTimelineScroll>(null);
@@ -129,25 +128,20 @@ export function ChatView({
   );
   const requestId = request?.id;
   const working = snapshot.state.turn === "working";
+  // OpenCode's submit control: a running turn with nothing typed offers Stop instead of Send.
+  const stopping = working && draft.trim() === "";
   // T3's draft hero and OpenCode's new-session screen centre an empty transcript's composer; a
   // chat with history keeps it docked at the lane's end.
   const empty = snapshot.items.length === 0;
-  // A driver that does not declare follow-ups gets steer from both Enter and the chord; the
-  // Queue control appears only for the drivers that do (`chat.capabilities`, protocol 10).
+  // A driver that does not declare follow-ups gets steer from both Enter and the chord; the chord
+  // reaches follow-up only for the drivers that do (`chat.capabilities`, protocol 10).
   const followUpOffered = followUp !== false;
 
-  // The composer overlays the timeline, so the list keeps a matching end spacer.
-  useEffect(() => {
-    const node = panelRef.current;
-    if (node === null) return undefined;
-    const measure = () => setPanelHeight(node.getBoundingClientRect().height);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-
   const focusComposer = useCallback(() => composerRef.current?.focus(), []);
+  /** The dock's right inset is the scrollbar gutter the transcript's scroller reserved. */
+  const reportScrollbar = useCallback((width: number) => {
+    rootRef.current?.style.setProperty("--chat-scrollbar", `${width}px`);
+  }, []);
   const focusAfterAnswer = useCallback(
     (answeredId: string) => {
       if (
@@ -255,10 +249,12 @@ export function ChatView({
 
   return (
     <LocalLinks files={files} texts={texts}>
-      {/* The scroller spans the pane so its bar sits at the pane's edge, not at the lane's; the
-          rows and the composer keep the same lane width inside it (T3's centered session column). */}
-      <div className="relative h-full min-h-0">
-        <div className="absolute inset-0" ref={transcriptRef}>
+      {/* The transcript sits above the composer's dock, as in OpenCode's session screen: nothing
+          scrolls under the composer, so its surface needs no backdrop and nothing shows beside
+          it. The rows keep the pane's width for the scrollbar and the lane inside. The list stays
+          mounted while the transcript is empty, so a first message appends in reading order. */}
+      <div ref={rootRef} className="relative flex h-full min-h-0 flex-col">
+        <div className="min-h-0 min-w-0 flex-1" ref={transcriptRef}>
           <ChatFocusContext.Provider value={focusAllowed}>
             <ChatTimeline
               items={snapshot.items}
@@ -267,7 +263,7 @@ export function ChatView({
               turnEndedAt={snapshot.state.turnEndedAt}
               waiting={request !== undefined}
               requestId={request?.id}
-              endSpace={panelHeight}
+              onScrollbarWidth={reportScrollbar}
               memory={memory}
               expanded={expanded}
               onToggleFold={toggleFold}
@@ -280,20 +276,13 @@ export function ChatView({
           </ChatFocusContext.Provider>
         </div>
         <div
-          ref={panelRef}
           className={
             empty
-              ? "pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center px-4"
-              : "pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-4"
+              ? "pointer-events-none absolute inset-0 flex items-center justify-center px-4"
+              : "chat-composer-dock flex justify-center pt-2 pb-3"
           }
         >
-          {/* The lane, not the pane, carries the backdrop, so the pane's scrollbar stays visible
-              beside the composer instead of ending under it. */}
-          <ContentLane
-            className={
-              empty ? "pointer-events-auto gap-2 pt-2" : "pointer-events-auto gap-2 bg-canvas pt-2"
-            }
-          >
+          <ContentLane className="pointer-events-auto relative gap-2">
             {snapshot.failure !== null && (
               <Alert variant="destructive">
                 <AlertDescription>{snapshot.failure.message}</AlertDescription>
@@ -307,8 +296,8 @@ export function ChatView({
             <LocalLinkFailure />
             <LocalLinksUnavailable />
             {/* It floats at the composer's top edge (T3's `ScrollToEndButton`) rather than taking a
-                row of the composer's column: that column's height is the list's end spacer, so a
-                control in it would move the edge it stands in front of. */}
+                row of the dock: a row would enter the transcript's reading order and move the edge
+                it stands in front of. */}
             {away !== null && request === undefined && (
               <div className="absolute bottom-full left-1/2 mb-2 flex -translate-x-1/2">
                 <Button
@@ -408,46 +397,34 @@ export function ChatView({
                     {snapshot.state.context !== null && (
                       <ChatContextMeter usage={snapshot.state.context} />
                     )}
-                    {working && (
-                      <>
-                        {followUpOffered && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={draft.trim() === "" || sending}
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={(event) => {
-                              keepKeyboardInComposer(event);
-                              void send("follow-up");
-                            }}
-                          >
-                            Queue
-                          </Button>
-                        )}
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          disabled={aborting}
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={(event) => {
-                            keepKeyboardInComposer(event);
-                            void abort();
-                          }}
-                        >
-                          {aborting ? "Stopping…" : "Abort"}
-                        </Button>
-                      </>
+                    {/* One control with two states, as OpenCode's composer submit: a stop square
+                        while a turn runs and nothing is typed, the send arrow once there is text. */}
+                    {stopping ? (
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        aria-label={aborting ? "Stopping…" : "Stop"}
+                        disabled={aborting}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={(event) => {
+                          keepKeyboardInComposer(event);
+                          void abort();
+                        }}
+                      >
+                        <Icon name="stop" />
+                      </Button>
+                    ) : (
+                      <Button
+                        type="submit"
+                        size="icon-sm"
+                        aria-label={working ? "Steer" : "Send"}
+                        disabled={draft.trim() === "" || sending}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={keepKeyboardInComposer}
+                      >
+                        <Icon name="up" />
+                      </Button>
                     )}
-                    <Button
-                      type="submit"
-                      size="icon-sm"
-                      aria-label={working ? "Steer" : "Send"}
-                      disabled={draft.trim() === "" || sending}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={keepKeyboardInComposer}
-                    >
-                      <Icon name="up" />
-                    </Button>
                   </span>
                 </ComposerToolbar>
               </ComposerSurface>

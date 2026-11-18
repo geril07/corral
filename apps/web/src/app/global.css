@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "../common/ui/shadcn.css";
 @import "../common/ui/visual-shell.css";
+@import "../modules/chat/chat.css";
 @import "../modules/tasks/task-composer.css";
 @import "../modules/settings/settings.css";
 @import "@fontsource-variable/inter";

@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 import {
   Archive,
   ArchiveRestore,
@@ -57,6 +58,11 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/cn.ts";
 
+/** T3 and OpenCode both draw the stop square filled; lucide's own square is hollow. */
+function StopGlyph(props: ComponentProps<typeof Square>) {
+  return <Square {...props} fill="currentColor" />;
+}
+
 const ICONS = {
   add: Plus,
   "add-project": FolderPlus,
@@ -110,7 +116,7 @@ const ICONS = {
   "hide-sidebar": PanelLeftClose,
   "show-sidebar": PanelLeftOpen,
   grouping: SlidersHorizontal,
-  stop: Square,
+  stop: StopGlyph,
   task: SquarePen,
   terminal: SquareTerminal,
   unsettle: ArchiveRestore,
