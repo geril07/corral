@@ -1355,6 +1355,11 @@ export function useTaskWorkspace({
     layout === undefined
       ? 0
       : tabsInGroup(layout, focusGroup).filter((tab) => tab.kind === "session").length;
+  // `focus-companion` moves to the other group; with no tabs there, its chord would be silent.
+  const otherGroupTabs =
+    layout === undefined
+      ? 0
+      : tabsInGroup(layout, focusGroup === "main" ? "companion" : "main").length;
   const goToSession = (number: number): ActionAvailability => {
     if (layout !== undefined && sessionTabAt(layout, focusGroup, number) !== undefined)
       return { enabled: true };
@@ -1383,10 +1388,7 @@ export function useTaskWorkspace({
             focusedSession.state !== "running",
             "This session is running; stop it first.",
           ),
-    "rename-session": availabilityOf(
-      focusedSession !== undefined,
-      "Select a session or terminal to rename.",
-    ),
+    "rename-session": availabilityOf(focusedSession !== undefined, "Select a session to rename."),
     "remove-session": availabilityOf(focusedSession !== undefined, "Select a session to remove."),
     "next-session": availabilityOf(
       layout !== undefined && stepTab(layout, focusGroup, 1) !== undefined,
@@ -1415,7 +1417,7 @@ export function useTaskWorkspace({
     "close-tab": availabilityOf(focusedTab !== undefined, "Select an agent session."),
     "toggle-companion": { enabled: true },
     "move-tab": availabilityOf(focusedTab !== undefined, "Select an agent session."),
-    "focus-companion": { enabled: true },
+    "focus-companion": availabilityOf(otherGroupTabs > 0, "The other group has no tabs."),
     "session-1": goToSession(1),
     "session-2": goToSession(2),
     "session-3": goToSession(3),

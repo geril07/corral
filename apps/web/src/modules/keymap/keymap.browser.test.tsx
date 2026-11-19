@@ -287,6 +287,19 @@ test("every action is listed, and a disabled row carries the sentence its chord 
   await expect.element(reasonText("Select a task to rename.")).toBeVisible();
 });
 
+test("focus-companion is disabled when the other group has no tabs", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "One group");
+  await prefixThen(" ");
+
+  const row = paletteItem(/^Focus the other group/);
+  await expect.element(row).toBeVisible();
+  expect(row.element().getAttribute("aria-disabled")).toBe("true");
+  expect(row.element().querySelector("[data-palette-reason]")?.textContent).toBe(
+    "The other group has no tabs.",
+  );
+});
+
 test("prefix space filters the list, runs the action, and Escape keeps focus where it belongs", async () => {
   const { client, project } = await appWithProject(newClient());
   await taskWithShell(client, project.id, "Palette");
