@@ -186,6 +186,7 @@ export function useTaskWorkspace({
   drivers: readonly {
     kind: AgentKind;
     followUp: boolean;
+    modelSwitch: boolean;
     reasoningLevels: boolean;
     terminalView: string;
   }[];
@@ -1347,17 +1348,18 @@ export function useTaskWorkspace({
             if (chat === undefined || dialog.session.kind === "shell") return null;
             return (
               <ChatChoiceDialog
-                context={{ taskId: task.id }}
                 store={chat.store}
                 kind={dialog.kind === "chat-model" ? "model" : "reasoning"}
                 agent={dialog.session.kind}
                 launch={dialog.session.launch}
                 profiles={profiles}
                 agents={config.agents}
-                settings={taskSettingsFor(config, projectPath ?? "")}
-                chatDrivers={drivers.map((driver) => driver.kind)}
                 levelsSupported={
                   drivers.find((driver) => driver.kind === dialog.session.kind)?.reasoningLevels ??
+                  false
+                }
+                modelSwitchSupported={
+                  drivers.find((driver) => driver.kind === dialog.session.kind)?.modelSwitch ??
                   false
                 }
                 anchor={
@@ -1369,14 +1371,6 @@ export function useTaskWorkspace({
                       ? mainModelAnchor
                       : mainReasoningAnchor
                 }
-                onStart={async (choice) => {
-                  const started = await launch(choice.kind, choice, choice.view);
-                  const group =
-                    layout?.tabs.find(
-                      (tab) => tab.kind === "session" && tab.sessionId === dialog.session.id,
-                    )?.group ?? focusGroup;
-                  addSession(started, task, group);
-                }}
                 onSetModel={chat.setModel}
                 onSetReasoning={chat.setReasoning}
                 onClose={() => setDialog(undefined)}

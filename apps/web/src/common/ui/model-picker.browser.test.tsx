@@ -4,7 +4,7 @@ import { render } from "vitest-browser-react";
 import { useRef, useState } from "react";
 import { ModelPicker } from "./model-picker.tsx";
 
-test("model shortcuts select the filtered results in displayed order", async () => {
+test("number shortcuts do not select models; search and Enter still do", async () => {
   const onModel = vi.fn<(key: string) => void>();
   await render(
     <ModelPicker
@@ -22,8 +22,10 @@ test("model shortcuts select the filtered results in displayed order", async () 
   );
   const search = page.getByPlaceholder("Search models…");
   await search.fill("Target");
-  await expect.element(page.getByText("Ctrl+1")).toBeVisible();
+  expect(page.getByText("Ctrl+1").elements()).toHaveLength(0);
   await userEvent.keyboard("{Control>}1{/Control}");
+  expect(onModel).not.toHaveBeenCalled();
+  await userEvent.keyboard("{Enter}");
   expect(onModel).toHaveBeenCalledExactlyOnceWith("two");
 });
 
@@ -62,6 +64,166 @@ test("the centered modal focuses search and previews without choosing a model", 
   expect(onModelLevel).toHaveBeenCalledExactlyOnceWith("b", "High");
   expect(onModel).not.toHaveBeenCalled();
   expect(page.getByText("OpenAI", { exact: true }).elements()).toHaveLength(1);
+});
+
+test("provider headings stick to the scrolling group and follow filtered results", async () => {
+  const models = ["Alpha", "Beta"].flatMap((provider) =>
+    Array.from({ length: 25 }, (_, index) => ({
+      key: `${provider}-${index}`,
+      name: `${provider} model ${index}`,
+      provider,
+    })),
+  );
+  await render(
+    <ModelPicker
+      title="Models"
+      instances={[{ key: "pi", kind: "pi", name: "Pi" }]}
+      instance="pi"
+      onInstance={() => {}}
+      models={models}
+      onModel={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  const list = page.getByRole("listbox", { name: "Models" }).element();
+  list.scrollTop = 350;
+  list.dispatchEvent(new Event("scroll"));
+  await vi.waitFor(() => {
+    const heading = [...list.querySelectorAll(".model-picker-provider")].find(
+      (node) => node.textContent === "Alpha",
+    );
+    expect(heading).toBeDefined();
+    expect(
+      Math.abs(heading!.getBoundingClientRect().top - list.getBoundingClientRect().top),
+    ).toBeLessThan(2);
+  });
+  list.scrollTop = 1100;
+  list.dispatchEvent(new Event("scroll"));
+  await vi.waitFor(() => {
+    const heading = [...list.querySelectorAll(".model-picker-provider")].find(
+      (node) => node.textContent === "Beta",
+    );
+    expect(heading).toBeDefined();
+    expect(
+      Math.abs(heading!.getBoundingClientRect().top - list.getBoundingClientRect().top),
+    ).toBeLessThan(2);
+  });
+  await page.getByRole("combobox", { name: "Search models" }).fill("Beta");
+  await expect.element(page.getByText("Beta", { exact: true })).toBeVisible();
+  expect(page.getByText("Alpha", { exact: true }).elements()).toHaveLength(0);
+});
+
+test("the thinking column keeps its place while the highlighted model changes", async () => {
+  const onModel = vi.fn<(key: string) => void>();
+  await render(
+    <ModelPicker
+      title="Models"
+      instances={[{ key: "pi", kind: "pi", name: "Pi" }]}
+      instance="pi"
+      onInstance={() => {}}
+      models={[
+        { key: "a", name: "Alpha", provider: "stub", current: true },
+        { key: "b", name: "Beta", provider: "stub", levels: ["high", "max"] },
+        { key: "c", name: "Gamma", provider: "stub", levels: ["off", "low"] },
+      ]}
+      levels={["off", "medium", "high"]}
+      level="medium"
+      onLevel={() => {}}
+      onModelLevel={() => {}}
+      onModel={onModel}
+      onClose={() => {}}
+    />,
+  );
+  await settledGeometry();
+  const column = rectOf(document.querySelector(".model-picker-thinking")!);
+  const head = rectOf(document.querySelector(".model-picker-thinking-head")!);
+  const levels = rectOf(document.querySelector(".model-picker-levels")!);
+  const expectSameFrame = (before: ReturnType<typeof rectOf>, after: ReturnType<typeof rectOf>) => {
+    for (const key of ["left", "top", "width", "height"] as const)
+      expect(Math.abs(after[key] - before[key])).toBeLessThan(0.5);
+  };
+
+  await page.getByRole("option", { name: /Beta/ }).hover();
+  await expect.element(page.getByRole("button", { name: "high" })).toBeVisible();
+  expectSameFrame(column, rectOf(document.querySelector(".model-picker-thinking")!));
+  expectSameFrame(head, rectOf(document.querySelector(".model-picker-thinking-head")!));
+  expectSameFrame(levels, rectOf(document.querySelector(".model-picker-levels")!));
+
+  await page.getByRole("option", { name: /Gamma/ }).hover();
+  await expect.element(page.getByRole("button", { name: "low" })).toBeVisible();
+  expectSameFrame(column, rectOf(document.querySelector(".model-picker-thinking")!));
+  expectSameFrame(head, rectOf(document.querySelector(".model-picker-thinking-head")!));
+  expectSameFrame(levels, rectOf(document.querySelector(".model-picker-levels")!));
+  expect(onModel).not.toHaveBeenCalled();
+});
+
+test("the arrow marks only a highlighted model that offers levels", async () => {
+  await render(
+    <ModelPicker
+      title="Models"
+      instances={[{ key: "pi", kind: "pi", name: "Pi" }]}
+      instance="pi"
+      onInstance={() => {}}
+      models={[
+        { key: "a", name: "Alpha", provider: "stub", current: true },
+        { key: "b", name: "Beta", provider: "stub", levels: ["high"] },
+        { key: "c", name: "Gamma", provider: "stub" },
+      ]}
+      levels={["medium"]}
+      onLevel={() => {}}
+      onModelLevel={() => {}}
+      onModel={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  await page.getByRole("option", { name: /Beta/ }).hover();
+  expect(arrowIn(/Beta/)).not.toBeNull();
+  expect(arrowIn(/Alpha/)).toBeNull();
+  await page.getByRole("option", { name: /Gamma/ }).hover();
+  expect(arrowIn(/Gamma/)).toBeNull();
+  expect(arrowIn(/Beta/)).toBeNull();
+});
+
+function arrowIn(name: RegExp) {
+  return page.getByRole("option", { name }).element().querySelector(".model-picker-arrow");
+}
+
+test("duplicate and clipped model names stay distinguishable without native titles or jumping", async () => {
+  const name = "A very long model name ".repeat(8).trim();
+  await render(
+    <ModelPicker
+      title="Models"
+      instances={[{ key: "pi", kind: "pi", name: "Pi" }]}
+      instance="pi"
+      onInstance={() => {}}
+      models={[
+        { key: "a", name, detail: "model-one", current: true },
+        { key: "b", name, detail: "model-two", levels: ["high"] },
+      ]}
+      levels={["medium"]}
+      level="medium"
+      onLevel={() => {}}
+      onModelLevel={() => {}}
+      onModel={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  await settledGeometry();
+  const rows = page.getByRole("option").elements();
+  expect(rows).toHaveLength(2);
+  expect(rows[0]!.textContent).toContain("model-one");
+  expect(rows[1]!.textContent).toContain("model-two");
+  const labels = rows.map((row) => row.querySelector<HTMLElement>(".model-picker-option-name")!);
+  expect(
+    Math.abs(labels[0]!.getBoundingClientRect().left - labels[1]!.getBoundingClientRect().left),
+  ).toBeLessThan(1);
+  const before = labels[1]!.getBoundingClientRect();
+  await page.getByRole("option", { name: new RegExp("model-two") }).hover();
+  const after = labels[1]!.getBoundingClientRect();
+  expect(Math.abs(before.width - after.width)).toBeLessThan(1);
+  expect(labels[0]!.getAttribute("title")).toBeNull();
+  await page.getByText(name, { exact: true }).first().hover();
+  await expect.element(page.getByRole("tooltip")).toHaveTextContent(name);
 });
 
 test("the configured default is a marked row in the model column", async () => {
@@ -109,6 +271,85 @@ test("current model uses onLevel and another candidate stays disabled without at
   await page.getByRole("option", { name: "Beta" }).hover();
   await expect.element(page.getByRole("button", { name: "High" })).toBeDisabled();
   expect(onLevel).toHaveBeenCalledTimes(1);
+});
+
+test("filtering previews the visible candidate instead of the hidden current model", async () => {
+  await render(
+    <ModelPicker
+      title="Models"
+      instances={[{ key: "pi", kind: "pi", name: "Pi" }]}
+      instance="pi"
+      onInstance={() => {}}
+      models={[
+        { key: "a", name: "Alpha", current: true },
+        { key: "b", name: "Beta", levels: ["high"] },
+      ]}
+      levels={["low"]}
+      onLevel={() => {}}
+      onModelLevel={() => {}}
+      onModel={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  const search = page.getByRole("combobox", { name: "Search models" });
+  await search.fill("Beta");
+  await expect.element(page.getByRole("button", { name: "high" })).toBeVisible();
+  expect(page.getByRole("button", { name: "low" }).elements()).toHaveLength(0);
+  await search.fill("nothing");
+  expect(page.getByRole("button", { name: "high" }).elements()).toHaveLength(0);
+});
+
+test("moving diagonally towards levels does not preview the adjacent model", async () => {
+  await render(
+    <ModelPicker
+      title="Models"
+      instances={[{ key: "pi", kind: "pi", name: "Pi" }]}
+      instance="pi"
+      onInstance={() => {}}
+      models={[
+        { key: "a", name: "Alpha", current: true },
+        { key: "b", name: "Beta", levels: ["high", "max"] },
+        { key: "c", name: "Gamma", levels: ["low"] },
+      ]}
+      levels={["medium"]}
+      onLevel={() => {}}
+      onModelLevel={() => {}}
+      onModel={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  const beta = page.getByRole("option", { name: "Beta" });
+  const gamma = page.getByRole("option", { name: "Gamma" });
+  await beta.hover();
+  const first = beta.element().getBoundingClientRect();
+  const next = gamma.element().getBoundingClientRect();
+  beta.element().dispatchEvent(
+    new MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: first.left + 80,
+      clientY: first.top + first.height / 2,
+      movementX: 1,
+    }),
+  );
+  gamma.element().dispatchEvent(
+    new MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: next.right - 4,
+      clientY: next.top + next.height / 2,
+      movementX: 20,
+    }),
+  );
+  await expect.element(beta).toHaveAttribute("aria-selected", "true");
+  await expect.element(page.getByRole("button", { name: "high" })).toBeVisible();
+  gamma.element().dispatchEvent(
+    new MouseEvent("mousemove", {
+      bubbles: true,
+      clientX: next.left + 30,
+      clientY: next.top + next.height / 2,
+      movementX: 0,
+    }),
+  );
+  await expect.element(gamma).toHaveAttribute("aria-selected", "true");
 });
 
 test("choosing a reasoning level keeps the picker open and focuses the chosen level", async () => {
@@ -349,18 +590,14 @@ test("the dialog and each column keep their geometry across typing, switches and
   expectSameGeometry(baseline, await settledGeometry());
 });
 
-test("an error takes its own row without moving the picker's columns", async () => {
+test("an error is visible without moving the picker", async () => {
   const screen = await render(<GeometryFixture />);
   const baseline = await settledGeometry();
 
   await screen.rerender(<GeometryFixture error="The server refused this model." />);
   const failed = await settledGeometry();
-  for (const region of ["rail", "models", "thinking"] as const) {
-    expect(Math.abs(failed[region].height - baseline[region].height)).toBeLessThan(1);
-    expect(Math.abs(failed[region].width - baseline[region].width)).toBeLessThan(1);
-  }
-  expect(failed.dialog.height).toBeGreaterThan(baseline.dialog.height);
-  expect(failed.dialog.width).toBeCloseTo(baseline.dialog.width, 0);
+  expectSameGeometry(baseline, failed);
+  await expect.element(page.getByRole("alert")).toHaveTextContent("The server refused this model.");
 
   await screen.rerender(<GeometryFixture />);
   expectSameGeometry(baseline, await settledGeometry());
@@ -379,7 +616,7 @@ test("unknown levels show skeleton rows and aria-busy, never the previous levels
   );
 });
 
-test("loading, empty and unsupported states are not prose", async () => {
+test("loading, empty and unsupported states are distinguishable", async () => {
   const screen = await render(
     <ModelPicker
       title="Models"
@@ -392,10 +629,10 @@ test("loading, empty and unsupported states are not prose", async () => {
     />,
   );
   const dialog = page.getByRole("dialog", { name: "Models" });
-  expect(dialog.element().querySelectorAll("p")).toHaveLength(0);
+  await expect.element(page.getByText("No models found.")).toBeVisible();
   expect(document.querySelector(".model-picker-levels-empty")).not.toBeNull();
   await page.getByRole("combobox", { name: "Search models" }).fill("nothing");
-  expect(dialog.element().querySelectorAll("p")).toHaveLength(0);
+  await expect.element(page.getByText("No models found.")).toBeVisible();
 
   await screen.rerender(
     <ModelPicker
@@ -409,7 +646,7 @@ test("loading, empty and unsupported states are not prose", async () => {
       onClose={() => {}}
     />,
   );
-  expect(dialog.element().querySelectorAll("p")).toHaveLength(0);
+  await expect.element(page.getByText("Loading models…")).toBeVisible();
   expect(document.querySelector(".model-picker-body")?.getAttribute("aria-busy")).toBe("true");
 
   await screen.rerender(
@@ -428,8 +665,9 @@ test("loading, empty and unsupported states are not prose", async () => {
   expect(document.querySelector(".model-picker-body")?.getAttribute("aria-busy")).toBe("true");
 });
 
-test("the three columns remain within narrow and medium viewports", async () => {
+test("the three columns remain within supported viewports, including enlarged text", async () => {
   const original = { width: window.innerWidth, height: window.innerHeight };
+  const fontSize = document.documentElement.style.fontSize;
   try {
     await render(
       <ModelPicker
@@ -444,20 +682,25 @@ test("the three columns remain within narrow and medium viewports", async () => 
         onClose={() => {}}
       />,
     );
-    await assertPickerViewport(360);
-    await assertPickerViewport(1024);
+    await assertPickerViewport(1024, 640);
+    await assertPickerViewport(1920, 1080);
+    document.documentElement.style.fontSize = "125%";
+    await assertPickerViewport(1024, 640);
     expect(page.getByRole("dialog", { name: "Models" }).elements()).toHaveLength(1);
   } finally {
+    document.documentElement.style.fontSize = fontSize;
     await page.viewport(original.width, original.height);
   }
 });
 
-async function assertPickerViewport(width: number) {
-  await page.viewport(width, 700);
+async function assertPickerViewport(width: number, height: number) {
+  await page.viewport(width, height);
   await vi.waitFor(() => {
     const box = page.getByRole("dialog", { name: "Models" }).element().getBoundingClientRect();
     expect(box.left).toBeGreaterThanOrEqual(0);
     expect(box.right).toBeLessThanOrEqual(width);
+    expect(box.top).toBeGreaterThanOrEqual(0);
+    expect(box.bottom).toBeLessThanOrEqual(height);
   });
   const dialog = page.getByRole("dialog", { name: "Models" }).element().getBoundingClientRect();
   for (const element of [

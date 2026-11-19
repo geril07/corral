@@ -449,7 +449,7 @@ test("the chat model and reasoning controls apply what the driver reports, from 
     model: { provider: "stub", id: "stub-1", name: "Stub One" },
     models: [
       { provider: "stub", id: "stub-1", name: "Stub One" },
-      { provider: "stub", id: "stub-2", name: "Stub Two" },
+      { provider: "stub", id: "stub-2", name: "Stub Two", reasoningLevels: ["high"] },
     ],
     reasoning: "medium",
     reasoningLevels: ["off", "low", "medium", "high"],
@@ -506,26 +506,16 @@ test("the chat model and reasoning controls apply what the driver reports, from 
     const modelDialog = page.getByRole("dialog", { name: "Chat model" });
     await expect.element(modelDialog).toBeVisible();
     await expect.element(modelDialog).toMatchTextContent("Stub Two");
-    await modelDialog.getByRole("option", { name: /Stub Two/ }).click();
+    await modelDialog.getByRole("option", { name: /Stub Two/ }).hover();
+    await modelDialog.getByRole("button", { name: "high", exact: true }).click();
     await vi.waitFor(() =>
       expect(setModel).toHaveBeenCalledExactlyOnceWith({
         sessionId: chatSession,
         model: { provider: "stub", id: "stub-2" },
+        level: "high",
       }),
     );
     await expect.element(modelDialog).toBeVisible();
-    // The old model's levels are gone until the driver reports the new model; the column keeps
-    // its geometry with skeleton rows and busy semantics instead of showing the previous levels.
-    await expect
-      .element(modelDialog.getByRole("group", { name: "Thinking levels" }))
-      .toHaveAttribute("aria-busy", "true");
-    expect(
-      modelDialog.element().querySelectorAll(".model-picker-level-skeleton").length,
-    ).toBeGreaterThan(0);
-    await expect
-      .element(modelDialog.getByRole("toolbar", { name: "Thinking" }))
-      .not.toBeInTheDocument();
-    expect(modelDialog.element().querySelectorAll("p")).toHaveLength(0);
     await userEvent.keyboard("{Escape}");
     await expect.element(modelDialog).not.toBeInTheDocument();
     await expect.element(page.getByRole("textbox", { name: "Message" })).toHaveFocus();
@@ -561,7 +551,7 @@ test("the chat model and reasoning controls apply what the driver reports, from 
   }
 });
 
-test("a reported model with empty levels keeps the thinking column busy until levels arrive", async () => {
+test("model level discovery shows loading, failure and recovery instead of waiting forever", async () => {
   const state = workingChat({
     model: { provider: "stub", id: "stub-1", name: "Stub One" },
     models: [
@@ -617,10 +607,6 @@ test("a reported model with empty levels keeps the thinking column busy until le
     const dialog = page.getByRole("dialog", { name: "Chat model" });
     await dialog.getByRole("option", { name: /Stub Two/ }).click();
     const thinking = dialog.getByRole("group", { name: "Thinking levels" });
-    await expect.element(thinking).toHaveAttribute("aria-busy", "true");
-    expect(thinking.element().querySelectorAll(".model-picker-level-skeleton").length).toBe(3);
-
-    // The driver reports the new model first and refreshes the levels later: still pending.
     chatState.set({
       loaded: true,
       sequence: 1,
@@ -630,6 +616,7 @@ test("a reported model with empty levels keeps the thinking column busy until le
         ...state,
         model: { provider: "stub", id: "stub-2", name: "Stub Two" },
         reasoningLevels: [],
+        reasoningStatus: "loading",
       },
     });
     await expect.element(thinking).toHaveAttribute("aria-busy", "true");
@@ -645,7 +632,23 @@ test("a reported model with empty levels keeps the thinking column busy until le
       state: {
         ...state,
         model: { provider: "stub", id: "stub-2", name: "Stub Two" },
+        reasoningLevels: [],
+        reasoningStatus: "error",
+      },
+    });
+    await expect.element(thinking).toMatchTextContent("Could not load reasoning levels.");
+    expect(thinking.element().getAttribute("aria-busy")).toBeNull();
+
+    chatState.set({
+      loaded: true,
+      sequence: 3,
+      items: [],
+      failure: null,
+      state: {
+        ...state,
+        model: { provider: "stub", id: "stub-2", name: "Stub Two" },
         reasoningLevels: ["off", "medium", "high"],
+        reasoningStatus: "ready",
       },
     });
     await expect.element(dialog.getByRole("button", { name: "medium", exact: true })).toBeVisible();

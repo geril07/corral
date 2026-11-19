@@ -4,13 +4,17 @@ import type { RefObject } from "react";
 import type { ModelContext } from "@corral/protocol/models";
 import { modelKey } from "@corral/protocol/models";
 import { useModelMenu } from "../settings/index.ts";
-import { Button, ModelPicker, type PickerModel } from "../../common/ui/index.ts";
+import {
+  Button,
+  ModelPicker,
+  type PickerInstance,
+  type PickerModel,
+} from "../../common/ui/index.ts";
 import {
   launchKey,
   launchScope,
   catalogLaunchModel,
   launchCatalogRow,
-  launchModel,
   launchName,
   launchOptions,
   modelOverride,
@@ -52,7 +56,7 @@ export function LaunchViewControls({
   );
 }
 
-export function launchPickerInstances(options: readonly LaunchSelection[]) {
+export function launchPickerInstances(options: readonly LaunchSelection[]): PickerInstance[] {
   return options.map((option) => ({
     key: launchKey(option),
     kind: option.kind,
@@ -115,7 +119,6 @@ export function AgentLaunchPicker({
     context: context ?? {},
     ...(selection.profile ? { expectedProfileRevision: selection.profile.revision } : {}),
   });
-  const currentModel = launchModel(selection);
   // The configured default names this instance; another instance has no configured model of its
   // own, so its baseline is the native default.
   const configured =
@@ -175,10 +178,11 @@ export function AgentLaunchPicker({
         onChange(target, "model");
         onCommit(target);
       }}
-      modelName={currentModel}
       error={error}
       busy={busy}
-      loading={!menu.preferences.loaded || menu.loading || menu.refreshing}
+      loading={menu.pickerLoading}
+      modelStatus={menu.pickerStatus}
+      reasoningStatus="Reasoning cannot be selected before launch."
       footer={footer}
       onInstanceEnter={() => onCommit(selection)}
       onQuickChoice={(index) => {

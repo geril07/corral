@@ -380,7 +380,7 @@ test("OpenCode's missing model capability is refused by the server, not simulate
   expect(describeLaunchError(error)).toBe("opencode has no model choice at launch.");
 });
 
-test("the live picker follows model-specific thinking and another profile starts a distinct chat", async () => {
+test("the live picker follows model-specific thinking and refuses another agent", async () => {
   const { client, project } = await appWithProject(newClient());
   await taskWithShell(client, project.id, "Shared picker");
   await applyConfig(
@@ -418,18 +418,14 @@ test("the live picker follows model-specific thinking and another profile starts
   await expect.element(message).toHaveValue("Keep the original chat draft");
   await expect.element(message).toHaveFocus();
   await page.getByRole("button", { name: "Model Stub Two" }).click();
-  await models.getByRole("radio", { name: "pi work", exact: true }).click();
-  await expect.element(models.getByRole("toolbar", { name: "Thinking" })).not.toBeInTheDocument();
-  await models.getByRole("option").first().click();
-  // The task's shell plus the two chat sessions.
-  await vi.waitFor(() => expect(client.sessions.getSnapshot().sessions).toHaveLength(3));
-  const second = client.sessions
-    .getSnapshot()
-    .sessions.find((session) => session.kind === "pi" && session.id !== first.id)!;
-  expect(second).toMatchObject({
-    kind: "pi",
-    view: "chat",
-    launch: { profile: { id: "pi-work" }, model: "stub-1" },
-  });
-  // Per-session draft isolation is covered in chat-tab; here the distinct launch is the claim.
+  const profile = models.getByRole("radio", { name: /pi work/ });
+  await expect.element(profile).toHaveAttribute("aria-disabled", "true");
+  await profile.hover();
+  await expect
+    .element(page.getByRole("tooltip"))
+    .toHaveTextContent("Switching agents in a running chat is not supported yet.");
+  await profile.click({ force: true });
+  // The task's shell and its one chat: the dialog changes the model, never launches.
+  await vi.waitFor(() => expect(client.sessions.getSnapshot().sessions).toHaveLength(2));
+  // Per-session draft isolation is covered in chat-tab; here the refusal is the claim.
 });

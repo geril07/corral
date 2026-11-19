@@ -15,11 +15,26 @@ export function useModelMenu(input: ModelCatalogInput, known?: KnownModelCatalog
         all.filter((model) => modelVisible(preferences.policy, model)),
       )
     : [];
+  const unavailable = preferences.failure
+    ? "Could not load model preferences."
+    : inventory.disconnected
+      ? "Disconnected. Reconnect to load models."
+      : undefined;
   return {
     ...inventory,
     all,
     models,
     preferences,
     favorite,
+    pickerLoading:
+      !unavailable && (!preferences.loaded || inventory.loading || inventory.refreshing),
+    pickerStatus:
+      unavailable ??
+      (inventory.catalog?.status === "error" ||
+      inventory.catalog?.status === "unsupported" ||
+      inventory.catalog?.status === "stale" ||
+      inventory.catalog?.status === "partial"
+        ? (inventory.catalog.message ?? undefined)
+        : undefined),
   };
 }

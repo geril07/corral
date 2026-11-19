@@ -1,71 +1,56 @@
 import type { ChatStore } from "@corral/client/chat-store";
 import { describeError } from "@corral/client/rpc-errors";
 import type { ChatModelRef } from "@corral/protocol/chat";
-import { modelKey, modelVisible, type ModelContext } from "@corral/protocol/models";
-import { useModelMenu } from "../settings/index.ts";
-import type {
-  AgentSettings,
-  LaunchProfile,
-  ResolvedTaskSettings,
-  TaskView,
-} from "@corral/protocol/config";
+import { modelKey, modelVisible, orderModels } from "@corral/protocol/models";
+import { useModelPreferences } from "../settings/index.ts";
+import type { AgentSettings, LaunchProfile } from "@corral/protocol/config";
 import type { AgentKind, LaunchSnapshot } from "@corral/protocol/rpc";
 import { useState, useSyncExternalStore, type RefObject } from "react";
 import { ModelPicker, type PickerModel } from "../../common/ui/index.ts";
 import {
-  defaultLaunch,
-  launchChoice,
   launchKey,
-  launchScope,
-  catalogLaunchModel,
-  launchCatalogRow,
-  launchModel,
   launchOptions,
-  launchProblem,
-  launchView,
   launchPickerInstances,
-  launchCurrentModelRow,
-  LaunchViewControls,
-  type AgentLaunchChoice,
+  launchScope,
   type LaunchSelection,
 } from "../sessions/index.ts";
 import { chatModelKey } from "./chat-choices.ts";
 
+/** A running chat keeps the agent that owns its native conversation; another one is a new chat. */
+const AGENT_SWITCH_HINT = "Switching agents in a running chat is not supported yet.";
+
 export interface ChatChoiceDialogProps {
-  context?: ModelContext | undefined;
   store: ChatStore;
   kind: "model" | "reasoning";
   agent: AgentKind;
   launch: LaunchSnapshot | null | undefined;
   profiles: readonly LaunchProfile[];
   agents: AgentSettings;
-  settings: ResolvedTaskSettings;
-  chatDrivers: readonly AgentKind[];
-  /** The running driver reports thinking levels; an empty list after a model report is still pending. */
+  /** Whether the running driver supports changing reasoning. */
   levelsSupported: boolean;
+  modelSwitchSupported?: boolean | undefined;
   anchor: RefObject<HTMLElement | null>;
-  onSetModel: (model: ChatModelRef) => Promise<void>;
+  onSetModel: (model: ChatModelRef, level?: string) => Promise<void>;
   onSetReasoning: (level: string) => Promise<void>;
-  onStart: (choice: AgentLaunchChoice) => Promise<void>;
   onClose: () => void;
 }
 
-/** Existing-instance changes use its driver; another tool/profile starts a distinct session. */
+/**
+ * Changes the model and reasoning level of the running chat itself. It never launches: starting
+ * another chat belongs to the task's own agent actions, so every other agent is refused here.
+ */
 export function ChatChoiceDialog({
-  context,
   store,
   kind,
   agent,
   launch,
   profiles,
   agents,
-  settings,
-  chatDrivers,
   levelsSupported,
+  modelSwitchSupported = true,
   anchor,
   onSetModel,
   onSetReasoning,
-  onStart,
   onClose,
 }: ChatChoiceDialogProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -78,134 +63,77 @@ export function ChatChoiceDialog({
       : null,
   };
   const currentKey = launchKey(current);
-  const [selection, setSelection] = useState(current);
   const [failure, setFailure] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const [pendingModel, setPendingModel] = useState<string>();
-  const [requestedView, setRequestedView] = useState<TaskView>();
-  const existing = launchKey(selection) === currentKey;
   const reported = state.model ? chatModelKey(state.model) : undefined;
-  // A model can be reported before its levels are: pi resets `reasoningLevels` to [] and refreshes
-  // later, so an empty list on a level-capable driver keeps the pending window open.
-  if (
-    pendingModel !== undefined &&
-    pendingModel === reported &&
-    (!levelsSupported || state.reasoningLevels.length > 0)
-  )
-    setPendingModel(undefined);
-  const waiting = pendingModel !== undefined;
+  const preferences = useModelPreferences(launchScope(current));
+  const favorite = (model: { provider: string | null; id: string }) =>
+    preferences.policy.favorites.some((entry) => modelKey(entry) === modelKey(model));
   const options = launchOptions(profiles, agents);
-  const retained = !options.some((option) => launchKey(option) === currentKey);
-  if (retained) options.unshift(current);
-  const instances = launchPickerInstances(options);
-  const menu = useModelMenu(
-    {
-      scope: launchScope(selection),
-      context: context ?? {},
-      ...(selection.profile ? { expectedProfileRevision: selection.profile.revision } : {}),
-    },
-    existing && state.models.length > 0
-      ? {
-          scope: launchScope(current),
-          context: context ?? {},
-          profileRevision: current.profile?.revision,
-          models: state.models,
-        }
-      : undefined,
+  // A profile this build no longer lists still names the running chat's own agent.
+  if (!options.some((option) => launchKey(option) === currentKey)) options.unshift(current);
+  const instances = launchPickerInstances(options).map((item) =>
+    item.key === currentKey
+      ? item
+      : {
+          key: item.key,
+          kind: item.kind,
+          name: item.name,
+          detail: item.detail,
+          badge: item.badge,
+          disabled: true,
+          hint: AGENT_SWITCH_HINT,
+        },
   );
-  const hidden =
-    existing &&
-    state.model &&
-    menu.preferences.loaded &&
-    !modelVisible(menu.preferences.policy, state.model);
-  // The configured default names this instance; another instance has no default here to return to.
-  const defaultSelection = defaultLaunch(settings, profiles, agents);
-  const configured =
-    defaultSelection !== undefined && launchKey(defaultSelection) === launchKey(selection)
-      ? defaultSelection
-      : undefined;
-  const configuredRow =
-    configured === undefined ? undefined : launchCatalogRow(configured, menu.all);
-  const currentModel = launchModel(selection);
-  const currentRow = existing ? undefined : launchCatalogRow(selection, menu.all);
-  const blocked = !!launchProblem({ ...selection, model: "" }, profiles, agents);
-  const launchCurrent = launchCurrentModelRow(
-    selection,
-    menu.all,
-    menu.models.map(modelKey),
-    blocked,
+  // The driver's own list is what this chat can run; the catalog only supplies order and favorites.
+  const policy = preferences.policy;
+  const shown = orderModels(
+    policy,
+    state.models.filter((model) => modelVisible(policy, model)),
   );
-  const launchModels: PickerModel[] = [
-    // The synthetic row already names a configured default in its detail; one mark per row.
-    ...(launchCurrent ? [launchCurrent] : []),
-    ...menu.models.map((model) => ({
-      key: modelKey(model),
-      name: model.name,
-      provider: model.provider ?? undefined,
-      detail: model.id,
-      disabled: blocked || catalogLaunchModel(selection, model) === undefined,
-      favorite: menu.favorite(model),
-      current: currentRow === undefined ? false : modelKey(currentRow) === modelKey(model),
-      default: configuredRow !== undefined && modelKey(configuredRow) === modelKey(model),
-    })),
-  ];
-  const models: PickerModel[] = existing
-    ? menu.models.map((model) => ({
-        key: chatModelKey(model),
-        name: model.name,
-        provider: model.provider ?? undefined,
-        detail: model.id === model.name ? undefined : model.id,
-        current: chatModelKey(model) === reported,
-        disabled: !state.models.some((m) => chatModelKey(m) === chatModelKey(model)),
-        favorite: menu.favorite(model),
-        default: configuredRow !== undefined && chatModelKey(configuredRow) === chatModelKey(model),
-      }))
-    : launchModels;
-  if (hidden && state.model && !models.some((m) => m.current))
+  const models: PickerModel[] = shown.map((model) => ({
+    key: chatModelKey(model),
+    name: model.name,
+    provider: model.provider ?? undefined,
+    detail: model.id === model.name ? undefined : model.id,
+    current: chatModelKey(model) === reported,
+    disabled: !modelSwitchSupported,
+    favorite: favorite(model),
+    levels: levelsSupported ? model.reasoningLevels : undefined,
+  }));
+  // A policy that hides the running model must not hide that the chat is on it.
+  const running = state.model;
+  if (
+    running &&
+    !shown.some((model) => chatModelKey(model) === chatModelKey(running)) &&
+    reported !== undefined
+  )
     models.unshift({
-      key: chatModelKey(state.model),
-      name: state.model.name,
-      provider: state.model.provider ?? undefined,
+      key: reported,
+      name: running.name,
+      provider: running.provider ?? undefined,
       detail: "Current · hidden by filter",
       current: true,
       disabled: true,
-      favorite: menu.favorite(state.model),
-      default:
-        configuredRow !== undefined && chatModelKey(configuredRow) === chatModelKey(state.model),
+      favorite: favorite(running),
+      levels: levelsSupported ? running.reasoningLevels : undefined,
     });
-  const problem = existing ? undefined : launchProblem(selection, profiles, agents);
-  const view = launchView(
-    { ...settings, view: { ...settings.view, value: requestedView ?? settings.view.value } },
-    selection.kind,
-    chatDrivers,
-  );
-  const apply = async (action: () => Promise<void>, close: boolean) => {
+  const apply = async (action: () => Promise<void>) => {
     if (busy) return;
     setBusy(true);
     setFailure(undefined);
     try {
       await action();
-      if (close) onClose();
     } catch (error) {
-      setPendingModel(undefined);
       setFailure(describeError(error));
     } finally {
       setBusy(false);
     }
   };
   const chooseModel = (key: string) => {
-    if (existing) {
-      const model = state.models.find((candidate) => chatModelKey(candidate) === key);
-      if (!model || key === reported) return;
-      setPendingModel(key);
-      void apply(() => onSetModel({ provider: model.provider, id: model.id }), false);
-    } else {
-      const row = menu.models.find((m) => modelKey(m) === key);
-      const value = row ? catalogLaunchModel(selection, row) : undefined;
-      const target = value ? { ...selection, model: value } : selection;
-      if (launchProblem(target, profiles, agents)) return;
-      void apply(() => onStart({ ...launchChoice(target), view }), true);
-    }
+    const model = state.models.find((candidate) => chatModelKey(candidate) === key);
+    if (!model || key === reported) return;
+    void apply(() => onSetModel({ provider: model.provider, id: model.id }));
   };
   return (
     <ModelPicker
@@ -214,36 +142,32 @@ export function ChatChoiceDialog({
       restoreFocus="composer"
       focus={kind === "model" ? "search" : "thinking"}
       instances={instances}
-      instance={launchKey(selection)}
-      onInstance={(key) => {
-        const next = options.find((option) => launchKey(option) === key);
-        if (next) {
-          setSelection(next);
-          setPendingModel(undefined);
-          setFailure(undefined);
-        }
-      }}
+      instance={currentKey}
+      onInstance={() => undefined}
       models={models}
       onModel={chooseModel}
-      modelName={existing ? state.model?.name : currentModel}
-      levels={existing && !waiting ? state.reasoningLevels : []}
-      level={existing ? state.reasoning : undefined}
-      onLevel={(level) => {
-        if (existing && !waiting) void apply(() => onSetReasoning(level), false);
-      }}
-      levelsPending={existing && waiting}
-      loading={!menu.preferences.loaded || menu.loading || menu.refreshing}
-      error={problem ?? failure}
-      busy={busy}
-      footer={
-        <LaunchViewControls
-          value={view}
-          kind={selection.kind}
-          chatDrivers={chatDrivers}
-          onChange={setRequestedView}
-          disabled={busy}
-        />
+      levels={state.reasoningLevels}
+      level={state.reasoning}
+      onLevel={levelsSupported ? (level) => void apply(() => onSetReasoning(level)) : undefined}
+      onModelLevel={
+        levelsSupported && modelSwitchSupported
+          ? (key, level) => {
+              const model = state.models.find((candidate) => chatModelKey(candidate) === key);
+              if (model)
+                void apply(() => onSetModel({ provider: model.provider, id: model.id }, level));
+            }
+          : undefined
       }
+      levelsPending={state.reasoningStatus === "loading"}
+      reasoningStatus={
+        !levelsSupported
+          ? "This agent does not support changing reasoning."
+          : state.reasoningStatus === "error"
+            ? "Could not load reasoning levels."
+            : undefined
+      }
+      error={failure}
+      busy={busy || state.modelSelectionPending === true}
       onClose={onClose}
     />
   );

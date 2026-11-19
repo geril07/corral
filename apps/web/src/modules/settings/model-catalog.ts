@@ -112,6 +112,7 @@ export function useModelCatalog(
   return {
     catalog: reported,
     loading: active && !reported,
+    disconnected: connection.status !== "connected",
     refreshing: !currentKnown && result?.key === key && result.refreshing,
     refresh: () => setRefresh((value) => value + 1),
   };

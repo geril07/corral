@@ -2,7 +2,6 @@ import { defaultModelPolicy, modelScopeKey, type ModelPreferences } from "@corra
 import type { CorralClient } from "@corral/client/corral-client";
 import { Store } from "@corral/client/store";
 import type { WatchFailure, WatchStore } from "@corral/client/watch-store";
-import { taskSettingsFor } from "@corral/protocol/config";
 import type { Session } from "@corral/protocol/rpc";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { expect, test, vi } from "vite-plus/test";
@@ -97,17 +96,7 @@ const NO_FILES = {
  * production `ChatView`, its model button and the `ChatChoiceDialog` it opens, wired the way the
  * workspace owns them. Settings is the routed Models section, not a panel owned by the picker.
  */
-function LiveChat({
-  client,
-  taskId,
-  session,
-  projectPath,
-}: {
-  client: CorralClient;
-  taskId: string;
-  session: Session;
-  projectPath: string;
-}) {
+function LiveChat({ client, session }: { client: CorralClient; session: Session }) {
   const config = useSyncExternalStore(client.config.subscribe, client.config.getSnapshot);
   const chat = useMemo(() => client.openChat(session.id), [client, session.id]);
   useEffect(() => () => chat.close(), [chat]);
@@ -145,15 +134,12 @@ function LiveChat({
       </div>
       {kind !== undefined && (
         <ChatChoiceDialog
-          context={{ taskId }}
           store={chat}
           kind={kind}
           agent={session.kind === "shell" ? "pi" : session.kind}
           launch={session.launch}
           profiles={config.profiles}
           agents={config.config.agents}
-          settings={taskSettingsFor(config.config, projectPath)}
-          chatDrivers={["pi"]}
           levelsSupported
           anchor={anchor}
           onSetModel={async (model) => {
@@ -162,7 +148,6 @@ function LiveChat({
           onSetReasoning={async (level) => {
             await client.connection.api.chat.setReasoning({ sessionId: session.id, level });
           }}
-          onStart={() => Promise.resolve()}
           onClose={() => setKind(undefined)}
         />
       )}
@@ -362,15 +347,34 @@ test("the configured default row is marked in the real launch picker", async () 
   });
   await expect.element(row).toBeVisible();
   const element = row.element();
-  for (const part of [".model-picker-option-name", ".model-picker-option-detail"]) {
-    const field = element.querySelector<HTMLElement>(part);
-    expect(field).not.toBeNull();
-    expect(field!.scrollWidth).toBeLessThanOrEqual(field!.clientWidth + 1);
-  }
+  expect(element.querySelector(".model-picker-option-name")).not.toBeNull();
+  expect(element.querySelector(".model-picker-option-detail")).toBeNull();
   expect(agentPicker.getByText("Configured default").elements()).toHaveLength(0);
 });
 
-test("the chat picker keeps the dialog and columns across an instance switch", async () => {
+test("a refused preferences watch does not leave the launch picker loading forever", async () => {
+  const client = newClient();
+  const preferences = fakePreferences({ loaded: false, items: [] });
+  installPreferences(client, preferences);
+  preferences.fail({
+    name: "models.watch",
+    label: "model preferences",
+    error: new Error("refused"),
+  });
+  await writeConfig('[tasks]\nagent = "pi"\n');
+  await appWithProject(client);
+  await prefixThen("t");
+  await newTaskView()
+    .getByRole("button", { name: /^Agent pi/ })
+    .click();
+  const picker = page.getByRole("dialog", { name: "Agent and model", exact: true });
+  await expect.element(picker.getByText("Could not load model preferences.")).toBeVisible();
+  expect(
+    picker.element().querySelector(".model-picker-body")?.getAttribute("aria-busy"),
+  ).toBeNull();
+});
+
+test("the chat picker refuses another agent and keeps its columns stable", async () => {
   const client = newClient();
   await expect.poll(() => client.connection.state.getSnapshot().status).toBe("connected");
   const repo = await createGitRepo("picker-instance");
@@ -386,9 +390,7 @@ test("the chat picker keeps the dialog and columns across an instance switch", a
     view: "chat",
     size: { cols: 80, rows: 24 },
   });
-  const screen = await render(
-    <LiveChat client={client} taskId={task.id} session={session} projectPath={repo} />,
-  );
+  const screen = await render(<LiveChat client={client} session={session} />);
   try {
     await expect
       .element(page.getByRole("button", { name: "Model Stub One", exact: true }))
@@ -396,13 +398,24 @@ test("the chat picker keeps the dialog and columns across an instance switch", a
     await page.getByRole("button", { name: "Model Stub One", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Chat model", exact: true });
     await expect.element(dialog).toBeVisible();
-    await expect.element(dialog.getByRole("button", { name: "Open in chat" })).toBeVisible();
+    await expect
+      .element(dialog.getByRole("button", { name: "Open in chat" }))
+      .not.toBeInTheDocument();
     const before = await settledPickerGeometry();
 
-    await dialog.getByRole("radio", { name: "opencode", exact: true }).click();
+    const other = dialog.getByRole("radio", { name: /^opencode/ });
+    await expect.element(other).toHaveAttribute("aria-disabled", "true");
+    await other.hover();
+    await expect
+      .element(page.getByRole("tooltip"))
+      .toHaveTextContent("Switching agents in a running chat is not supported yet.");
+    await other.click({ force: true });
 
     expectSamePickerGeometry(before, await settledPickerGeometry());
-    await expect.element(dialog.getByRole("button", { name: "Open in chat" })).toBeVisible();
+    await expect.element(dialog).toBeVisible();
+    await expect
+      .element(dialog.getByRole("radio", { name: /^pi$/ }))
+      .toHaveAttribute("aria-checked", "true");
   } finally {
     await screen.unmount();
   }
@@ -678,9 +691,7 @@ test("hiding a live model keeps its session, thinking, draft and composer node; 
     view: "chat",
     size: { cols: 80, rows: 24 },
   });
-  const screen = await render(
-    <LiveChat client={client} taskId={task.id} session={session} projectPath={repo} />,
-  );
+  const screen = await render(<LiveChat client={client} session={session} />);
   try {
     const message = page.getByRole("textbox", { name: "Message", exact: true });
     await expect

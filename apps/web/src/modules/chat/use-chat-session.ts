@@ -13,7 +13,7 @@ export interface ChatSessionHandle {
   abort: () => Promise<void>;
   respond: (requestId: string, value: ChatAnswer) => Promise<void>;
   /** Runs the session on another model from its `models` list. */
-  setModel: (model: ChatModelRef) => Promise<void>;
+  setModel: (model: ChatModelRef, level?: string) => Promise<void>;
   /** Sets the reasoning level to one from `reasoningLevels`. */
   setReasoning: (level: string) => Promise<void>;
 }
@@ -63,9 +63,9 @@ export function useChatSession(
     [client, sessionId],
   );
   const setModel = useCallback(
-    async (model: ChatModelRef) => {
+    async (model: ChatModelRef, level?: string) => {
       if (sessionId === undefined) return;
-      await client.connection.api.chat.setModel({ sessionId, model });
+      await client.connection.api.chat.setModel({ sessionId, model, ...(level ? { level } : {}) });
     },
     [client, sessionId],
   );

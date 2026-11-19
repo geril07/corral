@@ -1,6 +1,6 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { Toolbar } from "@base-ui/react/toolbar";
-import { CheckIcon, SearchIcon } from "lucide-react";
+import { CheckIcon, ChevronRightIcon, SearchIcon } from "lucide-react";
 import { useEnterGuard } from "../hooks/use-enter-guard.ts";
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import type { AgentKind } from "@corral/protocol/rpc";
@@ -8,9 +8,8 @@ import { AgentIcon } from "./agent-icon.tsx";
 import { Button } from "./button.tsx";
 import { Hint } from "./hint.tsx";
 import { Icon } from "./icon.tsx";
-import { Kbd } from "./kbd.tsx";
 import { focusable } from "./focus-return.ts";
-import { FormError, TaskDialog } from "./task-dialog.tsx";
+import { TaskDialog } from "./task-dialog.tsx";
 import { Dialog, DialogContent, DialogTitle } from "./dialog.tsx";
 import { useTruncatedText } from "./truncated-text.tsx";
 
@@ -20,6 +19,9 @@ export interface PickerInstance {
   name: string;
   detail?: string | undefined;
   badge?: string | undefined;
+  /** Cannot be chosen in this context; `hint` says why when hovered or focused. */
+  disabled?: boolean | undefined;
+  hint?: string | undefined;
 }
 
 export interface PickerModel {
@@ -47,13 +49,11 @@ const SKELETON_ROWS = [0, 1, 2];
 function Name({ name, className }: { name: string; className?: string | undefined }) {
   const { observe, clipped } = useTruncatedText(name);
   return (
-    <span
-      ref={observe}
-      className={className ?? "min-w-0 flex-1 truncate"}
-      title={clipped ? name : undefined}
-    >
-      {name}
-    </span>
+    <Hint content={clipped ? name : undefined}>
+      <span ref={observe} className={className ?? "min-w-0 flex-1 truncate"}>
+        {name}
+      </span>
+    </Hint>
   );
 }
 
@@ -85,11 +85,14 @@ export interface ModelPickerProps {
   onLevel?: ((level: string) => void) | undefined;
   /** Atomically select a different candidate and one of its reported levels. */
   onModelLevel?: ((key: string, level: string) => void) | undefined;
-  modelName?: string | undefined;
   /** The chosen model's levels have not been reported yet; the column shows skeletons. */
   levelsPending?: boolean | undefined;
   /** The catalog or shared preferences are still loading; the body is busy. */
   loading?: boolean | undefined;
+  /** A catalog failure or unsupported discovery, shown in the model list. */
+  modelStatus?: string | undefined;
+  /** Why reasoning cannot be selected in this context. */
+  reasoningStatus?: string | undefined;
   error?: string | undefined;
   busy?: boolean | undefined;
   /** A stable bar under the columns; the new-launch view choice. It never carries status. */
@@ -176,9 +179,10 @@ function PickerContent({
   level,
   onLevel,
   onModelLevel,
-  modelName,
   levelsPending,
   loading,
+  modelStatus,
+  reasoningStatus,
   error,
   busy,
   footer,
@@ -200,6 +204,8 @@ function PickerContent({
   const modelList = useRef<LegendListRef>(null);
   const instanceList = useRef<LegendListRef>(null);
   const levelsRoot = useRef<HTMLDivElement>(null);
+  const levelsPanel = useRef<HTMLDivElement>(null);
+  const pointerAnchor = useRef<{ x: number; y: number } | null>(null);
   const wantedLevel = useRef<string | undefined>(undefined);
   const id = useId();
   const instanceIndex = instances.findIndex((item) => item.key === instance);
@@ -251,12 +257,16 @@ function PickerContent({
     rows.push({ type: "model", key: `model:${model.key}`, model, index });
   });
   const active = visible.findIndex((model) => model.key === highlight);
-  const selected = visible[active] ?? visible.find((model) => model.current);
-  const selectedLevels = selected?.current || !selected ? levels : (selected.levels ?? NO_LEVELS);
-  const canChangeLevel = !selected || !!selected.current;
+  const selected =
+    visible[active] ??
+    visible.find((model) => model.current) ??
+    visible.find((model) => !model.disabled);
+  const selectedLevels = selected?.current ? levels : (selected?.levels ?? NO_LEVELS);
+  const pendingLevels = !!levelsPending && !!selected?.current;
+  const canChangeLevel = !!selected?.current;
   const canChooseCandidateLevel =
     !!selected && !selected.current && !selected.disabled && !!onModelLevel;
-  const selectedName = selected?.name ?? modelName ?? "";
+  const selectedIndex = selected ? visible.indexOf(selected) : -1;
   // A chosen level keeps the picker open: focus stays there, and returns to it once an in-flight
   // apply has stopped disabling the column.
   useEffect(() => {
@@ -271,6 +281,7 @@ function PickerContent({
   }, [busy]);
   function moveModel(direction: number) {
     if (!visible.length) return;
+    pointerAnchor.current = null;
     let index = active < 0 ? (direction > 0 ? -1 : visible.length) : active;
     for (let count = 0; count < visible.length; count++) {
       index = (index + direction + visible.length) % visible.length;
@@ -284,35 +295,23 @@ function PickerContent({
   }
   function moveInstance(direction: number) {
     if (busy || !instances.length) return;
-    const index = Math.max(
+    let index = Math.max(
       0,
       instances.findIndex((item) => item.key === instance),
     );
-    const next = (index + direction + instances.length) % instances.length;
-    focusInstance.current = instances[next]!.key;
-    onInstance(instances[next]!.key);
-    void instanceList.current?.scrollToIndex({ index: next, animated: false });
+    // A refused instance stays visible with its reason; the keyboard steps over it.
+    for (let count = 0; count < instances.length; count++) {
+      index = (index + direction + instances.length) % instances.length;
+      if (!instances[index]?.disabled) break;
+    }
+    const next = instances[index]!;
+    if (next.disabled) return;
+    focusInstance.current = next.key;
+    onInstance(next.key);
+    void instanceList.current?.scrollToIndex({ index, animated: false });
   }
   return (
-    <div
-      className="model-picker-body"
-      aria-busy={busy || levelsPending || loading || undefined}
-      onKeyDown={(event) => {
-        if (
-          !event.nativeEvent.isComposing &&
-          (event.ctrlKey || event.metaKey) &&
-          !event.altKey &&
-          !event.shiftKey &&
-          /^[1-9]$/.test(event.key)
-        ) {
-          const model = visible[Number(event.key) - 1];
-          if (model && !model.disabled && !busy) {
-            event.preventDefault();
-            onModel(model.key);
-          }
-        }
-      }}
-    >
+    <div className="model-picker-body" aria-busy={busy || pendingLevels || loading || undefined}>
       <div className="model-picker-columns">
         <div
           ref={instanceRef}
@@ -356,17 +355,23 @@ function PickerContent({
             renderItem={({ item, index }: { item: PickerInstance; index: number }) => (
               // The rail shows a glyph and a badge, so the instance's name and detail are a hint:
               // hover and keyboard focus both reveal it, unlike a native `title`.
-              <Hint content={[item.name, item.detail].filter(Boolean).join(" · ")} side="right">
+              <Hint
+                content={item.hint ?? [item.name, item.detail].filter(Boolean).join(" · ")}
+                side="right"
+              >
                 <button
                   type="button"
                   role="radio"
                   id={`${id}-instance-${index}`}
                   aria-checked={item.key === instance}
-                  aria-label={item.name}
-                  disabled={busy}
+                  aria-label={item.hint ? `${item.name}. ${item.hint}` : item.name}
+                  aria-disabled={busy || item.disabled || undefined}
                   tabIndex={item.key === tabStop ? 0 : -1}
                   className="model-picker-instance"
-                  onClick={() => onInstance(item.key)}
+                  onClick={() => {
+                    if (busy || item.disabled) return;
+                    onInstance(item.key);
+                  }}
                 >
                   <AgentIcon kind={item.kind} size="chrome" />
                   {item.badge && (
@@ -390,7 +395,9 @@ function PickerContent({
               aria-expanded="true"
               aria-autocomplete="list"
               aria-controls={`${id}-model-list`}
-              aria-activedescendant={active >= 0 ? `${id}-model-${active}` : undefined}
+              aria-activedescendant={
+                selectedIndex >= 0 ? `${id}-model-${selectedIndex}` : undefined
+              }
               value={query}
               autoComplete="off"
               spellCheck={false}
@@ -398,6 +405,7 @@ function PickerContent({
               onChange={(event) => {
                 onQuery(event.target.value);
                 setHighlight(null);
+                pointerAnchor.current = null;
               }}
               onCompositionStart={guard.start}
               onCompositionEnd={guard.end}
@@ -420,6 +428,19 @@ function PickerContent({
                   event.preventDefault();
                   moveModel(event.key === "ArrowDown" ? 1 : -1);
                 }
+                if (
+                  event.key === "ArrowRight" &&
+                  selectedLevels.length > 0 &&
+                  event.currentTarget.selectionStart === event.currentTarget.value.length &&
+                  event.currentTarget.selectionEnd === event.currentTarget.value.length
+                ) {
+                  const button =
+                    levelsRoot.current?.querySelector<HTMLButtonElement>("button:not(:disabled)");
+                  if (button) {
+                    event.preventDefault();
+                    button.focus();
+                  }
+                }
                 if (event.key === "Enter") {
                   const model = visible[active] ?? visible.find((item) => !item.disabled);
                   if (model && !model.disabled && !busy) {
@@ -434,7 +455,7 @@ function PickerContent({
             ref={modelList}
             data={rows}
             alwaysRender={{
-              keys: active >= 0 ? [`model:${visible[active]!.key}`] : [],
+              keys: selected ? [`model:${selected.key}`] : [],
             }}
             extraData={`${query}:${highlight ?? ""}:${!!busy}`}
             recycleItems={false}
@@ -442,6 +463,9 @@ function PickerContent({
             estimatedItemSize={34}
             estimatedListSize={{ width: 356, height: 348 }}
             className="model-picker-list"
+            stickyHeaderIndices={rows.flatMap((row, index) =>
+              row.type === "group" ? [index] : [],
+            )}
             role="listbox"
             id={`${id}-model-list`}
             aria-label="Models"
@@ -469,17 +493,50 @@ function PickerContent({
                     .join(" · ")}
                   aria-current={item.model.current ? "true" : undefined}
                   className="model-picker-option"
-                  data-active={item.model.key === visible[active]?.key || undefined}
-                  onMouseMove={() => setHighlight(item.model.key)}
+                  data-active={item.model.key === selected?.key || undefined}
+                  onMouseMove={(event) => {
+                    const anchor = pointerAnchor.current;
+                    const panel = levelsPanel.current?.getBoundingClientRect();
+                    if (
+                      selectedLevels.length > 0 &&
+                      selected?.key !== item.model.key &&
+                      anchor &&
+                      panel &&
+                      event.movementX > 0
+                    ) {
+                      const width = panel.left - anchor.x;
+                      const fraction = width > 0 ? (event.clientX - anchor.x) / width : -1;
+                      const top = anchor.y + (panel.top - anchor.y) * fraction - 6;
+                      const bottom = anchor.y + (panel.bottom - anchor.y) * fraction + 6;
+                      if (
+                        fraction >= 0 &&
+                        fraction <= 1 &&
+                        event.clientY >= top &&
+                        event.clientY <= bottom
+                      )
+                        return;
+                    }
+                    pointerAnchor.current = { x: event.clientX, y: event.clientY };
+                    setHighlight(item.model.key);
+                  }}
                   onClick={() => {
                     if (!busy && !item.model.disabled) onModel(item.model.key);
                   }}
                 >
+                  <span className="model-picker-check">
+                    {item.model.current && (
+                      <CheckIcon aria-hidden="true" className="model-picker-check-icon" />
+                    )}
+                  </span>
                   <div className="model-picker-option-main">
                     <Name name={item.model.name} className="model-picker-option-name" />
-                    {item.model.detail && (
-                      <Name name={item.model.detail} className="model-picker-option-detail" />
-                    )}
+                    {item.model.detail &&
+                      (item.model.disabled ||
+                        models.some(
+                          (other) => other.key !== item.model.key && other.name === item.model.name,
+                        )) && (
+                        <Name name={item.model.detail} className="model-picker-option-detail" />
+                      )}
                   </div>
                   <div className="model-picker-option-tail">
                     {item.model.default && <span className="visual-marker">Default</span>}
@@ -488,75 +545,102 @@ function PickerContent({
                         ★
                       </span>
                     )}
-                    {item.index < 9 && !item.model.default && <Kbd>Ctrl+{item.index + 1}</Kbd>}
-                    <span className="model-picker-check">
-                      {item.model.current && (
-                        <CheckIcon aria-hidden="true" className="model-picker-check-icon" />
+                    {item.model.key === selected?.key &&
+                      (item.model.current
+                        ? levels.length > 0
+                        : (item.model.levels?.length ?? 0) > 0) && (
+                        <>
+                          {item.model.current && level && (
+                            <span className="model-picker-option-level">{level}</span>
+                          )}
+                          <ChevronRightIcon
+                            aria-hidden="true"
+                            className="model-picker-check-icon model-picker-arrow"
+                          />
+                        </>
                       )}
-                    </span>
                   </div>
                 </div>
               )
             }
           />
+          {(error ||
+            (loading && visible.length === 0) ||
+            modelStatus ||
+            (!loading && visible.length === 0)) && (
+            <div
+              className="model-picker-list-status"
+              data-error={!!error || (!!modelStatus && visible.length > 0) || undefined}
+              role={error ? "alert" : "status"}
+            >
+              {error ?? (loading ? "Loading models…" : (modelStatus ?? "No models found."))}
+            </div>
+          )}
         </div>
         <div
           ref={levelsRoot}
           className="model-picker-thinking"
           role="group"
           aria-label="Thinking levels"
-          aria-busy={levelsPending || undefined}
+          aria-busy={pendingLevels || undefined}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              searchRef.current?.focus();
+            }
+          }}
         >
-          <div className="model-picker-thinking-head">
-            <span className="model-picker-thinking-title">Thinking</span>
-            {selectedName && <Name name={selectedName} className="model-picker-thinking-model" />}
-          </div>
-          {levelsPending ? (
-            <div className="model-picker-level-skeletons" aria-hidden="true">
-              {SKELETON_ROWS.map((row) => (
-                <div key={row} className="model-picker-level-skeleton" />
-              ))}
+          <div ref={levelsPanel} className="model-picker-thinking-panel">
+            <div className="model-picker-thinking-head">
+              <span className="model-picker-thinking-title">Thinking</span>
             </div>
-          ) : selectedLevels.length > 0 ? (
-            <Toolbar.Root
-              orientation="vertical"
-              aria-label="Thinking"
-              className="model-picker-levels"
-            >
-              {selectedLevels.map((value, index) => (
-                <Toolbar.Button
-                  key={value}
-                  ref={value === level || (!level && index === 0) ? thinkingRef : undefined}
-                  type="button"
-                  data-level={value}
-                  className="model-picker-level"
-                  aria-pressed={canChangeLevel && value === level}
-                  disabled={busy || (canChangeLevel ? !onLevel : !canChooseCandidateLevel)}
-                  onClick={(event) => {
-                    wantedLevel.current = value;
-                    event.currentTarget.focus();
-                    if (canChangeLevel) onLevel?.(value);
-                    else if (selected && canChooseCandidateLevel)
-                      onModelLevel?.(selected.key, value);
-                  }}
-                >
-                  <span className="model-picker-level-name">{value}</span>
-                  {canChangeLevel && value === level && (
-                    <CheckIcon aria-hidden="true" className="model-picker-level-check" />
-                  )}
-                </Toolbar.Button>
-              ))}
-            </Toolbar.Root>
-          ) : (
-            <div className="model-picker-levels-empty" aria-hidden="true" />
-          )}
+            {pendingLevels ? (
+              <div className="model-picker-level-skeletons" aria-hidden="true">
+                {SKELETON_ROWS.map((row) => (
+                  <div key={row} className="model-picker-level-skeleton" />
+                ))}
+              </div>
+            ) : selectedLevels.length > 0 ? (
+              <Toolbar.Root
+                orientation="vertical"
+                aria-label="Thinking"
+                className="model-picker-levels"
+              >
+                {selectedLevels.map((value, index) => (
+                  <Toolbar.Button
+                    key={value}
+                    ref={value === level || (!level && index === 0) ? thinkingRef : undefined}
+                    type="button"
+                    data-level={value}
+                    className="model-picker-level"
+                    aria-pressed={canChangeLevel && value === level}
+                    disabled={busy || (canChangeLevel ? !onLevel : !canChooseCandidateLevel)}
+                    onClick={(event) => {
+                      wantedLevel.current = value;
+                      event.currentTarget.focus();
+                      if (canChangeLevel) onLevel?.(value);
+                      else if (selected && canChooseCandidateLevel)
+                        onModelLevel?.(selected.key, value);
+                    }}
+                  >
+                    <span className="model-picker-level-name">{value}</span>
+                    {canChangeLevel && value === level && (
+                      <CheckIcon aria-hidden="true" className="model-picker-level-check" />
+                    )}
+                  </Toolbar.Button>
+                ))}
+              </Toolbar.Root>
+            ) : (
+              <div className="model-picker-levels-empty">
+                {reasoningStatus ??
+                  (selected?.levels === undefined
+                    ? "Reasoning levels are unavailable."
+                    : "This model has no reasoning levels.")}
+              </div>
+            )}
+          </div>
         </div>
       </div>
-      {error && (
-        <div className="model-picker-error">
-          <FormError>{error}</FormError>
-        </div>
-      )}
       {footer && <div className="model-picker-footer">{footer}</div>}
     </div>
   );
