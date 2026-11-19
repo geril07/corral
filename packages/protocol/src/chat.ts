@@ -184,6 +184,8 @@ export type ChatModelRef = z.infer<typeof ChatModelRef>;
 export const ChatModel = ChatModelRef.extend({
   /** Display name; equals `id` when the agent has no separate one. */
   name: z.string().min(1),
+  /** Absent when unknown; an empty array means the model has no selectable reasoning levels. */
+  reasoningLevels: z.array(z.string()).optional(),
 });
 export type ChatModel = z.infer<typeof ChatModel>;
 
@@ -226,6 +228,10 @@ export const ChatSessionState = z.object({
   reasoning: z.string().nullable(),
   /** Levels the driver accepts, in its order; empty when it has none. */
   reasoningLevels: z.array(z.string()),
+  /** State of the current model's level discovery, when the driver reports it separately. */
+  reasoningStatus: z.enum(["loading", "ready", "error"]).optional(),
+  /** A model-and-level operation is in progress; streamed state may show its partial result. */
+  modelSelectionPending: z.boolean().optional(),
   /**
    * The session's context-window usage as the agent last reported it; `null` until it reports one,
    * and for a driver whose protocol carries no usage. It is session state rather than a timeline

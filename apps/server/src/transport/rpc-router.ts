@@ -3,6 +3,7 @@ import { implement } from "@orpc/server";
 import type { ChatService } from "../chat/chat-service.ts";
 import {
   ChatModelUnsupportedError,
+  ChatModelLevelError,
   ChatReasoningUnsupportedError,
   ChatRequestUnknownError,
   ChatUnavailableError,
@@ -247,6 +248,9 @@ function chatError(
       data: { model: { provider: string | null; id: string } };
     }) => Error;
     CHAT_REASONING_UNSUPPORTED?: (options: { data: { level: string } }) => Error;
+    CHAT_MODEL_LEVEL_PARTIAL?: (options: {
+      data: { model: { provider: string | null; id: string }; level: string };
+    }) => Error;
   },
 ): Error | undefined {
   if (error instanceof ChatUnavailableError)
@@ -257,6 +261,8 @@ function chatError(
     return errors.CHAT_MODEL_UNSUPPORTED?.({ data: { model: error.model } });
   if (error instanceof ChatReasoningUnsupportedError)
     return errors.CHAT_REASONING_UNSUPPORTED?.({ data: { level: error.level } });
+  if (error instanceof ChatModelLevelError)
+    return errors.CHAT_MODEL_LEVEL_PARTIAL?.({ data: { model: error.model, level: error.level } });
   return undefined;
 }
 
@@ -675,7 +681,7 @@ export function createRpcRouter({
           async () => {
             const subject = sessions.chatSubject(input.sessionId);
             if (!subject) throw new SessionNotFoundError(input.sessionId);
-            await chat.setModel(subject, input.model);
+            await chat.setModel(subject, input.model, input.level);
           },
           (error) =>
             error instanceof SessionNotFoundError

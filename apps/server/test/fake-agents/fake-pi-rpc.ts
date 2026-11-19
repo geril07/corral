@@ -147,11 +147,15 @@ export function startFakePiRpc(argv: readonly string[]): void {
             : models
           ).map((model) => ({
             ...model,
+            reasoning: true,
+            thinkingLevelMap:
+              model.id === "stub-2" ? { minimal: null, low: null, max: "max" } : { minimal: null },
             ...(context.window > 0 ? { contextWindow: context.window } : {}),
           })),
         });
         return;
       case "get_available_thinking_levels":
+        if (mode === "refresh-silent" && currentModel.id === "stub-2") return;
         if (mode === "refresh-fail" && currentModel.id === "stub-2") {
           reply(id, "get_available_thinking_levels", {
             success: false,

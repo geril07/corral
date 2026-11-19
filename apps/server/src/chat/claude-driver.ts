@@ -359,7 +359,7 @@ export class ClaudeDriver implements ChatDriver {
       throw new ChatModelUnsupportedError(model, `claude does not offer the model ${model.id}`);
     }
     try {
-      await query.setModel(entry.id);
+      await this.#modelCommand("set model", () => query.setModel(entry.id));
     } catch (error) {
       if (this.#closed) throw this.#unavailable();
       throw new ChatModelUnsupportedError(model, messageOf(error));
@@ -382,7 +382,9 @@ export class ClaudeDriver implements ChatDriver {
       throw new ChatReasoningUnsupportedError(level, `${level} is not a claude effort level`);
     }
     try {
-      await query.applyFlagSettings({ effortLevel: level });
+      await this.#modelCommand("set reasoning", () =>
+        query.applyFlagSettings({ effortLevel: level }),
+      );
     } catch (error) {
       if (this.#closed) throw this.#unavailable();
       throw new ChatReasoningUnsupportedError(level, messageOf(error));
@@ -393,6 +395,38 @@ export class ClaudeDriver implements ChatDriver {
   #liveQuery(): ClaudeSdkQuery {
     if (this.#closed || this.#query === undefined) throw this.#unavailable();
     return this.#query;
+  }
+
+  async #modelCommand(name: string, action: () => Promise<void>): Promise<void> {
+    let timedOut = false;
+    const timer = setTimeout(
+      () => {
+        timedOut = true;
+        this.#fail(`claude did not answer ${name} within ${seconds(this.#request.readyTimeoutMs)}`);
+      },
+      Math.max(1, this.#request.readyTimeoutMs),
+    );
+    timer.unref();
+    try {
+      await Promise.race([
+        action(),
+        this.#exited.then(() => {
+          throw this.#unavailable();
+        }),
+      ]);
+      if (timedOut) {
+        await this.#exited;
+        throw this.#unavailable();
+      }
+    } catch (error) {
+      if (timedOut) {
+        await this.#exited;
+        throw this.#unavailable();
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** Consumes the SDK's messages until the frontend ends; the single reader of the query. */

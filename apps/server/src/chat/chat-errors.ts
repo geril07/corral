@@ -45,6 +45,19 @@ export class ChatReasoningUnsupportedError extends Error {
   }
 }
 
+/** A model switch succeeded, but its requested reasoning level did not. */
+export class ChatModelLevelError extends Error {
+  readonly model: ChatModelRef;
+  readonly level: string;
+
+  constructor(model: ChatModelRef, level: string) {
+    super("The model changed, but its reasoning level could not be applied.");
+    this.name = "ChatModelLevelError";
+    this.model = model;
+    this.level = level;
+  }
+}
+
 /** A chat frontend could not be started; the session keeps its row and the reason stays visible. */
 export class ChatLaunchError extends Error {
   constructor(message: string) {

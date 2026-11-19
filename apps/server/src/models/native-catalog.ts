@@ -111,7 +111,7 @@ export async function readNativeCatalog(
         const data = OpenCodeModels.parse(await boundedJson(response));
         const models = data.data
           .filter((m) => m.enabled)
-          .map((m) => ({ provider: m.providerID, id: m.id, name: m.name }));
+          .map((m) => ({ provider: m.providerID, id: m.id, name: m.name || m.id }));
         const fingerprint = JSON.stringify(models);
         latest = models.length > 0 ? models : latest;
         if (models.length > 0 && fingerprint === previous) return { models, partial: false };

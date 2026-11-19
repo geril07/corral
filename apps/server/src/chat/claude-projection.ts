@@ -209,6 +209,9 @@ export class ClaudeProjection {
       provider: null,
       id: entry.value,
       name: entry.displayName,
+      ...(entry.supportedEffortLevels === undefined
+        ? {}
+        : { reasoningLevels: [...entry.supportedEffortLevels] }),
     }));
     // With no model requested, the CLI runs its own default, which the list's first row names.
     const active = activeModelOf(models, model) ?? (model === null ? models[0] : undefined);

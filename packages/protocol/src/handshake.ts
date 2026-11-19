@@ -57,10 +57,10 @@ import { z } from "zod";
  * have measured, and the refusal names the version instead. Version 17 adds the required
  * `ChatSessionState.turnStartedAt`/`turnEndedAt`: a version 16 daemon never sends them, so a 17
  * client's live `Working` row would carry no time and its last `Worked` row no duration, and the
- * refusal names the version instead.
+ * refusal names the version instead. Version 18 carries per-model reasoning capabilities:
+ * an older server would silently omit capabilities that the picker needs for a candidate model.
  */
-// Version 17 adds the chat turn's start and end; 16 added the context-window usage.
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 18;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in

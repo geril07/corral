@@ -195,7 +195,7 @@ export class PiDriver implements ChatDriver {
     if (provider === null || provider === undefined) {
       throw new ChatModelUnsupportedError(model, `pi needs a provider for model ${model.id}`);
     }
-    const data = await this.#requestCommand("set_model", { provider, modelId: model.id }).catch(
+    const data = await this.#modelCommand("set_model", { provider, modelId: model.id }).catch(
       (error: unknown) => {
         // A dead frontend is CHAT_UNAVAILABLE, not an unsupported model.
         if (error instanceof ChatUnavailableError) throw error;
@@ -210,6 +210,7 @@ export class PiDriver implements ChatDriver {
       },
       reasoning: null,
       reasoningLevels: [],
+      reasoningStatus: "loading",
     });
     // pi's thinking levels belong to the model in effect (`xhigh`/`max` appear only where the
     // model supports them), so the level and the accepted list are re-read after the switch. The
@@ -218,25 +219,26 @@ export class PiDriver implements ChatDriver {
     try {
       await this.#refreshModelState();
     } catch {
-      // The switch succeeded, but the new model's thinking capabilities remain unknown.
+      if (!this.#closed) this.timeline.setState({ reasoningStatus: "error" });
     }
   }
 
   /** What the model in effect reports about reasoning: the level it runs at and the levels it takes. */
   async #refreshModelState(): Promise<void> {
     const [state, levels] = await Promise.all([
-      this.#requestCommand("get_state"),
-      this.#requestCommand("get_available_thinking_levels"),
+      this.#modelCommand("get_state"),
+      this.#modelCommand("get_available_thinking_levels"),
     ]);
     if (this.#closed) return;
     this.timeline.setState({
       reasoning: stringField(state, "thinkingLevel") ?? null,
       reasoningLevels: stringsField(levels, "levels"),
+      reasoningStatus: "ready",
     });
   }
 
   async setReasoning(level: string): Promise<void> {
-    await this.#requestCommand("set_thinking_level", { level }).catch((error: unknown) => {
+    await this.#modelCommand("set_thinking_level", { level }).catch((error: unknown) => {
       if (error instanceof ChatUnavailableError) throw error;
       throw new ChatReasoningUnsupportedError(level, messageOf(error));
     });
@@ -367,6 +369,21 @@ export class PiDriver implements ChatDriver {
       pending?.reject(error instanceof Error ? error : new PiCommandError(type, messageOf(error)));
     });
     return answer;
+  }
+
+  async #modelCommand(type: string, fields: Record<string, unknown> = {}): Promise<PiRecord> {
+    // A late mutation could otherwise overtake the next prompt after a timeout. Kill the frontend
+    // before its pending command settles so the service queue never releases an ambiguous writer.
+    const timer = setTimeout(
+      () => this.#fail(`pi did not answer ${type} within ${seconds(this.#request.readyTimeoutMs)}`),
+      Math.max(1, this.#request.readyTimeoutMs),
+    );
+    timer.unref();
+    try {
+      return await this.#requestCommand(type, fields);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** One command on stdin, in order; waits for `drain` rather than buffering without bound. */

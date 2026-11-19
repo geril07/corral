@@ -13,6 +13,7 @@ import type {
 } from "./chat-driver.ts";
 import {
   ChatLaunchError,
+  ChatModelLevelError,
   ChatUnavailableError,
   messageOf,
   type ChatSubject,
@@ -20,6 +21,7 @@ import {
 import { floorPath, raiseFloor, reserveFloor } from "./sequence-floor.ts";
 import { ChatTimeline } from "./timeline.ts";
 import { recordWriter, releasePreviousWriter, releaseWriter, writerPath } from "./writer-claim.ts";
+import { SerialQueue } from "../tasks/serial-queue.ts";
 
 /**
  * The server's own deadline for a dialog a driver left open. An extension may set a shorter
@@ -55,6 +57,7 @@ export interface ChatServiceOptions {
  */
 export class ChatService {
   readonly #drivers = new Map<string, ChatDriver>();
+  readonly #mutations = new WeakMap<ChatDriver, SerialQueue>();
   /**
    * The drivers this service can start, by agent kind. Production passes the build's registry;
    * the seam is what lets a test register a driver without a line of service code behind it.
@@ -296,8 +299,8 @@ export class ChatService {
     });
   }
 
-  send(subject: ChatSubject, text: string, mode: ChatSendMode): string {
-    return this.#frontend(subject).send(text, mode);
+  send(subject: ChatSubject, text: string, mode: ChatSendMode): Promise<string> {
+    return this.#mutate(subject, async (driver) => driver.send(text, mode));
   }
 
   async abort(subject: ChatSubject): Promise<void> {
@@ -308,12 +311,46 @@ export class ChatService {
     this.#frontend(subject).respond(requestId, value);
   }
 
-  async setModel(subject: ChatSubject, model: ChatModelRef): Promise<void> {
-    await this.#frontend(subject).setModel(model);
+  async setModel(subject: ChatSubject, model: ChatModelRef, level?: string): Promise<void> {
+    await this.#mutate(subject, async (driver) => {
+      const current = driver.state.model;
+      const switched = current?.id !== model.id || current.provider !== model.provider;
+      if (level !== undefined) driver.timeline.setState({ modelSelectionPending: true });
+      try {
+        if (level === undefined || switched) await driver.setModel(model);
+        if (level !== undefined) {
+          try {
+            if (driver.closed)
+              throw new ChatUnavailableError("the chat frontend was stopped", "exited");
+            await driver.setReasoning(level);
+          } catch (error) {
+            if (switched) throw new ChatModelLevelError(model, level);
+            throw error;
+          }
+        }
+      } finally {
+        if (level !== undefined && !driver.closed)
+          driver.timeline.setState({ modelSelectionPending: false });
+      }
+    });
   }
 
   async setReasoning(subject: ChatSubject, level: string): Promise<void> {
-    await this.#frontend(subject).setReasoning(level);
+    await this.#mutate(subject, (driver) => driver.setReasoning(level));
+  }
+
+  #mutate<T>(subject: ChatSubject, action: (driver: ChatDriver) => Promise<T>): Promise<T> {
+    const driver = this.#frontend(subject);
+    let queue = this.#mutations.get(driver);
+    if (!queue) {
+      queue = new SerialQueue();
+      this.#mutations.set(driver, queue);
+    }
+    return queue.run(async () => {
+      if (this.#frontend(subject) !== driver)
+        throw new ChatUnavailableError("the chat frontend was replaced", "exited");
+      return action(driver);
+    });
   }
 
   /**

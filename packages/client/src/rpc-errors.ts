@@ -103,6 +103,8 @@ export function describeError(error: unknown): string {
         return `The agent does not offer the model ${String(field(field(data, "model"), "id"))}.`;
       case "CHAT_REASONING_UNSUPPORTED":
         return `The agent has no reasoning level "${String(field(data, "level"))}".`;
+      case "CHAT_MODEL_LEVEL_PARTIAL":
+        return `The model changed to ${String(field(field(data, "model"), "id"))}, but reasoning "${String(field(data, "level"))}" could not be applied.`;
       case "LAUNCH_PROFILE_CHANGED":
         return profileChanged(String(field(data, "id")));
       case "LAUNCH_PROFILE_UNKNOWN":

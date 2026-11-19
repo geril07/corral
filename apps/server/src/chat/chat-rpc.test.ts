@@ -808,10 +808,28 @@ test("the model and reasoning level switch through the driver and are reported b
     expect(chat.state.reasoning).toBe("medium");
     expect(chat.state.reasoningLevels).toEqual(["off", "low", "medium", "high"]);
 
-    await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-2" } });
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-2" },
+      level: "high",
+    });
     await chat.until((view) => view.state.model?.id === "stub-2", "the new model");
-    await api.chat.setReasoning({ sessionId: session.id, level: "high" });
     await chat.until((view) => view.state.reasoning === "high", "the new reasoning level");
+
+    await expect(
+      api.chat.setModel({
+        sessionId: session.id,
+        model: { provider: "stub", id: "stub-1" },
+        level: "not-a-level",
+      }),
+    ).rejects.toMatchObject({
+      code: "CHAT_MODEL_LEVEL_PARTIAL",
+      data: { model: { provider: "stub", id: "stub-1" }, level: "not-a-level" },
+    });
+    await chat.until(
+      (view) => view.state.model?.id === "stub-1" && view.state.modelSelectionPending === false,
+      "the partial result",
+    );
 
     await expect(
       api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-9" } }),
@@ -829,9 +847,28 @@ test("a successful model switch followed by a failed refresh never advertises th
   try {
     await chat.until((view) => view.state.reasoningLevels.length > 0, "initial thinking");
     await api.chat.setModel({ sessionId, model: { provider: "stub", id: "stub-2" } });
-    await chat.until((view) => view.state.model?.id === "stub-2", "switched model");
+    await chat.until((view) => view.state.reasoningStatus === "error", "failed refresh");
     expect(chat.state.reasoningLevels).toEqual([]);
     expect(chat.state.reasoning).toBeNull();
+  } finally {
+    await chat.close();
+  }
+});
+
+test("a silent model refresh ends the frontend rather than blocking later messages indefinitely", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "refresh-silent");
+  const { api, session } = await chatTask("Refresh capabilities");
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.state.reasoningLevels.length > 0, "initial thinking");
+    const change = api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-2" },
+    });
+    await chat.until((view) => view.state.reasoningStatus === "loading", "refresh in progress");
+    const message = api.chat.send({ sessionId: session.id, text: "next", mode: "prompt" });
+    await change.catch(() => undefined);
+    await expect(message).rejects.toMatchObject({ code: "CHAT_UNAVAILABLE" });
   } finally {
     await chat.close();
   }

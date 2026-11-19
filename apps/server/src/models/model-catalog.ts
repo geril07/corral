@@ -175,11 +175,22 @@ export class ModelCatalogService {
               (secret) => model.id.includes(secret) || model.provider?.includes(secret),
             ),
         )
-        .map((model) => ({
-          id: model.id,
-          provider: model.provider,
-          name: secrets.reduce((name, secret) => name.replaceAll(secret, "[redacted]"), model.name),
-        }));
+        .map((model) => {
+          const safe: (typeof result.models)[number] = {
+            id: model.id,
+            provider: model.provider,
+            name: secrets.reduce(
+              (name, secret) => name.replaceAll(secret, "[redacted]"),
+              model.name,
+            ),
+          };
+          if (
+            model.reasoningLevels !== undefined &&
+            !model.reasoningLevels.some((level) => secrets.some((secret) => level.includes(secret)))
+          )
+            safe.reasoningLevels = model.reasoningLevels;
+          return safe;
+        });
       const models = [...new Map(safeModels.map((m) => [modelKey(m), m])).values()];
       // A partial, smaller snapshot must not replace a previously useful inventory.
       const retained =

@@ -42,6 +42,11 @@ projects native protocols into Corral's chat contract for clients to render; the
 session remains the conversation, not a second authoritative transcript. A task's initial prompt
 must not be repeated on resume, which could cause the agent to redo work.
 
+Chat model and reasoning changes and prompts are ordered per live frontend across clients. A
+model-and-reasoning choice may partly succeed: its streamed state is marked pending until both
+commands finish, and a reasoning refusal does not undo an accepted model change. Abort and answers
+to agent requests do not wait behind that queue, because they may be needed to unblock the agent.
+
 Native agent behavior determines whether views can attach to one live agent server or must hand
 off serially. A handoff-only driver must stop the previous writer before starting the next; pi,
 for example, does not lock its session file. Switching such a busy session can lose in-flight

@@ -229,8 +229,86 @@ test("a driver is one registry entry: it answers chat.capabilities and starts th
     ]);
 
     // A send goes through the driver and comes back as an item id, as the contract promises.
-    expect(chat.send(subject("echo-1", "claude"), "again", "steer")).toBe("echo-2");
+    expect(await chat.send(subject("echo-1", "claude"), "again", "steer")).toBe("echo-2");
   } finally {
+    await chat.closeAll();
+  }
+});
+
+test("a model and level are ordered before other clients' sends and switches, including a partial refusal", async () => {
+  const harness = echoRegistry();
+  const chat = chatService(harness);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const calls: string[] = [];
+  try {
+    await chat.launch(request("ordered", "claude"));
+    const driver = harness.started[0]!;
+    driver.setModel = async (model) => {
+      calls.push(`model:${model.id}`);
+      driver.timeline.setState({ model: { ...model, name: model.id } });
+      entered.resolve();
+      await release.promise;
+    };
+    driver.setReasoning = async (level) => {
+      calls.push(`level:${level}`);
+      if (level === "bad") throw new Error("level refused");
+      driver.timeline.setState({ reasoning: level });
+    };
+    const send = driver.send.bind(driver);
+    driver.send = (text, mode) => {
+      calls.push(`send:${text}`);
+      return send(text, mode);
+    };
+
+    const session = subject("ordered", "claude");
+    const pair = chat.setModel(session, { provider: null, id: "new" }, "bad");
+    await entered.promise;
+    const message = chat.send(session, "next", "prompt");
+    const level = chat.setReasoning(session, "high");
+    expect(calls).toEqual(["model:new"]);
+    release.resolve();
+    await expect(pair).rejects.toThrow(
+      "The model changed, but its reasoning level could not be applied.",
+    );
+    await message;
+    await level;
+    expect(calls).toEqual(["model:new", "level:bad", "send:next", "level:high"]);
+    expect(driver.state.model?.id).toBe("new");
+    expect(driver.state.reasoning).toBe("high");
+  } finally {
+    release.resolve();
+    await chat.closeAll();
+  }
+});
+
+test("a model change completing after the frontend stops cannot append to its closed timeline", async () => {
+  const harness = echoRegistry();
+  const chat = chatService(harness);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  try {
+    await chat.launch(request("stopped-during-choice", "claude"));
+    const driver = harness.started[0]!;
+    driver.setModel = async () => {
+      entered.resolve();
+      await release.promise;
+    };
+    const pair = chat.setModel(
+      subject("stopped-during-choice", "claude"),
+      { provider: null, id: "new" },
+      "high",
+    );
+    await entered.promise;
+    await chat.stop("stopped-during-choice");
+    const lastSequence = driver.timeline.sequence;
+    release.resolve();
+    await expect(pair).rejects.toThrow(
+      "The model changed, but its reasoning level could not be applied.",
+    );
+    expect(driver.timeline.sequence).toBe(lastSequence);
+  } finally {
+    release.resolve();
     await chat.closeAll();
   }
 });
@@ -316,7 +394,7 @@ test("the timeline's start and the exit bookkeeping stay outside the driver", as
     expect(harness.started[0]!.timeline.sequence).toBe(0);
     expect(readFloor(floorPath(`${root}/chat`, "echo-5"))).toBe(SEQUENCE_BLOCK);
 
-    chat.send(subject("echo-5", "claude"), "one", "prompt");
+    await chat.send(subject("echo-5", "claude"), "one", "prompt");
     await chat.stop("echo-5");
     // The driver said only "I ended"; the service keeps the larger of its reservation and the
     // sequence the frontend actually emitted, so no cursor from it can replay into a new timeline.
@@ -337,8 +415,8 @@ test("a cursor held from a replaced frontend gets a snapshot, not a replay", asy
   const chat = chatService(harness);
   try {
     await chat.launch(request("echo-6", "claude"));
-    chat.send(subject("echo-6", "claude"), "one", "prompt");
-    chat.send(subject("echo-6", "claude"), "two", "prompt");
+    await chat.send(subject("echo-6", "claude"), "one", "prompt");
+    await chat.send(subject("echo-6", "claude"), "two", "prompt");
     const cursor = harness.started[0]!.timeline.sequence;
     expect(cursor).toBeGreaterThan(0);
     await chat.stop("echo-6");

@@ -206,6 +206,7 @@ export class PiProjection {
       models: models.map(modelOf),
       reasoning: stringField(state, "thinkingLevel") ?? null,
       reasoningLevels: [...levels],
+      reasoningStatus: "ready",
     });
   }
 
@@ -684,10 +685,24 @@ export class PiProjection {
 /** pi's model object as the chat contract's model entry. */
 function modelOf(model: PiRecord): ChatModel {
   const id = stringField(model, "id") ?? "";
+  const reasoning = booleanField(model, "reasoning");
+  const map = objectField(model, "thinkingLevelMap");
+  // pi accepts xhigh/max only when the model explicitly maps them; null disables any level.
+  const levels =
+    reasoning === undefined
+      ? undefined
+      : reasoning
+        ? ["off", "minimal", "low", "medium", "high", "xhigh", "max"].filter((level) => {
+            const value = map?.[level];
+            if (value === null) return false;
+            return (level !== "xhigh" && level !== "max") || value !== undefined;
+          })
+        : [];
   return {
     provider: stringField(model, "provider") ?? null,
     id,
-    name: stringField(model, "name") ?? id,
+    name: stringField(model, "name") || id,
+    ...(levels === undefined ? {} : { reasoningLevels: levels }),
   };
 }
 

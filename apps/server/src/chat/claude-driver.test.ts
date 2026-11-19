@@ -492,6 +492,26 @@ test("a model and reasoning change reaches the SDK, and a level the model lacks 
   }
 });
 
+test("a silent Claude model request ends the frontend before a late response can change state", async () => {
+  const h = await harness({ readyTimeoutMs: 1500 });
+  const response = Promise.withResolvers<void>();
+  try {
+    await started(h);
+    h.sdk.onlyQuery.setModel = () => response.promise;
+    await expect(h.driver.setModel({ provider: null, id: "sonnet" })).rejects.toThrow(
+      "claude did not answer set model",
+    );
+    expect(h.driver.closed).toBe(true);
+    const sequence = h.timeline.sequence;
+    response.resolve();
+    await Promise.resolve();
+    expect(h.timeline.sequence).toBe(sequence);
+  } finally {
+    response.resolve();
+    await h.stop();
+  }
+});
+
 test("a reasoning level set before the first turn survives the init frame", async () => {
   // The CLI sends `system:init` with the first turn, so a level chosen before it is in the state but
   // not in the frame; the frame must not clear a level the model still takes.

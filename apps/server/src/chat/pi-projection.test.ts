@@ -340,6 +340,41 @@ test("the model list and the current model come from pi's state commands", () =>
   });
 });
 
+test("model reasoning capabilities distinguish unknown and unsupported and respect pi's level map", () => {
+  const { timeline, created } = projection();
+  created.loadModelState(
+    {},
+    [
+      { id: "unknown", provider: "stub" },
+      { id: "plain", provider: "stub", reasoning: false },
+      {
+        id: "reasoning",
+        provider: "stub",
+        reasoning: true,
+        thinkingLevelMap: { minimal: null, xhigh: "extra", max: null },
+      },
+      { id: "standard", provider: "stub", reasoning: true },
+    ],
+    [],
+  );
+  expect(timeline.state.models).toEqual([
+    { id: "unknown", name: "unknown", provider: "stub" },
+    { id: "plain", name: "plain", provider: "stub", reasoningLevels: [] },
+    {
+      id: "reasoning",
+      name: "reasoning",
+      provider: "stub",
+      reasoningLevels: ["off", "low", "medium", "high", "xhigh"],
+    },
+    {
+      id: "standard",
+      name: "standard",
+      provider: "stub",
+      reasoningLevels: ["off", "minimal", "low", "medium", "high"],
+    },
+  ]);
+});
+
 test("a queue update carries the steering and follow-up messages", () => {
   const { timeline, apply } = projection();
   apply({ type: "queue_update", steering: ["wait"], followUp: ["then this"] });

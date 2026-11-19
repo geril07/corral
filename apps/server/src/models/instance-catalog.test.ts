@@ -146,7 +146,14 @@ test("native metadata that echoes a private value cannot expose it as a model", 
     context: { projectId: project.id },
   });
   expect(catalog.status).toBe("ready");
-  expect(catalog.models).toEqual([{ id: "normal", name: "echo [redacted]", provider: "stub" }]);
+  expect(catalog.models).toEqual([
+    {
+      id: "normal",
+      name: "echo [redacted]",
+      provider: "stub",
+      reasoningLevels: ["off", "low", "medium", "high"],
+    },
+  ]);
   expect(JSON.stringify(catalog)).not.toContain("my-private-value");
   await iterator.return?.();
 });

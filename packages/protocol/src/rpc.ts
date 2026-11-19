@@ -599,6 +599,8 @@ export const ChatSetModelInput = z.object({
   sessionId: SessionId,
   /** One of the session's `models`. */
   model: ChatModelRef,
+  /** When supplied, applied after the model and before another model, level or prompt operation. */
+  level: z.string().min(1).optional(),
 });
 export type ChatSetModelInput = z.infer<typeof ChatSetModelInput>;
 
@@ -1066,12 +1068,14 @@ export const contract = {
       })
       .input(ChatRespondInput)
       .output(z.void()),
-    /** Runs the session on another model from its `models` list. */
+    /** Runs another model, optionally applying its reasoning level as one ordered operation. */
     setModel: oc
       .errors({
         ...sessionNotFound,
         ...chatUnavailable,
         CHAT_MODEL_UNSUPPORTED: { data: z.object({ model: ChatModelRef }) },
+        CHAT_REASONING_UNSUPPORTED: { data: z.object({ level: z.string() }) },
+        CHAT_MODEL_LEVEL_PARTIAL: { data: z.object({ model: ChatModelRef, level: z.string() }) },
       })
       .input(ChatSetModelInput)
       .output(z.void()),
