@@ -135,7 +135,13 @@ export interface AgentLaunch {
   agent: string;
   argv: string[];
   pid: number;
-  env: { CORRAL_SESSION_ID?: string };
+  env: {
+    CORRAL_SESSION_ID?: string;
+    CORRAL_TASK_ID?: string;
+    /** The launch's status channel, for a report the test sends out of band. */
+    CORRAL_STATUS_URL?: string;
+    CORRAL_STATUS_TOKEN?: string;
+  };
 }
 
 export function readLaunches(stateDir: string): AgentLaunch[] {
