@@ -262,6 +262,10 @@ overrides:
   vite: npm:@voidzero-dev/vite-plus-core@1.4.0
   vitest: 5.0.5
 
+patchedDependencies:
+  '@xterm/addon-webgl@0.19.0': f7157c3848992f397ca2a736ccaa4d8f95c3a500acbdbcc5ff3fb7501795f8c1
+  '@xterm/xterm@6.0.0': 983b5bf417ec11296b8fa10ff7d5c12a4e16fe4ec96a2c1c5442634e63de3db3
+
 importers:
 
   .:
@@ -377,10 +381,10 @@ importers:
         version: 0.11.0
       '@xterm/addon-webgl':
         specifier: 'catalog:'
-        version: 0.19.0
+        version: 0.19.0(patch_hash=f7157c3848992f397ca2a736ccaa4d8f95c3a500acbdbcc5ff3fb7501795f8c1)
       '@xterm/xterm':
         specifier: 'catalog:'
-        version: 6.0.0
+        version: 6.0.0(patch_hash=983b5bf417ec11296b8fa10ff7d5c12a4e16fe4ec96a2c1c5442634e63de3db3)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -4883,11 +4887,11 @@ snapshots:
 
   '@xterm/addon-serialize@0.14.0': {}
 
-  '@xterm/addon-webgl@0.19.0': {}
+  '@xterm/addon-webgl@0.19.0(patch_hash=f7157c3848992f397ca2a736ccaa4d8f95c3a500acbdbcc5ff3fb7501795f8c1)': {}
 
   '@xterm/headless@6.0.0': {}
 
-  '@xterm/xterm@6.0.0': {}
+  '@xterm/xterm@6.0.0(patch_hash=983b5bf417ec11296b8fa10ff7d5c12a4e16fe4ec96a2c1c5442634e63de3db3)': {}
 
   '@yuku-core/binding-android-arm64@0.19.0':
     optional: true

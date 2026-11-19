@@ -60,3 +60,9 @@ ignoredOptionalDependencies:
   - "@anthropic-ai/claude-agent-sdk-darwin-arm64"
   - "@anthropic-ai/claude-agent-sdk-win32-x64"
   - "@anthropic-ai/claude-agent-sdk-win32-arm64"
+
+patchedDependencies:
+  # Backport xtermjs/xterm.js#5529: redraw synchronously after WebGL canvas resize.
+  # The npm bundles are minified; remove both patches when upgrading to a version with the fix.
+  "@xterm/addon-webgl@0.19.0": patches/@xterm__addon-webgl@0.19.0.patch
+  "@xterm/xterm@6.0.0": patches/@xterm__xterm@6.0.0.patch
