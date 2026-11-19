@@ -5,6 +5,7 @@ import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
 import { removeDirectoryIn } from "../../../test/files-client.ts";
 import { createGitRepo } from "../../../test/git-repo.ts";
+import { writeConfig } from "../../../test/config-command.ts";
 import { realServerClients, prefixThen } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
 import { appWithProject, focusedIsTerminal, taskWithShell } from "../../../test/task-flows.tsx";
@@ -211,13 +212,16 @@ test("View issue source… opens the real dialog only for a task with a source",
   const { unmount } = await render(<App client={client} />);
   await waitForRows(2);
 
-  await rowFor("Imported issue title").click({ button: "right" });
+  const importedRow = rowFor("Imported issue title");
+  const importedId = importedRow.element().getAttribute("data-task-id");
+  await importedRow.click({ button: "right" });
   await page.getByRole("menuitem", { name: "View issue source…" }).click();
   const dialog = page.getByRole("dialog", { name: "Issue source" });
   await expect.element(dialog).toBeVisible();
   await expect.element(dialog).toMatchTextContent("Imported issue title");
   await dialog.getByRole("button", { name: "Close" }).click();
   await expect.element(dialog).not.toBeInTheDocument();
+  await expect.poll(() => document.activeElement?.getAttribute("data-task-id")).toBe(importedId);
 
   await rowFor("Plain scratch task").click({ button: "right" });
   await expect
@@ -663,4 +667,72 @@ test("prefix space opens the palette over a terminal and Escape returns the keyb
   await userEvent.keyboard("{Escape}");
   await expect.element(palette).not.toBeInTheDocument();
   await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+});
+
+test("a row menu dialog returns the keyboard to its row", async () => {
+  const client = await connectedClient();
+  const { tasks } = await projectWithTasks(client, ["Alpha task", "Bravo task"]);
+  const { unmount } = await render(<App client={client} />);
+  await waitForActiveRows(2);
+  const [target] = tasks;
+  const focusedRow = () => document.activeElement?.getAttribute("data-task-id") === target!.id;
+  const row = rowFor(target!.title);
+
+  await row.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Rename task…" }).click();
+  await expect.element(page.getByRole("dialog", { name: /Rename/ })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+  await expect.poll(focusedRow).toBe(true);
+
+  await row.click({ button: "right" });
+  await userEvent.hover(page.getByRole("menuitem", { name: "Snooze" }));
+  await page.getByRole("menuitem", { name: /^Custom/ }).click();
+  await expect.element(page.getByRole("dialog")).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+  await expect.poll(focusedRow).toBe(true);
+  await unmount();
+});
+
+test("removing the last task keeps the keyboard in the shell", async () => {
+  const client = await connectedClient();
+  const { tasks } = await projectWithTasks(client, ["Only task"]);
+  const { unmount } = await render(<App client={client} />);
+  await waitForRows(1);
+
+  await rowFor(tasks[0]!.title).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Remove task…" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect.element(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Remove task" }).click();
+  await expect.element(dialog).not.toBeInTheDocument();
+
+  await expect.poll(() => document.activeElement !== document.body).toBe(true);
+  await expect.poll(() => document.activeElement?.getAttribute("aria-label")).toContain("New task");
+  await unmount();
+});
+
+test("a config dialog leaves no return target for a later row dialog", async () => {
+  await writeConfig('[keys.bindings]\ntoggle-sidebar = "w"\n');
+  try {
+    const { client, project } = await appWithProject(newClient());
+    const task = await taskWithShell(client, project.id, "Stale target");
+    const notice = page.getByRole("button", { name: /config: 1 problem/ });
+    await expect.element(notice).toBeVisible();
+    await notice.click();
+    const config = page.getByRole("dialog", { name: "Config problems" });
+    await expect.element(config).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(config).not.toBeInTheDocument();
+
+    await rowFor(task.title).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Rename task…" }).click();
+    await expect.element(page.getByRole("dialog", { name: /Rename/ })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+    await expect.poll(() => document.activeElement?.getAttribute("data-task-id")).toBe(task.id);
+  } finally {
+    await writeConfig(null);
+  }
 });

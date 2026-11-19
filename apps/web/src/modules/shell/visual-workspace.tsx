@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { useDeadline } from "../../common/hooks/use-deadline.ts";
 import { useNow } from "../../common/hooks/use-now.ts";
 import {
-  useDialogFocus,
+  firstFocusable,
   VisualTabPanel,
   VisualTabStrip,
   type VisualTabItem,
@@ -100,7 +100,6 @@ export function VisualWorkspace({
 }) {
   const client = useCorralClient();
   const connection = useConnection();
-  const dialogFocus = useDialogFocus();
   const { config, profiles, loaded: configLoaded, problems: configProblems } = useConfig();
   const { appearance } = useAppearance();
   // Labels tick every 30 s; a wake also lands exactly, so a snoozed row returns on time.
@@ -169,6 +168,11 @@ export function VisualWorkspace({
     undefined,
   );
   const listFocus = useRef<VisualRowFocus | null>(null);
+  // Overlay openers are read at invocation: a status notice can disappear while its dialog is open.
+  const connectionOpener = useRef<HTMLElement | null>(null);
+  const configOpener = useRef<HTMLElement | null>(null);
+  // A finder choice hands the keyboard to the new pane; a cancel returns to the shell.
+  const findChosen = useRef(false);
 
   const removeRead = useRef<AbortController | undefined>(undefined);
   const removeSucceeded = useRef(false);
@@ -861,19 +865,34 @@ export function VisualWorkspace({
         status={{
           connection,
           onOpenConnection: (opener) => {
-            dialogFocus?.remember(opener);
+            connectionOpener.current = opener;
             setConnectionOpen(true);
           },
           onRetryConnection: () => client.recover(),
           onOpenConfigProblems: (opener) => {
-            dialogFocus?.remember(opener);
+            configOpener.current = opener ?? null;
             setConfigProblemsOpen(true);
           },
         }}
       />
       {taskWorkspace.dialogs}
       {finding && (
-        <FindTaskDialog rows={listedRows} onOpen={selectTask} onClose={() => setFinding(false)} />
+        <FindTaskDialog
+          rows={listedRows}
+          onOpen={(id) => {
+            findChosen.current = true;
+            selectTask(id);
+          }}
+          // A chosen task's pane owns the keyboard; a cancel returns to the shell's current row
+          // or tab, because the search control is not a live target after the dialog closes.
+          finalFocus={() =>
+            findChosen.current ? false : (listFocus.current?.fallbackElement() ?? false)
+          }
+          onClose={() => {
+            findChosen.current = false;
+            setFinding(false);
+          }}
+        />
       )}
       {addingProject && (
         <AddProjectDialog
@@ -916,12 +935,16 @@ export function VisualWorkspace({
               : undefined
           }
           finalFocus={() => {
+            const fallback = listFocus.current?.fallbackElement();
             if (!removeSucceeded.current)
-              return listFocus.current?.rowElement(remove.task.id) ?? null;
+              return firstFocusable(listFocus.current?.rowElement(remove.task.id), fallback);
             // A removal that was not current must not move the keyboard off the current row.
             const id =
               removeCurrent.current === remove.task.id ? removeNext.current : removeCurrent.current;
-            return id === undefined ? null : (listFocus.current?.rowElement(id) ?? null);
+            return firstFocusable(
+              id === undefined ? null : listFocus.current?.rowElement(id),
+              fallback,
+            );
           }}
           onRemove={(force) => removeTask(remove.task, force)}
           onClose={closeRemove}
@@ -931,12 +954,24 @@ export function VisualWorkspace({
         <TaskSourceDialog
           source={source.source}
           taskTitle={source.title}
+          finalFocus={() =>
+            firstFocusable(
+              listFocus.current?.rowElement(source.id),
+              listFocus.current?.fallbackElement(),
+            ) ?? false
+          }
           onClose={() => setSource(undefined)}
         />
       )}
       {snooze !== undefined && (
         <SnoozeDialog
           taskTitle={snooze.title}
+          finalFocus={() =>
+            firstFocusable(
+              listFocus.current?.rowElement(snooze.id),
+              listFocus.current?.fallbackElement(),
+            ) ?? false
+          }
           onSnooze={async (snoozedUntil) => {
             // Through the shell handle, not the action: the dialog gets the same selection handoff
             // as the row menu, and the answer's sentence for a refusal.
@@ -947,8 +982,22 @@ export function VisualWorkspace({
           onClose={() => setSnooze(undefined)}
         />
       )}
-      {connectionOpen && <ConnectionRecoveryDialog onClose={() => setConnectionOpen(false)} />}
-      {configProblemsOpen && <ConfigProblemsDialog onClose={() => setConfigProblemsOpen(false)} />}
+      {connectionOpen && (
+        <ConnectionRecoveryDialog
+          finalFocus={() =>
+            firstFocusable(connectionOpener.current, listFocus.current?.fallbackElement()) ?? false
+          }
+          onClose={() => setConnectionOpen(false)}
+        />
+      )}
+      {configProblemsOpen && (
+        <ConfigProblemsDialog
+          finalFocus={() =>
+            firstFocusable(configOpener.current, listFocus.current?.fallbackElement()) ?? false
+          }
+          onClose={() => setConfigProblemsOpen(false)}
+        />
+      )}
     </>
   );
 }

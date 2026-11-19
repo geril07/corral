@@ -9,7 +9,8 @@ import { Button } from "./button.tsx";
 import { Hint } from "./hint.tsx";
 import { Icon } from "./icon.tsx";
 import { Kbd } from "./kbd.tsx";
-import { FormError, TaskDialog, useTaskFinalFocus } from "./task-dialog.tsx";
+import { focusable } from "./focus-return.ts";
+import { FormError, TaskDialog } from "./task-dialog.tsx";
 import { Dialog, DialogContent, DialogTitle } from "./dialog.tsx";
 import { useTruncatedText } from "./truncated-text.tsx";
 
@@ -102,12 +103,29 @@ export interface ModelPickerProps {
   onClose: () => void;
 }
 
+/** The composer field that owns the picker's button, without searching the whole document. */
+function composerNear(anchor: HTMLElement | null): HTMLElement | null {
+  for (let node = anchor?.parentElement ?? null; node !== null; node = node.parentElement) {
+    const field = node.querySelector<HTMLElement>(
+      'textarea[aria-label="Message"], textarea[aria-label="Prompt"]',
+    );
+    if (field !== null) return field;
+  }
+  return null;
+}
+
 /** One modal regardless of whether the opener has an anchor. */
 export function ModelPicker({ title, anchor, onClose, ...props }: ModelPickerProps) {
   const search = useRef<HTMLInputElement>(null);
   const instance = useRef<HTMLDivElement>(null);
   const thinking = useRef<HTMLButtonElement>(null);
-  const defaultFinalFocus = useTaskFinalFocus(props.restoreFocus === "composer");
+  // The control that had the keyboard before the picker took it. Read once, at the open: the
+  // anchor below is the picker's own button, and a chord-opened picker has only this fallback.
+  const opener = useRef<HTMLElement | null>(
+    document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+      ? document.activeElement
+      : null,
+  );
   const [query, setQuery] = useState("");
   return (
     <Dialog
@@ -125,7 +143,11 @@ export function ModelPicker({ title, anchor, onClose, ...props }: ModelPickerPro
         }
         finalFocus={
           props.finalFocus ??
-          (props.restoreFocus === "anchor" && anchor ? anchor : defaultFinalFocus)
+          (() =>
+            props.restoreFocus === "composer"
+              ? (focusable(composerNear(anchor?.current ?? opener.current)) ??
+                focusable(opener.current))
+              : (focusable(anchor?.current) ?? focusable(opener.current)))
         }
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>

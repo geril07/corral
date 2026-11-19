@@ -19,73 +19,10 @@ import {
   createContext,
   useCallback,
   useContext,
-  useMemo,
-  useRef,
   useState,
   type ComponentProps,
   type ReactNode,
 } from "react";
-
-const FINAL_FOCUS_SELECTOR =
-  'textarea[aria-label="Message"], textarea[aria-label="Prompt"], .terminal-host .xterm-helper-textarea';
-
-/** The selected view's input: the chat or task composer, else the terminal. */
-export function workspaceInput(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(FINAL_FOCUS_SELECTOR);
-}
-
-/** The focused element if it still means something, else the terminal. */
-function currentOpener(): HTMLElement | null {
-  const active = document.activeElement;
-  if (active instanceof HTMLElement && active !== document.body && active.isConnected)
-    return active;
-  return workspaceInput();
-}
-
-interface DialogFocus {
-  remember: (opener?: HTMLElement | null) => void;
-  target: () => HTMLElement | null;
-}
-
-const DialogFocusContext = createContext<DialogFocus | undefined>(undefined);
-
-/**
- * Remembers what had the keyboard before a dialog or the sidebar list took it. Keyboard flows
- * remember the terminal; a pointer flow can pass the button it started from.
- */
-export function DialogFocusProvider({ children }: { children: ReactNode }) {
-  const target = useRef<HTMLElement | null>(null);
-  const value = useMemo<DialogFocus>(
-    () => ({
-      remember: (opener) => {
-        target.current = opener ?? currentOpener();
-      },
-      target: () => target.current,
-    }),
-    [],
-  );
-  return <DialogFocusContext value={value}>{children}</DialogFocusContext>;
-}
-
-export function useDialogFocus(): DialogFocus | undefined {
-  return useContext(DialogFocusContext);
-}
-
-/** Returns where the keyboard should go when this dialog closes. */
-function finalFocusTarget(remembered: HTMLElement | null, fallback: HTMLElement | null) {
-  if (remembered?.isConnected) return remembered;
-  if (fallback?.isConnected) return fallback;
-  return workspaceInput();
-}
-
-/** One focus-return policy for route dialogs and anchored pickers. */
-export function useTaskFinalFocus(preferComposer = false) {
-  const focus = useDialogFocus();
-  const fallback = useRef(currentOpener());
-  return () =>
-    (preferComposer ? workspaceInput() : null) ??
-    finalFocusTarget(focus?.target() ?? null, fallback.current);
-}
 
 export interface DialogProps {
   title: string;
@@ -111,9 +48,12 @@ export function TaskCommandDialog({
   title,
   description,
   onClose,
+  finalFocus,
   children,
-}: Omit<DialogProps, "description"> & { description?: string }) {
-  const finalFocus = useTaskFinalFocus();
+}: Omit<DialogProps, "description"> & {
+  description?: string;
+  finalFocus?: DialogFinalFocus;
+}) {
   const [open, setOpen] = useState(true);
   const close = useCallback(() => setOpen(false), []);
   return (
@@ -146,15 +86,14 @@ export function TaskDialog({
   layout?: "default" | "settings" | "picker" | "path-picker";
   /** Overrides where the keyboard starts, for a dialog that opens on a named control. */
   initialFocus?: DialogInitialFocus;
-  /** Overrides the remembered opener, for a dialog opened from another dialog. */
+  /** Where the keyboard returns; the caller names the row, tab or control that is still live. */
   finalFocus?: DialogFinalFocus;
   /** Overrides the close control's accessible name. */
   closeLabel?: string;
   /** A close request that may be refused (e.g. an unsaved draft); `false` keeps the dialog open. */
   beforeClose?: (() => boolean) | undefined;
 }) {
-  const defaultFinalFocus = useTaskFinalFocus();
-  const finalFocus = explicitFinalFocus ?? defaultFinalFocus;
+  const finalFocus = explicitFinalFocus;
   const [open, setOpen] = useState(true);
   const close = useCallback(() => setOpen(false), []);
   return (
@@ -211,8 +150,7 @@ export function DestructiveTaskDialog({
   /** A close request that may be refused, e.g. while a destructive write is in flight. */
   beforeClose?: (() => boolean) | undefined;
 }) {
-  const defaultFinalFocus = useTaskFinalFocus();
-  const finalFocus = explicitFinalFocus ?? defaultFinalFocus;
+  const finalFocus = explicitFinalFocus;
   const [open, setOpen] = useState(true);
   const close = useCallback(() => setOpen(false), []);
   return (

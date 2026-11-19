@@ -4,7 +4,7 @@ import {
   localSnoozeTime,
   type CustomSnoozeInput,
 } from "@corral/client/snooze";
-import { useState, type FormEvent } from "react";
+import { useState, type ComponentProps, type FormEvent } from "react";
 import {
   Button,
   DialogActions,
@@ -23,6 +23,8 @@ interface SnoozeDialogProps {
   taskTitle: string;
   /** Resolves to `null` once the server stored the wake time, else the sentence to show. */
   onSnooze: (snoozedUntil: number) => Promise<string | null>;
+  /** The row that opened the dialog; the caller names the live element. */
+  finalFocus?: ComponentProps<typeof TaskDialog>["finalFocus"];
   onClose: () => void;
 }
 
@@ -31,7 +33,7 @@ interface SnoozeDialogProps {
  * resolve through `customSnoozeUntil`, so the rule for "a future time, at most 30 days out" is one
  * definition, and a refusal stays in the dialog with the server's own sentence.
  */
-export function SnoozeDialog({ taskTitle, onSnooze, onClose }: SnoozeDialogProps) {
+export function SnoozeDialog({ taskTitle, onSnooze, finalFocus, onClose }: SnoozeDialogProps) {
   // The reference opens on a real time: now plus an hour, not an empty picker.
   const [initial] = useState(() => new Date(Date.now() + HOUR_MS));
   // The native picker refuses past days; a dialog left open past midnight is still caught on submit.
@@ -73,6 +75,7 @@ export function SnoozeDialog({ taskTitle, onSnooze, onClose }: SnoozeDialogProps
     <TaskDialog
       title={`Snooze "${taskTitle}"`}
       description="Choose when this task returns to the active list."
+      finalFocus={finalFocus}
       beforeClose={() => !pending}
       onClose={onClose}
     >

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ComponentProps } from "react";
 import {
   PickerAutocomplete,
   TaskDialog,
@@ -11,6 +11,8 @@ export interface FindTaskDialogProps {
   /** The sidebar's rows, active first: the finder searches what the client already watches. */
   rows: readonly VisualTaskRow[];
   onOpen: (id: string) => void;
+  /** The opener when the finder is cancelled; choosing a task lets its pane take the keyboard. */
+  finalFocus?: ComponentProps<typeof TaskDialog>["finalFocus"];
   onClose: () => void;
 }
 
@@ -19,7 +21,7 @@ export interface FindTaskDialogProps {
  * rows the sidebar shows, so a settled row opens as it is and starting work in it is what makes it
  * active (#277). Every visible fact (title, project, branch, state) finds its task, locally.
  */
-export function FindTaskDialog({ rows, onOpen, onClose }: FindTaskDialogProps) {
+export function FindTaskDialog({ rows, onOpen, finalFocus, onClose }: FindTaskDialogProps) {
   const [query, setQuery] = useState("");
   const results = useMemo(() => searchTasks(query, rows), [query, rows]);
 
@@ -29,7 +31,13 @@ export function FindTaskDialog({ rows, onOpen, onClose }: FindTaskDialogProps) {
   };
 
   return (
-    <TaskDialog title="Find task" layout="path-picker" showCloseButton={false} onClose={onClose}>
+    <TaskDialog
+      title="Find task"
+      layout="path-picker"
+      showCloseButton={false}
+      finalFocus={finalFocus}
+      onClose={onClose}
+    >
       <PickerAutocomplete
         label="Tasks"
         inputLabel="Search tasks"

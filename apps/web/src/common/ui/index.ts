@@ -26,13 +26,10 @@ export {
   TaskCommandDialog,
   DestructiveTaskDialog,
   DialogActions,
-  DialogFocusProvider,
   FormError,
-  useDialogFocus,
   useTaskDialogClose,
-  useTaskFinalFocus,
-  workspaceInput,
 } from "./task-dialog.tsx";
+export { firstFocusable, focusable } from "./focus-return.ts";
 export { FieldSet, FieldLegend } from "./field.tsx";
 export { FormField, RadioChoice } from "./form-field.tsx";
 export { Hint } from "./hint.tsx";

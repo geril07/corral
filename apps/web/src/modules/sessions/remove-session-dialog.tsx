@@ -1,5 +1,6 @@
 import { describeError } from "@corral/client/rpc-errors";
 import type { Session } from "@corral/protocol/rpc";
+import type { ComponentProps } from "react";
 import { useAttempt } from "../../common/hooks/use-attempt.ts";
 import { Button, DestructiveTaskDialog, DialogActions, FormError } from "../../common/ui/index.ts";
 
@@ -7,10 +8,17 @@ interface RemoveSessionDialogProps {
   session: Session;
   /** Resolves once the session is removed; a rejection is shown in the dialog. */
   onRemove: () => Promise<void>;
+  /** The tab that opened the dialog; the caller names the live element. */
+  finalFocus?: ComponentProps<typeof DestructiveTaskDialog>["finalFocus"];
   onClose: () => void;
 }
 
-export function RemoveSessionDialog({ session, onRemove, onClose }: RemoveSessionDialogProps) {
+export function RemoveSessionDialog({
+  session,
+  onRemove,
+  finalFocus,
+  onClose,
+}: RemoveSessionDialogProps) {
   const attempt = useAttempt();
   const agent = session.kind !== "shell";
 
@@ -22,6 +30,7 @@ export function RemoveSessionDialog({ session, onRemove, onClose }: RemoveSessio
           ? "Stops it if it runs and forgets it. The agent's own conversation history is left alone."
           : "Stops it if it runs and forgets it."
       }
+      finalFocus={finalFocus}
       onClose={onClose}
     >
       {attempt.failed && <FormError>{describeError(attempt.error)}</FormError>}

@@ -1,5 +1,6 @@
 import { describeError } from "@corral/client/rpc-errors";
 import type { Session, SessionView } from "@corral/protocol/rpc";
+import type { ComponentProps } from "react";
 import { useAttempt } from "../../common/hooks/use-attempt.ts";
 import { Button, DestructiveTaskDialog, DialogActions, FormError } from "../../common/ui/index.ts";
 import { describeLaunchError } from "./launch-error.ts";
@@ -14,6 +15,8 @@ interface SwitchViewDialogProps {
   waiting: boolean;
   /** Resolves once the session runs in the target view; a rejection stays in the dialog. */
   onSwitch: () => Promise<void>;
+  /** The tab that opened the dialog; the caller names the live element. */
+  finalFocus?: ComponentProps<typeof DestructiveTaskDialog>["finalFocus"];
   onClose: () => void;
 }
 
@@ -29,6 +32,7 @@ export function SwitchViewDialog({
   working,
   waiting,
   onSwitch,
+  finalFocus,
   onClose,
 }: SwitchViewDialogProps) {
   const attempt = useAttempt();
@@ -48,6 +52,7 @@ export function SwitchViewDialog({
     <DestructiveTaskDialog
       title={`Switch the ${session.kind} session to ${target}?`}
       description={losing}
+      finalFocus={finalFocus}
       onClose={onClose}
     >
       {attempt.failed && (

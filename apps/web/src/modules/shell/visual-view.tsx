@@ -26,7 +26,6 @@ import {
   Icon,
   TooltipProvider,
   toast,
-  useDialogFocus,
   VisualIconButton,
   VisualResizeHandle,
   VisualSearchAction,
@@ -678,7 +677,7 @@ export function VisualShellView({
   const pane = useVisualSidebarPane();
   const shelf = useSettledShelf();
   const snoozedShelf = useSnoozedShelf();
-  const dialogFocus = useDialogFocus();
+  const paletteOpener = useRef<HTMLElement | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // The selection may name a snoozed or settled task: both shelves are part of the one list, so a
   // hidden row is found before the fallback to the first active one.
@@ -1151,11 +1150,13 @@ export function VisualShellView({
     });
   }, [hidden, toggle]);
   const openPalette = useCallback(() => {
-    // The palette's own close must return to what had the keyboard when it opened, not to a
-    // target an earlier overlay left in the shared provider.
-    dialogFocus?.remember();
+    // The palette closes back to what had the keyboard when its chord ran. The element is read
+    // at invocation, not at mount: the chord can arrive from the terminal or from Settings.
+    const active = document.activeElement;
+    paletteOpener.current =
+      active instanceof HTMLElement && active !== document.body ? active : null;
     setPaletteOpen(true);
-  }, [dialogFocus]);
+  }, []);
   /** The one dispatch: chords, palette rows and mirrored controls all reach their action here. */
   const dispatch = useCallback(
     (action: string) => {
@@ -1605,6 +1606,7 @@ export function VisualShellView({
       {paletteOpen && (
         <CommandPaletteDialog
           actions={actions}
+          finalFocus={() => paletteOpener.current}
           onClose={(action) => {
             setPaletteOpen(false);
             if (action !== undefined) runAction(action);

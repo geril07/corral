@@ -1,13 +1,17 @@
 import type { IssueProvider, TaskSource } from "@corral/protocol/rpc";
+import type { ComponentProps } from "react";
 import { Button, Item, TextLink, TaskDialog, DialogActions } from "../../common/ui/index.ts";
 
 export function TaskSourceDialog({
   source,
   taskTitle,
+  finalFocus,
   onClose,
 }: {
   source: TaskSource;
   taskTitle: string;
+  /** The row that opened the dialog; the caller names the live element. */
+  finalFocus?: ComponentProps<typeof TaskDialog>["finalFocus"];
   onClose: () => void;
 }) {
   const href = externalUrl(source.url);
@@ -15,6 +19,7 @@ export function TaskSourceDialog({
     <TaskDialog
       title="Issue source"
       description={`${providerName(source.provider)} ${source.repository} #${source.number}`}
+      finalFocus={finalFocus}
       onClose={onClose}
       showCloseButton={false}
     >

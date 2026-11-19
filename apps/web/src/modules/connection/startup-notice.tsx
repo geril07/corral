@@ -1,7 +1,7 @@
 import { CAPABILITY_HASH_PARAM, type ServerTargetFailure } from "@corral/client/bootstrap";
 import type { ConnectionState } from "@corral/client/connection-state";
 import { isCapabilityToken, PROTOCOL_VERSION } from "@corral/protocol/handshake";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentProps } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
 import { Button, ContentLane, FormField, Input, TaskDialog } from "../../common/ui/index.ts";
 import { useCorralClient, useConnection } from "./client-context.tsx";
@@ -361,7 +361,14 @@ const RECOVERY_PROBLEM = (connection: ConnectionState, serverUrl: string): Notic
 };
 
 /** The same capability field as a dialog over a running workspace. */
-export function ConnectionRecoveryDialog({ onClose }: { onClose: () => void }) {
+export function ConnectionRecoveryDialog({
+  finalFocus,
+  onClose,
+}: {
+  /** The banner control that opened the dialog, or the shell's fallback once it is gone. */
+  finalFocus?: ComponentProps<typeof TaskDialog>["finalFocus"];
+  onClose: () => void;
+}) {
   const client = useCorralClient();
   const connection = useConnection();
   const now = useNow(1000);
@@ -373,7 +380,12 @@ export function ConnectionRecoveryDialog({ onClose }: { onClose: () => void }) {
   const content = describeProblem(problem, host, now);
   const retry = host === "desktop" || problem.kind === "unreachable";
   return (
-    <TaskDialog title={content.heading} description={content.cause} onClose={onClose}>
+    <TaskDialog
+      title={content.heading}
+      description={content.cause}
+      finalFocus={finalFocus}
+      onClose={onClose}
+    >
       <div className="flex flex-col gap-4">
         {content.status !== undefined && (
           <p className="visual-card-text" role="status">

@@ -28,6 +28,7 @@ import {
 } from "react";
 import {
   DropdownMenuItem,
+  firstFocusable,
   VisualAddMenu,
   VisualIconButton,
   VisualTabPanel,
@@ -112,19 +113,22 @@ function viewOffer(
   };
 }
 
+type DialogOrigin = "menu" | "key";
+
 type DialogState =
   | { kind: "pick-agent"; group: TaskTabGroup }
-  | { kind: "remove-session"; session: Session }
+  | { kind: "remove-session"; session: Session; origin: DialogOrigin }
   | {
       kind: "switch-view";
       session: Session;
       target: SessionView;
       working: boolean;
       waiting: boolean;
+      origin: DialogOrigin;
     }
   | { kind: "chat-model"; session: Session }
   | { kind: "chat-reasoning"; session: Session }
-  | { kind: "rename"; target: RenameTarget };
+  | { kind: "rename"; target: RenameTarget; origin: DialogOrigin };
 
 interface PendingSessionTab {
   session: Session;
@@ -140,6 +144,20 @@ export interface TaskWorkspaceController {
   prefixEnabled: boolean;
   /** What the palette and a refused chord say about the actions this controller dispatches. */
   actionAvailability: Readonly<Partial<Record<ActionId, ActionAvailability>>>;
+}
+
+/** The group's selected tab, then its add control: a live place when the opener is gone. */
+function groupFallback(group: TaskTabGroup): HTMLElement | null {
+  const node = document.querySelector<HTMLElement>(
+    group === "companion"
+      ? ".visual-workspace-group-companion"
+      : ".visual-workspace-group:not(.visual-workspace-group-companion)",
+  );
+  return (
+    node?.querySelector<HTMLElement>('[data-tab-id][aria-selected="true"]') ??
+    node?.querySelector<HTMLElement>('[aria-label="Add session"]') ??
+    null
+  );
 }
 
 /** The task's sessions, its device-local layout and every pane the working area mounts. */
@@ -623,7 +641,7 @@ export function useTaskWorkspace({
   );
 
   const switchSession = useCallback(
-    async (session: Session) => {
+    async (session: Session, origin: DialogOrigin = "key") => {
       const offer = viewOffer(session, drivers, capabilitiesReady);
       if ("reason" in offer) {
         setFailure(offer.reason);
@@ -657,6 +675,7 @@ export function useTaskWorkspace({
           target: offer.target,
           working: unknownChat ? false : working,
           waiting: unknownChat ? false : waiting,
+          origin,
         });
         return;
       }
@@ -827,7 +846,7 @@ export function useTaskWorkspace({
       else if (action === "change-model") openModelPicker(focusedSession);
       else if (action === "change-reasoning") openReasoningPicker(focusedSession);
       else if (action === "remove-session" && focusedSession !== undefined)
-        setDialog({ kind: "remove-session", session: focusedSession });
+        setDialog({ kind: "remove-session", session: focusedSession, origin: "key" });
       else if (action === "rename-session" && focusedSession !== undefined)
         setDialog({
           kind: "rename",
@@ -837,6 +856,7 @@ export function useTaskWorkspace({
             name: labels.get(focusedSession.id) ?? focusedSession.kind,
             value: focusedSession.label ?? "",
           },
+          origin: "key",
         });
       else if (action.startsWith("session-")) {
         const number = Number(action.slice("session-".length));
@@ -994,7 +1014,7 @@ export function useTaskWorkspace({
                 <DropdownMenuItem
                   disabled={"reason" in offer}
                   title={"reason" in offer ? offer.reason : undefined}
-                  onClick={() => void switchSession(session)}
+                  onClick={() => void switchSession(session, "menu")}
                 >
                   {viewLabel}
                 </DropdownMenuItem>
@@ -1008,6 +1028,7 @@ export function useTaskWorkspace({
                         name: label,
                         value: session.label ?? "",
                       },
+                      origin: "menu",
                     })
                   }
                 >
@@ -1035,7 +1056,7 @@ export function useTaskWorkspace({
                 )}
                 <DropdownMenuItem
                   variant="destructive"
-                  onClick={() => setDialog({ kind: "remove-session", session })}
+                  onClick={() => setDialog({ kind: "remove-session", session, origin: "menu" })}
                 >
                   Remove session…
                 </DropdownMenuItem>
@@ -1251,6 +1272,30 @@ export function useTaskWorkspace({
     );
   };
 
+  // A menu-opened dialog returns to its tab; a keyboard-opened one lets Base UI return to the
+  // pane that had the keyboard, which is where a chord leaves it.
+  const tabFocus = (sessionId: string): HTMLElement | null => {
+    const tab = layout?.tabs.find(
+      (candidate) => candidate.kind === "session" && candidate.sessionId === sessionId,
+    );
+    const group = tab?.group ?? focusGroup;
+    return (
+      document.querySelector<HTMLElement>(
+        `[data-tab-id="${CSS.escape(`session:${sessionId}`)}"]`,
+      ) ?? groupFallback(group)
+    );
+  };
+  const targetFocus = (target: RenameTarget): HTMLElement | null => {
+    if (target.type === "session") return tabFocus(target.id);
+    if (target.type === "terminal")
+      return (
+        document.querySelector<HTMLElement>(
+          `[data-tab-id="${CSS.escape(`terminal:${target.id}`)}"]`,
+        ) ?? groupFallback(focusGroup)
+      );
+    return null;
+  };
+
   const dialogs =
     task === undefined ? null : (
       <>
@@ -1272,6 +1317,11 @@ export function useTaskWorkspace({
         {dialog?.kind === "remove-session" && (
           <RemoveSessionDialog
             session={dialog.session}
+            finalFocus={
+              dialog.origin === "menu"
+                ? () => firstFocusable(tabFocus(dialog.session.id)) ?? false
+                : undefined
+            }
             onRemove={() => remove(dialog.session)}
             onClose={() => setDialog(undefined)}
           />
@@ -1282,6 +1332,11 @@ export function useTaskWorkspace({
             target={dialog.target}
             working={dialog.working}
             waiting={dialog.waiting}
+            finalFocus={
+              dialog.origin === "menu"
+                ? () => firstFocusable(tabFocus(dialog.session.id)) ?? false
+                : undefined
+            }
             onSwitch={() => setView(dialog.session, dialog.target)}
             onClose={() => setDialog(undefined)}
           />
@@ -1331,6 +1386,11 @@ export function useTaskWorkspace({
         {dialog?.kind === "rename" && (
           <RenameDialog
             target={dialog.target}
+            finalFocus={
+              dialog.origin === "menu"
+                ? () => firstFocusable(targetFocus(dialog.target)) ?? false
+                : undefined
+            }
             onSave={(name) => {
               setDialog(undefined);
               setFailure(undefined);

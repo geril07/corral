@@ -1,5 +1,5 @@
 import { Label, MAX_LABEL_LENGTH } from "@corral/protocol/label";
-import type { FormEvent } from "react";
+import type { ComponentProps, FormEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   Button,
@@ -24,6 +24,8 @@ interface RenameDialogProps {
   target: RenameTarget;
   /** Starts the save; the dialog closes at once, and a refusal is the workspace's notice. */
   onSave: (name: string | null) => void;
+  /** The row or tab that opened the dialog; the caller names the live element. */
+  finalFocus?: ComponentProps<typeof TaskDialog>["finalFocus"];
   onClose: () => void;
 }
 
@@ -36,7 +38,7 @@ const HELP: Readonly<Record<RenameTarget["type"], string>> = {
 };
 
 /** Enter saves, Escape cancels; an empty name gives an entry its natural one back, a task needs one. */
-export function RenameDialog({ target, onSave, onClose }: RenameDialogProps) {
+export function RenameDialog({ target, onSave, finalFocus, onClose }: RenameDialogProps) {
   const input = useRef<HTMLInputElement>(null);
   const [problem, setProblem] = useState<string>();
   const renamesTask = target.type === "task";
@@ -68,7 +70,12 @@ export function RenameDialog({ target, onSave, onClose }: RenameDialogProps) {
   };
 
   return (
-    <TaskDialog title={`Rename ${target.name}`} description={HELP[target.type]} onClose={onClose}>
+    <TaskDialog
+      title={`Rename ${target.name}`}
+      description={HELP[target.type]}
+      finalFocus={finalFocus}
+      onClose={onClose}
+    >
       <form className="grid gap-4" onSubmit={save}>
         <FormField label={renamesTask ? "Title" : "Name"}>
           <Input ref={input} defaultValue={target.value} />

@@ -1,5 +1,5 @@
 import { ActionId } from "@corral/protocol/config";
-import { useRef } from "react";
+import { useRef, type ComponentProps } from "react";
 import {
   Command,
   CommandInput,
@@ -18,6 +18,7 @@ interface CommandPaletteDialogProps {
   actions: ActionTable;
   /** The chosen action, after the palette has closed and returned its opener's focus. */
   onClose: (action?: ActionId) => void;
+  finalFocus?: ComponentProps<typeof TaskCommandDialog>["finalFocus"];
 }
 
 /**
@@ -25,10 +26,14 @@ interface CommandPaletteDialogProps {
  * closes through the dialog's own exit, so the overlay's final-focus contract runs before the
  * destination surface takes the keyboard.
  */
-export function CommandPaletteDialog({ actions, onClose }: CommandPaletteDialogProps) {
+export function CommandPaletteDialog({ actions, onClose, finalFocus }: CommandPaletteDialogProps) {
   const chosen = useRef<ActionId | undefined>(undefined);
   return (
-    <TaskCommandDialog title="Command palette" onClose={() => onClose(chosen.current)}>
+    <TaskCommandDialog
+      title="Command palette"
+      finalFocus={finalFocus}
+      onClose={() => onClose(chosen.current)}
+    >
       <PaletteCommands
         actions={actions}
         onChoose={(action) => {

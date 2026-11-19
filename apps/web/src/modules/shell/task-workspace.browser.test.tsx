@@ -673,6 +673,20 @@ test("the layout stored for this task and device is restored on open", async () 
     .element(companionTabs().getByRole("tab", { name: /^shell/ }))
     .toHaveAttribute("aria-selected", "true");
   await expect.element(sessionTab(/^pi/)).toHaveAttribute("aria-selected", "true");
+  // A dialog opened from a companion tab returns there, not to the main group's composer.
+  await companionTabs()
+    .getByRole("tab", { name: /^shell/ })
+    .click({ button: "right" });
+  await page
+    .getByRole("menu", { name: "Session actions for shell" })
+    .getByRole("menuitem", { name: "Rename…" })
+    .click();
+  await expect.element(page.getByRole("dialog", { name: /Rename/ })).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+  await expect
+    .poll(() => document.activeElement?.getAttribute("data-tab-id"))
+    .toBe(`session:${seeded.shell.id}`);
   // A different task on this device still starts from its default layout.
   expect(window.localStorage.getItem("corral.task-tabs.other")).toBeNull();
 });

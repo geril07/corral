@@ -1,4 +1,5 @@
 import type { ConfigProblem } from "@corral/protocol/config";
+import type { ComponentProps } from "react";
 import { TaskDialog, IconButton } from "../../common/ui/index.ts";
 import { useConfig } from "./config-context.tsx";
 
@@ -20,12 +21,20 @@ export function ConfigProblemsNotice({ onOpen }: { onOpen: (opener?: HTMLElement
 }
 
 /** Each rejected entry with the file it came from; the rest of the file still applies. */
-export function ConfigProblemsDialog({ onClose }: { onClose: () => void }) {
+export function ConfigProblemsDialog({
+  finalFocus,
+  onClose,
+}: {
+  /** The footer notice that opened the dialog, or the shell's fallback once it is gone. */
+  finalFocus?: ComponentProps<typeof TaskDialog>["finalFocus"];
+  onClose: () => void;
+}) {
   const { path, problems } = useConfig();
   return (
     <TaskDialog
       title="Config problems"
       description="The valid entries still apply; fix the file and save."
+      finalFocus={finalFocus}
       onClose={onClose}
     >
       <p className="mb-3 break-all font-mono text-xs text-muted-foreground">{path}</p>
