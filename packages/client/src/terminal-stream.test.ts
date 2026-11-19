@@ -19,6 +19,36 @@ test("attaching shows what the terminal printed before, and typing round-trips",
   await eventually(() => expect(terminal.screen).toContain("got:héllo"));
 });
 
+test("a closed stream no longer resets or resizes the surface it was given", async () => {
+  const client = await server.connected();
+  const info = await server.createTerminal(client, sh(`echo ready; read x`));
+
+  // Stands in for xterm's write buffer: xterm runs a queued callback from a timer that `dispose()`
+  // does not cancel, after the terminal pane has closed this stream and disposed its terminal.
+  const calls: string[] = [];
+  const queued: (() => void)[] = [];
+  const surface = {
+    write(data: string | Uint8Array, callback?: () => void) {
+      calls.push(typeof data === "string" ? `text:${data.length}` : "bytes");
+      if (callback) queued.push(callback);
+    },
+    reset: () => calls.push("reset"),
+    resize: () => calls.push("resize"),
+  };
+  const stream = client.attach(info.id, surface, { onSnapshot: () => calls.push("snapshot") });
+
+  // The snapshot is two writes: one that clears what is queued and one that replays the screen.
+  await eventually(() => {
+    const texts = calls.filter((call) => call.startsWith("text:"));
+    if (texts.length < 2 || texts.every((call) => call === "text:0"))
+      throw new Error("the snapshot has not been written yet");
+  });
+  stream.close();
+  for (const callback of queued.splice(0)) callback();
+
+  expect(calls.filter((call) => !call.startsWith("text:") && call !== "bytes")).toEqual([]);
+});
+
 test("input typed before the socket has opened is not lost", async () => {
   const client = await server.connected();
   const info = await server.createTerminal(

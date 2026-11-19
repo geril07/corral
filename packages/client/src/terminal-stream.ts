@@ -63,6 +63,13 @@ export class TerminalStream {
   #earlyInput: Uint8Array<ArrayBuffer>[] | undefined = [];
   /** Set once the current socket has delivered its first snapshot. */
   #attached: WebSocket | undefined;
+  /**
+   * Set by `close()`: a surface the caller is about to dispose gets no further calls. xterm runs a
+   * write callback from a timer that `dispose()` does not cancel, and the terminal pane closes this
+   * stream immediately before disposing its terminal: a reset or resize then would reach a terminal
+   * whose renderer is gone and throw on the next animation frame.
+   */
+  #closed = false;
   #desiredSize: TerminalSize | undefined;
   #lastSentSize: TerminalSize | undefined;
   #serverSize: TerminalSize | undefined;
@@ -123,6 +130,7 @@ export class TerminalStream {
   }
 
   close(): void {
+    this.#closed = true;
     this.#connection.close();
     this.#open = undefined;
     this.#earlyInput = undefined;
@@ -143,6 +151,7 @@ export class TerminalStream {
   }
 
   #onMessage(socket: WebSocket, event: MessageEvent): void {
+    if (this.#closed) return;
     if (typeof event.data === "string") {
       const message = parseServerMessage(event.data);
       if (message) this.#onControl(socket, message);
@@ -161,10 +170,14 @@ export class TerminalStream {
         // In write order, so output still queued is parsed before the screen is replaced. The
         // callback runs after the replay, when a fit would no longer be overwritten by it.
         this.#surface.write("", () => {
+          if (this.#closed) return;
           this.#surface.reset();
           this.#surface.resize(size.cols, size.rows);
         });
-        this.#surface.write(data, () => this.#options.onSnapshot?.());
+        this.#surface.write(data, () => {
+          if (this.#closed) return;
+          this.#options.onSnapshot?.();
+        });
         if (this.#attached !== socket) {
           this.#attached = socket;
           this.#sendDesiredSize();
@@ -174,7 +187,10 @@ export class TerminalStream {
       case "resized":
         this.#serverSize = message.size;
         this.#lastSentSize = undefined;
-        this.#surface.write("", () => this.#surface.resize(message.size.cols, message.size.rows));
+        this.#surface.write("", () => {
+          if (this.#closed) return;
+          this.#surface.resize(message.size.cols, message.size.rows);
+        });
         break;
       case "exit":
         this.#state.set({ status: "exited", exit: message.exit });
