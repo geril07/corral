@@ -1,7 +1,8 @@
 import type { ConnectionState } from "@corral/client/connection-state";
 import { createDirectKeymap, createPrefixKeymap } from "@corral/client/prefix-keymap";
 import { resolveSnoozeChoices } from "@corral/client/snooze";
-import { DirectActionId, type SnoozePreset } from "@corral/protocol/config";
+import { stepActive } from "@corral/client/terminal-selection";
+import { ActionId, DirectActionId, type SnoozePreset } from "@corral/protocol/config";
 import {
   useCallback,
   useEffect,
@@ -25,6 +26,7 @@ import {
   Icon,
   TooltipProvider,
   toast,
+  useDialogFocus,
   VisualIconButton,
   VisualResizeHandle,
   VisualSearchAction,
@@ -36,7 +38,18 @@ import {
   type VisualTaskRow,
 } from "../../common/ui/index.ts";
 import { ConnectionBanner } from "../connection/index.ts";
-import { modifierPlatform, usePrefixMode } from "../keymap/index.ts";
+import {
+  ACTION_GROUP_OF,
+  ACTION_LABELS,
+  actionAvailability,
+  CommandPaletteDialog,
+  modifierPlatform,
+  usePausedPalette,
+  usePrefixMode,
+  type ActionAvailability,
+  type ActionEntry,
+  type ActionTable,
+} from "../keymap/index.ts";
 import { ShellStatus } from "../workspace/index.ts";
 import {
   useVisualSidebarPane,
@@ -326,6 +339,14 @@ export interface VisualShellViewProps {
   /** `prefix w`: the list takes the keyboard; `prefix d`: settle or unsettle the current task. */
   focusSidebarShortcut?: VisualShortcut | undefined;
   settleShortcut?: VisualShortcut | undefined;
+  /** `prefix space`: the palette; also usable while Settings pauses the rest of the keymap. */
+  paletteShortcut?: VisualShortcut | undefined;
+  /** True while Settings is open: only the palette's two-key sequence stays live. */
+  paletteKeysEnabled?: boolean | undefined;
+  /** What the working area's own dispatch says about the actions it owns. */
+  taskActionAvailability?: Readonly<Partial<Record<ActionId, ActionAvailability>>> | undefined;
+  /** A bound chord whose action is unavailable; the reason is guidance, not a failed action. */
+  onActionRefused?: ((reason: string) => void) | undefined;
   /** Direct creation commands, already resolved from config; one listener handles all of them. */
   direct?: {
     bindings: Readonly<Record<DirectActionId, string | null>>;
@@ -639,6 +660,10 @@ export function VisualShellView({
   addProjectShortcut,
   focusSidebarShortcut,
   settleShortcut,
+  paletteShortcut,
+  paletteKeysEnabled = false,
+  taskActionAvailability,
+  onActionRefused,
   direct,
   prefixExtra,
   prefixEnabled = true,
@@ -653,6 +678,8 @@ export function VisualShellView({
   const pane = useVisualSidebarPane();
   const shelf = useSettledShelf();
   const snoozedShelf = useSnoozedShelf();
+  const dialogFocus = useDialogFocus();
+  const [paletteOpen, setPaletteOpen] = useState(false);
   // The selection may name a snoozed or settled task: both shelves are part of the one list, so a
   // hidden row is found before the fallback to the first active one.
   const selected =
@@ -716,6 +743,7 @@ export function VisualShellView({
     settingsShortcut?.prefix ??
     renameShortcut?.prefix ??
     removeShortcut?.prefix ??
+    paletteShortcut?.prefix ??
     "alt+a";
   const keymap = useMemo(() => {
     const bindings: Record<string, string> = {};
@@ -745,6 +773,8 @@ export function VisualShellView({
     }
     if (addProjectShortcut?.binding !== null && addProjectShortcut?.binding !== undefined)
       bindings[addProjectShortcut.binding] = "add-project";
+    if (paletteShortcut?.binding !== null && paletteShortcut?.binding !== undefined)
+      bindings[paletteShortcut.binding] = "command-palette";
     if (prefixExtra !== undefined) {
       for (const [chord, action] of Object.entries(prefixExtra.bindings)) {
         bindings[chord] = action;
@@ -757,6 +787,7 @@ export function VisualShellView({
     focusSidebarShortcut,
     newTaskShortcut,
     onFindTask,
+    paletteShortcut,
     prefix,
     prefixExtra,
     removeShortcut,
@@ -799,6 +830,10 @@ export function VisualShellView({
   );
   // The composer is a view, not a selected row: its open state also silences row chords.
   const currentTaskId = composerOpen ? undefined : selected?.id;
+  const taskOrder = useMemo(
+    () => [...rows, ...snoozedRows, ...settled].map((row) => row.id),
+    [rows, snoozedRows, settled],
+  );
   // What each shelf mounts: one page while open, the current row alone while closed.
   const {
     shown: shownSnoozed,
@@ -1115,7 +1150,14 @@ export function VisualShellView({
       toggleButton.current?.focus();
     });
   }, [hidden, toggle]);
-  const runAction = useCallback(
+  const openPalette = useCallback(() => {
+    // The palette's own close must return to what had the keyboard when it opened, not to a
+    // target an earlier overlay left in the shared provider.
+    dialogFocus?.remember();
+    setPaletteOpen(true);
+  }, [dialogFocus]);
+  /** The one dispatch: chords, palette rows and mirrored controls all reach their action here. */
+  const dispatch = useCallback(
     (action: string) => {
       if (action === "toggle-sidebar") toggleSidebar();
       else if (action === "new-task") onNewTask?.();
@@ -1123,7 +1165,11 @@ export function VisualShellView({
       else if (action === "settings") onOpenSettings?.();
       else if (action === "add-project") onAddProject?.();
       else if (action === "focus-sidebar") focusList();
-      else if (action === "rename-task" || action === "remove-task" || action === "settle-task") {
+      else if (action === "command-palette") openPalette();
+      else if (action === "next-task" || action === "previous-task") {
+        const next = stepActive(taskOrder, selected?.id, action === "next-task" ? 1 : -1);
+        if (next !== undefined) selectTask(next);
+      } else if (action === "rename-task" || action === "remove-task" || action === "settle-task") {
         if (currentTaskId === undefined) return;
         if (action === "rename-task") taskActions?.onRename(currentTaskId);
         else if (action === "remove-task") taskActions?.onRemove(currentTaskId);
@@ -1137,19 +1183,122 @@ export function VisualShellView({
       onFindTask,
       onNewTask,
       onOpenSettings,
+      openPalette,
       prefixExtra,
+      selected?.id,
+      selectTask,
       taskActions,
+      taskOrder,
       toggleSidebar,
       toggleSettle,
     ],
   );
+  const actions = useMemo<ActionTable>(() => {
+    const availabilityFor = (action: ActionId): ActionAvailability => {
+      // A session action needs a task on screen; the working area says the same for every one.
+      if (ACTION_GROUP_OF[action] === "Sessions" && currentTaskId === undefined)
+        return actionAvailability(false, "Select a task first.");
+      switch (action) {
+        case "toggle-sidebar":
+        case "focus-sidebar":
+        case "command-palette":
+        case "find-task":
+          return { enabled: true };
+        case "new-task":
+          return actionAvailability(onNewTask !== undefined, "Creating tasks is unavailable here.");
+        case "settings":
+          return actionAvailability(onOpenSettings !== undefined, "Settings is unavailable here.");
+        case "add-project":
+          return actionAvailability(
+            onAddProject !== undefined,
+            "Adding projects is unavailable here.",
+          );
+        case "rename-task":
+          return actionAvailability(currentTaskId !== undefined, "Select a task to rename.");
+        case "remove-task":
+          return actionAvailability(currentTaskId !== undefined, "Select a task to remove.");
+        case "settle-task":
+          return actionAvailability(currentTaskId !== undefined, "Select a task to settle.");
+        case "next-task": {
+          const next = stepActive(taskOrder, selected?.id, 1);
+          return actionAvailability(
+            next !== undefined && next !== selected?.id,
+            "There is no next task.",
+          );
+        }
+        case "previous-task": {
+          const previous = stepActive(taskOrder, selected?.id, -1);
+          return actionAvailability(
+            previous !== undefined && previous !== selected?.id,
+            "There is no previous task.",
+          );
+        }
+        default:
+          return taskActionAvailability?.[action] ?? { enabled: true };
+      }
+    };
+    const entryFor = (action: ActionId): ActionEntry => {
+      const availability = availabilityFor(action);
+      return availability.enabled
+        ? {
+            label: ACTION_LABELS[action],
+            group: ACTION_GROUP_OF[action],
+            enabled: true,
+            run: () => dispatch(action),
+          }
+        : {
+            label: ACTION_LABELS[action],
+            group: ACTION_GROUP_OF[action],
+            enabled: false,
+            reason: availability.reason,
+            run: () => dispatch(action),
+          };
+    };
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- one entry per ActionId option
+    const table = Object.fromEntries(
+      ActionId.options.map((action): [ActionId, ActionEntry] => [action, entryFor(action)]),
+    ) as ActionTable;
+    return table;
+  }, [
+    currentTaskId,
+    dispatch,
+    onAddProject,
+    onNewTask,
+    onOpenSettings,
+    selected?.id,
+    taskActionAvailability,
+    taskOrder,
+  ]);
+  /** A chord on an unavailable action says why instead of running it. */
+  const runAction = useCallback(
+    (action: string) => {
+      const parsed = ActionId.safeParse(action);
+      const entry = parsed.success ? actions[parsed.data] : undefined;
+      if (entry === undefined) {
+        dispatch(action);
+        return;
+      }
+      if (!entry.enabled) {
+        onActionRefused?.(entry.reason);
+        return;
+      }
+      entry.run();
+    },
+    [actions, dispatch, onActionRefused],
+  );
   const armed = usePrefixMode(
     keymap,
     runAction,
-    prefixEnabled,
+    prefixEnabled && !paletteOpen,
     directKeymap === undefined || direct === undefined
       ? undefined
       : { keymap: directKeymap, onAction: direct.onAction },
+  );
+  usePausedPalette(
+    paletteShortcut?.prefix ?? prefix,
+    paletteShortcut?.binding ?? null,
+    openPalette,
+    paletteKeysEnabled && !paletteOpen,
   );
 
   useEffect(
@@ -1453,6 +1602,15 @@ export function VisualShellView({
           </div>
         </div>
       </main>
+      {paletteOpen && (
+        <CommandPaletteDialog
+          actions={actions}
+          onClose={(action) => {
+            setPaletteOpen(false);
+            if (action !== undefined) runAction(action);
+          }}
+        />
+      )}
     </div>
   );
 }

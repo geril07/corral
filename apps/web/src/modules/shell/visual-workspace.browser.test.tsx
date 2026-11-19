@@ -7,6 +7,7 @@ import { removeDirectoryIn } from "../../../test/files-client.ts";
 import { createGitRepo } from "../../../test/git-repo.ts";
 import { realServerClients, prefixThen } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
+import { appWithProject, focusedIsTerminal, taskWithShell } from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
 
@@ -568,7 +569,6 @@ test("settling the selected task keeps its working area, its tabs and the truth 
   await prefixThen("d");
   const shelfToggle = page.getByRole("button", { name: "Settled (1)" });
   await expect.element(shelfToggle).toBeVisible();
-  await expect.element(page.getByText("Settled", { exact: true })).toBeVisible();
   // The current settled task keeps its row, its tabs and its selection.
   expect(
     document.querySelector(`[data-task-id="${CSS.escape(task.id)}"]`)?.getAttribute("aria-current"),
@@ -599,7 +599,6 @@ test("settling the selected task keeps its working area, its tabs and the truth 
       .elements()
       .map((element) => element.textContent ?? ""),
   ).toEqual(tabsBefore);
-  await expect.element(page.getByText("Settled", { exact: true })).toBeVisible();
   await unmount();
 });
 
@@ -649,4 +648,19 @@ test("settling a middle task leaves the active rows above it where they were", a
     lastActive?.getBoundingClientRect().bottom ?? 0,
   );
   await unmount();
+});
+
+test("prefix space opens the palette over a terminal and Escape returns the keyboard to it", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Palette terminal");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  await prefixThen(" ");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect.element(palette).toBeVisible();
+  await expect.element(palette.getByRole("combobox", { name: "Commands" })).toHaveFocus();
+
+  await userEvent.keyboard("{Escape}");
+  await expect.element(palette).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
 });

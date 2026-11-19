@@ -1434,3 +1434,20 @@ test("a project target opens Projects with that project selected", async () => {
       ?.querySelector(".settings-source")?.textContent,
   ).toBe("inherited");
 });
+
+test("prefix space opens the palette over Settings and Escape returns to the Settings control", async () => {
+  const client = newClient();
+  await renderSettings(client);
+  const opener = settingsRailButton("Appearance");
+  await expect.element(opener).toHaveFocus();
+
+  await prefixThen(" ");
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  await expect.element(palette).toBeVisible();
+  await expect.element(palette.getByRole("combobox", { name: "Commands" })).toHaveFocus();
+
+  await userEvent.keyboard("{Escape}");
+  await expect.element(palette).not.toBeInTheDocument();
+  await expect.element(settingsHeading()).toBeVisible();
+  await expect.element(opener).toHaveFocus();
+});

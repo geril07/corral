@@ -42,10 +42,17 @@ import {
   chatTranscriptStore,
   reconcileTranscriptMemory,
   useChatSession,
+  useChatTurn,
   type ChatFiles,
   type ChatTranscriptStore,
 } from "../chat/index.ts";
-import { ACTION_LABELS, formatBinding, bindingOf } from "../keymap/index.ts";
+import {
+  ACTION_LABELS,
+  actionAvailability as availabilityOf,
+  bindingOf,
+  formatBinding,
+  type ActionAvailability,
+} from "../keymap/index.ts";
 import {
   AgentPicker,
   describeLaunchError,
@@ -131,6 +138,8 @@ export interface TaskWorkspaceController {
   dialogs: ReactNode;
   prefix: { bindings: Readonly<Record<string, string>>; onAction: (action: string) => void };
   prefixEnabled: boolean;
+  /** What the palette and a refused chord say about the actions this controller dispatches. */
+  actionAvailability: Readonly<Partial<Record<ActionId, ActionAvailability>>>;
 }
 
 /** The task's sessions, its device-local layout and every pane the working area mounts. */
@@ -246,6 +255,8 @@ export function useTaskWorkspace({
   const actionGroup = focusGroup;
   const focusedSession = actionGroup === "main" ? mainSession : companionSession;
   const focusedChat = actionGroup === "main" ? mainChat : companionChat;
+  const focusedTab = layout === undefined ? undefined : activeTab(layout, focusGroup);
+  const focusedTurn = useChatTurn(focusedChat?.store);
 
   const chatFor = (session: Session | undefined) =>
     session === undefined
@@ -1340,6 +1351,82 @@ export function useTaskWorkspace({
     [bindings, hasTask, stableOnAction],
   );
 
+  const focusedSessionCount =
+    layout === undefined
+      ? 0
+      : tabsInGroup(layout, focusGroup).filter((tab) => tab.kind === "session").length;
+  const goToSession = (number: number): ActionAvailability => {
+    if (layout !== undefined && sessionTabAt(layout, focusGroup, number) !== undefined)
+      return { enabled: true };
+    return focusedSessionCount === 0
+      ? availabilityOf(false, "This task has no sessions.")
+      : availabilityOf(
+          false,
+          `This task has only ${focusedSessionCount} session${focusedSessionCount === 1 ? "" : "s"}.`,
+        );
+  };
+  const offeredView: { reason: string } | { target: SessionView } =
+    focusedSession === undefined
+      ? { reason: "Select an agent session." }
+      : viewOffer(focusedSession, drivers, capabilitiesReady);
+  const actionAvailability: Partial<Record<ActionId, ActionAvailability>> = {
+    "new-terminal": availabilityOf(hasTask, "Select a task first."),
+    "new-agent": availabilityOf(hasTask, "Select a task first."),
+    "stop-session":
+      focusedSession === undefined
+        ? availabilityOf(false, "Select a running session to stop.")
+        : availabilityOf(focusedSession.state === "running", "This session is not running."),
+    "restart-session":
+      focusedSession === undefined
+        ? availabilityOf(false, "Select a session to restart.")
+        : availabilityOf(
+            focusedSession.state !== "running",
+            "This session is running; stop it first.",
+          ),
+    "rename-session": availabilityOf(
+      focusedSession !== undefined,
+      "Select a session or terminal to rename.",
+    ),
+    "remove-session": availabilityOf(focusedSession !== undefined, "Select a session to remove."),
+    "next-session": availabilityOf(
+      layout !== undefined && stepTab(layout, focusGroup, 1) !== undefined,
+      "This task has fewer than two sessions.",
+    ),
+    "previous-session": availabilityOf(
+      layout !== undefined && stepTab(layout, focusGroup, -1) !== undefined,
+      "This task has fewer than two sessions.",
+    ),
+    "abort-turn":
+      focusedChat === undefined
+        ? availabilityOf(false, "Only a running chat session has a turn to abort.")
+        : focusedChat.aborting
+          ? availabilityOf(false, "This turn is stopping.")
+          : availabilityOf(focusedTurn === "working", "No turn is working in this chat session."),
+    "change-model": availabilityOf(
+      focusedChat !== undefined,
+      "Only a running chat session has a model control.",
+    ),
+    "change-reasoning": availabilityOf(
+      focusedChat !== undefined,
+      "Only a running chat session has a reasoning control.",
+    ),
+    "switch-view":
+      "target" in offeredView ? { enabled: true } : availabilityOf(false, offeredView.reason),
+    "close-tab": availabilityOf(focusedTab !== undefined, "Select an agent session."),
+    "toggle-companion": { enabled: true },
+    "move-tab": availabilityOf(focusedTab !== undefined, "Select an agent session."),
+    "focus-companion": { enabled: true },
+    "session-1": goToSession(1),
+    "session-2": goToSession(2),
+    "session-3": goToSession(3),
+    "session-4": goToSession(4),
+    "session-5": goToSession(5),
+    "session-6": goToSession(6),
+    "session-7": goToSession(7),
+    "session-8": goToSession(8),
+    "session-9": goToSession(9),
+  };
+
   return {
     notice:
       failure === undefined && !chatDrafts.storageFailed ? null : (
@@ -1368,5 +1455,6 @@ export function useTaskWorkspace({
     dialogs,
     prefix,
     prefixEnabled: active && dialog === undefined,
+    actionAvailability,
   };
 }

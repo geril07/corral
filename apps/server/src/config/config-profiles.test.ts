@@ -78,7 +78,7 @@ test("profiles sit beside keys; an invalid key entry still drops only itself", (
 [keys]
 prefix = "ctrl+b"
 [keys.bindings]
-board = "z"
+toggle-sidebar = "z"
 [profiles.p]
 name = "P"
 agent = "pi"
@@ -86,15 +86,15 @@ agent = "pi"
 
   expect(parsed.problems).toEqual([]);
   expect(parsed.config.keys.prefix).toBe("ctrl+b");
-  expect(parsed.config.keys.bindings["board"]).toBe("z");
+  expect(parsed.config.keys.bindings["toggle-sidebar"]).toBe("z");
   expect(parsed.profiles).toHaveLength(1);
 
   const broken = parseText(
-    '[keys.bindings]\nboard = "hyper+q"\n[profiles.p]\nname = "P"\nagent = "pi"\n',
+    '[keys.bindings]\ntoggle-sidebar = "hyper+q"\n[profiles.p]\nname = "P"\nagent = "pi"\n',
   );
   expect(broken.profiles).toHaveLength(1);
   expect(broken.problems).toHaveLength(1);
-  expect(broken.config.keys.bindings["board"]).toBe(DEFAULT_BINDINGS["board"]);
+  expect(broken.config.keys.bindings["toggle-sidebar"]).toBe(DEFAULT_BINDINGS["toggle-sidebar"]);
 });
 
 const wholeProfileFailures: [name: string, body: string, message: string][] = [

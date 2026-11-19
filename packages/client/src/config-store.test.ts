@@ -59,13 +59,15 @@ test("a written config file changes the store", async () => {
   const client = await server.connected();
   await eventually(() => expect(client.config.getSnapshot().loaded).toBe(true));
 
-  await writeConfig('[keys]\nprefix = "ctrl+b"\n\n[keys.bindings]\nnew-agent = "a"\nboard = ""\n');
+  await writeConfig(
+    '[keys]\nprefix = "ctrl+b"\n\n[keys.bindings]\nnew-agent = "a"\nnew-task = ""\n',
+  );
 
   await eventually(() => {
     const state = client.config.getSnapshot();
     expect(state.config.keys.prefix).toBe("ctrl+b");
     expect(state.config.keys.bindings["new-agent"]).toBe("a");
-    expect(state.config.keys.bindings["board"]).toBeNull();
+    expect(state.config.keys.bindings["new-task"]).toBeNull();
     expect(state.exists).toBe(true);
     expect(state.problems).toEqual([]);
   });

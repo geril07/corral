@@ -4,7 +4,7 @@ import {
   type DirectKeymap,
   type PrefixKeymap,
 } from "@corral/client/prefix-keymap";
-import type { ModifierPlatform } from "@corral/protocol/keymap";
+import { matchesChord, parseChord, type ModifierPlatform } from "@corral/protocol/keymap";
 import { useEffect, useRef, useState } from "react";
 
 /** The platform's `mod` key for direct commands: Command on macOS, Control elsewhere. */
@@ -69,4 +69,43 @@ export function usePrefixMode<Action, Direct = never>(
   }, [keymap, onAction, enabled]);
 
   return armed;
+}
+
+/**
+ * The palette's two-key sequence while the shell's keymap is paused, as Settings pauses it. The
+ * prefix press is taken, but a key that does not complete the sequence still reaches the focused
+ * control: a paused background chord must not swallow the next keystroke. The armed state is not
+ * reported, so no prefix badge appears behind an overlay.
+ */
+export function usePausedPalette(
+  prefix: string,
+  binding: string | null,
+  onOpen: () => void,
+  enabled: boolean,
+): void {
+  const open = useRef(onOpen);
+  open.current = onOpen;
+  useEffect(() => {
+    if (!enabled || binding === null) return undefined;
+    const prefixChord = parseChord(prefix);
+    const paletteChord = parseChord(binding);
+    let armed = false;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.isComposing) return;
+      if (armed) {
+        armed = false;
+        if (!matchesChord(event, paletteChord)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        open.current();
+        return;
+      }
+      if (!matchesChord(event, prefixChord)) return;
+      armed = true;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
+  }, [binding, enabled, prefix]);
 }

@@ -46,10 +46,10 @@ test("a binding applies over the default", () => {
 });
 
 test("an empty string unbinds the action", () => {
-  const { config, problems } = parseText('[keys.bindings]\nboard = ""\n');
+  const { config, problems } = parseText('[keys.bindings]\nnew-task = ""\n');
 
   expect(problems).toEqual([]);
-  expect(config.keys.bindings).toEqual({ ...DEFAULT_BINDINGS, board: null });
+  expect(config.keys.bindings).toEqual({ ...DEFAULT_BINDINGS, "new-task": null });
 });
 
 test("every action can be rebound; the untouched ones keep their default", () => {
@@ -205,12 +205,12 @@ test.for(rejected)("%s is rejected at %s", ([file, path, message]) => {
 
 test("an invalid entry is dropped while its neighbours still apply", () => {
   const { config, problems } = parseText(
-    '[keys]\nprefix = "alt+b"\n[keys.bindings]\nnew-agent = "not a chord"\nboard = "z"\n',
+    '[keys]\nprefix = "alt+b"\n[keys.bindings]\nnew-agent = "not a chord"\ntoggle-sidebar = "z"\n',
   );
 
   expect(config.keys.prefix).toBe("alt+b");
   expect(config.keys.bindings["new-agent"]).toBe(DEFAULT_BINDINGS["new-agent"]);
-  expect(config.keys.bindings["board"]).toBe("z");
+  expect(config.keys.bindings["toggle-sidebar"]).toBe("z");
   expect(problems.map((problem) => problem.path)).toEqual(["keys.bindings.new-agent"]);
 });
 
@@ -252,19 +252,21 @@ test("unbinding the action that holds the chord frees it for the prefix", () => 
 });
 
 test("two bindings on one chord are both dropped back to their defaults", () => {
-  const { config, problems } = parseText('[keys.bindings]\nnew-agent = "z"\nboard = "z"\n');
+  const { config, problems } = parseText(
+    '[keys.bindings]\nnew-agent = "z"\ntoggle-sidebar = "z"\n',
+  );
 
   expect(config.keys.bindings["new-agent"]).toBe(DEFAULT_BINDINGS["new-agent"]);
-  expect(config.keys.bindings["board"]).toBe(DEFAULT_BINDINGS["board"]);
+  expect(config.keys.bindings["toggle-sidebar"]).toBe(DEFAULT_BINDINGS["toggle-sidebar"]);
   expect(problems).toEqual([
     {
       severity: "error",
       path: "keys.bindings.new-agent",
-      message: 'the chord "z" is also used by board',
+      message: 'the chord "z" is also used by toggle-sidebar',
     },
     {
       severity: "error",
-      path: "keys.bindings.board",
+      path: "keys.bindings.toggle-sidebar",
       message: 'the chord "z" is also used by new-agent',
     },
   ]);
@@ -279,20 +281,22 @@ test("a binding on another action's default chord is dropped", () => {
 });
 
 test("a chord freed by one drop can conflict again, and that conflict drops too", () => {
-  const { config, problems } = parseText('[keys.bindings]\nnew-agent = "c"\nboard = "s"\n');
+  const { config, problems } = parseText(
+    '[keys.bindings]\nnew-agent = "c"\ntoggle-sidebar = "s"\n',
+  );
 
   expect(config).toEqual(defaults);
   expect(problems.map((problem) => problem.path)).toEqual([
     "keys.bindings.new-agent",
-    "keys.bindings.board",
+    "keys.bindings.toggle-sidebar",
   ]);
 });
 
 const browserChords: [file: string, path: string, warns: boolean][] = [
   ['[keys.bindings]\nnew-agent = "ctrl+w"\n', "keys.bindings.new-agent", true],
   ['[keys.bindings]\nnew-agent = "meta+n"\n', "keys.bindings.new-agent", true],
-  ['[keys.bindings]\nboard = "ctrl+shift+t"\n', "keys.bindings.board", true],
-  ['[keys.bindings]\nboard = "ctrl+tab"\n', "keys.bindings.board", true],
+  ['[keys.bindings]\ntoggle-sidebar = "ctrl+shift+t"\n', "keys.bindings.toggle-sidebar", true],
+  ['[keys.bindings]\ntoggle-sidebar = "ctrl+tab"\n', "keys.bindings.toggle-sidebar", true],
   ['[keys]\nprefix = "ctrl+t"\n', "keys.prefix", true],
   // The prefix is already consumed when a binding fires, so a plain key is never browser-owned.
   ['[keys.bindings]\nnew-agent = "u"\n', "keys.bindings.new-agent", false],

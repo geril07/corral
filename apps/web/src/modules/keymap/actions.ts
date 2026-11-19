@@ -9,8 +9,11 @@ interface ActionEntryFields {
 }
 
 /** A disabled entry always carries the one sentence saying why it cannot run now. */
-export type ActionEntry = ActionEntryFields &
-  ({ enabled: true; reason?: string } | { enabled: false; reason: string });
+export type ActionAvailability =
+  | { enabled: true; reason?: string }
+  | { enabled: false; reason: string };
+
+export type ActionEntry = ActionEntryFields & ActionAvailability;
 
 /**
  * An entry's enabled bit with its reason. Spreading this keeps the table honest: `false` cannot be
@@ -69,12 +72,9 @@ export const ACTION_LABELS: Readonly<Record<ActionId, string>> = {
   "find-task": "Find task",
   "next-task": "Next task",
   "previous-task": "Previous task",
-  "sidebar-mode": "Toggle sidebar mode",
   "toggle-sidebar": "Toggle sidebar",
   "focus-sidebar": "Focus the sidebar list",
   "add-project": "Add project",
-  board: "Open board",
-  "jump-blocked": "Jump to blocked session",
   "command-palette": "Command palette",
   settings: "Settings",
 };
@@ -112,12 +112,9 @@ export const ACTION_GROUP_OF: Readonly<Record<ActionId, ActionGroup>> = {
   "find-task": "Tasks",
   "next-task": "Tasks",
   "previous-task": "Tasks",
-  "sidebar-mode": "Navigation",
   "toggle-sidebar": "Navigation",
   "focus-sidebar": "Navigation",
   "add-project": "Projects",
-  board: "Navigation",
-  "jump-blocked": "Navigation",
   "command-palette": "General",
   settings: "General",
 };

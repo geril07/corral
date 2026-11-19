@@ -1,4 +1,5 @@
 import type { CorralClient } from "@corral/client/corral-client";
+import { ActionId } from "@corral/protocol/config";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { render } from "vitest-browser-react";
@@ -11,12 +12,19 @@ import {
   shellTabs,
   taskWithShell,
 } from "../../../test/task-flows.tsx";
+import { ACTION_LABELS } from "./actions.ts";
 
 const { newClient } = realServerClients();
 const picker = () => page.getByRole("dialog", { name: "New agent session" });
+const palette = () => page.getByRole("dialog", { name: "Command palette" });
+const paletteItem = (name: RegExp) => palette().getByRole("option", { name });
 const reasonText = (text: string) => page.getByText(text, { exact: true });
 const modelDialog = () => page.getByRole("dialog", { name: "Chat model" });
 const reasoningDialog = () => page.getByRole("dialog", { name: "Reasoning level" });
+const currentTaskId = () =>
+  document
+    .querySelector<HTMLElement>('[data-task-id][aria-current="true"]')
+    ?.getAttribute("data-task-id");
 
 /** A refused chord: no dialog, and the one reason in the shell's guidance row. */
 async function assertRefused(press: () => Promise<void>, reason: string) {
@@ -122,10 +130,12 @@ test("the sidebar-list action is rebindable, and a file chord on its default con
   await expect.element(row).toHaveFocus();
 
   // The default is not a chord the file can take: the explicit entry is dropped and reported.
-  await applyConfig(client, '[keys.bindings]\nboard = "w"\n', () =>
+  await applyConfig(client, '[keys.bindings]\ntoggle-sidebar = "w"\n', () =>
     expect(client.config.getSnapshot().problems).toHaveLength(1),
   );
-  expect(client.config.getSnapshot().problems[0]).toMatchObject({ path: "keys.bindings.board" });
+  expect(client.config.getSnapshot().problems[0]).toMatchObject({
+    path: "keys.bindings.toggle-sidebar",
+  });
   await userEvent.keyboard("{Escape}");
   await prefixThen("w");
   await expect.element(row).toHaveFocus();
@@ -227,4 +237,121 @@ test("both chat picker chords apply on a running chat, and the picker closes whe
   await expect.element(modelDialog()).not.toBeInTheDocument();
   await prefixThen("m");
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+});
+
+test("every action is listed, and a disabled row carries the sentence its chord would show", async () => {
+  const client = newClient();
+  await render(<App client={client} />);
+  await prefixThen(" ");
+
+  const options = palette().getByRole("option").elements();
+  expect(options).toHaveLength(ActionId.options.length);
+  const bindingOf = client.config.getSnapshot().config.keys.bindings;
+  const prefix = client.config.getSnapshot().config.keys.prefix;
+  const observed = ActionId.options.map((action) => {
+    const label = ACTION_LABELS[action];
+    const row = options.find(
+      (option) => option.querySelector("[data-palette-label]")?.textContent === label,
+    );
+    if (row === undefined) throw new Error(`the palette has no row for ${action}`);
+    return {
+      action,
+      disabled: row.getAttribute("aria-disabled") === "true",
+      reason: row.querySelector("[data-palette-reason]")?.textContent?.trim(),
+      text: row.textContent ?? "",
+      chord: row.querySelector("kbd")?.textContent?.trim(),
+    };
+  });
+  expect(observed.map((row) => row.action)).toEqual([...ActionId.options]);
+  expect(observed.map((row) => row.chord)).toEqual(
+    ActionId.options.map((action) =>
+      bindingOf[action] === null ? "unbound" : `${prefix} ${bindingOf[action]}`,
+    ),
+  );
+  // A disabled row is a promise about the chord: the same sentence, never a silent no-op.
+  expect(
+    observed
+      .filter((row) => row.disabled && (row.reason === undefined || row.reason === ""))
+      .map((row) => row.action),
+  ).toEqual([]);
+  expect(
+    observed
+      .filter((row) => row.disabled && row.reason !== undefined && !row.text.includes(row.reason))
+      .map((row) => row.action),
+  ).toEqual([]);
+  expect(observed.filter((row) => !row.disabled && row.reason !== undefined)).toEqual([]);
+
+  // An action unavailable in an empty shell says the same sentence from its chord and its row.
+  await userEvent.keyboard("{Escape}");
+  await prefixThen("e");
+  await expect.element(reasonText("Select a task to rename.")).toBeVisible();
+});
+
+test("prefix space filters the list, runs the action, and Escape keeps focus where it belongs", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Palette");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  await prefixThen(" ");
+  await expect.element(palette().getByRole("combobox", { name: "Commands" })).toHaveFocus();
+  await expect.element(paletteItem(/^New terminal/)).toMatchTextContent("alt+a c");
+
+  await userEvent.keyboard("new terminal");
+  await expect.element(paletteItem(/^New terminal/)).toBeVisible();
+  await expect.element(paletteItem(/^Add project/)).not.toBeInTheDocument();
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(palette()).not.toBeInTheDocument();
+  await expect.element(shellTabs()).toHaveLength(2);
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  // Escape returns the keyboard to the terminal, not to the closed dialog.
+  await prefixThen(" ");
+  await expect.element(palette()).toBeVisible();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(palette()).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+});
+
+test("an action opened from the palette takes focus from the closing palette", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Palette destination");
+
+  await prefixThen(" ");
+  await userEvent.keyboard("find task");
+  await userEvent.keyboard("{Enter}");
+
+  await expect.element(palette()).not.toBeInTheDocument();
+  const find = page.getByRole("dialog", { name: "Find task" });
+  await expect.element(find).toBeVisible();
+  await expect.element(find.getByRole("combobox", { name: "Search tasks" })).toHaveFocus();
+});
+
+test("the palette's next and previous task rows move the selection", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await Promise.all(
+    ["First task", "Second task"].map((title) =>
+      client.connection.api.tasks.create({
+        projectId: project.id,
+        title,
+        workspace: { type: "main-worktree" },
+      }),
+    ),
+  );
+  await vi.waitFor(() =>
+    expect(page.getByRole("button", { name: /Second task/ }).elements()).toHaveLength(1),
+  );
+  await page.getByRole("button", { name: /First task/ }).click();
+  const first = currentTaskId();
+
+  await prefixThen(" ");
+  await userEvent.keyboard("next task");
+  await userEvent.keyboard("{Enter}");
+  await expect.element(palette()).not.toBeInTheDocument();
+  await expect.poll(currentTaskId).not.toBe(first);
+
+  await prefixThen(" ");
+  await userEvent.keyboard("previous task");
+  await userEvent.keyboard("{Enter}");
+  await expect.poll(currentTaskId).toBe(first);
 });

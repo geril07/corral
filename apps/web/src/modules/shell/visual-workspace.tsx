@@ -219,6 +219,7 @@ export function VisualWorkspace({
   const findTaskBinding = bindingOf(config, "find-task");
   const focusSidebarBinding = bindingOf(config, "focus-sidebar");
   const settleBinding = bindingOf(config, "settle-task");
+  const paletteBinding = bindingOf(config, "command-palette");
   const prefix = config.keys.prefix;
   const shortcut = useMemo(
     () => (binding === null ? undefined : { prefix, binding }),
@@ -251,6 +252,10 @@ export function VisualWorkspace({
   const settleShortcut = useMemo(
     () => (settleBinding === null ? undefined : { prefix, binding: settleBinding }),
     [prefix, settleBinding],
+  );
+  const paletteShortcut = useMemo(
+    () => (paletteBinding === null ? undefined : { prefix, binding: paletteBinding }),
+    [paletteBinding, prefix],
   );
 
   const findTask = useCallback(
@@ -766,6 +771,10 @@ export function VisualWorkspace({
         removeShortcut={removeShortcut}
         focusSidebarShortcut={focusSidebarShortcut}
         settleShortcut={settleShortcut}
+        paletteShortcut={paletteShortcut}
+        paletteKeysEnabled={!active}
+        taskActionAvailability={taskWorkspace.actionAvailability}
+        onActionRefused={(reason) => setNotice({ message: reason, tone: "notice" })}
         taskActions={taskActions}
         rowFocus={listFocus}
         notice={shownNotice}

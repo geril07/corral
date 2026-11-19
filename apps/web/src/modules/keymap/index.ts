@@ -5,6 +5,7 @@ export {
   actionAvailability,
   bindingOf,
   formatBinding,
+  type ActionAvailability,
   type ActionEntry,
   type ActionGroup,
   type ActionTable,
@@ -17,4 +18,4 @@ export {
 } from "./config-problems.tsx";
 export { KeymapProvider, useConfig, usePrefix } from "./config-context.tsx";
 export { CommandPaletteDialog } from "./command-palette.tsx";
-export { modifierPlatform, usePrefixMode } from "./prefix-mode.ts";
+export { modifierPlatform, usePausedPalette, usePrefixMode } from "./prefix-mode.ts";

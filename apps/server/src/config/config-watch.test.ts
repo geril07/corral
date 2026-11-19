@@ -114,12 +114,14 @@ test("an empty file flips only existence, and removing it pushes that back", asy
 test("pushes an edit", async () => {
   const watcher = await openWatcher();
   await mkdir(server.configDir, { recursive: true });
-  await writeFile(configFile(), '[keys.bindings]\nboard = "z"\n');
-  expect((await watcher.next("the first config")).config.keys.bindings["board"]).toBe("z");
+  await writeFile(configFile(), '[keys.bindings]\ntoggle-sidebar = "z"\n');
+  expect((await watcher.next("the first config")).config.keys.bindings["toggle-sidebar"]).toBe("z");
 
-  await writeFile(configFile(), '[keys.bindings]\nboard = "y"\n');
+  await writeFile(configFile(), '[keys.bindings]\ntoggle-sidebar = "y"\n');
 
-  expect((await watcher.next("the edited config")).config.keys.bindings["board"]).toBe("y");
+  expect((await watcher.next("the edited config")).config.keys.bindings["toggle-sidebar"]).toBe(
+    "y",
+  );
 });
 
 test("pushes an atomic replace: a temp file renamed over the config", async () => {
@@ -139,9 +141,9 @@ test("an invalid edit is pushed with its problems and keeps the valid entries", 
   const watcher = await openWatcher();
   await mkdir(server.configDir, { recursive: true });
 
-  await writeFile(configFile(), '[keys.bindings]\nnew-agent = "hyper+q"\nboard = "z"\n');
+  await writeFile(configFile(), '[keys.bindings]\nnew-agent = "hyper+q"\ntoggle-sidebar = "z"\n');
   const partial = await watcher.next("the partly invalid config");
-  expect(partial.config.keys.bindings["board"]).toBe("z");
+  expect(partial.config.keys.bindings["toggle-sidebar"]).toBe("z");
   expect(partial.config.keys.bindings["new-agent"]).toBe(DEFAULT_BINDINGS["new-agent"]);
   expect(partial.problems).toEqual([
     {
