@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { focusAreaProps } from "../../common/focus/index.ts";
 import { Alert, Badge, Button, IconButton, Kbd } from "../../common/ui/index.ts";
 import { ConfigProblemsNotice, useConfig } from "../keymap/index.ts";
 
@@ -56,7 +57,7 @@ export function ShellStatus({
         className="shrink-0 border-t border-border"
       >
         {failure !== undefined && (
-          <div className="border-b border-border px-2 py-1">
+          <div className="border-b border-border px-2 py-1" {...focusAreaProps("status", "Status")}>
             <FailureMessage failure={failure} onDismiss={onDismissFailure} />
           </div>
         )}
@@ -64,7 +65,11 @@ export function ShellStatus({
             beside it, so their rules meet on one line. */}
         <div className="flex h-(--visual-footer-row) min-w-0 items-center gap-0.5 pl-0.5 pr-2">
           {actions}
-          <ConfigProblemsNotice onOpen={onOpenConfigProblems} />
+          {problems.length > 0 && (
+            <span {...focusAreaProps("status", "Config problems")}>
+              <ConfigProblemsNotice onOpen={onOpenConfigProblems} />
+            </span>
+          )}
           <span className="ml-auto flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
             {armed ? <ArmedBadge prefix={prefix} /> : <Kbd>{prefix}</Kbd>}
           </span>
@@ -98,9 +103,15 @@ export function ShellStatus({
       }
     >
       {failure !== undefined ? (
-        <FailureMessage failure={failure} onDismiss={onDismissFailure} />
+        <span className="flex min-w-0 flex-1" {...focusAreaProps("status", "Status")}>
+          <FailureMessage failure={failure} onDismiss={onDismissFailure} />
+        </span>
       ) : undefined}
-      <ConfigProblemsNotice onOpen={onOpenConfigProblems} />
+      {problems.length > 0 && (
+        <span {...focusAreaProps("status", "Config problems")}>
+          <ConfigProblemsNotice onOpen={onOpenConfigProblems} />
+        </span>
+      )}
       {armed && (
         <span className="ml-auto flex shrink-0">
           <ArmedBadge prefix={prefix} />

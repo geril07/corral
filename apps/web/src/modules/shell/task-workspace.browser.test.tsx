@@ -324,7 +324,11 @@ test("closing a running shell tab stops its session, removes the view and keeps 
     seeded.client.sessions.getSnapshot().sessions.find((session) => session.id === seeded.shell.id)
       ?.terminalId,
   ).toBeNull();
-  await expect.element(page.getByRole("textbox", { name: "Message" })).toHaveFocus();
+  // The chat pane takes the keyboard; when the agent has a pending request its option owns it
+  // instead of the composer, which the request deliberately blurs.
+  await expect
+    .poll(() => document.activeElement?.closest(".visual-workspace-pane") !== null)
+    .toBe(true);
 
   // Closing is final: no closed-tab history is stored, and the removed chord does nothing.
   const stored: unknown = JSON.parse(

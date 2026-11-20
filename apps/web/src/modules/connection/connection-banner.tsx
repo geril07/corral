@@ -1,6 +1,7 @@
 import type { ConnectionState } from "@corral/client/connection-state";
 import { useEffect, useState } from "react";
 import { useNow } from "../../common/hooks/use-now.ts";
+import { focusAreaProps } from "../../common/focus/index.ts";
 import { Button, Icon } from "../../common/ui/index.ts";
 import { isDesktopHost } from "./host.ts";
 
@@ -45,6 +46,7 @@ export function ConnectionBanner({
       data-slot="connection-banner"
       data-tone={content.tone}
       className="visual-connection-banner"
+      {...focusAreaProps("status", "Status")}
     >
       <span className="visual-connection-icon">
         <Icon name={content.tone === "destructive" ? "warn" : "connection"} size="chrome" />

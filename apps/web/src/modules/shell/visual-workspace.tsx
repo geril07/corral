@@ -222,6 +222,8 @@ export function VisualWorkspace({
   const addProjectBinding = bindingOf(config, "add-project");
   const findTaskBinding = bindingOf(config, "find-task");
   const focusSidebarBinding = bindingOf(config, "focus-sidebar");
+  const nextAreaBinding = bindingOf(config, "focus-next-area");
+  const previousAreaBinding = bindingOf(config, "focus-previous-area");
   const settleBinding = bindingOf(config, "settle-task");
   const paletteBinding = bindingOf(config, "command-palette");
   const prefix = config.keys.prefix;
@@ -252,6 +254,14 @@ export function VisualWorkspace({
   const focusSidebarShortcut = useMemo(
     () => (focusSidebarBinding === null ? undefined : { prefix, binding: focusSidebarBinding }),
     [focusSidebarBinding, prefix],
+  );
+  const nextAreaShortcut = useMemo(
+    () => (nextAreaBinding === null ? undefined : { prefix, binding: nextAreaBinding }),
+    [nextAreaBinding, prefix],
+  );
+  const previousAreaShortcut = useMemo(
+    () => (previousAreaBinding === null ? undefined : { prefix, binding: previousAreaBinding }),
+    [previousAreaBinding, prefix],
   );
   const settleShortcut = useMemo(
     () => (settleBinding === null ? undefined : { prefix, binding: settleBinding }),
@@ -774,6 +784,8 @@ export function VisualWorkspace({
         renameShortcut={renameShortcut}
         removeShortcut={removeShortcut}
         focusSidebarShortcut={focusSidebarShortcut}
+        nextAreaShortcut={nextAreaShortcut}
+        previousAreaShortcut={previousAreaShortcut}
         settleShortcut={settleShortcut}
         paletteShortcut={paletteShortcut}
         paletteKeysEnabled={!active}

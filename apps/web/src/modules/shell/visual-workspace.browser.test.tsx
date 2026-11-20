@@ -6,11 +6,21 @@ import { render } from "vitest-browser-react";
 import { removeDirectoryIn } from "../../../test/files-client.ts";
 import { createGitRepo } from "../../../test/git-repo.ts";
 import { writeConfig } from "../../../test/config-command.ts";
-import { realServerClients, prefixThen } from "../../../test/real-client.ts";
+import { realServerClients, prefixShifted, prefixThen } from "../../../test/real-client.ts";
 import { App } from "../../../test/render-app.tsx";
-import { appWithProject, focusedIsTerminal, taskWithShell } from "../../../test/task-flows.tsx";
+import {
+  appWithProject,
+  focusedIsTerminal,
+  shellTabs,
+  startShell,
+  taskWithShell,
+} from "../../../test/task-flows.tsx";
 
 const { newClient } = realServerClients();
+
+/** The area the focused control belongs to; `undefined` while focus sits outside the shell. */
+const areaOfActive = () =>
+  document.activeElement?.closest<HTMLElement>("[data-focus-area]")?.dataset.focusArea;
 
 async function connectedClient(): Promise<CorralClient> {
   const client = newClient();
@@ -732,6 +742,69 @@ test("a config dialog leaves no return target for a later row dialog", async () 
     await userEvent.keyboard("{Escape}");
     await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
     await expect.poll(() => document.activeElement?.getAttribute("data-task-id")).toBe(task.id);
+  } finally {
+    await writeConfig(null);
+  }
+});
+
+test("area chords cycle sidebar, main and companion and restore the area's last control", async () => {
+  const { client, project } = await appWithProject(newClient());
+  const task = await taskWithShell(client, project.id, "Area cycle");
+  await startShell(2);
+  // The selected shell crosses to the companion, so both groups have a tab.
+  await prefixShifted("o");
+  const companion = page.getByRole("tablist", { name: "Companion tabs" });
+  await expect.element(companion).toBeVisible();
+  expect(areaOfActive()).toBe("companion");
+
+  // The main tab is the area's last control, so returning to main restores it.
+  await shellTabs().first().click();
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+  expect(areaOfActive()).toBe("main");
+  await prefixThen("[BracketRight]");
+  await expect.poll(areaOfActive).toBe("companion");
+  await prefixThen("[BracketLeft]");
+  await expect.poll(areaOfActive).toBe("main");
+  await vi.waitFor(() => expect(focusedIsTerminal()).toBe(true));
+
+  // The sidebar restores the row that had the keyboard.
+  await rowFor(task.title).click();
+  expect(areaOfActive()).toBe("sidebar");
+  await prefixThen("[BracketRight]");
+  await expect.poll(areaOfActive).toBe("main");
+  await prefixThen("[BracketLeft]");
+  await expect.poll(areaOfActive).toBe("sidebar");
+  await expect.poll(() => document.activeElement?.getAttribute("data-task-id")).toBe(task.id);
+});
+
+test("an empty main group is not an area stop", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Companion only");
+  await prefixShifted("o");
+  await expect.element(page.getByRole("tablist", { name: "Companion tabs" })).toBeVisible();
+  expect(areaOfActive()).toBe("companion");
+
+  await prefixThen("[BracketRight]");
+  await expect.poll(areaOfActive).toBe("sidebar");
+  // The hidden main group has no controls of its own, so the cycle goes straight back.
+  await prefixThen("[BracketRight]");
+  await expect.poll(areaOfActive).toBe("companion");
+});
+
+test("the status area joins the cycle when the footer carries a message", async () => {
+  await writeConfig('[keys.bindings]\ntoggle-sidebar = "w"\n');
+  try {
+    const { client, project } = await appWithProject(newClient());
+    await taskWithShell(client, project.id, "Status area");
+    const configNotice = page.getByRole("button", { name: /config: 1 problem/ });
+    await expect.element(configNotice).toBeVisible();
+
+    await rowFor("Status area").click();
+    expect(areaOfActive()).toBe("sidebar");
+    // Reading order puts the message band after main; from the list, the previous area.
+    await prefixThen("[BracketLeft]");
+    await expect.poll(areaOfActive).toBe("status");
+    await expect.element(configNotice).toHaveFocus();
   } finally {
     await writeConfig(null);
   }

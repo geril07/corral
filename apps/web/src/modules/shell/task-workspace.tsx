@@ -26,6 +26,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { ADD_SESSION_SELECTOR, requestAreaFocus } from "../../common/focus/index.ts";
 import {
   DropdownMenuItem,
   firstFocusable,
@@ -326,33 +327,18 @@ export function useTaskWorkspace({
     fitSize.current = size;
   }, []);
 
-  const focusPane = useCallback((group: TaskTabGroup) => {
-    requestAnimationFrame(() => {
-      const node = group === "main" ? mainPane.current : companionPane.current;
-      const input = node?.querySelector<HTMLElement>(
-        '[aria-label="Agent request"] [role="radio"][aria-checked="true"], [aria-label="Agent request"] input, [aria-label="Agent request"] textarea, textarea[aria-label="Message"], textarea[aria-label="Prompt"], .xterm-helper-textarea',
-      );
-      const tab = node
-        ?.closest(".visual-workspace-group")
-        ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
-      (input ?? tab)?.focus();
-    });
+  // One request per action, through the shell's focus controller: the pane's input, a named tab,
+  // or the group's Add control. The controller retries until React commits and gives up on input.
+  const focusPane = useCallback((group: TaskTabGroup, tab?: string) => {
+    requestAreaFocus({ area: group, prefer: "pane", tab });
   }, []);
 
-  const focusTab = useCallback((id: string) => {
-    requestAnimationFrame(() => {
-      document.querySelector<HTMLButtonElement>(`[data-tab-id="${CSS.escape(id)}"]`)?.focus();
-    });
+  const focusTab = useCallback((id: string, group: TaskTabGroup) => {
+    requestAreaFocus({ area: group, selector: `[data-tab-id="${CSS.escape(id)}"]` });
   }, []);
 
-  const focusAddSession = useCallback(() => {
-    requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLButtonElement>(
-          '.visual-tab-add [aria-label="Add session"], .visual-workspace-empty [aria-label="Add session"]',
-        )
-        ?.focus();
-    });
+  const focusAddSession = useCallback((group: TaskTabGroup) => {
+    requestAreaFocus({ area: group, selector: ADD_SESSION_SELECTOR });
   }, []);
 
   const addSession = useCallback(
@@ -375,7 +361,7 @@ export function useTaskWorkspace({
       changeFor(owner, (current) =>
         addTab(current, { kind: "session", sessionId: session.id, group }),
       );
-      if (taskIdRef.current === owner.id) focusPane(group);
+      if (taskIdRef.current === owner.id) focusPane(group, `session:${session.id}`);
     }
   }, [changeFor, focusPane, pendingTabs, sessions]);
 
@@ -483,13 +469,13 @@ export function useTaskWorkspace({
       const remaining = activeTab(after, tab.group);
       if (remaining !== undefined) {
         setFocusGroup(tab.group);
-        focusPane(tab.group);
+        focusPane(tab.group, tabId(remaining));
         return;
       }
       setFocusGroup(after.focused);
       const remainingGroup = activeTab(after, after.focused);
-      if (remainingGroup !== undefined) focusPane(after.focused);
-      else focusAddSession();
+      if (remainingGroup !== undefined) focusPane(after.focused, tabId(remainingGroup));
+      else focusAddSession(after.focused);
     },
     [
       changeFor,
@@ -569,7 +555,7 @@ export function useTaskWorkspace({
       setFailure(undefined);
       change((current) => selectTab(current, id));
       setFocusGroup(tab.group);
-      focusPane(tab.group);
+      focusPane(tab.group, id);
     },
     [change, focusPane, layout, setFailure, setFocusGroup],
   );
@@ -581,7 +567,7 @@ export function useTaskWorkspace({
       if (after === layout) return;
       setFailure(undefined);
       change((current) => moveTab(current, id, group, index));
-      focusTab(id);
+      focusTab(id, group);
     },
     [change, focusTab, layout, setFailure],
   );
@@ -745,18 +731,20 @@ export function useTaskWorkspace({
       const after = removeSession(layout, session.id);
       change((current) => removeSession(current, session.id));
       if (group === undefined) return;
-      if (activeTab(after, group) !== undefined) {
+      const next = activeTab(after, group);
+      if (next !== undefined) {
         setFocusGroup(group);
-        focusPane(group);
+        focusPane(group, tabId(next));
         return;
       }
       const other = group === "main" ? "companion" : "main";
-      if (activeTab(after, other) !== undefined) {
+      const nextOther = activeTab(after, other);
+      if (nextOther !== undefined) {
         setFocusGroup(other);
-        focusPane(other);
+        focusPane(other, tabId(nextOther));
         return;
       }
-      focusAddSession();
+      focusAddSession(after.focused);
     },
     [change, client, focusAddSession, focusPane, layout, setDialog, setFailure, setFocusGroup],
   );
@@ -767,7 +755,8 @@ export function useTaskWorkspace({
       const next = toggleExpanded(layout, group);
       if (next === layout) return;
       change((current) => toggleExpanded(current, group));
-      focusPane(group);
+      const selected = activeTab(layout, group);
+      focusPane(group, selected === undefined ? undefined : tabId(selected));
     },
     [change, focusGroup, focusPane, layout],
   );
@@ -778,7 +767,7 @@ export function useTaskWorkspace({
     const tab = activeTab(layout, other) ?? tabsInGroup(layout, other)[0];
     if (tab === undefined) return;
     change((current) => focusLayoutGroup(current, other));
-    focusPane(other);
+    focusPane(other, tabId(tab));
   }, [change, focusGroup, focusPane, layout]);
 
   const abort = useCallback(async () => {

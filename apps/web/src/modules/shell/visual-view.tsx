@@ -15,6 +15,12 @@ import {
   type Ref,
   type RefObject,
 } from "react";
+import {
+  focusAreaMarker,
+  moveAreaFocus,
+  requestAreaFocus,
+  startShellFocus,
+} from "../../common/focus/index.ts";
 import { copyText } from "../../common/lib/clipboard.ts";
 import {
   DropdownMenuItem,
@@ -36,7 +42,7 @@ import {
   type VisualShortcut,
   type VisualTaskRow,
 } from "../../common/ui/index.ts";
-import { ConnectionBanner } from "../connection/index.ts";
+import { ConnectionBanner, isDesktopHost } from "../connection/index.ts";
 import {
   ACTION_GROUP_OF,
   ACTION_LABELS,
@@ -337,6 +343,9 @@ export interface VisualShellViewProps {
   addProjectShortcut?: VisualShortcut | undefined;
   /** `prefix w`: the list takes the keyboard; `prefix d`: settle or unsettle the current task. */
   focusSidebarShortcut?: VisualShortcut | undefined;
+  /** `prefix ]` / `prefix [`: the keyboard visits the next/previous area rather than the pane. */
+  nextAreaShortcut?: VisualShortcut | undefined;
+  previousAreaShortcut?: VisualShortcut | undefined;
   settleShortcut?: VisualShortcut | undefined;
   /** `prefix space`: the palette; also usable while Settings pauses the rest of the keymap. */
   paletteShortcut?: VisualShortcut | undefined;
@@ -658,6 +667,8 @@ export function VisualShellView({
   settingsShortcut,
   addProjectShortcut,
   focusSidebarShortcut,
+  nextAreaShortcut,
+  previousAreaShortcut,
   settleShortcut,
   paletteShortcut,
   paletteKeysEnabled = false,
@@ -708,6 +719,8 @@ export function VisualShellView({
   );
   const shellRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
+  // One controller owns F6, the area chords, last-focused memory and focus-loss recovery.
+  useEffect(() => startShellFocus({ desktop: isDesktopHost() }), []);
   const newTaskButton = useRef<HTMLButtonElement>(null);
   const sidebarFrame = useRef<HTMLElement>(null);
   const shelfToggle = useRef<HTMLButtonElement>(null);
@@ -760,6 +773,10 @@ export function VisualShellView({
       bindings[settingsShortcut.binding] = "settings";
     if (focusSidebarShortcut?.binding !== null && focusSidebarShortcut?.binding !== undefined)
       bindings[focusSidebarShortcut.binding] = "focus-sidebar";
+    if (nextAreaShortcut?.binding !== null && nextAreaShortcut?.binding !== undefined)
+      bindings[nextAreaShortcut.binding] = "focus-next-area";
+    if (previousAreaShortcut?.binding !== null && previousAreaShortcut?.binding !== undefined)
+      bindings[previousAreaShortcut.binding] = "focus-previous-area";
     if (taskActions !== undefined) {
       if (renameShortcut?.binding !== null && renameShortcut?.binding !== undefined)
         bindings[renameShortcut.binding] = "rename-task";
@@ -785,10 +802,12 @@ export function VisualShellView({
     findTaskShortcut,
     focusSidebarShortcut,
     newTaskShortcut,
+    nextAreaShortcut,
     onFindTask,
     paletteShortcut,
     prefix,
     prefixExtra,
+    previousAreaShortcut,
     removeShortcut,
     renameShortcut,
     settingsShortcut,
@@ -1060,15 +1079,8 @@ export function VisualShellView({
   }, [currentTaskId, rowElement, shelf.expanded]);
   const focusList = useCallback(() => {
     if (hidden) toggle();
-    requestAnimationFrame(() => {
-      const target =
-        (currentTaskId === undefined ? null : rowElement(currentTaskId)) ??
-        (rows[0] === undefined ? null : rowElement(rows[0].id)) ??
-        shelfToggle.current ??
-        newTaskButton.current;
-      target?.focus();
-    });
-  }, [currentTaskId, hidden, rowElement, rows, toggle]);
+    requestAreaFocus({ area: "sidebar", prefer: "row" });
+  }, [hidden, toggle]);
   // One handle for the mounted rows and for the keyboard's landing place when the working area
   // empties; the caller never searches the document.
   const fallbackElement = useCallback(() => {
@@ -1166,6 +1178,8 @@ export function VisualShellView({
       else if (action === "settings") onOpenSettings?.();
       else if (action === "add-project") onAddProject?.();
       else if (action === "focus-sidebar") focusList();
+      else if (action === "focus-next-area") moveAreaFocus(1);
+      else if (action === "focus-previous-area") moveAreaFocus(-1);
       else if (action === "command-palette") openPalette();
       else if (action === "next-task" || action === "previous-task") {
         const next = stepActive(taskOrder, selected?.id, action === "next-task" ? 1 : -1);
@@ -1202,6 +1216,8 @@ export function VisualShellView({
       switch (action) {
         case "toggle-sidebar":
         case "focus-sidebar":
+        case "focus-next-area":
+        case "focus-previous-area":
         case "command-palette":
         case "find-task":
           return { enabled: true };
@@ -1533,7 +1549,12 @@ export function VisualShellView({
           />
         ) : null}
       </VisualSidebar>
-      <main className="visual-shell-main" aria-label="Workspace" ref={mainRef}>
+      <main
+        className="visual-shell-main"
+        aria-label="Workspace"
+        ref={mainRef}
+        {...focusAreaMarker("main")}
+      >
         {status !== undefined && (
           <ConnectionBanner
             state={status.connection}

@@ -9,6 +9,7 @@ import {
   type Ref,
 } from "react";
 import { Icon, type IconName } from "./icon.tsx";
+import { focusAreaProps } from "../focus/index.ts";
 import { RowMenuPopup } from "./row-menu.tsx";
 import {
   Tooltip,
@@ -364,7 +365,12 @@ export function VisualSidebar({
       {/* This layer clips the fixed-width contents; the frame itself stays open so the grip can
           straddle the sidebar/main boundary instead of losing half its hit area. */}
       <div className="visual-sidebar-clip">
-        <div className="visual-sidebar-surface" style={{ width }} inert={hidden ? true : undefined}>
+        <div
+          className="visual-sidebar-surface"
+          style={{ width }}
+          inert={hidden ? true : undefined}
+          {...focusAreaProps("sidebar", "Sidebar")}
+        >
           {children}
         </div>
       </div>

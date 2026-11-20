@@ -26,6 +26,7 @@ import {
   type RefObject,
 } from "react";
 import { AgentIcon } from "./agent-icon.tsx";
+import { focusAreaProps } from "../focus/index.ts";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "./dropdown-menu.tsx";
 import { Hint } from "./hint.tsx";
 import { Icon, type IconName } from "./icon.tsx";
@@ -240,6 +241,7 @@ export function VisualWorkspaceGroups({
           aria-hidden={companionVisible ? undefined : true}
           inert={companionVisible ? undefined : true}
           onFocusCapture={() => onFocusGroup("companion")}
+          {...focusAreaProps("companion", "Companion")}
         >
           {companion}
         </div>
