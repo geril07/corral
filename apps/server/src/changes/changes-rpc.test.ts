@@ -320,9 +320,10 @@ test("the watch lists every task, and a chat tool call makes it read again", asy
   expect(first.done).toBe(false);
   expect(taskIdsOf(first.value)).toEqual([task.id]);
 
-  // The fake pi's scripted turn carries an `edit` tool call; the server recomputes the task's
-  // changes because of it, so the same watch yields again without anyone asking.
-  await api.chat.send({ sessionId: task.primarySessionId!, text: "go", mode: "prompt" });
+  // The task's initial prompt starts the fake pi's scripted turn, which carries an `edit` tool
+  // call; the server recomputes the task's changes because of it, so the same watch yields again
+  // without anyone asking. A second prompt cannot deliver that call: while the first turn is
+  // working (here, on its dialog) a prompt is refused, and the call is already in this turn.
   const second = await within(watch.next(), "a changes list after the tool call");
   expect(taskIdsOf(second.value)).toEqual([task.id]);
 });
