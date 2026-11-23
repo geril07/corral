@@ -15,7 +15,8 @@
 //   APPROVE → ask for a command approval before finishing;
 //   FAIL  → the turn fails;
 //   CRASH → the server dies as if it were killed.
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { writeRollout } from "../rollouts.ts";
 import { createServer, type IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
@@ -32,6 +33,7 @@ interface ThreadRecord {
   /** What `thread/start` was told to run, as the real thread reports it back. */
   model?: string;
   modelProvider?: string;
+  reasoningEffort?: string | null;
 }
 
 interface TurnRecord {
@@ -39,6 +41,8 @@ interface TurnRecord {
   status: "inProgress" | "completed" | "interrupted" | "failed";
   items: ItemRecord[];
   error?: { message: string };
+  requestedModel?: string;
+  requestedEffort?: string;
 }
 
 type ItemRecord = Record<string, unknown> & { id: string; type: string };
@@ -60,6 +64,51 @@ export interface FakeCodexServer {
 let counter = 0;
 /** JSON-RPC ids of the fake server's own requests: the real one numbers them from 0. */
 let requestCounter = 0;
+
+export const FAKE_CODEX_MODELS = [
+  {
+    id: "stub-model",
+    model: "stub-model",
+    displayName: "Stub Model",
+    hidden: false,
+    defaultReasoningEffort: "medium",
+    supportedReasoningEfforts: [
+      { reasoningEffort: "low", description: "" },
+      { reasoningEffort: "medium", description: "" },
+      { reasoningEffort: "high", description: "" },
+    ],
+  },
+  {
+    id: "stub-two",
+    model: "stub-two",
+    displayName: "Stub Two",
+    hidden: false,
+    defaultReasoningEffort: "low",
+    supportedReasoningEfforts: [
+      { reasoningEffort: "low", description: "" },
+      { reasoningEffort: "high", description: "" },
+    ],
+  },
+  {
+    id: "stub-three",
+    model: "stub-three",
+    displayName: "Stub Three",
+    hidden: false,
+    defaultReasoningEffort: "medium",
+    supportedReasoningEfforts: [
+      { reasoningEffort: "off", description: "" },
+      { reasoningEffort: "medium", description: "" },
+    ],
+  },
+  {
+    id: "stub-plain",
+    model: "stub-plain",
+    displayName: "Stub Plain",
+    hidden: false,
+    defaultReasoningEffort: "medium",
+    supportedReasoningEfforts: [],
+  },
+];
 
 /** Starts the fake server; resolves once the socket accepts connections. */
 export async function startFakeCodexServer(
@@ -182,6 +231,34 @@ export async function startFakeCodexServer(
         });
         return;
       }
+      case "model/list":
+        if (
+          process.env["CODEX_HOME"] !== undefined &&
+          existsSync(join(process.env["CODEX_HOME"], "catalog-error"))
+        ) {
+          fail("fake catalog failure");
+          return;
+        }
+        respond({
+          data: FAKE_CODEX_MODELS,
+          nextCursor: null,
+        });
+        return;
+      case "config/read":
+        if (
+          process.env["CODEX_HOME"] !== undefined &&
+          existsSync(join(process.env["CODEX_HOME"], "config-error"))
+        ) {
+          fail("fake config failure");
+          return;
+        }
+        respond({
+          config:
+            process.env["FAKE_CODEX_UNKNOWN_EFFORT"] === "1"
+              ? {}
+              : { model_reasoning_effort: process.env["FAKE_CODEX_CONFIG_EFFORT"] ?? null },
+        });
+        return;
       case "thread/start": {
         const thread = newThread(
           stringOf(params["cwd"]) ?? "/tmp",
@@ -189,6 +266,7 @@ export async function startFakeCodexServer(
           stringOf(params["model"]),
           stringOf(params["modelProvider"]),
         );
+        thread.reasoningEffort = process.env["FAKE_CODEX_CONFIG_EFFORT"] ?? null;
         threads.set(thread.id, thread);
         saved(thread);
         subscribed.add(thread.id);
@@ -196,6 +274,7 @@ export async function startFakeCodexServer(
           thread: publicThread(thread),
           model: thread.model ?? "stub-model",
           modelProvider: thread.modelProvider ?? "stub",
+          reasoningEffort: thread.reasoningEffort,
           approvalPolicy: "on-request",
           sandbox: { type: "workspaceWrite" },
         });
@@ -239,6 +318,7 @@ export async function startFakeCodexServer(
           thread: publicThread(thread),
           model: thread.model ?? "stub-model",
           modelProvider: thread.modelProvider ?? "stub",
+          reasoningEffort: thread.reasoningEffort ?? null,
           approvalPolicy: "on-request",
           sandbox: { type: "workspaceWrite" },
         });
@@ -260,9 +340,30 @@ export async function startFakeCodexServer(
           return;
         }
         const prompt = inputText(params);
+        if (prompt.includes("REFUSE_SEND")) {
+          fail("fake native turn refusal");
+          return;
+        }
         const turn = newTurn();
+        const model = stringOf(params["model"]);
+        const effort = stringOf(params["effort"]);
+        if (model !== undefined) turn.requestedModel = model;
+        if (effort !== undefined) {
+          turn.requestedEffort = effort;
+          thread.reasoningEffort = effort;
+        }
         thread.turns.push(turn);
         thread.recencyAt = Date.now();
+        if (prompt.includes("DELAY_RECEIPT") && subscribed.has(thread.id)) {
+          void runTurn(socket, thread, turn, prompt, stringOf(params["clientUserMessageId"]) ?? "");
+          setTimeout(() => respond({ turn: publicTurn(turn) }), 3000);
+          return;
+        }
+        if (prompt.includes("EARLY_COMPLETION") && subscribed.has(thread.id)) {
+          void runTurn(socket, thread, turn, prompt, stringOf(params["clientUserMessageId"]) ?? "");
+          respond({ turn: publicTurn(turn) });
+          return;
+        }
         respond({ turn: publicTurn(turn) });
         if (!subscribed.has(thread.id)) return;
         void runTurn(socket, thread, turn, prompt, stringOf(params["clientUserMessageId"]) ?? "");
@@ -359,6 +460,16 @@ export async function startFakeCodexServer(
       status: { type: "active", activeFlags: [] },
     });
     notify("turn/started", { threadId: thread.id, turn: publicTurn(turn) });
+    if (text.includes("FOREIGN_COMPLETION")) {
+      notify("turn/completed", {
+        threadId: "another-thread",
+        turn: { ...publicTurn(turn), status: "completed" },
+      });
+      notify("turn/completed", {
+        threadId: thread.id,
+        turn: { ...publicTurn(turn), id: "another-turn", status: "completed" },
+      });
+    }
     if (!rolledOut.has(thread.id)) {
       rolledOut.add(thread.id);
       writeThreadRollout(thread);

@@ -384,6 +384,14 @@ export const TaskAgent = z.object({
   profileId: z.string().min(1).optional(),
   expectedProfileRevision: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
+  expectedModel: ChatModelRef.optional(),
+  thinking: z
+    .object({
+      model: ChatModelRef,
+      level: z.string().min(1).max(128),
+      remembered: z.boolean().optional(),
+    })
+    .optional(),
   /**
    * How the primary session opens. Omitted takes the project's configured view (`[tasks] view`,
    * overridable per project); a `chat` view the agent has no driver for opens in the terminal.
@@ -501,6 +509,7 @@ export const LaunchSnapshot = z.object({
   profile: z.object({ id: z.string(), name: z.string(), revision: z.string() }).nullable(),
   model: z.string().nullable(),
   provider: z.string().nullable(),
+  expectedModel: ChatModelRef.optional(),
   env: z.array(EnvRef),
 });
 export type LaunchSnapshot = z.infer<typeof LaunchSnapshot>;
@@ -581,7 +590,7 @@ export type ChatWatchInput = z.infer<typeof ChatWatchInput>;
 export const ChatSendInput = z.object({
   sessionId: SessionId,
   text: z.string().trim().min(1),
-  /** `prompt` starts a turn, `steer` joins the running one, `follow-up` queues after it. */
+  /** `prompt` starts a turn, `steer` joins the running one, `follow-up` queues a later turn. */
   mode: ChatSendMode,
 });
 export type ChatSendInput = z.infer<typeof ChatSendInput>;
@@ -599,14 +608,14 @@ export const ChatSetModelInput = z.object({
   sessionId: SessionId,
   /** One of the session's `models`. */
   model: ChatModelRef,
-  /** When supplied, applied after the model and before another model, level or prompt operation. */
+  /** When supplied, the level chosen with the model; omitted uses the level remembered for it. */
   level: z.string().min(1).optional(),
 });
 export type ChatSetModelInput = z.infer<typeof ChatSetModelInput>;
 
 export const ChatSetReasoningInput = z.object({
   sessionId: SessionId,
-  /** One of the session's `reasoningLevels`. */
+  /** One of the selected model's `reasoningLevels`. */
   level: z.string().min(1),
 });
 export type ChatSetReasoningInput = z.infer<typeof ChatSetReasoningInput>;
@@ -737,7 +746,12 @@ const changesRefused = {
  * cannot help; `not-started` — the session's frontend is not running and can be started;
  * `exited` — it stopped and its last state is what the client already has.
  */
-export const ChatUnavailableReason = z.enum(["no-driver", "not-started", "exited"]);
+export const ChatUnavailableReason = z.enum([
+  "no-driver",
+  "not-started",
+  "exited",
+  "turn-unconfirmed",
+]);
 export type ChatUnavailableReason = z.infer<typeof ChatUnavailableReason>;
 
 /**
@@ -960,6 +974,14 @@ export const contract = {
           /** Only with `profileId`: the profile revision the caller last saw. */
           expectedProfileRevision: z.string().min(1).optional(),
           model: z.string().min(1).optional(),
+          expectedModel: ChatModelRef.optional(),
+          thinking: z
+            .object({
+              model: ChatModelRef,
+              level: z.string().min(1).max(128),
+              remembered: z.boolean().optional(),
+            })
+            .optional(),
           /** `terminal` when omitted; `chat` needs an agent with a chat driver. */
           view: SessionView.optional(),
         }),
@@ -1045,13 +1067,23 @@ export const contract = {
       .input(ChatWatchInput)
       .output(eventIterator(ChatStreamMessage)),
     /**
-     * Sends a message: starts a turn, steers the running one, or queues one after it. Returns the
-     * id of the item it became, so a client can reconcile an optimistic user message with the one
-     * the stream delivers instead of showing it twice. A prompt in a settled task makes the task
-     * active first; the session itself keeps running, because settle never stopped it.
+     * Sends a message: starts a turn, steers the running one, or queues one after it. A prompt
+     * starts on the session's `selection`; a steer uses the turn already running and never changes
+     * it. A follow-up is the server's own queue, run as a distinct turn after this one settles,
+     * with the selection captured when it was queued. A prompt or follow-up whose selection cannot
+     * be applied is refused with the model or level code rather than delivered on another one.
+     * Returns the id of the item it became, or the queue entry's id for a follow-up, which has no
+     * timeline item yet. A prompt in a settled task makes the task active first; the session itself
+     * keeps running, because settle never stopped it.
      */
     send: oc
-      .errors({ ...sessionNotFound, ...chatUnavailable })
+      .errors({
+        ...sessionNotFound,
+        ...chatUnavailable,
+        CHAT_MODEL_UNSUPPORTED: { data: z.object({ model: ChatModelRef }) },
+        CHAT_REASONING_UNSUPPORTED: { data: z.object({ level: z.string() }) },
+        CHAT_MODEL_LEVEL_PARTIAL: { data: z.object({ model: ChatModelRef, level: z.string() }) },
+      })
       .input(ChatSendInput)
       .output(ChatItemId),
     /** Stops the turn the agent is working on. The session stays usable. */
@@ -1068,7 +1100,12 @@ export const contract = {
       })
       .input(ChatRespondInput)
       .output(z.void()),
-    /** Runs another model, optionally applying its reasoning level as one ordered operation. */
+    /**
+     * Chooses the model, and optionally its reasoning level, for the session's later turns. While a
+     * turn runs the driver is not touched; the choice is persisted and applied at the boundary.
+     * With no `level`, the level last explicitly chosen for this agent, profile and model is used
+     * when the driver currently offers it.
+     */
     setModel: oc
       .errors({
         ...sessionNotFound,
@@ -1079,7 +1116,7 @@ export const contract = {
       })
       .input(ChatSetModelInput)
       .output(z.void()),
-    /** Sets the reasoning level to one from `reasoningLevels`. */
+    /** Sets the session's reasoning level for later turns, on the selected model. */
     setReasoning: oc
       .errors({
         ...sessionNotFound,

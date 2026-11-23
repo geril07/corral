@@ -97,7 +97,7 @@ export function runFakeOpenCodeServer(options: {
   /** The per-session durable sequence, as OpenCode's own events carry it. */
   const sequences = new Map<string, number>();
 
-  const emit = (type: string, data: Record<string, unknown>) => {
+  const emit = (type: string, data: Record<string, unknown>, staleSequence?: number) => {
     events += 1;
     const sessionID = typeof data["sessionID"] === "string" ? data["sessionID"] : undefined;
     const seq = sessionID === undefined ? undefined : (sequences.get(sessionID) ?? 0) + 1;
@@ -109,7 +109,7 @@ export function runFakeOpenCodeServer(options: {
       data,
       ...(sessionID === undefined || seq === undefined
         ? {}
-        : { durable: { aggregateID: sessionID, seq: seq - 1, version: 1 } }),
+        : { durable: { aggregateID: sessionID, seq: staleSequence ?? seq - 1, version: 1 } }),
     };
     const chunk = `data: ${JSON.stringify(frame)}\n\n`;
     for (const stream of streams) stream.write(chunk);
@@ -245,7 +245,17 @@ export function runFakeOpenCodeServer(options: {
     }
     session.busy = true;
     emit("session.execution.started", { sessionID: session.id });
+    if (text === "stale-events") emit("session.execution.succeeded", { sessionID: session.id }, 0);
     startAssistant(session);
+    if (text === "stale-events") {
+      textDelta(session, "still running");
+      return;
+    }
+    if (text === "shutdown-interruption") {
+      textDelta(session, "interrupted for shutdown");
+      emit("session.execution.interrupted", { sessionID: session.id, reason: "shutdown" });
+      return;
+    }
     if (text === "hold") {
       textDelta(session, "holding");
       return;

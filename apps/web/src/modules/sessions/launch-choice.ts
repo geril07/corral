@@ -17,6 +17,8 @@ export interface AgentLaunchChoice {
   profileId?: string;
   expectedProfileRevision?: string;
   model?: string;
+  expectedModel?: ChatModelRef | undefined;
+  thinking?: { model: ChatModelRef; level: string; remembered?: boolean | undefined } | undefined;
   view?: TaskView;
 }
 
@@ -26,6 +28,8 @@ export interface LaunchSelection {
   profile: Pick<LaunchProfile, "id" | "name" | "revision" | "model" | "provider"> | null;
   /** Raw input, including an unfinished/invalid native ID. Only submit trims and validates it. */
   model: string;
+  expectedModel?: ChatModelRef | undefined;
+  thinking?: { model: ChatModelRef; level: string; remembered?: boolean | undefined } | undefined;
 }
 
 export function supportsModel(kind: AgentKind): boolean {
@@ -145,6 +149,8 @@ export function launchChoice(selection: LaunchSelection): AgentLaunchChoice {
       ? { profileId: selection.profile.id, expectedProfileRevision: selection.profile.revision }
       : {}),
     ...(model ? { model } : {}),
+    ...(selection.expectedModel === undefined ? {} : { expectedModel: selection.expectedModel }),
+    ...(selection.thinking === undefined ? {} : { thinking: selection.thinking }),
   };
 }
 

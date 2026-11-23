@@ -29,12 +29,89 @@ export const ChatUserMessage = z.object({
 });
 export type ChatUserMessage = z.infer<typeof ChatUserMessage>;
 
-/** The agent's answer. `streaming` is true until the agent's final text for it arrives. */
+/** A model reference: the session's current model, or one an answer reports. */
+export const ChatModelRef = z.object({
+  /** The provider the model belongs to; `null` when the agent does not group models by one. */
+  provider: z.string().nullable(),
+  id: z.string().min(1),
+});
+export type ChatModelRef = z.infer<typeof ChatModelRef>;
+
+/**
+ * The model and level a session will use for a later turn. The level is the user's explicit choice
+ * only: `null` means no explicit level (the agent's own default, whatever it is), which is a
+ * different fact from an explicit `off` level and from a level nobody has reported.
+ */
+export const ChatModelSelection = z.object({
+  model: ChatModelRef,
+  level: z.string().nullable(),
+});
+export type ChatModelSelection = z.infer<typeof ChatModelSelection>;
+
+/**
+ * Why a selection's level is stored but will not be applied. The level itself stays in `selection`
+ * and in the agent's remembered preference: `unavailable` is a fresh report that does not offer it,
+ * while `unconfirmed` is a report that is loading, failed or absent, which is not evidence that the
+ * level was removed.
+ */
+export const ChatSelectionIssue = z.object({
+  level: z.string().min(1),
+  reason: z.enum(["unavailable", "unconfirmed"]),
+});
+export type ChatSelectionIssue = z.infer<typeof ChatSelectionIssue>;
+
+/**
+ * A message the server will run as a distinct turn after the running one finishes. It is not a
+ * steer: nothing of it reaches the agent until that turn ends, and it carries the selection that
+ * was in effect when it was queued, not the composer's later one.
+ */
+export const ChatQueueStatus = z.enum([
+  "queued",
+  "sending",
+  "accepted",
+  "undelivered",
+  "uncertain",
+  "boundary-unknown",
+  "boundary-unverified",
+  "uncertain-idle",
+  "accepted-idle",
+  "completed",
+]);
+export type ChatQueueStatus = z.infer<typeof ChatQueueStatus>;
+
+export const ChatQueuedMessage = z.object({
+  id: ChatItemId,
+  text: z.string(),
+  /** The selection captured when it was queued; `null` when the agent had reported no model. */
+  selection: ChatModelSelection.nullable(),
+  /**
+   * `queued`: the next safe boundary runs it. `sending`: delivery is being attempted.
+   * `accepted`: delivery was confirmed, but its turn has not yet settled.
+   * `undelivered`: it was definitely not sent, and the server will not send it on its own.
+   * `uncertain`: a restart interrupted the attempt, so it may or may not have reached the agent;
+   * it is never resent automatically. `boundary-unknown`: delivery was confirmed, but a stop or
+   * restart prevented confirmation of the turn boundary. `boundary-unverified` means the driver
+   * cannot establish which attempt a boundary belongs to. `uncertain-idle` and `accepted-idle`
+   * preserve those delivery facts after a new exclusive frontend confirmed idle; they do not claim
+   * how the previous turn ended. `completed` is an internal launch marker.
+   */
+  status: ChatQueueStatus,
+});
+export type ChatQueuedMessage = z.infer<typeof ChatQueuedMessage>;
+
+/**
+ * The agent's answer. `streaming` is true until the agent's final text for it arrives.
+ */
 export const ChatAssistantMessage = z.object({
   kind: z.literal("assistant-message"),
   id: ChatItemId,
   text: z.string(),
   streaming: z.boolean(),
+  /**
+   * The model the agent's own message reports for this answer, absent when it reports none. It is
+   * that answer's attribution, not the session's current selection.
+   */
+  model: ChatModelRef.optional(),
 });
 export type ChatAssistantMessage = z.infer<typeof ChatAssistantMessage>;
 
@@ -172,20 +249,14 @@ export type ChatItem = z.infer<typeof ChatItem>;
 export const ChatTurnState = z.enum(["idle", "working", "settled", "aborted", "error"]);
 export type ChatTurnState = z.infer<typeof ChatTurnState>;
 
-/** A model the session can run, as `chat.setModel` names it. */
-export const ChatModelRef = z.object({
-  /** The provider the model belongs to; `null` when the agent does not group models by one. */
-  provider: z.string().nullable(),
-  id: z.string().min(1),
-});
-export type ChatModelRef = z.infer<typeof ChatModelRef>;
-
 /** One entry of the session's model list, with what the UI shows for it. */
 export const ChatModel = ChatModelRef.extend({
   /** Display name; equals `id` when the agent has no separate one. */
   name: z.string().min(1),
   /** Absent when unknown; an empty array means the model has no selectable reasoning levels. */
   reasoningLevels: z.array(z.string()).optional(),
+  /** Catalog default, when the native agent reports one; not necessarily the active setting. */
+  defaultReasoningEffort: z.string().min(1).max(128).optional(),
 });
 export type ChatModel = z.infer<typeof ChatModel>;
 
@@ -218,14 +289,45 @@ export const ChatSessionState = z.object({
   turnEndedAt: z.number().nullable(),
   /** Messages sent to steer the turn the agent is working on, in send order. */
   steering: z.array(z.string()),
-  /** Messages queued to run after the current turn, in send order. */
+  /**
+   * Texts of the messages that will run after the current turn, in queue order. The server owns
+   * this queue; a driver's own follow-up queue is not used. It is the readable form of `queue`.
+   */
   followUp: z.array(z.string()),
-  /** The model in effect; `null` until the driver reports one. */
+  /**
+   * The messages queued for later turns with the selections they captured. Absent on a stream
+   * recorded before the queue became the server's.
+   */
+  queue: z.array(ChatQueuedMessage).optional(),
+  /**
+   * The model in effect, as the driver confirmed it. It is not the composer's choice: `selection`
+   * is the choice for a later turn, and this is what a running turn or an answer actually used.
+   */
   model: ChatModel.nullable(),
   /** Every model the driver offers for a switch; includes `model`. */
   models: z.array(ChatModel),
   /** The reasoning level in effect; `null` when the driver has none or has not reported one. */
   reasoning: z.string().nullable(),
+  /** A model-only next-turn choice's native default; this is not the active turn's effort. */
+  reasoningDefault: z
+    .object({
+      model: ChatModelRef,
+      source: z.enum(["configured", "model", "unknown"]),
+      level: z.string().nullable(),
+    })
+    .optional(),
+  /**
+   * The model and level chosen for the next turn, or `null` before any choice. It is kept per
+   * session, survives a restart, and is applied at a turn boundary: a running turn keeps `model`
+   * and `reasoning`. Absent on a stream recorded before the server owned this choice.
+   */
+  selection: ChatModelSelection.nullable().optional(),
+  /**
+   * The part of `selection` the live driver has not confirmed, when there is one. While present the
+   * server will not start a turn on that level: a send is refused rather than delivered on a level
+   * the user did not choose. The stored preference and `selection` are not cleared by it.
+   */
+  selectionIssue: ChatSelectionIssue.nullable(),
   /** Levels the driver accepts, in its order; empty when it has none. */
   reasoningLevels: z.array(z.string()),
   /** State of the current model's level discovery, when the driver reports it separately. */
@@ -303,9 +405,11 @@ export type ChatTerminalView = z.infer<typeof ChatTerminalView>;
 /**
  * One agent's chat driver and what it can do, as declared by the driver (protocol 10). It is data,
  * not a runtime question to the agent: the UI enables a control from it instead of offering one
- * that would be refused. `steer`/`followUp` are the two modes of `chat.send` while a turn runs,
- * `approvals` whether the agent's requests arrive as user requests, `modelSwitch` and
- * `reasoningLevels` whether `chat.setModel`/`chat.setReasoning` have anything to offer.
+ * that would be refused. `steer`/`followUp` are the two modes of `chat.send` while a turn runs: a
+ * follow-up is Corral's queue and runs as a later turn, and `followUp` says this build offers that
+ * mode for the agent. `approvals` says whether the agent's requests arrive as user requests,
+ * `modelSwitch` and `reasoningLevels` whether `chat.setModel`/`chat.setReasoning` have anything to
+ * offer.
  */
 export const ChatDriverCapabilities = z.object({
   kind: AgentKind,

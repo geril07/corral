@@ -103,6 +103,10 @@ test("a config file rebinds an action and the chord follows it", async () => {
   await expect.element(picker()).toBeVisible();
   await userEvent.keyboard("{Escape}");
   await expect.element(picker()).not.toBeInTheDocument();
+  await userEvent.keyboard("{Escape}");
+  await expect
+    .element(page.getByRole("dialog", { name: "Start agent session" }))
+    .not.toBeInTheDocument();
 
   await prefixThen("s");
   await expect.element(picker()).not.toBeInTheDocument();

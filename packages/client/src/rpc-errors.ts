@@ -28,7 +28,10 @@ export function chatUnavailableReason(error: unknown): ChatUnavailableReason | u
   const defined = definedError(error);
   if (defined?.code !== "CHAT_UNAVAILABLE") return undefined;
   const reason = field(defined.data, "reason");
-  return reason === "no-driver" || reason === "not-started" || reason === "exited"
+  return reason === "no-driver" ||
+    reason === "not-started" ||
+    reason === "exited" ||
+    reason === "turn-unconfirmed"
     ? reason
     : undefined;
 }

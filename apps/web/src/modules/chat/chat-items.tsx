@@ -2,6 +2,7 @@ import type {
   ChatAnswer,
   ChatAssistantMessage,
   ChatError,
+  ChatModelRef,
   ChatNotice,
   ChatReasoning,
   ChatToolCall,
@@ -307,13 +308,23 @@ export function AssistantMessageItem({
       <article aria-label="Agent message" data-selection-action>
         <Markdown text={item.text} streaming={item.streaming} links={links} />
       </article>
-      {answer && !item.streaming && (
-        <div className="px-1">
-          <MessageActions text={item.text} onFailure={onFailure} />
+      {answer && (item.model !== undefined || !item.streaming) && (
+        <div className="flex items-center gap-2 px-1">
+          {item.model !== undefined && (
+            <p className="m-0 min-w-0 truncate text-xs text-muted-foreground">
+              {modelLabel(item.model)}
+            </p>
+          )}
+          {!item.streaming && <MessageActions text={item.text} onFailure={onFailure} />}
         </div>
       )}
     </div>
   );
+}
+
+/** The answer's own provider/model key, as native metadata names it. */
+function modelLabel(model: ChatModelRef): string {
+  return model.provider === null ? model.id : `${model.provider}/${model.id}`;
 }
 
 /**

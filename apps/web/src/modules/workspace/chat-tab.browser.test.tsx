@@ -255,7 +255,7 @@ test("a chat session renders its tab and lane, and prefix . reaches chat.abort",
   }
 });
 
-test("the matched driver decides what Ctrl+Enter does: Codex steers, pi queues", async () => {
+test("Codex steers with Enter and queues with Ctrl+Enter, like pi", async () => {
   const { client, real, tasks, sessions, send, chatStore, chatSession } = seededClient();
   const { repo } = await appWithProject(client);
   const project = await vi.waitFor(() => {
@@ -315,10 +315,9 @@ test("the matched driver decides what Ctrl+Enter does: Codex steers, pi queues",
       .toHaveAttribute("aria-selected", "true");
     const composer = page.getByRole("textbox", { name: "Message" });
 
-    // Codex declares `followUp:false`: the chord is the same steer plain Enter does.
-    // Ctrl+Enter steers the same turn plain Enter does, and the composer keeps its semantics.
+    // Plain Enter steers the active Codex turn.
     await composer.fill("Steer the Codex turn");
-    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+    await userEvent.keyboard("{Enter}");
     await vi.waitFor(() =>
       expect(send).toHaveBeenCalledWith({
         sessionId: chatSession,
@@ -328,9 +327,16 @@ test("the matched driver decides what Ctrl+Enter does: Codex steers, pi queues",
     );
     await expect.element(composer).toHaveValue("");
 
-    // pi declares `followUp:true`: the offer returns when the selected session changes.
+    await composer.fill("Queue for Codex");
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+    await vi.waitFor(() =>
+      expect(send).toHaveBeenLastCalledWith({
+        sessionId: chatSession,
+        text: "Queue for Codex",
+        mode: "follow-up",
+      }),
+    );
     await page.getByRole("tab", { name: /^pi/ }).click();
-    // pi declares `followUp:true`: the same chord queues.
     await composer.fill("Queue for pi");
     await userEvent.keyboard("{Control>}{Enter}{/Control}");
     await vi.waitFor(() =>
@@ -654,6 +660,93 @@ test("model level discovery shows loading, failure and recovery instead of waiti
     await expect.element(dialog.getByRole("button", { name: "medium", exact: true })).toBeVisible();
     expect(thinking.element().getAttribute("aria-busy")).toBeNull();
     expect(thinking.element().querySelectorAll(".model-picker-level-skeleton")).toHaveLength(0);
+  } finally {
+    tasks.set({ loaded: true, tasks: [] });
+    sessions.set({ loaded: true, sessions: [] });
+    chatStore.close();
+  }
+});
+
+test("an unavailable selected level is explained and does not read as the picker's choice", async () => {
+  const state = workingChat({
+    model: { provider: "stub", id: "stub-2", name: "Stub Two" },
+    models: [
+      {
+        provider: "stub",
+        id: "stub-2",
+        name: "Stub Two",
+        reasoningLevels: ["off", "medium", "high"],
+      },
+    ],
+    reasoning: "medium",
+    reasoningLevels: ["off", "medium", "high"],
+    selection: { model: { provider: "stub", id: "stub-2" }, level: "max" },
+    selectionIssue: { level: "max", reason: "unavailable" },
+  });
+  const { client, real, tasks, sessions, setReasoning, chatStore, chatSession } =
+    seededClient(state);
+  const { repo } = await appWithProject(client);
+  const project = await vi.waitFor(() => {
+    const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
+    if (found === undefined) throw new Error("the project is not in the list yet");
+    return found;
+  });
+  await vi.waitFor(() => expect(real.sessions.getSnapshot().loaded).toBe(true));
+
+  const task: Task = {
+    id: "task-chat-unavailable-level",
+    projectId: project.id,
+    title: "Unavailable level",
+    titleSource: "user",
+    prompt: null,
+    primarySessionId: chatSession,
+    branch: "main",
+    workspacePath: project.path,
+    ownsWorktree: false,
+    state: "active",
+    seenAt: null,
+    snoozedUntil: null,
+    snoozedAt: null,
+    createdAt: 1,
+  };
+  const session: Session = {
+    id: chatSession,
+    taskId: task.id,
+    kind: "pi",
+    view: "chat",
+    agentSessionId: "pi-seeded",
+    terminalId: null,
+    state: "running",
+    status: null,
+    createdAt: 1,
+  };
+
+  try {
+    tasks.set({ loaded: true, tasks: [task] });
+    sessions.set({ loaded: true, sessions: [session] });
+
+    await openSeededTask("Unavailable level");
+    // The composer reports what the agent actually runs, not the stored request.
+    await expect.element(page.getByRole("button", { name: "Reasoning medium" })).toBeVisible();
+    await page.getByRole("button", { name: "Reasoning medium" }).click();
+    const dialog = page.getByRole("dialog", { name: "Reasoning level" });
+    await expect.element(dialog).toBeVisible();
+    await expect
+      .element(dialog)
+      .toMatchTextContent(
+        "The selected thinking level is no longer available. Choose another level.",
+      );
+    for (const level of ["off", "medium", "high"]) {
+      const option = dialog.getByRole("button", { name: level, exact: true });
+      expect(option.element().getAttribute("aria-pressed")).toBe("false");
+    }
+    await dialog.getByRole("button", { name: "high", exact: true }).click();
+    await vi.waitFor(() =>
+      expect(setReasoning).toHaveBeenCalledExactlyOnceWith({
+        sessionId: chatSession,
+        level: "high",
+      }),
+    );
   } finally {
     tasks.set({ loaded: true, tasks: [] });
     sessions.set({ loaded: true, sessions: [] });

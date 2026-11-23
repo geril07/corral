@@ -1,16 +1,17 @@
 import { defaultModelPolicy, modelVisible, ModelPreferences } from "@corral/protocol/models";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse, stringify } from "smol-toml";
 import { expect, test, vi } from "vite-plus/test";
 import { useServer, within } from "../../test/server-fixture.ts";
 import { useFakeAgents } from "../../test/fake-agents.ts";
 import { addProject } from "../../test/project-fixture.ts";
-import { processExists } from "../../test/session-helpers.ts";
+import { processExists, sessionsOf } from "../../test/session-helpers.ts";
 
 const server = useServer({ modelCatalogTimeoutMs: 2000 });
 const agents = useFakeAgents();
 const scope = { kind: "pi" as const, profileId: null };
+const codexScope = (profileId: string) => ({ kind: "codex" as const, profileId });
 
 test("shared preferences watch/save conflict and survive restart without native launches", async () => {
   await mkdir(server.configDir, { recursive: true });
@@ -162,6 +163,39 @@ test("new discovery models obey saved provider rules; failed refresh keeps inven
   expect(JSON.stringify(stale)).not.toContain("secret-native-diagnostic");
 });
 
+test("pre-launch thinking memory is shared and rejects stale or unavailable native levels", async () => {
+  const { project } = await addProject(server, "thinking-memory");
+  const a = await server.rpc();
+  const b = await server.rpc();
+  const input = { scope, context: { projectId: project.id } };
+  const model = { provider: "stub", id: "stub-2" };
+  await expect(a.models.rememberThinking({ ...input, model, level: "low" })).rejects.toMatchObject({
+    code: "MODEL_THINKING_UNAVAILABLE",
+  });
+  await a.models.rememberThinking({ ...input, model, level: "high" });
+  expect((await b.models.catalog(input)).rememberedThinking).toContainEqual({
+    model,
+    level: "high",
+  });
+  await mkdir(agents.piRpcHome, { recursive: true });
+  await writeFile(join(agents.piRpcHome, "catalog-error"), "");
+  expect((await a.models.catalog({ ...input, refresh: true })).status).toBe("stale");
+  await expect(b.models.rememberThinking({ ...input, model, level: "off" })).rejects.toMatchObject({
+    code: "MODEL_THINKING_UNCONFIRMED",
+  });
+  expect((await b.models.catalog(input)).rememberedThinking).toContainEqual({
+    model,
+    level: "high",
+  });
+  await rm(join(agents.piRpcHome, "catalog-error"));
+  await server.restart();
+  const resumed = await server.rpc();
+  expect((await resumed.models.catalog(input)).rememberedThinking).toContainEqual({
+    model,
+    level: "high",
+  });
+});
+
 test("OpenCode probes its own server, gets enabled provider/model identities and never creates a conversation", async () => {
   const { project } = await addProject(server, "opencode-catalog");
   const api = await server.rpc();
@@ -263,10 +297,119 @@ test("shutdown stops an unanswered metadata process and releases its native clai
   expect(processExists(launch.pid)).toBe(false);
 });
 
+test("Codex catalog discovery uses a separate metadata server without creating a session", async () => {
+  const { project } = await addProject(server, "codex catalog");
+  const api = await server.rpc();
+  const catalog = await api.models.catalog({
+    scope: { kind: "codex", profileId: null },
+    context: { projectId: project.id },
+  });
+  expect(catalog.status).toBe("ready");
+  expect(catalog.models).toContainEqual({
+    provider: "stub",
+    id: "stub-model",
+    name: "Stub Model",
+    reasoningLevels: ["low", "medium", "high"],
+    defaultReasoningEffort: "medium",
+  });
+  const launches = await agents.launches();
+  expect(launches).toHaveLength(1);
+  expect(launches[0]?.argv).toEqual(["app-server"]);
+  expect(launches[0]?.cwd).toBe(project.path);
+  expect(await sessionsOf(api)).toEqual([]);
+});
+
+test("Codex discovery names the implicit OpenAI provider when native config omits it", async () => {
+  vi.stubEnv("FAKE_CODEX_DEFAULT_PROVIDER", "1");
+  const { project } = await addProject(server, "codex default provider");
+  const api = await server.rpc();
+  const catalog = await api.models.catalog({
+    scope: { kind: "codex", profileId: null },
+    context: { projectId: project.id },
+  });
+  expect(catalog.status).toBe("ready");
+  expect(catalog.models[0]?.provider).toBe("openai");
+});
+
+test("Codex effort memory is shared, rejects unoffered and stale choices, and survives restart", async () => {
+  const { project } = await addProject(server, "codex memory");
+  const a = await server.rpc();
+  const b = await server.rpc();
+  const input = {
+    scope: { kind: "codex" as const, profileId: null },
+    context: { projectId: project.id },
+  };
+  const model = { provider: "stub", id: "stub-two" };
+  expect((await a.models.catalog(input)).status).toBe("ready");
+  await a.models.rememberThinking({ ...input, model, level: "high" });
+  await expect(b.models.thinking({ scope: input.scope, model })).resolves.toBe("high");
+  await expect(b.models.rememberThinking({ ...input, model, level: "off" })).rejects.toMatchObject({
+    code: "MODEL_THINKING_UNAVAILABLE",
+  });
+  await mkdir(agents.codexHome, { recursive: true });
+  await writeFile(join(agents.codexHome, "catalog-error"), "");
+  expect((await b.models.catalog({ ...input, refresh: true })).status).toBe("stale");
+  await expect(b.models.rememberThinking({ ...input, model, level: "low" })).rejects.toMatchObject({
+    code: "MODEL_THINKING_UNCONFIRMED",
+  });
+  await rm(join(agents.codexHome, "catalog-error"));
+  await server.restart();
+  const resumed = await server.rpc();
+  await expect(resumed.models.thinking({ scope: input.scope, model })).resolves.toBe("high");
+});
+
+test("Codex discovery and thinking memory remain isolated by profile", async () => {
+  const { project } = await addProject(server, "codex profiles");
+  vi.stubEnv("CODEX_PROFILE_ONE", "codex-one-secret");
+  vi.stubEnv("CODEX_PROFILE_TWO", "codex-two-secret");
+  vi.stubEnv("FAKE_AGENT_LOG_ENV", "DISCOVERY_ACCOUNT");
+  await mkdir(server.configDir, { recursive: true });
+  await writeFile(
+    join(server.configDir, "config.toml"),
+    `
+[profiles.one]
+name = "One"
+agent = "codex"
+env = [{ targetName = "DISCOVERY_ACCOUNT", fromEnv = "CODEX_PROFILE_ONE" }]
+[profiles.two]
+name = "Two"
+agent = "codex"
+env = [{ targetName = "DISCOVERY_ACCOUNT", fromEnv = "CODEX_PROFILE_TWO" }]
+`,
+  );
+  const api = await server.rpc();
+  await within(
+    (async () => {
+      for await (const state of await api.config.watch()) if (state.profiles.length === 2) return;
+      throw new Error("config watch ended");
+    })(),
+    "Codex profiles",
+  );
+  const input = (profileId: string) => ({
+    scope: codexScope(profileId),
+    context: { projectId: project.id },
+  });
+  const model = { provider: "stub", id: "stub-two" };
+  const catalogs = await Promise.all([
+    api.models.catalog(input("one")),
+    api.models.catalog(input("two")),
+  ]);
+  expect(catalogs.map((catalog) => catalog.status)).toEqual(["ready", "ready"]);
+  expect(JSON.stringify(catalogs)).not.toContain("-secret");
+  await api.models.rememberThinking({ ...input("one"), model, level: "high" });
+  expect(await api.models.thinking({ scope: codexScope("one"), model })).toBe("high");
+  expect(await api.models.thinking({ scope: codexScope("two"), model })).toBeNull();
+  expect(
+    (await agents.launches())
+      .map((launch) => launch.envSentinels["DISCOVERY_ACCOUNT"])
+      .toSorted((a, b) => (a ?? "").localeCompare(b ?? "")),
+  ).toEqual(["codex-one-secret", "codex-two-secret"]);
+});
+
 test("unsupported, removed-profile and missing-context reads never spawn a native process", async () => {
   const api = await server.rpc();
   expect(
-    (await api.models.catalog({ scope: { kind: "codex", profileId: null }, context: {} })).status,
+    (await api.models.catalog({ scope: { kind: "claude", profileId: null }, context: {} })).status,
   ).toBe("unsupported");
   expect(
     (await api.models.catalog({ scope: { kind: "pi", profileId: "gone" }, context: {} })).status,

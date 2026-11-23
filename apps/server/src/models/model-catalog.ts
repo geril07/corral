@@ -70,7 +70,11 @@ export class ModelCatalogService {
       return { ...EMPTY, message: "This agent is disabled in the config file." };
     if (profile?.enabled === false)
       return { ...EMPTY, message: "This instance is disabled in the config file." };
-    if (input.scope.kind !== "pi" && input.scope.kind !== "opencode")
+    if (
+      input.scope.kind !== "pi" &&
+      input.scope.kind !== "opencode" &&
+      input.scope.kind !== "codex"
+    )
       return {
         ...EMPTY,
         status: "unsupported",
@@ -189,6 +193,11 @@ export class ModelCatalogService {
             !model.reasoningLevels.some((level) => secrets.some((secret) => level.includes(secret)))
           )
             safe.reasoningLevels = model.reasoningLevels;
+          if (
+            model.defaultReasoningEffort !== undefined &&
+            !secrets.some((secret) => model.defaultReasoningEffort!.includes(secret))
+          )
+            safe.defaultReasoningEffort = model.defaultReasoningEffort;
           return safe;
         });
       const models = [...new Map(safeModels.map((m) => [modelKey(m), m])).values()];

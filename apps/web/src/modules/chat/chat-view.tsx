@@ -104,7 +104,33 @@ export function ChatView({
   autoFocus = true,
 }: ChatViewProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const reasoning = snapshot.state.reasoning ?? "Thinking";
+  // The composer is the next turn's choice; an answer and the running turn keep the model they
+  // actually ran on, so the two are never shown as one fact.
+  const nextChoice = snapshot.state.selection ?? null;
+  const chosen = nextChoice?.model ?? snapshot.state.model;
+  const applied = snapshot.state.model;
+  const chosenName =
+    chosen === null
+      ? undefined
+      : applied !== null && applied.id === chosen.id && applied.provider === chosen.provider
+        ? applied.name
+        : (snapshot.state.models.find(
+            (model) => model.id === chosen.id && model.provider === chosen.provider,
+          )?.name ?? chosen.id);
+  // A selected level the live driver has not confirmed is not what a send would use, so it is not
+  // shown as the composer's level either; the confirmed level is, and the send is refused.
+  const selectionIssue = snapshot.state.selectionIssue ?? null;
+  const reasoning =
+    (selectionIssue === null
+      ? nextChoice === null
+        ? snapshot.state.reasoning
+        : (nextChoice.level ??
+          (applied !== null &&
+          applied.id === nextChoice.model.id &&
+          applied.provider === nextChoice.model.provider
+            ? snapshot.state.reasoning
+            : null))
+      : snapshot.state.reasoning) ?? "Thinking";
   const { observe: observeReasoning, clipped: clippedReasoning } = useTruncatedText(reasoning);
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string>();
@@ -229,9 +255,20 @@ export function ChatView({
   };
 
   const hints =
-    snapshot.state.steering.length + snapshot.state.followUp.length > 0 ? (
+    snapshot.state.steering.length + snapshot.state.followUp.length > 0 ||
+    (snapshot.state.turn !== "working" &&
+      snapshot.state.queue?.some(
+        (entry) => entry.status === "sending" || entry.status === "accepted",
+      )) ? (
       <div className="flex flex-col gap-0.5">
-        {/* A repeated queued message is legal, so its position is the identity here. */}
+        {snapshot.state.turn !== "working" &&
+          snapshot.state.queue?.some(
+            (entry) => entry.status === "sending" || entry.status === "accepted",
+          ) && (
+            <p role="status" className="m-0 text-xs text-muted-foreground">
+              Waiting for the previous message and turn to be confirmed. Later turns are paused.
+            </p>
+          )}
         {snapshot.state.steering.map((text, index) => (
           // oxlint-disable-next-line react/no-array-index-key -- duplicates are allowed
           <p key={`steer-${index}`} className="m-0 truncate text-xs text-muted-foreground">
@@ -369,8 +406,8 @@ export function ChatView({
                   <ModelPickerButton
                     ref={modelPickerAnchor}
                     kind={agent}
-                    label={snapshot.state.model?.name ?? "Choose model"}
-                    aria-label={`Model ${snapshot.state.model?.name ?? "none"}`}
+                    label={chosenName ?? "Choose model"}
+                    aria-label={`Model ${chosenName ?? "none"}`}
                     disabled={!canChooseAgent && snapshot.state.models.length === 0}
                     onClick={onChangeModel}
                   />
@@ -378,11 +415,7 @@ export function ChatView({
                     ref={reasoningPickerAnchor}
                     variant="ghost"
                     size="sm"
-                    aria-label={
-                      snapshot.state.reasoning === null
-                        ? reasoning
-                        : `Reasoning ${snapshot.state.reasoning}`
-                    }
+                    aria-label={reasoning === "Thinking" ? reasoning : `Reasoning ${reasoning}`}
                     onClick={onChangeReasoning}
                   >
                     <span

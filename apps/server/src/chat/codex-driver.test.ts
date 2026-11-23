@@ -152,6 +152,28 @@ async function journal(path: string): Promise<Record<string, unknown>[]> {
     .filter(isRecord);
 }
 
+test("Codex correlates an early completion and ignores completions for other turns and threads", async () => {
+  const test1 = await harness();
+  try {
+    const { driver, timeline, ready } = await test1.open();
+    await ready;
+    const early = driver.send("EARLY_COMPLETION", "prompt");
+    expect(await early.outcome).toBeNull();
+    expect(await early.boundary).toBe("settled");
+    const current = driver.send("SLOW FOREIGN_COMPLETION", "prompt");
+    expect(await current.outcome).toBeNull();
+    let outcome: string | undefined;
+    void current.boundary?.then((value) => (outcome = value));
+    await until(() => textOf(timeline).includes("part 0"), "the current streaming turn");
+    expect(timeline.state.turn).toBe("working");
+    expect(outcome).toBeUndefined();
+    await driver.abort();
+    expect(await current.boundary).toBe("aborted");
+  } finally {
+    await test1.close();
+  }
+});
+
 test(
   "a turn streams text, reports the assigned thread id and settles",
   { timeout: 20_000 },
@@ -302,7 +324,8 @@ test(
       );
       // A follow-up is declared off: it is refused visibly and is not added as a sent message.
       const refused = driver.send("a follow-up", "follow-up");
-      expect(refused).toMatch(/^error:send:/);
+      expect(refused.id).toMatch(/^error:send:/);
+      expect(await refused.outcome).toBeInstanceOf(Error);
       expect(
         items(timeline).some((item) => item.kind === "user-message" && item.text === "a follow-up"),
       ).toBe(false);

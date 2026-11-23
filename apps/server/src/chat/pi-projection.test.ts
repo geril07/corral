@@ -21,6 +21,11 @@ function userMessage(text: string): PiRecord {
   return { type: "message_start", message: { role: "user", content: text } };
 }
 
+function assistantAt(timeline: ChatTimeline, id: string) {
+  const item = timeline.item(id);
+  return item?.kind === "assistant-message" ? item : undefined;
+}
+
 test("records are split on LF only, at any chunk boundary, with CRLF accepted", () => {
   const first = JSON.stringify({ type: "agent_start", note: "a\u2028b\u2029c" });
   const second = JSON.stringify({ type: "agent_settled", aborted: false });
@@ -170,6 +175,85 @@ test("the authoritative message_end replaces what the deltas streamed", () => {
   expect(timeline.snapshot().items).toEqual([
     { kind: "assistant-message", id: expect.any(String), text: "final", streaming: false },
   ]);
+});
+
+function streamedAnswer(
+  text: string,
+  startModel?: { provider: string; model: string },
+  endModel?: { provider: string; model: string },
+): PiRecord[] {
+  return [
+    { type: "message_start", message: { role: "assistant", content: [], ...startModel } },
+    {
+      type: "message_update",
+      assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: text },
+    },
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        stopReason: "stop",
+        ...endModel,
+      },
+    },
+  ];
+}
+
+test("each live answer takes the model its own message reports, never the session's", () => {
+  const { timeline, created, apply } = projection();
+  apply(
+    // The model is on the message from its start.
+    ...streamedAnswer("first", { provider: "alpha", model: "a-1" }),
+    // A start without one still gets it from the authoritative end.
+    ...streamedAnswer("second", undefined, { provider: "beta", model: "b-2" }),
+    // No model anywhere: the answer stays unattributed.
+    ...streamedAnswer("third"),
+  );
+  created.loadModelState(
+    { model: { id: "c-3", provider: "gamma" } },
+    [{ id: "c-3", provider: "gamma", contextWindow: 1_000 }],
+    [],
+  );
+  const messages = timeline.snapshot().items.filter((item) => item.kind === "assistant-message");
+  expect(messages[0]?.model).toEqual({ provider: "alpha", id: "a-1" });
+  expect(messages[1]?.model).toEqual({ provider: "beta", id: "b-2" });
+  expect(messages[2] !== undefined && "model" in messages[2]).toBe(false);
+  expect(messages.map((item) => item.text)).toEqual(["first", "second", "third"]);
+});
+
+test("a rebuilt transcript keeps a model per answer and leaves an unknown one absent", () => {
+  const { timeline, created } = projection();
+  created.loadHistory([
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "older" }],
+      provider: "alpha",
+      model: "a-1",
+      stopReason: "stop",
+    },
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "newest" }],
+      provider: "beta",
+      model: "b-2",
+      stopReason: "stop",
+    },
+    {
+      role: "assistant",
+      content: [{ type: "text", text: "unattributed" }],
+      stopReason: "stop",
+    },
+  ]);
+  created.loadModelState(
+    { model: { id: "c-3", provider: "gamma" } },
+    [{ id: "c-3", provider: "gamma", contextWindow: 1_000 }],
+    [],
+  );
+  expect(assistantAt(timeline, "h-0-c0")?.model).toEqual({ provider: "alpha", id: "a-1" });
+  expect(assistantAt(timeline, "h-1-c0")?.model).toEqual({ provider: "beta", id: "b-2" });
+  const unattributed = assistantAt(timeline, "h-2-c0");
+  expect(unattributed !== undefined && "model" in unattributed).toBe(false);
 });
 
 test("a dialog request is an item the client answers with the record pi expects", () => {
@@ -375,11 +459,12 @@ test("model reasoning capabilities distinguish unknown and unsupported and respe
   ]);
 });
 
-test("a queue update carries the steering and follow-up messages", () => {
+test("a queue update carries the steering, and leaves the server's follow-up queue alone", () => {
   const { timeline, apply } = projection();
   apply({ type: "queue_update", steering: ["wait"], followUp: ["then this"] });
   expect(timeline.state.steering).toEqual(["wait"]);
-  expect(timeline.state.followUp).toEqual(["then this"]);
+  // The server owns the queue; pi's native follow-up is not the same list.
+  expect(timeline.state.followUp).toEqual([]);
 });
 
 test("unknown and malformed fields are ignored instead of throwing", () => {

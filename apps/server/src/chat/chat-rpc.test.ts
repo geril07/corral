@@ -4,11 +4,13 @@ import type {
   ChatSessionState,
   ChatStreamMessage,
 } from "@corral/protocol/chat";
+import { ConfigState } from "@corral/protocol/config";
 import { Task } from "@corral/protocol/rpc";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { expect, test, vi } from "vite-plus/test";
 import { z } from "zod";
 import { floorPath } from "./sequence-floor.ts";
@@ -74,6 +76,8 @@ function emptyState(): ChatSessionState {
     models: [],
     reasoning: null,
     reasoningLevels: [],
+    selection: null,
+    selectionIssue: null,
     context: null,
   };
 }
@@ -267,10 +271,10 @@ test("a task created in chat view starts pi in RPC mode with its prompt, and the
       {
         kind: "codex",
         steer: true,
-        followUp: false,
+        followUp: true,
         approvals: true,
-        modelSwitch: false,
-        reasoningLevels: false,
+        modelSwitch: true,
+        reasoningLevels: true,
         terminalView: "both-live",
       },
       {
@@ -454,7 +458,7 @@ test("an abort stops the turn, leaves no item streaming and reports idle", async
   }
 });
 
-test("a crash ends the frontend with a visible reason and the session stays resumable", async () => {
+test("a crash retains the accepted initial prompt with an unknown boundary on resume", async () => {
   vi.stubEnv("FAKE_PI_RPC", "crash");
   vi.stubEnv("FAKE_PI_RPC_CRASH_DELAY_MS", "300");
   const { api, session } = await chatTask();
@@ -481,14 +485,24 @@ test("a crash ends the frontend with a visible reason and the session stays resu
     data: { reason: "exited", message: "pi exited unexpectedly (code 3)" },
   });
 
-  // Continuing starts a new frontend; the crashed turn never wrote history, so the prompt goes again.
   vi.stubEnv("FAKE_PI_RPC", "normal");
   const restarted = await api.sessions.restart({ id: session.id, size: SIZE });
   expect(restarted).toMatchObject({ state: "running", view: "chat", terminalId: null });
   const again = follow(api, session.id);
   try {
-    await again.until((view) => view.itemOfKind("user-request") !== undefined, "the next turn");
-    expect(again.itemOfKind("user-message")).toMatchObject({ text: "Add a note to notes.txt" });
+    await again.until(
+      (view) => view.state.queue?.some((entry) => entry.status === "boundary-unknown") === true,
+      "the prompt with unknown boundary",
+    );
+    expect(again.state.queue).toContainEqual(
+      expect.objectContaining({
+        text: "Add a note to notes.txt",
+        status: "boundary-unknown",
+      }),
+    );
+    await expect(
+      api.chat.send({ sessionId: session.id, text: "later", mode: "prompt" }),
+    ).rejects.toMatchObject({ code: "CHAT_UNAVAILABLE", data: { reason: "turn-unconfirmed" } });
   } finally {
     await again.close();
   }
@@ -797,6 +811,7 @@ test("a steer reaches pi and is reported as steering while the turn runs", async
 
 test("the model and reasoning level switch through the driver and are reported by the session state", async () => {
   const { api, session } = await chatTask("Model please");
+  await settleTurn(api, session.id, "Model please");
   const chat = follow(api, session.id);
   try {
     await chat.until(
@@ -843,6 +858,7 @@ test("a successful model switch followed by a failed refresh never advertises th
   vi.stubEnv("FAKE_PI_RPC", "refresh-fail");
   const { api, task } = await chatTask("Refresh capabilities");
   const sessionId = task.primarySessionId!;
+  await settleTurn(api, sessionId, "Refresh capabilities");
   const chat = follow(api, sessionId);
   try {
     await chat.until((view) => view.state.reasoningLevels.length > 0, "initial thinking");
@@ -850,6 +866,14 @@ test("a successful model switch followed by a failed refresh never advertises th
     await chat.until((view) => view.state.reasoningStatus === "error", "failed refresh");
     expect(chat.state.reasoningLevels).toEqual([]);
     expect(chat.state.reasoning).toBeNull();
+    await api.chat.send({ sessionId, text: "send with unknown thinking", mode: "prompt" });
+    await chat.until(
+      (view) =>
+        view.items.some(
+          (item) => item.kind === "user-message" && item.text === "send with unknown thinking",
+        ),
+      "the prompt without a claimed thinking level",
+    );
   } finally {
     await chat.close();
   }
@@ -858,6 +882,7 @@ test("a successful model switch followed by a failed refresh never advertises th
 test("a silent model refresh ends the frontend rather than blocking later messages indefinitely", async () => {
   vi.stubEnv("FAKE_PI_RPC", "refresh-silent");
   const { api, session } = await chatTask("Refresh capabilities");
+  await settleTurn(api, session.id, "Refresh capabilities");
   const chat = follow(api, session.id);
   try {
     await chat.until((view) => view.state.reasoningLevels.length > 0, "initial thinking");
@@ -872,6 +897,1536 @@ test("a silent model refresh ends the frontend rather than blocking later messag
   } finally {
     await chat.close();
   }
+});
+
+/** One entry of the fake pi's command journal: what a turn actually ran on. */
+interface PiCommand {
+  type: string;
+  text?: string | undefined;
+  model?: string | undefined;
+  provider?: string | undefined;
+  level?: string | undefined;
+}
+
+/** The fake pi's journal for one conversation: accepted messages and applied model/level commands. */
+const PiCommandJournal = z.array(
+  z.object({
+    type: z.string(),
+    text: z.string().optional(),
+    model: z.string().optional(),
+    provider: z.string().optional(),
+    level: z.string().optional(),
+  }),
+);
+
+async function piCommands(agentSessionId: string): Promise<PiCommand[]> {
+  const safe = agentSessionId.replace(/[^A-Za-z0-9._-]/g, "_");
+  const text = await readFile(join(agents.piRpcHome, `${safe}.commands.json`), "utf8").catch(
+    () => "",
+  );
+  return text === "" ? [] : PiCommandJournal.parse(JSON.parse(text));
+}
+
+test("a pre-launch pi model and level reach the first prompt, then survive restart without replay", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { project } = await addProject(server, "prelaunch");
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "first chosen prompt",
+    agent: {
+      kind: "pi",
+      view: "chat",
+      model: "stub/stub-2",
+      thinking: { model: { provider: "stub", id: "stub-2" }, level: "high" },
+    },
+    workspace: { type: "main-worktree" },
+  });
+  const session = (await sessionsOf(api)).find((entry) => entry.id === task.primarySessionId)!;
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.state.turn === "settled", "the first chosen turn");
+    expect(
+      (await piCommands(session.agentSessionId!)).find((entry) => entry.type === "prompt"),
+    ).toMatchObject({ text: "first chosen prompt", model: "stub-2", level: "high" });
+    expect(chat.state.selection).toEqual({
+      model: { provider: "stub", id: "stub-2" },
+      level: "high",
+    });
+  } finally {
+    await chat.close();
+  }
+  await server.restart();
+  const api2 = await server.rpc();
+  const resumed = follow(api2, session.id);
+  try {
+    await resumed.until((view) => view.state.selection?.level === "high", "the retained choice");
+    expect(
+      (await piCommands(session.agentSessionId!)).filter((entry) => entry.type === "prompt"),
+    ).toHaveLength(1);
+  } finally {
+    await resumed.close();
+  }
+  const second = await api2.sessions.start({
+    taskId: task.id,
+    kind: "pi",
+    view: "chat",
+    size: SIZE,
+    model: "stub/stub-2",
+  });
+  const secondChat = follow(api2, second.id);
+  try {
+    await secondChat.until(
+      (view) => view.state.selection?.level === "high",
+      "the remembered level in another session",
+    );
+    await api2.chat.send({ sessionId: second.id, text: "remembered turn", mode: "prompt" });
+    await secondChat.until(
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === "remembered turn"),
+      "the second session's prompt",
+    );
+    await expect
+      .poll(async () =>
+        (await piCommands(second.agentSessionId!)).find((entry) => entry.type === "prompt"),
+      )
+      .toMatchObject({ text: "remembered turn", model: "stub-2", level: "high" });
+  } finally {
+    await secondChat.close();
+  }
+  await writeFile(
+    join(agents.piRpcHome, "levels.json"),
+    JSON.stringify({ "stub-2": ["off", "low"] }),
+  );
+  const unavailable = await api2.sessions.start({
+    taskId: task.id,
+    kind: "pi",
+    view: "chat",
+    size: SIZE,
+    model: "stub/stub-2",
+  });
+  const unavailableChat = follow(api2, unavailable.id);
+  try {
+    await unavailableChat.until(
+      (view) => view.state.reasoningStatus === "ready",
+      "the fresh report without the remembered level",
+    );
+    await api2.chat.send({ sessionId: unavailable.id, text: "use native default", mode: "prompt" });
+    await unavailableChat.until(
+      (view) =>
+        view.items.some(
+          (item) => item.kind === "user-message" && item.text === "use native default",
+        ),
+      "the native-default prompt",
+    );
+    await expect
+      .poll(async () =>
+        (await piCommands(unavailable.agentSessionId!)).find((entry) => entry.type === "prompt"),
+      )
+      .toMatchObject({ text: "use native default", model: "stub-2" });
+    const commands = await piCommands(unavailable.agentSessionId!);
+    expect(commands.filter((entry) => entry.type === "level")).toEqual([]);
+  } finally {
+    await unavailableChat.close();
+  }
+  await rm(join(agents.piRpcHome, "levels.json"));
+  const restored = await api2.sessions.start({
+    taskId: task.id,
+    kind: "pi",
+    view: "chat",
+    size: SIZE,
+    model: "stub/stub-2",
+  });
+  const restoredChat = follow(api2, restored.id);
+  try {
+    await restoredChat.until(
+      (view) => view.state.selection?.level === "high",
+      "the remembered level after it becomes available again",
+    );
+  } finally {
+    await restoredChat.close();
+  }
+  await configureProfiles();
+  const otherProfile = await api2.sessions.start({
+    taskId: task.id,
+    kind: "pi",
+    view: "chat",
+    size: SIZE,
+    profileId: "pi-one",
+    model: "stub/stub-2",
+  });
+  const otherChat = follow(api2, otherProfile.id);
+  try {
+    await otherChat.until((view) => view.state.models.length > 0, "the other profile's model list");
+    await api2.chat.send({ sessionId: otherProfile.id, text: "profile default", mode: "prompt" });
+    await otherChat.until(
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === "profile default"),
+      "the other profile's prompt",
+    );
+    expect(
+      (await piCommands(otherProfile.agentSessionId!)).find((entry) => entry.type === "prompt"),
+    ).toMatchObject({ text: "profile default", model: "stub-2", level: "medium" });
+  } finally {
+    await otherChat.close();
+  }
+});
+
+test("an unoffered direct pi launch cannot poison another session's thinking memory", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { project } = await addProject(server, "pi-direct-memory");
+  const api = await server.rpc();
+  const scope = { kind: "pi" as const, profileId: null };
+  const model = { provider: "stub", id: "stub-2" };
+  await api.models.rememberThinking({ scope, context: { projectId: project.id }, model, level: "high" });
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "keep unoffered pi prompt",
+    agent: { kind: "pi", view: "chat", model: "stub/stub-2", thinking: { model, level: "fake-level" } },
+    workspace: { type: "main-worktree" },
+  });
+  const session = (await sessionsOf(api)).find((entry) => entry.id === task.primarySessionId)!;
+  const chat = follow(api, session.id);
+  try {
+    await chat.until(
+      (view) =>
+        view.items.some(
+          (item) => item.kind === "error" && item.text.includes("keep unoffered pi prompt"),
+        ),
+      "the refused first prompt",
+    );
+    expect(await api.models.thinking({ scope, model })).toBe("high");
+    expect((await piCommands(session.agentSessionId!)).filter((entry) => entry.type === "prompt")).toEqual([]);
+  } finally {
+    await chat.close();
+  }
+});
+
+test("a direct pi choice cannot overwrite a newer client's memory while native confirmation waits", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { project } = await addProject(server, "pi-memory-race");
+  const api = await server.rpc();
+  const other = await server.rpc();
+  const scope = { kind: "pi" as const, profileId: null };
+  const model = { provider: "stub", id: "stub-2" };
+  await mkdir(agents.piRpcHome, { recursive: true });
+  await writeFile(join(agents.piRpcHome, "hold-thinking"), "");
+  try {
+    const task = await api.tasks.create({
+      projectId: project.id,
+      prompt: "captured pi high",
+      agent: { kind: "pi", view: "chat", model: "stub/stub-2", thinking: { model, level: "high" } },
+      workspace: { type: "main-worktree" },
+    });
+    const session = (await sessionsOf(api)).find((entry) => entry.id === task.primarySessionId)!;
+    await expect.poll(() => existsSync(join(agents.piRpcHome, "thinking-waiting"))).toBe(true);
+    await other.models.rememberThinking({ scope, context: { projectId: project.id }, model, level: "max" });
+    await rm(join(agents.piRpcHome, "hold-thinking"));
+    const chat = follow(api, session.id);
+    try {
+      await chat.until((view) => view.state.turn === "settled", "the captured pi turn");
+      await expect
+        .poll(async () => (await piCommands(session.agentSessionId!)).find((entry) => entry.type === "prompt"))
+        .toMatchObject({ text: "captured pi high", level: "high" });
+      expect(await other.models.thinking({ scope, model })).toBe("max");
+    } finally {
+      await chat.close();
+    }
+  } finally {
+    await rm(join(agents.piRpcHome, "hold-thinking"), { force: true });
+  }
+});
+
+test("a direct pi choice can be confirmed by its live driver when metadata discovery fails", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { project } = await addProject(server, "pi-live-memory");
+  const api = await server.rpc();
+  const scope = { kind: "pi" as const, profileId: null };
+  const model = { provider: "stub", id: "stub-2" };
+  await mkdir(agents.piRpcHome, { recursive: true });
+  await writeFile(join(agents.piRpcHome, "catalog-only-error"), "");
+  expect((await api.models.catalog({ scope, context: { projectId: project.id } })).status).toBe("error");
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "live pi confirmation",
+    agent: { kind: "pi", view: "chat", model: "stub/stub-2", thinking: { model, level: "high" } },
+    workspace: { type: "main-worktree" },
+  });
+  const session = (await sessionsOf(api)).find((entry) => entry.id === task.primarySessionId)!;
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.state.turn === "settled", "the confirmed first turn");
+    expect(await api.models.thinking({ scope, model })).toBe("high");
+  } finally {
+    await chat.close();
+  }
+});
+
+test("a pre-launch pi level that is not offered never sends the first prompt", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { project } = await addProject(server, "prelaunch-refused");
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "keep my first prompt",
+    agent: {
+      kind: "pi",
+      view: "chat",
+      model: "stub/stub-1",
+      thinking: { model: { provider: "stub", id: "stub-1" }, level: "max" },
+    },
+    workspace: { type: "main-worktree" },
+  });
+  const session = (await sessionsOf(api)).find((entry) => entry.id === task.primarySessionId)!;
+  const chat = follow(api, session.id);
+  try {
+    await chat.until(
+      (view) =>
+        view.items.some(
+          (item) => item.kind === "error" && item.text.includes("keep my first prompt"),
+        ),
+      "the retained prompt and refusal",
+    );
+    expect(
+      (await piCommands(session.agentSessionId!)).filter((entry) => entry.type === "prompt"),
+    ).toEqual([]);
+    expect(task.prompt).toBe("keep my first prompt");
+  } finally {
+    await chat.close();
+  }
+});
+
+test("a pi launch that does not confirm the selected model keeps the first prompt unsent", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  vi.stubEnv("FAKE_PI_IGNORE_LAUNCH_MODEL", "1");
+  const { project } = await addProject(server, "prelaunch-model-refused");
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "keep this model prompt",
+    agent: {
+      kind: "pi",
+      view: "chat",
+      model: "stub/stub-2",
+      expectedModel: { provider: "stub", id: "stub-2" },
+    },
+    workspace: { type: "main-worktree" },
+  });
+  const session = (await sessionsOf(api)).find((entry) => entry.id === task.primarySessionId)!;
+  const chat = follow(api, session.id);
+  try {
+    await chat.until(
+      (view) =>
+        view.state.queue?.some(
+          (entry) => entry.text === "keep this model prompt" && entry.status === "undelivered",
+        ) === true,
+      "the prompt retained after the model mismatch",
+    );
+    expect(
+      (await piCommands(session.agentSessionId!)).filter((entry) => entry.type === "prompt"),
+    ).toEqual([]);
+  } finally {
+    await chat.close();
+  }
+});
+
+test.each([
+  ["native default", undefined, "medium"],
+  ["explicit off", { model: { provider: "stub", id: "stub-1" }, level: "off" }, "off"],
+] as const)("pi first prompt distinguishes %s", async (_name, thinking, expected) => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { project } = await addProject(server, "default-or-off");
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "the first prompt",
+    agent: {
+      kind: "pi",
+      view: "chat",
+      model: "stub/stub-1",
+      expectedModel: { provider: "stub", id: "stub-1" },
+      ...(thinking === undefined ? {} : { thinking }),
+    },
+    workspace: { type: "main-worktree" },
+  });
+  const session = (await sessionsOf(api)).find((entry) => entry.id === task.primarySessionId)!;
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.state.turn === "settled", "the completed first turn");
+    const commands = await piCommands(session.agentSessionId!);
+    expect(commands.find((entry) => entry.type === "prompt")).toMatchObject({
+      text: "the first prompt",
+      level: expected,
+    });
+    expect(commands.filter((entry) => entry.type === "level")).toHaveLength(
+      thinking === undefined ? 0 : 1,
+    );
+  } finally {
+    await chat.close();
+  }
+});
+
+test("pi uses the native level when choosing a model without a remembered choice", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { api, session } = await chatTask("initial default");
+  const chat = follow(api, session.id);
+  try {
+    await chat.until(
+      (view) => view.state.turn === "settled" && (view.state.queue?.length ?? 0) === 0,
+      "the first turn's boundary",
+    );
+    await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-2" } });
+    expect(chat.state.selection).toEqual({
+      model: { provider: "stub", id: "stub-2" },
+      level: null,
+    });
+    await api.chat.send({ sessionId: session.id, text: "native choice", mode: "prompt" });
+    await chat.until(
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === "native choice"),
+      "the prompt with no explicit level",
+    );
+    await expect
+      .poll(async () =>
+        (await piCommands(session.agentSessionId!)).find((entry) => entry.text === "native choice"),
+      )
+      .toMatchObject({ model: "stub-2", level: "medium" });
+    expect(
+      (await piCommands(session.agentSessionId!)).filter((entry) => entry.type === "level"),
+    ).toEqual([]);
+  } finally {
+    await chat.close();
+  }
+});
+
+test("pi can choose a model with no selectable thinking levels", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  await mkdir(agents.piRpcHome, { recursive: true });
+  await writeFile(join(agents.piRpcHome, "levels.json"), JSON.stringify({ "stub-2": [] }));
+  const { api, session } = await chatTask("initial before plain");
+  const chat = follow(api, session.id);
+  try {
+    await chat.until(
+      (view) => view.state.turn === "settled" && (view.state.queue?.length ?? 0) === 0,
+      "the first turn's boundary",
+    );
+    await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-2" } });
+    await api.chat.send({ sessionId: session.id, text: "plain model", mode: "prompt" });
+    await chat.until(
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === "plain model"),
+      "the plain model's prompt",
+    );
+    await expect
+      .poll(async () =>
+        (await piCommands(session.agentSessionId!)).find((entry) => entry.text === "plain model"),
+      )
+      .toMatchObject({ model: "stub-2" });
+    expect(
+      (await piCommands(session.agentSessionId!)).filter((entry) => entry.type === "level"),
+    ).toEqual([]);
+  } finally {
+    await chat.close();
+  }
+});
+
+test("pi restores the new model's native setting after a different model's explicit level", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { api, session } = await chatTask("initial explicit transition");
+  const chat = follow(api, session.id);
+  try {
+    await chat.until(
+      (view) => view.state.turn === "settled" && (view.state.queue?.length ?? 0) === 0,
+      "the first turn's boundary",
+    );
+    await api.chat.setReasoning({ sessionId: session.id, level: "high" });
+    await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-2" } });
+    await api.chat.send({ sessionId: session.id, text: "after explicit high", mode: "prompt" });
+    await chat.until(
+      (view) =>
+        view.items.some(
+          (item) => item.kind === "user-message" && item.text === "after explicit high",
+        ),
+      "the prompt on the new model",
+    );
+    await expect
+      .poll(async () =>
+        (await piCommands(session.agentSessionId!)).find(
+          (entry) => entry.text === "after explicit high",
+        ),
+      )
+      .toMatchObject({ model: "stub-2", level: "medium" });
+    const commands = await piCommands(session.agentSessionId!);
+    expect(commands.filter((entry) => entry.type === "level")).toHaveLength(1);
+  } finally {
+    await chat.close();
+  }
+});
+
+test("a queued pi turn captures the model without forcing a thinking level", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "500");
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { api, session } = await chatTask("running default queue");
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.state.turn === "working", "the first turn");
+    await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-2" } });
+    await api.chat.send({ sessionId: session.id, text: "queued default", mode: "follow-up" });
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-1" },
+      level: "high",
+    });
+    await chat.until(
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === "queued default"),
+      "the queued default turn",
+    );
+    await expect
+      .poll(async () =>
+        (await piCommands(session.agentSessionId!)).find(
+          (entry) => entry.text === "queued default",
+        ),
+      )
+      .toMatchObject({ model: "stub-2", level: "medium" });
+  } finally {
+    await chat.close();
+  }
+});
+
+/** Answers the fake's pending dialog and waits for that turn to settle. */
+async function finishTurn(chat: Follow, api: Api, sessionId: string): Promise<void> {
+  await chat.until(
+    (view) => view.items.some((item) => item.kind === "user-request" && item.status === "pending"),
+    "the fake's dialog",
+  );
+  const request = chat.items.find(
+    (item): item is Extract<ChatItem, { kind: "user-request" }> =>
+      item.kind === "user-request" && item.status === "pending",
+  )!;
+  await api.chat.respond({ sessionId, requestId: request.id, value: true });
+  await chat.until((view) => view.state.turn === "settled", "the settled turn");
+}
+
+/** Two pi profiles, so a thinking choice can be shown to stay inside its profile. */
+async function configureProfiles(): Promise<void> {
+  await mkdir(server.configDir, { recursive: true });
+  await writeFile(
+    join(server.configDir, "config.toml"),
+    `[profiles.pi-one]\nname = "Pi One"\nagent = "pi"\n\n[profiles.pi-two]\nname = "Pi Two"\nagent = "pi"\n`,
+  );
+  const updates = await (await server.rpc()).config.watch();
+  try {
+    await within(
+      (async () => {
+        for await (const raw of updates) {
+          if (ConfigState.parse(raw).profiles.length === 2) return;
+        }
+        throw new Error("config.watch ended before the profiles arrived");
+      })(),
+      "the two profiles",
+    );
+  } finally {
+    await updates.return?.();
+  }
+}
+
+test("a choice made during a turn reaches the queued turn, while the steer stays on the running model", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "700");
+  const { api, session } = await chatTask("Start on A");
+  const agentSessionId = session.agentSessionId!;
+  const chat = follow(api, session.id);
+  try {
+    await chat.until(
+      (view) => view.state.turn === "working" && view.state.models.length > 0,
+      "the running turn",
+    );
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-2" },
+      level: "high",
+    });
+    await chat.until((view) => view.state.selection?.model.id === "stub-2", "the next-turn choice");
+    // The running turn keeps the model it started on; the driver was not switched under it.
+    expect(chat.state.model).toEqual({ provider: "stub", id: "stub-1", name: "Stub One" });
+    expect(await piCommands(agentSessionId)).toEqual([
+      expect.objectContaining({ type: "prompt", text: "Start on A", model: "stub-1" }),
+    ]);
+
+    await api.chat.send({ sessionId: session.id, text: "steer on A", mode: "steer" });
+    const queuedId = await api.chat.send({
+      sessionId: session.id,
+      text: "second turn",
+      mode: "follow-up",
+    });
+    await chat.until((view) => view.state.followUp.includes("second turn"), "the queue");
+    expect(chat.state.queue?.find((entry) => entry.id === queuedId)).toMatchObject({
+      text: "second turn",
+      selection: { model: { provider: "stub", id: "stub-2" }, level: "high" },
+      status: "queued",
+    });
+
+    // A later choice changes the composer; it does not change the queued message.
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-1" },
+      level: "low",
+    });
+    await chat.until((view) => view.state.selection?.level === "low", "the later choice");
+    // Still no switch while the first turn runs.
+    expect((await piCommands(agentSessionId)).filter((entry) => entry.type === "model")).toEqual(
+      [],
+    );
+
+    await finishTurn(chat, api, session.id);
+    await chat.until(
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === "second turn"),
+      "the queued turn",
+    );
+    await chat.until((view) => view.state.model?.id === "stub-2", "the queued turn's model");
+    await finishTurn(chat, api, session.id);
+    // With the queue empty, the session's later choice is applied at the boundary.
+    await chat.until(
+      (view) => view.state.model?.id === "stub-1" && view.state.reasoning === "low",
+      "the next-turn choice applied",
+    );
+    expect(chat.state.selection).toEqual({
+      model: { provider: "stub", id: "stub-1" },
+      level: "low",
+    });
+
+    const commands = await piCommands(agentSessionId);
+    expect(commands.filter((entry) => entry.type === "prompt")).toMatchObject([
+      { text: "Start on A", model: "stub-1", level: "medium" },
+      { text: "second turn", model: "stub-2", level: "high" },
+    ]);
+    expect(commands.find((entry) => entry.type === "steer")).toMatchObject({
+      text: "steer on A",
+      model: "stub-1",
+    });
+  } finally {
+    await chat.close();
+  }
+});
+
+test("pi accepts successive ordinary messages after confirmed idle boundaries", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { api, session } = await chatTask("initial");
+  const chat = follow(api, session.id);
+  try {
+    for (const text of ["first normal", "second normal"]) {
+      // oxlint-disable-next-line no-await-in-loop -- each user turn starts after the preceding boundary
+      await chat.until(
+        (view) => view.state.turn === "settled" && (view.state.queue?.length ?? 0) === 0,
+        "the previous confirmed boundary",
+      );
+      // oxlint-disable-next-line no-await-in-loop -- ordered user turns
+      await api.chat.send({ sessionId: session.id, text, mode: "prompt" });
+      // oxlint-disable-next-line no-await-in-loop -- the next iteration must observe this turn
+      await chat.until(
+        (view) => view.items.some((item) => item.kind === "user-message" && item.text === text),
+        text,
+      );
+    }
+    await chat.until(
+      (view) => view.state.turn === "settled" && (view.state.queue?.length ?? 0) === 0,
+      "the last confirmed boundary",
+    );
+    expect(
+      (await piCommands(session.agentSessionId!)).filter((entry) => entry.type === "prompt"),
+    ).toMatchObject([{ text: "initial" }, { text: "first normal" }, { text: "second normal" }]);
+  } finally {
+    await chat.close();
+  }
+});
+
+test("pi holds the captured queued model through post-settlement compaction", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "500");
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  vi.stubEnv("FAKE_PI_RPC_POST_SETTLE_COMPACTION", "1");
+  const { api, session } = await chatTask("A");
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.state.turn === "working", "A working");
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-2" },
+      level: "high",
+    });
+    await api.chat.send({ sessionId: session.id, text: "steer A", mode: "steer" });
+    await api.chat.send({ sessionId: session.id, text: "B", mode: "follow-up" });
+    await chat.until(
+      (view) =>
+        view.items.some((item) => item.kind === "user-request" && item.status === "pending"),
+      "the compaction gate",
+    );
+    const request = chat.items.find(
+      (item): item is Extract<ChatItem, { kind: "user-request" }> =>
+        item.kind === "user-request" && item.status === "pending",
+    )!;
+    expect((await piCommands(session.agentSessionId!)).map((entry) => entry.type)).toEqual([
+      "prompt",
+      "steer",
+      "compaction-start",
+    ]);
+    await api.chat.respond({ sessionId: session.id, requestId: request.id, value: true });
+    await chat.until(
+      (view) => view.items.some((item) => item.kind === "user-message" && item.text === "B"),
+      "B after compaction",
+    );
+    const commands = await piCommands(session.agentSessionId!);
+    expect(commands.findIndex((entry) => entry.type === "model")).toBeGreaterThan(
+      commands.findIndex((entry) => entry.type === "compaction-end"),
+    );
+    expect(commands.find((entry) => entry.type === "prompt" && entry.text === "B")).toMatchObject({
+      model: "stub-2",
+      level: "high",
+    });
+  } finally {
+    await chat.close();
+  }
+});
+
+test("pi does not cross a settled event while a steer acknowledgement is outstanding", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "500");
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  vi.stubEnv("FAKE_PI_RPC_HOLD_STEER_ACK", "1");
+  const { api, session } = await chatTask("A awaiting steer");
+  const chat = follow(api, session.id);
+  const id = session.agentSessionId!;
+  try {
+    await chat.until((view) => view.state.turn === "working", "A working");
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-2" },
+      level: "high",
+    });
+    await api.chat.send({ sessionId: session.id, text: "steer pending", mode: "steer" });
+    await api.chat.send({ sessionId: session.id, text: "B waiting", mode: "follow-up" });
+    await chat.until((view) => view.state.turn === "settled", "A's preliminary settled event");
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-1" },
+      level: "low",
+    });
+    const before = await piCommands(id);
+    expect(before.map((entry) => entry.type)).toContain("steer-awaiting-ack");
+    expect(before.some((entry) => entry.type === "model" || entry.text === "B waiting")).toBe(
+      false,
+    );
+    const safe = id.replace(/[^A-Za-z0-9._-]/g, "_");
+    await writeFile(join(agents.piRpcHome, `${safe}.steer-release`), "");
+    await chat.until(
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === "B waiting"),
+      "B after the steer acknowledgement",
+    );
+    const after = await piCommands(id);
+    expect(
+      after.find((entry) => entry.type === "prompt" && entry.text === "B waiting"),
+    ).toMatchObject({
+      model: "stub-2",
+      level: "high",
+    });
+  } finally {
+    await chat.close();
+  }
+});
+
+test("queued turns run in order, each on the model it captured", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "400");
+  const { api, session } = await chatTask("Queue order");
+  const agentSessionId = session.agentSessionId!;
+  const chat = follow(api, session.id);
+  try {
+    await chat.until(
+      (view) => view.state.turn === "working" && view.state.models.length > 0,
+      "the running turn",
+    );
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-2" },
+      level: "max",
+    });
+    await chat.until((view) => view.state.selection?.level === "max", "the first choice");
+    await api.chat.send({ sessionId: session.id, text: "first", mode: "follow-up" });
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-1" },
+      level: "medium",
+    });
+    await chat.until((view) => view.state.selection?.model.id === "stub-1", "the second choice");
+    await api.chat.send({ sessionId: session.id, text: "second", mode: "follow-up" });
+    await chat.until((view) => view.state.followUp.length === 2, "both queued messages");
+    expect(chat.state.followUp).toEqual(["first", "second"]);
+
+    await finishTurn(chat, api, session.id);
+    await chat.until(
+      (view) => view.items.some((item) => item.kind === "user-message" && item.text === "first"),
+      "the first queued turn",
+    );
+    await chat.until((view) => view.state.model?.id === "stub-2", "the first queued model");
+    await chat.until((view) => view.state.followUp.length === 1, "one message left");
+    expect(chat.state.followUp).toEqual(["second"]);
+    await finishTurn(chat, api, session.id);
+    await chat.until(
+      (view) => view.items.some((item) => item.kind === "user-message" && item.text === "second"),
+      "the second queued turn",
+    );
+    await chat.until((view) => view.state.model?.id === "stub-1", "the second queued model");
+    await finishTurn(chat, api, session.id);
+
+    const commands = await piCommands(agentSessionId);
+    expect(commands.filter((entry) => entry.type === "prompt").map((entry) => entry.text)).toEqual([
+      "Queue order",
+      "first",
+      "second",
+    ]);
+    expect(
+      commands.find((entry) => entry.type === "prompt" && entry.text === "first"),
+    ).toMatchObject({ model: "stub-2", level: "max" });
+    expect(
+      commands.find((entry) => entry.type === "prompt" && entry.text === "second"),
+    ).toMatchObject({ model: "stub-1", level: "medium" });
+  } finally {
+    await chat.close();
+  }
+});
+
+test("two clients see one selection and one queue", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "800");
+  const { api, session } = await chatTask("Two clients");
+  const other = await server.rpc();
+  const left = follow(api, session.id);
+  const right = follow(other, session.id);
+  try {
+    await left.until((view) => view.state.turn === "working", "the running turn");
+    await right.until((view) => view.state.turn === "working", "the other client's turn");
+
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-2" },
+      level: "high",
+    });
+    await other.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-1" },
+      level: "low",
+    });
+    await left.until((view) => view.state.selection?.level === "low", "the final choice");
+    await right.until((view) => view.state.selection?.level === "low", "the same final choice");
+    expect(left.state.selection).toEqual(right.state.selection);
+
+    await api.chat.send({ sessionId: session.id, text: "from A", mode: "follow-up" });
+    await other.chat.send({ sessionId: session.id, text: "from B", mode: "follow-up" });
+    await left.until((view) => view.state.followUp.length === 2, "both messages");
+    await right.until((view) => view.state.followUp.length === 2, "both messages here too");
+    expect(left.state.followUp).toEqual(["from A", "from B"]);
+    expect(right.state.followUp).toEqual(left.state.followUp);
+    expect(right.state.queue).toEqual(left.state.queue);
+
+    await api.chat.abort({ sessionId: session.id });
+  } finally {
+    await left.close();
+    await right.close();
+  }
+});
+
+test("an abort leaves the queue unsent and says so instead of resending it", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "800");
+  const { api, session } = await chatTask("Abort with a queue");
+  const agentSessionId = session.agentSessionId!;
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.state.turn === "working", "the running turn");
+    await api.chat.send({ sessionId: session.id, text: "never sent", mode: "follow-up" });
+    await chat.until((view) => view.state.followUp.includes("never sent"), "the queue");
+    await api.chat.abort({ sessionId: session.id });
+    await chat.until((view) => view.state.turn === "aborted", "the aborted turn");
+    await chat.until(
+      (view) =>
+        view.items.some((item) => item.kind === "error" && item.text.includes("never sent")),
+      "the visible unsent message",
+    );
+    expect(chat.state.followUp).toEqual([]);
+    expect(chat.state.queue).toContainEqual(
+      expect.objectContaining({ text: "never sent", status: "undelivered" }),
+    );
+
+    await chat.until(
+      (view) => view.state.queue?.some((entry) => entry.text === "Abort with a queue") === false,
+      "the confirmed aborted boundary",
+    );
+    await api.chat.send({ sessionId: session.id, text: "after the stop", mode: "prompt" });
+    expect(
+      (await piCommands(agentSessionId)).filter((entry) => entry.text === "never sent"),
+    ).toEqual([]);
+  } finally {
+    await chat.close();
+  }
+});
+
+test("a restart keeps a queued message unsent and shows it when the session resumes", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "1200");
+  const { api, session } = await chatTask("Restart with a queue");
+  const agentSessionId = session.agentSessionId!;
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.state.turn === "working", "the running turn");
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-2" },
+      level: "high",
+    });
+    await chat.until((view) => view.state.selection?.level === "high", "the next-turn choice");
+    await api.chat.send({ sessionId: session.id, text: "lost in the restart", mode: "follow-up" });
+    await chat.until((view) => view.state.followUp.includes("lost in the restart"), "the queue");
+  } finally {
+    await chat.close();
+  }
+
+  // The running session is restored from the same data directory; its turn was cut off, so the
+  // queued message must not be started again.
+  await server.restart();
+  const api2 = await server.rpc();
+  const resumed = follow(api2, session.id);
+  try {
+    await resumed.until(
+      (view) =>
+        view.items.some(
+          (item) => item.kind === "error" && item.text.includes("lost in the restart"),
+        ),
+      "the unsent message after the restart",
+    );
+    expect(resumed.state.selection).toEqual({
+      model: { provider: "stub", id: "stub-2" },
+      level: "high",
+    });
+    expect(resumed.state.queue).toContainEqual(
+      expect.objectContaining({
+        status: "undelivered",
+        selection: { model: { provider: "stub", id: "stub-2" }, level: "high" },
+      }),
+    );
+    expect(
+      (await piCommands(agentSessionId)).filter(
+        (entry) => entry.type === "prompt" && entry.text === "lost in the restart",
+      ),
+    ).toEqual([]);
+  } finally {
+    await resumed.close();
+  }
+});
+
+test("a queue row a crash left in flight is uncertain, and neither resent nor dropped", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { api, session } = await chatTask("Crash queue");
+  const agentSessionId = session.agentSessionId!;
+  const first = follow(api, session.id);
+  try {
+    await first.until((view) => view.state.turn === "settled", "the settled first turn");
+  } finally {
+    await first.close();
+  }
+  await api.sessions.stop({ id: session.id });
+
+  // The two rows a crash can leave: one attempt recorded just before its send, and one that never
+  // started. A restart is the only place that can tell them apart.
+  const db = new DatabaseSync(join(server.dataDir, "corral.db"));
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    const insert = db.prepare(
+      `INSERT INTO chat_queue (id, session_id, text, selection, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    const selection = JSON.stringify({
+      model: { provider: "stub", id: "stub-1" },
+      level: null,
+    });
+    insert.run("queued:crash-sending", session.id, "might have been sent", selection, "sending", 1);
+    insert.run("queued:crash-queued", session.id, "never started", selection, "queued", 2);
+  } finally {
+    db.close();
+  }
+
+  await server.restart();
+  const api2 = await server.rpc();
+  await api2.sessions.restart({ id: session.id, size: SIZE });
+  const resumed = follow(api2, session.id);
+  try {
+    await resumed.until(
+      (view) => view.state.queue?.some((entry) => entry.status === "uncertain-idle") === true,
+      "idle recovery with uncertain delivery preserved",
+    );
+    expect(resumed.state.queue?.map((entry) => entry.status)).toEqual([
+      "uncertain-idle",
+      "undelivered",
+    ]);
+    const prompts = (await piCommands(agentSessionId))
+      .filter((entry) => entry.type === "prompt")
+      .map((entry) => entry.text);
+    expect(prompts).not.toContain("might have been sent");
+    expect(prompts).not.toContain("never started");
+    const other = await server.rpc();
+    await other.chat.send({ sessionId: session.id, text: "continue safely", mode: "prompt" });
+    await resumed.until(
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === "continue safely"),
+      "the other client's new message",
+    );
+    await resumed.until(
+      (view) =>
+        view.state.queue?.some((entry) => entry.text === "continue safely") === false &&
+        view.state.turn === "settled",
+      "the new message's confirmed boundary",
+    );
+    expect(
+      resumed.state.queue?.find((entry) => entry.text === "might have been sent")?.status,
+    ).toBe("uncertain-idle");
+  } finally {
+    await resumed.close();
+  }
+  await writeFile(join(agents.piRpcHome, "recovery-busy"), "");
+  await server.restart();
+  const api3 = await server.rpc();
+  const reopened = follow(api3, session.id);
+  try {
+    await reopened.until(
+      (view) =>
+        view.state.queue?.some(
+          (entry) => entry.text === "might have been sent" && entry.status === "uncertain",
+        ) === true,
+      "delivery uncertainty rechecked on the next frontend",
+    );
+    await expect(
+      api3.chat.send({ sessionId: session.id, text: "must recheck", mode: "prompt" }),
+    ).rejects.toMatchObject({ code: "CHAT_UNAVAILABLE", data: { reason: "turn-unconfirmed" } });
+  } finally {
+    await reopened.close();
+  }
+});
+
+test("an abort leaves later entries paused behind the active turn's unknown boundary", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "600");
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  vi.stubEnv("FAKE_PI_RPC_HOLD_ABORT_PROBE", "1");
+  const { api, session } = await chatTask("First turn");
+  const agentSessionId = session.agentSessionId!;
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.state.turn === "working", "the running turn");
+    await api.chat.send({ sessionId: session.id, text: "lost one", mode: "follow-up" });
+    await api.chat.send({ sessionId: session.id, text: "lost two", mode: "follow-up" });
+    await chat.until((view) => view.state.followUp.length === 2, "both queued messages");
+    await api.chat.abort({ sessionId: session.id });
+    await chat.until((view) => view.state.turn === "aborted", "the aborted turn");
+    await chat.until(
+      (view) =>
+        view.state.queue?.filter((entry) => entry.status === "undelivered").length === 2 &&
+        view.state.queue.some(
+          (entry) => entry.text === "First turn" && entry.status === "accepted",
+        ),
+      "both stopped entries",
+    );
+
+    await expect(
+      api.chat.send({ sessionId: session.id, text: "after the stop", mode: "prompt" }),
+    ).rejects.toMatchObject({ code: "CHAT_UNAVAILABLE", data: { reason: "turn-unconfirmed" } });
+    await api.chat.send({ sessionId: session.id, text: "new queued", mode: "follow-up" });
+    await chat.until(
+      (view) =>
+        view.state.queue?.some(
+          (entry) => entry.text === "new queued" && entry.status === "queued",
+        ) === true,
+      "the paused later entry",
+    );
+
+    const prompts = (await piCommands(agentSessionId))
+      .filter((entry) => entry.type === "prompt")
+      .map((entry) => entry.text);
+    expect(prompts).toEqual(["First turn"]);
+  } finally {
+    await chat.close();
+  }
+});
+
+test("pi resumes after an idle check without resending the prior attempt or paused queue", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "900");
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { api, session } = await chatTask("Before the restart");
+  const agentSessionId = session.agentSessionId!;
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.state.turn === "working", "the running turn");
+    await api.chat.send({ sessionId: session.id, text: "old one", mode: "follow-up" });
+    await api.chat.send({ sessionId: session.id, text: "old two", mode: "follow-up" });
+    await chat.until((view) => view.state.followUp.length === 2, "both queued messages");
+  } finally {
+    await chat.close();
+  }
+
+  await server.restart();
+  const api2 = await server.rpc();
+  const resumed = follow(api2, session.id);
+  try {
+    await resumed.until(
+      (view) =>
+        view.state.queue?.filter((entry) => entry.status === "undelivered").length === 2 &&
+        view.state.queue.some((entry) => entry.status === "accepted-idle"),
+      "idle recovery with both stopped entries",
+    );
+    await api2.chat.send({ sessionId: session.id, text: "after restart", mode: "prompt" });
+    await resumed.until(
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === "after restart"),
+      "the new turn",
+    );
+    const prompts = (await piCommands(agentSessionId))
+      .filter((entry) => entry.type === "prompt")
+      .map((entry) => entry.text);
+    expect(prompts).toContain("after restart");
+    expect(prompts.filter((text) => text === "Before the restart")).toHaveLength(1);
+    expect(prompts).not.toContain("old one");
+    expect(prompts).not.toContain("old two");
+  } finally {
+    await resumed.close();
+  }
+});
+
+test.each([
+  ["compaction", "recovery-busy"],
+  ["new activity during the idle check", "recovery-race"],
+  ["an outstanding automatic retry", "recovery-retry"],
+] as const)("pi keeps recovery blocked on %s", async (_description, marker) => {
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "900");
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { api, session } = await chatTask("Compacting on resume");
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.state.turn === "working", "the original turn");
+  } finally {
+    await chat.close();
+  }
+  await writeFile(join(agents.piRpcHome, marker), "");
+  await server.restart();
+  const api2 = await server.rpc();
+  const resumed = follow(api2, session.id);
+  try {
+    await resumed.until(
+      (view) => view.state.queue?.some((entry) => entry.status === "boundary-unknown") === true,
+      "the unresolved boundary",
+    );
+    await expect(
+      api2.chat.send({ sessionId: session.id, text: "not while unconfirmed", mode: "prompt" }),
+    ).rejects.toMatchObject({ code: "CHAT_UNAVAILABLE", data: { reason: "turn-unconfirmed" } });
+    expect(
+      (await piCommands(session.agentSessionId!)).some(
+        (entry) => entry.text === "not while unconfirmed",
+      ),
+    ).toBe(false);
+  } finally {
+    await resumed.close();
+  }
+});
+
+test("pi waits for compaction and steer acknowledgement before recovering the old prompt", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "900");
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  vi.stubEnv("FAKE_PI_RPC_HOLD_STEER_ACK", "1");
+  const { api, session } = await chatTask("Before resumed compaction");
+  const chat = follow(api, session.id);
+  try {
+    await chat.until((view) => view.state.turn === "working", "the original turn");
+  } finally {
+    await chat.close();
+  }
+  await writeFile(join(agents.piRpcHome, "recovery-gated"), "");
+  await server.restart();
+  const api2 = await server.rpc();
+  const resumed = follow(api2, session.id);
+  try {
+    await resumed.until(
+      (view) =>
+        view.state.queue?.some((entry) => entry.status === "boundary-unknown") === true &&
+        view.items.some((item) => item.kind === "user-request" && item.status === "pending"),
+      "the resumed compaction gate",
+    );
+    await expect(
+      api2.chat.send({ sessionId: session.id, text: "too early", mode: "prompt" }),
+    ).rejects.toMatchObject({ code: "CHAT_UNAVAILABLE", data: { reason: "turn-unconfirmed" } });
+    await api2.chat.send({ sessionId: session.id, text: "pending steer", mode: "steer" });
+    await resumed.until(
+      (view) => view.state.steering.includes("pending steer"),
+      "the steer awaiting acknowledgement",
+    );
+    await api2.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-2" },
+      level: "high",
+    });
+    const request = resumed.items.find(
+      (item): item is Extract<ChatItem, { kind: "user-request" }> =>
+        item.kind === "user-request" && item.status === "pending",
+    )!;
+    await api2.chat.respond({ sessionId: session.id, requestId: request.id, value: true });
+    await resumed.until(
+      (view) =>
+        view.items.some(
+          (item) =>
+            item.kind === "user-request" && item.id === request.id && item.status !== "pending",
+        ),
+      "the compaction gate closed",
+    );
+    await expect(
+      api2.chat.send({ sessionId: session.id, text: "before steer ack", mode: "prompt" }),
+    ).rejects.toMatchObject({ code: "CHAT_UNAVAILABLE", data: { reason: "turn-unconfirmed" } });
+    expect(
+      (await piCommands(session.agentSessionId!)).some((entry) => entry.type === "model"),
+    ).toBe(false);
+    const safe = session.agentSessionId!.replace(/[^A-Za-z0-9._-]/g, "_");
+    await writeFile(join(agents.piRpcHome, `${safe}.steer-release`), "");
+    await resumed.until(
+      (view) => view.state.queue?.some((entry) => entry.status === "accepted-idle") === true,
+      "the post-compaction idle check",
+    );
+    await api2.chat.send({ sessionId: session.id, text: "after compaction", mode: "prompt" });
+    await resumed.until(
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === "after compaction"),
+      "the new prompt",
+    );
+    const commands = await piCommands(session.agentSessionId!);
+    const prompts = commands.filter((entry) => entry.type === "prompt").map((entry) => entry.text);
+    expect(prompts.filter((text) => text === "Before resumed compaction")).toHaveLength(1);
+    expect(prompts).not.toContain("too early");
+    expect(prompts).not.toContain("before steer ack");
+    expect(commands.find((entry) => entry.text === "after compaction")).toMatchObject({
+      model: "stub-2",
+      level: "high",
+    });
+  } finally {
+    await resumed.close();
+  }
+});
+
+test("a message still being accepted when the server stops is uncertain and never resent", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  // The fake answers the message command late, so the attempt is in flight when the server stops.
+  vi.stubEnv("FAKE_PI_RPC_ACCEPT_DELAY_MS", "1500");
+  const { api, session } = await chatTask("Settled first");
+  const agentSessionId = session.agentSessionId!;
+  const first = follow(api, session.id);
+  try {
+    await first.until((view) => view.state.turn === "settled", "the settled first turn");
+  } finally {
+    await first.close();
+  }
+
+  await api.chat.send({ sessionId: session.id, text: "in flight", mode: "follow-up" });
+  const sending = follow(api, session.id);
+  try {
+    await sending.until(
+      (view) =>
+        view.state.queue?.some(
+          (entry) => entry.text === "in flight" && entry.status === "sending",
+        ) === true,
+      "the attempt recorded before its answer",
+    );
+    // The row is still in the durable queue at this point, not removed on `send` returning.
+    expect(sending.state.queue?.find((entry) => entry.text === "in flight")?.status).toBe(
+      "sending",
+    );
+  } finally {
+    await sending.close();
+  }
+
+  await server.restart();
+  const api2 = await server.rpc();
+  const resumed = follow(api2, session.id);
+  try {
+    await resumed.until(
+      (view) =>
+        view.state.queue?.some(
+          (entry) => entry.text === "in flight" && entry.status === "uncertain",
+        ) === true,
+      "the interrupted attempt",
+    );
+    await resumed.until(
+      (view) => view.items.some((item) => item.kind === "error" && item.text.includes("in flight")),
+      "the visible text",
+    );
+    expect(
+      (await piCommands(agentSessionId)).filter((entry) => entry.text === "in flight"),
+    ).toEqual([]);
+  } finally {
+    await resumed.close();
+  }
+});
+
+test("a message the agent refuses after the send stays visible and is not retried", async () => {
+  vi.stubEnv("FAKE_PI_RPC", "reject");
+  vi.stubEnv("FAKE_PI_RPC_ACCEPT_DELAY_MS", "300");
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { api, session } = await chatTask("Rejected prompt");
+  const agentSessionId = session.agentSessionId!;
+  const chat = follow(api, session.id);
+  const id = await api.chat.send({
+    sessionId: session.id,
+    text: "refused later",
+    mode: "follow-up",
+  });
+  try {
+    await chat.until(
+      (view) => view.state.queue?.find((entry) => entry.id === id)?.status === "undelivered",
+      "the refused entry",
+    );
+    expect(chat.state.queue?.find((entry) => entry.id === id)?.text).toBe("refused later");
+    await chat.until(
+      (view) =>
+        view.items.some((item) => item.kind === "error" && item.text.includes("refused later")),
+      "the visible refusal",
+    );
+  } finally {
+    await chat.close();
+  }
+
+  // A session restart reopens the same queue; the refused entry stays stopped, and a new message
+  // queued after it runs once the agent accepts again.
+  vi.stubEnv("FAKE_PI_RPC", "normal");
+  vi.stubEnv("FAKE_PI_RPC_ACCEPT_DELAY_MS", "0");
+  await api.sessions.stop({ id: session.id });
+  await api.sessions.restart({ id: session.id, size: SIZE });
+  const resumed = follow(api, session.id);
+  try {
+    await resumed.until((view) => view.state.models.length > 0, "the restarted driver");
+    await api.chat.send({ sessionId: session.id, text: "after the refusal", mode: "follow-up" });
+    await resumed.until(
+      (view) =>
+        view.items.some(
+          (item) => item.kind === "user-message" && item.text === "after the refusal",
+        ),
+      "the new queued turn",
+    );
+    await resumed.until((view) => view.state.turn === "settled", "its settled boundary");
+    const prompts = (await piCommands(agentSessionId))
+      .filter((entry) => entry.type === "prompt")
+      .map((entry) => entry.text);
+    // The task prompt was refused before it could write history, so the resumed launch hands it
+    // over again; the refused queue entry is not retried and the later one runs.
+    expect(prompts).toContain("after the refusal");
+    expect(prompts).not.toContain("refused later");
+    expect(resumed.state.queue?.find((entry) => entry.id === id)?.status).toBe("undelivered");
+  } finally {
+    await resumed.close();
+  }
+});
+
+test("a prompt whose stored model is gone is refused instead of running on another one", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { api, session } = await chatTask("Model disappears");
+  const agentSessionId = session.agentSessionId!;
+  const first = follow(api, session.id);
+  try {
+    await first.until((view) => view.state.turn === "settled", "the settled first turn");
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-2" },
+      level: "max",
+    });
+    await first.until((view) => view.state.reasoning === "max", "the chosen model");
+  } finally {
+    await first.close();
+  }
+  await api.sessions.stop({ id: session.id });
+  // The next launch's catalog no longer has the chosen model.
+  await writeFile(
+    join(agents.piRpcHome, "catalog.json"),
+    JSON.stringify([{ id: "stub-1", name: "Stub One", provider: "stub" }]),
+  );
+  await api.sessions.restart({ id: session.id, size: SIZE });
+
+  const resumed = follow(api, session.id);
+  try {
+    await resumed.until(
+      (view) =>
+        view.items.some(
+          (item) =>
+            item.kind === "error" &&
+            item.text.includes("The selected model or thinking level could not be applied"),
+        ),
+      "the visible failure",
+    );
+    // The selection is still the user's; the running frontend stays on the model it has.
+    expect(resumed.state.selection).toEqual({
+      model: { provider: "stub", id: "stub-2" },
+      level: "max",
+    });
+    expect(resumed.state.model?.id).toBe("stub-1");
+    await expect(
+      api.chat.send({ sessionId: session.id, text: "must not leave", mode: "prompt" }),
+    ).rejects.toMatchObject({ code: "CHAT_MODEL_UNSUPPORTED" });
+    expect(
+      (await piCommands(agentSessionId)).filter(
+        (entry) => entry.type === "prompt" && entry.text === "must not leave",
+      ),
+    ).toEqual([]);
+  } finally {
+    await resumed.close();
+  }
+});
+
+test("a level the driver silently clamps is reported as not applied, not as a success", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  vi.stubEnv("FAKE_PI_RPC_CLAMP", "high:medium");
+  const { api, session } = await chatTask("Clamped level");
+  const first = follow(api, session.id);
+  try {
+    await first.until(
+      (view) => view.state.turn === "settled" && view.state.reasoningLevels.length > 0,
+      "the settled first turn",
+    );
+    await expect(
+      api.chat.setReasoning({ sessionId: session.id, level: "high" }),
+    ).rejects.toMatchObject({ code: "CHAT_REASONING_UNSUPPORTED" });
+    await first.until((view) => view.state.reasoningStatus === "ready", "the read-back");
+    // The requested level stays the user's; the state reports what pi actually kept, and does not
+    // present the refused level as the one a turn would run on.
+    await first.until(
+      (view) => view.state.selectionIssue?.reason === "unavailable",
+      "the refused level",
+    );
+    expect(first.state.reasoning).toBe("medium");
+    expect(first.state.selection).toMatchObject({ level: "high" });
+    expect(first.state.selectionIssue).toEqual({ level: "high", reason: "unavailable" });
+    await expect(
+      api.chat.send({ sessionId: session.id, text: "must not leave", mode: "prompt" }),
+    ).rejects.toMatchObject({ code: "CHAT_REASONING_UNSUPPORTED" });
+  } finally {
+    await first.close();
+  }
+});
+
+test("a thinking level is remembered per agent, profile and model, and an unavailable one is not applied", async () => {
+  await configureProfiles();
+  const { api, task } = await addTask(server, "Memory", "main-worktree");
+  const openChat = async (profileId: string) => {
+    const session = await api.sessions.start({
+      taskId: task.id,
+      kind: "pi",
+      view: "chat",
+      profileId,
+      size: SIZE,
+    });
+    const chat = follow(api, session.id);
+    await chat.until((view) => view.state.models.length > 0, "the driver's models");
+    return { session, chat };
+  };
+
+  const first = await openChat("pi-one");
+  await api.chat.setModel({
+    sessionId: first.session.id,
+    model: { provider: "stub", id: "stub-2" },
+    level: "max",
+  });
+  await first.chat.until((view) => view.state.reasoning === "max", "the explicit level");
+
+  // Another profile never made that choice, so it gets no level from it.
+  const otherProfile = await openChat("pi-two");
+  await api.chat.setModel({
+    sessionId: otherProfile.session.id,
+    model: { provider: "stub", id: "stub-2" },
+  });
+  await otherProfile.chat.until(
+    (view) => view.state.model?.id === "stub-2" && view.state.reasoningStatus === "ready",
+    "the other profile's switch",
+  );
+  expect(otherProfile.chat.state.selection?.level).toBeNull();
+  expect(otherProfile.chat.state.reasoning).toBe("medium");
+  // The first session's choice is its own row; another session cannot overwrite it.
+  expect(first.chat.state.selection).toEqual({
+    model: { provider: "stub", id: "stub-2" },
+    level: "max",
+  });
+
+  // The same profile and model reuse the remembered level.
+  const again = await openChat("pi-one");
+  await api.chat.setModel({
+    sessionId: again.session.id,
+    model: { provider: "stub", id: "stub-2" },
+  });
+  await again.chat.until((view) => view.state.reasoning === "max", "the remembered level");
+
+  // No memory is not an explicit level: the launch model is chosen without claiming one.
+  const off = await openChat("pi-one");
+  await api.chat.setModel({ sessionId: off.session.id, model: { provider: "stub", id: "stub-1" } });
+  await off.chat.until((view) => view.state.model?.id === "stub-1", "the first model");
+  expect(off.chat.state.selection?.level).toBeNull();
+  await api.chat.setReasoning({ sessionId: off.session.id, level: "off" });
+  await off.chat.until((view) => view.state.reasoning === "off", "the explicit off level");
+  const offAgain = await openChat("pi-one");
+  await api.chat.setModel({
+    sessionId: offAgain.session.id,
+    model: { provider: "stub", id: "stub-1" },
+  });
+  await offAgain.chat.until((view) => view.state.reasoning === "off", "the remembered off level");
+
+  // A level the model no longer offers stays in the selection and the memory, and is not applied.
+  await writeFile(
+    join(agents.piRpcHome, "levels.json"),
+    JSON.stringify({ "stub-2": ["off", "medium", "high"] }),
+  );
+  const gone = await openChat("pi-one");
+  await api.chat.setModel({
+    sessionId: gone.session.id,
+    model: { provider: "stub", id: "stub-2" },
+  });
+  await gone.chat.until(
+    (view) =>
+      view.state.model?.id === "stub-2" &&
+      view.state.reasoningStatus === "ready" &&
+      view.state.selectionIssue?.reason === "unavailable",
+    "the switch without its level",
+  );
+  expect(gone.chat.state.selection).toEqual({
+    model: { provider: "stub", id: "stub-2" },
+    level: "max",
+  });
+  // The fake pi reports its native setting after the model switch, not the unavailable memory.
+  expect(gone.chat.state.reasoning).toBe("medium");
+  expect(gone.chat.state.selectionIssue).toEqual({ level: "max", reason: "unavailable" });
+
+  // A failed discovery is not proof the level was removed: the memory still applies when the
+  // driver offers it again.
+  await rm(join(agents.piRpcHome, "levels.json"));
+  await writeFile(join(agents.piRpcHome, "catalog-error"), "");
+  const catalog = await api.models.catalog({
+    scope: { kind: "pi", profileId: "pi-one" },
+    context: { taskId: task.id },
+  });
+  expect(catalog.status).toBe("error");
+  await rm(join(agents.piRpcHome, "catalog-error"));
+  const restored = await openChat("pi-one");
+  await api.chat.setModel({
+    sessionId: restored.session.id,
+    model: { provider: "stub", id: "stub-2" },
+  });
+  await restored.chat.until(
+    (view) => view.state.reasoning === "max" && view.state.selectionIssue === null,
+    "the level used again",
+  );
 });
 
 /** Answers the fake's dialog and waits for the turn to settle, so the conversation has history. */
@@ -908,6 +2463,165 @@ async function piArgv(): Promise<string[][]> {
 function overlapMarker(agentSessionId: string): string {
   return join(agents.piRpcHome, `${agentSessionId.replace(/[^A-Za-z0-9._-]/g, "_")}.overlap.json`);
 }
+
+test("a level applied before a model stops offering it is remembered, not applied, and returns", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { api, session } = await chatTask("Applied level");
+  const agentSessionId = session.agentSessionId!;
+  const first = follow(api, session.id);
+  try {
+    await first.until((view) => view.state.turn === "settled", "the settled turn");
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-2" },
+      level: "max",
+    });
+    await first.until((view) => view.state.reasoning === "max", "the applied level");
+  } finally {
+    await first.close();
+  }
+  await api.sessions.stop({ id: session.id });
+
+  // The next launch's fresh catalog no longer takes `max` on stub-2, while the agent was actually
+  // running at it before the stop.
+  await writeFile(
+    join(agents.piRpcHome, "levels.json"),
+    JSON.stringify({ "stub-2": ["off", "medium", "high"] }),
+  );
+  await api.sessions.restart({ id: session.id, size: SIZE });
+  const resumed = follow(api, session.id);
+  try {
+    await resumed.until(
+      (view) => view.state.selectionIssue?.reason === "unavailable",
+      "the unapplied level",
+    );
+    // The choice and its memory survive; the reported level is what the agent actually runs, and a
+    // turn is refused rather than delivered on that other level.
+    expect(resumed.state.selection).toEqual({
+      model: { provider: "stub", id: "stub-2" },
+      level: "max",
+    });
+    expect(resumed.state.reasoning).toBe("medium");
+    await expect(
+      api.chat.send({ sessionId: session.id, text: "must not leave", mode: "prompt" }),
+    ).rejects.toMatchObject({ code: "CHAT_REASONING_UNSUPPORTED" });
+    await expect(
+      api.chat.send({ sessionId: session.id, text: "must not queue", mode: "follow-up" }),
+    ).rejects.toMatchObject({ code: "CHAT_REASONING_UNSUPPORTED" });
+    expect(resumed.state.queue ?? []).toEqual([]);
+    expect(
+      (await piCommands(agentSessionId)).filter((entry) => entry.text === "must not leave"),
+    ).toEqual([]);
+  } finally {
+    await resumed.close();
+  }
+  await api.sessions.stop({ id: session.id });
+
+  // A fresh report that offers it again applies the remembered level without a new choice.
+  await rm(join(agents.piRpcHome, "levels.json"));
+  await api.sessions.restart({ id: session.id, size: SIZE });
+  const restored = follow(api, session.id);
+  try {
+    await restored.until(
+      (view) => view.state.reasoning === "max" && view.state.selectionIssue === null,
+      "the level used again",
+    );
+  } finally {
+    await restored.close();
+  }
+});
+
+test("a failed level report leaves the choice unconfirmed rather than removed", async () => {
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { api, session } = await chatTask("Stale level");
+  const first = follow(api, session.id);
+  try {
+    await first.until((view) => view.state.turn === "settled", "the settled turn");
+    await api.chat.setModel({
+      sessionId: session.id,
+      model: { provider: "stub", id: "stub-2" },
+      level: "max",
+    });
+    await first.until((view) => view.state.reasoning === "max", "the applied level");
+  } finally {
+    await first.close();
+  }
+  await api.sessions.stop({ id: session.id });
+
+  vi.stubEnv("FAKE_PI_RPC", "refresh-fail");
+  await api.sessions.restart({ id: session.id, size: SIZE });
+  const resumed = follow(api, session.id);
+  try {
+    await resumed.until(
+      (view) => view.state.selectionIssue?.reason === "unconfirmed",
+      "the unconfirmed level",
+    );
+    expect(resumed.state.reasoningStatus).toBe("error");
+    expect(resumed.state.selection?.level).toBe("max");
+    await expect(
+      api.chat.send({ sessionId: session.id, text: "must not leave", mode: "prompt" }),
+    ).rejects.toMatchObject({ code: "CHAT_REASONING_UNSUPPORTED" });
+  } finally {
+    await resumed.close();
+  }
+  await api.sessions.stop({ id: session.id });
+
+  // The failure was not evidence of removal: a fresh report restores the same level.
+  vi.stubEnv("FAKE_PI_RPC", "normal");
+  await api.sessions.restart({ id: session.id, size: SIZE });
+  const restored = follow(api, session.id);
+  try {
+    await restored.until(
+      (view) => view.state.reasoning === "max" && view.state.selectionIssue === null,
+      "the level used again",
+    );
+  } finally {
+    await restored.close();
+  }
+});
+
+test("a level chosen during a turn is refused when the live report does not offer it", async () => {
+  // The launch's fresh catalog already lacks `high` on stub-1.
+  await mkdir(agents.piRpcHome, { recursive: true });
+  await writeFile(
+    join(agents.piRpcHome, "levels.json"),
+    JSON.stringify({ "stub-1": ["off", "low", "medium"] }),
+  );
+  vi.stubEnv("FAKE_PI_RPC", "slow");
+  vi.stubEnv("FAKE_PI_RPC_DELAY_MS", "800");
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
+  const { api, session } = await chatTask("Running turn");
+  const agentSessionId = session.agentSessionId!;
+  const chat = follow(api, session.id);
+  try {
+    await chat.until(
+      (view) => view.state.turn === "working" && view.state.reasoningLevels.length > 0,
+      "the running turn",
+    );
+    await expect(
+      api.chat.setReasoning({ sessionId: session.id, level: "high" }),
+    ).rejects.toMatchObject({ code: "CHAT_REASONING_UNSUPPORTED" });
+    await chat.until(
+      (view) =>
+        view.state.selection?.level === "high" &&
+        view.state.selectionIssue?.reason === "unavailable",
+      "the stored choice with its issue",
+    );
+    // A follow-up carrying it is refused instead of queued and later run on another level.
+    await expect(
+      api.chat.send({ sessionId: session.id, text: "must not queue", mode: "follow-up" }),
+    ).rejects.toMatchObject({ code: "CHAT_REASONING_UNSUPPORTED" });
+    expect(chat.state.queue?.some((entry) => entry.text === "must not queue")).toBe(false);
+    expect(chat.state.reasoning).not.toBe("high");
+    expect((await piCommands(agentSessionId)).filter((entry) => entry.level === "high")).toEqual(
+      [],
+    );
+  } finally {
+    await chat.close();
+    await rm(join(agents.piRpcHome, "levels.json"), { force: true });
+    vi.stubEnv("FAKE_PI_RPC", "normal");
+  }
+});
 
 test("an idle chat session hands over to a terminal and back with its id, label, tab place and history", async () => {
   const { api, session } = await chatTask("Remember the note");
@@ -1014,7 +2728,7 @@ test("a handoff while the turn runs aborts it first, so the conversation keeps t
     expect(existsSync(overlapMarker(session.agentSessionId!))).toBe(false);
     // A watching chat client saw the turn end, not a stream that stopped mid-word.
     await chat.until((view) => view.state.turn !== "working", "the ended turn");
-    expect(chat.itemOfKind("error")).toBeUndefined();
+    expect(chat.state.turn).toBe("aborted");
   } finally {
     await chat.close();
   }

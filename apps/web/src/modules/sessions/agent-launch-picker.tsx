@@ -1,6 +1,7 @@
 import type { AgentSettings, LaunchProfile, TaskView } from "@corral/protocol/config";
 import type { AgentKind } from "@corral/protocol/rpc";
-import type { RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import { useCorralClient } from "../connection/index.ts";
 import type { ModelContext } from "@corral/protocol/models";
 import { modelKey } from "@corral/protocol/models";
 import { useModelMenu } from "../settings/index.ts";
@@ -92,6 +93,8 @@ export function AgentLaunchPicker({
   busy,
   blocked,
   footer,
+  thinkingEnabled = false,
+  focus = "search",
 }: {
   title: string;
   context?: ModelContext | undefined;
@@ -110,7 +113,20 @@ export function AgentLaunchPicker({
   blocked?: boolean | undefined;
   /** The new-launch view choice; a picker footer never carries status or management actions. */
   footer?: React.ReactNode;
+  thinkingEnabled?: boolean;
+  focus?: "search" | "thinking";
 }) {
+  const client = useCorralClient();
+  const [savingLevel, setSavingLevel] = useState(false);
+  const [selectingModel, setSelectingModel] = useState(false);
+  const [levelError, setLevelError] = useState<string>();
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const options = launchOptions(profiles, agents);
   const key = launchKey(selection);
   const instances = launchPickerInstances(options);
@@ -128,6 +144,15 @@ export function AgentLaunchPicker({
   const configuredRow =
     configured === undefined ? undefined : launchCatalogRow(configured, menu.all);
   const currentRow = launchCatalogRow(selection, menu.all);
+  const supportsThinking = selection.kind === "pi" || selection.kind === "codex";
+  const currentMemory =
+    thinkingEnabled && supportsThinking && menu.catalog?.status === "ready" && currentRow
+      ? menu.catalog.rememberedThinking?.find(
+          (entry) =>
+            modelKey(entry.model) === modelKey(currentRow) &&
+            currentRow.reasoningLevels?.includes(entry.level),
+        )
+      : undefined;
   const current = launchCurrentModelRow(selection, menu.all, menu.models.map(modelKey), blocked);
   const models: PickerModel[] = [
     // The synthetic row already names a configured default in its detail; one mark per row.
@@ -151,12 +176,19 @@ export function AgentLaunchPicker({
   // Re-picking the instance already shown changes nothing, so its configured model stays.
   const select = (option: LaunchSelection) =>
     onChange(
-      launchKey(option) === key ? { ...option, model: selection.model } : { ...option, model: "" },
+      launchKey(option) === key
+        ? {
+            ...option,
+            model: selection.model,
+            thinking: selection.thinking,
+            expectedModel: selection.expectedModel,
+          }
+        : { ...option, model: "" },
       "instance",
     );
   return (
     <ModelPicker
-      focus="search"
+      focus={focus}
       title={title}
       anchor={anchor}
       restoreFocus={restoreFocus}
@@ -174,15 +206,93 @@ export function AgentLaunchPicker({
         }
         const reported = menu.models.find((m) => modelKey(m) === model);
         const value = reported ? catalogLaunchModel(selection, reported) : undefined;
-        const target = value ? { ...selection, model: value } : selection;
-        onChange(target, "model");
-        onCommit(target);
+        if (value === undefined || reported === undefined) return;
+        const commit = (level: string | null) => {
+          if (!mounted.current) return;
+          const remembered =
+            level !== null && reported.reasoningLevels?.includes(level)
+              ? { model: { provider: reported.provider, id: reported.id }, level, remembered: true }
+              : undefined;
+          const target = {
+            ...selection,
+            model: value,
+            expectedModel:
+              selection.kind === "pi" || (selection.kind === "codex" && thinkingEnabled)
+                ? { provider: reported.provider, id: reported.id }
+                : undefined,
+            thinking: remembered,
+          };
+          onChange(target, "model");
+          onCommit(target);
+        };
+        if (!thinkingEnabled || !supportsThinking || menu.catalog?.status !== "ready") {
+          commit(null);
+          return;
+        }
+        setSelectingModel(true);
+        void client.connection.api.models
+          .thinking({ scope: launchScope(selection), model: reported })
+          .then(commit, () => commit(null))
+          .finally(() => {
+            if (mounted.current) setSelectingModel(false);
+          });
       }}
-      error={error}
-      busy={busy}
+      levels={
+        thinkingEnabled && supportsThinking && menu.catalog?.status === "ready"
+          ? currentRow?.reasoningLevels
+          : undefined
+      }
+      level={selection.thinking?.level ?? currentMemory?.level}
+      onLevel={
+        thinkingEnabled &&
+        supportsThinking &&
+        menu.catalog?.status === "ready" &&
+        currentRow?.reasoningLevels !== undefined
+          ? (level) => {
+              if (savingLevel) return;
+              setSavingLevel(true);
+              setLevelError(undefined);
+              const model = { provider: currentRow.provider, id: currentRow.id };
+              void client.connection.api.models
+                .rememberThinking({
+                  scope: launchScope(selection),
+                  context: context ?? {},
+                  ...(selection.profile
+                    ? { expectedProfileRevision: selection.profile.revision }
+                    : {}),
+                  model,
+                  level,
+                })
+                .then(() => {
+                  if (!mounted.current) return;
+                  const target = {
+                    ...selection,
+                    thinking: { model, level, remembered: true },
+                  };
+                  onChange(target, "model");
+                  onCommit(target);
+                })
+                .catch(() => {
+                  if (mounted.current)
+                    setLevelError("Could not confirm and save this thinking level.");
+                })
+                .finally(() => {
+                  if (mounted.current) setSavingLevel(false);
+                });
+            }
+          : undefined
+      }
+      error={levelError ?? error}
+      busy={busy || savingLevel || selectingModel}
       loading={menu.pickerLoading}
       modelStatus={menu.pickerStatus}
-      reasoningStatus="Reasoning cannot be selected before launch."
+      reasoningStatus={
+        !thinkingEnabled || !supportsThinking
+          ? "Reasoning cannot be selected before launch for this agent."
+          : menu.catalog?.status !== "ready"
+            ? "Reasoning levels have not been confirmed."
+            : undefined
+      }
       footer={footer}
       onInstanceEnter={() => onCommit(selection)}
       onQuickChoice={(index) => {

@@ -2,6 +2,7 @@ import type {
   ChatAnswer,
   ChatDiff,
   ChatModel,
+  ChatModelRef,
   ChatRequestOption,
   ChatToolCall,
   ChatUserRequest,
@@ -74,6 +75,8 @@ export class OpenCodeProjection {
   readonly #requests = new Map<string, PendingRequest>();
   /** Tool input streamed before `session.tool.called` replaces it with the parsed object. */
   readonly #toolArguments = new Map<string, string>();
+  /** The model each assistant message names, keyed by its own id. */
+  readonly #messageModels = new Map<string, ChatModelRef>();
   /** Each catalogued model's context window, keyed `provider/id`; empty until the driver loads it. */
   #modelWindows = new Map<string, number>();
 
@@ -204,10 +207,16 @@ export class OpenCodeProjection {
         this.#timeline.put(toolEvent(this.#timeline, messageId, toolId, event.type, data));
         break;
       }
-      case "session.step.started":
+      case "session.step.started": {
+        const messageId = stringOf(data["assistantMessageID"]);
+        const model = modelOf(data["model"]);
+        if (messageId !== undefined && model !== null) {
+          this.#rememberMessageModel(messageId, { provider: model.provider, id: model.id });
+        }
         this.#timeline.setState({ turn: "working" });
         actions.push({ type: "status", state: "working" });
         break;
+      }
       case "session.step.ended":
         this.#recordUsage(data["tokens"], this.#timeline.state.model);
         break;
@@ -353,7 +362,10 @@ export class OpenCodeProjection {
 
   #loadAssistant(messageId: string, message: Record<string, unknown>): void {
     const model = modelOf(message["model"]);
-    if (model !== null) this.#timeline.setState({ model });
+    if (model !== null) {
+      this.#timeline.setState({ model });
+      this.#messageModels.set(messageId, { provider: model.provider, id: model.id });
+    }
     this.#recordUsage(message["tokens"], model ?? this.#timeline.state.model);
     const content = Array.isArray(message["content"]) ? message["content"] : [];
     let textOrdinal = 0;
@@ -366,7 +378,13 @@ export class OpenCodeProjection {
           const itemId = textItemId(messageId, textOrdinal++);
           const text = stringOf(record["text"]) ?? "";
           this.#texts.set(itemId, text);
-          this.#timeline.put({ kind: "assistant-message", id: itemId, text, streaming: false });
+          this.#timeline.put({
+            kind: "assistant-message",
+            id: itemId,
+            text,
+            streaming: false,
+            ...(model === null ? {} : { model: { provider: model.provider, id: model.id } }),
+          });
           break;
         }
         case "reasoning": {
@@ -386,6 +404,21 @@ export class OpenCodeProjection {
         default:
           break;
       }
+    }
+  }
+
+  /**
+   * One assistant message's model, from its `session.step.started`. The step normally starts before
+   * its text, but a replayed event can arrive after the hydrated item; the existing items of that
+   * message then take the model too, so the answer keeps its own attribution.
+   */
+  #rememberMessageModel(messageId: string, model: ChatModelRef): void {
+    this.#messageModels.set(messageId, model);
+    const prefix = textItemPrefix(messageId);
+    for (const item of this.#timeline.snapshot().items) {
+      if (item.kind !== "assistant-message" || !item.id.startsWith(prefix)) continue;
+      if (item.model?.provider === model.provider && item.model.id === model.id) continue;
+      this.#timeline.put({ ...item, model });
     }
   }
 
@@ -418,10 +451,17 @@ export class OpenCodeProjection {
       ? reasoningItemId(input.messageId, input.ordinal)
       : textItemId(input.messageId, input.ordinal);
     const kind = input.reasoning ? "reasoning" : "assistant-message";
+    const model = input.reasoning ? undefined : this.#messageModels.get(input.messageId);
     const item = (text: string, streaming: boolean) =>
       input.reasoning
         ? ({ kind, id: itemId, text, streaming } as const)
-        : ({ kind, id: itemId, text, streaming } as const);
+        : ({
+            kind,
+            id: itemId,
+            text,
+            streaming,
+            ...(model === undefined ? {} : { model }),
+          } as const);
     if (input.phase === "started") {
       if (this.#texts.has(itemId)) return;
       this.#texts.set(itemId, "");
@@ -519,8 +559,12 @@ function userItemId(messageId: string): string {
   return `user:${messageId}`;
 }
 
+function textItemPrefix(messageId: string): string {
+  return `text:${messageId}:`;
+}
+
 function textItemId(messageId: string, ordinal: number): string {
-  return `text:${messageId}:${ordinal}`;
+  return `${textItemPrefix(messageId)}${ordinal}`;
 }
 
 function reasoningItemId(messageId: string, ordinal: number): string {

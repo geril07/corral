@@ -94,6 +94,83 @@ async function serveLaunches() {
   return (await agents.launches()).filter((launch) => launch.argv[0] === "serve");
 }
 
+test("OpenCode runs a queued turn and subsequent ordinary prompts after delivery and execution", async () => {
+  const { api, session } = await openCodeTask("slow");
+  await untilChat(api, session.id, (view) => view.state.turn === "working", "the first turn");
+  await api.chat.send({ sessionId: session.id, text: "queued later", mode: "follow-up" });
+  await untilChat(
+    api,
+    session.id,
+    (view) =>
+      view.items.some((item) => item.kind === "user-message" && item.text === "queued later") &&
+      view.state.turn === "settled" &&
+      (view.state.queue?.length ?? 0) === 0,
+    "the queued completed turn",
+  );
+  for (const text of ["first normal", "second normal"]) {
+    // oxlint-disable-next-line no-await-in-loop -- each turn follows the preceding boundary
+    await api.chat.send({ sessionId: session.id, text, mode: "prompt" });
+    // oxlint-disable-next-line no-await-in-loop -- the next prompt waits for this turn
+    await untilChat(
+      api,
+      session.id,
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === text) &&
+        view.state.turn === "settled" &&
+        (view.state.queue?.length ?? 0) === 0,
+      text,
+    );
+  }
+  const sent = (await openCodeJournal()).filter((entry) => entry["action"] === "prompt");
+  expect(sent.map((entry) => entry["text"])).toEqual([
+    "slow",
+    "queued later",
+    "first normal",
+    "second normal",
+  ]);
+});
+
+test("OpenCode ignores a stale durable completion while the current execution is running", async () => {
+  const { api, session } = await openCodeTask("stale-events");
+  const running = await untilChat(
+    api,
+    session.id,
+    (view) => textOf(view).includes("still running"),
+    "the current execution",
+  );
+  expect(running.state.turn).toBe("working");
+  await api.chat.send({ sessionId: session.id, text: "must wait", mode: "follow-up" });
+  const queued = await untilChat(
+    api,
+    session.id,
+    (view) => view.state.followUp.includes("must wait"),
+    "the queued message",
+  );
+  expect(queued.state.turn).toBe("working");
+  expect((await openCodeJournal()).filter((entry) => entry["text"] === "must wait")).toEqual([]);
+  await api.chat.abort({ sessionId: session.id });
+});
+
+test("OpenCode shutdown interruption does not release a queued prompt", async () => {
+  const { api, session } = await openCodeTask("shutdown-interruption");
+  await untilChat(
+    api,
+    session.id,
+    (view) => textOf(view).includes("interrupted for shutdown") && view.state.turn === "aborted",
+    "the shutdown interruption",
+  );
+  await api.chat.send({ sessionId: session.id, text: "wait for recovery", mode: "follow-up" });
+  await untilChat(
+    api,
+    session.id,
+    (view) => view.state.followUp.includes("wait for recovery"),
+    "the paused prompt",
+  );
+  expect(
+    (await openCodeJournal()).filter((entry) => entry["text"] === "wait for recovery"),
+  ).toEqual([]);
+});
+
 test("an OpenCode chat task streams on the one server it starts, and opens its terminal as a client of it", async () => {
   const { api, session } = await openCodeTask();
   const capabilities = await api.chat.capabilities();
@@ -177,7 +254,7 @@ test("an OpenCode chat task streams on the one server it starts, and opens its t
     )
     .toBe(2);
   const prompts = (await openCodeJournal()).filter((entry) => entry["action"] === "prompt");
-  expect(prompts.map((entry) => entry["delivery"])).toEqual([null, "steer"]);
+  expect(prompts.map((entry) => entry["delivery"])).toEqual(["queue", "steer"]);
 
   // Opening the chat again adds no frontend: both legs are already live.
   const back = await api.sessions.setView({ id: session.id, view: "chat", size: SIZE });

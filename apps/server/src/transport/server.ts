@@ -17,6 +17,7 @@ import { ModelPreferencesStore } from "../models/model-preferences.ts";
 import { ModelCatalogService } from "../models/model-catalog.ts";
 import { ChatService } from "../chat/chat-service.ts";
 import type { ChatDriverRegistry, ChatTimeouts } from "../chat/chat-driver.ts";
+import { SqliteChatChoices } from "../chat/sqlite-chat-choices.ts";
 import { ChangesService } from "../changes/changes-service.ts";
 import { PullRequestStore } from "../changes/pull-request-store.ts";
 import { CodexServers } from "../chat/codex-server.ts";
@@ -97,6 +98,9 @@ export function startServer(options: {
   const { drivers: chatDrivers, ...chatTimeouts } = options.chat ?? {};
   const chat = new ChatService({
     dataDir,
+    // The session's choice, thinking memory and queue are server state: they outlive a restart
+    // and are not part of the immutable launch snapshot.
+    choices: new SqliteChatChoices(database),
     ...(options.chat === undefined ? {} : { timeouts: chatTimeouts }),
     ...(chatDrivers === undefined ? {} : { drivers: chatDrivers }),
     onWorkspaceChange: (sessionId) => changes.workspaceChanged(sessionId),
@@ -156,6 +160,7 @@ export function startServer(options: {
     openCodeServers,
     codexServers,
     config,
+    modelCatalog,
     // Defined below, once there is a TaskService to notify; called only after startup.
     taskEvents: {
       primarySessionRemoved: () => tasks.primarySessionRemoved(),

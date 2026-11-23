@@ -14,10 +14,13 @@ export function emptyChatState(): ChatSessionState {
     turnEndedAt: null,
     steering: [],
     followUp: [],
+    queue: [],
     model: null,
     models: [],
     reasoning: null,
     reasoningLevels: [],
+    selection: null,
+    selectionIssue: null,
     context: null,
   };
 }
@@ -52,6 +55,8 @@ export class ChatTimeline {
   #listeners = new Set<() => void>();
   /** Observers of every item put, outside the streaming watch: who else needs to know it happened. */
   #itemObservers = new Set<(item: ChatItem) => void>();
+  /** Observers of the session state, for the turn boundary the chat service drives. */
+  #stateObservers = new Set<(state: ChatSessionState) => void>();
   /** The clock the turn's start and end are stamped with; injectable so a test can pin it. */
   readonly #now: () => number;
   #closed = false;
@@ -108,6 +113,16 @@ export class ChatTimeline {
   }
 
   /**
+   * Called with every new session state, after it is stored and before a watcher sees it. The chat
+   * service uses it to notice a turn boundary: it may apply the next selection or start a queued
+   * turn. It must not await or write back synchronously, or it would recurse through `setState`.
+   */
+  observeState(observer: (state: ChatSessionState) => void): () => void {
+    this.#stateObservers.add(observer);
+    return () => this.#stateObservers.delete(observer);
+  }
+
+  /**
    * Appends streamed text: the snapshot's item grows as well, so a client that arrives mid-stream
    * gets the text so far and still receives the increment as a delta.
    */
@@ -141,6 +156,7 @@ export class ChatTimeline {
       }
     }
     this.#state = next;
+    for (const observer of this.#stateObservers) observer(this.#state);
     this.#emit({ type: "state", state: { ...this.#state } });
   }
 

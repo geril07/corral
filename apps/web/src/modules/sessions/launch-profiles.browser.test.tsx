@@ -19,6 +19,8 @@ import { describeLaunchError } from "./launch-error.ts";
 const { newClient } = realServerClients();
 
 const picker = () => page.getByRole("dialog", { name: "New agent session" });
+const setup = () => page.getByRole("dialog", { name: "Start agent session" });
+const startSelected = () => setup().getByRole("button", { name: "Start session" }).click();
 const stoppedPane = () => page.getByRole("region", { name: /^(?:stopped|failed) session$/ });
 
 const PROFILES = `
@@ -82,6 +84,7 @@ test("a named profile's model reaches the fake CLI and stays on the session", as
   await expect.element(picker()).toBeVisible();
   await picker().getByRole("radio", { name: "Claude gateway" }).click();
   await userEvent.keyboard("{Enter}");
+  await startSelected();
 
   await expect.element(picker()).not.toBeInTheDocument();
   const session = await startedAgent(client, "claude");
@@ -131,6 +134,7 @@ test("a native-default start carries no profile or model and never borrows the f
   await openAgentSessionPicker("terminal");
   await picker().getByRole("radio", { name: "claude" }).click();
   await userEvent.keyboard("{Enter}");
+  await startSelected();
 
   const session = await startedAgent(client, "claude");
   expect(session.launch).toBeNull();
@@ -152,17 +156,17 @@ test("a missing environment reference keeps the picker draft and says which vari
   await openAgentSessionPicker("terminal");
   await picker().getByRole("radio", { name: "Claude env" }).click();
   await userEvent.keyboard("{Enter}");
+  await startSelected();
 
   await expect
-    .element(picker().getByRole("alert"))
+    .element(setup().getByRole("alert"))
     .toMatchTextContent("no environment variable PROFILE_MISSING_TOKEN");
-  await expect.element(picker().getByRole("radio", { name: "Claude env" })).toBeChecked();
+  await expect.element(setup().getByRole("button", { name: /Agent Claude env/ })).toBeVisible();
   expect(client.sessions.getSnapshot().sessions).toHaveLength(shells);
 
   // With the reference present, the same open picker completes the launch.
   await withServerEnv("PROFILE_MISSING_TOKEN", "not-a-real-token");
-  await picker().getByRole("radio", { name: "Claude env" }).click();
-  await userEvent.keyboard("{Enter}");
+  await startSelected();
   await expect.element(picker()).not.toBeInTheDocument();
   const session = await startedAgent(client, "claude");
   expect(session.launch).toMatchObject({ profile: { id: "claude-env" } });
@@ -201,6 +205,7 @@ test("a profile removed from the live config cannot fall back to a native launch
   await expect.element(start).toBeEnabled();
   await start.click();
   await expect.element(picker()).not.toBeInTheDocument();
+  await startSelected();
   const session = await startedAgent(client, "codex");
   expect(session.launch).toMatchObject({ profile: { id: "codex-work" } });
 });
@@ -243,6 +248,7 @@ test("a profile revision change requires explicit reselect and launches the new 
   await picker().getByRole("radio", { name: "Claude gateway" }).click();
   await expect.element(start).toBeEnabled();
   await start.click();
+  await startSelected();
 
   const session = await startedAgent(client, "claude");
   expect(session.launch).toMatchObject({
@@ -388,9 +394,13 @@ test("the live picker follows model-specific thinking and refuses another agent"
     '[profiles.pi-work]\nname = "pi work"\nagent = "pi"\nmodel = "stub-1"\n',
     1,
   );
+  const countBefore = client.sessions.getSnapshot().sessions.length;
   await openAgentSessionPicker("chat");
   await picker().getByRole("radio", { name: "pi", exact: true }).click();
   await picker().getByRole("option").first().click();
+  expect(client.sessions.getSnapshot().sessions).toHaveLength(countBefore);
+  await expect.element(picker()).not.toBeInTheDocument();
+  await startSelected();
   await expect.element(page.getByRole("button", { name: "Model Stub One" })).toBeVisible();
   const first = sessionOf(client, "pi");
   // The first offered model row is the driver's current model, so the launch records it.
@@ -428,4 +438,86 @@ test("the live picker follows model-specific thinking and refuses another agent"
   // The task's shell and its one chat: the dialog changes the model, never launches.
   await vi.waitFor(() => expect(client.sessions.getSnapshot().sessions).toHaveLength(2));
   // Per-session draft isolation is covered in chat-tab; here the refusal is the claim.
+});
+
+test("a separate pi chat starts only after choosing its model and thinking and confirming", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Selected additional session");
+  const before = client.sessions.getSnapshot().sessions.length;
+  await openAgentSessionPicker("chat");
+  await picker().getByRole("radio", { name: "pi", exact: true }).click();
+  await picker()
+    .getByRole("option", { name: /Stub Two/ })
+    .click();
+  await expect.element(picker()).not.toBeInTheDocument();
+  expect(client.sessions.getSnapshot().sessions).toHaveLength(before);
+  await setup()
+    .getByRole("button", { name: /^Reasoning/ })
+    .click();
+  await picker().getByRole("button", { name: "high", exact: true }).click();
+  await expect.element(picker()).not.toBeInTheDocument();
+  expect(client.sessions.getSnapshot().sessions).toHaveLength(before);
+  await expect.element(setup().getByRole("button", { name: "Reasoning high" })).toBeVisible();
+  await startSelected();
+  await expect.element(page.getByRole("button", { name: "Model Stub Two" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Reasoning high" })).toBeVisible();
+  await page.getByRole("textbox", { name: "Message" }).fill("first additional prompt");
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .element(page.getByRole("log", { name: "Chat transcript" }))
+    .toMatchTextContent("first additional prompt");
+});
+
+test("a separate Codex chat starts only after explicitly confirming its model and effort", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Codex additional session");
+  const before = client.sessions.getSnapshot().sessions.length;
+  await openAgentSessionPicker("chat");
+  await picker().getByRole("radio", { name: "codex", exact: true }).click();
+  await picker()
+    .getByRole("option", { name: /Stub Two/ })
+    .click();
+  await expect.element(picker()).not.toBeInTheDocument();
+  expect(client.sessions.getSnapshot().sessions).toHaveLength(before);
+  await setup()
+    .getByRole("button", { name: /^Reasoning/ })
+    .click();
+  await picker().getByRole("button", { name: "high", exact: true }).click();
+  await expect.element(setup().getByRole("button", { name: "Reasoning high" })).toBeVisible();
+  expect(client.sessions.getSnapshot().sessions).toHaveLength(before);
+  await startSelected();
+  await expect.element(page.getByRole("button", { name: "Model Stub Two" })).toBeVisible();
+  await page.getByRole("textbox", { name: "Message" }).fill("Codex additional first prompt");
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .element(page.getByRole("log", { name: "Chat transcript" }))
+    .toMatchTextContent("Codex additional first prompt");
+  await expect
+    .element(page.getByRole("button", { name: "Stop", exact: true }))
+    .not.toBeInTheDocument();
+  await page.getByRole("button", { name: "Model Stub Two" }).click();
+  const models = page.getByRole("dialog", { name: "Chat model" });
+  await models.getByRole("option", { name: /Stub Three/ }).click();
+  await userEvent.keyboard("{Escape}");
+  const message = page.getByRole("textbox", { name: "Message" });
+  await message.fill("Codex next selected prompt");
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .element(page.getByRole("alert").filter({ hasText: "choose an offered level" }))
+    .toBeVisible();
+  await expect.element(message).toHaveValue("Codex next selected prompt");
+  await page.getByRole("button", { name: "Thinking", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "Reasoning level" })
+    .getByRole("button", {
+      name: "off",
+      exact: true,
+    })
+    .click();
+  await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("button", { name: "Reasoning off" })).toBeVisible();
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .element(page.getByRole("log", { name: "Chat transcript" }))
+    .toMatchTextContent("Codex next selected prompt");
 });

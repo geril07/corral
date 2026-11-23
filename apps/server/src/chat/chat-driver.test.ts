@@ -17,9 +17,18 @@ import type {
   ChatDriverStart,
   ChatDriverRegistry,
   ChatLaunchFacts,
+  ChatSendReceipt,
 } from "./chat-driver.ts";
-import { ChatLaunchError, ChatUnavailableError, type ChatSubject } from "./chat-errors.ts";
+import {
+  ChatLaunchError,
+  ChatReasoningUnsupportedError,
+  ChatRefusalError,
+  ChatUnavailableError,
+  type ChatSubject,
+} from "./chat-errors.ts";
+import { MemoryChatChoices } from "./chat-choices.ts";
 import { ChatService } from "./chat-service.ts";
+import { piChatArgs } from "./pi-driver.ts";
 import { CHAT_DRIVER_REGISTRY } from "./chat-drivers.ts";
 import { floorPath, readFloor, SEQUENCE_BLOCK } from "./sequence-floor.ts";
 import { ChatTimeline } from "./timeline.ts";
@@ -91,7 +100,8 @@ class EchoDriver implements ChatDriver {
     this.#launch.onExit(null);
   }
 
-  send(text: string, _mode: ChatSendMode): string {
+  send(text: string, mode: ChatSendMode): ChatSendReceipt {
+    if (mode === "prompt") this.timeline.setState({ turn: "working" });
     this.#items += 1;
     const itemId = `echo-${this.#items}`;
     this.timeline.put({ kind: "user-message", id: itemId, text });
@@ -101,7 +111,8 @@ class EchoDriver implements ChatDriver {
       text: `echo: ${text}`,
       streaming: false,
     });
-    return itemId;
+    if (mode === "prompt") this.timeline.setState({ turn: "settled" });
+    return { id: itemId, outcome: Promise.resolve(null) };
   }
 
   async abort(): Promise<void> {
@@ -110,9 +121,20 @@ class EchoDriver implements ChatDriver {
 
   respond(_itemId: string, _value: ChatAnswer): void {}
 
-  async setModel(_model: ChatModelRef): Promise<void> {}
+  async setModel(model: ChatModelRef): Promise<void> {
+    const entry = this.timeline.state.models.find(
+      (candidate) => candidate.id === model.id && candidate.provider === model.provider,
+    );
+    this.timeline.setState({
+      model: entry ?? { ...model, name: model.id },
+      reasoningLevels: entry?.reasoningLevels ?? [],
+      reasoning: null,
+    });
+  }
 
-  async setReasoning(_level: string): Promise<void> {}
+  async setReasoning(level: string): Promise<void> {
+    this.timeline.setState({ reasoning: level });
+  }
 }
 
 interface Harness {
@@ -123,12 +145,13 @@ interface Harness {
 
 function echoRegistration(started: EchoDriver[]): ChatDriverRegistration {
   return {
+    orderedTurnBoundaries: true,
     capabilities: {
       steer: false,
       followUp: false,
       approvals: false,
-      modelSwitch: false,
-      reasoningLevels: false,
+      modelSwitch: true,
+      reasoningLevels: true,
       terminalView: "both-live",
     },
     args: (facts: ChatLaunchFacts) => ["--echo", facts.how, facts.agentSessionId ?? "new"],
@@ -158,9 +181,10 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function chatService(harness?: Harness): ChatService {
+function chatService(harness?: Harness, choices?: MemoryChatChoices): ChatService {
   return new ChatService({
     dataDir: root,
+    ...(choices === undefined ? {} : { choices }),
     timeouts: { dialogTimeoutMs: 1000, readyTimeoutMs: 2000, exitGraceMs: 500, writerWaitMs: 1000 },
     ...(harness === undefined ? {} : { drivers: harness.registry }),
   });
@@ -208,8 +232,8 @@ test("a driver is one registry entry: it answers chat.capabilities and starts th
   try {
     // The record is the driver's declaration, the kind is the registry's key.
     expect(recordsOf(chat.capabilities())).toEqual([
-      "claude:both-live:",
-      "codex:both-live:steer,approvals",
+      "claude:both-live:modelSwitch,reasoningLevels",
+      "codex:both-live:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "pi:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "opencode:both-live:steer,followUp,approvals",
     ]);
@@ -235,7 +259,54 @@ test("a driver is one registry entry: it answers chat.capabilities and starts th
   }
 });
 
-test("a model and level are ordered before other clients' sends and switches, including a partial refusal", async () => {
+test("pi uses the launch snapshot only for a new conversation, not when resuming", () => {
+  const facts = {
+    model: "first-model",
+    provider: "first-provider",
+    agentSessionId: "conversation",
+  };
+  expect(piChatArgs({ ...facts, how: "start" })).toContain("--model");
+  const resumed = piChatArgs({ ...facts, how: "resume" });
+  expect(resumed).not.toContain("--model");
+  expect(resumed).not.toContain("--provider");
+});
+
+test("no shipped driver treats uncorrelated native turn events as a verified boundary", () => {
+  for (const registration of Object.values(CHAT_DRIVER_REGISTRY)) {
+    expect(registration?.orderedTurnBoundaries).not.toBe(true);
+  }
+});
+
+test("pi does not claim a switched model uses its default when the prior thinking level may persist", async () => {
+  const started: EchoDriver[] = [];
+  const chat = chatService({ started, registry: { pi: echoRegistration(started) } });
+  try {
+    await chat.launch(request("pi-default", "pi"));
+    const driver = started[0]!;
+    driver.timeline.setState({
+      model: { provider: "stub", id: "a", name: "A" },
+      models: [
+        { provider: "stub", id: "a", name: "A" },
+        { provider: "stub", id: "b", name: "B" },
+      ],
+      reasoning: "high",
+    });
+    driver.setModel = async (model) => {
+      driver.timeline.setState({ model: { ...model, name: model.id } });
+    };
+    await chat.setModel(subject("pi-default", "pi"), { provider: "stub", id: "b" });
+    expect(driver.state.model?.id).toBe("b");
+    expect(driver.state.reasoning).toBe("high");
+    expect(driver.state.selection?.level).toBeNull();
+    await expect(
+      chat.send(subject("pi-default", "pi"), "native level", "prompt"),
+    ).resolves.toBeTruthy();
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("a model and level are ordered before other clients' sends and switches", async () => {
   const harness = echoRegistry();
   const chat = chatService(harness);
   const entered = Promise.withResolvers<void>();
@@ -244,6 +315,7 @@ test("a model and level are ordered before other clients' sends and switches, in
   try {
     await chat.launch(request("ordered", "claude"));
     const driver = harness.started[0]!;
+    driver.timeline.setState({ reasoningLevels: ["low", "medium", "high"] });
     driver.setModel = async (model) => {
       calls.push(`model:${model.id}`);
       driver.timeline.setState({ model: { ...model, name: model.id } });
@@ -252,7 +324,6 @@ test("a model and level are ordered before other clients' sends and switches, in
     };
     driver.setReasoning = async (level) => {
       calls.push(`level:${level}`);
-      if (level === "bad") throw new Error("level refused");
       driver.timeline.setState({ reasoning: level });
     };
     const send = driver.send.bind(driver);
@@ -262,22 +333,775 @@ test("a model and level are ordered before other clients' sends and switches, in
     };
 
     const session = subject("ordered", "claude");
-    const pair = chat.setModel(session, { provider: null, id: "new" }, "bad");
+    const pair = chat.setModel(session, { provider: null, id: "new" }, "high");
     await entered.promise;
     const message = chat.send(session, "next", "prompt");
-    const level = chat.setReasoning(session, "high");
+    const level = chat.setReasoning(session, "low");
     expect(calls).toEqual(["model:new"]);
     release.resolve();
-    await expect(pair).rejects.toThrow(
-      "The model changed, but its reasoning level could not be applied.",
-    );
+    await pair;
     await message;
     await level;
-    expect(calls).toEqual(["model:new", "level:bad", "send:next", "level:high"]);
+    await when(() => calls.includes("level:low"), "the later level at the boundary");
+    expect(calls).toEqual(["model:new", "level:high", "send:next", "level:low"]);
     expect(driver.state.model?.id).toBe("new");
-    expect(driver.state.reasoning).toBe("high");
+    expect(driver.state.reasoning).toBe("low");
   } finally {
     release.resolve();
+    await chat.closeAll();
+  }
+});
+
+test("steer does not wait for a stalled selection command", async () => {
+  const harness = echoRegistry();
+  const chat = chatService(harness);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  try {
+    await chat.launch(request("steer-unblocked", "claude"));
+    const driver = harness.started[0]!;
+    const session = subject("steer-unblocked", "claude");
+    driver.setModel = async (model) => {
+      entered.resolve();
+      await release.promise;
+      driver.timeline.setState({ model: { ...model, name: model.id } });
+    };
+    const selection = chat.setModel(session, { provider: "stub", id: "b" });
+    await entered.promise;
+    expect(await settlesNow(chat.send(session, "steer", "steer"), "the steer")).toBe("echo-1");
+    release.resolve();
+    await selection;
+  } finally {
+    release.resolve();
+    await chat.closeAll();
+  }
+});
+
+test("a queued turn whose level disappears before its boundary is not run on another one", async () => {
+  const harness = echoRegistry();
+  const chat = chatService(harness);
+  try {
+    await chat.launch(request("queue-level", "claude"));
+    const driver = harness.started[0]!;
+    const offered = {
+      provider: "stub",
+      id: "m1",
+      name: "M1",
+      reasoningLevels: ["low", "high"],
+    };
+    driver.timeline.setState({
+      models: [offered],
+      model: { provider: "stub", id: "m1", name: "M1" },
+      reasoningLevels: ["low", "high"],
+      reasoningStatus: "ready",
+      reasoning: "low",
+    });
+    const session = subject("queue-level", "claude");
+    await chat.setReasoning(session, "high");
+    // A follow-up waits behind a running turn; the boundary is what would run it.
+    driver.timeline.setState({ turn: "working" });
+    const id = await chat.send(session, "on high", "follow-up");
+    // The next fresh report no longer offers the captured level, before that boundary arrives.
+    driver.timeline.setState({
+      models: [{ ...offered, reasoningLevels: ["low"] }],
+      reasoningLevels: ["low"],
+      reasoning: "low",
+    });
+    const sent: string[] = [];
+    const send = driver.send.bind(driver);
+    driver.send = (text, mode) => {
+      sent.push(text);
+      return send(text, mode);
+    };
+    driver.timeline.setState({ turn: "settled" });
+
+    await expect
+      .poll(() => driver.timeline.state.queue?.find((entry) => entry.id === id)?.status, {
+        timeout: 2000,
+        message: "the undelivered queue entry",
+      })
+      .toBe("undelivered");
+    expect(sent).toEqual([]);
+    expect(driver.timeline.state.followUp).toEqual([]);
+    expect(
+      driver.timeline.snapshot().items.find((item) => item.id === `chat:queue:${id}`),
+    ).toMatchObject({ kind: "error" });
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+/** A frontend whose live report offers `max`, the starting point a stale level needs. */
+async function maxFrontend(sessionId: string) {
+  const harness = echoRegistry();
+  const chat = chatService(harness);
+  await chat.launch(request(sessionId, "claude"));
+  const driver = harness.started[0]!;
+  const model = { provider: "stub", id: "m1", name: "M1", reasoningLevels: ["low", "max"] };
+  driver.timeline.setState({
+    models: [model],
+    model: { provider: "stub", id: "m1", name: "M1" },
+    reasoningLevels: ["low", "max"],
+    reasoningStatus: "ready",
+    reasoning: "max",
+  });
+  const session = subject(sessionId, "claude");
+  await chat.setReasoning(session, "max");
+  return { chat, driver, session };
+}
+
+test("a cached level in a failed report is unconfirmed: not applied and not removed", async () => {
+  const { chat, driver, session } = await maxFrontend("stale-level");
+  const sent: string[] = [];
+  const echoed = driver.send.bind(driver);
+  driver.send = (text, mode) => {
+    sent.push(text);
+    return echoed(text, mode);
+  };
+  const applied: string[] = [];
+  driver.setReasoning = async (level) => {
+    applied.push(level);
+    driver.timeline.setState({ reasoning: level });
+  };
+  try {
+    // The list still holds max, but the refresh that would prove the model offers it failed.
+    driver.timeline.setState({ reasoningStatus: "error" });
+    await expect(chat.send(session, "on max?", "prompt")).rejects.toBeInstanceOf(
+      ChatReasoningUnsupportedError,
+    );
+    // The choice is kept, and it is the cached list that is not evidence — neither of the level nor
+    // of a removal.
+    expect(driver.timeline.state.selection).toEqual({
+      model: { provider: "stub", id: "m1" },
+      level: "max",
+    });
+    expect(driver.timeline.state.selectionIssue).toEqual({ level: "max", reason: "unconfirmed" });
+    expect(driver.timeline.state.reasoningLevels).toContain("max");
+    expect(applied).toEqual([]);
+    expect(sent).toEqual([]);
+
+    // A refresh still in flight is the same: a cached level is not evidence until the report lands.
+    driver.timeline.setState({ reasoningStatus: "loading" });
+    await expect(chat.send(session, "on max now?", "prompt")).rejects.toBeInstanceOf(
+      ChatReasoningUnsupportedError,
+    );
+    expect(driver.timeline.state.selectionIssue).toEqual({ level: "max", reason: "unconfirmed" });
+    expect(sent).toEqual([]);
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("a fresh report decides the level: offering it runs the turn, a list without it is unavailable", async () => {
+  const { chat, driver, session } = await maxFrontend("fresh-level");
+  const sent: string[] = [];
+  const echoed = driver.send.bind(driver);
+  driver.send = (text, mode) => {
+    sent.push(text);
+    return echoed(text, mode);
+  };
+  try {
+    driver.timeline.setState({ reasoningStatus: "error" });
+    await expect(chat.send(session, "too early", "prompt")).rejects.toBeInstanceOf(
+      ChatReasoningUnsupportedError,
+    );
+    // A fresh report that still offers the level returns the choice without a new user action.
+    driver.timeline.setState({ reasoningStatus: "ready" });
+    await chat.send(session, "on max", "prompt");
+    expect(sent).toEqual(["on max"]);
+    expect(driver.timeline.state.selectionIssue).toBeNull();
+
+    // A fresh list that lacks it is an unavailable one, and the words do not leave.
+    driver.timeline.setState({
+      reasoningLevels: ["low"],
+      reasoning: "low",
+      reasoningStatus: "ready",
+    });
+    await expect(chat.send(session, "must not leave", "prompt")).rejects.toBeInstanceOf(
+      ChatReasoningUnsupportedError,
+    );
+    expect(driver.timeline.state.selection).toEqual({
+      model: { provider: "stub", id: "m1" },
+      level: "max",
+    });
+    expect(driver.timeline.state.selectionIssue).toEqual({ level: "max", reason: "unavailable" });
+    expect(sent).toEqual(["on max"]);
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("a degraded report does not make another model's cached list a fresh one", async () => {
+  const harness = echoRegistry();
+  const chat = chatService(harness);
+  try {
+    await chat.launch(request("other-model-level", "claude"));
+    const driver = harness.started[0]!;
+    const running = { provider: "stub", id: "m1", name: "M1", reasoningLevels: ["low"] };
+    const other = { provider: "stub", id: "m2", name: "M2", reasoningLevels: ["low", "max"] };
+    driver.timeline.setState({
+      models: [running, other],
+      model: { provider: "stub", id: "m1", name: "M1" },
+      reasoningLevels: ["low"],
+      reasoningStatus: "ready",
+      reasoning: "low",
+      turn: "working",
+    });
+    // The catalog still lists max on m2, but the live report that would prove the levels is failed.
+    driver.timeline.setState({ reasoningStatus: "error" });
+    await expect(
+      chat.setModel(subject("other-model-level", "claude"), { provider: "stub", id: "m2" }, "max"),
+    ).rejects.toBeInstanceOf(ChatReasoningUnsupportedError);
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+/** Waits for an observable state, failing on a deadline instead of hanging. */
+async function when(predicate: () => boolean, description: string): Promise<void> {
+  await expect.poll(predicate, { timeout: 2000, message: description }).toBe(true);
+}
+
+/** Fails the test instead of hanging when a call that must not wait never settles. */
+function settlesNow<T>(promise: Promise<T>, description: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(
+        () => reject(new Error(`${description} waited on a delivery receipt`)),
+        1000,
+      ).unref();
+    }),
+  ]);
+}
+
+test("an unconfirmed delivery does not hold a steer, a later choice or a stop", async () => {
+  const harness = echoRegistry();
+  const choices = new MemoryChatChoices();
+  const chat = chatService(harness, choices);
+  const outstanding = Promise.withResolvers<Error | null>();
+  try {
+    await chat.launch(request("pending-delivery", "claude"));
+    const driver = harness.started[0]!;
+    const session = subject("pending-delivery", "claude");
+    const echoed = driver.send.bind(driver);
+    const sent: string[] = [];
+    driver.send = (text, mode) => {
+      const receipt = echoed(text, mode);
+      const first = sent.length === 0;
+      sent.push(text);
+      return first ? { ...receipt, outcome: outstanding.promise } : receipt;
+    };
+
+    const id = await chat.send(session, "queued one", "follow-up");
+    await when(() => sent.length === 1, "the queued send");
+    expect(driver.timeline.state.queue?.find((entry) => entry.id === id)?.status).toBe("sending");
+
+    // The boundary pass released the serial queue, so nothing else waits on the receipt.
+    await settlesNow(chat.send(session, "steer", "steer"), "the steer");
+    await settlesNow(chat.setModel(session, { provider: "stub", id: "m2" }), "the later choice");
+    await settlesNow(chat.stop("pending-delivery"), "the stop");
+
+    // The stop already settled the attempt; its late answer cannot claim it was sent.
+    outstanding.resolve(null);
+    await when(
+      () =>
+        choices.queue("pending-delivery").find((entry) => entry.id === id)?.status === "uncertain",
+      "the row the stop left uncertain",
+    );
+  } finally {
+    outstanding.resolve(null);
+    await chat.closeAll();
+  }
+});
+
+test("the next queued entry waits for the first attempt's receipt, not just its visible turn", async () => {
+  const harness = echoRegistry();
+  const choices = new MemoryChatChoices();
+  const chat = chatService(harness, choices);
+  const outstanding = Promise.withResolvers<Error | null>();
+  try {
+    await chat.launch(request("pending-boundary", "claude"));
+    const driver = harness.started[0]!;
+    const session = subject("pending-boundary", "claude");
+    const echoed = driver.send.bind(driver);
+    const sent: string[] = [];
+    driver.send = (text, mode) => {
+      const receipt = echoed(text, mode);
+      const first = sent.length === 0;
+      sent.push(text);
+      return first ? { ...receipt, outcome: outstanding.promise } : receipt;
+    };
+
+    const firstId = await chat.send(session, "first", "follow-up");
+    await when(() => sent.length === 1, "the first send");
+    await chat.send(session, "second", "follow-up");
+    // A choice is a barrier on the same serial queue: when it settles, the pass the second entry
+    // queued has already run and had its chance to send.
+    await chat.setModel(session, { provider: "stub", id: "m2" });
+    expect(sent).toEqual(["first"]);
+
+    // The turn the first attempt opened is visible, and its settled boundary arrives before the
+    // agent has named the message. The second entry must not run ahead of that unconfirmed one.
+    driver.timeline.setState({ turn: "working" });
+    driver.timeline.setState({ turn: "settled" });
+    await chat.setModel(session, { provider: "stub", id: "m3" });
+    expect(sent).toEqual(["first"]);
+    expect(choices.queue("pending-boundary").find((entry) => entry.id === firstId)?.status).toBe(
+      "sending",
+    );
+
+    outstanding.resolve(null);
+    await when(() => sent.length === 2, "the second send after the first was confirmed");
+    expect(sent).toEqual(["first", "second"]);
+  } finally {
+    outstanding.resolve(null);
+    await chat.closeAll();
+  }
+});
+
+test("an unknown delivery cannot release a later model or queued turn before delayed working", async () => {
+  const harness = echoRegistry();
+  const choices = new MemoryChatChoices();
+  const chat = chatService(harness, choices);
+  const outcome = Promise.withResolvers<Error | null>();
+  try {
+    await chat.launch(request("delayed-working", "claude"));
+    const driver = harness.started[0]!;
+    const session = subject("delayed-working", "claude");
+    const models = [
+      { provider: "stub", id: "a", name: "A" },
+      { provider: "stub", id: "b", name: "B" },
+    ];
+    driver.timeline.setState({ model: models[0]!, models });
+    const sent: string[] = [];
+    driver.send = (text) => {
+      sent.push(text);
+      return { id: text, outcome: outcome.promise };
+    };
+    await chat.send(session, "A", "follow-up");
+    await when(() => sent.length === 1, "A delivered to the fake transport");
+    await chat.setModel(session, { provider: "stub", id: "b" });
+    await chat.send(session, "B", "follow-up");
+    outcome.resolve(new Error("connection lost after delivery"));
+    await when(
+      () => choices.queue("delayed-working").some((entry) => entry.status === "uncertain"),
+      "A marked uncertain",
+    );
+    await chat.setModel(session, { provider: "stub", id: "a" });
+    expect(sent).toEqual(["A"]);
+    expect(driver.state.model?.id).toBe("a");
+    driver.timeline.setState({ turn: "working" });
+    expect(sent).toEqual(["A"]);
+  } finally {
+    outcome.resolve(null);
+    await chat.closeAll();
+  }
+});
+
+test.each(["error-first", "boundary-first"] as const)(
+  "a correlated boundary recovers a lost receipt regardless of ordering: %s",
+  async (order) => {
+    const harness = echoRegistry();
+    const choices = new MemoryChatChoices();
+    const chat = chatService(harness, choices);
+    const outcome = Promise.withResolvers<Error | null>();
+    const boundary = Promise.withResolvers<"settled" | "aborted">();
+    try {
+      await chat.launch(request("recovered-delivery", "claude"));
+      const driver = harness.started[0]!;
+      const session = subject("recovered-delivery", "claude");
+      const sent: string[] = [];
+      driver.send = (text) => {
+        sent.push(text);
+        return sent.length === 1
+          ? { id: text, outcome: outcome.promise, boundary: boundary.promise }
+          : { id: text, outcome: Promise.resolve(null) };
+      };
+      await chat.send(session, "A", "prompt");
+      await chat.send(session, "B", "follow-up");
+      if (order === "error-first") {
+        outcome.resolve(new Error("reply lost"));
+        await when(
+          () => choices.queue(session.sessionId)[0]?.status === "uncertain",
+          "unknown delivery",
+        );
+      } else {
+        boundary.resolve("settled");
+        await Promise.resolve();
+      }
+      expect(sent).toEqual(["A"]);
+      if (order === "error-first") boundary.resolve("settled");
+      else outcome.resolve(new Error("reply lost"));
+      await when(() => sent.length === 2, "the later turn after correlated evidence");
+      expect(sent).toEqual(["A", "B"]);
+    } finally {
+      outcome.resolve(null);
+      boundary.resolve("settled");
+      await chat.closeAll();
+    }
+  },
+);
+
+test("an accepted queued prompt does not establish a turn boundary before working arrives", async () => {
+  const harness = echoRegistry();
+  const choices = new MemoryChatChoices();
+  const chat = chatService(harness, choices);
+  const outcome = Promise.withResolvers<Error | null>();
+  try {
+    await chat.launch(request("accepted-before-working", "claude"));
+    const driver = harness.started[0]!;
+    const session = subject("accepted-before-working", "claude");
+    const models = [
+      { provider: "stub", id: "a", name: "A" },
+      { provider: "stub", id: "b", name: "B" },
+    ];
+    driver.timeline.setState({ model: models[0]!, models });
+    const sent: string[] = [];
+    driver.send = (text) => {
+      sent.push(text);
+      return { id: text, outcome: outcome.promise };
+    };
+    await chat.send(session, "A", "follow-up");
+    await when(() => sent.length === 1, "A delivered to the fake transport");
+    await chat.send(session, "B", "follow-up");
+    outcome.resolve(null);
+    await Promise.resolve();
+    await chat.setModel(session, { provider: "stub", id: "b" });
+    expect(sent).toEqual(["A"]);
+    expect(driver.state.model?.id).toBe("a");
+  } finally {
+    outcome.resolve(null);
+    await chat.closeAll();
+  }
+});
+
+test("a direct prompt holds later model changes before working arrives", async () => {
+  const harness = echoRegistry();
+  const chat = chatService(harness);
+  const outcome = Promise.withResolvers<Error | null>();
+  try {
+    await chat.launch(request("prompt-before-working", "claude"));
+    const driver = harness.started[0]!;
+    const session = subject("prompt-before-working", "claude");
+    const models = [
+      { provider: "stub", id: "a", name: "A" },
+      { provider: "stub", id: "b", name: "B" },
+    ];
+    driver.timeline.setState({ model: models[0]!, models });
+    driver.send = (text) => ({ id: text, outcome: outcome.promise });
+    await chat.send(session, "A", "prompt");
+    await chat.setModel(session, { provider: "stub", id: "b" });
+    expect(driver.state.model?.id).toBe("a");
+  } finally {
+    outcome.resolve(null);
+    await chat.closeAll();
+  }
+});
+
+test("an accepted delivery releases the captured next turn only after its own working and settled events", async () => {
+  const harness = echoRegistry();
+  const chat = chatService(harness);
+  const first = Promise.withResolvers<Error | null>();
+  try {
+    await chat.launch(request("accepted-boundary", "claude"));
+    const driver = harness.started[0]!;
+    const session = subject("accepted-boundary", "claude");
+    const models = [
+      { provider: "stub", id: "a", name: "A" },
+      { provider: "stub", id: "b", name: "B" },
+    ];
+    driver.timeline.setState({ model: models[0]!, models });
+    const sent: Array<{ text: string; model: string | undefined }> = [];
+    driver.send = (text) => {
+      sent.push({ text, model: driver.state.model?.id });
+      return { id: text, outcome: sent.length === 1 ? first.promise : Promise.resolve(null) };
+    };
+    await chat.send(session, "A", "prompt");
+    await chat.setModel(session, { provider: "stub", id: "b" });
+    await chat.send(session, "B", "follow-up");
+    first.resolve(null);
+    await Promise.resolve();
+    driver.timeline.setState({ turn: "working" });
+    await chat.setModel(session, { provider: "stub", id: "a" });
+    expect(sent).toEqual([{ text: "A", model: "a" }]);
+    driver.timeline.setState({ turn: "settled" });
+    await when(() => sent.length === 2, "the captured next turn");
+    expect(sent).toEqual([
+      { text: "A", model: "a" },
+      { text: "B", model: "b" },
+    ]);
+  } finally {
+    first.resolve(null);
+    await chat.closeAll();
+  }
+});
+
+test("an uncertain direct prompt survives restart and blocks both clients without blocking steer", async () => {
+  const harness = echoRegistry();
+  const choices = new MemoryChatChoices();
+  const chat = chatService(harness, choices);
+  const first = Promise.withResolvers<Error | null>();
+  try {
+    await chat.launch(request("unknown-restart", "claude"));
+    const driver = harness.started[0]!;
+    const session = subject("unknown-restart", "claude");
+    const sent: string[] = [];
+    driver.send = (text) => {
+      sent.push(text);
+      return { id: text, outcome: sent.length === 1 ? first.promise : Promise.resolve(null) };
+    };
+    await chat.send(session, "A", "prompt");
+    first.resolve(new Error("lost after delivery"));
+    await when(
+      () => choices.queue(session.sessionId).some((e) => e.status === "uncertain"),
+      "unknown delivery",
+    );
+    await chat.send(session, "steer", "steer");
+    await chat.send(session, "B", "follow-up");
+    driver.timeline.setState({ turn: "working" });
+    driver.timeline.setState({ turn: "settled" });
+    await chat.setModel(session, { provider: "stub", id: "b" });
+    expect(sent).toEqual(["A", "steer"]);
+    await chat.stop(session.sessionId);
+    await chat.launch(request(session.sessionId, "claude"));
+    const resumed = harness.started[1]!;
+    const resumedSent: string[] = [];
+    resumed.send = (text) => {
+      resumedSent.push(text);
+      return { id: text, outcome: Promise.resolve(null) };
+    };
+    resumed.timeline.setState({
+      model: { provider: "stub", id: "a", name: "A" },
+      models: [{ provider: "stub", id: "b", name: "B" }],
+    });
+    await chat.send(session, "C", "follow-up");
+    await expect(chat.send(session, "D", "prompt")).rejects.toMatchObject({
+      reason: "turn-unconfirmed",
+    });
+    expect(resumedSent).toEqual([]);
+    expect(resumed.state.model?.id).toBe("a");
+    expect(choices.queue(session.sessionId).find((entry) => entry.text === "A")?.status).toBe(
+      "uncertain",
+    );
+    expect(
+      resumed.timeline
+        .snapshot()
+        .items.some((item) => item.kind === "error" && item.text.includes("A")),
+    ).toBe(true);
+  } finally {
+    first.resolve(null);
+    await chat.closeAll();
+  }
+});
+
+test("an initial prompt is recorded before delivery and is never replayed on resume", async () => {
+  const choices = new MemoryChatChoices();
+  const started: EchoDriver[] = [];
+  const sent: string[] = [];
+  const registration = echoRegistration(started);
+  const chat = chatService(
+    {
+      started,
+      registry: {
+        claude: {
+          ...registration,
+          create: (launch) => {
+            const driver = new EchoDriver({ ...launch, prompt: null });
+            started.push(driver);
+            const start = driver.start.bind(driver);
+            driver.start = () => {
+              start();
+              launch.sendInitialPrompt?.(launch.prompt);
+            };
+            driver.send = (text) => {
+              sent.push(text);
+              driver.timeline.setState({ turn: "working" });
+              driver.timeline.setState({ turn: "settled" });
+              return { id: text, outcome: Promise.resolve(null) };
+            };
+            return driver;
+          },
+        },
+      },
+    },
+    choices,
+  );
+  try {
+    const launch = request("initial-once", "claude", "initial words");
+    await chat.launch({ ...launch, how: "start" });
+    await when(
+      () => choices.queue(launch.sessionId).some((entry) => entry.status === "completed"),
+      "the completed initial prompt",
+    );
+    expect(sent).toEqual(["initial words"]);
+    await chat.stop(launch.sessionId);
+    await chat.launch({ ...launch, how: "resume" });
+    await when(
+      () =>
+        started[1]!.timeline
+          .snapshot()
+          .items.some((item) => item.kind === "error" && item.text.includes("not sent again")),
+      "the withheld replay",
+    );
+    expect(sent).toEqual(["initial words"]);
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("a both-live native terminal holds prompt and model application without blocking steer", async () => {
+  const harness = echoRegistry();
+  const chat = chatService(harness);
+  let terminalLive = true;
+  try {
+    await chat.launch({
+      ...request("native-writer", "claude"),
+      terminalLive: () => terminalLive,
+    });
+    const driver = harness.started[0]!;
+    const session = subject("native-writer", "claude");
+    driver.timeline.setState({
+      model: { provider: "stub", id: "a", name: "A" },
+      models: [{ provider: "stub", id: "b", name: "B" }],
+    });
+    await chat.setModel(session, { provider: "stub", id: "b" });
+    expect(driver.state.model?.id).toBe("a");
+    await expect(chat.send(session, "next", "prompt")).rejects.toMatchObject({
+      reason: "turn-unconfirmed",
+    });
+    await expect(chat.send(session, "steer", "steer")).resolves.toBeDefined();
+    terminalLive = false;
+    await chat.send(session, "next", "prompt");
+    expect(driver.state.model?.id).toBe("b");
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("an agent without ordered turn boundaries cannot release a later turn on stale events", async () => {
+  const started: EchoDriver[] = [];
+  const choices = new MemoryChatChoices();
+  const chat = chatService(
+    {
+      started,
+      registry: {
+        claude: { ...echoRegistration(started), orderedTurnBoundaries: false },
+      },
+    },
+    choices,
+  );
+  try {
+    await chat.launch(request("unverified-events", "claude"));
+    const driver = started[0]!;
+    const session = subject("unverified-events", "claude");
+    const sent: string[] = [];
+    driver.send = (text) => {
+      sent.push(text);
+      return { id: text, outcome: Promise.resolve(null) };
+    };
+    await chat.send(session, "A", "prompt");
+    await when(
+      () => choices.queue(session.sessionId)[0]?.status === "boundary-unverified",
+      "the unsupported boundary",
+    );
+    await chat.send(session, "B", "follow-up");
+    driver.timeline.setState({ turn: "working" });
+    driver.timeline.setState({ turn: "settled" });
+    await chat.setModel(session, { provider: "stub", id: "b" });
+    expect(sent).toEqual(["A"]);
+    expect(
+      driver.timeline
+        .snapshot()
+        .items.some(
+          (item) =>
+            item.kind === "error" && item.text.includes("boundary cannot currently be confirmed"),
+        ),
+    ).toBe(true);
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("a late receipt after abort cannot release an uncertain attempt", async () => {
+  const harness = echoRegistry();
+  const choices = new MemoryChatChoices();
+  const chat = chatService(harness, choices);
+  const stale = Promise.withResolvers<Error | null>();
+  try {
+    await chat.launch(request("stale-receipt", "claude"));
+    const driver = harness.started[0]!;
+    const session = subject("stale-receipt", "claude");
+    const echoed = driver.send.bind(driver);
+    const sent: string[] = [];
+    driver.send = (text, mode) => {
+      const receipt = echoed(text, mode);
+      const index = sent.length;
+      sent.push(text);
+      if (index === 0) return { ...receipt, outcome: stale.promise };
+      return receipt;
+    };
+
+    const firstId = await chat.send(session, "first", "follow-up");
+    await when(() => sent.length === 1, "the first send");
+    driver.timeline.setState({ turn: "working" });
+    await chat.abort(session);
+    await when(
+      () =>
+        choices.queue("stale-receipt").find((entry) => entry.id === firstId)?.status ===
+        "uncertain",
+      "the halted attempt",
+    );
+
+    await chat.send(session, "second", "follow-up");
+    stale.resolve(null);
+    await Promise.resolve();
+    await chat.send(session, "third", "follow-up");
+    await chat.setModel(session, { provider: "stub", id: "m2" });
+    expect(sent).toEqual(["first"]);
+    expect(choices.queue("stale-receipt").find((entry) => entry.id === firstId)?.status).toBe(
+      "uncertain",
+    );
+  } finally {
+    stale.resolve(null);
+    await chat.closeAll();
+  }
+});
+
+test("an abort while a delivery is unconfirmed leaves it uncertain, and a late refusal cannot rewrite it", async () => {
+  const harness = echoRegistry();
+  const choices = new MemoryChatChoices();
+  const chat = chatService(harness, choices);
+  const outstanding = Promise.withResolvers<Error | null>();
+  try {
+    await chat.launch(request("abort-race", "claude"));
+    const driver = harness.started[0]!;
+    const session = subject("abort-race", "claude");
+    const echoed = driver.send.bind(driver);
+    driver.send = (text, mode) => ({ ...echoed(text, mode), outcome: outstanding.promise });
+
+    const id = await chat.send(session, "racing", "follow-up");
+    await when(
+      () =>
+        driver.timeline.state.queue?.some(
+          (entry) => entry.id === id && entry.status === "sending",
+        ) === true,
+      "the attempt in flight",
+    );
+    // The turn the attempt opened is running when the user aborts it.
+    driver.timeline.setState({ turn: "working" });
+    await chat.abort(session);
+    await when(
+      () => choices.queue("abort-race").find((entry) => entry.id === id)?.status === "uncertain",
+      "the aborted attempt",
+    );
+
+    // A refusal that arrives after the abort cannot downgrade the row to "certainly unsent".
+    outstanding.resolve(new ChatRefusalError("the agent said no after the abort"));
+    await new Promise((settle) => setTimeout(settle, 0));
+    expect(choices.queue("abort-race").find((entry) => entry.id === id)?.status).toBe("uncertain");
+  } finally {
+    outstanding.resolve(new ChatRefusalError("cleanup"));
     await chat.closeAll();
   }
 });
@@ -303,9 +1127,7 @@ test("a model change completing after the frontend stops cannot append to its cl
     await chat.stop("stopped-during-choice");
     const lastSequence = driver.timeline.sequence;
     release.resolve();
-    await expect(pair).rejects.toThrow(
-      "The model changed, but its reasoning level could not be applied.",
-    );
+    await expect(pair).rejects.toThrow("the chat frontend was stopped");
     expect(driver.timeline.sequence).toBe(lastSequence);
   } finally {
     release.resolve();
@@ -329,7 +1151,7 @@ test("the registry refuses an agent kind this build has no driver for", async ()
     // The build's own registry ships claude, codex, pi and opencode; the seam is what added claude.
     expect(recordsOf(chatService().capabilities())).toEqual([
       "claude:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
-      "codex:both-live:steer,approvals",
+      "codex:both-live:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "pi:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "opencode:both-live:steer,followUp,approvals",
     ]);

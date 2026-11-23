@@ -154,6 +154,8 @@ test("a task opens in its project's chat view for every agent with a driver", as
 });
 
 test("the model and level lists come from the fake pi and a switch reaches it", async () => {
+  // A choice applies to the next turn; settle the task's first turn so these are not deferred.
+  vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
   const { project } = await addProject(server);
   const api = await server.rpc();
   const task = await api.tasks.create({
@@ -194,6 +196,7 @@ test("the model and level lists come from the fake pi and a switch reaches it", 
     );
     expect(state.models.map((model) => model.id)).toEqual(["stub-1", "stub-2"]);
     expect(state.reasoningLevels).toEqual(["off", "low", "medium", "high"]);
+    await untilState((candidate) => candidate.turn === "settled", "the first turn");
 
     // A level the first model takes, so the switch below has one the second model does not.
     await api.chat.setReasoning({ sessionId: session.id, level: "low" });
@@ -205,7 +208,7 @@ test("the model and level lists come from the fake pi and a switch reaches it", 
       "the new model's level list",
     );
     expect(switched.model).toEqual({ provider: "stub", id: "stub-2", name: "Stub Two" });
-    // The list is the new model's, and the level pi clamped to is what the driver read back.
+    // The list and the level are what the driver read back from the new model.
     expect(switched.reasoningLevels).toEqual(["off", "medium", "high", "max"]);
     expect(switched.reasoning).toBe("medium");
 

@@ -166,6 +166,187 @@ test("renders a recorded stream: text, reasoning, folded tools, a diff, a notice
     .toBeVisible();
 });
 
+test("an answer shows its own model, while a selection change and a missing one do not", async () => {
+  const items: ChatItem[] = [
+    { kind: "user-message", id: "u1", text: "First." },
+    {
+      kind: "assistant-message",
+      id: "a1",
+      text: "From alpha.",
+      streaming: false,
+      model: { provider: "alpha", id: "a-1" },
+    },
+    { kind: "user-message", id: "u2", text: "Second." },
+    { kind: "assistant-message", id: "a2", text: "No native model.", streaming: false },
+  ];
+  const chat = await renderChat(
+    recorded([], {
+      state: workingChat({ model: { provider: "beta", id: "b-2", name: "Beta" } }),
+      items,
+    }),
+  );
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  await expect.element(page.getByText("alpha/a-1")).toBeVisible();
+  // The second answer has no per-answer model, so the current selection is not shown for it.
+  expect(page.getByText("beta/b-2").elements()).toHaveLength(0);
+
+  chat.script.push({
+    type: "event",
+    sequence: 1,
+    event: {
+      type: "state",
+      state: workingChat({ model: { provider: "gamma", id: "c-3", name: "Gamma" } }),
+    },
+  });
+  await vi.waitFor(() =>
+    expect(page.getByRole("button", { name: "Model Gamma" }).elements()).toHaveLength(1),
+  );
+  await expect.element(page.getByText("alpha/a-1")).toBeVisible();
+});
+
+test("an unconfirmed turn is visible before a delayed working event", async () => {
+  const chat = await renderChat(
+    recorded([], {
+      state: {
+        ...IDLE_CHAT,
+        queue: [{ id: "pending", text: "my message", selection: null, status: "sending" }],
+      },
+      items: [{ kind: "user-message", id: "user", text: "my message" }],
+    }),
+  );
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  await expect
+    .element(page.getByRole("status"))
+    .toMatchTextContent(
+      "Waiting for the previous message and turn to be confirmed. Later turns are paused.",
+    );
+  await expect.element(page.getByText("my message")).toBeVisible();
+});
+
+test("a recovered idle session keeps the uncertain text visible and accepts a new draft", async () => {
+  const warning =
+    "The reopened agent reported idle. This message may have reached it and was not sent again; its outcome is unknown, and work it started may still have effects: original words";
+  const chat = await renderChat(
+    recorded([], {
+      state: {
+        ...IDLE_CHAT,
+        queue: [{ id: "old", text: "original words", selection: null, status: "uncertain-idle" }],
+      },
+      items: [{ kind: "error", id: "chat:queue:old", text: warning }],
+    }),
+  );
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  await expect.element(page.getByRole("alert")).toHaveTextContent(warning);
+  await userEvent.fill(page.getByRole("textbox"), "new words");
+  await userEvent.keyboard("{Enter}");
+  await vi.waitFor(() => expect(chat.sent).toEqual([{ text: "new words", mode: "prompt" }]));
+  await expect.element(page.getByRole("alert")).toHaveTextContent(warning);
+});
+
+test("the composer shows the next turn's choice while an answer keeps the model it ran on", async () => {
+  const levels = ["off", "low", "medium", "high"];
+  const chat = await renderChat(
+    recorded([], {
+      state: workingChat({
+        model: { provider: "stub", id: "stub-1", name: "Stub One" },
+        models: [
+          { provider: "stub", id: "stub-1", name: "Stub One", reasoningLevels: levels },
+          {
+            provider: "stub",
+            id: "stub-2",
+            name: "Stub Two",
+            reasoningLevels: ["off", "medium", "high", "max"],
+          },
+        ],
+        reasoning: "medium",
+        reasoningLevels: levels,
+        selection: { model: { provider: "stub", id: "stub-2" }, level: "high" },
+      }),
+      items: [
+        {
+          kind: "assistant-message",
+          id: "a1",
+          text: "From the running model.",
+          streaming: false,
+          model: { provider: "stub", id: "stub-1" },
+        },
+      ],
+    }),
+  );
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  // The two facts are separate: the composer is on the next turn's choice, the answer on its own.
+  await expect.element(page.getByRole("button", { name: "Model Stub Two" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Reasoning high" })).toBeVisible();
+  await expect.element(page.getByText("stub/stub-1")).toBeVisible();
+});
+
+test("an unconfirmed level is not shown as the composer's level for the next turn", async () => {
+  const chat = await renderChat(
+    recorded([], {
+      state: workingChat({
+        model: { provider: "stub", id: "stub-2", name: "Stub Two" },
+        models: [
+          {
+            provider: "stub",
+            id: "stub-2",
+            name: "Stub Two",
+            reasoningLevels: ["off", "medium", "high"],
+          },
+        ],
+        reasoning: "medium",
+        reasoningLevels: ["off", "medium", "high"],
+        selection: { model: { provider: "stub", id: "stub-2" }, level: "max" },
+        selectionIssue: { level: "max", reason: "unavailable" },
+      }),
+    }),
+  );
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+  // The stored request is not the level a turn would run on; the composer says what the agent
+  // actually reports instead of offering the refused one as its choice.
+  await expect.element(page.getByRole("button", { name: "Reasoning medium" })).toBeVisible();
+  expect(page.getByRole("button", { name: "Reasoning max" }).elements()).toHaveLength(0);
+});
+
+test("an unspecified level shows the native report only after the selected model is live", async () => {
+  const model = { provider: "stub", id: "stub-2", name: "Stub Two" };
+  const chat = await renderChat(
+    recorded([], {
+      state: workingChat({
+        model,
+        models: [model],
+        reasoning: "medium",
+        reasoningLevels: ["off", "medium", "high"],
+        selection: { model: { provider: "stub", id: "stub-2" }, level: null },
+      }),
+    }),
+  );
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  await expect.element(page.getByRole("button", { name: "Reasoning medium" })).toBeVisible();
+});
+
+test("an unspecified next-model level does not borrow the running model's report", async () => {
+  const chat = await renderChat(
+    recorded([], {
+      state: workingChat({
+        model: { provider: "stub", id: "stub-1", name: "Stub One" },
+        models: [
+          { provider: "stub", id: "stub-1", name: "Stub One" },
+          { provider: "stub", id: "stub-2", name: "Stub Two" },
+        ],
+        reasoning: "high",
+        reasoningLevels: ["off", "medium", "high"],
+        selection: { model: { provider: "stub", id: "stub-2" }, level: null },
+      }),
+    }),
+  );
+  await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+  await expect.element(page.getByRole("button", { name: "Thinking", exact: true })).toBeVisible();
+  expect(page.getByRole("button", { name: "Reasoning high" }).elements()).toHaveLength(0);
+});
+
 test("answers a request by keyboard and hands the keyboard back to the composer", async () => {
   const chat = await renderChat();
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().sequence).toBe(RECORDED_SEQUENCE));

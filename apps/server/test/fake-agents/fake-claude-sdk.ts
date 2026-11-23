@@ -37,6 +37,7 @@ export class FakeClaudeSdk implements ClaudeSdk {
   #silent: boolean;
   #modelsHang: boolean;
   #crash: string | undefined;
+  #holdPrompt: boolean;
   #turn: ((query: FakeClaudeQuery, text: string) => void) | undefined;
 
   constructor(
@@ -57,6 +58,11 @@ export class FakeClaudeSdk implements ClaudeSdk {
       modelsHang?: boolean;
       /** Throw from the message iterator after the scripted messages, as a crash would. */
       crash?: string;
+      /**
+       * Never read the driver's input, as a transport that is not consuming would: a test can then
+       * hold a message inside Corral's own queue and stop the frontend before the handoff.
+       */
+      holdPrompt?: boolean;
       /** What the fake does when a user message arrives; the default answers text and a result. */
       turn?: (query: FakeClaudeQuery, text: string) => void;
     } = {},
@@ -70,6 +76,7 @@ export class FakeClaudeSdk implements ClaudeSdk {
     this.#silent = options.silent ?? false;
     this.#modelsHang = options.modelsHang ?? false;
     this.#crash = options.crash;
+    this.#holdPrompt = options.holdPrompt ?? false;
     this.#turn = options.turn;
   }
 
@@ -83,6 +90,7 @@ export class FakeClaudeSdk implements ClaudeSdk {
       modelsHang: this.#modelsHang,
       modelsFails: this.#modelsFails,
       crash: this.#crash,
+      holdPrompt: this.#holdPrompt,
       turn: this.#turn,
     });
     this.queries.push(query);
@@ -123,6 +131,7 @@ export interface FakeClaudeQueryOptions {
   modelsHang: boolean;
   modelsFails: string | undefined;
   crash: string | undefined;
+  holdPrompt: boolean;
   turn: ((query: FakeClaudeQuery, text: string) => void) | undefined;
 }
 
@@ -155,7 +164,7 @@ export class FakeClaudeQuery implements ClaudeSdkQuery {
     this.options = options;
     this.#options = queryOptions;
     if (queryOptions.spawnChild) this.#spawnPlaceholder();
-    void this.#consume(prompt);
+    if (!queryOptions.holdPrompt) void this.#consume(prompt);
   }
 
   #spawnPlaceholder(): void {

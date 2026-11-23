@@ -3,6 +3,7 @@ import type { ChatSendMode, AgentStatus } from "@corral/protocol/rpc";
 import {
   ChatModelUnsupportedError,
   ChatReasoningUnsupportedError,
+  ChatRefusalError,
   ChatRequestUnknownError,
   messageOf,
 } from "./chat-errors.ts";
@@ -11,6 +12,7 @@ import type {
   ChatDriverLaunch,
   ChatDriverRegistration,
   ChatLaunchFacts,
+  ChatSendReceipt,
   ChatTimeouts,
 } from "./chat-driver.ts";
 import {
@@ -46,10 +48,11 @@ const REQUEST_TIMEOUT_MS = 10_000;
  * - A permission request becomes a `select` user request (allow once, allow always, reject) sent to
  *   `POST …/permission/:requestID/reply`; an answer from the terminal's own prompt arrives as
  *   `permission.replied` and resolves the same item, so one request has one resolution.
- * - `chat.send` maps `steer` to OpenCode's `delivery: "steer"` and `follow-up` to `"queue"`
- *   (measured from 2.2.5's own client schema); there is no delivery for a prompt. A prompt while a
- *   turn runs is refused instead of silently steering, because the client offers steer/follow-up
- *   by turn state (B3).
+ * - `chat.send` maps `steer` to OpenCode's `delivery: "steer"` (measured from 2.2.5's own client
+ *   schema); there is no delivery for a prompt. A follow-up is Corral's own queue and is started
+ *   by the service as a later prompt, not handed to OpenCode's queue, so the model it runs on is
+ *   the one captured when it was queued. A prompt while a turn runs is refused instead of
+ *   silently steering, because the client offers steer/follow-up by turn state (B3).
  *
  * Models and reasoning levels are declared unsupported: OpenCode 2.2.5 has per-session model
  * switching, but this slice does not map it, so `chat.capabilities` says so and the client hides
@@ -70,6 +73,11 @@ export class OpenCodeDriver implements ChatDriver {
   #promptSent = false;
   #hydrated = false;
   #failureReason: string | undefined;
+  #lastDurableSequence = -1;
+  readonly #turnBoundaries = new Map<
+    string,
+    { delivered: number | null; resolve: (outcome: "settled" | "aborted") => void }
+  >();
 
   constructor(request: OpenCodeDriverRequest) {
     this.#request = request;
@@ -114,7 +122,7 @@ export class OpenCodeDriver implements ChatDriver {
     this.#finish(null);
   }
 
-  send(text: string, mode: ChatSendMode): string {
+  send(text: string, mode: ChatSendMode): ChatSendReceipt {
     if (mode === "prompt" && this.timeline.state.turn === "working") {
       // The client offers steer and follow-up while a turn runs; a prompt would be a second
       // writer on the same turn, so it is refused visibly and nothing is sent — and no user item
@@ -125,18 +133,34 @@ export class OpenCodeDriver implements ChatDriver {
         id: refused,
         text: "a turn is running in this session; steer it or queue a follow-up instead",
       });
-      return refused;
+      return { id: refused, outcome: Promise.resolve(new ChatRefusalError("a turn is running")) };
     }
     const { itemId, messageId } = this.#projection.userMessage(text);
-    const delivery = mode === "steer" ? "steer" : mode === "follow-up" ? "queue" : undefined;
-    void this.#prompt(messageId, text, delivery).catch((error: unknown) => {
-      this.timeline.put({
-        kind: "error",
-        id: `error:send:${messageId}`,
-        text: `opencode did not accept the message: ${messageOf(error)}`,
-      });
-    });
-    return itemId;
+    const boundary = mode === "prompt" ? Promise.withResolvers<"settled" | "aborted">() : null;
+    if (boundary !== null)
+      this.#turnBoundaries.set(messageId, { delivered: null, resolve: boundary.resolve });
+    const delivery = mode === "steer" ? "steer" : "queue";
+    const outcome = this.#prompt(messageId, text, delivery).then(
+      () => null,
+      (error: unknown) => {
+        // A 4xx answer is the server rejecting the request; a lost connection or 5xx may have
+        // reached the session, so it is not reported as certainly unsent.
+        const refused =
+          error instanceof OpenCodeHttpError && error.status < 500 && error.status !== 408;
+        if (refused) this.#turnBoundaries.delete(messageId);
+        this.timeline.put({
+          kind: "error",
+          id: `error:send:${messageId}`,
+          text: `${refused ? "opencode did not accept the message" : "Could not confirm whether opencode accepted the message"}: ${messageOf(error)}`,
+        });
+        return refused
+          ? new ChatRefusalError(messageOf(error))
+          : error instanceof Error
+            ? error
+            : new Error(messageOf(error));
+      },
+    );
+    return { id: itemId, outcome, ...(boundary === null ? {} : { boundary: boundary.promise }) };
   }
 
   /** Interrupts the running execution; a request waiting for an answer can no longer be resolved. */
@@ -337,17 +361,16 @@ export class OpenCodeDriver implements ChatDriver {
     if (this.#promptSent) return;
     this.#promptSent = true;
     const prompt = this.#request.prompt;
-    if (prompt === null) return;
-    if (this.timeline.snapshot().items.some((item) => item.kind === "user-message")) return;
-    const { itemId, messageId } = this.#projection.userMessage(prompt);
-    void this.#prompt(messageId, prompt, undefined).catch((error: unknown) => {
-      this.timeline.put({
-        kind: "error",
-        id: `error:send:${messageId}`,
-        text: `opencode did not accept the prompt: ${messageOf(error)}`,
-      });
-    });
-    void itemId;
+    if (prompt === null) {
+      this.#request.sendInitialPrompt?.(null);
+      return;
+    }
+    if (this.timeline.snapshot().items.some((item) => item.kind === "user-message")) {
+      this.#request.sendInitialPrompt?.(null);
+      return;
+    }
+    if (this.#request.sendInitialPrompt !== undefined) this.#request.sendInitialPrompt(prompt);
+    else this.send(prompt, "prompt");
   }
 
   async #prompt(messageId: string, text: string, delivery: string | undefined): Promise<void> {
@@ -380,11 +403,55 @@ export class OpenCodeDriver implements ChatDriver {
     const data = recordOf(recordField(event, "data"));
     if (data === undefined) return;
     if (stringField(data, "sessionID") !== this.#session()) return;
+    const durable = recordOf(recordField(event, "durable"));
+    const sequence = durable?.["seq"];
+    if (
+      durable?.["aggregateID"] === this.#session() &&
+      typeof sequence === "number" &&
+      Number.isSafeInteger(sequence)
+    ) {
+      if (sequence <= this.#lastDurableSequence) return;
+      this.#lastDurableSequence = sequence;
+    }
+    if (!replay) this.#observeTurnBoundary(type, data, durable);
     for (const action of this.#projection.applyEvent(
       { type, data, ...eventShape(event) },
       { replay },
     ))
       this.#apply(action);
+  }
+
+  #observeTurnBoundary(
+    type: string,
+    data: Record<string, unknown>,
+    durable: Record<string, unknown> | undefined,
+  ): void {
+    const seq = durable?.["seq"];
+    if (
+      typeof seq !== "number" ||
+      !Number.isSafeInteger(seq) ||
+      durable?.["aggregateID"] !== this.#session()
+    )
+      return;
+    if (type === "session.inbox.delivered") {
+      const id = stringField(data, "inboxID");
+      const pending = id === undefined ? undefined : this.#turnBoundaries.get(id);
+      if (pending !== undefined) pending.delivered = seq;
+      return;
+    }
+    if (
+      type !== "session.execution.succeeded" &&
+      type !== "session.execution.interrupted" &&
+      type !== "session.execution.failed"
+    )
+      return;
+    // Shutdown leaves OpenCode's execution claim in place for recovery.
+    if (type === "session.execution.interrupted" && data["reason"] === "shutdown") return;
+    for (const [id, pending] of this.#turnBoundaries) {
+      if (pending.delivered === null || seq <= pending.delivered) continue;
+      this.#turnBoundaries.delete(id);
+      pending.resolve(type === "session.execution.succeeded" ? "settled" : "aborted");
+    }
   }
 
   #apply(action: OpenCodeAction): void {
@@ -646,6 +713,7 @@ function openCodeChatArgs(_facts: ChatLaunchFacts): string[] {
  * other view starts a client instead of stopping this one.
  */
 export const openCodeChatDriver: ChatDriverRegistration = {
+  requiresPreparationSignal: true,
   capabilities: {
     steer: true,
     followUp: true,

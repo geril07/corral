@@ -19,6 +19,16 @@ function snapshot(timeline: ChatTimeline): ChatSnapshot {
   return timeline.snapshot();
 }
 
+test("a late completion for another turn cannot settle the current Codex turn", () => {
+  const { projection: project, timeline } = projection();
+  project.apply("turn/started", { turn: { id: "current", status: "inProgress" } });
+  expect(project.apply("turn/completed", { turn: { id: "old", status: "completed" } })).toEqual([]);
+  expect(timeline.state.turn).toBe("working");
+  expect(project.activeTurnId).toBe("current");
+  project.apply("turn/completed", { turn: { id: "current", status: "completed" } });
+  expect(timeline.state.turn).toBe("settled");
+});
+
 test("a file change keeps the unified diff it carries, and a turn diff covers one without", () => {
   const { projection: project, timeline } = projection();
   project.apply("turn/started", { turn: { id: "turn-1", status: "inProgress" } });

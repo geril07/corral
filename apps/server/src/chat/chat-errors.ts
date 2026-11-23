@@ -66,8 +66,20 @@ export class ChatLaunchError extends Error {
   }
 }
 
-/** pi answered a command with `success:false`, or the command never got an answer. */
-export class PiCommandError extends Error {
+/**
+ * A message certainly did not enter the agent's conversation: the agent's protocol refused it, or
+ * the driver never handed it over. Anything less certain stays a plain error, because the attempt
+ * may already have reached the agent.
+ */
+export class ChatRefusalError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ChatRefusalError";
+  }
+}
+
+/** pi answered a command with `success:false`: it certainly did not take that command. */
+export class PiCommandError extends ChatRefusalError {
   readonly command: string;
 
   constructor(command: string, detail: string) {

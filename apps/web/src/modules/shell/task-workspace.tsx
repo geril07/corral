@@ -387,6 +387,8 @@ export function useTaskWorkspace({
                 : { expectedProfileRevision: choice.expectedProfileRevision }),
             }),
         ...(choice?.model === undefined ? {} : { model: choice.model }),
+        ...(choice?.expectedModel === undefined ? {} : { expectedModel: choice.expectedModel }),
+        ...(choice?.thinking === undefined ? {} : { thinking: choice.thinking }),
         ...(chosenView === undefined ? {} : { view: chosenView }),
       });
     },

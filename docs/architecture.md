@@ -47,6 +47,55 @@ model-and-reasoning choice may partly succeed: its streamed state is marked pend
 commands finish, and a reasoning refusal does not undo an accepted model change. Abort and answers
 to agent requests do not wait behind that queue, because they may be needed to unblock the agent.
 
+A chat's model and reasoning choice belongs to the session, not to a client: the server keeps it in
+the database and applies it at a turn boundary, so a running turn keeps the model it started on and
+only a later turn changes. A follow-up message is Corral's queue, not the agent's own: it is stored
+with the choice in effect when it was queued and starts as a distinct turn after a settled one.
+Initial, ordinary and queued prompts are recorded before dispatch. A later turn and model application
+need a delivery receipt and a reliable boundary; either may arrive first. A boundary correlated to
+the prompt also proves delivery if the receipt was lost. pi checks idle state after `agent_settled`,
+invalidating the check for new activity and waiting for compaction, retries and steer acknowledgements.
+Codex matches `turn/completed` to the `turn/start` response's turn ID; Claude matches the input UUID
+on its result. OpenCode matches inbox delivery to the prompt ID, then waits for a later durable
+execution outcome; shutdown interruption is not an outcome because the native execution may resume.
+Missing or ambiguous evidence pauses later turns rather than treating a stale event as proof. A refusal
+is distinct from a transport failure, which may have delivered the prompt. The
+server never retries an uncertain prompt automatically. A crash or frontend exit leaves in-flight
+text visible, distinguishing unknown delivery from accepted delivery with an unknown boundary.
+Stopping a frontend is not proof that a shared native server stopped its turn. On pi's exclusive
+handoff, the previous writer is stopped before a replacement opens the session. The replacement may
+unblock later turns only after a generation-checked native idle probe; this neither attributes the
+old prompt to a history item nor proves its outcome or reverses side effects. Its text and delivery
+uncertainty stay visible, and formerly queued messages are not restarted. A busy or unanswered probe,
+and shared native servers without a correlated recovery boundary, remain blocked. Claude Code 2.1.330 echoed prompt UUIDs in
+two isolated turns with a local model stub; a version or turn without an echo remains unconfirmed.
+This is at-most-once dispatch from Corral, not exactly-once execution.
+The user's last explicit thinking level is remembered per agent, profile and model; a level the live
+driver no longer offers stays remembered without being applied or replaced, and a failed discovery
+is not evidence that it was removed. While the live report does not offer it, the session state says
+so and the server refuses to start a turn on that selection rather than delivering it on another
+level. The choice is separate from the launch snapshot on purpose: the snapshot records how the
+conversation was opened, while these rows record what its next turn should run. pi resumes without
+the snapshot's model flags; otherwise the original launch choice can override the conversation's
+subsequent choice. A selection without an explicit or remembered level sends no thinking command;
+it does not claim that a native default is known or that an existing level was reset. Pi 1.5.2 and
+1.6.0 reset to the configured native level when `set_model` runs, but the reported level rather
+than an assumed cross-version reset remains the evidence for the running model.
+Before starting a pi or Codex chat, explicit levels are saved only against a fresh scoped catalog;
+the live driver confirms the model and level again before the first prompt. A remembered level is
+restored only when the new frontend reports that it is offered. Other agents do not yet expose this
+pre-launch thinking path. A session row and its selection precede frontend startup so a fast initial
+prompt cannot outrun their durable records.
+
+Codex 0.166.0's `turn/start` model and effort overrides affect subsequent turns as well. In an
+isolated local-provider probe, an omitted effort inherited the previous turn's explicit effort even
+after changing models. The app-server also forwarded both `off` and an arbitrary effort that its
+catalog did not offer; a successful turn start is therefore not validation of an effort. Codex
+validates a captured choice against its live model list before dispatch and sends it on that turn,
+without applying a later choice to a running turn or steer. Omission does not claim a reset to the
+catalog default. A model-only turn is refused when its inherited effort is unknown or not offered;
+the user can choose an offered effort. A configured launch with no selection stays native.
+
 Native agent behavior determines whether views can attach to one live agent server or must hand
 off serially. A handoff-only driver must stop the previous writer before starting the next; pi,
 for example, does not lock its session file. Switching such a busy session can lose in-flight

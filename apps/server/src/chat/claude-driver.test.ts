@@ -14,7 +14,13 @@ import {
   historyIsReadable,
   type ClaudeDriverRequest,
 } from "./claude-driver.ts";
-import { ChatModelUnsupportedError, ChatReasoningUnsupportedError } from "./chat-errors.ts";
+import {
+  ChatModelUnsupportedError,
+  ChatReasoningUnsupportedError,
+  ChatRefusalError,
+} from "./chat-errors.ts";
+import type { ChatSubject } from "./chat-errors.ts";
+import { MemoryChatChoices } from "./chat-choices.ts";
 import { ChatTimeline } from "./timeline.ts";
 import { writerPath } from "./writer-claim.ts";
 import { FAKE_BIN, useFakeAgents } from "../../test/fake-agents.ts";
@@ -25,6 +31,7 @@ import {
   assistantToolUse,
   resultError,
   resultSuccess,
+  scriptedMessage,
   sessionMessage,
   streamText,
   toolResult,
@@ -685,6 +692,103 @@ test("a failed turn is an error result with the CLI's own text", async () => {
   }
 });
 
+test("the SDK taking a message is not delivery: only the CLI naming it back confirms it", async () => {
+  const sdk = new FakeClaudeSdk({ turn: () => {} });
+  const h = await harness({ sdk });
+  try {
+    await started(h);
+    const receipt = h.driver.send("do the thing", "prompt");
+    await h.sdk.onlyQuery.whenPrompted(1);
+    const uuid = h.sdk.onlyQuery.received[0]?.uuid;
+    expect(uuid).toBeDefined();
+    let confirmed: Error | null | undefined;
+    void receipt.outcome.then((error) => (confirmed = error));
+    await new Promise((settle) => setTimeout(settle, 0));
+    // The iterator took the message; the agent's own conversation has not said it consumed it.
+    expect(confirmed).toBeUndefined();
+
+    h.sdk.onlyQuery.emit(
+      scriptedMessage({ ...assistantText("msg_ack", "Working on it."), user_message_uuid: uuid }),
+    );
+    await until(() => confirmed !== undefined, "the delivery's confirmation");
+    expect(confirmed).toBeNull();
+  } finally {
+    await h.stop();
+  }
+});
+
+test("a result that lists the message confirms it, as a steer's own turn does", async () => {
+  const sdk = new FakeClaudeSdk({ turn: () => {} });
+  const h = await harness({ sdk });
+  try {
+    await started(h);
+    const receipt = h.driver.send("one more thing", "steer");
+    await h.sdk.onlyQuery.whenPrompted(1);
+    const uuid = h.sdk.onlyQuery.received[0]!.uuid!;
+    h.sdk.onlyQuery.emit(scriptedMessage({ ...resultSuccess("done"), user_message_uuids: [uuid] }));
+    expect(await receipt.outcome).toBeNull();
+  } finally {
+    await h.stop();
+  }
+});
+
+test("a frame that names another message does not confirm this one", async () => {
+  // A previous or another turn's echo must never stand in for this send's own confirmation.
+  const sdk = new FakeClaudeSdk({ turn: () => {} });
+  const h = await harness({ sdk });
+  try {
+    await started(h);
+    const receipt = h.driver.send("mine", "prompt");
+    await h.sdk.onlyQuery.whenPrompted(1);
+    let confirmed: Error | null | undefined;
+    void receipt.outcome.then((error) => (confirmed = error));
+    h.sdk.onlyQuery.emit(
+      scriptedMessage({
+        ...resultSuccess("done"),
+        user_message_uuids: ["00000000-0000-4000-8000-000000000000"],
+      }),
+    );
+    await new Promise((settle) => setTimeout(settle, 0));
+    expect(confirmed).toBeUndefined();
+  } finally {
+    await h.stop();
+  }
+});
+
+test("a frontend lost between the handoff and the CLI's echo leaves the message unconfirmed, never resent", async () => {
+  const sdk = new FakeClaudeSdk({ turn: () => {} });
+  const h = await harness({ sdk });
+  try {
+    await started(h);
+    const receipt = h.driver.send("do the thing", "prompt");
+    await h.sdk.onlyQuery.whenPrompted(1);
+    h.sdk.onlyQuery.fail("claude crashed after the handoff");
+    await h.exited;
+    const failure = await receipt.outcome;
+    expect(failure).toBeInstanceOf(Error);
+    // A plain error, not a refusal: the message may have reached the agent, so the row is uncertain.
+    expect(failure).not.toBeInstanceOf(ChatRefusalError);
+    expect(h.sdk.onlyQuery.received).toHaveLength(1);
+    expect(h.driver.closed).toBe(true);
+  } finally {
+    await h.stop();
+  }
+});
+
+test("a message the frontend stops before the SDK takes it is refused, not left uncertain", async () => {
+  // The transport never reads the input, so the message is still in Corral's own queue at the stop.
+  const sdk = new FakeClaudeSdk({ holdPrompt: true, turn: () => {} });
+  const h = await harness({ sdk });
+  try {
+    await started(h);
+    const receipt = h.driver.send("never handed over", "prompt");
+    await h.driver.stop();
+    expect(await receipt.outcome).toBeInstanceOf(ChatRefusalError);
+  } finally {
+    await h.stop();
+  }
+});
+
 /**
  * The handoff path through the service: chat, then the fake TUI `claude --resume <id>`, then chat
  * again. The writer record is the one-writer rule, and the transcript's user message is what stops
@@ -859,6 +963,171 @@ test("a live chat writer is stopped before a terminal launch can start", async (
     expect(existsSync(writerPath(join(root, "chat"), sessionId))).toBe(false);
   } finally {
     await chat.closeAll();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+/**
+ * A Claude chat through the service with its own choice store, so a test reads the durable queue
+ * rows after the frontend is gone. The fake answers nothing on its own: each turn's frames are the
+ * test's to emit, which is what makes the window between the handoff and the CLI's echo visible.
+ */
+interface QueueHarness {
+  chat: ChatService;
+  choices: MemoryChatChoices;
+  drivers: ClaudeDriver[];
+  sdks: FakeClaudeSdk[];
+  exits: (string | null)[];
+  sessionId: string;
+  subject: ChatSubject;
+  launch(): Promise<void>;
+}
+
+async function queuedClaude(root: string): Promise<QueueHarness> {
+  const choices = new MemoryChatChoices();
+  const drivers: ClaudeDriver[] = [];
+  const sdks: FakeClaudeSdk[] = [];
+  const exits: (string | null)[] = [];
+  const sessionId = "corral-session-ack";
+  const cwd = await workspace(root);
+  const subject: ChatSubject = { sessionId, view: "chat", kind: "claude", state: "running" };
+  const chat = new ChatService({
+    dataDir: root,
+    choices,
+    drivers: {
+      claude: {
+        ...claudeChatDriver,
+        create: (request) => {
+          const sdk = new FakeClaudeSdk({ turn: () => {} });
+          sdks.push(sdk);
+          const driver = new ClaudeDriver(request, sdk);
+          drivers.push(driver);
+          return driver;
+        },
+      },
+    },
+    timeouts: { dialogTimeoutMs: 2000, readyTimeoutMs: 5000, exitGraceMs: 400, writerWaitMs: 2000 },
+  });
+  return {
+    chat,
+    choices,
+    drivers,
+    sdks,
+    exits,
+    sessionId,
+    subject,
+    launch: () =>
+      chat.launch({
+        sessionId,
+        kind: "claude",
+        command: COMMAND,
+        cwd,
+        env: processEnv(),
+        model: null,
+        provider: null,
+        agentSessionId: SESSION_ID,
+        how: "resume",
+        prompt: null,
+        onStatus: () => {},
+        onExit: (reason) => exits.push(reason),
+      }),
+  };
+}
+
+test("a queued message the SDK took but the CLI never named back is uncertain and is not resent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corral-claude-ack-"));
+  const h = await queuedClaude(root);
+  try {
+    await h.launch();
+    await until(() => h.drivers[0]!.state.models.length > 0, "the driver's models");
+    const id = await h.chat.send(h.subject, "queued words", "follow-up");
+    await h.sdks[0]!.onlyQuery.whenPrompted(1);
+    // The transport took it; the durable row is not removed on that evidence.
+    expect(h.choices.queue(h.sessionId).find((entry) => entry.id === id)?.status).toBe("sending");
+
+    h.sdks[0]!.onlyQuery.fail("claude crashed before it named the message");
+    await until(() => h.exits.length === 1, "the frontend's exit");
+    expect(h.choices.queue(h.sessionId)).toMatchObject([
+      { id, text: "queued words", status: "uncertain" },
+    ]);
+
+    // A relaunch shows the row and its text, and does not send it again.
+    await h.launch();
+    await until(() => h.drivers[1]!.state.models.length > 0, "the resumed driver");
+    await until(
+      () => item(h.drivers[1]!.timeline, "error")?.text.includes("queued words") === true,
+      "the visible uncertain row",
+    );
+    expect(h.choices.queue(h.sessionId).find((entry) => entry.id === id)?.status).toBe("uncertain");
+    expect(h.sdks[1]!.onlyQuery.received).toHaveLength(0);
+  } finally {
+    await h.chat.closeAll();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Claude only settles a queued prompt when its own UUID appears on the result", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corral-claude-ack-confirmed-"));
+  const h = await queuedClaude(root);
+  try {
+    await h.launch();
+    await until(() => h.drivers[0]!.state.models.length > 0, "the driver's models");
+    await h.chat.send(h.subject, "confirmed words", "follow-up");
+    await h.sdks[0]!.onlyQuery.whenPrompted(1);
+    // The fake names the send on a frame; this checks the driver, not the real CLI's behavior.
+    const uuid = h.sdks[0]!.onlyQuery.received[0]!.uuid!;
+    h.sdks[0]!.onlyQuery.emit(
+      scriptedMessage({ ...assistantText("msg_named", "On it."), user_message_uuid: uuid }),
+    );
+    h.sdks[0]!.onlyQuery.emit(resultSuccess("done"));
+    await until(
+      () => h.choices.queue(h.sessionId)[0]?.status === "accepted",
+      "the accepted prompt awaiting its result",
+    );
+    await h.chat.send(h.subject, "must wait", "follow-up");
+    expect(h.sdks[0]!.onlyQuery.received).toHaveLength(1);
+    h.sdks[0]!.onlyQuery.emit(
+      scriptedMessage({ ...resultSuccess("done"), user_message_uuid: uuid }),
+    );
+    await h.sdks[0]!.onlyQuery.whenPrompted(2);
+    expect(h.sdks[0]!.onlyQuery.received).toHaveLength(2);
+
+    h.sdks[0]!.onlyQuery.fail("claude crashed during the next message");
+    await until(() => h.exits.length === 1, "the frontend's exit");
+
+    await h.launch();
+    await until(() => h.drivers[1]!.state.models.length > 0, "the resumed driver");
+    expect(h.choices.queue(h.sessionId)).toMatchObject([
+      { text: "must wait", status: "uncertain" },
+    ]);
+    expect(h.sdks[1]!.onlyQuery.received).toHaveLength(0);
+  } finally {
+    await h.chat.closeAll();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("Claude can send successive prompts when each result names its originating message", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corral-claude-sequential-"));
+  const h = await queuedClaude(root);
+  try {
+    await h.launch();
+    await until(() => h.drivers[0]!.state.models.length > 0, "the driver's models");
+    for (const [index, text] of ["first", "second"].entries()) {
+      // oxlint-disable-next-line no-await-in-loop -- each message follows the previous native result
+      await h.chat.send(h.subject, text, "prompt");
+      // oxlint-disable-next-line no-await-in-loop -- wait for this specific SDK handoff
+      await h.sdks[0]!.onlyQuery.whenPrompted(index + 1);
+      const uuid = h.sdks[0]!.onlyQuery.received[index]!.uuid!;
+      h.sdks[0]!.onlyQuery.emit(
+        scriptedMessage({ ...resultSuccess("done"), user_message_uuid: uuid }),
+      );
+      // oxlint-disable-next-line no-await-in-loop -- next prompt must not overtake its result
+      await until(() => h.choices.queue(h.sessionId).length === 0, "the confirmed boundary");
+    }
+    expect(h.sdks[0]!.onlyQuery.received).toHaveLength(2);
+  } finally {
+    await h.chat.closeAll();
     await rm(root, { recursive: true, force: true });
   }
 });

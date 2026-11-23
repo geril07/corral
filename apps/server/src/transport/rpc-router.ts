@@ -241,7 +241,10 @@ function chatError(
   error: unknown,
   errors: {
     CHAT_UNAVAILABLE?: (options: {
-      data: { message: string; reason: "no-driver" | "not-started" | "exited" };
+      data: {
+        message: string;
+        reason: "no-driver" | "not-started" | "exited" | "turn-unconfirmed";
+      };
     }) => Error;
     CHAT_REQUEST_UNKNOWN?: (options: { data: { requestId: string } }) => Error;
     CHAT_MODEL_UNSUPPORTED?: (options: {
@@ -339,7 +342,35 @@ export function createRpcRouter({
                 : undefined,
         ),
       ),
-      catalog: os.models.catalog.handler(({ input }) => modelCatalog.catalog(input)),
+      catalog: os.models.catalog.handler(async ({ input }) => {
+        const catalog = await modelCatalog.catalog(input);
+        return {
+          ...catalog,
+          rememberedThinking: catalog.models.flatMap((model) => {
+            const level = chat.rememberedLevel(input.scope, model);
+            return level === null
+              ? []
+              : [{ model: { provider: model.provider, id: model.id }, level }];
+          }),
+        };
+      }),
+      thinking: os.models.thinking.handler(({ input }) =>
+        chat.rememberedLevel(input.scope, input.model),
+      ),
+      rememberThinking: os.models.rememberThinking.handler(async ({ input, errors }) => {
+        if (input.scope.kind !== "pi" && input.scope.kind !== "codex")
+          throw errors.MODEL_THINKING_UNAVAILABLE();
+        const catalog = await modelCatalog.catalog(input);
+        if (catalog.status !== "ready") throw errors.MODEL_THINKING_UNCONFIRMED();
+        const model = catalog.models.find(
+          (candidate) =>
+            candidate.provider === input.model.provider && candidate.id === input.model.id,
+        );
+        if (model?.reasoningLevels === undefined) throw errors.MODEL_THINKING_UNCONFIRMED();
+        if (!model.reasoningLevels.includes(input.level)) throw errors.MODEL_THINKING_UNAVAILABLE();
+        chat.rememberLevel(input.scope, input.model, input.level);
+        return { level: input.level };
+      }),
     },
     config: {
       watch: os.config.watch.handler(({ signal }) => config.watch(signal)),
@@ -556,6 +587,8 @@ export function createRpcRouter({
               profileId: input.profileId,
               expectedProfileRevision: input.expectedProfileRevision,
               model: input.model,
+              expectedModel: input.expectedModel,
+              thinking: input.thinking,
               view: input.view,
             }),
           (error) => {

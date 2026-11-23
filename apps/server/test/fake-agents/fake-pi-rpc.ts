@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { z } from "zod";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { isRecord } from "../../src/chat/pi-record.ts";
@@ -29,6 +29,12 @@ import { isRecord } from "../../src/chat/pi-record.ts";
  *
  * `$FAKE_PI_RPC_DIALOG=none` allows the edit without waiting, and `$FAKE_PI_RPC_CONTEXT=used/window`
  * makes the model report a window plus every assistant turn's usage: the dev stack's composer meter.
+ * `$FAKE_PI_RPC_CLAMP=requested:applied` accepts a thinking level and keeps another, the silent
+ * clamp measured on pi. `<home>/levels.json` overrides a model's levels for the next launch.
+ * `$FAKE_PI_RPC_ACCEPT_DELAY_MS` delays a message command's answer (and its journal entry), so a
+ * test can restart across the server's delivery window.
+ * `<session>.commands.json` journals every accepted prompt/steer with its model and level, and every
+ * applied model/level command, so a test can pin what a turn actually ran on.
  *
  * The journal lives under `$FAKE_PI_RPC_HOME`, keyed by `--session-id`, so a real server restart
  * resumes the same conversation exactly as pi's own session store would.
@@ -38,8 +44,14 @@ export function startFakePiRpc(argv: readonly string[]): void {
   const home = process.env["FAKE_PI_RPC_HOME"] ?? join(tmpdir(), "fake-pi-rpc");
   const safeSessionId = sessionId.replace(/[^A-Za-z0-9._-]/g, "_");
   const journalPath = join(home, `${safeSessionId}.json`);
+  // The model and level each accepted prompt/steer ran on, and every model/level command: a test
+  // asserts which model a turn actually used, not just what the UI claims.
+  const commandsPath = join(home, `${safeSessionId}.commands.json`);
   const mode = process.env["FAKE_PI_RPC"] ?? "normal";
   const delayMs = Number(process.env["FAKE_PI_RPC_DELAY_MS"] ?? 500);
+  // How long the fake takes to answer a message command, so a test can observe the server's
+  // `sending` state and restart across the boundary. The default is an immediate answer.
+  const acceptDelayMs = Number(process.env["FAKE_PI_RPC_ACCEPT_DELAY_MS"] ?? 0);
   // The composer's context meter reads what pi reports, and a real answer costs a model call.
   // `FAKE_PI_RPC_CONTEXT="156000/200000"` is used tokens / window for this stand-in's turns; unset
   // keeps the fake silent about context, exactly as it was before the meter existed.
@@ -56,14 +68,47 @@ export function startFakePiRpc(argv: readonly string[]): void {
       .array(z.object({ id: z.string(), name: z.string(), provider: z.string() }))
       .parse(JSON.parse(readFileSync(join(home, "catalog.json"), "utf8")));
   }
-  let currentModel = models[0]!;
+  const modelIndex = argv.indexOf("--model");
+  const providerIndex = argv.indexOf("--provider");
+  const launchModel =
+    modelIndex < 0 || process.env["FAKE_PI_IGNORE_LAUNCH_MODEL"] === "1"
+      ? undefined
+      : argv[modelIndex + 1];
+  const launchProvider = providerIndex < 0 ? undefined : argv[providerIndex + 1];
+  let currentModel =
+    models.find(
+      (model) =>
+        (launchProvider === undefined || model.provider === launchProvider) &&
+        (launchModel === model.id || launchModel === `${model.provider}/${model.id}`),
+    ) ?? models[0]!;
   let currentLevel = "medium";
+  // `levels.json` in the fake's home replaces a model's levels for the next launch, so a test can
+  // remove a remembered level and prove it is retained but not applied.
+  const overridesPath = join(home, "levels.json");
+  const levelOverrides = existsSync(overridesPath)
+    ? z
+        .record(z.string(), z.array(z.string()))
+        .parse(JSON.parse(readFileSync(overridesPath, "utf8")))
+    : undefined;
+  const levelsOf = (model: { id: string }): readonly string[] =>
+    levelOverrides?.[model.id] ?? levelsFor(model);
+
+  /** The accepted prompt/steer and every applied model/level, so a test can pin the turn's model. */
+  function journalCommand(entry: Record<string, unknown>): void {
+    const journal = readJournal(commandsPath);
+    journal.push({ ...entry, at: Date.now() });
+    mkdirSync(dirname(commandsPath), { recursive: true });
+    writeFileSync(commandsPath, JSON.stringify(journal));
+  }
   let buffer = "";
   let dialogCount = 0;
   let running = false;
+  let compacting = false;
   let aborted = false;
   let currentText = "";
   let currentUser: Record<string, unknown> | undefined;
+  let recoveryCompactionStarted = false;
+  let recoveryRetryStarted = false;
 
   process.stdout.on("error", () => process.exit(0));
   if (mode === "noeof") {
@@ -118,6 +163,21 @@ export function startFakePiRpc(argv: readonly string[]): void {
     }
     switch (type) {
       case "get_state":
+        if (aborted && !running && process.env["FAKE_PI_RPC_HOLD_ABORT_PROBE"] === "1") return;
+        if (!recoveryRetryStarted && existsSync(join(home, "recovery-retry"))) {
+          recoveryRetryStarted = true;
+          send({ type: "auto_retry_start", attempt: 1, maxAttempts: 2 });
+        }
+        if (!recoveryCompactionStarted && existsSync(join(home, "recovery-gated"))) {
+          recoveryCompactionStarted = true;
+          compacting = true;
+          send({ type: "compaction_start" });
+          void askConfirm().then(() => {
+            compacting = false;
+            send({ type: "compaction_end", result: { summary: "Compacted." } });
+          });
+        }
+        if (existsSync(join(home, "recovery-race"))) send({ type: "agent_start" });
         if (mode === "truncate") {
           process.stdout.write('{"type":"agent_start"');
           process.exit(0);
@@ -126,6 +186,8 @@ export function startFakePiRpc(argv: readonly string[]): void {
           model: currentModel,
           thinkingLevel: currentLevel,
           isStreaming: running,
+          isCompacting: compacting || existsSync(join(home, "recovery-busy")),
+          pendingMessageCount: 0,
           messageCount: history.length,
           sessionId,
           sessionFile: journalPath,
@@ -137,7 +199,10 @@ export function startFakePiRpc(argv: readonly string[]): void {
         });
         return;
       case "get_available_models":
-        if (existsSync(join(home, "catalog-error"))) {
+        if (
+          existsSync(join(home, "catalog-error")) ||
+          (argv.includes("--no-session") && existsSync(join(home, "catalog-only-error")))
+        ) {
           reply(id, "get_available_models", { success: false, error: "secret-native-diagnostic" });
           return;
         }
@@ -148,8 +213,7 @@ export function startFakePiRpc(argv: readonly string[]): void {
           ).map((model) => ({
             ...model,
             reasoning: true,
-            thinkingLevelMap:
-              model.id === "stub-2" ? { minimal: null, low: null, max: "max" } : { minimal: null },
+            thinkingLevelMap: levelMapOf(levelsOf(model)),
             ...(context.window > 0 ? { contextWindow: context.window } : {}),
           })),
         });
@@ -163,7 +227,7 @@ export function startFakePiRpc(argv: readonly string[]): void {
           });
           return;
         }
-        respond(id, "get_available_thinking_levels", { levels: levelsFor(currentModel) });
+        respond(id, "get_available_thinking_levels", { levels: levelsOf(currentModel) });
         return;
       case "set_model": {
         const model = models.find(
@@ -178,39 +242,58 @@ export function startFakePiRpc(argv: readonly string[]): void {
           return;
         }
         currentModel = model;
-        // pi clamps a level the new model does not take; the driver reads it back with `get_state`.
-        if (!levelsFor(model).includes(currentLevel)) currentLevel = "medium";
+        // Pi 1.5.2 and 1.6.0 reload the configured default on set_model, even for the same model.
+        const defaultLevel = process.env["FAKE_PI_RPC_DEFAULT_LEVEL"] ?? "medium";
+        currentLevel = levelsOf(model).includes(defaultLevel)
+          ? defaultLevel
+          : (levelsOf(model)[0] ?? "off");
+        journalCommand({ type: "model", provider: currentModel.provider, id: currentModel.id });
         respond(id, "set_model", model);
         return;
       }
       case "set_thinking_level": {
         const level = typeof record["level"] === "string" ? record["level"] : "";
-        if (!levelsFor(currentModel).includes(level)) {
+        if (!levelsOf(currentModel).includes(level)) {
           reply(id, "set_thinking_level", {
             success: false,
             error: `Thinking level not supported: ${level}`,
           });
           return;
         }
-        currentLevel = level;
-        respond(id, "set_thinking_level");
-        send({ type: "thinking_level_changed", level });
+        const apply = () => {
+          // A silent clamp is a measured pi behavior; the driver's read-back must confirm it.
+          const clamp = clampPair(level);
+          currentLevel = clamp ?? level;
+          journalCommand({ type: "level", requested: level, applied: currentLevel });
+          respond(id, "set_thinking_level");
+          send({ type: "thinking_level_changed", level: currentLevel });
+        };
+        if (existsSync(join(home, "hold-thinking"))) {
+          writeFileSync(join(home, "thinking-waiting"), level);
+          void (async () => {
+            while (existsSync(join(home, "hold-thinking"))) {
+              // oxlint-disable-next-line no-await-in-loop -- the test controls the native acknowledgement
+              await sleep(20);
+            }
+            apply();
+          })();
+        } else apply();
         return;
       }
       case "prompt":
       case "steer":
       case "follow_up": {
         const message = typeof record["message"] === "string" ? record["message"] : "";
-        if (mode === "reject") {
-          reply(id, type, { success: false, error: "the fake pi rejects messages" });
+        if (acceptDelayMs > 0) {
+          // A real agent answers after it has read the message, not when stdin took it; the delay
+          // is what lets a test pin the server's `sending` window and a restart across it.
+          void (async () => {
+            await sleep(acceptDelayMs);
+            acceptMessage(type, id, message);
+          })();
           return;
         }
-        respond(id, type, { disposition: type === "prompt" ? "started" : "queued" });
-        if (type !== "prompt" && running) {
-          send({ type: "queue_update", steering: type === "steer" ? [message] : [], followUp: [] });
-          return;
-        }
-        void runTurn(message);
+        acceptMessage(type, id, message);
         return;
       }
       case "abort":
@@ -229,6 +312,41 @@ export function startFakePiRpc(argv: readonly string[]): void {
         });
         return;
     }
+  }
+
+  /**
+   * Answers one message command. Split from `handle` so a delayed answer still journals nothing
+   * before it: a process killed during the delay is a message that was never accepted.
+   */
+  function acceptMessage(type: string, id: string | undefined, message: string): void {
+    if (mode === "reject") {
+      reply(id, type, { success: false, error: "the fake pi rejects messages" });
+      return;
+    }
+    journalCommand({
+      type,
+      text: message,
+      model: currentModel.id,
+      provider: currentModel.provider,
+      level: currentLevel,
+    });
+    if (type !== "prompt" && (running || compacting)) {
+      if (type === "steer" && process.env["FAKE_PI_RPC_HOLD_STEER_ACK"] === "1") {
+        const release = join(home, `${safeSessionId}.steer-release`);
+        journalCommand({ type: "steer-awaiting-ack" });
+        const watcher = watch(home, () => {
+          if (!existsSync(release)) return;
+          watcher.close();
+          respond(id, type, { disposition: "queued" });
+        });
+      } else {
+        respond(id, type, { disposition: "queued" });
+      }
+      send({ type: "queue_update", steering: type === "steer" ? [message] : [], followUp: [] });
+      return;
+    }
+    respond(id, type, { disposition: type === "prompt" ? "started" : "queued" });
+    void runTurn(message);
   }
 
   async function runTurn(message: string): Promise<void> {
@@ -352,6 +470,15 @@ export function startFakePiRpc(argv: readonly string[]): void {
     running = false;
     currentUser = undefined;
     send({ type: "agent_settled", aborted: false });
+    if (process.env["FAKE_PI_RPC_POST_SETTLE_COMPACTION"] === "1") {
+      compacting = true;
+      journalCommand({ type: "compaction-start" });
+      send({ type: "compaction_start" });
+      await askConfirm();
+      compacting = false;
+      journalCommand({ type: "compaction-end" });
+      send({ type: "compaction_end", result: { summary: "Compacted." } });
+    }
   }
 
   function settleAborted(): void {
@@ -396,6 +523,29 @@ function levelsFor(model: { id: string }): readonly string[] {
   return model.id === "stub-2"
     ? ["off", "medium", "high", "max"]
     : ["off", "low", "medium", "high"];
+}
+
+/**
+ * `$FAKE_PI_RPC_CLAMP=high:medium` accepts `high` and keeps `medium`, the silent clamp measured on
+ * pi; the driver's read-back must notice instead of reporting the requested level.
+ */
+function clampPair(level: string): string | undefined {
+  const [requested, applied] = (process.env["FAKE_PI_RPC_CLAMP"] ?? "").split(":");
+  return requested === level && applied !== undefined && applied !== "" ? applied : undefined;
+}
+
+/**
+ * pi's `thinkingLevelMap` for an exact set of levels: a level it does not take is `null`, and
+ * `xhigh`/`max` are absent because those need an explicit mapping.
+ */
+function levelMapOf(levels: readonly string[]): Record<string, string | null> {
+  const map: Record<string, string | null> = {};
+  for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) {
+    if (levels.includes(level)) {
+      if (level === "xhigh" || level === "max") map[level] = level;
+    } else if (level !== "xhigh" && level !== "max") map[level] = null;
+  }
+  return map;
 }
 
 /** One record on stdout; the only place the fake writes its protocol. */

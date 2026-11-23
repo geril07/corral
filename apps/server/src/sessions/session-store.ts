@@ -72,7 +72,25 @@ export class SessionStore {
    * insert's deferred foreign key). A missing private row is not fatal — a restart falls back to
    * the effective agent command — while a missing session row would lose the user's session.
    */
-  insert(session: StoredSession, privateLaunch?: PrivateLaunchSpec | null): void {
+  insert(
+    session: StoredSession,
+    privateLaunch?: PrivateLaunchSpec | null,
+    initialize?: () => void,
+  ): void {
+    if (initialize !== undefined) {
+      // A restored running session must never see its row without the choice for its first turn.
+      this.#db.exec("SAVEPOINT session_start");
+      try {
+        this.insert(session, privateLaunch);
+        initialize();
+        this.#db.exec("RELEASE session_start");
+      } catch (error) {
+        this.#db.exec("ROLLBACK TO session_start");
+        this.#db.exec("RELEASE session_start");
+        throw error;
+      }
+      return;
+    }
     this.#db
       .prepare(
         `INSERT INTO sessions

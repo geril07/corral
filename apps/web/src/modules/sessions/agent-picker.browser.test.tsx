@@ -19,6 +19,7 @@ function render(ui: ReactElement) {
 }
 
 const dialog = () => page.getByRole("dialog", { name: "New agent session" });
+const setup = () => page.getByRole("dialog", { name: "Start agent session" });
 const radios = () => dialog().getByRole("radio");
 const option = (name: string | RegExp) => dialog().getByRole("option", { name });
 
@@ -90,21 +91,23 @@ test("it lists the four native defaults and then each configured profile", async
   expect(dialog().getByText("Configured default").elements()).toHaveLength(0);
 });
 
-test("a fresh digit picks that native agent straight away, without a profile or model", async () => {
+test("a fresh digit chooses the native agent without starting it", async () => {
   const { onStart } = await opened(profiles);
 
   await userEvent.keyboard("3");
-
+  expect(onStart).not.toHaveBeenCalled();
+  await setup().getByRole("button", { name: "Start session" }).click();
   expect(onStart).toHaveBeenCalledExactlyOnceWith({ kind: "pi", view: "chat" });
 });
 
-test("arrows move onto profiles; Enter starts the highlighted profile", async () => {
+test("arrows and Enter choose a profile without starting it", async () => {
   const { onStart } = await opened(profiles);
 
   await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}");
   await expect.element(dialog().getByRole("radio", { name: "Claude gateway" })).toBeChecked();
   await userEvent.keyboard("{Enter}");
-
+  expect(onStart).not.toHaveBeenCalled();
+  await setup().getByRole("button", { name: "Start session" }).click();
   expect(onStart).toHaveBeenCalledExactlyOnceWith({
     kind: "claude",
     view: "chat",
@@ -113,18 +116,23 @@ test("arrows move onto profiles; Enter starts the highlighted profile", async ()
   });
 });
 
-test("choosing a catalog model for a native choice sends it", async () => {
+test("choosing a catalog model closes its picker and requires an explicit start", async () => {
   const { onStart } = await opened(profiles);
 
   await dialog().getByRole("radio", { name: "pi", exact: true }).click();
   await expect.element(option(/Stub Two/)).toBeVisible();
   await option(/Stub Two/).click();
-
-  expect(onStart).toHaveBeenCalledExactlyOnceWith({
-    kind: "pi",
-    view: "chat",
-    model: "stub/stub-2",
-  });
+  expect(onStart).not.toHaveBeenCalled();
+  await expect.element(dialog()).not.toBeInTheDocument();
+  await setup().getByRole("button", { name: "Start session" }).click();
+  expect(onStart).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      kind: "pi",
+      view: "chat",
+      model: "stub/stub-2",
+      expectedModel: { provider: "stub", id: "stub-2" },
+    }),
+  );
 });
 
 test("OpenCode offers no model rows, for a native choice or its profile", async () => {
@@ -166,11 +174,12 @@ test("a refused launch keeps the picker open with the draft and the typed reason
 
   await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}");
   await userEvent.keyboard("{Enter}");
+  await setup().getByRole("button", { name: "Start session" }).click();
 
   await expect
-    .element(dialog().getByRole("alert"))
+    .element(setup().getByRole("alert"))
     .toMatchTextContent("no environment variable CLAUDE_TOKEN");
-  await expect.element(dialog().getByRole("radio", { name: "Claude gateway" })).toBeChecked();
+  await expect.element(setup().getByRole("button", { name: /Agent Claude gateway/ })).toBeVisible();
   expect(onClose).not.toHaveBeenCalled();
 });
 
@@ -227,6 +236,7 @@ test("a profile dropped from the live config disables Start and never starts nat
   // Recovery is an explicit choice; Enter on the chosen instance starts it.
   await dialog().getByRole("radio", { name: "pi" }).click();
   await userEvent.keyboard("{Enter}");
+  await setup().getByRole("button", { name: "Start session" }).click();
   expect(onStart).toHaveBeenCalledExactlyOnceWith({ kind: "pi", view: "chat" });
 });
 
@@ -259,6 +269,7 @@ test("a profile whose revision changed needs an explicit reselect before it can 
   await dialog().getByRole("radio", { name: "Claude gateway" }).click();
   await expect.element(option("claude-opus-4-1 · Configured default")).toBeVisible();
   await userEvent.keyboard("{Enter}");
+  await setup().getByRole("button", { name: "Start session" }).click();
   expect(onStart).toHaveBeenCalledExactlyOnceWith({
     kind: "claude",
     view: "chat",
@@ -296,9 +307,10 @@ test("a server-side revision conflict keeps the draft and needs an explicit rese
 
   await dialog().getByRole("radio", { name: "Claude gateway" }).click();
   await userEvent.keyboard("{Enter}");
+  await setup().getByRole("button", { name: "Start session" }).click();
 
   await expect
-    .element(dialog().getByRole("alert"))
+    .element(setup().getByRole("alert"))
     .toMatchTextContent(
       'The profile "Claude gateway" changed on the server. Review it and choose it again.',
     );
@@ -311,7 +323,7 @@ test("a server-side revision conflict keeps the draft and needs an explicit rese
   });
 
   // Retrying the same pinned revision is blocked; nothing is auto-refreshed or sent native.
-  await userEvent.keyboard("{Enter}");
+  await expect.element(setup().getByRole("button", { name: "Start session" })).toBeDisabled();
   expect(onStart).toHaveBeenCalledTimes(1);
 
   const changed = profile({ revision: "ffffffffffff", model: "claude-haiku-4" });
@@ -327,14 +339,18 @@ test("a server-side revision conflict keeps the draft and needs an explicit rese
     />,
   );
   await expect
-    .element(dialog().getByRole("alert"))
+    .element(setup().getByRole("alert"))
     .toMatchTextContent(
       'The profile "Claude gateway" changed on the server. Review it and choose it again.',
     );
 
+  await setup()
+    .getByRole("button", { name: /Agent Claude gateway/ })
+    .click();
   await dialog().getByRole("radio", { name: "Claude gateway" }).click();
   await expect.element(dialog().getByRole("alert")).not.toBeInTheDocument();
   await userEvent.keyboard("{Enter}");
+  await setup().getByRole("button", { name: "Start session" }).click();
 
   expect(onStart).toHaveBeenCalledTimes(2);
   // Reselecting the revised profile starts from that profile; the old typed override was
@@ -393,6 +409,8 @@ test("modified or composing digits make no launch and leave the draft alone", as
   // A plain digit still works from the list.
   radio.focus();
   await userEvent.keyboard("3");
+  expect(onStart).not.toHaveBeenCalled();
+  await setup().getByRole("button", { name: "Start session" }).click();
   expect(onStart).toHaveBeenCalledExactlyOnceWith({ kind: "pi", view: "chat" });
 });
 
@@ -400,6 +418,8 @@ test("Close and Escape dismiss it without starting anything", async () => {
   const { onStart, onClose } = await opened(profiles);
 
   // The picker has no close button; Escape is its dismissal.
+  await userEvent.keyboard("{Escape}");
+  await expect.element(setup()).toBeVisible();
   await userEvent.keyboard("{Escape}");
   await vi.waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   expect(onStart).not.toHaveBeenCalled();
@@ -412,6 +432,7 @@ test("a digit beyond the native list does nothing and Enter still starts claude"
   await userEvent.keyboard("0");
   expect(onStart).not.toHaveBeenCalled();
   await userEvent.keyboard("{Enter}");
-
+  expect(onStart).not.toHaveBeenCalled();
+  await setup().getByRole("button", { name: "Start session" }).click();
   expect(onStart).toHaveBeenCalledExactlyOnceWith({ kind: "claude", view: "chat" });
 });
