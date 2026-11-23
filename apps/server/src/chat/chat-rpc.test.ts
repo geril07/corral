@@ -201,7 +201,47 @@ class Follow {
 }
 
 function follow(api: Api, sessionId: string, options: { after?: number } = {}): Follow {
-  return new Follow(api.chat.watch({ sessionId, ...options }));
+  return new Follow(watchStarted(api, sessionId, options));
+}
+
+/**
+ * `chat.watch` once the session's frontend is back. A restart restores its sessions
+ * asynchronously, so a watch issued right after one can reach the server before the session's
+ * driver exists: the stored row still says running (`exited`) or already says stopped
+ * (`not-started`), and either is a start still in flight, not a session that went away. A refusal
+ * that never clears by the deadline is thrown as it came, so a frontend that is really gone still
+ * fails the test instead of being waited away.
+ */
+async function watchStarted(
+  api: Api,
+  sessionId: string,
+  options: { after?: number },
+): Promise<AsyncIterable<ChatStreamMessage>> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    try {
+      // oxlint-disable-next-line no-await-in-loop -- one attempt per refused start
+      return await api.chat.watch({ sessionId, ...options });
+    } catch (error) {
+      if (!isFrontendPending(error) || Date.now() >= deadline) throw error;
+      // oxlint-disable-next-line no-await-in-loop -- one wait per refused start
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+}
+
+/**
+ * `CHAT_UNAVAILABLE` because the session's frontend is not there: `not-started` when it is stopped
+ * and startable, `exited` while a restored session's row still says running before its driver is
+ * launched. Other refusals, such as a replaced frontend or an unconfirmed turn, are not a start in
+ * flight and are never retried.
+ */
+function isFrontendPending(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { code, data } = error as { code?: unknown; data?: unknown };
+  if (code !== "CHAT_UNAVAILABLE" || typeof data !== "object" || data === null) return false;
+  const { reason } = data as { reason?: unknown };
+  return reason === "not-started" || reason === "exited";
 }
 
 /** Pulls the first message of a watch that the server may refuse. */
@@ -607,10 +647,10 @@ test("a prompt is refused while the first turn is unconfirmed and accepted after
       requestId: chat.itemOfKind("user-request")!.id,
       value: true,
     });
+    // `settled` is what a client acts on: the prompt sent in that state starts a new turn on the
+    // same frontend, even though the pass that releases the previous attempt may still be queued.
     await chat.until((view) => view.state.turn === "settled", "the settled first turn");
 
-    // The settled boundary released both the initial attempt and `initialPending`; the next
-    // prompt is a new turn on the same frontend, not a refusal.
     await api.chat.send({ sessionId: session.id, text: "after the turn", mode: "prompt" });
     await chat.until(
       (view) => view.items.filter((item) => item.kind === "user-message").length === 2,
@@ -622,9 +662,16 @@ test("a prompt is refused while the first turn is unconfirmed and accepted after
   } finally {
     await chat.close();
   }
-  expect(
-    (await piCommands(session.agentSessionId!)).filter((entry) => entry.type === "prompt"),
-  ).toMatchObject([{ text: "First turn" }, { text: "after the turn" }]);
+  const commands = await waitForPiCommands(
+    session.agentSessionId!,
+    (entries) =>
+      entries.some((entry) => entry.type === "prompt" && entry.text === "after the turn"),
+    "the prompt journal after the settled turn",
+  );
+  expect(commands.filter((entry) => entry.type === "prompt")).toMatchObject([
+    { text: "First turn" },
+    { text: "after the turn" },
+  ]);
 });
 
 test("a message pi refuses is an error item, and the frontend keeps running", async () => {
@@ -966,6 +1013,29 @@ async function piCommands(agentSessionId: string): Promise<PiCommand[]> {
   return text === "" ? [] : PiCommandJournal.parse(JSON.parse(text));
 }
 
+/**
+ * The fake pi's command journal once `predicate` holds. A chat view's user-message is appended when
+ * the send is addressed, before the child reads its stdin, so a journal read straight after that
+ * item can be a poll behind it.
+ */
+async function waitForPiCommands(
+  agentSessionId: string,
+  predicate: (commands: PiCommand[]) => boolean,
+  description: string,
+): Promise<PiCommand[]> {
+  let commands: PiCommand[] = [];
+  await expect
+    .poll(
+      async () => {
+        commands = await piCommands(agentSessionId);
+        return predicate(commands);
+      },
+      { timeout: 10_000, message: description },
+    )
+    .toBe(true);
+  return commands;
+}
+
 test("a pre-launch pi model and level reach the first prompt, then survive restart without replay", async () => {
   vi.stubEnv("FAKE_PI_RPC_DIALOG", "none");
   const { project } = await addProject(server, "prelaunch");
@@ -1103,9 +1173,17 @@ test("a pre-launch pi model and level reach the first prompt, then survive resta
         view.items.some((item) => item.kind === "user-message" && item.text === "profile default"),
       "the other profile's prompt",
     );
-    expect(
-      (await piCommands(otherProfile.agentSessionId!)).find((entry) => entry.type === "prompt"),
-    ).toMatchObject({ text: "profile default", model: "stub-2", level: "medium" });
+    const commands = await waitForPiCommands(
+      otherProfile.agentSessionId!,
+      (entries) =>
+        entries.some((entry) => entry.type === "prompt" && entry.text === "profile default"),
+      "the other profile's prompt journal",
+    );
+    expect(commands.find((entry) => entry.type === "prompt")).toMatchObject({
+      text: "profile default",
+      model: "stub-2",
+      level: "medium",
+    });
   } finally {
     await otherChat.close();
   }
@@ -1638,7 +1716,11 @@ test("pi holds the captured queued model through post-settlement compaction", as
       (view) => view.items.some((item) => item.kind === "user-message" && item.text === "B"),
       "B after compaction",
     );
-    const commands = await piCommands(session.agentSessionId!);
+    const commands = await waitForPiCommands(
+      session.agentSessionId!,
+      (entries) => entries.some((entry) => entry.type === "prompt" && entry.text === "B"),
+      "the queued turn's prompt journal after compaction",
+    );
     expect(commands.findIndex((entry) => entry.type === "model")).toBeGreaterThan(
       commands.findIndex((entry) => entry.type === "compaction-end"),
     );
@@ -1686,7 +1768,11 @@ test("pi does not cross a settled event while a steer acknowledgement is outstan
         view.items.some((item) => item.kind === "user-message" && item.text === "B waiting"),
       "B after the steer acknowledgement",
     );
-    const after = await piCommands(id);
+    const after = await waitForPiCommands(
+      id,
+      (entries) => entries.some((entry) => entry.type === "prompt" && entry.text === "B waiting"),
+      "the queued prompt's journal after the steer acknowledgement",
+    );
     expect(
       after.find((entry) => entry.type === "prompt" && entry.text === "B waiting"),
     ).toMatchObject({
@@ -2054,18 +2140,13 @@ test("pi resumes after an idle check without resending the prior attempt or paus
     );
     // The view's user-message is appended when the send is addressed, before the child reads its
     // stdin, so the journal can still be a poll behind it.
-    await expect
-      .poll(
-        async () =>
-          (await piCommands(agentSessionId))
-            .filter((entry) => entry.type === "prompt")
-            .map((entry) => entry.text),
-        { timeout: 10_000, message: "the prompt journal" },
-      )
-      .toContain("after restart");
-    const prompts = (await piCommands(agentSessionId))
-      .filter((entry) => entry.type === "prompt")
-      .map((entry) => entry.text);
+    const commands = await waitForPiCommands(
+      agentSessionId,
+      (entries) =>
+        entries.some((entry) => entry.type === "prompt" && entry.text === "after restart"),
+      "the recovered prompt journal",
+    );
+    const prompts = commands.filter((entry) => entry.type === "prompt").map((entry) => entry.text);
     expect(prompts.filter((text) => text === "after restart")).toHaveLength(1);
     expect(prompts.filter((text) => text === "Before the restart")).toHaveLength(1);
     expect(prompts).not.toContain("old one");
@@ -2179,7 +2260,12 @@ test("pi waits for compaction and steer acknowledgement before recovering the ol
         view.items.some((item) => item.kind === "user-message" && item.text === "after compaction"),
       "the new prompt",
     );
-    const commands = await piCommands(session.agentSessionId!);
+    const commands = await waitForPiCommands(
+      session.agentSessionId!,
+      (entries) =>
+        entries.some((entry) => entry.type === "prompt" && entry.text === "after compaction"),
+      "the recovered prompt journal",
+    );
     const prompts = commands.filter((entry) => entry.type === "prompt").map((entry) => entry.text);
     expect(prompts.filter((text) => text === "Before resumed compaction")).toHaveLength(1);
     expect(prompts).not.toContain("too early");
