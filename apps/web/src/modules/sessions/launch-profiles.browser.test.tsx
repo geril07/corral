@@ -468,6 +468,50 @@ test("a separate pi chat starts only after choosing its model and thinking and c
     .toMatchTextContent("first additional prompt");
 });
 
+test("a separate OpenCode chat starts on the chosen catalog model and offers no thinking", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "OpenCode model first");
+  const before = client.sessions.getSnapshot().sessions.length;
+  await openAgentSessionPicker("chat");
+  await picker().getByRole("radio", { name: "opencode", exact: true }).click();
+  const option = picker().getByRole("option", { name: /Other Model/ });
+  await expect.element(option).toBeVisible();
+  await option.click();
+  await expect.element(picker()).not.toBeInTheDocument();
+  expect(client.sessions.getSnapshot().sessions).toHaveLength(before);
+
+  // The chosen catalog ref rides on the setup dialog; OpenCode has no thinking levels to choose.
+  await expect
+    .element(setup().getByRole("button", { name: "Agent opencode · other-model" }))
+    .toBeVisible();
+  await expect
+    .element(setup().getByRole("button", { name: "Reasoning", exact: true }))
+    .toBeDisabled();
+
+  await startSelected();
+  const session = await startedAgent(client, "opencode");
+  expect(session.launch).toMatchObject({
+    kind: "opencode",
+    expectedModel: { provider: "other", id: "other-model" },
+  });
+  await page.getByRole("textbox", { name: "Message" }).fill("opencode first additional");
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .element(page.getByRole("log", { name: "Chat transcript" }))
+    .toMatchTextContent("opencode first additional");
+  // The first turn reports the model the session was created on.
+  await expect.element(page.getByRole("button", { name: "Model Other Model" })).toBeVisible();
+
+  // The capability is the UI's only reason: no level list, a sentence instead.
+  await page.getByRole("button", { name: "Thinking", exact: true }).click();
+  const levels = page.getByRole("dialog", { name: "Reasoning level" });
+  await expect
+    .element(levels)
+    .toMatchTextContent("This agent does not support changing reasoning.");
+  await userEvent.keyboard("{Escape}");
+  await expect.element(levels).not.toBeInTheDocument();
+});
+
 test("a separate Codex chat starts only after explicitly confirming its model and effort", async () => {
   const { client, project } = await appWithProject(newClient());
   await taskWithShell(client, project.id, "Codex additional session");

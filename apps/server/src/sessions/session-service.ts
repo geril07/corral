@@ -278,19 +278,31 @@ export class SessionService {
       if (choice.expectedModel !== undefined) {
         const expected = choice.expectedModel;
         const model = stored.launch?.model;
-        if (
-          (kind !== "pi" && kind !== "codex") ||
-          stored.view !== "chat" ||
-          model == null ||
-          (model !== expected.id && model !== `${expected.provider}/${expected.id}`) ||
-          (stored.launch?.provider != null && stored.launch.provider !== expected.provider) ||
-          (choice.thinking !== undefined &&
-            (choice.thinking.model.id !== expected.id ||
-              choice.thinking.model.provider !== expected.provider))
-        ) {
+        // pi and Codex name the model on their launch flag, so the flag and the catalog choice
+        // must agree. OpenCode has no model flag: its catalog choice is carried on the
+        // conversation (`POST /api/session`), applied before the first prompt, and it needs a
+        // provider because `Model.Ref` is provider-qualified.
+        const launchMatches =
+          (kind === "pi" || kind === "codex") &&
+          stored.view === "chat" &&
+          model != null &&
+          (model === expected.id || model === `${expected.provider}/${expected.id}`) &&
+          (stored.launch?.provider == null || stored.launch.provider === expected.provider) &&
+          (choice.thinking === undefined ||
+            (choice.thinking.model.id === expected.id &&
+              choice.thinking.model.provider === expected.provider));
+        const conversationMatches =
+          kind === "opencode" &&
+          stored.view === "chat" &&
+          choice.thinking === undefined &&
+          expected.provider !== null;
+        if (!launchMatches && !conversationMatches) {
           throw new LaunchSpawnError(kind, "This launch cannot confirm the selected model.");
         }
-        stored.launch = { ...stored.launch!, expectedModel: expected };
+        stored.launch = {
+          ...(stored.launch ?? { kind, profile: null, model: null, provider: null, env: [] }),
+          expectedModel: expected,
+        };
       }
       privateLaunch = kind === "shell" ? null : this.#newLaunchSpec(kind, profile);
       const prompt = this.#promptFor(kind, choice.prompt);
@@ -340,7 +352,8 @@ export class SessionService {
         stored,
         privateLaunch,
         kind !== "shell" &&
-          (thinking !== undefined || (kind === "codex" && expectedModel !== undefined))
+          (thinking !== undefined ||
+            ((kind === "codex" || kind === "opencode") && expectedModel !== undefined))
           ? () =>
               this.#chat.initializeSelection(
                 stored.id,

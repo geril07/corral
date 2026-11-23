@@ -1,10 +1,16 @@
-import type { ChatAnswer, ChatModelRef } from "@corral/protocol/chat";
+import type {
+  ChatAnswer,
+  ChatModel,
+  ChatModelRef,
+  ChatModelSelection,
+} from "@corral/protocol/chat";
 import type { ChatSendMode, AgentStatus } from "@corral/protocol/rpc";
 import {
   ChatModelUnsupportedError,
   ChatReasoningUnsupportedError,
   ChatRefusalError,
   ChatRequestUnknownError,
+  ChatUnavailableError,
   messageOf,
 } from "./chat-errors.ts";
 import type {
@@ -63,10 +69,17 @@ const HISTORY_MAX_MESSAGES = 20_000;
  *   by the service as a later prompt, not handed to OpenCode's queue, so the model it runs on is
  *   the one captured when it was queued. A prompt while a turn runs is refused instead of
  *   silently steering, because the client offers steer/follow-up by turn state (B3).
+ * - The model is per session in OpenCode (`POST /api/session/:id/model`, `Model.Ref` of `id`,
+ *   `providerID` and an optional `variant`; the reply is `204`), and `POST /api/session` takes the
+ *   same ref for the first turn. Corral's selection is applied by the service immediately before a
+ *   prompt, on the turn boundary, never to a running turn: OpenCode re-reads the session's model
+ *   when a step starts, so a switch under a running turn could reach a later step of the same turn.
+ *   `steer` never switches.
+ * - `Model.Info.variants` are request overlays (headers and body settings), not thinking levels:
+ *   they are not reported as `reasoningLevels`, and this driver has no level to set.
  *
- * Models and reasoning levels are declared unsupported: OpenCode 2.2.5 has per-session model
- * switching, but this slice does not map it, so `chat.capabilities` says so and the client hides
- * the controls instead of offering a call that would be refused.
+ * Models: the driver offers the enabled entries of `GET /api/model` (the endpoint already lists
+ * chat models) and refuses a model it cannot find there instead of switching to it.
  */
 export class OpenCodeDriver implements ChatDriver {
   readonly timeline: ChatTimeline;
@@ -83,6 +96,8 @@ export class OpenCodeDriver implements ChatDriver {
   #promptSent = false;
   #hydrated = false;
   #failureReason: string | undefined;
+  /** The selection the service prepared for the next prompt; see `prepareSelection`. */
+  #prepared: ChatModelRef | null = null;
   #lastDurableSequence = -1;
   readonly #turnBoundaries = new Map<
     string,
@@ -132,7 +147,7 @@ export class OpenCodeDriver implements ChatDriver {
     this.#finish(null);
   }
 
-  send(text: string, mode: ChatSendMode): ChatSendReceipt {
+  send(text: string, mode: ChatSendMode, selection?: ChatModelSelection | null): ChatSendReceipt {
     if (mode === "prompt" && this.timeline.state.turn === "working") {
       // The client offers steer and follow-up while a turn runs; a prompt would be a second
       // writer on the same turn, so it is refused visibly and nothing is sent — and no user item
@@ -145,22 +160,45 @@ export class OpenCodeDriver implements ChatDriver {
       });
       return { id: refused, outcome: Promise.resolve(new ChatRefusalError("a turn is running")) };
     }
-    const { itemId, messageId } = this.#projection.userMessage(text);
+    const ids = this.#projection.userMessageIds();
+    // A steer keeps the turn's model; only a prompt's own selection may switch, before its text
+    // is put on the timeline, so a refused switch leaves nothing claiming the message was sent.
+    const chosen = mode === "prompt" ? (selection ?? null) : null;
     const boundary = mode === "prompt" ? Promise.withResolvers<"settled" | "aborted">() : null;
-    if (boundary !== null)
-      this.#turnBoundaries.set(messageId, { delivered: null, resolve: boundary.resolve });
     const delivery = mode === "steer" ? "steer" : "queue";
-    const outcome = this.#prompt(messageId, text, delivery).then(
-      () => null,
-      (error: unknown) => {
+    const outcome = (async (): Promise<Error | null> => {
+      if (chosen !== null) {
+        try {
+          await this.#applyTurnSelection(chosen);
+        } catch (error) {
+          this.timeline.put({
+            kind: "error",
+            id: `error:send:${ids.messageId}`,
+            text: `opencode did not switch the model, so the message was not sent: ${messageOf(error)}`,
+          });
+          // The prompt was not attempted, so the words certainly did not enter the conversation;
+          // the server keeps them queued as undelivered instead of uncertain.
+          return new ChatRefusalError(messageOf(error));
+        }
+      }
+      this.#projection.userMessage(text, ids.messageId);
+      if (boundary !== null)
+        this.#turnBoundaries.set(ids.messageId, {
+          delivered: null,
+          resolve: boundary.resolve,
+        });
+      try {
+        await this.#prompt(ids.messageId, text, delivery);
+        return null;
+      } catch (error) {
         // A 4xx answer is the server rejecting the request; a lost connection or 5xx may have
         // reached the session, so it is not reported as certainly unsent.
         const refused =
           error instanceof OpenCodeHttpError && error.status < 500 && error.status !== 408;
-        if (refused) this.#turnBoundaries.delete(messageId);
+        if (refused) this.#turnBoundaries.delete(ids.messageId);
         this.timeline.put({
           kind: "error",
-          id: `error:send:${messageId}`,
+          id: `error:send:${ids.messageId}`,
           text: `${refused ? "opencode did not accept the message" : "Could not confirm whether opencode accepted the message"}: ${messageOf(error)}`,
         });
         return refused
@@ -168,9 +206,13 @@ export class OpenCodeDriver implements ChatDriver {
           : error instanceof Error
             ? error
             : new Error(messageOf(error));
-      },
-    );
-    return { id: itemId, outcome, ...(boundary === null ? {} : { boundary: boundary.promise }) };
+      }
+    })();
+    return {
+      id: ids.itemId,
+      outcome,
+      ...(boundary === null ? {} : { boundary: boundary.promise }),
+    };
   }
 
   /** Interrupts the running execution; a request waiting for an answer can no longer be resolved. */
@@ -206,11 +248,35 @@ export class OpenCodeDriver implements ChatDriver {
     this.#report({ state: "working" });
   }
 
+  /**
+   * A direct switch is refused: the service owns the boundary and applies the choice through
+   * `prepareSelection`, immediately before a prompt. Switching here would change the model under a
+   * running turn.
+   */
   async setModel(model: ChatModelRef): Promise<void> {
     throw new ChatModelUnsupportedError(
       model,
-      "the opencode driver does not switch models in this build",
+      "opencode model choices are applied on the next turn",
     );
+  }
+
+  /**
+   * Validates a choice without touching the session, and holds it for the next prompt when the
+   * service says this is the dispatch. The catalog read is the refusal: a model OpenCode does not
+   * offer is reported here, before any text is put on the timeline.
+   */
+  async prepareSelection(
+    selection: ChatModelSelection,
+    options: { forDispatch: boolean },
+  ): Promise<void> {
+    if (options.forDispatch) this.#prepared = null;
+    if (selection.level !== null)
+      throw new ChatReasoningUnsupportedError(
+        selection.level,
+        "opencode models have no thinking levels in this build",
+      );
+    await this.#offeredModel(selection.model);
+    if (options.forDispatch) this.#prepared = selection.model;
   }
 
   async setReasoning(level: string): Promise<void> {
@@ -218,6 +284,64 @@ export class OpenCodeDriver implements ChatDriver {
       level,
       "the opencode driver has no reasoning levels in this build",
     );
+  }
+
+  /**
+   * Applies a prompt's own model before its text: the service prepared it at the boundary, and a
+   * prepared choice that names another model proves the two calls are out of step, so the turn is
+   * refused instead of running on either. The switch is sent even when the last report matches:
+   * the terminal leg is a second client and can have moved the session's model since, and OpenCode
+   * treats a switch to the current ref as a no-op.
+   */
+  async #applyTurnSelection(selection: ChatModelSelection): Promise<void> {
+    const prepared = this.#prepared;
+    this.#prepared = null;
+    // The service never sends a level for a driver without levels; a level that arrives anyway is
+    // a choice this session cannot run, and substituting the default would be a silent change.
+    if (selection.level !== null)
+      throw new ChatReasoningUnsupportedError(
+        selection.level,
+        "opencode models have no thinking levels in this build",
+      );
+    if (prepared !== null && !sameModelRef(prepared, selection.model))
+      throw new ChatRefusalError("opencode has not confirmed this turn's selection");
+    const model = await this.#offeredModel(selection.model);
+    await this.#switchModel(selection.model);
+    if (!this.#closed) this.timeline.setState({ model });
+  }
+
+  /** The catalog entry for a choice, or a refusal: this build only offers what OpenCode lists. */
+  async #offeredModel(model: ChatModelRef): Promise<ChatModel> {
+    if (model.provider === null)
+      throw new ChatModelUnsupportedError(model, "opencode models need a provider");
+    let models: ChatModel[];
+    try {
+      models = (await this.#catalog()).models;
+    } catch (error) {
+      throw new ChatUnavailableError(
+        `opencode could not confirm its model list: ${messageOf(error)}`,
+        "turn-unconfirmed",
+      );
+    }
+    if (!this.#closed) this.timeline.setState({ models });
+    const offered = models.find((entry) => sameModelRef(entry, model));
+    if (offered === undefined)
+      throw new ChatModelUnsupportedError(model, "opencode did not offer this model");
+    return offered;
+  }
+
+  /** `POST …/model` with the ref shape OpenCode documents; `204` is the only success. */
+  async #switchModel(model: ChatModelRef): Promise<void> {
+    if (model.provider === null)
+      throw new ChatModelUnsupportedError(model, "opencode models need a provider");
+    await this.#json("POST", `/api/session/${encodeURIComponent(this.#session())}/model`, {
+      model: { id: model.id, providerID: model.provider },
+    });
+  }
+
+  /** The enabled chat models and their context windows, from one `GET /api/model`. */
+  async #catalog(): Promise<{ models: ChatModel[]; windows: Map<string, number> }> {
+    return catalogOf(await this.#json("GET", "/api/model"));
   }
 
   /** Connect, hydrate, and keep the stream alive until the frontend stops or the server dies. */
@@ -311,12 +435,13 @@ export class OpenCodeDriver implements ChatDriver {
   /**
    * Each catalogued model's context window. A server whose catalog cannot be read still has a
    * transcript worth showing, so the reading loses its percentage instead of the session failing.
+   * The model list also stays empty, which is why `prepareSelection` re-reads it before a choice.
    */
-  async #modelWindows(): Promise<Map<string, number>> {
+  async #modelCatalog(): Promise<{ models: ChatModel[]; windows: Map<string, number> }> {
     try {
-      return modelWindowsOf(await this.#json("GET", "/api/model"));
+      return await this.#catalog();
     } catch {
-      return new Map();
+      return { models: [], windows: new Map() };
     }
   }
 
@@ -389,9 +514,10 @@ export class OpenCodeDriver implements ChatDriver {
         model: recordField(data, "model"),
         time: recordField(data, "time"),
       });
-      const [history, windows] = await Promise.all([this.#history(session), this.#modelWindows()]);
+      const [history, catalog] = await Promise.all([this.#history(session), this.#modelCatalog()]);
       const list = history.messages;
-      this.#projection.setModelWindows(windows);
+      this.#projection.setModelWindows(catalog.windows);
+      if (catalog.models.length > 0) this.timeline.setState({ models: catalog.models });
       this.#projection.loadHistory(list);
       if (history.truncated) {
         this.timeline.put({
@@ -440,7 +566,10 @@ export class OpenCodeDriver implements ChatDriver {
       return;
     }
     if (this.#request.sendInitialPrompt !== undefined) this.#request.sendInitialPrompt(prompt);
-    else this.send(prompt, "prompt");
+    else {
+      const expected = this.#request.expectedModel ?? null;
+      this.send(prompt, "prompt", expected === null ? null : { model: expected, level: null });
+    }
   }
 
   async #prompt(messageId: string, text: string, delivery: string | undefined): Promise<void> {
@@ -458,9 +587,16 @@ export class OpenCodeDriver implements ChatDriver {
       await this.#json("GET", `/api/session/${encodeURIComponent(session)}`);
     } catch (error) {
       if (!(error instanceof OpenCodeHttpError) || error.status !== 404) throw error;
+      // The first turn's model rides on the session creation (`POST /api/session` takes the same
+      // `Model.Ref` as a switch), so a new conversation never starts on the server's default and
+      // then has to be moved before its first prompt.
+      const expected = this.#request.expectedModel;
       await this.#json("POST", "/api/session", {
         id: session,
         location: { directory: this.#request.cwd },
+        ...(expected === null || expected === undefined || expected.provider === null
+          ? {}
+          : { model: { id: expected.id, providerID: expected.provider } }),
       });
     }
   }
@@ -738,21 +874,29 @@ function recordField(value: unknown, key: string): unknown {
 }
 
 /**
- * The `limit.context` of every model in the catalog (`GET /api/model`), keyed the way a session's
- * message names its model. A catalog entry carries both `id` and `modelID`; a message's ref uses
- * `id`, which is the key that has to match.
+ * The enabled models of `GET /api/model` and their context windows. An entry carries both `id`
+ * and `modelID` (2.2.5), or only `id` (2.3.2); a message's ref uses `id`, which is the key that
+ * has to match. `GET /api/model` lists chat models unless asked otherwise.
  */
-function modelWindowsOf(body: unknown): Map<string, number> {
+function catalogOf(body: unknown): { models: ChatModel[]; windows: Map<string, number> } {
+  const models: ChatModel[] = [];
   const windows = new Map<string, number>();
   for (const entry of arrayField(body, "data") ?? []) {
     const provider = stringField(entry, "providerID");
     const id = stringField(entry, "id") ?? stringField(entry, "modelID");
+    if (provider === undefined || id === undefined) continue;
+    if (recordField(entry, "enabled") === false) continue;
+    const name = stringField(entry, "name");
+    models.push({ provider, id, name: name === undefined || name === "" ? id : name });
     const context = recordField(recordField(entry, "limit"), "context");
-    if (provider === undefined || id === undefined || typeof context !== "number") continue;
-    if (!Number.isInteger(context) || context <= 0) continue;
+    if (typeof context !== "number" || !Number.isInteger(context) || context <= 0) continue;
     windows.set(`${provider}/${id}`, context);
   }
-  return windows;
+  return { models, windows };
+}
+
+function sameModelRef(left: ChatModelRef, right: ChatModelRef): boolean {
+  return left.provider === right.provider && left.id === right.id;
 }
 
 function stringField(value: unknown, key: string): string | undefined {
@@ -788,7 +932,7 @@ export const openCodeChatDriver: ChatDriverRegistration = {
     steer: true,
     followUp: true,
     approvals: true,
-    modelSwitch: false,
+    modelSwitch: true,
     reasoningLevels: false,
     terminalView: "both-live",
   },

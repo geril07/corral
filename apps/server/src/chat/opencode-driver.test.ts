@@ -26,7 +26,11 @@ function noop(): void {}
 
 /** A pool on a fresh data directory, one driver on it, and what it reported. */
 async function harness(
-  options: { prompt?: string | null; sessionId?: string } = {},
+  options: {
+    prompt?: string | null;
+    sessionId?: string;
+    expectedModel?: { provider: string | null; id: string };
+  } = {},
 ): Promise<Harness> {
   const root = await mkdtemp(join(tmpdir(), "corral-opencode-"));
   const servers = new OpenCodeServers({ dataDir: root, readyTimeoutMs: 10_000, exitGraceMs: 500 });
@@ -50,6 +54,7 @@ async function harness(
     model: null,
     how: "start",
     prompt: options.prompt ?? null,
+    ...(options.expectedModel === undefined ? {} : { expectedModel: options.expectedModel }),
     agentSessionId: sessionId,
     server,
     writer: { record: () => {}, release: () => {} },
@@ -97,6 +102,10 @@ async function journal(): Promise<Record<string, unknown>[]> {
 
 async function prompts(): Promise<Record<string, unknown>[]> {
   return (await journal()).filter((entry) => entry["action"] === "prompt");
+}
+
+async function modelSwitches(): Promise<Record<string, unknown>[]> {
+  return (await journal()).filter((entry) => entry["action"] === "model-switch");
 }
 
 async function until(
@@ -247,6 +256,148 @@ test("an answer that arrives while a turn runs is a steer; a prompt then is refu
     expect((await journal()).some((entry) => entry["action"] === "interrupt")).toBe(true);
   } finally {
     await test1.stop();
+  }
+});
+
+test("a prepared selection switches the model before its prompt, and the catalog is the offer", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    expect(test1.timeline.state.models).toEqual([
+      { provider: "stub", id: "stub-model", name: "Stub Model" },
+      { provider: "other", id: "other-model", name: "Other Model" },
+    ]);
+
+    const selection = { model: { provider: "other", id: "other-model" }, level: null };
+    await test1.driver.prepareSelection(selection, { forDispatch: true });
+    test1.driver.send("stream please", "prompt", selection);
+    await until(() => test1.timeline.state.turn === "settled", "the turn");
+
+    const entries = await journal();
+    const switched = entries.findIndex((entry) => entry["action"] === "model-switch");
+    const prompted = entries.findIndex(
+      (entry) => entry["action"] === "prompt" && entry["text"] === "stream please",
+    );
+    expect(switched).toBeGreaterThanOrEqual(0);
+    expect(entries[switched]).toMatchObject({
+      sessionID: "ses_driver0000000000000000000",
+      model: { id: "other-model", providerID: "other" },
+    });
+    expect(switched).toBeLessThan(prompted);
+    expect(test1.timeline.state.model).toMatchObject({ provider: "other", id: "other-model" });
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a selection with no offered model never reaches the session and leaves no user item", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    const receipt = test1.driver.send("keep these words", "prompt", {
+      model: { provider: "stub", id: "missing-model" },
+      level: null,
+    });
+    const failure = await receipt.outcome;
+    expect(failure?.name).toBe("ChatRefusalError");
+    expect(failure?.message).toContain("did not offer this model");
+    await until(
+      () =>
+        items(test1.timeline).some(
+          (item) => item.kind === "error" && item.text.includes("did not switch the model"),
+        ),
+      "the visible refusal",
+    );
+    expect(usersOf(test1.timeline)).toHaveLength(0);
+    expect(await prompts()).toEqual([]);
+    expect(await modelSwitches()).toEqual([]);
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a steer keeps the running turn's model and a selection chosen meanwhile does not switch it", async () => {
+  const test1 = await harness();
+  try {
+    test1.driver.send("hold", "prompt");
+    await until(() => test1.timeline.state.turn === "working", "the working turn");
+    await test1.driver.prepareSelection(
+      { model: { provider: "other", id: "other-model" }, level: null },
+      { forDispatch: false },
+    );
+    test1.driver.send("more context", "steer");
+    await until(async () => (await prompts()).length === 2, "the steer");
+
+    expect(await modelSwitches()).toEqual([]);
+    expect(test1.timeline.state.model).toMatchObject({ provider: "stub", id: "stub-model" });
+    expect((await prompts())[1]).toMatchObject({ text: "more context", delivery: "steer" });
+    await test1.driver.abort();
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a new conversation is created on its chosen model before the first prompt", async () => {
+  const test1 = await harness({
+    prompt: "stream please",
+    expectedModel: { provider: "other", id: "other-model" },
+  });
+  try {
+    await until(() => test1.timeline.state.turn === "settled", "the first turn");
+    const entries = await journal();
+    const created = entries.findIndex((entry) => entry["action"] === "session-create");
+    const prompted = entries.findIndex(
+      (entry) => entry["action"] === "prompt" && entry["text"] === "stream please",
+    );
+    expect(entries[created]).toMatchObject({
+      model: { id: "other-model", providerID: "other" },
+    });
+    expect(created).toBeLessThan(prompted);
+    // The creation already carries the model; the prompt's own switch is the same ref, a no-op the
+    // server documents, and it is what proves the turn will not run on another model.
+    expect(await modelSwitches()).toEqual([
+      expect.objectContaining({ model: { id: "other-model", providerID: "other" } }),
+    ]);
+    expect(test1.timeline.state.model).toMatchObject({ provider: "other", id: "other-model" });
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a resumed conversation keeps the model its session recorded, and confirms it before the next prompt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corral-opencode-"));
+  const servers = new OpenCodeServers({ dataDir: root, readyTimeoutMs: 10_000 });
+  const command = join(import.meta.dirname, "../..", "test", "fake-agents", "bin", "opencode");
+  const server = await servers.acquire("chat:first", { command, cwd: root, env: processEnv() });
+  const sessionId = "ses_resume000000000000000000";
+  try {
+    const first = new ChatTimeline(0);
+    const started = driverOn(server, sessionId, {
+      timeline: first,
+      expectedModel: { provider: "other", id: "other-model" },
+    });
+    started.start();
+    await until(() => first.state.model !== null, "the created session's model");
+    expect(first.state.model).toMatchObject({ provider: "other", id: "other-model" });
+    await started.stop();
+
+    const resumedTimeline = new ChatTimeline(0);
+    const resumed = driverOn(server, sessionId, { timeline: resumedTimeline, how: "resume" });
+    resumed.start();
+    await until(() => resumedTimeline.state.model !== null, "the resumed model");
+    expect(resumedTimeline.state.model).toMatchObject({ provider: "other", id: "other-model" });
+    const selection = { model: { provider: "other", id: "other-model" }, level: null };
+    await resumed.prepareSelection(selection, { forDispatch: true });
+    resumed.send("after resume", "prompt", selection);
+    await until(() => resumedTimeline.state.turn === "settled", "the resumed turn");
+    expect((await prompts())[0]).toMatchObject({ text: "after resume" });
+    expect(await modelSwitches()).toEqual([
+      expect.objectContaining({ model: { id: "other-model", providerID: "other" } }),
+    ]);
+    await resumed.stop();
+  } finally {
+    await servers.closeAll();
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -430,7 +581,13 @@ test("a server that dies is reported as an exit with the reason, not as silence"
 function driverOn(
   server: { url: string; password: string },
   sessionId: string,
-  options: { prompt?: string | null; timeline: ChatTimeline; statuses?: string[] },
+  options: {
+    prompt?: string | null;
+    timeline: ChatTimeline;
+    statuses?: string[];
+    expectedModel?: { provider: string | null; id: string };
+    how?: "start" | "resume";
+  },
 ): OpenCodeDriver {
   return new OpenCodeDriver({
     sessionId: "corral-session-2",
@@ -440,8 +597,9 @@ function driverOn(
     cwd: "/tmp",
     env: processEnv(),
     model: null,
-    how: "start",
+    how: options.how ?? "start",
     prompt: options.prompt ?? null,
+    ...(options.expectedModel === undefined ? {} : { expectedModel: options.expectedModel }),
     agentSessionId: sessionId,
     server,
     writer: { record: () => {}, release: () => {} },

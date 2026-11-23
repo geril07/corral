@@ -235,7 +235,7 @@ test("a driver is one registry entry: it answers chat.capabilities and starts th
       "claude:both-live:modelSwitch,reasoningLevels",
       "codex:both-live:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "pi:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
-      "opencode:both-live:steer,followUp,approvals",
+      "opencode:both-live:steer,followUp,approvals,modelSwitch",
     ]);
     expect(chat.hasDriver("claude")).toBe(true);
 
@@ -1210,7 +1210,7 @@ test("the registry refuses an agent kind this build has no driver for", async ()
       "claude:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "codex:both-live:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "pi:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
-      "opencode:both-live:steer,followUp,approvals",
+      "opencode:both-live:steer,followUp,approvals,modelSwitch",
     ]);
   } finally {
     await chat.closeAll();

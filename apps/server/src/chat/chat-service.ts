@@ -352,6 +352,7 @@ export class ChatService {
       },
       model: request.model,
       provider: request.provider,
+      ...(request.expectedModel === undefined ? {} : { expectedModel: request.expectedModel }),
       agentSessionId: request.agentSessionId,
       ...(request.server === undefined ? {} : { server: request.server }),
       ...(request.socket === undefined ? {} : { socket: request.socket }),

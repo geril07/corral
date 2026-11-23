@@ -291,7 +291,7 @@ test("a task created in chat view starts pi in RPC mode with its prompt, and the
         steer: true,
         followUp: true,
         approvals: true,
-        modelSwitch: false,
+        modelSwitch: true,
         reasoningLevels: false,
         terminalView: "both-live",
       },

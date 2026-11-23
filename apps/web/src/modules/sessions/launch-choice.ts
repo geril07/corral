@@ -141,6 +141,14 @@ export function launchModel(selection: LaunchSelection): string | undefined {
   return model === "" ? undefined : model;
 }
 
+/**
+ * The model a launch button names. pi and Codex carry it on the launch flag; OpenCode carries it
+ * on the chat conversation, so its catalog choice is the only name there is.
+ */
+export function launchModelLabel(selection: LaunchSelection, chat: boolean): string | undefined {
+  return launchModel(selection) ?? (chat ? selection.expectedModel?.id : undefined);
+}
+
 export function launchChoice(selection: LaunchSelection): AgentLaunchChoice {
   const model = supportsModel(selection.kind) ? modelOverride(selection.model) : undefined;
   return {

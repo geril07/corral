@@ -15,7 +15,7 @@ import {
   defaultLaunch,
   launchChoice,
   launchKey,
-  launchModel,
+  launchModelLabel,
   launchName,
   launchProblem,
   launchView,
@@ -107,8 +107,10 @@ export function AgentPicker({
         <ModelPickerButton
           ref={modelAnchor}
           kind={selection.kind}
-          label={[launchName(selection), launchModel(selection)].filter(Boolean).join(" · ")}
-          aria-label={`Agent ${[launchName(selection), launchModel(selection)].filter(Boolean).join(" · ")}`}
+          label={[launchName(selection), launchModelLabel(selection, effectiveView === "chat")]
+            .filter(Boolean)
+            .join(" · ")}
+          aria-label={`Agent ${[launchName(selection), launchModelLabel(selection, effectiveView === "chat")].filter(Boolean).join(" · ")}`}
           onClick={() => {
             setPickingReasoning(false);
             setPicking(true);

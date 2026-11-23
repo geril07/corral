@@ -143,7 +143,21 @@ export function AgentLaunchPicker({
       : undefined;
   const configuredRow =
     configured === undefined ? undefined : launchCatalogRow(configured, menu.all);
-  const currentRow = launchCatalogRow(selection, menu.all);
+  // OpenCode has no model launch flag: a model chosen for its chat is carried on the session and
+  // applied before the first prompt, so the picker offers catalog rows and remembers the ref
+  // instead of a flag value.
+  const chatCarriesModel = thinkingEnabled && selection.kind === "opencode";
+  const expectedRef = chatCarriesModel ? selection.expectedModel : undefined;
+  const modelSelectable = (model: (typeof menu.all)[number]): boolean =>
+    chatCarriesModel ? model.provider !== null : catalogLaunchModel(selection, model) !== undefined;
+  const currentRow =
+    expectedRef === undefined
+      ? chatCarriesModel
+        ? undefined
+        : launchCatalogRow(selection, menu.all)
+      : menu.all.find(
+          (model) => model.provider === expectedRef.provider && model.id === expectedRef.id,
+        );
   const supportsThinking = selection.kind === "pi" || selection.kind === "codex";
   const currentMemory =
     thinkingEnabled && supportsThinking && menu.catalog?.status === "ready" && currentRow
@@ -153,7 +167,20 @@ export function AgentLaunchPicker({
             currentRow.reasoningLevels?.includes(entry.level),
         )
       : undefined;
-  const current = launchCurrentModelRow(selection, menu.all, menu.models.map(modelKey), blocked);
+  const current = chatCarriesModel
+    ? expectedRef !== undefined &&
+      !menu.models.some(
+        (model) => model.provider === expectedRef.provider && model.id === expectedRef.id,
+      )
+      ? {
+          key: CURRENT_ROW_KEY,
+          name: expectedRef.id,
+          current: true,
+          disabled: blocked,
+          detail: "Current · hidden by filter",
+        }
+      : undefined
+    : launchCurrentModelRow(selection, menu.all, menu.models.map(modelKey), blocked);
   const models: PickerModel[] = [
     // The synthetic row already names a configured default in its detail; one mark per row.
     ...(current ? [current] : []),
@@ -161,11 +188,8 @@ export function AgentLaunchPicker({
       key: modelKey(model),
       name: model.name,
       provider: model.provider ?? undefined,
-      detail:
-        catalogLaunchModel(selection, model) === undefined
-          ? "Not selectable by this launch adapter/provider"
-          : model.id,
-      disabled: blocked || catalogLaunchModel(selection, model) === undefined,
+      detail: modelSelectable(model) ? model.id : "Not selectable by this launch adapter/provider",
+      disabled: blocked || !modelSelectable(model),
       favorite: menu.favorite(model),
       current: currentRow === undefined ? false : modelKey(currentRow) === modelKey(model),
       default: configuredRow !== undefined && modelKey(configuredRow) === modelKey(model),
@@ -205,8 +229,21 @@ export function AgentLaunchPicker({
           return;
         }
         const reported = menu.models.find((m) => modelKey(m) === model);
-        const value = reported ? catalogLaunchModel(selection, reported) : undefined;
-        if (value === undefined || reported === undefined) return;
+        if (reported === undefined) return;
+        if (chatCarriesModel) {
+          if (reported.provider === null) return;
+          const target = {
+            ...selection,
+            model: "",
+            expectedModel: { provider: reported.provider, id: reported.id },
+            thinking: undefined,
+          };
+          onChange(target, "model");
+          onCommit(target);
+          return;
+        }
+        const value = catalogLaunchModel(selection, reported);
+        if (value === undefined) return;
         const commit = (level: string | null) => {
           if (!mounted.current) return;
           const remembered =

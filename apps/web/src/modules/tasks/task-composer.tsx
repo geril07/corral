@@ -30,7 +30,7 @@ import {
   AgentLaunchPicker,
   defaultLaunch,
   launchChoice,
-  launchModel,
+  launchModelLabel,
   launchName,
   launchProblem,
   launchView,
@@ -310,8 +310,10 @@ export function TaskComposer({
                 <ModelPickerButton
                   ref={agentAnchor}
                   kind={agent.kind}
-                  label={[launchName(agent), launchModel(agent)].filter(Boolean).join(" · ")}
-                  aria-label={`Agent ${[launchName(agent), launchModel(agent)].filter(Boolean).join(" · ")}`}
+                  label={[launchName(agent), launchModelLabel(agent, view === "chat")]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  aria-label={`Agent ${[launchName(agent), launchModelLabel(agent, view === "chat")].filter(Boolean).join(" · ")}`}
                   onClick={() => {
                     setPickingReasoning(false);
                     setPickingAgent(true);

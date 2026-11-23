@@ -86,9 +86,20 @@ export class OpenCodeProjection {
     this.#dialogTimeoutMs = options.dialogTimeoutMs;
   }
 
-  /** Adds the user's message optimistically and returns the id its prompt will echo. */
-  userMessage(text: string): { itemId: string; messageId: string } {
+  /**
+   * The ids a prompt will have, before its text is put: a model switch can still refuse the turn,
+   * and a user item for words that never left would claim delivery the agent did not give.
+   */
+  userMessageIds(): { itemId: string; messageId: string } {
     const messageId = newOpenCodeMessageId();
+    return { messageId, itemId: userItemId(messageId) };
+  }
+
+  /** Adds the user's message optimistically and returns the id its prompt will echo. */
+  userMessage(
+    text: string,
+    messageId = newOpenCodeMessageId(),
+  ): { itemId: string; messageId: string } {
     const itemId = userItemId(messageId);
     this.#timeline.put({ kind: "user-message", id: itemId, text });
     return { itemId, messageId };

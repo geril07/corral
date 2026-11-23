@@ -159,6 +159,12 @@ export interface ChatDriverLaunch {
    * driver whose frontend is constructed (Claude's SDK `Options.model`) instead of spawned.
    */
   model: string | null;
+  /**
+   * The exact catalog model a new chat chose before its first prompt, when the agent takes it on
+   * the conversation rather than a launch flag (OpenCode's `POST /api/session`). A ref without a
+   * provider cannot be carried by such an agent and is refused before a switch.
+   */
+  expectedModel?: ChatModelRef | undefined;
   /** The conversation this frontend opens, new or resumed (`Options.sessionId`/`resume`). */
   how: "start" | "resume";
   prompt: string | null;

@@ -1,5 +1,6 @@
 import type { ChatItem, ChatSnapshot } from "@corral/protocol/chat";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { beforeEach, expect, test, vi } from "vite-plus/test";
 import { useFakeAgents } from "../../test/fake-agents.ts";
 import { isRecord } from "../../test/json.ts";
@@ -94,6 +95,17 @@ async function serveLaunches() {
   return (await agents.launches()).filter((launch) => launch.argv[0] === "serve");
 }
 
+/** The model switches the fake server journaled, in request order. */
+async function modelSwitches(): Promise<Record<string, unknown>[]> {
+  return (await openCodeJournal()).filter((entry) => entry["action"] === "model-switch");
+}
+
+/** A scenario file for the fake server, read on the request it applies to. */
+async function fakeScenario(name: string, value: string): Promise<void> {
+  await mkdir(agents.openCodeState, { recursive: true });
+  await writeFile(join(agents.openCodeState, name), value);
+}
+
 test("OpenCode runs a queued turn and subsequent ordinary prompts after delivery and execution", async () => {
   const { api, session } = await openCodeTask("slow");
   await untilChat(api, session.id, (view) => view.state.turn === "working", "the first turn");
@@ -128,6 +140,212 @@ test("OpenCode runs a queued turn and subsequent ordinary prompts after delivery
     "first normal",
     "second normal",
   ]);
+});
+
+test("an OpenCode steer keeps the running model, while the queued turn starts on the model it captured", async () => {
+  vi.stubEnv("FAKE_OPENCODE_SLOW_MS", "1200");
+  const { api, session } = await openCodeTask("slow");
+  try {
+    await untilChat(api, session.id, (view) => view.state.turn === "working", "the first turn");
+    const B = { provider: "other", id: "other-model" };
+    const C = { provider: "stub", id: "stub-model" };
+    await api.chat.setModel({ sessionId: session.id, model: B });
+    await api.chat.send({ sessionId: session.id, text: "steer on A", mode: "steer" });
+    await api.chat.send({ sessionId: session.id, text: "queued on B", mode: "follow-up" });
+    const captured = await untilChat(
+      api,
+      session.id,
+      (view) => view.state.queue?.some((entry) => entry.text === "queued on B") ?? false,
+      "the queued entry",
+    );
+    expect(captured.state.queue?.find((entry) => entry.text === "queued on B")).toMatchObject({
+      selection: { model: B, level: null },
+    });
+    await api.chat.setModel({ sessionId: session.id, model: C });
+
+    // Nothing moved the session to B while the first turn ran: the only switch so far is the
+    // initial prompt's confirmation of A, and the steer is the same turn's message.
+    expect(
+      (await modelSwitches()).filter(
+        (entry) => isRecord(entry["model"]) && entry["model"]["id"] === "other-model",
+      ),
+    ).toEqual([]);
+    expect(captured.state.model).toMatchObject({ provider: "stub", id: "stub-model" });
+
+    const settled = await untilChat(
+      api,
+      session.id,
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === "queued on B") &&
+        view.state.turn === "settled" &&
+        (view.state.queue?.length ?? 0) === 0,
+      "the queued turn on B",
+    );
+    const entries = await openCodeJournal();
+    const steer = entries.findIndex(
+      (entry) => entry["action"] === "prompt" && entry["text"] === "steer on A",
+    );
+    const switched = entries.findIndex(
+      (entry) =>
+        entry["action"] === "model-switch" &&
+        isRecord(entry["model"]) &&
+        entry["model"]["id"] === "other-model",
+    );
+    const queued = entries.findIndex(
+      (entry) => entry["action"] === "prompt" && entry["text"] === "queued on B",
+    );
+    expect(steer).toBeGreaterThanOrEqual(0);
+    expect(entries[steer]).toMatchObject({ delivery: "steer" });
+    expect(switched).toBeGreaterThan(steer);
+    expect(entries[switched]).toMatchObject({ model: { id: "other-model", providerID: "other" } });
+    expect(switched).toBeLessThan(queued);
+    // C is the composer's next choice; the queued turn did not run on it.
+    expect(settled.state.selection).toEqual({ model: C, level: null });
+    const switches = await modelSwitches();
+    expect(switches.at(-1)).toMatchObject({ model: { id: "other-model", providerID: "other" } });
+    expect(
+      switches.filter(
+        (entry) => isRecord(entry["model"]) && entry["model"]["id"] === "other-model",
+      ),
+    ).toHaveLength(1);
+  } finally {
+    vi.stubEnv("FAKE_OPENCODE_SLOW_MS", undefined);
+  }
+});
+
+test("an OpenCode task created with a chosen model starts on it before the first prompt", async () => {
+  const project = (await addProject(server)).project;
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "stream please",
+    agent: {
+      kind: "opencode",
+      view: "chat",
+      expectedModel: { provider: "other", id: "other-model" },
+    },
+    workspace: { type: "new-branch" },
+  });
+  const session = (await sessionsOf(api)).find((each) => each.id === task.primarySessionId);
+  expect(session).toBeDefined();
+  const settled = await untilChat(
+    api,
+    session!.id,
+    (view) => textOf(view).includes("Hello world") && view.state.turn === "settled",
+    "the first turn on the chosen model",
+  );
+  const entries = await openCodeJournal();
+  const created = entries.findIndex((entry) => entry["action"] === "session-create");
+  const prompted = entries.findIndex((entry) => entry["action"] === "prompt");
+  expect(entries[created]).toMatchObject({ model: { id: "other-model", providerID: "other" } });
+  expect(created).toBeLessThan(prompted);
+  expect(await modelSwitches()).toEqual([
+    expect.objectContaining({ model: { id: "other-model", providerID: "other" } }),
+  ]);
+  expect(settled.state.model).toMatchObject({ provider: "other", id: "other-model" });
+});
+
+test("an unoffered pre-start model refuses the first prompt instead of sending it", async () => {
+  const project = (await addProject(server)).project;
+  const api = await server.rpc();
+  const task = await api.tasks.create({
+    projectId: project.id,
+    prompt: "stream please",
+    agent: {
+      kind: "opencode",
+      view: "chat",
+      expectedModel: { provider: "stub", id: "missing-model" },
+    },
+    workspace: { type: "new-branch" },
+  });
+  const session = (await sessionsOf(api)).find((each) => each.id === task.primarySessionId);
+  expect(session).toBeDefined();
+  const refused = await untilChat(
+    api,
+    session!.id,
+    (view) =>
+      view.items.some(
+        (item) =>
+          item.kind === "error" &&
+          item.text.includes("stream please") &&
+          item.text.includes("did not offer this model"),
+      ),
+    "the refused initial prompt",
+  );
+  expect(refused.items.filter((item) => item.kind === "user-message")).toEqual([]);
+  expect((await openCodeJournal()).filter((entry) => entry["action"] === "prompt")).toEqual([]);
+  expect(await modelSwitches()).toEqual([]);
+});
+
+test("a refused OpenCode model switch keeps the queued words and sends no prompt", async () => {
+  const { api, session } = await openCodeTask("stream please");
+  await untilChat(
+    api,
+    session.id,
+    (view) => view.state.turn === "settled" && (view.state.queue?.length ?? 0) === 0,
+    "the first turn",
+  );
+  await api.chat.setModel({
+    sessionId: session.id,
+    model: { provider: "other", id: "other-model" },
+  });
+  await fakeScenario("model-switch-mode", "fail");
+  await api.chat.send({ sessionId: session.id, text: "keep my words", mode: "prompt" });
+  const kept = await untilChat(
+    api,
+    session.id,
+    (view) =>
+      view.items.some(
+        (item) =>
+          item.kind === "error" &&
+          item.text.includes("This queued message was not sent: keep my words"),
+      ),
+    "the refused queued message",
+  );
+  expect(kept.state.model).toMatchObject({ provider: "stub", id: "stub-model" });
+  expect(kept.state.selection).toEqual({
+    model: { provider: "other", id: "other-model" },
+    level: null,
+  });
+  const entries = await openCodeJournal();
+  expect(entries.filter((entry) => entry["action"] === "prompt")).toEqual([
+    expect.objectContaining({ text: "stream please" }),
+  ]);
+  expect(
+    (await modelSwitches()).find(
+      (entry) => isRecord(entry["model"]) && entry["model"]["id"] === "other-model",
+    ),
+  ).toMatchObject({
+    model: { id: "other-model", providerID: "other" },
+    mode: "fail",
+  });
+});
+
+test("an unavailable OpenCode model refuses the next send instead of using the old model", async () => {
+  const { api, session } = await openCodeTask("stream please");
+  await untilChat(
+    api,
+    session.id,
+    (view) => view.state.turn === "settled" && (view.state.queue?.length ?? 0) === 0,
+    "the first turn",
+  );
+  await expect(
+    api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "missing-model" } }),
+  ).rejects.toMatchObject({ code: "CHAT_MODEL_UNSUPPORTED" });
+  await expect(
+    api.chat.send({ sessionId: session.id, text: "draft stays here", mode: "prompt" }),
+  ).rejects.toMatchObject({ code: "CHAT_MODEL_UNSUPPORTED" });
+  const view = await untilChat(api, session.id, () => true, "the refused selection");
+  expect(view.state.selection).toEqual({
+    model: { provider: "stub", id: "missing-model" },
+    level: null,
+  });
+  expect(view.state.model).toMatchObject({ provider: "stub", id: "stub-model" });
+  expect(
+    (await openCodeJournal()).filter(
+      (entry) => entry["action"] === "prompt" && entry["text"] === "draft stays here",
+    ),
+  ).toEqual([]);
 });
 
 test("OpenCode ignores a stale durable completion while the current execution is running", async () => {
@@ -179,7 +397,7 @@ test("an OpenCode chat task streams on the one server it starts, and opens its t
     steer: true,
     followUp: true,
     approvals: true,
-    modelSwitch: false,
+    modelSwitch: true,
     reasoningLevels: false,
     terminalView: "both-live",
   });

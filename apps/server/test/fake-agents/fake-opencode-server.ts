@@ -7,6 +7,8 @@
 // The provider side is scripted by the prompt's text, so a test can ask for a streamed answer with
 // a tool call (`stream`), a turn that keeps running until it is interrupted (`hold`), or a turn
 // that asks for permission first (`ask`). No model is called and no network is touched.
+// `POST …/model` updates the session's reported model and is journalled; a `model-switch-mode`
+// file holding `fail` answers it with 400.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -18,6 +20,12 @@ interface SessionMessage {
   [key: string]: unknown;
 }
 
+interface SessionModel {
+  id: string;
+  providerID: string;
+  variant?: string;
+}
+
 interface StoredSession {
   id: string;
   title: string;
@@ -26,7 +34,11 @@ interface StoredSession {
   permissions: Record<string, unknown>[];
   busy: boolean;
   outcome: string | null;
+  /** The model OpenCode reports for the session; absent means the fake's default. */
+  model?: SessionModel;
 }
+
+const DEFAULT_MODEL: SessionModel = { id: "stub-model", providerID: "stub" };
 
 interface ToolPart {
   id: string;
@@ -70,6 +82,8 @@ export function runFakeOpenCodeServer(options: {
   hostname: string;
 }): void {
   const password = options.password;
+  const configuredSlow = Number.parseInt(process.env["FAKE_OPENCODE_SLOW_MS"] ?? "", 10);
+  const slowMs = configuredSlow > 0 ? configuredSlow : 300;
   const sessions = new Map<string, StoredSession>();
   /** One event stream per attached client. */
   const streams = new Set<ServerResponse>();
@@ -160,6 +174,15 @@ export function runFakeOpenCodeServer(options: {
     }
   };
 
+  /** `fail` makes `POST …/model` answer 400, the shape a server refusing a switch gives. */
+  const switchMode = (): string => {
+    try {
+      return readFileSync(join(options.stateDir ?? "", "model-switch-mode"), "utf8").trim();
+    } catch {
+      return "";
+    }
+  };
+
   /** The assistant message of the turn a scripted prompt starts; the history keeps it. */
   let assistant: AssistantMessage | undefined;
   let turnTools: ToolPart[] = [];
@@ -169,7 +192,7 @@ export function runFakeOpenCodeServer(options: {
       id: `msg_fakeassistant${session.messages.length + 1}`,
       type: "assistant",
       agent: "build",
-      model: { id: "stub-model", providerID: "stub" },
+      model: { ...(session.model ?? DEFAULT_MODEL) },
       time: { created: Date.now() },
       content: [],
     };
@@ -300,7 +323,7 @@ export function runFakeOpenCodeServer(options: {
         textDelta(session, " then done");
         endText(session, "working then done");
         finish(session, "succeeded");
-      }, 300).unref();
+      }, slowMs).unref();
       return;
     }
     if (text === "split" || text === "haha") {
@@ -400,6 +423,7 @@ export function runFakeOpenCodeServer(options: {
         const body = await readBody(request);
         const location = (body["location"] ?? {}) as { directory?: string };
         const id = typeof body["id"] === "string" ? body["id"] : `ses_fake${sessions.size + 1}`;
+        const model = modelOfBody(body["model"]) ?? DEFAULT_MODEL;
         const session: StoredSession = {
           id,
           title: typeof body["title"] === "string" ? body["title"] : "",
@@ -408,10 +432,11 @@ export function runFakeOpenCodeServer(options: {
           permissions: [],
           busy: false,
           outcome: null,
+          model,
         };
         sessions.set(id, session);
         save(session);
-        journal({ action: "session-create", sessionID: id, directory: session.directory });
+        journal({ action: "session-create", sessionID: id, directory: session.directory, model });
         json(response, 200, { data: sessionInfo(session) });
         return;
       }
@@ -503,6 +528,29 @@ export function runFakeOpenCodeServer(options: {
       }
       if (request.method === "GET" && rest === "/permission") {
         json(response, 200, { data: session.permissions });
+        return;
+      }
+      if (request.method === "POST" && rest === "/model") {
+        const body = await readBody(request);
+        const model = modelOfBody(body["model"]);
+        const mode = switchMode();
+        journal({ action: "model-switch", sessionID: session.id, model: model ?? null, mode });
+        if (model === undefined) {
+          json(response, 400, { _tag: "InvalidRequestError", message: "Invalid model reference" });
+          return;
+        }
+        if (mode === "fail") {
+          json(response, 400, { _tag: "InvalidRequestError", message: "the model was refused" });
+          return;
+        }
+        session.model = model;
+        save(session);
+        emit("session.next.model.switched", {
+          sessionID: session.id,
+          messageID: `msg_fakeswitch${session.messages.length + 1}`,
+          model,
+        });
+        response.writeHead(204).end();
         return;
       }
       if (request.method === "POST" && rest === "/prompt") {
@@ -632,7 +680,22 @@ function sessionInfo(session: StoredSession): Record<string, unknown> {
     title: session.title,
     location: { directory: session.directory },
     ...(session.outcome === null ? {} : { outcome: session.outcome }),
-    model: { id: "stub-model", providerID: "stub" },
+    model: { ...(session.model ?? DEFAULT_MODEL) },
+  };
+}
+
+/** A `Model.Ref` from a request body; a variant is kept when it is a non-empty string. */
+function modelOfBody(value: unknown): SessionModel | undefined {
+  if (!isRecord(value)) return undefined;
+  const id = value["id"];
+  const providerID = value["providerID"];
+  const variant = value["variant"];
+  if (typeof id !== "string" || id === "") return undefined;
+  if (typeof providerID !== "string" || providerID === "") return undefined;
+  return {
+    id,
+    providerID,
+    ...(typeof variant === "string" && variant !== "" ? { variant } : {}),
   };
 }
 
@@ -646,7 +709,8 @@ function isStoredSession(value: unknown): value is StoredSession {
     Array.isArray(value["messages"]) &&
     Array.isArray(value["permissions"]) &&
     typeof value["busy"] === "boolean" &&
-    (value["outcome"] === null || typeof value["outcome"] === "string")
+    (value["outcome"] === null || typeof value["outcome"] === "string") &&
+    (value["model"] === undefined || modelOfBody(value["model"]) !== undefined)
   );
 }
 
