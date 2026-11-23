@@ -2052,10 +2052,21 @@ test("pi resumes after an idle check without resending the prior attempt or paus
         view.items.some((item) => item.kind === "user-message" && item.text === "after restart"),
       "the new turn",
     );
+    // The view's user-message is appended when the send is addressed, before the child reads its
+    // stdin, so the journal can still be a poll behind it.
+    await expect
+      .poll(
+        async () =>
+          (await piCommands(agentSessionId))
+            .filter((entry) => entry.type === "prompt")
+            .map((entry) => entry.text),
+        { timeout: 10_000, message: "the prompt journal" },
+      )
+      .toContain("after restart");
     const prompts = (await piCommands(agentSessionId))
       .filter((entry) => entry.type === "prompt")
       .map((entry) => entry.text);
-    expect(prompts).toContain("after restart");
+    expect(prompts.filter((text) => text === "after restart")).toHaveLength(1);
     expect(prompts.filter((text) => text === "Before the restart")).toHaveLength(1);
     expect(prompts).not.toContain("old one");
     expect(prompts).not.toContain("old two");
