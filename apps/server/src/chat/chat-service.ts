@@ -1012,7 +1012,10 @@ export class ChatService {
         this.#scheduleDrive(control);
         return;
       }
-      if (control.queue.some((entry) => entry.id === initialId(sessionId)) || control.resumed) {
+      // Only a prompt this chat frontend already recorded is withheld. A resume alone is not
+      // evidence of delivery: a handoff from the terminal has no entry here, and the driver has
+      // reported the agent's own history empty, so the prompt never got through.
+      if (control.queue.some((entry) => entry.id === initialId(sessionId))) {
         this.#surfaceError(
           control,
           "chat:initial-prompt",

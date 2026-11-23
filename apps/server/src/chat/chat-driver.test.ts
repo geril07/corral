@@ -950,6 +950,63 @@ test("an initial prompt is recorded before delivery and is never replayed on res
   }
 });
 
+test("a resumed frontend hands over a task prompt the agent never received", async () => {
+  const choices = new MemoryChatChoices();
+  const started: EchoDriver[] = [];
+  const sent: string[] = [];
+  const registration = echoRegistration(started);
+  const chat = chatService(
+    {
+      started,
+      registry: {
+        claude: {
+          ...registration,
+          create: (launch) => {
+            const driver = new EchoDriver({ ...launch, prompt: null });
+            started.push(driver);
+            const start = driver.start.bind(driver);
+            driver.start = () => {
+              start();
+              launch.sendInitialPrompt?.(launch.prompt);
+            };
+            driver.send = (text) => {
+              sent.push(text);
+              driver.timeline.setState({ turn: "working" });
+              driver.timeline.setState({ turn: "settled" });
+              return { id: text, outcome: Promise.resolve(null) };
+            };
+            return driver;
+          },
+        },
+      },
+    },
+    choices,
+  );
+  try {
+    // The terminal that started the task left no chat record and the agent reports an empty
+    // history: a resume is no evidence that the prompt was delivered.
+    const launch = request("initial-handoff", "claude", "initial words");
+    await chat.launch(launch);
+    await when(
+      () => choices.queue(launch.sessionId).some((entry) => entry.status === "completed"),
+      "the handed-over prompt",
+    );
+    expect(sent).toEqual(["initial words"]);
+    await chat.stop(launch.sessionId);
+    await chat.launch(launch);
+    await when(
+      () =>
+        started[1]!.timeline
+          .snapshot()
+          .items.some((item) => item.kind === "error" && item.text.includes("not sent again")),
+      "the withheld replay",
+    );
+    expect(sent).toEqual(["initial words"]);
+  } finally {
+    await chat.closeAll();
+  }
+});
+
 test("a both-live native terminal holds prompt and model application without blocking steer", async () => {
   const harness = echoRegistry();
   const chat = chatService(harness);
