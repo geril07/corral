@@ -66,7 +66,11 @@ export function startServer(options: {
    * service's test seam (`ChatServiceOptions.drivers`): a suite can register a recording driver and
    * exercise the session service's launch wiring without the real agent SDK.
    */
-  chat?: Partial<ChatTimeouts> & { writerWaitMs?: number; drivers?: ChatDriverRegistry };
+  chat?: Partial<ChatTimeouts> & {
+    writerWaitMs?: number;
+    boundaryWaitMs?: number;
+    drivers?: ChatDriverRegistry;
+  };
   /** `gh`/`glab` deadline for the Changes tab's pull-request calls; tests shorten it. */
   pullRequestTimeoutMs?: number;
   /** Metadata process deadline; tests shorten it against isolated fake CLIs. */

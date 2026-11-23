@@ -58,12 +58,18 @@ const DIALOG_TIMEOUT_MS = 10 * 60 * 1000;
 const READY_TIMEOUT_MS = 15_000;
 /** After a stop request the agent exits in order; this is how long it gets before its group dies. */
 const EXIT_GRACE_MS = 2000;
+/**
+ * How long a prompt waits for the agent's own whole-turn answer when it arrives right after the
+ * turn was reported settled. The answer is a local round trip on an agent that is already done;
+ * anything longer means the boundary cannot be confirmed, and the prompt is refused as before.
+ */
+const BOUNDARY_WAIT_MS = 2000;
 
 export interface ChatServiceOptions {
   /** Where the per-session writer records live; inside the server's data directory. */
   dataDir: string;
   /** Test seam; the defaults are what production runs. */
-  timeouts?: Partial<ChatTimeouts> & { writerWaitMs?: number };
+  timeouts?: Partial<ChatTimeouts> & { writerWaitMs?: number; boundaryWaitMs?: number };
   /** Test seam; production runs the build's registry (`CHAT_DRIVER_REGISTRY`). */
   drivers?: ChatDriverRegistry;
   /**
@@ -138,6 +144,8 @@ interface DispatchAttempt {
   sawWorking: boolean;
   settled: boolean;
   nativeBoundary: "none" | "pending" | "settled" | "aborted";
+  /** The driver's own whole-turn answer while `nativeBoundary` waits on it. */
+  boundary: Promise<"settled" | "aborted"> | null;
   failed: boolean;
 }
 
@@ -172,6 +180,7 @@ export class ChatService {
   readonly #chatDir: string;
   readonly #timeouts: ChatTimeouts;
   readonly #writerWaitMs: number;
+  readonly #boundaryWaitMs: number;
   readonly #choices: ChatChoiceStore;
   readonly #memoryEpochs = new Map<string, number>();
   readonly #pendingInitialMemory = new Map<
@@ -190,6 +199,7 @@ export class ChatService {
       exitGraceMs: options.timeouts?.exitGraceMs ?? EXIT_GRACE_MS,
     };
     this.#writerWaitMs = options.timeouts?.writerWaitMs ?? 3000;
+    this.#boundaryWaitMs = options.timeouts?.boundaryWaitMs ?? BOUNDARY_WAIT_MS;
     this.#onWorkspaceChange = options.onWorkspaceChange;
   }
 
@@ -478,6 +488,9 @@ export class ChatService {
     if (mode === "steer") return Promise.resolve(this.#frontend(subject).send(text, mode).id);
     return this.#mutate(subject, async (driver) => {
       const control = this.#control(subject.sessionId, driver);
+      // A settled turn may be published before the boundary pass that releases its attempt; the
+      // prompt a client sends in that window is the next turn, not a second writer.
+      if (mode === "prompt") await this.#settleFinishedTurn(control);
       if (mode === "prompt" && (this.#blocked(control) || driver.state.turn === "working"))
         throw turnUnconfirmed();
       if (mode === "prompt" && driver.state.turn !== "working") {
@@ -495,6 +508,33 @@ export class ChatService {
       const entry = this.#createEntry(control, text);
       return this.#dispatch(control, entry);
     });
+  }
+
+  /**
+   * The turn a driver has reported settled, released before a prompt is judged. The timeline
+   * publishes `settled` when the agent says it is done, which can precede the driver's own
+   * whole-turn answer, and the attempt that opened the turn is released only once that answer
+   * names the boundary. A prompt sent in between would see the finished turn's attempt and be
+   * refused as a second writer. Only an accepted receipt is waited on: an unconfirmed delivery is
+   * not something a later prompt may assume away. The wait is bounded, so a boundary that never
+   * answers leaves the attempt in place and the caller's refusal stands. An entry queued before
+   * this prompt starts first, which then refuses this prompt as the second writer.
+   */
+  async #settleFinishedTurn(control: TurnControl): Promise<void> {
+    const attempt = control.attempt;
+    if (attempt === null || attempt.delivery !== "accepted") return;
+    if (control.driver.state.turn === "working") return;
+    if (attempt.nativeBoundary === "pending" && attempt.boundary !== null)
+      await Promise.race([attempt.boundary, delay(this.#boundaryWaitMs)]);
+    if (!this.#releaseBoundaryAttempt(control)) return;
+    const head = control.queue.find((entry) => entry.status === "queued");
+    if (head === undefined) return;
+    try {
+      await this.#runQueued(control, head);
+    } catch {
+      // The queued message's own failure is surfaced by `#dispatch`; this prompt is then judged
+      // on the queue as it stands.
+    }
   }
 
   async abort(subject: ChatSubject): Promise<void> {
@@ -764,21 +804,7 @@ export class ChatService {
   /** A receipt and a turn boundary are independent: neither alone releases a later turn. */
   async #drive(control: TurnControl): Promise<void> {
     const driver = control.driver;
-    const attempt = control.attempt;
-    if (
-      attempt !== null &&
-      attempt.delivery === "accepted" &&
-      ((control.orderedTurnBoundaries && attempt.settled) ||
-        attempt.nativeBoundary === "settled" ||
-        attempt.nativeBoundary === "aborted")
-    ) {
-      this.#settleAttempt(control, attempt);
-      if (attempt.id === initialId(control.sessionId))
-        this.#setQueueStatus(control, attempt.id, "completed");
-      else this.#removeQueued(control, attempt.id);
-      if (attempt.nativeBoundary === "aborted" || attempt.failed)
-        this.#haltQueue(control, { surface: true });
-    }
+    this.#releaseBoundaryAttempt(control);
     if (driver.closed || driver.state.turn === "working" || this.#blocked(control)) return;
     const head = control.queue.find((entry) => entry.status === "queued");
     if (head !== undefined) {
@@ -807,6 +833,32 @@ export class ChatService {
         `The selected model or thinking level could not be applied: ${messageOf(error)}`,
       );
     }
+  }
+
+  /**
+   * Ends the attempt a turn boundary proves is finished, and says whether it did. `false` means
+   * the evidence is not there yet: the receipt is unconfirmed, or the driver's whole-turn answer
+   * has not arrived, and its message may still be the writer of a turn that is not over.
+   */
+  #releaseBoundaryAttempt(control: TurnControl): boolean {
+    const attempt = control.attempt;
+    if (
+      attempt === null ||
+      attempt.delivery !== "accepted" ||
+      !(
+        (control.orderedTurnBoundaries && attempt.settled) ||
+        attempt.nativeBoundary === "settled" ||
+        attempt.nativeBoundary === "aborted"
+      )
+    )
+      return false;
+    this.#settleAttempt(control, attempt);
+    if (attempt.id === initialId(control.sessionId))
+      this.#setQueueStatus(control, attempt.id, "completed");
+    else this.#removeQueued(control, attempt.id);
+    if (attempt.nativeBoundary === "aborted" || attempt.failed)
+      this.#haltQueue(control, { surface: true });
+    return true;
   }
 
   async #runQueued(control: TurnControl, entry: ChatQueuedMessage): Promise<void> {
@@ -857,6 +909,7 @@ export class ChatService {
       sawWorking: false,
       settled: false,
       nativeBoundary: "none",
+      boundary: null,
       failed: false,
     };
     control.attempt = attempt;
@@ -874,6 +927,7 @@ export class ChatService {
     }
     if (receipt.boundary !== undefined) {
       attempt.nativeBoundary = "pending";
+      attempt.boundary = receipt.boundary;
       void receipt.boundary.then((boundary) => {
         if (this.#turns.get(control.sessionId) !== control || control.attempt !== attempt) return;
         // A correlated native boundary names this prompt and proves delivery even if its transport

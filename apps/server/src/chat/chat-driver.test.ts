@@ -171,6 +171,122 @@ function echoRegistry(): Harness {
   };
 }
 
+/**
+ * A driver whose whole-turn answer is the test's to give, as an agent that answers a probe on its
+ * own schedule is its own: `send` reports `working` and a boundary that stays pending until
+ * `confirmBoundary`. That is the shape a prompt meets when the turn is already published settled
+ * and the driver has not answered yet.
+ */
+class BoundaryDriver implements ChatDriver {
+  readonly timeline: ChatTimeline;
+  readonly sent: string[] = [];
+  readonly #launch: ChatDriverStart;
+  #closed = false;
+  #boundary: PromiseWithResolvers<"settled" | "aborted"> | null = null;
+  #outcome: PromiseWithResolvers<Error | null> | null = null;
+  /** Keep the receipt unconfirmed until `deliver`, as a lost prompt answer does. */
+  holdDelivery = false;
+
+  constructor(launch: ChatDriverStart) {
+    this.#launch = launch;
+    this.timeline = launch.timeline;
+  }
+
+  get sessionId(): string {
+    return this.#launch.sessionId;
+  }
+
+  get state(): ChatSessionState {
+    return this.timeline.state;
+  }
+
+  get closed(): boolean {
+    return this.#closed;
+  }
+
+  start(): void {
+    const model = { provider: "stub", id: "stub-1", name: "Stub 1" };
+    this.timeline.setState({ model, models: [model] });
+    this.#launch.onStatus({ state: "idle", updatedAt: Date.now() });
+  }
+
+  async stop(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.timeline.close();
+    this.#launch.onExit(null);
+  }
+
+  send(text: string, mode: ChatSendMode): ChatSendReceipt {
+    this.sent.push(text);
+    const id = `boundary-${this.sent.length}`;
+    this.timeline.put({ kind: "user-message", id, text });
+    if (mode !== "prompt") return { id, outcome: Promise.resolve(null) };
+    this.timeline.setState({ turn: "working" });
+    const boundary = Promise.withResolvers<"settled" | "aborted">();
+    this.#boundary = boundary;
+    const outcome = this.holdDelivery
+      ? (this.#outcome = Promise.withResolvers<Error | null>()).promise
+      : Promise.resolve(null);
+    return { id, outcome, boundary: boundary.promise };
+  }
+
+  /** The agent's own whole-turn answer. */
+  confirmBoundary(): void {
+    this.#boundary?.resolve("settled");
+  }
+
+  /** The agent's answer about a held delivery. */
+  deliver(): void {
+    this.#outcome?.resolve(null);
+  }
+
+  async abort(): Promise<void> {
+    this.timeline.setState({ turn: "aborted" });
+  }
+
+  respond(): void {}
+
+  async setModel(model: ChatModelRef): Promise<void> {
+    this.timeline.setState({ model: { ...model, name: model.id } });
+  }
+
+  async setReasoning(level: string): Promise<void> {
+    this.timeline.setState({ reasoning: level });
+  }
+}
+
+function boundaryRegistry(): { registry: ChatDriverRegistry; started: BoundaryDriver[] } {
+  const started: BoundaryDriver[] = [];
+  return {
+    registry: {
+      ...CHAT_DRIVER_REGISTRY,
+      claude: {
+        capabilities: {
+          steer: false,
+          followUp: false,
+          approvals: false,
+          modelSwitch: true,
+          reasoningLevels: true,
+          terminalView: "handoff-only",
+        },
+        args: () => ["--boundary"],
+        create: (launch) => {
+          const driver = new BoundaryDriver(launch);
+          started.push(driver);
+          return driver;
+        },
+      },
+    },
+    started,
+  };
+}
+
+/** Lets the service's scheduled passes run: one macrotask drains their microtasks. */
+function flushPasses(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 let root: string;
 
 beforeEach(async () => {
@@ -181,11 +297,21 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function chatService(harness?: Harness, choices?: MemoryChatChoices): ChatService {
+function chatService(
+  harness?: { registry: ChatDriverRegistry; started: ChatDriver[] },
+  choices?: MemoryChatChoices,
+  boundaryWaitMs?: number,
+): ChatService {
   return new ChatService({
     dataDir: root,
     ...(choices === undefined ? {} : { choices }),
-    timeouts: { dialogTimeoutMs: 1000, readyTimeoutMs: 2000, exitGraceMs: 500, writerWaitMs: 1000 },
+    timeouts: {
+      dialogTimeoutMs: 1000,
+      readyTimeoutMs: 2000,
+      exitGraceMs: 500,
+      writerWaitMs: 1000,
+      ...(boundaryWaitMs === undefined ? {} : { boundaryWaitMs }),
+    },
     ...(harness === undefined ? {} : { drivers: harness.registry }),
   });
 }
@@ -348,6 +474,111 @@ test("a model and level are ordered before other clients' sends and switches", a
     expect(driver.state.reasoning).toBe("low");
   } finally {
     release.resolve();
+    await chat.closeAll();
+  }
+});
+
+test("a prompt sent as the turn settles starts instead of being refused for the finished attempt", async () => {
+  const harness = boundaryRegistry();
+  const chat = chatService(harness);
+  try {
+    await chat.launch(request("settled-prompt", "claude"));
+    const driver = harness.started[0]!;
+    const session = subject("settled-prompt", "claude");
+    await chat.send(session, "First turn", "prompt");
+
+    // The turn's state says settled before the driver answers with its own boundary, which is a
+    // round trip away; the attempt of the finished turn is still the one the service holds.
+    driver.timeline.setState({ turn: "settled" });
+    await flushPasses();
+
+    const next = chat.send(session, "after the turn", "prompt");
+    driver.confirmBoundary();
+    await expect(next).resolves.toBeTruthy();
+    expect(driver.sent).toEqual(["First turn", "after the turn"]);
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("a queued entry starts before a prompt sent at the same settled boundary", async () => {
+  const harness = boundaryRegistry();
+  const chat = chatService(harness);
+  try {
+    await chat.launch(request("settled-queue", "claude"));
+    const driver = harness.started[0]!;
+    const session = subject("settled-queue", "claude");
+    await chat.send(session, "First turn", "prompt");
+    await chat.send(session, "queued first", "follow-up");
+    driver.timeline.setState({ turn: "settled" });
+    await flushPasses();
+
+    // The order is the claim: the entry that was there first is the next writer, and it starts
+    // before the newer prompt is refused rather than after it.
+    const order: string[] = [];
+    const send = driver.send.bind(driver);
+    driver.send = (text, mode) => {
+      order.push(`send:${text}`);
+      return send(text, mode);
+    };
+    const late = chat.send(session, "too late", "prompt").catch((error: unknown) => {
+      order.push(`refused:${error instanceof ChatUnavailableError ? error.reason : String(error)}`);
+      return null;
+    });
+    driver.confirmBoundary();
+    await late;
+    expect(order).toEqual(["send:queued first", "refused:turn-unconfirmed"]);
+    expect(driver.sent).toEqual(["First turn", "queued first"]);
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("a prompt is still refused while the settled turn's delivery is unconfirmed", async () => {
+  const harness = boundaryRegistry();
+  const chat = chatService(harness);
+  try {
+    await chat.launch(request("settled-undelivered", "claude"));
+    const driver = harness.started[0]!;
+    driver.holdDelivery = true;
+    const session = subject("settled-undelivered", "claude");
+    await chat.send(session, "First turn", "prompt");
+    driver.confirmBoundary();
+    driver.timeline.setState({ turn: "settled" });
+    await flushPasses();
+
+    // Delivery itself is what is missing, so nothing may treat the finished turn as a writer that
+    // is gone; the same prompt is accepted once the receipt arrives.
+    await expect(chat.send(session, "after the turn", "prompt")).rejects.toMatchObject({
+      reason: "turn-unconfirmed",
+    });
+    driver.deliver();
+    await when(() => (driver.state.queue?.length ?? 0) === 0, "the released attempt");
+    await expect(chat.send(session, "after the turn", "prompt")).resolves.toBeTruthy();
+    expect(driver.sent).toEqual(["First turn", "after the turn"]);
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("a boundary that never answers bounds the wait and then refuses the prompt", async () => {
+  const harness = boundaryRegistry();
+  const chat = chatService(harness, undefined, 25);
+  try {
+    await chat.launch(request("settled-stuck", "claude"));
+    const driver = harness.started[0]!;
+    const session = subject("settled-stuck", "claude");
+    await chat.send(session, "First turn", "prompt");
+    driver.timeline.setState({ turn: "settled" });
+    await flushPasses();
+
+    // The prompt does not hang on the agent's silence; the finished turn's attempt stays and the
+    // refusal is the one a client already knows how to show.
+    await expect(chat.send(session, "after the turn", "prompt")).rejects.toMatchObject({
+      reason: "turn-unconfirmed",
+    });
+    expect(driver.sent).toEqual(["First turn"]);
+  } finally {
     await chat.closeAll();
   }
 });
