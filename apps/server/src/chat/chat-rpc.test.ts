@@ -588,6 +588,45 @@ test("settling the task leaves its chat child running; a prompt makes the task a
   expect(await agents.launches()).toEqual([launch]);
 });
 
+test("a prompt is refused while the first turn is unconfirmed and accepted after it settles", async () => {
+  const { api, session } = await chatTask("First turn");
+  const chat = follow(api, session.id);
+  try {
+    await chat.until(
+      (view) => view.itemOfKind("user-request") !== undefined,
+      "the first turn's dialog",
+    );
+    // The initial attempt is still the one the turn belongs to: a second prompt would be a second
+    // writer, so the boundary refuses it instead of queueing it as a prompt.
+    await expect(
+      api.chat.send({ sessionId: session.id, text: "during the turn", mode: "prompt" }),
+    ).rejects.toMatchObject({ code: "CHAT_UNAVAILABLE", data: { reason: "turn-unconfirmed" } });
+
+    await api.chat.respond({
+      sessionId: session.id,
+      requestId: chat.itemOfKind("user-request")!.id,
+      value: true,
+    });
+    await chat.until((view) => view.state.turn === "settled", "the settled first turn");
+
+    // The settled boundary released both the initial attempt and `initialPending`; the next
+    // prompt is a new turn on the same frontend, not a refusal.
+    await api.chat.send({ sessionId: session.id, text: "after the turn", mode: "prompt" });
+    await chat.until(
+      (view) => view.items.filter((item) => item.kind === "user-message").length === 2,
+      "the prompt after the settled turn",
+    );
+    expect(chat.items.findLast((item) => item.kind === "user-message")).toMatchObject({
+      text: "after the turn",
+    });
+  } finally {
+    await chat.close();
+  }
+  expect(
+    (await piCommands(session.agentSessionId!)).filter((entry) => entry.type === "prompt"),
+  ).toMatchObject([{ text: "First turn" }, { text: "after the turn" }]);
+});
+
 test("a message pi refuses is an error item, and the frontend keeps running", async () => {
   vi.stubEnv("FAKE_PI_RPC", "reject");
   const { api, session } = await chatTask();
