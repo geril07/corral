@@ -29,6 +29,16 @@ export interface OpenCodeDriverRequest extends ChatDriverLaunch, ChatTimeouts {}
 const RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_MS = 250;
 const REQUEST_TIMEOUT_MS = 10_000;
+/** The page size asked of `GET /api/session/:id/message`; the server may return fewer. */
+const HISTORY_PAGE_LIMIT = 200;
+/**
+ * The most pages one hydration walks. A cursor that repeats or a server that keeps inventing a
+ * `cursor.next` must end the walk instead of holding the frontend on the hydrate path, so the
+ * transcript is what was read so far and the timeline says it starts partway.
+ */
+const HISTORY_MAX_PAGES = 100;
+/** The most messages one hydration keeps, for a server that returns enormous pages. */
+const HISTORY_MAX_MESSAGES = 20_000;
 
 /**
  * One OpenCode chat session: an HTTP/SSE client of the `opencode serve` Corral started for this
@@ -310,6 +320,65 @@ export class OpenCodeDriver implements ChatDriver {
     }
   }
 
+  /**
+   * The whole transcript in chronological order, read newest-first page by page. Pages start at
+   * `order=desc` and then follow only `cursor.next`, as the endpoint's contract requires (a cursor
+   * may not be combined with `order`). Paging backwards matters when a page cap is reached: the
+   * transcript then keeps the newest messages, including the current turn and every answer's model,
+   * and says that earlier ones are missing instead of presenting the oldest page as the whole
+   * conversation. A server that ignores `limit` answers with everything and a null cursor, which
+   * ends the walk after one page.
+   */
+  async #history(session: string): Promise<{ messages: unknown[]; truncated: boolean }> {
+    const messages: unknown[] = [];
+    const seen = new Set<string>();
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    let truncated = false;
+    let complete = false;
+    for (let page = 0; page < HISTORY_MAX_PAGES; page += 1) {
+      const query = new URLSearchParams({ limit: String(HISTORY_PAGE_LIMIT) });
+      if (cursor === undefined) query.set("order", "desc");
+      else query.set("cursor", cursor);
+      // oxlint-disable-next-line no-await-in-loop -- each page starts where the previous one ended
+      const body = await this.#json(
+        "GET",
+        `/api/session/${encodeURIComponent(session)}/message?${query.toString()}`,
+      );
+      let added = 0;
+      for (const message of arrayField(body, "data") ?? []) {
+        const id = stringField(message, "id");
+        if (id !== undefined) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+        }
+        if (messages.length >= HISTORY_MAX_MESSAGES) {
+          truncated = true;
+          break;
+        }
+        messages.push(message);
+        added += 1;
+      }
+      if (truncated) break;
+      const next = stringField(recordField(body, "cursor"), "next");
+      if (next === undefined) {
+        complete = true;
+        break;
+      }
+      // No new message or a cursor already followed means the server is not advancing; walking it
+      // again would repeat the same page until the page cap, and the cap is what reports the limit.
+      if (added === 0 || cursors.has(next)) {
+        truncated = true;
+        break;
+      }
+      cursors.add(next);
+      cursor = next;
+    }
+    if (!complete && !truncated) truncated = true;
+    messages.reverse();
+    return { messages, truncated };
+  }
+
   /** Rebuilds transcript, session state and pending permissions from the server. */
   async #hydrate(): Promise<string | undefined> {
     const session = this.#session();
@@ -320,16 +389,17 @@ export class OpenCodeDriver implements ChatDriver {
         model: recordField(data, "model"),
         time: recordField(data, "time"),
       });
-      const [messages, windows] = await Promise.all([
-        this.#json(
-          "GET",
-          `/api/session/${encodeURIComponent(session)}/message?limit=200&order=asc`,
-        ),
-        this.#modelWindows(),
-      ]);
-      const list = arrayField(messages, "data") ?? [];
+      const [history, windows] = await Promise.all([this.#history(session), this.#modelWindows()]);
+      const list = history.messages;
       this.#projection.setModelWindows(windows);
       this.#projection.loadHistory(list);
+      if (history.truncated) {
+        this.timeline.put({
+          kind: "notice",
+          id: "notice:opencode-history",
+          text: "Earlier messages were not loaded: opencode did not finish returning the conversation history.",
+        });
+      }
       const permissions = await this.#json(
         "GET",
         `/api/session/${encodeURIComponent(session)}/permission`,

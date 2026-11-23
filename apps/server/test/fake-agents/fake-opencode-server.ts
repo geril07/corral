@@ -1,6 +1,8 @@
 // The fake `opencode serve` of the server tests: the v2 API subset the chat driver speaks, with a
 // journal of what it was asked to do. It runs as a real child process on a free loopback port and
-// prints the two lines the real 2.2.5 prints, so the driver's start-up path is the real one.
+// prints the two lines the real 2.2.5 prints, so the driver's start-up path is the real one. The
+// message endpoint pages like 2.3.2 by default; a `message-mode` file in the state directory
+// switches it to the shapes a hydration has to survive (see `messageMode` below).
 //
 // The provider side is scripted by the prompt's text, so a test can ask for a streamed answer with
 // a tool call (`stream`), a turn that keeps running until it is interrupted (`hold`), or a turn
@@ -35,6 +37,25 @@ interface ToolPart {
 interface AssistantMessage extends SessionMessage {
   type: "assistant";
   content: unknown[];
+}
+
+/** The fake cursor is opaque to the driver, but carries enough to resume the same order. */
+function encodeMessageCursor(order: "asc" | "desc", offset: number): string {
+  return Buffer.from(JSON.stringify({ order, offset })).toString("base64url");
+}
+
+function decodeMessageCursor(value: string): { order: "asc" | "desc"; offset: number } | undefined {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!isRecord(parsed)) return undefined;
+    const rawOrder = parsed["order"];
+    const offset = parsed["offset"];
+    if (rawOrder !== "asc" && rawOrder !== "desc") return undefined;
+    if (typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) return undefined;
+    return { order: rawOrder, offset };
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -124,6 +145,19 @@ export function runFakeOpenCodeServer(options: {
   const sessionOf = (url: URL): StoredSession | undefined => {
     const match = /^\/api\/session\/([^/]+)/.exec(url.pathname);
     return match?.[1] === undefined ? undefined : load(decodeURIComponent(match[1]));
+  };
+
+  /**
+   * The message endpoint's paging shape, chosen by a file in the state directory so one test does
+   * not inherit another's server behaviour: `paged` (the 2.3.2 contract), `ignore-limit` (a 2.2.5
+   * fake that always answers with everything), `repeat-cursor`, `no-next` and `endless`.
+   */
+  const messageMode = (): string => {
+    try {
+      return readFileSync(join(options.stateDir ?? "", "message-mode"), "utf8").trim();
+    } catch {
+      return "";
+    }
   };
 
   /** The assistant message of the turn a scripted prompt starts; the history keeps it. */
@@ -401,7 +435,70 @@ export function runFakeOpenCodeServer(options: {
         return;
       }
       if (request.method === "GET" && rest === "/message") {
-        json(response, 200, { data: session.messages, cursor: { previous: null, next: null } });
+        const mode = messageMode();
+        const requestedLimit = Number(url.searchParams.get("limit") ?? "50");
+        const limit =
+          Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : 50;
+        const order = url.searchParams.get("order") === "asc" ? "asc" : "desc";
+        const cursorParam = url.searchParams.get("cursor");
+        const decoded = cursorParam === null ? undefined : decodeMessageCursor(cursorParam);
+        journal({
+          action: "message-list",
+          sessionID: session.id,
+          mode: mode === "" ? "paged" : mode,
+          limit,
+          order: url.searchParams.get("order"),
+          cursor: cursorParam,
+        });
+        if (cursorParam !== null && decoded === undefined) {
+          json(response, 400, { _tag: "InvalidCursorError", message: "Invalid cursor" });
+          return;
+        }
+        const pageOrder = decoded?.order ?? order;
+        const offset = decoded?.offset ?? 0;
+        const ordered = pageOrder === "asc" ? session.messages : [...session.messages].toReversed();
+        if (mode === "ignore-limit") {
+          // A 2.2.5-era server that ignores limit and cursor: one answer with everything in it.
+          json(response, 200, { data: ordered, cursor: { previous: null, next: null } });
+          return;
+        }
+        if (mode === "endless") {
+          // One fresh message per page with a new cursor: only the driver's page cap ends this.
+          json(response, 200, {
+            data: [
+              {
+                id: `msg_endless${offset}`,
+                type: "assistant",
+                agent: "build",
+                model: { id: "stub-model", providerID: "stub" },
+                time: { created: offset },
+                content: [{ type: "text", text: `endless ${offset}` }],
+              },
+            ],
+            cursor: {
+              previous: null,
+              next: encodeMessageCursor(pageOrder, offset + 1),
+            },
+          });
+          return;
+        }
+        const page = ordered.slice(offset, offset + limit);
+        const next =
+          mode === "no-next"
+            ? null
+            : mode === "repeat-cursor"
+              ? encodeMessageCursor(pageOrder, 0)
+              : offset + limit < ordered.length
+                ? encodeMessageCursor(pageOrder, offset + limit)
+                : null;
+        json(response, 200, {
+          data: page,
+          cursor: {
+            previous:
+              offset > 0 ? encodeMessageCursor(pageOrder, Math.max(0, offset - limit)) : null,
+            next,
+          },
+        });
         return;
       }
       if (request.method === "GET" && rest === "/permission") {

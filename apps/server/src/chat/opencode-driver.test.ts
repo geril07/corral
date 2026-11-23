@@ -1,3 +1,4 @@
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -121,6 +122,70 @@ function textOf(timeline: ChatTimeline): string {
     .snapshot()
     .items.flatMap((item) => (item.kind === "assistant-message" ? [item.text] : []))
     .join("");
+}
+
+function usersOf(timeline: ChatTimeline) {
+  return items(timeline).flatMap((item) => (item.kind === "user-message" ? [item] : []));
+}
+
+function answersOf(timeline: ChatTimeline) {
+  return items(timeline).flatMap((item) => (item.kind === "assistant-message" ? [item] : []));
+}
+
+function noticeOf(timeline: ChatTimeline) {
+  return items(timeline).find((item) => item.kind === "notice");
+}
+
+/** Writes one of the fake's persisted sessions into its data directory before the server starts. */
+function seedHistory(sessionId: string, turns: number): void {
+  const messages: Record<string, unknown>[] = [];
+  for (let turn = 1; turn <= turns; turn += 1) {
+    const model =
+      turn % 2 === 0
+        ? { id: "other-model", providerID: "other" }
+        : { id: "stub-model", providerID: "stub" };
+    messages.push({
+      id: `msg_seeduser${turn}`,
+      type: "user",
+      text: `question ${turn}`,
+      time: { created: turn * 10 },
+    });
+    messages.push({
+      id: `msg_seedassistant${turn}`,
+      type: "assistant",
+      agent: "build",
+      model,
+      time: { created: turn * 10 + 1 },
+      content: [{ type: "text", text: `answer ${turn}` }],
+    });
+    messages.push({ id: `msg_seedidle${turn}`, type: "idle", outcome: "succeeded" });
+  }
+  writeFakeState(
+    `${sessionId}.json`,
+    JSON.stringify({
+      id: sessionId,
+      title: "seeded history",
+      directory: "/tmp",
+      messages,
+      permissions: [],
+      busy: false,
+      outcome: "succeeded",
+    }),
+  );
+}
+
+/** The fake's paging behaviour for the next `/message` requests (see `messageMode` in it). */
+function setMessageMode(mode: string): void {
+  writeFakeState("message-mode", mode);
+}
+
+function writeFakeState(name: string, content: string): void {
+  mkdirSync(agents.openCodeState, { recursive: true });
+  writeFileSync(join(agents.openCodeState, name), content);
+}
+
+async function messagePages(): Promise<Record<string, unknown>[]> {
+  return (await journal()).filter((entry) => entry["action"] === "message-list");
 }
 
 test("a turn streams text and a tool call into the timeline, with the diff the tool carried", async () => {
@@ -471,6 +536,184 @@ test("a prompt the other frontend types appears as its user message, with the id
         .map((item) => [item.id, item.text]),
     ).toEqual([[`user:${messageId}`, "from the terminal"]]);
     await second.stop();
+  } finally {
+    await test1.stop();
+  }
+});
+
+test(
+  "a long history is read page by page, in order, with every answer's model",
+  { timeout: 20_000 },
+  async () => {
+    const sessionId = "ses_history000000000000000000";
+    seedHistory(sessionId, 150);
+    const test1 = await harness({ sessionId });
+    try {
+      await until(
+        () => answersOf(test1.timeline).length === 150 && test1.timeline.state.turn === "settled",
+        "the whole seeded history",
+      );
+      expect(usersOf(test1.timeline).map((item) => item.text)).toEqual(
+        Array.from({ length: 150 }, (_, index) => `question ${index + 1}`),
+      );
+      const answers = answersOf(test1.timeline);
+      expect(answers.map((item) => item.text)).toEqual(
+        Array.from({ length: 150 }, (_, index) => `answer ${index + 1}`),
+      );
+      // The model is the one each answer names in the transcript, not the session's latest one.
+      expect(answers[0]).toMatchObject({
+        text: "answer 1",
+        model: { provider: "stub", id: "stub-model" },
+      });
+      expect(answers[1]).toMatchObject({
+        text: "answer 2",
+        model: { provider: "other", id: "other-model" },
+      });
+      expect(answers.at(-1)).toMatchObject({
+        text: "answer 150",
+        model: { provider: "other", id: "other-model" },
+      });
+      expect(test1.timeline.state.model).toEqual({
+        provider: "other",
+        id: "other-model",
+        name: "other-model",
+      });
+      const ids = items(test1.timeline).map((item) => item.id);
+      expect(new Set(ids).size).toBe(ids.length);
+
+      const pages = await messagePages();
+      expect(pages.length).toBeGreaterThan(1);
+      expect(pages[0]).toMatchObject({
+        mode: "paged",
+        limit: 200,
+        order: "desc",
+        cursor: null,
+      });
+      expect(pages[1]?.["cursor"]).toEqual(expect.any(String));
+      // Only the first page names an order; a cursor already carries it.
+      expect(pages[1]?.["order"]).toBeNull();
+      expect(noticeOf(test1.timeline)).toBeUndefined();
+    } finally {
+      await test1.stop();
+    }
+  },
+);
+
+test(
+  "a cursor that repeats ends the walk and shows that earlier messages are missing",
+  { timeout: 20_000 },
+  async () => {
+    const sessionId = "ses_repeat0000000000000000000";
+    seedHistory(sessionId, 150);
+    setMessageMode("repeat-cursor");
+    const test1 = await harness({ sessionId });
+    try {
+      await until(() => noticeOf(test1.timeline) !== undefined, "the truncation notice");
+      expect(noticeOf(test1.timeline)?.text).toContain("Earlier messages were not loaded");
+      // What was read is the newest page: the current turn survives, older turns do not.
+      expect(usersOf(test1.timeline).at(-1)?.text).toBe("question 150");
+      expect(answersOf(test1.timeline).at(-1)?.text).toBe("answer 150");
+      expect(answersOf(test1.timeline).length).toBeLessThan(150);
+      expect(await messagePages()).toHaveLength(2);
+      expect(test1.timeline.state.turn).toBe("settled");
+    } finally {
+      await test1.stop();
+    }
+  },
+);
+
+test(
+  "the page cap stops an endless cursor and marks the transcript as partial",
+  { timeout: 20_000 },
+  async () => {
+    const sessionId = "ses_endless000000000000000000";
+    seedHistory(sessionId, 0);
+    setMessageMode("endless");
+    const test1 = await harness({ sessionId });
+    try {
+      await until(() => noticeOf(test1.timeline) !== undefined, "the cap notice");
+      expect(noticeOf(test1.timeline)?.text).toContain("Earlier messages were not loaded");
+      expect(answersOf(test1.timeline)).toHaveLength(100);
+      expect(await messagePages()).toHaveLength(100);
+    } finally {
+      await test1.stop();
+    }
+  },
+);
+
+test("a short history with no next cursor is loaded as it is", async () => {
+  const sessionId = "ses_short00000000000000000000";
+  seedHistory(sessionId, 2);
+  setMessageMode("no-next");
+  const test1 = await harness({ sessionId });
+  try {
+    await until(
+      () => answersOf(test1.timeline).length === 2 && test1.timeline.state.turn === "settled",
+      "the short history",
+    );
+    expect(usersOf(test1.timeline).map((item) => item.text)).toEqual(["question 1", "question 2"]);
+    expect(answersOf(test1.timeline).map((item) => item.text)).toEqual(["answer 1", "answer 2"]);
+    expect(answersOf(test1.timeline)[1]).toMatchObject({
+      model: { provider: "other", id: "other-model" },
+    });
+    expect(noticeOf(test1.timeline)).toBeUndefined();
+    expect(await messagePages()).toHaveLength(1);
+  } finally {
+    await test1.stop();
+  }
+});
+
+test(
+  "a server that ignores limit still returns the whole history in one answer",
+  { timeout: 20_000 },
+  async () => {
+    const sessionId = "ses_ignore0000000000000000000";
+    seedHistory(sessionId, 150);
+    setMessageMode("ignore-limit");
+    const test1 = await harness({ sessionId });
+    try {
+      await until(
+        () => answersOf(test1.timeline).length === 150 && test1.timeline.state.turn === "settled",
+        "the whole history",
+      );
+      expect(usersOf(test1.timeline)).toHaveLength(150);
+      expect(usersOf(test1.timeline).at(-1)?.text).toBe("question 150");
+      expect(answersOf(test1.timeline).at(-1)?.text).toBe("answer 150");
+      expect(answersOf(test1.timeline)[1]).toMatchObject({
+        model: { provider: "other", id: "other-model" },
+      });
+      expect(noticeOf(test1.timeline)).toBeUndefined();
+      expect(await messagePages()).toHaveLength(1);
+    } finally {
+      await test1.stop();
+    }
+  },
+);
+
+test("live deltas after a rebuilt history append once, after the hydrated answers", async () => {
+  const sessionId = "ses_live00000000000000000000";
+  seedHistory(sessionId, 2);
+  const test1 = await harness({ sessionId });
+  try {
+    await until(
+      () => answersOf(test1.timeline).length === 2 && test1.timeline.state.turn === "settled",
+      "the hydrated history",
+    );
+    test1.driver.send("split", "prompt");
+    await until(
+      () =>
+        answersOf(test1.timeline).at(-1)?.text === "coffee" &&
+        test1.timeline.state.turn === "settled",
+      "the live answer",
+    );
+    expect(answersOf(test1.timeline).map((item) => item.text)).toEqual([
+      "answer 1",
+      "answer 2",
+      "coffee",
+    ]);
+    expect(usersOf(test1.timeline).at(-1)?.text).toBe("split");
+    const ids = items(test1.timeline).map((item) => item.id);
+    expect(new Set(ids).size).toBe(ids.length);
   } finally {
     await test1.stop();
   }
