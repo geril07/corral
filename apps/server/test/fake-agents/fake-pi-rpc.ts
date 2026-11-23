@@ -210,12 +210,17 @@ export function startFakePiRpc(argv: readonly string[]): void {
           models: (existsSync(join(home, "catalog-extra"))
             ? [...models, { id: "stub-3", name: "Stub Three", provider: "stub" }]
             : models
-          ).map((model) => ({
-            ...model,
-            reasoning: true,
-            thinkingLevelMap: levelMapOf(levelsOf(model)),
-            ...(context.window > 0 ? { contextWindow: context.window } : {}),
-          })),
+          ).map((model) => {
+            const available: Record<string, unknown> = {
+              id: model.id,
+              name: model.name,
+              provider: model.provider,
+              reasoning: true,
+              thinkingLevelMap: levelMapOf(levelsOf(model)),
+            };
+            if (context.window > 0) available["contextWindow"] = context.window;
+            return available;
+          }),
         });
         return;
       case "get_available_thinking_levels":

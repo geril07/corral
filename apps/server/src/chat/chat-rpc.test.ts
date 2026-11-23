@@ -1078,11 +1078,21 @@ test("an unoffered direct pi launch cannot poison another session's thinking mem
   const api = await server.rpc();
   const scope = { kind: "pi" as const, profileId: null };
   const model = { provider: "stub", id: "stub-2" };
-  await api.models.rememberThinking({ scope, context: { projectId: project.id }, model, level: "high" });
+  await api.models.rememberThinking({
+    scope,
+    context: { projectId: project.id },
+    model,
+    level: "high",
+  });
   const task = await api.tasks.create({
     projectId: project.id,
     prompt: "keep unoffered pi prompt",
-    agent: { kind: "pi", view: "chat", model: "stub/stub-2", thinking: { model, level: "fake-level" } },
+    agent: {
+      kind: "pi",
+      view: "chat",
+      model: "stub/stub-2",
+      thinking: { model, level: "fake-level" },
+    },
     workspace: { type: "main-worktree" },
   });
   const session = (await sessionsOf(api)).find((entry) => entry.id === task.primarySessionId)!;
@@ -1096,7 +1106,9 @@ test("an unoffered direct pi launch cannot poison another session's thinking mem
       "the refused first prompt",
     );
     expect(await api.models.thinking({ scope, model })).toBe("high");
-    expect((await piCommands(session.agentSessionId!)).filter((entry) => entry.type === "prompt")).toEqual([]);
+    expect(
+      (await piCommands(session.agentSessionId!)).filter((entry) => entry.type === "prompt"),
+    ).toEqual([]);
   } finally {
     await chat.close();
   }
@@ -1120,13 +1132,20 @@ test("a direct pi choice cannot overwrite a newer client's memory while native c
     });
     const session = (await sessionsOf(api)).find((entry) => entry.id === task.primarySessionId)!;
     await expect.poll(() => existsSync(join(agents.piRpcHome, "thinking-waiting"))).toBe(true);
-    await other.models.rememberThinking({ scope, context: { projectId: project.id }, model, level: "max" });
+    await other.models.rememberThinking({
+      scope,
+      context: { projectId: project.id },
+      model,
+      level: "max",
+    });
     await rm(join(agents.piRpcHome, "hold-thinking"));
     const chat = follow(api, session.id);
     try {
       await chat.until((view) => view.state.turn === "settled", "the captured pi turn");
       await expect
-        .poll(async () => (await piCommands(session.agentSessionId!)).find((entry) => entry.type === "prompt"))
+        .poll(async () =>
+          (await piCommands(session.agentSessionId!)).find((entry) => entry.type === "prompt"),
+        )
         .toMatchObject({ text: "captured pi high", level: "high" });
       expect(await other.models.thinking({ scope, model })).toBe("max");
     } finally {
@@ -1145,7 +1164,9 @@ test("a direct pi choice can be confirmed by its live driver when metadata disco
   const model = { provider: "stub", id: "stub-2" };
   await mkdir(agents.piRpcHome, { recursive: true });
   await writeFile(join(agents.piRpcHome, "catalog-only-error"), "");
-  expect((await api.models.catalog({ scope, context: { projectId: project.id } })).status).toBe("error");
+  expect((await api.models.catalog({ scope, context: { projectId: project.id } })).status).toBe(
+    "error",
+  );
   const task = await api.tasks.create({
     projectId: project.id,
     prompt: "live pi confirmation",

@@ -247,7 +247,8 @@ export class ChatService {
 
   #confirmInitialMemory(control: TurnControl, selection: ChatModelSelection): void {
     const pending = this.#pendingInitialMemory.get(control.sessionId);
-    if (pending === undefined || selectionKey(pending.selection) !== selectionKey(selection)) return;
+    if (pending === undefined || selectionKey(pending.selection) !== selectionKey(selection))
+      return;
     this.#pendingInitialMemory.delete(control.sessionId);
     if (
       selection.level !== null &&

@@ -275,12 +275,23 @@ test("a queued Codex model-only choice uses its own default after a later explic
     workspace: { type: "new-branch" },
   });
   const session = (await sessionsOf(api)).find((entry) => entry.id === task.primarySessionId)!;
-  await untilChat(api, session.id, (view) => view.state.turn === "working", "the explicit first turn");
+  await untilChat(
+    api,
+    session.id,
+    (view) => view.state.turn === "working",
+    "the explicit first turn",
+  );
   await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-two" } });
   await api.chat.send({ sessionId: session.id, text: "queued model default B", mode: "follow-up" });
-  await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-three" }, level: "off" });
+  await api.chat.setModel({
+    sessionId: session.id,
+    model: { provider: "stub", id: "stub-three" },
+    level: "off",
+  });
   await expect
-    .poll(async () => (await threadRecord(server.dataDir, session.id))?.["turns"], { timeout: 10_000 })
+    .poll(async () => (await threadRecord(server.dataDir, session.id))?.["turns"], {
+      timeout: 10_000,
+    })
     .toMatchObject([
       { requestedModel: "stub-model", requestedEffort: "high" },
       { requestedModel: "stub-two", requestedEffort: "low" },
@@ -358,7 +369,12 @@ test("a Codex model-only switch uses its model default for consecutive turns", a
   await expect
     .poll(async () => (await threadRecord(server.dataDir, session.id))?.["turns"])
     .toMatchObject([{}, { requestedModel: "stub-two", requestedEffort: "low" }]);
-  await untilChat(api, session.id, (view) => view.state.turn === "settled" && view.state.queue?.length === 0, "the settled selected turn");
+  await untilChat(
+    api,
+    session.id,
+    (view) => view.state.turn === "settled" && view.state.queue?.length === 0,
+    "the settled selected turn",
+  );
   await api.chat.send({ sessionId: session.id, text: "another default turn", mode: "prompt" });
   await expect
     .poll(async () => (await threadRecord(server.dataDir, session.id))?.["turns"])
@@ -374,17 +390,21 @@ test("a configured Codex effort takes precedence over the model's different defa
   await expect
     .poll(async () => (await threadRecord(server.dataDir, session.id))?.["turns"])
     .toMatchObject([{}, { requestedModel: "stub-two", requestedEffort: "high" }]);
-  expect(await api.models.thinking({
-    scope: { kind: "codex", profileId: null },
-    model: { provider: "stub", id: "stub-two" },
-  })).toBeNull();
+  expect(
+    await api.models.thinking({
+      scope: { kind: "codex", profileId: null },
+      model: { provider: "stub", id: "stub-two" },
+    }),
+  ).toBeNull();
 });
 
 test("separate Codex profiles apply their own configured default without sharing memory", async () => {
   vi.stubEnv("CODEX_EFFORT_A", "low");
   vi.stubEnv("CODEX_EFFORT_B", "high");
   await mkdir(server.configDir, { recursive: true });
-  await writeFile(join(server.configDir, "config.toml"), `
+  await writeFile(
+    join(server.configDir, "config.toml"),
+    `
 [profiles.one]
 name = "One"
 agent = "codex"
@@ -393,26 +413,49 @@ env = [{ targetName = "FAKE_CODEX_CONFIG_EFFORT", fromEnv = "CODEX_EFFORT_A" }]
 name = "Two"
 agent = "codex"
 env = [{ targetName = "FAKE_CODEX_CONFIG_EFFORT", fromEnv = "CODEX_EFFORT_B" }]
-`);
+`,
+  );
   const { api, task } = await codexTaskWithOptions();
-  await within((async () => {
-    for await (const state of await api.config.watch()) if (state.profiles.length === 2) return;
-    throw new Error("config watch ended");
-  })(), "Codex profiles");
-  for (const [profileId, effort] of [["one", "low"], ["two", "high"]] as const) {
+  await within(
+    (async () => {
+      for await (const state of await api.config.watch()) if (state.profiles.length === 2) return;
+      throw new Error("config watch ended");
+    })(),
+    "Codex profiles",
+  );
+  for (const [profileId, effort] of [
+    ["one", "low"],
+    ["two", "high"],
+  ] as const) {
     // oxlint-disable-next-line no-await-in-loop -- sessions and their independent snapshots are asserted in order
-    const session = await api.sessions.start({ taskId: task.id, kind: "codex", view: "chat", profileId, size: SIZE });
+    const session = await api.sessions.start({
+      taskId: task.id,
+      kind: "codex",
+      view: "chat",
+      profileId,
+      size: SIZE,
+    });
     // oxlint-disable-next-line no-await-in-loop -- the selected session must be ready before its turn
-    await untilChat(api, session.id, (view) => view.state.models.some((model) => model.id === "stub-two"), "the profile model list");
+    await untilChat(
+      api,
+      session.id,
+      (view) => view.state.models.some((model) => model.id === "stub-two"),
+      "the profile model list",
+    );
     // oxlint-disable-next-line no-await-in-loop -- each profile selects independently
     await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-two" } });
     // oxlint-disable-next-line no-await-in-loop -- dispatch this profile before starting the next
     await api.chat.send({ sessionId: session.id, text: `profile ${profileId}`, mode: "prompt" });
     // oxlint-disable-next-line no-await-in-loop -- the fake agent journals after accepting the turn
-    await expect.poll(async () => (await threadRecord(server.dataDir, session.id))?.["turns"])
+    await expect
+      .poll(async () => (await threadRecord(server.dataDir, session.id))?.["turns"])
       .toMatchObject([{ requestedModel: "stub-two", requestedEffort: effort }]);
     // oxlint-disable-next-line no-await-in-loop -- defaults must not become explicit memory
-    expect(await api.models.thinking({ scope: { kind: "codex", profileId }, model: { provider: "stub", id: "stub-two" } })).toBeNull();
+    const remembered = await api.models.thinking({
+      scope: { kind: "codex", profileId },
+      model: { provider: "stub", id: "stub-two" },
+    });
+    expect(remembered).toBeNull();
   }
 });
 
@@ -421,8 +464,9 @@ test("an unoffered configured Codex default is not silently replaced by the mode
   const { api, session } = await codexTask("chat", "configured incompatible first");
   await untilChat(api, session.id, (view) => view.state.turn === "settled", "the first turn");
   await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-three" } });
-  await expect(api.chat.send({ sessionId: session.id, text: "keep configured draft", mode: "prompt" }))
-    .rejects.toMatchObject({ code: "CHAT_UNAVAILABLE" });
+  await expect(
+    api.chat.send({ sessionId: session.id, text: "keep configured draft", mode: "prompt" }),
+  ).rejects.toMatchObject({ code: "CHAT_UNAVAILABLE" });
   expect((await threadRecord(server.dataDir, session.id))?.["turns"]).toHaveLength(1);
 });
 
@@ -435,18 +479,34 @@ test("a Codex model with no reasoning levels works with an unset native effort",
     .poll(async () => (await threadRecord(server.dataDir, session.id))?.["turns"])
     .toMatchObject([{}, { requestedModel: "stub-plain" }]);
   const turns = (await threadRecord(server.dataDir, session.id))?.["turns"];
-  expect(turns).toEqual([expect.anything(), expect.not.objectContaining({ requestedEffort: expect.anything() })]);
+  expect(turns).toEqual([
+    expect.anything(),
+    expect.not.objectContaining({ requestedEffort: expect.anything() }),
+  ]);
 });
 
 test("a Codex model without levels refuses an inherited explicit effort it cannot reset", async () => {
   const { api, session } = await codexTask("chat", "first before explicit effort");
   await untilChat(api, session.id, (view) => view.state.turn === "settled", "the first turn");
-  await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-two" }, level: "high" });
+  await api.chat.setModel({
+    sessionId: session.id,
+    model: { provider: "stub", id: "stub-two" },
+    level: "high",
+  });
   await api.chat.send({ sessionId: session.id, text: "explicit high", mode: "prompt" });
-  await untilChat(api, session.id, (view) => view.items.some((item) => item.kind === "user-message" && item.text === "explicit high") && view.state.turn === "settled" && view.state.queue?.length === 0, "the explicit turn");
+  await untilChat(
+    api,
+    session.id,
+    (view) =>
+      view.items.some((item) => item.kind === "user-message" && item.text === "explicit high") &&
+      view.state.turn === "settled" &&
+      view.state.queue?.length === 0,
+    "the explicit turn",
+  );
   await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-plain" } });
-  await expect(api.chat.send({ sessionId: session.id, text: "keep plain draft", mode: "prompt" }))
-    .rejects.toMatchObject({ code: "CHAT_UNAVAILABLE" });
+  await expect(
+    api.chat.send({ sessionId: session.id, text: "keep plain draft", mode: "prompt" }),
+  ).rejects.toMatchObject({ code: "CHAT_UNAVAILABLE" });
 });
 
 test("an unoffered Codex launch effort cannot overwrite an existing preference", async () => {
@@ -606,19 +666,36 @@ test("a Codex model-only choice resumes with its native default and does not rep
   await untilChat(api, session.id, (view) => view.state.turn === "settled", "the first turn");
   await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-two" } });
   await api.chat.send({ sessionId: session.id, text: "default before restart", mode: "prompt" });
-  await expect.poll(async () => (await threadRecord(server.dataDir, session.id))?.["turns"])
+  await expect
+    .poll(async () => (await threadRecord(server.dataDir, session.id))?.["turns"])
     .toMatchObject([{}, { requestedModel: "stub-two", requestedEffort: "low" }]);
-  await untilChat(api, session.id, (view) => view.state.turn === "settled" && view.state.queue?.length === 0, "the settled default turn");
+  await untilChat(
+    api,
+    session.id,
+    (view) => view.state.turn === "settled" && view.state.queue?.length === 0,
+    "the settled default turn",
+  );
   await server.restart();
   const resumed = await server.rpc();
-  await vi.waitFor(async () => {
-    const view = await timelineOf(resumed, session.id);
-    expect(view.state.selection).toEqual({ model: { provider: "stub", id: "stub-two" }, level: null });
-    expect(view.state.models.some((model) => model.id === "stub-two")).toBe(true);
-  }, { timeout: 10_000 });
+  await vi.waitFor(
+    async () => {
+      const view = await timelineOf(resumed, session.id);
+      expect(view.state.selection).toEqual({
+        model: { provider: "stub", id: "stub-two" },
+        level: null,
+      });
+      expect(view.state.models.some((model) => model.id === "stub-two")).toBe(true);
+    },
+    { timeout: 10_000 },
+  );
   await resumed.chat.send({ sessionId: session.id, text: "default after restart", mode: "prompt" });
-  await expect.poll(async () => (await threadRecord(server.dataDir, session.id))?.["turns"])
-    .toMatchObject([{}, { requestedModel: "stub-two", requestedEffort: "low" }, { requestedModel: "stub-two", requestedEffort: "low" }]);
+  await expect
+    .poll(async () => (await threadRecord(server.dataDir, session.id))?.["turns"])
+    .toMatchObject([
+      {},
+      { requestedModel: "stub-two", requestedEffort: "low" },
+      { requestedModel: "stub-two", requestedEffort: "low" },
+    ]);
 });
 
 test("Codex configured launch works without discovery while an explicit selection is refused with its prompt retained", async () => {
