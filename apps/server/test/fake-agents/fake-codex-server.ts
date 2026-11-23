@@ -252,11 +252,13 @@ export async function startFakeCodexServer(
           fail("fake config failure");
           return;
         }
+        // The knob is `FAKE_CODEX_EFFORT`, not `..._CONFIG_EFFORT`: a profile's `env` may not set
+        // a name containing `CONFIG` (launch-env.ts), and per-profile defaults are set that way.
         respond({
           config:
             process.env["FAKE_CODEX_UNKNOWN_EFFORT"] === "1"
               ? {}
-              : { model_reasoning_effort: process.env["FAKE_CODEX_CONFIG_EFFORT"] ?? null },
+              : { model_reasoning_effort: process.env["FAKE_CODEX_EFFORT"] ?? null },
         });
         return;
       case "thread/start": {
@@ -266,7 +268,7 @@ export async function startFakeCodexServer(
           stringOf(params["model"]),
           stringOf(params["modelProvider"]),
         );
-        thread.reasoningEffort = process.env["FAKE_CODEX_CONFIG_EFFORT"] ?? null;
+        thread.reasoningEffort = process.env["FAKE_CODEX_EFFORT"] ?? null;
         threads.set(thread.id, thread);
         saved(thread);
         subscribed.add(thread.id);

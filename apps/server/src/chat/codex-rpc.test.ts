@@ -382,7 +382,7 @@ test("a Codex model-only switch uses its model default for consecutive turns", a
 });
 
 test("a configured Codex effort takes precedence over the model's different default", async () => {
-  vi.stubEnv("FAKE_CODEX_CONFIG_EFFORT", "high");
+  vi.stubEnv("FAKE_CODEX_EFFORT", "high");
   const { api, session } = await codexTask("chat", "configured first turn");
   await untilChat(api, session.id, (view) => view.state.turn === "settled", "the first turn");
   await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-two" } });
@@ -408,11 +408,11 @@ test("separate Codex profiles apply their own configured default without sharing
 [profiles.one]
 name = "One"
 agent = "codex"
-env = [{ targetName = "FAKE_CODEX_CONFIG_EFFORT", fromEnv = "CODEX_EFFORT_A" }]
+env = [{ targetName = "FAKE_CODEX_EFFORT", fromEnv = "CODEX_EFFORT_A" }]
 [profiles.two]
 name = "Two"
 agent = "codex"
-env = [{ targetName = "FAKE_CODEX_CONFIG_EFFORT", fromEnv = "CODEX_EFFORT_B" }]
+env = [{ targetName = "FAKE_CODEX_EFFORT", fromEnv = "CODEX_EFFORT_B" }]
 `,
   );
   const { api, task } = await codexTaskWithOptions();
@@ -460,7 +460,7 @@ env = [{ targetName = "FAKE_CODEX_CONFIG_EFFORT", fromEnv = "CODEX_EFFORT_B" }]
 });
 
 test("an unoffered configured Codex default is not silently replaced by the model default", async () => {
-  vi.stubEnv("FAKE_CODEX_CONFIG_EFFORT", "high");
+  vi.stubEnv("FAKE_CODEX_EFFORT", "high");
   const { api, session } = await codexTask("chat", "configured incompatible first");
   await untilChat(api, session.id, (view) => view.state.turn === "settled", "the first turn");
   await api.chat.setModel({ sessionId: session.id, model: { provider: "stub", id: "stub-three" } });
