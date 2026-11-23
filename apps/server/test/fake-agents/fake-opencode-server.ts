@@ -8,7 +8,8 @@
 // a tool call (`stream`), a turn that keeps running until it is interrupted (`hold`), or a turn
 // that asks for permission first (`ask`). No model is called and no network is touched.
 // `POST …/model` updates the session's reported model and is journalled; a `model-switch-mode`
-// file holding `fail` answers it with 400.
+// file holding `fail` answers it with 400. A `session-read-mode` file holding `fail` answers
+// `GET /api/session/:id` with 500, the shape of a server that cannot report the session.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -178,6 +179,15 @@ export function runFakeOpenCodeServer(options: {
   const switchMode = (): string => {
     try {
       return readFileSync(join(options.stateDir ?? "", "model-switch-mode"), "utf8").trim();
+    } catch {
+      return "";
+    }
+  };
+
+  /** `fail` makes `GET /api/session/:id` answer 500, the shape of a session that cannot be read. */
+  const readMode = (): string => {
+    try {
+      return readFileSync(join(options.stateDir ?? "", "session-read-mode"), "utf8").trim();
     } catch {
       return "";
     }
@@ -456,6 +466,12 @@ export function runFakeOpenCodeServer(options: {
       const rest = url.pathname.slice(`/api/session/${encodeURIComponent(session.id)}`.length);
       if (tui) journal({ action: "client", client: "tui", sessionID: session.id, path: rest });
       if (request.method === "GET" && rest === "") {
+        const mode = readMode();
+        journal({ action: "session-read", sessionID: session.id, mode, tui });
+        if (mode === "fail") {
+          json(response, 500, { message: "the session could not be read" });
+          return;
+        }
         json(response, 200, { data: sessionInfo(session) });
         return;
       }
@@ -534,7 +550,7 @@ export function runFakeOpenCodeServer(options: {
         const body = await readBody(request);
         const model = modelOfBody(body["model"]);
         const mode = switchMode();
-        journal({ action: "model-switch", sessionID: session.id, model: model ?? null, mode });
+        journal({ action: "model-switch", sessionID: session.id, model: model ?? null, mode, tui });
         if (model === undefined) {
           json(response, 400, { _tag: "InvalidRequestError", message: "Invalid model reference" });
           return;

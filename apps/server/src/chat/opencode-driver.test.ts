@@ -105,7 +105,46 @@ async function prompts(): Promise<Record<string, unknown>[]> {
 }
 
 async function modelSwitches(): Promise<Record<string, unknown>[]> {
-  return (await journal()).filter((entry) => entry["action"] === "model-switch");
+  // The terminal is another client of the same server; its own switch is journaled with `tui`
+  // and is not the driver's, which is what these tests count.
+  return (await journal()).filter(
+    (entry) => entry["action"] === "model-switch" && entry["tui"] !== true,
+  );
+}
+
+/** A switch the terminal leg makes through the same API, as the TUI would. */
+async function terminalSwitchModel(
+  server: OpenCodeServerAddress,
+  sessionId: string,
+  model: Record<string, unknown>,
+): Promise<void> {
+  const response = await fetch(`${server.url}/api/session/${sessionId}/model`, {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${Buffer.from(`opencode:${server.password}`).toString("base64")}`,
+      "content-type": "application/json",
+      "x-fake-client": "tui",
+    },
+    body: JSON.stringify({ model }),
+  });
+  expect(response.status).toBe(204);
+}
+
+/** The model the session reports through `GET /api/session/:id`, variant included. */
+async function sessionModel(
+  server: OpenCodeServerAddress,
+  sessionId: string,
+): Promise<Record<string, unknown> | undefined> {
+  const response = await fetch(`${server.url}/api/session/${sessionId}`, {
+    headers: {
+      authorization: `Basic ${Buffer.from(`opencode:${server.password}`).toString("base64")}`,
+    },
+  });
+  expect(response.status).toBe(200);
+  const body: unknown = await response.json();
+  const data = isRecord(body) && isRecord(body["data"]) ? body["data"] : body;
+  const model = isRecord(data) ? data["model"] : undefined;
+  return isRecord(model) ? model : undefined;
 }
 
 async function until(
@@ -337,7 +376,7 @@ test("a steer keeps the running turn's model and a selection chosen meanwhile do
   }
 });
 
-test("a new conversation is created on its chosen model before the first prompt", async () => {
+test("a new conversation starts on its chosen model without a redundant switch", async () => {
   const test1 = await harness({
     prompt: "stream please",
     expectedModel: { provider: "other", id: "other-model" },
@@ -353,18 +392,16 @@ test("a new conversation is created on its chosen model before the first prompt"
       model: { id: "other-model", providerID: "other" },
     });
     expect(created).toBeLessThan(prompted);
-    // The creation already carries the model; the prompt's own switch is the same ref, a no-op the
-    // server documents, and it is what proves the turn will not run on another model.
-    expect(await modelSwitches()).toEqual([
-      expect.objectContaining({ model: { id: "other-model", providerID: "other" } }),
-    ]);
+    // The creation already carries the model, and the prompt's own read confirms it, so no switch
+    // is sent for a model the session already has.
+    expect(await modelSwitches()).toEqual([]);
     expect(test1.timeline.state.model).toMatchObject({ provider: "other", id: "other-model" });
   } finally {
     await test1.stop();
   }
 });
 
-test("a resumed conversation keeps the model its session recorded, and confirms it before the next prompt", async () => {
+test("a resumed conversation keeps the model its session recorded without a redundant switch", async () => {
   const root = await mkdtemp(join(tmpdir(), "corral-opencode-"));
   const servers = new OpenCodeServers({ dataDir: root, readyTimeoutMs: 10_000 });
   const command = join(import.meta.dirname, "../..", "test", "fake-agents", "bin", "opencode");
@@ -391,13 +428,166 @@ test("a resumed conversation keeps the model its session recorded, and confirms 
     resumed.send("after resume", "prompt", selection);
     await until(() => resumedTimeline.state.turn === "settled", "the resumed turn");
     expect((await prompts())[0]).toMatchObject({ text: "after resume" });
-    expect(await modelSwitches()).toEqual([
-      expect.objectContaining({ model: { id: "other-model", providerID: "other" } }),
-    ]);
+    expect(await modelSwitches()).toEqual([]);
     await resumed.stop();
   } finally {
     await servers.closeAll();
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a prompt on the model the session already has keeps the terminal's variant", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    const sessionId = "ses_driver0000000000000000000";
+    // The terminal picks a variant of the same model; a switch for an equal id+provider would
+    // replace the ref and drop it.
+    await terminalSwitchModel(test1.server, sessionId, {
+      id: "stub-model",
+      providerID: "stub",
+      variant: "high",
+    });
+    const selection = { model: { provider: "stub", id: "stub-model" }, level: null };
+    await test1.driver.prepareSelection(selection, { forDispatch: true });
+    test1.driver.send("stream please", "prompt", selection);
+    await until(() => test1.timeline.state.turn === "settled", "the turn");
+
+    expect(await prompts()).toHaveLength(1);
+    expect(await modelSwitches()).toEqual([]);
+    expect(await sessionModel(test1.server, sessionId)).toMatchObject({
+      id: "stub-model",
+      providerID: "stub",
+      variant: "high",
+    });
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a model the terminal moved is corrected to the chat's choice before the prompt", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    const sessionId = "ses_driver0000000000000000000";
+    await terminalSwitchModel(test1.server, sessionId, {
+      id: "other-model",
+      providerID: "other",
+      variant: "high",
+    });
+
+    const selection = { model: { provider: "stub", id: "stub-model" }, level: null };
+    await test1.driver.prepareSelection(selection, { forDispatch: true });
+    test1.driver.send("stream please", "prompt", selection);
+    await until(() => test1.timeline.state.turn === "settled", "the turn");
+
+    const entries = await journal();
+    const switched = entries.findIndex(
+      (entry) => entry["action"] === "model-switch" && entry["tui"] !== true,
+    );
+    const prompted = entries.findIndex(
+      (entry) => entry["action"] === "prompt" && entry["text"] === "stream please",
+    );
+    expect(switched).toBeGreaterThanOrEqual(0);
+    expect(entries[switched]).toMatchObject({ model: { id: "stub-model", providerID: "stub" } });
+    expect(switched).toBeLessThan(prompted);
+    const switchedModel = isRecord(entries[switched]?.["model"]) ? entries[switched]["model"] : {};
+    expect(switchedModel["variant"]).toBeUndefined();
+    const corrected = await sessionModel(test1.server, sessionId);
+    expect(corrected).toMatchObject({ id: "stub-model", providerID: "stub" });
+    expect(corrected?.["variant"]).toBeUndefined();
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("choosing another model switches to it without carrying the session model's variant", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    const sessionId = "ses_driver0000000000000000000";
+    await terminalSwitchModel(test1.server, sessionId, {
+      id: "stub-model",
+      providerID: "stub",
+      variant: "high",
+    });
+
+    const selection = { model: { provider: "other", id: "other-model" }, level: null };
+    await test1.driver.prepareSelection(selection, { forDispatch: true });
+    test1.driver.send("stream please", "prompt", selection);
+    await until(() => test1.timeline.state.turn === "settled", "the turn");
+
+    const switches = await modelSwitches();
+    expect(switches).toHaveLength(1);
+    expect(switches[0]).toMatchObject({ model: { id: "other-model", providerID: "other" } });
+    const switchedModel = isRecord(switches[0]) ? switches[0]["model"] : undefined;
+    expect(isRecord(switchedModel) ? switchedModel["variant"] : undefined).toBeUndefined();
+    const chosen = await sessionModel(test1.server, sessionId);
+    expect(chosen).toMatchObject({ id: "other-model", providerID: "other" });
+    expect(chosen?.["variant"]).toBeUndefined();
+    expect(test1.timeline.state.model).toMatchObject({ provider: "other", id: "other-model" });
+    expect((await prompts())[0]).toMatchObject({ text: "stream please" });
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a session whose model cannot be read refuses the prompt and keeps the words", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    const selection = { model: { provider: "stub", id: "stub-model" }, level: null };
+    await test1.driver.prepareSelection(selection, { forDispatch: true });
+    writeFakeState("session-read-mode", "fail");
+
+    const receipt = test1.driver.send("keep these words", "prompt", selection);
+    const failure = await receipt.outcome;
+    expect(failure?.name).toBe("ChatRefusalError");
+    expect(failure?.message).toContain("could not confirm the session's model");
+    await until(
+      () =>
+        items(test1.timeline).some(
+          (item) => item.kind === "error" && item.text.includes("did not switch the model"),
+        ),
+      "the visible refusal",
+    );
+    expect(usersOf(test1.timeline)).toHaveLength(0);
+    expect(await prompts()).toEqual([]);
+    expect(await modelSwitches()).toEqual([]);
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a refused switch refuses the prompt and keeps the words", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    const selection = { model: { provider: "other", id: "other-model" }, level: null };
+    await test1.driver.prepareSelection(selection, { forDispatch: true });
+    writeFakeState("model-switch-mode", "fail");
+
+    const receipt = test1.driver.send("keep these words", "prompt", selection);
+    const failure = await receipt.outcome;
+    expect(failure?.name).toBe("ChatRefusalError");
+    expect(failure?.message).toContain("the model was refused");
+    await until(
+      () =>
+        items(test1.timeline).some(
+          (item) => item.kind === "error" && item.text.includes("did not switch the model"),
+        ),
+      "the visible refusal",
+    );
+    expect(usersOf(test1.timeline)).toHaveLength(0);
+    expect(await prompts()).toEqual([]);
+    expect(await modelSwitches()).toEqual([
+      expect.objectContaining({
+        model: { id: "other-model", providerID: "other" },
+        mode: "fail",
+      }),
+    ]);
+  } finally {
+    await test1.stop();
   }
 });
 

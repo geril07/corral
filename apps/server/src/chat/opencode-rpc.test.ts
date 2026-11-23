@@ -163,8 +163,8 @@ test("an OpenCode steer keeps the running model, while the queued turn starts on
     });
     await api.chat.setModel({ sessionId: session.id, model: C });
 
-    // Nothing moved the session to B while the first turn ran: the only switch so far is the
-    // initial prompt's confirmation of A, and the steer is the same turn's message.
+    // Nothing moved the session to B while the first turn ran: no prompt so far has needed a
+    // switch, and the steer is the same turn's message.
     expect(
       (await modelSwitches()).filter(
         (entry) => isRecord(entry["model"]) && entry["model"]["id"] === "other-model",
@@ -213,7 +213,7 @@ test("an OpenCode steer keeps the running model, while the queued turn starts on
   }
 });
 
-test("an OpenCode task created with a chosen model starts on it before the first prompt", async () => {
+test("an OpenCode task created with a chosen model starts on it without a redundant switch", async () => {
   const project = (await addProject(server)).project;
   const api = await server.rpc();
   const task = await api.tasks.create({
@@ -239,9 +239,8 @@ test("an OpenCode task created with a chosen model starts on it before the first
   const prompted = entries.findIndex((entry) => entry["action"] === "prompt");
   expect(entries[created]).toMatchObject({ model: { id: "other-model", providerID: "other" } });
   expect(created).toBeLessThan(prompted);
-  expect(await modelSwitches()).toEqual([
-    expect.objectContaining({ model: { id: "other-model", providerID: "other" } }),
-  ]);
+  // The creation carried the model, so the prompt's own read finds it already in place.
+  expect(await modelSwitches()).toEqual([]);
   expect(settled.state.model).toMatchObject({ provider: "other", id: "other-model" });
 });
 

@@ -74,7 +74,12 @@ const HISTORY_MAX_MESSAGES = 20_000;
  *   same ref for the first turn. Corral's selection is applied by the service immediately before a
  *   prompt, on the turn boundary, never to a running turn: OpenCode re-reads the session's model
  *   when a step starts, so a switch under a running turn could reach a later step of the same turn.
- *   `steer` never switches.
+ *   `steer` never switches. A switch replaces the whole ref, so a variant the terminal chose would
+ *   be lost by one sent for an equal model: the driver reads `GET /api/session/:id` first and only
+ *   switches when `id` and `providerID` differ. A model switch carries no variant (the default is
+ *   the only defensible choice), because Corral's `ChatModelRef` has none; a read that cannot name
+ *   the session's model refuses the prompt instead, so the terminal's variant is never dropped
+ *   unseen.
  * - `Model.Info.variants` are request overlays (headers and body settings), not thinking levels:
  *   they are not reported as `reasoningLevels`, and this driver has no level to set.
  *
@@ -289,9 +294,12 @@ export class OpenCodeDriver implements ChatDriver {
   /**
    * Applies a prompt's own model before its text: the service prepared it at the boundary, and a
    * prepared choice that names another model proves the two calls are out of step, so the turn is
-   * refused instead of running on either. The switch is sent even when the last report matches:
-   * the terminal leg is a second client and can have moved the session's model since, and OpenCode
-   * treats a switch to the current ref as a no-op.
+   * refused instead of running on either. The session's current model is read first: a switch for
+   * an equal `id` and `providerID` would replace the ref the terminal chose and drop its `variant`,
+   * so only a real difference is switched, and the switch names no variant (Corral's selection has
+   * none; the model's default is the honest choice). A read that fails or names no model refuses the
+   * turn, because switching blind could silently discard the terminal's variant and not switching
+   * could run on the terminal's model.
    */
   async #applyTurnSelection(selection: ChatModelSelection): Promise<void> {
     const prepared = this.#prepared;
@@ -305,9 +313,34 @@ export class OpenCodeDriver implements ChatDriver {
       );
     if (prepared !== null && !sameModelRef(prepared, selection.model))
       throw new ChatRefusalError("opencode has not confirmed this turn's selection");
+    const current = await this.#sessionModel();
     const model = await this.#offeredModel(selection.model);
-    await this.#switchModel(selection.model);
+    if (!sameModelRef(current, selection.model)) await this.#switchModel(selection.model);
     if (!this.#closed) this.timeline.setState({ model });
+  }
+
+  /**
+   * The model `GET /api/session/:id` reports right now, including any `variant` the terminal chose.
+   * The ref is narrowed to what Corral compares; a variant is deliberately not carried, because the
+   * decision is whether a switch is needed at all.
+   */
+  async #sessionModel(): Promise<ChatModelRef> {
+    let body: unknown;
+    try {
+      body = await this.#json("GET", `/api/session/${encodeURIComponent(this.#session())}`);
+    } catch (error) {
+      throw new ChatUnavailableError(
+        `opencode could not confirm the session's model: ${messageOf(error)}`,
+        "turn-unconfirmed",
+      );
+    }
+    const model = sessionModelOf(body);
+    if (model === undefined)
+      throw new ChatUnavailableError(
+        "opencode did not report the session's model",
+        "turn-unconfirmed",
+      );
+    return model;
   }
 
   /** The catalog entry for a choice, or a refusal: this build only offers what OpenCode lists. */
@@ -897,6 +930,21 @@ function catalogOf(body: unknown): { models: ChatModel[]; windows: Map<string, n
 
 function sameModelRef(left: ChatModelRef, right: ChatModelRef): boolean {
   return left.provider === right.provider && left.id === right.id;
+}
+
+/**
+ * The model a `GET /api/session/:id` body reports, in the same keys a `Model.Ref` uses. The body is
+ * `{data: {model}}` or the session itself; the model keys follow a catalog entry (`id`/`modelID`,
+ * `providerID`/`provider`). A variant is ignored: it is the terminal's setting, not part of the
+ * identity the switch decision compares.
+ */
+function sessionModelOf(body: unknown): ChatModelRef | undefined {
+  const data = recordField(body, "data") ?? body;
+  const model = recordField(data, "model");
+  const provider = stringField(model, "providerID") ?? stringField(model, "provider");
+  const id = stringField(model, "id") ?? stringField(model, "modelID");
+  if (provider === undefined || id === undefined) return undefined;
+  return { provider, id };
 }
 
 function stringField(value: unknown, key: string): string | undefined {
