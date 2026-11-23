@@ -499,25 +499,50 @@ test("a separate Codex chat starts only after explicitly confirming its model an
   const models = page.getByRole("dialog", { name: "Chat model" });
   await models.getByRole("option", { name: /Stub Three/ }).click();
   await userEvent.keyboard("{Escape}");
+  await expect.element(page.getByRole("button", { name: "Model Stub Three" })).toBeVisible();
+  // Stub Three does not offer Stub Two's `high`, and a model switch carries no level of its own:
+  // the next turn runs on the native default this app-server confirmed, so the send is allowed.
+  await expect.element(page.getByRole("button", { name: "Thinking", exact: true })).toBeVisible();
   const message = page.getByRole("textbox", { name: "Message" });
   await message.fill("Codex next selected prompt");
   await userEvent.keyboard("{Enter}");
   await expect
-    .element(page.getByRole("alert").filter({ hasText: "choose an offered level" }))
-    .toBeVisible();
-  await expect.element(message).toHaveValue("Codex next selected prompt");
-  await page.getByRole("button", { name: "Thinking", exact: true }).click();
-  await page
-    .getByRole("dialog", { name: "Reasoning level" })
-    .getByRole("button", {
-      name: "off",
-      exact: true,
-    })
-    .click();
-  await userEvent.keyboard("{Escape}");
-  await expect.element(page.getByRole("button", { name: "Reasoning off" })).toBeVisible();
-  await userEvent.keyboard("{Enter}");
-  await expect
     .element(page.getByRole("log", { name: "Chat transcript" }))
     .toMatchTextContent("Codex next selected prompt");
+  await expect.element(message).toHaveValue("");
+});
+
+test("a Codex default the next model does not offer refuses the send and keeps the draft", async () => {
+  // The app-server's configured effort is `high`; Stub Three offers only `off` and `medium`.
+  await withServerEnv("FAKE_CODEX_EFFORT", "high");
+  const { client, project } = await appWithProject(newClient());
+  await taskWithShell(client, project.id, "Codex configured default");
+  await openAgentSessionPicker("chat");
+  await picker().getByRole("radio", { name: "codex", exact: true }).click();
+  await picker()
+    .getByRole("option", { name: /Stub Two/ })
+    .click();
+  await setup()
+    .getByRole("button", { name: /^Reasoning/ })
+    .click();
+  await picker().getByRole("button", { name: "high", exact: true }).click();
+  await startSelected();
+  await expect.element(page.getByRole("button", { name: "Model Stub Two" })).toBeVisible();
+  await page.getByRole("button", { name: "Model Stub Two" }).click();
+  await page
+    .getByRole("dialog", { name: "Chat model" })
+    .getByRole("option", { name: /Stub Three/ })
+    .click();
+  await userEvent.keyboard("{Escape}");
+  const message = page.getByRole("textbox", { name: "Message" });
+  await message.fill("Codex unoffered default prompt");
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .element(
+      page.getByRole("alert").filter({
+        hasText: "The configured Codex reasoning default is not offered by this model.",
+      }),
+    )
+    .toBeVisible();
+  await expect.element(message).toHaveValue("Codex unoffered default prompt");
 });
