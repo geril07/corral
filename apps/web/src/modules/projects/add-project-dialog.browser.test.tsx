@@ -353,9 +353,10 @@ test("the dialog hangs from a fixed top edge while results change", async () => 
   const top = () => dialog.element().getBoundingClientRect().top;
   await userEvent.fill(input(), "/parent/");
   await expect.element(page.getByRole("option", { name: "alpha", exact: true })).toBeVisible();
-  // 1024×640: max(48, (640 - 480) / 2) = 80, the OpenCode anchor. Precision 1 waits out the
-  // opening scale so the measured edge is the settled one.
-  await vi.waitFor(() => expect(top()).toBeCloseTo(80, 1));
+  // 1024×640: max(48, (640 - 480) / 2) = 80, the OpenCode anchor. The open animation scales the
+  // card, so an approximate edge can still be mid-scale; wait for the exact settled edge, since
+  // the grown list has to match it.
+  await vi.waitFor(() => expect(top()).toBe(80));
   const shortTop = top();
   await userEvent.fill(input(), "/many/");
   await vi.waitFor(() =>
