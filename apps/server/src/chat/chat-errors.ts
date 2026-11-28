@@ -12,6 +12,13 @@ export class ChatUnavailableError extends Error {
   }
 }
 
+export class OpenCodeInterlockError extends ChatUnavailableError {
+  constructor(message: string) {
+    super(message, "turn-unconfirmed");
+    this.name = "OpenCodeInterlockError";
+  }
+}
+
 /** `chat.respond` named an item that is not a request still waiting for an answer. */
 export class ChatRequestUnknownError extends Error {
   readonly requestId: string;

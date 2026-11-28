@@ -144,6 +144,8 @@ export interface ChatWriterClaim {
  */
 export interface ChatDriverLaunch {
   sessionId: string;
+  /** Reports a model write whose completion cannot be confirmed. */
+  onModelWriteUnknown?(): void;
   /**
    * The chat timeline every event of this frontend goes through. The service built it from the
    * reserved sequence floor, so a cursor held from a replaced frontend is a hole and gets a
@@ -265,6 +267,7 @@ export interface ChatDriver {
     selection: ChatModelSelection,
     options: { forDispatch: boolean },
   ): Promise<void>;
+  refreshModels?(): Promise<void>;
   /** On a resumed exclusive frontend, confirm native idle without inferring prior delivery. */
   recoverIdle?(): Promise<boolean>;
   abort(): Promise<void>;

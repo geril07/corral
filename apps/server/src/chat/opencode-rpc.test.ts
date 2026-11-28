@@ -1,6 +1,7 @@
 import type { ChatItem, ChatSnapshot } from "@corral/protocol/chat";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { beforeEach, expect, test, vi } from "vite-plus/test";
 import { useFakeAgents } from "../../test/fake-agents.ts";
 import { isRecord } from "../../test/json.ts";
@@ -8,16 +9,37 @@ import { addProject } from "../../test/project-fixture.ts";
 import { useServer } from "../../test/server-fixture.ts";
 import { sessionsOf } from "../../test/session-helpers.ts";
 
+let terminalBarrier:
+  | { entered: PromiseWithResolvers<string>; release: PromiseWithResolvers<void> }
+  | undefined;
+
 const server = useServer({
   chat: { dialogTimeoutMs: 2000, readyTimeoutMs: 4000, exitGraceMs: 400, writerWaitMs: 2000 },
+  beforeOpenCodeTerminal: async (sessionId) => {
+    const barrier = terminalBarrier;
+    if (barrier === undefined) return;
+    terminalBarrier = undefined;
+    barrier.entered.resolve(sessionId);
+    await barrier.release.promise;
+  },
 });
 const agents = useFakeAgents();
 const SIZE = { cols: 80, rows: 24 };
 
 // The TUI launch records the password it was handed, so the test can say it was the server's.
 beforeEach(() => {
+  terminalBarrier = undefined;
   vi.stubEnv("FAKE_AGENT_LOG_ENV", "OPENCODE_SERVER_PASSWORD");
 });
+
+function holdTerminal() {
+  const barrier = {
+    entered: Promise.withResolvers<string>(),
+    release: Promise.withResolvers<void>(),
+  };
+  terminalBarrier = barrier;
+  return barrier;
+}
 
 type Api = Awaited<ReturnType<typeof server.rpc>>;
 
@@ -141,6 +163,63 @@ test("OpenCode runs a queued turn and subsequent ordinary prompts after delivery
     "second normal",
   ]);
 });
+
+test("an exited both-live terminal wakes the queued chat turn", async () => {
+  vi.stubEnv("FAKE_OPENCODE_SLOW_MS", "3000");
+  try {
+    const { api, session } = await openCodeTask("slow");
+    await untilChat(api, session.id, (view) => view.state.turn === "working", "the first turn");
+    const opened = await api.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+    await api.sessions.setView({ id: session.id, view: "chat", size: SIZE });
+    await api.chat.send({
+      sessionId: session.id,
+      text: "queued after terminal",
+      mode: "follow-up",
+    });
+    await untilChat(
+      api,
+      session.id,
+      (view) =>
+        view.state.turn === "settled" &&
+        view.state.queue?.some(
+          (entry) => entry.text === "queued after terminal" && entry.status === "queued",
+        ) === true,
+      "the turn held by the live terminal",
+    );
+    await expect
+      .poll(
+        async () =>
+          (await agents.launches()).find(
+            (launch) => launch.agent === "opencode" && launch.argv[0] !== "serve",
+          ),
+        { timeout: 10_000 },
+      )
+      .toBeDefined();
+    const tui = (await agents.launches()).find(
+      (launch) => launch.agent === "opencode" && launch.argv[0] !== "serve",
+    )!;
+    process.kill(tui.pid, "SIGTERM");
+    await untilChat(
+      api,
+      session.id,
+      (view) =>
+        view.items.some(
+          (item) => item.kind === "user-message" && item.text === "queued after terminal",
+        ),
+      "the queued turn after terminal exit",
+    );
+    expect(await api.terminals.list()).toContainEqual(
+      expect.objectContaining({ id: opened.terminalId, exit: expect.any(Object) }),
+    );
+    expect(
+      (await openCodeJournal())
+        .filter((entry) => entry["action"] === "prompt")
+        .map((entry) => entry["text"]),
+    ).toEqual(["slow", "queued after terminal"]);
+  } finally {
+    vi.stubEnv("FAKE_OPENCODE_SLOW_MS", undefined);
+  }
+}, 20_000);
 
 test("an OpenCode steer keeps the running model, while the queued turn starts on the model it captured", async () => {
   vi.stubEnv("FAKE_OPENCODE_SLOW_MS", "1200");
@@ -318,6 +397,424 @@ test("a refused OpenCode model switch keeps the queued words and sends no prompt
     model: { id: "other-model", providerID: "other" },
     mode: "fail",
   });
+  // A 400 is the server answering and refusing, so it is not a doubtful write: the terminal opens
+  // on the same native generation that answered.
+  const opened = await api.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+  expect(opened).toMatchObject({ view: "terminal", terminalId: expect.any(String) });
+});
+
+test("a terminal launch reservation holds queued chat until its terminal exits", async () => {
+  const { api, session, projectId } = await openCodeTask();
+  await untilChat(
+    api,
+    session.id,
+    (view) => view.state.turn === "settled" && view.state.queue?.length === 0,
+    "first turn",
+  );
+  const other = await openCodeTask("other initial", "main-worktree", projectId);
+  await untilChat(
+    other.api,
+    other.session.id,
+    (view) => view.state.turn === "settled" && view.state.queue?.length === 0,
+    "other turn",
+  );
+  await api.chat.setModel({
+    sessionId: session.id,
+    model: { provider: "other", id: "other-model" },
+  });
+  const barrier = holdTerminal();
+  const first = api.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+  const secondClient = await server.rpc();
+  try {
+    expect(await barrier.entered.promise).toBe(session.id);
+    const second = secondClient.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+    await api.chat.send({ sessionId: session.id, text: "held queued turn", mode: "follow-up" });
+    await expect(
+      api.chat.send({ sessionId: session.id, text: "refused prompt", mode: "prompt" }),
+    ).rejects.toMatchObject({ data: { reason: "turn-unconfirmed" } });
+    await other.api.chat.send({ sessionId: other.session.id, text: "independent", mode: "prompt" });
+    await untilChat(
+      other.api,
+      other.session.id,
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === "independent"),
+      "independent session",
+    );
+    expect(await modelSwitches()).toEqual([]);
+    expect(
+      (await openCodeJournal()).filter(
+        (entry) => entry["text"] === "held queued turn" || entry["text"] === "refused prompt",
+      ),
+    ).toEqual([]);
+    barrier.release.resolve();
+    const [opened, duplicate] = await Promise.all([first, second]);
+    expect(duplicate.terminalId).toBe(opened.terminalId);
+    await untilChat(
+      api,
+      session.id,
+      (view) =>
+        view.state.queue?.some(
+          (entry) => entry.text === "held queued turn" && entry.status === "queued",
+        ) === true,
+      "queued behind live terminal",
+    );
+    expect(await modelSwitches()).toEqual([]);
+    await expect
+      .poll(
+        async () =>
+          (await agents.launches()).find(
+            (launch) => launch.agent === "opencode" && launch.argv[0] !== "serve",
+          ),
+        { timeout: 10_000 },
+      )
+      .toBeDefined();
+    const tui = (await agents.launches()).find(
+      (launch) => launch.agent === "opencode" && launch.argv[0] !== "serve",
+    )!;
+    process.kill(tui.pid, "SIGTERM");
+    await untilChat(
+      api,
+      session.id,
+      (view) =>
+        view.items.some(
+          (item) => item.kind === "user-message" && item.text === "held queued turn",
+        ) && view.state.turn === "settled",
+      "queued turn after exit",
+    );
+    expect(
+      (await openCodeJournal()).filter((entry) => entry["text"] === "held queued turn"),
+    ).toHaveLength(1);
+    expect(await modelSwitches()).toHaveLength(1);
+  } finally {
+    barrier.release.resolve();
+  }
+});
+
+test("an initial prompt waits durably when a terminal wins during hydration", async () => {
+  await fakeScenario("catalog-mode", "hold");
+  const { api, session } = await openCodeTask("initial held text");
+  await expect
+    .poll(
+      async () => (await openCodeJournal()).some((entry) => entry["action"] === "catalog-held"),
+      { timeout: 10_000 },
+    )
+    .toBe(true);
+  const serverLaunch = (await serveLaunches())[0]!;
+  const barrier = holdTerminal();
+  const opening = api.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+  try {
+    expect(await barrier.entered.promise).toBe(session.id);
+    await fakeScenario("catalog-mode", "normal");
+    process.kill(serverLaunch.pid, "SIGUSR2");
+    await untilChat(
+      api,
+      session.id,
+      (view) =>
+        view.state.queue?.some(
+          (entry) => entry.text === "initial held text" && entry.status === "queued",
+        ) === true,
+      "visible held initial prompt",
+    );
+    expect((await openCodeJournal()).filter((entry) => entry["action"] === "prompt")).toEqual([]);
+    expect(await modelSwitches()).toEqual([]);
+    barrier.release.resolve();
+    const opened = await opening;
+    expect(opened.terminalId).not.toBeNull();
+    expect((await openCodeJournal()).filter((entry) => entry["action"] === "prompt")).toEqual([]);
+    await expect
+      .poll(
+        async () =>
+          (await agents.launches()).find(
+            (launch) => launch.agent === "opencode" && launch.argv[0] !== "serve",
+          ),
+        { timeout: 10_000 },
+      )
+      .toBeDefined();
+    const tui = (await agents.launches()).find(
+      (launch) => launch.agent === "opencode" && launch.argv[0] !== "serve",
+    )!;
+    process.kill(tui.pid, "SIGTERM");
+    await untilChat(
+      api,
+      session.id,
+      (view) =>
+        view.items.some(
+          (item) => item.kind === "user-message" && item.text === "initial held text",
+        ) && view.state.turn === "settled",
+      "initial prompt after terminal exit",
+    );
+    expect(
+      (await openCodeJournal()).filter((entry) => entry["text"] === "initial held text"),
+    ).toHaveLength(1);
+  } finally {
+    barrier.release.resolve();
+  }
+});
+
+test("a cancelled reserved terminal launch releases its queued chat turn once", async () => {
+  const { api, session } = await openCodeTask();
+  await untilChat(
+    api,
+    session.id,
+    (view) => view.state.turn === "settled" && view.state.queue?.length === 0,
+    "first turn",
+  );
+  await api.chat.setModel({
+    sessionId: session.id,
+    model: { provider: "other", id: "other-model" },
+  });
+  const barrier = holdTerminal();
+  const opening = api.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+  try {
+    expect(await barrier.entered.promise).toBe(session.id);
+    await api.chat.send({ sessionId: session.id, text: "after failed launch", mode: "follow-up" });
+    expect(await modelSwitches()).toEqual([]);
+    barrier.release.reject(new Error("injected terminal launch cancellation"));
+    await expect(opening).rejects.toThrow("Internal server error");
+    await untilChat(
+      api,
+      session.id,
+      (view) =>
+        view.items.some(
+          (item) => item.kind === "user-message" && item.text === "after failed launch",
+        ) && view.state.turn === "settled",
+      "queued turn after launch failure",
+    );
+    expect(
+      (await openCodeJournal()).filter((entry) => entry["text"] === "after failed launch"),
+    ).toHaveLength(1);
+    expect(await modelSwitches()).toHaveLength(1);
+  } finally {
+    barrier.release.resolve();
+  }
+});
+
+test("a lost model switch response refuses a terminal and another prompt without retrying", async () => {
+  const { api, session } = await openCodeTask();
+  await untilChat(
+    api,
+    session.id,
+    (view) => view.state.turn === "settled" && (view.state.queue?.length ?? 0) === 0,
+    "the first turn",
+  );
+  await api.chat.setModel({
+    sessionId: session.id,
+    model: { provider: "other", id: "other-model" },
+  });
+  await fakeScenario("model-switch-mode", "lost");
+  await api.chat.send({ sessionId: session.id, text: "keep these words", mode: "prompt" });
+  await untilChat(
+    api,
+    session.id,
+    (view) =>
+      view.state.queue?.some(
+        (entry) => entry.text === "keep these words" && entry.status === "undelivered",
+      ) === true,
+    "the unsent message",
+  );
+  await expect(
+    api.sessions.setView({ id: session.id, view: "terminal", size: SIZE }),
+  ).rejects.toMatchObject({ data: { message: expect.stringContaining("model switch") } });
+  await expect(
+    api.chat.send({ sessionId: session.id, text: "do not send", mode: "prompt" }),
+  ).rejects.toMatchObject({ data: { reason: "turn-unconfirmed" } });
+  expect((await modelSwitches()).filter((entry) => entry["mode"] === "lost")).toHaveLength(1);
+  expect(
+    (await openCodeJournal())
+      .filter((entry) => entry["action"] === "prompt")
+      .map((entry) => entry["text"]),
+  ).toEqual(["stream please"]);
+  await api.sessions.stop({ id: session.id });
+  await api.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+  expect(await api.sessions.restart({ id: session.id, size: SIZE })).toMatchObject({
+    view: "terminal",
+    state: "running",
+  });
+});
+
+test("an ambiguous model-switch answer shows no provider text and is not retried", async () => {
+  const { api, session } = await openCodeTask();
+  await untilChat(
+    api,
+    session.id,
+    (view) => view.state.turn === "settled" && (view.state.queue?.length ?? 0) === 0,
+    "the first turn",
+  );
+  await api.chat.setModel({
+    sessionId: session.id,
+    model: { provider: "other", id: "other-model" },
+  });
+  await fakeScenario("model-switch-mode", "error");
+  try {
+    await api.chat.send({ sessionId: session.id, text: "keep these words", mode: "prompt" });
+    const view = await untilChat(
+      api,
+      session.id,
+      (snapshot) =>
+        snapshot.state.queue?.some(
+          (entry) => entry.text === "keep these words" && entry.status === "undelivered",
+        ) === true,
+      "the unsent message",
+    );
+    // The 500's own sentence never reaches a client item or the durable queue.
+    expect(JSON.stringify(view.items)).not.toContain("provider secret");
+    expect(JSON.stringify(view.state.queue)).not.toContain("provider secret");
+    expect((await modelSwitches()).filter((entry) => entry["mode"] === "error")).toHaveLength(1);
+    expect(
+      (await openCodeJournal())
+        .filter((entry) => entry["action"] === "prompt")
+        .map((entry) => entry["text"]),
+    ).toEqual(["stream please"]);
+    await expect(
+      api.sessions.setView({ id: session.id, view: "terminal", size: SIZE }),
+    ).rejects.toMatchObject({ data: { message: expect.stringContaining("model switch") } });
+  } finally {
+    await fakeScenario("model-switch-mode", "ok");
+  }
+});
+
+test("terminal opening is refused while a model switch is in flight", async () => {
+  const { api, session, projectId } = await openCodeTask();
+  await untilChat(
+    api,
+    session.id,
+    (view) => view.state.turn === "settled" && (view.state.queue?.length ?? 0) === 0,
+    "the first turn",
+  );
+  const other = await openCodeTask("other first", "main-worktree", projectId);
+  await untilChat(
+    other.api,
+    other.session.id,
+    (view) => view.state.turn === "settled" && (view.state.queue?.length ?? 0) === 0,
+    "the other session's first turn",
+  );
+  await api.chat.setModel({
+    sessionId: session.id,
+    model: { provider: "other", id: "other-model" },
+  });
+  await fakeScenario("model-switch-mode", "hold");
+  await api.chat.send({ sessionId: session.id, text: "held dispatch", mode: "prompt" });
+  const deadline = Date.now() + 10_000;
+  // oxlint-disable-next-line no-await-in-loop -- wait for the fake's observable request
+  while (!(await modelSwitches()).some((entry) => entry["mode"] === "hold")) {
+    if (Date.now() >= deadline) throw new Error("the model switch did not arrive");
+    // oxlint-disable-next-line no-await-in-loop -- wait for the fake's observable request
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  try {
+    await expect(
+      api.sessions.setView({ id: session.id, view: "terminal", size: SIZE }),
+    ).rejects.toMatchObject({ data: { message: expect.stringContaining("dispatching") } });
+    const anotherClient = await server.rpc();
+    await expect(
+      anotherClient.sessions.setView({ id: session.id, view: "terminal", size: SIZE }),
+    ).rejects.toMatchObject({ data: { message: expect.stringContaining("dispatching") } });
+    await other.api.chat.send({
+      sessionId: other.session.id,
+      text: "other continues",
+      mode: "prompt",
+    });
+    await untilChat(
+      other.api,
+      other.session.id,
+      (view) =>
+        view.items.some((item) => item.kind === "user-message" && item.text === "other continues"),
+      "the other session's prompt",
+    );
+    expect((await openCodeJournal()).filter((entry) => entry["text"] === "held dispatch")).toEqual(
+      [],
+    );
+  } finally {
+    await fakeScenario("model-switch-mode", "ok");
+  }
+  await untilChat(
+    api,
+    session.id,
+    (view) =>
+      view.items.some((item) => item.kind === "user-message" && item.text === "held dispatch"),
+    "the admitted prompt",
+  );
+});
+
+test("unknown prompt delivery refuses a stopped terminal after server replacement", async () => {
+  const { api, session } = await openCodeTask();
+  await untilChat(
+    api,
+    session.id,
+    (view) => view.state.turn === "settled" && (view.state.queue?.length ?? 0) === 0,
+    "the first turn",
+  );
+  await api.sessions.stop({ id: session.id });
+  const db = new DatabaseSync(join(server.dataDir, "corral.db"));
+  try {
+    db.prepare(
+      `INSERT INTO chat_queue (id, session_id, text, selection, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run("queued:unknown-opencode", session.id, "possibly admitted", null, "sending", 1);
+  } finally {
+    db.close();
+  }
+  await server.restart();
+  const replacement = await server.rpc();
+  await replacement.sessions.setView({ id: session.id, view: "terminal", size: SIZE });
+  await expect(replacement.sessions.restart({ id: session.id, size: SIZE })).rejects.toMatchObject({
+    data: { message: expect.stringContaining("delivery") },
+  });
+  expect(
+    (await openCodeJournal()).filter((entry) => entry["text"] === "possibly admitted"),
+  ).toEqual([]);
+});
+
+test("frontend exit during a lost model switch keeps the shared generation guarded", async () => {
+  const { api, session, projectId } = await openCodeTask();
+  await untilChat(
+    api,
+    session.id,
+    (view) => view.state.turn === "settled" && (view.state.queue?.length ?? 0) === 0,
+    "the first turn",
+  );
+  const other = await openCodeTask("keep server alive", "main-worktree", projectId);
+  await untilChat(
+    other.api,
+    other.session.id,
+    (view) => view.state.turn === "settled",
+    "other session",
+  );
+  await api.chat.setModel({
+    sessionId: session.id,
+    model: { provider: "other", id: "other-model" },
+  });
+  await fakeScenario("model-switch-mode", "hold");
+  await api.chat.send({ sessionId: session.id, text: "unsent after exit", mode: "prompt" });
+  const deadline = Date.now() + 10_000;
+  // oxlint-disable-next-line no-await-in-loop -- wait for the fake's observable request
+  while (!(await modelSwitches()).some((entry) => entry["mode"] === "hold")) {
+    if (Date.now() >= deadline) throw new Error("the model switch did not arrive");
+    // oxlint-disable-next-line no-await-in-loop -- wait for the fake's observable request
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  try {
+    await api.sessions.stop({ id: session.id });
+    await api.sessions.restart({ id: session.id, size: SIZE });
+    await fakeScenario("model-switch-mode", "lost");
+    await untilChat(
+      api,
+      session.id,
+      (view) =>
+        view.state.queue?.some(
+          (entry) => entry.text === "unsent after exit" && entry.status === "undelivered",
+        ) === true,
+      "the definitely unsent prompt",
+    );
+    await expect(
+      api.sessions.setView({ id: session.id, view: "terminal", size: SIZE }),
+    ).rejects.toMatchObject({ data: { message: expect.stringContaining("model switch") } });
+    expect(
+      (await openCodeJournal()).filter((entry) => entry["text"] === "unsent after exit"),
+    ).toEqual([]);
+  } finally {
+    await fakeScenario("model-switch-mode", "ok");
+  }
 });
 
 test("an unavailable OpenCode model refuses the next send instead of using the old model", async () => {

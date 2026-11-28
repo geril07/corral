@@ -176,14 +176,15 @@ export class OpenCodeDriver implements ChatDriver {
         try {
           await this.#applyTurnSelection(chosen);
         } catch (error) {
+          const refusal = messageOf(error);
           this.timeline.put({
             kind: "error",
             id: `error:send:${ids.messageId}`,
-            text: `opencode did not switch the model, so the message was not sent: ${messageOf(error)}`,
+            text: `opencode did not switch the model, so the message was not sent: ${refusal}`,
           });
           // The prompt was not attempted, so the words certainly did not enter the conversation;
           // the server keeps them queued as undelivered instead of uncertain.
-          return new ChatRefusalError(messageOf(error));
+          return new ChatRefusalError(refusal);
         }
       }
       this.#projection.userMessage(text, ids.messageId);
@@ -367,9 +368,22 @@ export class OpenCodeDriver implements ChatDriver {
   async #switchModel(model: ChatModelRef): Promise<void> {
     if (model.provider === null)
       throw new ChatModelUnsupportedError(model, "opencode models need a provider");
-    await this.#json("POST", `/api/session/${encodeURIComponent(this.#session())}/model`, {
-      model: { id: model.id, providerID: model.provider },
-    });
+    try {
+      await this.#json(
+        "POST",
+        `/api/session/${encodeURIComponent(this.#session())}/model`,
+        { model: { id: model.id, providerID: model.provider } },
+        204,
+      );
+    } catch (error) {
+      // A 4xx is the server answering and refusing the write, so nothing changed. A lost
+      // connection, a 5xx or an unexpected success status may have applied it before the answer
+      // went missing, and only the native server's own generation can end that doubt.
+      if (error instanceof OpenCodeHttpError && error.status < 500 && error.status !== 408)
+        throw new ChatRefusalError(messageOf(error));
+      this.#request.onModelWriteUnknown?.();
+      throw new ChatRefusalError("the model switch outcome is unknown; the message was not sent");
+    }
   }
 
   /** The enabled chat models and their context windows, from one `GET /api/model`. */
@@ -782,7 +796,12 @@ export class OpenCodeDriver implements ChatDriver {
   }
 
   /** One JSON request to the server; a non-2xx answer is its typed error with the status. */
-  async #json(method: string, path: string, body?: unknown): Promise<unknown> {
+  async #json(
+    method: string,
+    path: string,
+    body?: unknown,
+    expectedStatus?: number,
+  ): Promise<unknown> {
     const response = await fetch(this.#url(path), {
       method,
       headers: {
@@ -797,6 +816,11 @@ export class OpenCodeDriver implements ChatDriver {
       const text = await response.text().catch(() => "");
       throw new OpenCodeHttpError(response.status, detailOf(text, response.status));
     }
+    if (expectedStatus !== undefined && response.status !== expectedStatus)
+      throw new OpenCodeHttpError(
+        response.status,
+        "the opencode server gave an unexpected response",
+      );
     if (response.status === 204) return undefined;
     const text = await response.text();
     if (text === "") return undefined;

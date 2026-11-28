@@ -7,6 +7,7 @@ import {
   ChatReasoningUnsupportedError,
   ChatRequestUnknownError,
   ChatUnavailableError,
+  OpenCodeInterlockError,
 } from "../chat/chat-errors.ts";
 import type { ChangesService } from "../changes/changes-service.ts";
 import {
@@ -227,6 +228,8 @@ function launchError(
   // named sentence as its message; no wire code of its own.
   if (error instanceof WorkspaceMissingError)
     return errors.LAUNCH_FAILED({ data: { kind: error.kind, message: error.message } });
+  if (error instanceof OpenCodeInterlockError)
+    return errors.LAUNCH_FAILED({ data: { kind: "opencode", message: error.message } });
   if (error instanceof LaunchSpawnError)
     return errors.LAUNCH_FAILED({ data: { kind: error.kind, message: error.summary } });
   return undefined;
@@ -715,6 +718,19 @@ export function createRpcRouter({
             const subject = sessions.chatSubject(input.sessionId);
             if (!subject) throw new SessionNotFoundError(input.sessionId);
             await chat.setModel(subject, input.model, input.level);
+          },
+          (error) =>
+            error instanceof SessionNotFoundError
+              ? errors.SESSION_NOT_FOUND({ data: { id: error.id } })
+              : chatError(error, errors),
+        ),
+      ),
+      refreshModels: os.chat.refreshModels.handler(({ input, errors }) =>
+        translating(
+          async () => {
+            const subject = sessions.chatSubject(input.sessionId);
+            if (!subject) throw new SessionNotFoundError(input.sessionId);
+            await chat.refreshModels(subject);
           },
           (error) =>
             error instanceof SessionNotFoundError

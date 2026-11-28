@@ -147,6 +147,7 @@ export class SessionService {
   readonly #tasks: TaskStore;
   readonly #terminals: TerminalRegistry;
   readonly #chat: ChatService;
+  readonly #beforeOpenCodeTerminal: ((sessionId: string) => Promise<void>) | undefined;
   readonly #live = new Map<string, Live>();
   readonly #statusUrl: (sessionId: string) => string;
   readonly #openCode: OpenCodeIntegration;
@@ -173,6 +174,8 @@ export class SessionService {
     terminals: TerminalRegistry;
     /** The chat frontends; a `view: "chat"` session launches here instead of a PTY. */
     chat: ChatService;
+    /** Test barrier after the terminal reservation, before the launch begins. */
+    beforeOpenCodeTerminal?: (sessionId: string) => Promise<void>;
     /** Where an agent of this session POSTs its status; resolved at launch, when the server is listening. */
     statusUrl: (sessionId: string) => string;
     openCode: OpenCodeIntegration;
@@ -191,6 +194,7 @@ export class SessionService {
     this.#taskEvents = options.taskEvents;
     this.#terminals = options.terminals;
     this.#chat = options.chat;
+    this.#beforeOpenCodeTerminal = options.beforeOpenCodeTerminal;
     this.#statusUrl = options.statusUrl;
     this.#openCode = options.openCode;
     this.#openCodeServers = options.openCodeServers;
@@ -453,6 +457,8 @@ export class SessionService {
     return this.#queue.run(async () => {
       const stored = this.#stored(id);
       if (stored.state === "running") throw new AlreadyRunningError(id);
+      if (stored.kind === "opencode" && stored.view === "terminal")
+        this.#chat.reserveOpenCodeTerminal(id, this.#openCodeServers.address)();
       // Starting work in a settled task is new work: the task becomes active before the restart,
       // so no client keeps the session it is watching marked as shelved.
       this.#activate(stored.taskId);
@@ -967,6 +973,26 @@ export class SessionService {
     prompt: string | null = null,
     privateLaunch?: PrivateLaunchSpec | null,
   ): Promise<void> {
+    const release =
+      stored.kind === "opencode" && stored.view === "terminal"
+        ? this.#chat.reserveOpenCodeTerminal(stored.id, this.#openCodeServers.address)
+        : undefined;
+    try {
+      if (release !== undefined) await this.#beforeOpenCodeTerminal?.(stored.id);
+      await this.#launchReserved(stored, task, size, how, prompt, privateLaunch);
+    } finally {
+      release?.();
+    }
+  }
+
+  async #launchReserved(
+    stored: StoredSession,
+    task: Task,
+    size: TerminalSize,
+    how: "start" | "resume",
+    prompt: string | null,
+    privateLaunch?: PrivateLaunchSpec | null,
+  ): Promise<void> {
     const adapter = stored.kind === "shell" ? undefined : AGENTS[stored.kind];
     // node-pty does not throw for a missing cwd: the child prints `chdir(2) failed` and exits 1.
     // So the workspace is checked before a terminal, an agent server or a chat child is acquired.
@@ -1339,6 +1365,7 @@ export class SessionService {
         // is still listed until it is closed or the session starts again.
         await this.#openCodeServers.release(openCodeOwner("terminal", sessionId));
         await this.#codexServers.release(codexOwner("terminal", sessionId), sessionId);
+        if (live.chat && !this.#terminalAlive(sessionId)) this.#chat.terminalExited(sessionId);
       } else {
         live.chat = false;
         await this.#openCodeServers.release(openCodeOwner("chat", sessionId));

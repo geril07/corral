@@ -306,6 +306,8 @@ export const ChatSessionState = z.object({
   model: ChatModel.nullable(),
   /** Every model the driver offers for a switch; includes `model`. */
   models: z.array(ChatModel),
+  /** Freshness of a separately discovered live model catalog; absent when not reported. */
+  modelsStatus: z.enum(["loading", "ready", "error"]).optional(),
   /** The reasoning level in effect; `null` when the driver has none or has not reported one. */
   reasoning: z.string().nullable(),
   /** A model-only next-turn choice's native default; this is not the active turn's effort. */
@@ -417,6 +419,7 @@ export const ChatDriverCapabilities = z.object({
   followUp: z.boolean(),
   approvals: z.boolean(),
   modelSwitch: z.boolean(),
+  modelRefresh: z.boolean().optional(),
   reasoningLevels: z.boolean(),
   terminalView: ChatTerminalView,
 });

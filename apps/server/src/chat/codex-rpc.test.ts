@@ -703,11 +703,39 @@ test("Codex configured launch works without discovery while an explicit selectio
   await writeFile(join(agents.codexHome, "catalog-error"), "");
   try {
     const ordinary = await codexTask("chat", "ordinary offline catalog");
+    const offline = await untilChat(
+      ordinary.api,
+      ordinary.session.id,
+      (view) =>
+        view.state.modelsStatus === "error" &&
+        view.state.turn === "settled" &&
+        textOf(view).includes("the stub answer"),
+      "the configured turn",
+    );
+    expect(offline.state.model?.id).toBe("stub-model");
+    expect(offline.state.models).toHaveLength(1);
+    await expect(
+      ordinary.api.chat.refreshModels({ sessionId: ordinary.session.id }),
+    ).rejects.toMatchObject({
+      code: "CHAT_UNAVAILABLE",
+      data: { message: "Codex could not load its model list." },
+    });
+    expect((await timelineOf(ordinary.api, ordinary.session.id)).state.models).toEqual(
+      offline.state.models,
+    );
+    await ordinary.api.chat.send({
+      sessionId: ordinary.session.id,
+      text: "configured while offline",
+      mode: "prompt",
+    });
     await untilChat(
       ordinary.api,
       ordinary.session.id,
-      (view) => view.state.turn === "settled" && textOf(view).includes("the stub answer"),
-      "the configured turn",
+      (view) =>
+        view.items.some(
+          (item) => item.kind === "user-message" && item.text === "configured while offline",
+        ),
+      "the configured follow-up",
     );
     const task = await ordinary.api.tasks.create({
       projectId: ordinary.projectId,
@@ -729,6 +757,19 @@ test("Codex configured launch works without discovery while an explicit selectio
       launchError: "The selected Codex thinking level was not confirmed.",
     });
     expect(await threadRecord(server.dataDir, session.id)).toBeUndefined();
+    await rm(join(agents.codexHome, "catalog-error"), { force: true });
+    await ordinary.api.chat.refreshModels({ sessionId: ordinary.session.id });
+    const recovered = await timelineOf(ordinary.api, ordinary.session.id);
+    expect(recovered.state.modelsStatus).toBe("ready");
+    expect(recovered.state.models.some((model) => model.id === "stub-two")).toBe(true);
+    await writeFile(join(agents.codexHome, "catalog-error"), "");
+    await expect(
+      ordinary.api.chat.refreshModels({ sessionId: ordinary.session.id }),
+    ).rejects.toMatchObject({ code: "CHAT_UNAVAILABLE" });
+    const failedAgain = await timelineOf(ordinary.api, ordinary.session.id);
+    expect(failedAgain.state.modelsStatus).toBe("error");
+    expect(failedAgain.state.models).toEqual(recovered.state.models);
+    expect(failedAgain.state.model).toEqual(recovered.state.model);
     await expect(
       ordinary.api.models.thinking({
         scope: { kind: "codex", profileId: null },
@@ -758,6 +799,7 @@ test(
       followUp: true,
       approvals: true,
       modelSwitch: true,
+      modelRefresh: true,
       reasoningLevels: true,
       terminalView: "both-live",
     });

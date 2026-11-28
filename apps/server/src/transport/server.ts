@@ -75,6 +75,8 @@ export function startServer(options: {
   pullRequestTimeoutMs?: number;
   /** Metadata process deadline; tests shorten it against isolated fake CLIs. */
   modelCatalogTimeoutMs?: number;
+  /** Test barrier for the reserved OpenCode terminal launch. */
+  beforeOpenCodeTerminal?: (sessionId: string) => Promise<void>;
 }): Promise<RunningServer> {
   const temporaryDataDir =
     options.dataDir === undefined ? mkdtempSync(join(tmpdir(), "corral-data-")) : undefined;
@@ -159,6 +161,9 @@ export function startServer(options: {
     tasks: taskStore,
     terminals,
     chat,
+    ...(options.beforeOpenCodeTerminal === undefined
+      ? {}
+      : { beforeOpenCodeTerminal: options.beforeOpenCodeTerminal }),
     statusUrl: (sessionId) => `${httpOrigin}${statusReportPath(sessionId)}`,
     openCode: OpenCodeIntegration.install(dataDir),
     openCodeServers,

@@ -1116,6 +1116,11 @@ export const contract = {
       })
       .input(ChatSetModelInput)
       .output(z.void()),
+    /** Refreshes the live model catalog when the driver supports it. */
+    refreshModels: oc
+      .errors({ ...sessionNotFound, ...chatUnavailable })
+      .input(z.object({ sessionId: SessionId }))
+      .output(z.void()),
     /** Sets the session's reasoning level for later turns, on the selected model. */
     setReasoning: oc
       .errors({

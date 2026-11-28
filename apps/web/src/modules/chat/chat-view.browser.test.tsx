@@ -282,32 +282,79 @@ test("the composer shows the next turn's choice while an answer keeps the model 
   await expect.element(page.getByText("stub/stub-1")).toBeVisible();
 });
 
-test("an unconfirmed level is not shown as the composer's level for the next turn", async () => {
+test.each(["unavailable", "unconfirmed"] as const)(
+  "a %s level on the current model shows its confirmed level",
+  async (reason) => {
+    const chat = await renderChat(
+      recorded([], {
+        state: workingChat({
+          model: { provider: "stub", id: "stub-2", name: "Stub Two" },
+          models: [
+            {
+              provider: "stub",
+              id: "stub-2",
+              name: "Stub Two",
+              reasoningLevels: ["off", "medium", "high"],
+            },
+          ],
+          reasoning: "medium",
+          reasoningLevels: ["off", "medium", "high"],
+          selection: { model: { provider: "stub", id: "stub-2" }, level: "max" },
+          selectionIssue: { level: "max", reason },
+        }),
+      }),
+    );
+    await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+
+    // The stored request is not the level a turn would run on; the composer says what the agent
+    // actually reports instead of offering the refused one as its choice.
+    await expect.element(page.getByRole("button", { name: "Reasoning medium" })).toBeVisible();
+    expect(page.getByRole("button", { name: "Reasoning max" }).elements()).toHaveLength(0);
+  },
+);
+
+test.each([
+  { reason: "unavailable", model: { provider: "stub", id: "stub-1", name: "Stub One" } },
+  { reason: "unconfirmed", model: { provider: "stub", id: "stub-1", name: "Stub One" } },
+  { reason: "unavailable", model: { provider: "other", id: "stub-2", name: "Other Two" } },
+  { reason: "unconfirmed", model: null },
+] as const)(
+  "a $reason next-model level does not borrow the current model's report ($model)",
+  async ({ reason, model }) => {
+    const chat = await renderChat(
+      recorded([], {
+        state: workingChat({
+          model,
+          models: [{ provider: "stub", id: "stub-2", name: "Stub Two" }],
+          reasoning: "high",
+          reasoningLevels: ["off", "medium", "high"],
+          selection: { model: { provider: "stub", id: "stub-2" }, level: "max" },
+          selectionIssue: { level: "max", reason },
+        }),
+      }),
+    );
+    await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
+    await expect.element(page.getByRole("button", { name: "Model Stub Two" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Thinking", exact: true })).toBeVisible();
+    expect(page.getByRole("button", { name: "Reasoning high" }).elements()).toHaveLength(0);
+    expect(page.getByRole("button", { name: "Reasoning max" }).elements()).toHaveLength(0);
+  },
+);
+
+test("a selection issue with no known model does not show a reasoning report", async () => {
   const chat = await renderChat(
     recorded([], {
       state: workingChat({
-        model: { provider: "stub", id: "stub-2", name: "Stub Two" },
-        models: [
-          {
-            provider: "stub",
-            id: "stub-2",
-            name: "Stub Two",
-            reasoningLevels: ["off", "medium", "high"],
-          },
-        ],
-        reasoning: "medium",
-        reasoningLevels: ["off", "medium", "high"],
-        selection: { model: { provider: "stub", id: "stub-2" }, level: "max" },
-        selectionIssue: { level: "max", reason: "unavailable" },
+        model: null,
+        reasoning: "high",
+        selection: null,
+        selectionIssue: { level: "max", reason: "unconfirmed" },
       }),
     }),
   );
   await vi.waitFor(() => expect(chat.script.store.getSnapshot().loaded).toBe(true));
-
-  // The stored request is not the level a turn would run on; the composer says what the agent
-  // actually reports instead of offering the refused one as its choice.
-  await expect.element(page.getByRole("button", { name: "Reasoning medium" })).toBeVisible();
-  expect(page.getByRole("button", { name: "Reasoning max" }).elements()).toHaveLength(0);
+  await expect.element(page.getByRole("button", { name: "Model none" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Thinking", exact: true })).toBeVisible();
 });
 
 test("an unspecified level shows the native report only after the selected model is live", async () => {

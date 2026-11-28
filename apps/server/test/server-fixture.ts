@@ -23,6 +23,7 @@ export function useServer(
     /** Shortened chat driver deadlines for tests that watch one; production runs the defaults. */
     chat?: Parameters<typeof startServer>[0]["chat"];
     modelCatalogTimeoutMs?: number;
+    beforeOpenCodeTerminal?: (sessionId: string) => Promise<void>;
   } = {},
 ) {
   let server: RunningServer;
@@ -46,6 +47,9 @@ export function useServer(
       ...(fixture.modelCatalogTimeoutMs === undefined
         ? {}
         : { modelCatalogTimeoutMs: fixture.modelCatalogTimeoutMs }),
+      ...(fixture.beforeOpenCodeTerminal === undefined
+        ? {}
+        : { beforeOpenCodeTerminal: fixture.beforeOpenCodeTerminal }),
     });
   const disconnectClients = () => {
     for (const stream of streams) stream.close();

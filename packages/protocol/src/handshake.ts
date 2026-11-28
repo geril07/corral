@@ -71,8 +71,9 @@ import { z } from "zod";
  * Version 22 carries pre-launch model confirmation and thinking choices and the thinking-memory API.
  * Version 23 carries each model's native catalog default separately from its active reasoning.
  * Version 24 distinguishes a configured, model or unknown next-turn reasoning default.
+ * Version 25 adds live model catalog status and explicit refresh.
  */
-export const PROTOCOL_VERSION = 24;
+export const PROTOCOL_VERSION = 25;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in

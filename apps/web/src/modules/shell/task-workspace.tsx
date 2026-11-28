@@ -188,6 +188,7 @@ export function useTaskWorkspace({
     kind: AgentKind;
     followUp: boolean;
     modelSwitch: boolean;
+    modelRefresh?: boolean | undefined;
     reasoningLevels: boolean;
     terminalView: string;
   }[];
@@ -1364,6 +1365,12 @@ export function useTaskWorkspace({
                 }
                 onSetModel={chat.setModel}
                 onSetReasoning={chat.setReasoning}
+                onRefreshModels={
+                  drivers.find((driver) => driver.kind === dialog.session.kind)?.modelRefresh
+                    ? () =>
+                        client.connection.api.chat.refreshModels({ sessionId: dialog.session.id })
+                    : undefined
+                }
                 onClose={() => setDialog(undefined)}
               />
             );

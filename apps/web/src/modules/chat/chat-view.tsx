@@ -109,28 +109,30 @@ export function ChatView({
   const nextChoice = snapshot.state.selection ?? null;
   const chosen = nextChoice?.model ?? snapshot.state.model;
   const applied = snapshot.state.model;
+  const sameModel =
+    chosen !== null &&
+    applied !== null &&
+    applied.id === chosen.id &&
+    applied.provider === chosen.provider;
   const chosenName =
     chosen === null
       ? undefined
-      : applied !== null && applied.id === chosen.id && applied.provider === chosen.provider
+      : sameModel
         ? applied.name
         : (snapshot.state.models.find(
             (model) => model.id === chosen.id && model.provider === chosen.provider,
           )?.name ?? chosen.id);
   // A selected level the live driver has not confirmed is not what a send would use, so it is not
-  // shown as the composer's level either; the confirmed level is, and the send is refused.
+  // shown as the composer's level either; only a report for the chosen model can stand in for it.
   const selectionIssue = snapshot.state.selectionIssue ?? null;
   const reasoning =
     (selectionIssue === null
       ? nextChoice === null
         ? snapshot.state.reasoning
-        : (nextChoice.level ??
-          (applied !== null &&
-          applied.id === nextChoice.model.id &&
-          applied.provider === nextChoice.model.provider
-            ? snapshot.state.reasoning
-            : null))
-      : snapshot.state.reasoning) ?? "Thinking";
+        : (nextChoice.level ?? (sameModel ? snapshot.state.reasoning : null))
+      : sameModel
+        ? snapshot.state.reasoning
+        : null) ?? "Thinking";
   const { observe: observeReasoning, clipped: clippedReasoning } = useTruncatedText(reasoning);
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string>();

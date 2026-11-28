@@ -78,6 +78,7 @@ export class CodexDriver implements ChatDriver {
   #readyTimer: NodeJS.Timeout | undefined;
   #closed = false;
   #stopping = false;
+  #catalogRequest: ReturnType<typeof readCodexModels> | undefined;
 
   constructor(request: CodexDriverRequest) {
     this.#request = request;
@@ -282,7 +283,7 @@ export class CodexDriver implements ChatDriver {
     if (options.forDispatch) this.#prepared = null;
     let models;
     try {
-      models = await readCodexModels(this.#provider, (params) => this.#call("model/list", params));
+      models = await this.#loadModels();
     } catch {
       throw new ChatUnavailableError("Codex could not confirm its model list.", "turn-unconfirmed");
     }
@@ -340,7 +341,14 @@ export class CodexDriver implements ChatDriver {
       }
       this.#prepared = { model: selection.model, level: selection.level, effort };
     }
-    if (!this.#closed) this.timeline.setState({ models });
+  }
+
+  async refreshModels(): Promise<void> {
+    try {
+      await this.#loadModels();
+    } catch {
+      throw new ChatUnavailableError("Codex could not load its model list.", "turn-unconfirmed");
+    }
   }
 
   async setReasoning(level: string): Promise<void> {
@@ -378,24 +386,45 @@ export class CodexDriver implements ChatDriver {
 
   async #discoverModels(): Promise<void> {
     try {
-      const deadline = Date.now() + Math.min(2500, this.#request.readyTimeoutMs);
-      const models = await readCodexModels(this.#provider, (params) =>
-        this.#call("model/list", params, Math.max(1, deadline - Date.now())),
-      );
-      if (this.#closed) return;
-      const current = models.find(
-        (model) =>
-          model.id === this.state.model?.id && model.provider === this.state.model?.provider,
-      );
-      this.timeline.setState({
-        models,
-        ...(current === undefined ? {} : { model: current }),
-        reasoningLevels: current?.reasoningLevels ?? [],
-        reasoningStatus: current === undefined ? "error" : "ready",
-      });
+      await this.#loadModels(Math.min(2500, this.#request.readyTimeoutMs));
     } catch {
       // A metadata failure must not prevent an otherwise valid configured launch.
     }
+  }
+
+  #loadModels(timeoutMs = REQUEST_TIMEOUT_MS): ReturnType<typeof readCodexModels> {
+    if (this.#catalogRequest !== undefined) return this.#catalogRequest;
+    this.timeline.setState({ modelsStatus: "loading", reasoningStatus: "loading" });
+    const deadline = Date.now() + timeoutMs;
+    const request = readCodexModels(this.#provider, (params) =>
+      this.#call("model/list", params, Math.max(1, deadline - Date.now())),
+    )
+      .then((models) => {
+        if (!this.#closed) {
+          const current = models.find(
+            (model) =>
+              model.id === this.state.model?.id && model.provider === this.state.model?.provider,
+          );
+          this.timeline.setState({
+            models,
+            modelsStatus: "ready",
+            ...(current === undefined ? {} : { model: current }),
+            reasoningLevels: current?.reasoningLevels ?? [],
+            reasoningStatus: current === undefined ? "error" : "ready",
+          });
+        }
+        return models;
+      })
+      .catch((error: unknown) => {
+        if (!this.#closed)
+          this.timeline.setState({ modelsStatus: "error", reasoningStatus: "error" });
+        throw error;
+      })
+      .finally(() => {
+        this.#catalogRequest = undefined;
+      });
+    this.#catalogRequest = request;
+    return request;
   }
 
   /** One WebSocket over the app-server's unix socket; a close before `stop` is a failed frontend. */
@@ -829,6 +858,7 @@ export const codexChatDriver: ChatDriverRegistration = {
     followUp: true,
     approvals: true,
     modelSwitch: true,
+    modelRefresh: true,
     reasoningLevels: true,
     terminalView: "both-live",
   },

@@ -17,9 +17,9 @@ describe("protocol version in the URL", () => {
   });
 
   test("the protocol is the current version and a previous version is rejected", () => {
-    expect(PROTOCOL_VERSION).toBe(24);
-    expect(checkProtocolVersion(new URL("ws://h/rpc?protocol=21"))).toEqual({
-      serverProtocolVersion: 24,
+    expect(PROTOCOL_VERSION).toBe(25);
+    expect(checkProtocolVersion(new URL("ws://h/rpc?protocol=24"))).toEqual({
+      serverProtocolVersion: 25,
     });
   });
 

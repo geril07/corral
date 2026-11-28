@@ -8,8 +8,10 @@
 // a tool call (`stream`), a turn that keeps running until it is interrupted (`hold`), or a turn
 // that asks for permission first (`ask`). No model is called and no network is touched.
 // `POST …/model` updates the session's reported model and is journalled; a `model-switch-mode`
-// file holding `fail` answers it with 400. A `session-read-mode` file holding `fail` answers
-// `GET /api/session/:id` with 500, the shape of a server that cannot report the session.
+// file holding `fail` answers it with 400, `error` with a 500 body, `lost` writes then drops the
+// response, and `hold` keeps the request open until the file changes. A `session-read-mode` file
+// holding `fail` answers `GET /api/session/:id` with 500, the shape of a server that cannot report
+// the session.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -411,6 +413,10 @@ export function runFakeOpenCodeServer(options: {
         } catch {
           /* no scenario */
         }
+        if (mode === "hold") {
+          journal({ action: "catalog-held" });
+          await new Promise<void>((resolve) => process.once("SIGUSR2", resolve));
+        }
         if (mode === "partial-error" && modelReads > 1) {
           json(response, 503, {});
           return;
@@ -559,8 +565,24 @@ export function runFakeOpenCodeServer(options: {
           json(response, 400, { _tag: "InvalidRequestError", message: "the model was refused" });
           return;
         }
+        if (mode === "error") {
+          json(response, 500, { message: "provider secret should not be shown" });
+          return;
+        }
+        if (mode === "hold") {
+          while (switchMode() === "hold" && !response.destroyed) {
+            // The test releases this request by changing the scenario file.
+            // oxlint-disable-next-line no-await-in-loop -- the held request must observe release
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          if (response.destroyed) return;
+        }
         session.model = model;
         save(session);
+        if (mode === "lost" || (mode === "hold" && switchMode() === "lost")) {
+          response.destroy();
+          return;
+        }
         emit("session.next.model.switched", {
           sessionID: session.id,
           messageID: `msg_fakeswitch${session.messages.length + 1}`,

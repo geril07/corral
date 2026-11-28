@@ -314,6 +314,7 @@ test("a task created in chat view starts pi in RPC mode with its prompt, and the
         followUp: true,
         approvals: true,
         modelSwitch: true,
+        modelRefresh: true,
         reasoningLevels: true,
         terminalView: "both-live",
       },
@@ -336,6 +337,10 @@ test("a task created in chat view starts pi in RPC mode with its prompt, and the
         terminalView: "both-live",
       },
     ],
+  });
+  await expect(api.chat.refreshModels({ sessionId: session.id })).rejects.toMatchObject({
+    code: "CHAT_UNAVAILABLE",
+    data: { reason: "no-driver" },
   });
 
   await expect

@@ -91,6 +91,7 @@ export interface ModelPickerProps {
   loading?: boolean | undefined;
   /** A catalog failure or unsupported discovery, shown in the model list. */
   modelStatus?: string | undefined;
+  onRetryModels?: (() => void) | undefined;
   /** Why reasoning cannot be selected in this context. */
   reasoningStatus?: string | undefined;
   error?: string | undefined;
@@ -182,6 +183,7 @@ function PickerContent({
   levelsPending,
   loading,
   modelStatus,
+  onRetryModels,
   reasoningStatus,
   error,
   busy,
@@ -574,6 +576,11 @@ function PickerContent({
               role={error ? "alert" : "status"}
             >
               {error ?? (loading ? "Loading models…" : (modelStatus ?? "No models found."))}
+              {onRetryModels !== undefined && (
+                <Button variant="ghost" size="sm" disabled={busy} onClick={onRetryModels}>
+                  Retry
+                </Button>
+              )}
             </div>
           )}
         </div>

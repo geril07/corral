@@ -110,6 +110,15 @@ handling must account for this shared process. Codex instead uses a server per s
 [`opencode-server.ts`](../apps/server/src/chat/opencode-server.ts) and
 [`chat-driver.ts`](../apps/server/src/chat/chat-driver.ts).
 
+An OpenCode terminal launch and chat prompt dispatch reserve the session against each other until
+the terminal is live or the dispatch's receipt has answered (accepted, refused or unknown). Unknown
+prompt delivery remains a durable refusal to open the terminal, including without a chat frontend.
+An ambiguous model-switch response is different: the prompt was not sent, but a late native write
+may still change the session. Both terminal launch and later chat dispatch are refused for that
+native server generation. The shared server's exit, not frontend exit or a later read, ends that
+model-write uncertainty. The 204 completion boundary is based on the OpenCode 2.2.5 source, not a
+cross-version promise.
+
 ## Workspace data
 
 A task does not own the main checkout or another task's files. Only a worktree owned by the task

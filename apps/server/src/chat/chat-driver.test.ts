@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, test } from "vite-plus/test";
+import { afterEach, beforeEach, expect, test, vi } from "vite-plus/test";
 import type {
   ChatDriver,
   ChatDriverRegistration,
@@ -282,6 +282,223 @@ function boundaryRegistry(): { registry: ChatDriverRegistry; started: BoundaryDr
   };
 }
 
+test("a catalog refresh with unchanged offers does not repeatedly prepare the selection", async () => {
+  const harness = boundaryRegistry();
+  const chat = chatService(harness);
+  const session = subject("catalog-loop", "claude");
+  try {
+    await chat.launch(request("catalog-loop", "claude"));
+    const driver = harness.started[0]!;
+    driver.timeline.setState({ reasoningStatus: "ready" });
+    await flushPasses();
+    let preparations = 0;
+    Object.assign(driver, {
+      prepareSelection: async () => {
+        preparations += 1;
+        // Stop the reproduction if the service schedules itself indefinitely.
+        if (preparations < 4) {
+          driver.timeline.setState({ modelsStatus: "loading", reasoningStatus: "loading" });
+          driver.timeline.setState({ modelsStatus: "ready", reasoningStatus: "ready" });
+        }
+      },
+    });
+    await chat.setModel(session, { provider: "stub", id: "stub-1" });
+    await flushPasses();
+    expect(preparations).toBe(1);
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test.each(["prompt", "exit"] as const)(
+  "a queued turn precedes a later prompt after the shared terminal releases it (%s)",
+  async (wake) => {
+    const harness = boundaryRegistry();
+    harness.registry.claude!.capabilities.terminalView = "both-live";
+    const chat = chatService(harness);
+    let terminalLive = false;
+    const session = subject("fifo", "claude");
+    try {
+      await chat.launch({ ...request("fifo", "claude"), terminalLive: () => terminalLive });
+      const driver = harness.started[0]!;
+      await chat.send(session, "A", "prompt");
+      await expect.poll(() => driver.state.queue?.[0]?.status).toBe("accepted");
+      await chat.send(session, "B", "follow-up");
+      terminalLive = true;
+      driver.timeline.setState({ turn: "settled" });
+      driver.confirmBoundary();
+      await expect.poll(() => driver.state.queue?.map((entry) => entry.text)).toEqual(["B"]);
+      expect(driver.sent).toEqual(["A"]);
+      terminalLive = false;
+      if (wake === "exit") {
+        chat.terminalExited("fifo");
+        await vi.waitFor(() => {
+          if (driver.sent.length !== 2) throw new Error("queued turn has not started");
+        });
+      }
+      await expect(chat.send(session, "C", "prompt")).rejects.toThrow("previous turn");
+      expect(driver.sent).toEqual(["A", "B"]);
+    } finally {
+      await chat.closeAll();
+    }
+  },
+);
+
+test("terminal exit cannot release a queued turn with unconfirmed delivery", async () => {
+  const harness = boundaryRegistry();
+  harness.registry.claude!.capabilities.terminalView = "both-live";
+  const chat = chatService(harness);
+  let terminalLive = false;
+  const session = subject("fifo-uncertain", "claude");
+  try {
+    await chat.launch({ ...request("fifo-uncertain", "claude"), terminalLive: () => terminalLive });
+    const driver = harness.started[0]!;
+    driver.holdDelivery = true;
+    await chat.send(session, "A", "prompt");
+    await chat.send(session, "B", "follow-up");
+    terminalLive = true;
+    driver.timeline.setState({ turn: "settled" });
+    chat.terminalExited("fifo-uncertain");
+    terminalLive = false;
+    chat.terminalExited("fifo-uncertain");
+    await expect(chat.send(session, "C", "prompt")).rejects.toThrow("previous turn");
+    expect(driver.sent).toEqual(["A"]);
+    expect(driver.state.queue?.find((entry) => entry.text === "B")?.status).toBe("queued");
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("a terminal opening during selection prevents a queued prompt from dispatching", async () => {
+  const harness = boundaryRegistry();
+  harness.registry.claude!.capabilities.terminalView = "both-live";
+  const chat = chatService(harness);
+  let terminalLive = false;
+  const session = subject("terminal-race", "claude");
+  const b = { provider: "stub", id: "b" };
+  try {
+    await chat.launch({
+      ...request("terminal-race", "claude"),
+      terminalLive: () => terminalLive,
+    });
+    const driver = harness.started[0]!;
+    driver.timeline.setState({ models: [...driver.state.models, { ...b, name: "B" }] });
+    await chat.send(session, "A", "prompt");
+    await chat.setModel(session, b);
+    await chat.send(session, "B", "follow-up");
+    const started = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    driver.setModel = async (model) => {
+      started.resolve();
+      await release.promise;
+      driver.timeline.setState({ model: { ...model, name: model.id } });
+    };
+    driver.timeline.setState({ turn: "settled" });
+    driver.confirmBoundary();
+    await started.promise;
+    terminalLive = true;
+    release.resolve();
+    await flushPasses();
+    expect(driver.sent).toEqual(["A"]);
+    expect(driver.state.queue?.find((entry) => entry.text === "B")?.status).toBe("queued");
+    terminalLive = false;
+    chat.terminalExited("terminal-race");
+    await vi.waitFor(() => expect(driver.sent).toEqual(["A", "B"]));
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("a later prompt does not inherit an unavailable queued selection's issue", async () => {
+  const harness = boundaryRegistry();
+  harness.registry.claude!.capabilities.terminalView = "both-live";
+  const chat = chatService(harness);
+  let terminalLive = false;
+  const session = subject("fifo-unavailable", "claude");
+  const b = { provider: "stub", id: "b" };
+  const c = { provider: "stub", id: "c" };
+  try {
+    await chat.launch({
+      ...request("fifo-unavailable", "claude"),
+      terminalLive: () => terminalLive,
+    });
+    const driver = harness.started[0]!;
+    driver.timeline.setState({
+      models: [
+        { provider: "stub", id: "stub-1", name: "A" },
+        { ...b, name: "B", reasoningLevels: ["high"] },
+        { ...c, name: "C" },
+      ],
+    });
+    await chat.send(session, "A", "prompt");
+    await chat.setModel(session, b, "high");
+    await chat.send(session, "B", "follow-up");
+    await chat.setModel(session, c);
+    terminalLive = true;
+    driver.timeline.setState({ turn: "settled" });
+    driver.confirmBoundary();
+    await expect.poll(() => driver.state.queue?.map((entry) => entry.text)).toEqual(["B"]);
+    driver.timeline.setState({ reasoningLevels: [] });
+    terminalLive = false;
+    await chat.send(session, "C", "prompt");
+    expect(driver.sent).toEqual(["A", "C"]);
+    expect(driver.state.queue?.find((entry) => entry.text === "B")?.status).toBe("undelivered");
+    expect(driver.state.selectionIssue).toBeNull();
+    expect(driver.timeline.snapshot().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "error", text: expect.stringContaining("B") }),
+      ]),
+    );
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("selection issues follow the selected model and level during a running turn", async () => {
+  const harness = boundaryRegistry();
+  const chat = chatService(harness);
+  const session = subject("selection-owner", "claude");
+  const b = { provider: "stub", id: "b" };
+  const c = { provider: "stub", id: "c" };
+  try {
+    await chat.launch(request("selection-owner", "claude"));
+    const driver = harness.started[0]!;
+    driver.timeline.setState({
+      models: [
+        { provider: "stub", id: "stub-1", name: "A" },
+        { ...b, name: "B", reasoningLevels: ["low"] },
+        { ...c, name: "C", reasoningLevels: ["low"] },
+      ],
+      reasoningLevels: ["high"],
+    });
+    await chat.send(session, "A", "prompt");
+    await expect(chat.setModel(session, b, "max")).rejects.toThrow('thinking level "max"');
+    expect(driver.state.selectionIssue).toEqual({ level: "max", reason: "unavailable" });
+    driver.timeline.setState({ reasoning: "high" });
+    expect(driver.state.selectionIssue).toEqual({ level: "max", reason: "unavailable" });
+    await expect(chat.setModel(session, b, "max")).rejects.toThrow('thinking level "max"');
+    expect(driver.state.selectionIssue).toEqual({ level: "max", reason: "unavailable" });
+    await expect(chat.send(session, "blocked", "follow-up")).rejects.toThrow(
+      'thinking level "max"',
+    );
+    await chat.setModel(session, c);
+    expect(driver.state.selectionIssue).toBeNull();
+    await chat.send(session, "C", "follow-up");
+    expect(driver.state.queue?.find((entry) => entry.text === "C")?.selection).toEqual({
+      model: c,
+      level: null,
+    });
+    await expect(chat.setReasoning(session, "max")).rejects.toThrow('thinking level "max"');
+    expect(driver.state.selectionIssue).toEqual({ level: "max", reason: "unavailable" });
+    await expect(chat.send(session, "blocked again", "follow-up")).rejects.toThrow(
+      'thinking level "max"',
+    );
+    expect(chat.rememberedLevel({ kind: "claude", profileId: null }, b)).toBe("max");
+  } finally {
+    await chat.closeAll();
+  }
+});
+
 /** Lets the service's scheduled passes run: one macrotask drains their microtasks. */
 function flushPasses(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -359,7 +576,7 @@ test("a driver is one registry entry: it answers chat.capabilities and starts th
     // The record is the driver's declaration, the kind is the registry's key.
     expect(recordsOf(chat.capabilities())).toEqual([
       "claude:both-live:modelSwitch,reasoningLevels",
-      "codex:both-live:steer,followUp,approvals,modelSwitch,reasoningLevels",
+      "codex:both-live:steer,followUp,approvals,modelSwitch,modelRefresh,reasoningLevels",
       "pi:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "opencode:both-live:steer,followUp,approvals,modelSwitch",
     ]);
@@ -718,6 +935,22 @@ test("a cached level in a failed report is unconfirmed: not applied and not remo
     );
     expect(driver.timeline.state.selectionIssue).toEqual({ level: "max", reason: "unconfirmed" });
     expect(sent).toEqual([]);
+  } finally {
+    await chat.closeAll();
+  }
+});
+
+test("an unchanged fresh report clears a level refused while discovery was loading", async () => {
+  const { chat, driver, session } = await maxFrontend("loading-level");
+  try {
+    await flushPasses();
+    driver.timeline.setState({ reasoningStatus: "loading" });
+    await expect(chat.send(session, "too early", "prompt")).rejects.toBeInstanceOf(
+      ChatReasoningUnsupportedError,
+    );
+    expect(driver.timeline.state.selectionIssue?.reason).toBe("unconfirmed");
+    driver.timeline.setState({ reasoningStatus: "ready" });
+    await vi.waitFor(() => expect(driver.timeline.state.selectionIssue).toBeNull());
   } finally {
     await chat.closeAll();
   }
@@ -1439,7 +1672,7 @@ test("the registry refuses an agent kind this build has no driver for", async ()
     // The build's own registry ships claude, codex, pi and opencode; the seam is what added claude.
     expect(recordsOf(chatService().capabilities())).toEqual([
       "claude:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
-      "codex:both-live:steer,followUp,approvals,modelSwitch,reasoningLevels",
+      "codex:both-live:steer,followUp,approvals,modelSwitch,modelRefresh,reasoningLevels",
       "pi:handoff-only:steer,followUp,approvals,modelSwitch,reasoningLevels",
       "opencode:both-live:steer,followUp,approvals,modelSwitch",
     ]);

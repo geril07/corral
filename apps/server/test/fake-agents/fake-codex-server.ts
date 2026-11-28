@@ -232,6 +232,8 @@ export async function startFakeCodexServer(
         return;
       }
       case "model/list":
+        if (options.journal !== undefined)
+          appendFileSync(options.journal, `${JSON.stringify({ action: "model/list" })}\n`);
         if (
           process.env["CODEX_HOME"] !== undefined &&
           existsSync(join(process.env["CODEX_HOME"], "catalog-error"))
@@ -240,7 +242,11 @@ export async function startFakeCodexServer(
           return;
         }
         respond({
-          data: FAKE_CODEX_MODELS,
+          data:
+            process.env["CODEX_HOME"] !== undefined &&
+            existsSync(join(process.env["CODEX_HOME"], "catalog-empty"))
+              ? []
+              : FAKE_CODEX_MODELS,
           nextCursor: null,
         });
         return;

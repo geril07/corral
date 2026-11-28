@@ -38,6 +38,7 @@ import {
   ChatReasoningUnsupportedError,
   ChatRefusalError,
   ChatUnavailableError,
+  OpenCodeInterlockError,
   messageOf,
   type ChatSubject,
 } from "./chat-errors.ts";
@@ -103,6 +104,8 @@ interface TurnControl {
   lastTurn: ChatTurnState;
   /** The levels and models last seen, so a fresh report re-tries a skipped choice. */
   offerSignature: string;
+  /** A fresh report must also retry a choice refused during discovery. */
+  offerLoading: boolean;
   /** A boundary pass is queued or running; another request coalesces into one more pass. */
   driveQueued: boolean;
   /** A boundary arrived while a pass was running; one more pass follows it. */
@@ -122,6 +125,7 @@ interface TurnControl {
   initialProvider: string | null;
   expectedModel: ChatModelRef | undefined;
   terminalLive: boolean | (() => boolean);
+  server: ChatLaunchRequest["server"];
   sharedTerminal: boolean;
   orderedTurnBoundaries: boolean;
   recoveryQueued: boolean;
@@ -158,6 +162,8 @@ interface DispatchAttempt {
 export class ChatService {
   readonly #drivers = new Map<string, ChatDriver>();
   readonly #turns = new Map<string, TurnControl>();
+  readonly #openCodeReservations = new Map<string, "terminal" | "dispatch">();
+  readonly #unknownModelWrites = new Map<string, NonNullable<ChatLaunchRequest["server"]>>();
   readonly #mutations = new WeakMap<ChatDriver, SerialQueue>();
   /**
    * The drivers this service can start, by agent kind. Production passes the build's registry;
@@ -342,6 +348,10 @@ export class ChatService {
     const driver: ChatDriver = registration.create({
       sessionId,
       timeline,
+      onModelWriteUnknown: () => {
+        if (request.kind === "opencode" && request.server !== undefined)
+          this.#unknownModelWrites.set(sessionId, request.server);
+      },
       command: request.command,
       args: [
         ...(request.instanceArgs ?? []),
@@ -477,6 +487,32 @@ export class ChatService {
     });
   }
 
+  reserveOpenCodeTerminal(sessionId: string, server: ChatLaunchRequest["server"]): () => void {
+    if (this.#openCodeReservations.has(sessionId))
+      throw new OpenCodeInterlockError("The session is dispatching a chat message.");
+    if (
+      this.#choices
+        .queue(sessionId)
+        .some(
+          (entry) =>
+            entry.status === "sending" ||
+            entry.status === "uncertain" ||
+            entry.status === "uncertain-idle",
+        )
+    )
+      throw new OpenCodeInterlockError("The delivery of a chat message is unknown.");
+    if (server !== undefined && this.#unknownModelWrites.get(sessionId) === server)
+      throw new OpenCodeInterlockError("The outcome of a model switch is unknown.");
+    this.#openCodeReservations.set(sessionId, "terminal");
+    return () => {
+      if (this.#openCodeReservations.get(sessionId) === "terminal") {
+        this.#openCodeReservations.delete(sessionId);
+        const control = this.#turns.get(sessionId);
+        if (control !== undefined && !control.driver.closed) this.#scheduleDrive(control);
+      }
+    };
+  }
+
   /**
    * A prompt starts on the session's selection, a steer uses the running turn unchanged, and a
    * follow-up is the server's queue. A prompt whose selection cannot be applied is refused: the
@@ -488,10 +524,25 @@ export class ChatService {
     if (mode === "steer") return Promise.resolve(this.#frontend(subject).send(text, mode).id);
     return this.#mutate(subject, async (driver) => {
       const control = this.#control(subject.sessionId, driver);
+      if (
+        control.scope.kind === "opencode" &&
+        control.server !== undefined &&
+        this.#unknownModelWrites.get(control.sessionId) === control.server
+      )
+        throw new ChatUnavailableError(
+          "The outcome of a model switch is unknown.",
+          "turn-unconfirmed",
+        );
       // A settled turn may be published before the boundary pass that releases its attempt; the
       // prompt a client sends in that window is the next turn, not a second writer.
       if (mode === "prompt") await this.#settleFinishedTurn(control);
+      if (mode === "prompt" && !this.#blocked(control) && driver.state.turn !== "working") {
+        const head = control.queue.find((entry) => entry.status === "queued");
+        if (head !== undefined) await this.#runQueued(control, head);
+      }
       if (mode === "prompt" && (this.#blocked(control) || driver.state.turn === "working"))
+        throw turnUnconfirmed();
+      if (mode === "prompt" && control.queue.some((entry) => entry.status === "queued"))
         throw turnUnconfirmed();
       if (mode === "prompt" && driver.state.turn !== "working") {
         const issue = await this.#applySelection(control, control.selection, {
@@ -527,6 +578,7 @@ export class ChatService {
     if (attempt.nativeBoundary === "pending" && attempt.boundary !== null)
       await Promise.race([attempt.boundary, delay(this.#boundaryWaitMs)]);
     if (!this.#releaseBoundaryAttempt(control)) return;
+    if (this.#blocked(control) || control.driver.timeline.state.turn === "working") return;
     const head = control.queue.find((entry) => entry.status === "queued");
     if (head === undefined) return;
     try {
@@ -579,6 +631,8 @@ export class ChatService {
       // says the live driver has not confirmed it.
       this.cancelInitialSelection(subject.sessionId);
       if (level !== undefined) this.rememberLevel(control.scope, model, level);
+      if (control.selection === null || selectionKey(control.selection) !== selectionKey(selection))
+        control.selectionIssue = null;
       control.selection = selection;
       control.failedSelection = null;
       this.#choices.setSelection(subject.sessionId, selection);
@@ -593,6 +647,14 @@ export class ChatService {
       const issue = await this.#applySelection(control, selection, { strict: level !== undefined });
       if (level !== undefined && issue !== null)
         throw new ChatReasoningUnsupportedError(level, mentionOf(issue));
+    });
+  }
+
+  async refreshModels(subject: ChatSubject): Promise<void> {
+    await this.#mutate(subject, async (driver) => {
+      if (driver.refreshModels === undefined)
+        throw new ChatUnavailableError("This agent cannot refresh its model list.", "no-driver");
+      await driver.refreshModels();
     });
   }
 
@@ -620,6 +682,8 @@ export class ChatService {
         await driver.prepareSelection(selection, { forDispatch: false });
       this.cancelInitialSelection(subject.sessionId);
       this.rememberLevel(control.scope, model, level);
+      if (control.selection === null || selectionKey(control.selection) !== selectionKey(selection))
+        control.selectionIssue = null;
       control.selection = selection;
       control.failedSelection = null;
       this.#choices.setSelection(subject.sessionId, selection);
@@ -674,6 +738,7 @@ export class ChatService {
       ready: false,
       lastTurn: driver.state.turn,
       offerSignature: offerSignatureOf(driver.state),
+      offerLoading: false,
       driveQueued: false,
       driveAgain: false,
       attempt: null,
@@ -685,6 +750,7 @@ export class ChatService {
       initialProvider: request.provider,
       expectedModel: request.expectedModel,
       terminalLive: request.terminalLive ?? false,
+      server: request.server,
       sharedTerminal:
         this.#registry[request.kind]?.capabilities.terminalView === "both-live" &&
         this.#registry[request.kind]?.capabilities.modelSwitch === true,
@@ -751,13 +817,20 @@ export class ChatService {
       control.ready = true;
       if (state.turn !== "working") this.#scheduleDrive(control);
     }
-    // A fresh catalog or level report is the only evidence that a skipped level came back; it
-    // also invalidates the "already failed" mark, which otherwise keeps a selection dormant.
-    const offer = offerSignatureOf(state);
-    if (offer !== control.offerSignature) {
-      control.offerSignature = offer;
-      control.failedSelection = null;
-      if (control.ready && state.turn !== "working") this.#scheduleDrive(control);
+    // Loading is not a new offer: counting it would make selection validation start another
+    // refresh indefinitely. A completed refresh still retries a choice refused while it loaded.
+    if (state.modelsStatus === "loading" || state.reasoningStatus === "loading") {
+      control.offerLoading = true;
+    } else {
+      const offer = offerSignatureOf(state);
+      const retryUnconfirmed =
+        control.offerLoading && control.selectionIssue?.reason === "unconfirmed";
+      control.offerLoading = false;
+      if (offer !== control.offerSignature || retryUnconfirmed) {
+        control.offerSignature = offer;
+        control.failedSelection = null;
+        if (control.ready && state.turn !== "working") this.#scheduleDrive(control);
+      }
     }
     if (previous !== "working" || state.turn === "working") return;
     if (state.turn === "settled") this.#scheduleDrive(control);
@@ -785,6 +858,11 @@ export class ChatService {
         control.driveAgain = false;
         this.#scheduleDrive(control);
       });
+  }
+
+  terminalExited(sessionId: string): void {
+    const control = this.#turns.get(sessionId);
+    if (control !== undefined && !control.driver.closed) this.#scheduleDrive(control);
   }
 
   /** The same serial queue as a client mutation, so a boundary cannot race a send or a choice. */
@@ -901,7 +979,24 @@ export class ChatService {
 
   #dispatch(control: TurnControl, entry: ChatQueuedMessage): string {
     const driver = control.driver;
-    this.#setQueueStatus(control, entry.id, "sending");
+    const reserved = control.scope.kind === "opencode";
+    if (reserved) {
+      if (this.#openCodeReservations.has(control.sessionId)) throw turnUnconfirmed();
+      this.#openCodeReservations.set(control.sessionId, "dispatch");
+    }
+    const release = () => {
+      if (reserved && this.#openCodeReservations.get(control.sessionId) === "dispatch") {
+        this.#openCodeReservations.delete(control.sessionId);
+        const current = this.#turns.get(control.sessionId);
+        if (current !== undefined && !current.driver.closed) this.#scheduleDrive(current);
+      }
+    };
+    try {
+      this.#setQueueStatus(control, entry.id, "sending");
+    } catch (error) {
+      release();
+      throw error;
+    }
     const attempt: DispatchAttempt = {
       id: entry.id,
       token: ++control.attemptToken,
@@ -918,6 +1013,7 @@ export class ChatService {
     try {
       receipt = driver.send(entry.text, "prompt", entry.selection);
     } catch (error) {
+      release();
       this.#settleAttempt(control, attempt);
       this.#setQueueStatus(control, entry.id, "undelivered");
       this.#surfaceQueued(control, entry.id, `the message could not be sent: ${messageOf(error)}`);
@@ -946,7 +1042,38 @@ export class ChatService {
       });
     }
     // Waiting here would prevent a steer or a later selection from reaching the service.
-    void receipt.outcome.then((failure) => this.#queuedOutcome(control, attempt, failure));
+    void receipt.outcome.then(
+      (failure) => {
+        try {
+          if (
+            failure instanceof ChatRefusalError &&
+            this.#turns.get(control.sessionId) !== control &&
+            this.#choices
+              .queue(control.sessionId)
+              .some((candidate) => candidate.id === attempt.id && candidate.status === "uncertain")
+          ) {
+            const current = this.#turns.get(control.sessionId);
+            if (current === undefined)
+              this.#choices.setQueueStatus(control.sessionId, attempt.id, "undelivered");
+            else this.#setQueueStatus(current, attempt.id, "undelivered");
+          }
+          this.#queuedOutcome(control, attempt, failure);
+        } finally {
+          release();
+        }
+      },
+      (error: unknown) => {
+        try {
+          this.#queuedOutcome(
+            control,
+            attempt,
+            error instanceof Error ? error : new Error("The message outcome is unknown."),
+          );
+        } finally {
+          release();
+        }
+      },
+    );
     return receipt.id;
   }
 
@@ -1009,6 +1136,10 @@ export class ChatService {
       control.initialPending ||
       control.attempt !== null ||
       (control.sharedTerminal && terminalLive) ||
+      (control.scope.kind === "opencode" &&
+        (this.#openCodeReservations.has(control.sessionId) ||
+          (control.server !== undefined &&
+            this.#unknownModelWrites.get(control.sessionId) === control.server))) ||
       control.queue.some(
         (entry) =>
           entry.status === "uncertain" ||
@@ -1076,6 +1207,11 @@ export class ChatService {
           "chat:initial-prompt",
           `The initial prompt was not sent again because its earlier delivery cannot be ruled out: ${text}`,
         );
+        this.#scheduleDrive(control);
+        return;
+      }
+      if (control.scope.kind === "opencode") {
+        this.#createEntry(control, text, initialId(sessionId));
         this.#scheduleDrive(control);
         return;
       }

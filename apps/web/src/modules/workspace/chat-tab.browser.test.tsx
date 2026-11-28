@@ -11,6 +11,7 @@ import { Store } from "@corral/client/store";
 import type { TasksSnapshot } from "@corral/client/tasks-store";
 import type { ChatSendMode, Session, Task } from "@corral/protocol/rpc";
 import { ORPCError } from "@orpc/client";
+import { act } from "react";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { agentLaunches } from "../../../test/fake-agents.ts";
@@ -63,6 +64,9 @@ function seededClient(
   const setReasoning = vi
     .fn<(input: { sessionId: string; level: string }) => Promise<void>>()
     .mockResolvedValue(undefined);
+  const refreshModels = vi
+    .fn<(input: { sessionId: string }) => Promise<void>>()
+    .mockResolvedValue(undefined);
   const api = new Proxy(real.connection.api, {
     get(target, property, receiver) {
       if (property !== "chat") return Reflect.get(target, property, receiver);
@@ -73,6 +77,7 @@ function seededClient(
           if (chatProperty === "abort") return abort;
           if (chatProperty === "setModel") return setModel;
           if (chatProperty === "setReasoning") return setReasoning;
+          if (chatProperty === "refreshModels") return refreshModels;
           return Reflect.get(chatTarget, chatProperty, chatReceiver);
         },
       });
@@ -122,6 +127,7 @@ function seededClient(
     abort,
     setModel,
     setReasoning,
+    refreshModels,
     chatStore,
     chatState,
     chatSession: "chat-seeded",
@@ -521,10 +527,32 @@ test("the chat model and reasoning controls apply what the driver reports, from 
         level: "high",
       }),
     );
-    await expect.element(modelDialog).toBeVisible();
-    await userEvent.keyboard("{Escape}");
     await expect.element(modelDialog).not.toBeInTheDocument();
     await expect.element(page.getByRole("textbox", { name: "Message" })).toHaveFocus();
+
+    const pendingModel = Promise.withResolvers<void>();
+    setModel.mockImplementationOnce(() => pendingModel.promise);
+    await page.getByRole("button", { name: "Model Stub One" }).click();
+    await modelDialog.getByRole("option", { name: /Stub Two/ }).click();
+    await vi.waitFor(() => expect(setModel).toHaveBeenCalledTimes(2));
+    await expect.element(modelDialog).toBeVisible();
+    pendingModel.resolve();
+    await expect.element(modelDialog).not.toBeInTheDocument();
+    await expect.element(page.getByRole("textbox", { name: "Message" })).toHaveFocus();
+
+    await page.getByRole("button", { name: "Model Stub One" }).click();
+    const search = modelDialog.getByRole("combobox");
+    await search.fill("Stub Two");
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => expect(setModel).toHaveBeenCalledTimes(3));
+    await expect.element(modelDialog).not.toBeInTheDocument();
+    await expect.element(page.getByRole("textbox", { name: "Message" })).toHaveFocus();
+
+    await page.getByRole("button", { name: "Model Stub One" }).click();
+    await modelDialog.getByRole("option", { name: /Stub One/ }).click();
+    await expect.element(modelDialog).not.toBeInTheDocument();
+    await expect.element(page.getByRole("textbox", { name: "Message" })).toHaveFocus();
+    expect(setModel).toHaveBeenCalledTimes(3);
 
     // The row's reasoning picker opens the level list; the driver's own values are what it offers.
     await page.getByRole("button", { name: "Reasoning medium" }).click();
@@ -550,6 +578,34 @@ test("the chat model and reasoning controls apply what the driver reports, from 
     await expect.element(levelDialog).toBeVisible();
     await userEvent.keyboard("{Escape}");
     await expect.element(levelDialog).not.toBeInTheDocument();
+
+    const pendingAfterNavigation = Promise.withResolvers<void>();
+    setModel.mockImplementationOnce(() => pendingAfterNavigation.promise);
+    await page.getByRole("button", { name: "Model Stub One" }).click();
+    await modelDialog.getByRole("option", { name: /Stub Two/ }).click();
+    await vi.waitFor(() => expect(setModel).toHaveBeenCalledTimes(4));
+
+    const otherTask = {
+      ...task,
+      id: "task-chat-settings-other",
+      title: "Other chat settings",
+      primarySessionId: "chat-other",
+    };
+    const otherSession = { ...session, id: "chat-other", taskId: otherTask.id };
+    tasks.set({ loaded: true, tasks: [task, otherTask] });
+    sessions.set({ loaded: true, sessions: [{ ...session, state: "stopped" }, otherSession] });
+    await expect.element(modelDialog).not.toBeInTheDocument();
+    await openSeededTask("Other chat settings");
+    await page.getByRole("button", { name: "Reasoning medium" }).click();
+    await expect.element(levelDialog).toBeVisible();
+    await act(async () => {
+      pendingAfterNavigation.resolve();
+      await setModel.mock.results[3]!.value;
+    });
+    await expect.element(levelDialog).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(levelDialog).not.toBeInTheDocument();
+    await expect.element(page.getByRole("textbox", { name: "Message" })).toHaveFocus();
   } finally {
     tasks.set({ loaded: true, tasks: [] });
     sessions.set({ loaded: true, sessions: [] });
@@ -567,7 +623,27 @@ test("model level discovery shows loading, failure and recovery instead of waiti
     reasoning: "medium",
     reasoningLevels: ["off", "medium", "high"],
   });
-  const { client, real, tasks, sessions, chatStore, chatState, chatSession } = seededClient(state);
+  const capabilities = new Store<ChatCapabilitiesSnapshot>({
+    loaded: true,
+    drivers: [
+      {
+        kind: "pi",
+        steer: true,
+        followUp: true,
+        approvals: true,
+        modelSwitch: true,
+        modelRefresh: true,
+        reasoningLevels: true,
+        terminalView: "handoff-only",
+      },
+    ],
+  });
+  const { client, real, tasks, sessions, chatStore, chatState, chatSession, refreshModels } =
+    seededClient(state, async () => undefined, {
+      subscribe: capabilities.subscribe,
+      getSnapshot: capabilities.getSnapshot,
+      close: () => {},
+    });
   const { repo } = await appWithProject(client);
   const project = await vi.waitFor(() => {
     const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
@@ -611,7 +687,6 @@ test("model level discovery shows loading, failure and recovery instead of waiti
     await openSeededTask("Levels pending");
     await page.getByRole("button", { name: "Model Stub One" }).click();
     const dialog = page.getByRole("dialog", { name: "Chat model" });
-    await dialog.getByRole("option", { name: /Stub Two/ }).click();
     const thinking = dialog.getByRole("group", { name: "Thinking levels" });
     chatState.set({
       loaded: true,
@@ -660,6 +735,68 @@ test("model level discovery shows loading, failure and recovery instead of waiti
     await expect.element(dialog.getByRole("button", { name: "medium", exact: true })).toBeVisible();
     expect(thinking.element().getAttribute("aria-busy")).toBeNull();
     expect(thinking.element().querySelectorAll(".model-picker-level-skeleton")).toHaveLength(0);
+
+    chatState.set({
+      loaded: true,
+      sequence: 4,
+      items: [],
+      failure: null,
+      state: { ...state, modelsStatus: "error", reasoningStatus: "error" },
+    });
+    await expect.element(dialog).toMatchTextContent("Could not load the model list.");
+    refreshModels.mockRejectedValueOnce(new Error("provider secret"));
+    await dialog.getByRole("button", { name: "Retry" }).click();
+    await vi.waitFor(() => expect(refreshModels).toHaveBeenCalledWith({ sessionId: chatSession }));
+    await expect.element(dialog).not.toMatchTextContent("provider secret");
+
+    chatState.set({
+      loaded: true,
+      sequence: 5,
+      items: [],
+      failure: null,
+      state: { ...state, modelsStatus: "ready", reasoningStatus: "ready" },
+    });
+    await expect.element(dialog).not.toMatchTextContent("Could not load the model list.");
+    chatState.set({
+      loaded: true,
+      sequence: 6,
+      items: [],
+      failure: null,
+      state: { ...state, modelsStatus: "error", reasoningStatus: "error" },
+    });
+    await dialog.getByRole("button", { name: "Retry" }).click();
+    await vi.waitFor(() => expect(refreshModels).toHaveBeenCalledTimes(2));
+    chatState.set({
+      loaded: true,
+      sequence: 7,
+      items: [],
+      failure: null,
+      state: {
+        ...state,
+        modelsStatus: "ready",
+        reasoningStatus: "error",
+        models: [state.models[1]!],
+      },
+    });
+    await expect.element(dialog).not.toMatchTextContent("Could not load the model list.");
+    await expect.element(dialog).toMatchTextContent("Could not load reasoning levels.");
+
+    chatState.set({
+      loaded: true,
+      sequence: 8,
+      items: [],
+      failure: null,
+      state: {
+        ...state,
+        model: null,
+        selection: { model: { provider: "stub", id: "stub-2" }, level: "high" },
+        modelsStatus: "ready",
+        reasoningStatus: "error",
+        models: [{ ...state.models[1]!, reasoningLevels: ["medium", "high"] }],
+      },
+    });
+    await expect.element(dialog.getByRole("button", { name: "high", exact: true })).toBeVisible();
+    await expect.element(dialog).not.toMatchTextContent("Could not load reasoning levels.");
   } finally {
     tasks.set({ loaded: true, tasks: [] });
     sessions.set({ loaded: true, sessions: [] });
