@@ -35,6 +35,7 @@ const BASE_STATE: ChatSessionState = {
   models: [{ provider: "anthropic", id: "claude-sonnet-4-5", name: "Sonnet 4.5" }],
   reasoning: "high",
   reasoningLevels: ["low", "medium", "high"],
+  selectionIssue: null,
   context: null,
 };
 

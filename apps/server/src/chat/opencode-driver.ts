@@ -1,9 +1,16 @@
-import type { ChatAnswer, ChatModelRef } from "@corral/protocol/chat";
+import type {
+  ChatAnswer,
+  ChatModel,
+  ChatModelRef,
+  ChatModelSelection,
+} from "@corral/protocol/chat";
 import type { ChatSendMode, AgentStatus } from "@corral/protocol/rpc";
 import {
   ChatModelUnsupportedError,
   ChatReasoningUnsupportedError,
+  ChatRefusalError,
   ChatRequestUnknownError,
+  ChatUnavailableError,
   messageOf,
 } from "./chat-errors.ts";
 import type {
@@ -11,6 +18,7 @@ import type {
   ChatDriverLaunch,
   ChatDriverRegistration,
   ChatLaunchFacts,
+  ChatSendReceipt,
   ChatTimeouts,
 } from "./chat-driver.ts";
 import {
@@ -27,6 +35,16 @@ export interface OpenCodeDriverRequest extends ChatDriverLaunch, ChatTimeouts {}
 const RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_MS = 250;
 const REQUEST_TIMEOUT_MS = 10_000;
+/** The page size asked of `GET /api/session/:id/message`; the server may return fewer. */
+const HISTORY_PAGE_LIMIT = 200;
+/**
+ * The most pages one hydration walks. A cursor that repeats or a server that keeps inventing a
+ * `cursor.next` must end the walk instead of holding the frontend on the hydrate path, so the
+ * transcript is what was read so far and the timeline says it starts partway.
+ */
+const HISTORY_MAX_PAGES = 100;
+/** The most messages one hydration keeps, for a server that returns enormous pages. */
+const HISTORY_MAX_MESSAGES = 20_000;
 
 /**
  * One OpenCode chat session: an HTTP/SSE client of the `opencode serve` Corral started for this
@@ -46,14 +64,27 @@ const REQUEST_TIMEOUT_MS = 10_000;
  * - A permission request becomes a `select` user request (allow once, allow always, reject) sent to
  *   `POST …/permission/:requestID/reply`; an answer from the terminal's own prompt arrives as
  *   `permission.replied` and resolves the same item, so one request has one resolution.
- * - `chat.send` maps `steer` to OpenCode's `delivery: "steer"` and `follow-up` to `"queue"`
- *   (measured from 2.2.5's own client schema); there is no delivery for a prompt. A prompt while a
- *   turn runs is refused instead of silently steering, because the client offers steer/follow-up
- *   by turn state (B3).
+ * - `chat.send` maps `steer` to OpenCode's `delivery: "steer"` (measured from 2.2.5's own client
+ *   schema); there is no delivery for a prompt. A follow-up is Corral's own queue and is started
+ *   by the service as a later prompt, not handed to OpenCode's queue, so the model it runs on is
+ *   the one captured when it was queued. A prompt while a turn runs is refused instead of
+ *   silently steering, because the client offers steer/follow-up by turn state (B3).
+ * - The model is per session in OpenCode (`POST /api/session/:id/model`, `Model.Ref` of `id`,
+ *   `providerID` and an optional `variant`; the reply is `204`), and `POST /api/session` takes the
+ *   same ref for the first turn. Corral's selection is applied by the service immediately before a
+ *   prompt, on the turn boundary, never to a running turn: OpenCode re-reads the session's model
+ *   when a step starts, so a switch under a running turn could reach a later step of the same turn.
+ *   `steer` never switches. A switch replaces the whole ref, so a variant the terminal chose would
+ *   be lost by one sent for an equal model: the driver reads `GET /api/session/:id` first and only
+ *   switches when `id` and `providerID` differ. A model switch carries no variant (the default is
+ *   the only defensible choice), because Corral's `ChatModelRef` has none; a read that cannot name
+ *   the session's model refuses the prompt instead, so the terminal's variant is never dropped
+ *   unseen.
+ * - `Model.Info.variants` are request overlays (headers and body settings), not thinking levels:
+ *   they are not reported as `reasoningLevels`, and this driver has no level to set.
  *
- * Models and reasoning levels are declared unsupported: OpenCode 2.2.5 has per-session model
- * switching, but this slice does not map it, so `chat.capabilities` says so and the client hides
- * the controls instead of offering a call that would be refused.
+ * Models: the driver offers the enabled entries of `GET /api/model` (the endpoint already lists
+ * chat models) and refuses a model it cannot find there instead of switching to it.
  */
 export class OpenCodeDriver implements ChatDriver {
   readonly timeline: ChatTimeline;
@@ -70,6 +101,13 @@ export class OpenCodeDriver implements ChatDriver {
   #promptSent = false;
   #hydrated = false;
   #failureReason: string | undefined;
+  /** The selection the service prepared for the next prompt; see `prepareSelection`. */
+  #prepared: ChatModelRef | null = null;
+  #lastDurableSequence = -1;
+  readonly #turnBoundaries = new Map<
+    string,
+    { delivered: number | null; resolve: (outcome: "settled" | "aborted") => void }
+  >();
 
   constructor(request: OpenCodeDriverRequest) {
     this.#request = request;
@@ -114,7 +152,7 @@ export class OpenCodeDriver implements ChatDriver {
     this.#finish(null);
   }
 
-  send(text: string, mode: ChatSendMode): string {
+  send(text: string, mode: ChatSendMode, selection?: ChatModelSelection | null): ChatSendReceipt {
     if (mode === "prompt" && this.timeline.state.turn === "working") {
       // The client offers steer and follow-up while a turn runs; a prompt would be a second
       // writer on the same turn, so it is refused visibly and nothing is sent — and no user item
@@ -125,18 +163,62 @@ export class OpenCodeDriver implements ChatDriver {
         id: refused,
         text: "a turn is running in this session; steer it or queue a follow-up instead",
       });
-      return refused;
+      return { id: refused, outcome: Promise.resolve(new ChatRefusalError("a turn is running")) };
     }
-    const { itemId, messageId } = this.#projection.userMessage(text);
-    const delivery = mode === "steer" ? "steer" : mode === "follow-up" ? "queue" : undefined;
-    void this.#prompt(messageId, text, delivery).catch((error: unknown) => {
-      this.timeline.put({
-        kind: "error",
-        id: `error:send:${messageId}`,
-        text: `opencode did not accept the message: ${messageOf(error)}`,
-      });
-    });
-    return itemId;
+    const ids = this.#projection.userMessageIds();
+    // A steer keeps the turn's model; only a prompt's own selection may switch, before its text
+    // is put on the timeline, so a refused switch leaves nothing claiming the message was sent.
+    const chosen = mode === "prompt" ? (selection ?? null) : null;
+    const boundary = mode === "prompt" ? Promise.withResolvers<"settled" | "aborted">() : null;
+    const delivery = mode === "steer" ? "steer" : "queue";
+    const outcome = (async (): Promise<Error | null> => {
+      if (chosen !== null) {
+        try {
+          await this.#applyTurnSelection(chosen);
+        } catch (error) {
+          const refusal = messageOf(error);
+          this.timeline.put({
+            kind: "error",
+            id: `error:send:${ids.messageId}`,
+            text: `opencode did not switch the model, so the message was not sent: ${refusal}`,
+          });
+          // The prompt was not attempted, so the words certainly did not enter the conversation;
+          // the server keeps them queued as undelivered instead of uncertain.
+          return new ChatRefusalError(refusal);
+        }
+      }
+      this.#projection.userMessage(text, ids.messageId);
+      if (boundary !== null)
+        this.#turnBoundaries.set(ids.messageId, {
+          delivered: null,
+          resolve: boundary.resolve,
+        });
+      try {
+        await this.#prompt(ids.messageId, text, delivery);
+        return null;
+      } catch (error) {
+        // A 4xx answer is the server rejecting the request; a lost connection or 5xx may have
+        // reached the session, so it is not reported as certainly unsent.
+        const refused =
+          error instanceof OpenCodeHttpError && error.status < 500 && error.status !== 408;
+        if (refused) this.#turnBoundaries.delete(ids.messageId);
+        this.timeline.put({
+          kind: "error",
+          id: `error:send:${ids.messageId}`,
+          text: `${refused ? "opencode did not accept the message" : "Could not confirm whether opencode accepted the message"}: ${messageOf(error)}`,
+        });
+        return refused
+          ? new ChatRefusalError(messageOf(error))
+          : error instanceof Error
+            ? error
+            : new Error(messageOf(error));
+      }
+    })();
+    return {
+      id: ids.itemId,
+      outcome,
+      ...(boundary === null ? {} : { boundary: boundary.promise }),
+    };
   }
 
   /** Interrupts the running execution; a request waiting for an answer can no longer be resolved. */
@@ -172,11 +254,35 @@ export class OpenCodeDriver implements ChatDriver {
     this.#report({ state: "working" });
   }
 
+  /**
+   * A direct switch is refused: the service owns the boundary and applies the choice through
+   * `prepareSelection`, immediately before a prompt. Switching here would change the model under a
+   * running turn.
+   */
   async setModel(model: ChatModelRef): Promise<void> {
     throw new ChatModelUnsupportedError(
       model,
-      "the opencode driver does not switch models in this build",
+      "opencode model choices are applied on the next turn",
     );
+  }
+
+  /**
+   * Validates a choice without touching the session, and holds it for the next prompt when the
+   * service says this is the dispatch. The catalog read is the refusal: a model OpenCode does not
+   * offer is reported here, before any text is put on the timeline.
+   */
+  async prepareSelection(
+    selection: ChatModelSelection,
+    options: { forDispatch: boolean },
+  ): Promise<void> {
+    if (options.forDispatch) this.#prepared = null;
+    if (selection.level !== null)
+      throw new ChatReasoningUnsupportedError(
+        selection.level,
+        "opencode models have no thinking levels in this build",
+      );
+    await this.#offeredModel(selection.model);
+    if (options.forDispatch) this.#prepared = selection.model;
   }
 
   async setReasoning(level: string): Promise<void> {
@@ -184,6 +290,105 @@ export class OpenCodeDriver implements ChatDriver {
       level,
       "the opencode driver has no reasoning levels in this build",
     );
+  }
+
+  /**
+   * Applies a prompt's own model before its text: the service prepared it at the boundary, and a
+   * prepared choice that names another model proves the two calls are out of step, so the turn is
+   * refused instead of running on either. The session's current model is read first: a switch for
+   * an equal `id` and `providerID` would replace the ref the terminal chose and drop its `variant`,
+   * so only a real difference is switched, and the switch names no variant (Corral's selection has
+   * none; the model's default is the honest choice). A read that fails or names no model refuses the
+   * turn, because switching blind could silently discard the terminal's variant and not switching
+   * could run on the terminal's model.
+   */
+  async #applyTurnSelection(selection: ChatModelSelection): Promise<void> {
+    const prepared = this.#prepared;
+    this.#prepared = null;
+    // The service never sends a level for a driver without levels; a level that arrives anyway is
+    // a choice this session cannot run, and substituting the default would be a silent change.
+    if (selection.level !== null)
+      throw new ChatReasoningUnsupportedError(
+        selection.level,
+        "opencode models have no thinking levels in this build",
+      );
+    if (prepared !== null && !sameModelRef(prepared, selection.model))
+      throw new ChatRefusalError("opencode has not confirmed this turn's selection");
+    const current = await this.#sessionModel();
+    const model = await this.#offeredModel(selection.model);
+    if (!sameModelRef(current, selection.model)) await this.#switchModel(selection.model);
+    if (!this.#closed) this.timeline.setState({ model });
+  }
+
+  /**
+   * The model `GET /api/session/:id` reports right now, including any `variant` the terminal chose.
+   * The ref is narrowed to what Corral compares; a variant is deliberately not carried, because the
+   * decision is whether a switch is needed at all.
+   */
+  async #sessionModel(): Promise<ChatModelRef> {
+    let body: unknown;
+    try {
+      body = await this.#json("GET", `/api/session/${encodeURIComponent(this.#session())}`);
+    } catch (error) {
+      throw new ChatUnavailableError(
+        `opencode could not confirm the session's model: ${messageOf(error)}`,
+        "turn-unconfirmed",
+      );
+    }
+    const model = sessionModelOf(body);
+    if (model === undefined)
+      throw new ChatUnavailableError(
+        "opencode did not report the session's model",
+        "turn-unconfirmed",
+      );
+    return model;
+  }
+
+  /** The catalog entry for a choice, or a refusal: this build only offers what OpenCode lists. */
+  async #offeredModel(model: ChatModelRef): Promise<ChatModel> {
+    if (model.provider === null)
+      throw new ChatModelUnsupportedError(model, "opencode models need a provider");
+    let models: ChatModel[];
+    try {
+      models = (await this.#catalog()).models;
+    } catch (error) {
+      throw new ChatUnavailableError(
+        `opencode could not confirm its model list: ${messageOf(error)}`,
+        "turn-unconfirmed",
+      );
+    }
+    if (!this.#closed) this.timeline.setState({ models });
+    const offered = models.find((entry) => sameModelRef(entry, model));
+    if (offered === undefined)
+      throw new ChatModelUnsupportedError(model, "opencode did not offer this model");
+    return offered;
+  }
+
+  /** `POST …/model` with the ref shape OpenCode documents; `204` is the only success. */
+  async #switchModel(model: ChatModelRef): Promise<void> {
+    if (model.provider === null)
+      throw new ChatModelUnsupportedError(model, "opencode models need a provider");
+    try {
+      await this.#json(
+        "POST",
+        `/api/session/${encodeURIComponent(this.#session())}/model`,
+        { model: { id: model.id, providerID: model.provider } },
+        204,
+      );
+    } catch (error) {
+      // A 4xx is the server answering and refusing the write, so nothing changed. A lost
+      // connection, a 5xx or an unexpected success status may have applied it before the answer
+      // went missing, and only the native server's own generation can end that doubt.
+      if (error instanceof OpenCodeHttpError && error.status < 500 && error.status !== 408)
+        throw new ChatRefusalError(messageOf(error));
+      this.#request.onModelWriteUnknown?.();
+      throw new ChatRefusalError("the model switch outcome is unknown; the message was not sent");
+    }
+  }
+
+  /** The enabled chat models and their context windows, from one `GET /api/model`. */
+  async #catalog(): Promise<{ models: ChatModel[]; windows: Map<string, number> }> {
+    return catalogOf(await this.#json("GET", "/api/model"));
   }
 
   /** Connect, hydrate, and keep the stream alive until the frontend stops or the server dies. */
@@ -277,13 +482,73 @@ export class OpenCodeDriver implements ChatDriver {
   /**
    * Each catalogued model's context window. A server whose catalog cannot be read still has a
    * transcript worth showing, so the reading loses its percentage instead of the session failing.
+   * The model list also stays empty, which is why `prepareSelection` re-reads it before a choice.
    */
-  async #modelWindows(): Promise<Map<string, number>> {
+  async #modelCatalog(): Promise<{ models: ChatModel[]; windows: Map<string, number> }> {
     try {
-      return modelWindowsOf(await this.#json("GET", "/api/model"));
+      return await this.#catalog();
     } catch {
-      return new Map();
+      return { models: [], windows: new Map() };
     }
+  }
+
+  /**
+   * The whole transcript in chronological order, read newest-first page by page. Pages start at
+   * `order=desc` and then follow only `cursor.next`, as the endpoint's contract requires (a cursor
+   * may not be combined with `order`). Paging backwards matters when a page cap is reached: the
+   * transcript then keeps the newest messages, including the current turn and every answer's model,
+   * and says that earlier ones are missing instead of presenting the oldest page as the whole
+   * conversation. A server that ignores `limit` answers with everything and a null cursor, which
+   * ends the walk after one page.
+   */
+  async #history(session: string): Promise<{ messages: unknown[]; truncated: boolean }> {
+    const messages: unknown[] = [];
+    const seen = new Set<string>();
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    let truncated = false;
+    let complete = false;
+    for (let page = 0; page < HISTORY_MAX_PAGES; page += 1) {
+      const query = new URLSearchParams({ limit: String(HISTORY_PAGE_LIMIT) });
+      if (cursor === undefined) query.set("order", "desc");
+      else query.set("cursor", cursor);
+      // oxlint-disable-next-line no-await-in-loop -- each page starts where the previous one ended
+      const body = await this.#json(
+        "GET",
+        `/api/session/${encodeURIComponent(session)}/message?${query.toString()}`,
+      );
+      let added = 0;
+      for (const message of arrayField(body, "data") ?? []) {
+        const id = stringField(message, "id");
+        if (id !== undefined) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+        }
+        if (messages.length >= HISTORY_MAX_MESSAGES) {
+          truncated = true;
+          break;
+        }
+        messages.push(message);
+        added += 1;
+      }
+      if (truncated) break;
+      const next = stringField(recordField(body, "cursor"), "next");
+      if (next === undefined) {
+        complete = true;
+        break;
+      }
+      // No new message or a cursor already followed means the server is not advancing; walking it
+      // again would repeat the same page until the page cap, and the cap is what reports the limit.
+      if (added === 0 || cursors.has(next)) {
+        truncated = true;
+        break;
+      }
+      cursors.add(next);
+      cursor = next;
+    }
+    if (!complete && !truncated) truncated = true;
+    messages.reverse();
+    return { messages, truncated };
   }
 
   /** Rebuilds transcript, session state and pending permissions from the server. */
@@ -296,16 +561,18 @@ export class OpenCodeDriver implements ChatDriver {
         model: recordField(data, "model"),
         time: recordField(data, "time"),
       });
-      const [messages, windows] = await Promise.all([
-        this.#json(
-          "GET",
-          `/api/session/${encodeURIComponent(session)}/message?limit=200&order=asc`,
-        ),
-        this.#modelWindows(),
-      ]);
-      const list = arrayField(messages, "data") ?? [];
-      this.#projection.setModelWindows(windows);
+      const [history, catalog] = await Promise.all([this.#history(session), this.#modelCatalog()]);
+      const list = history.messages;
+      this.#projection.setModelWindows(catalog.windows);
+      if (catalog.models.length > 0) this.timeline.setState({ models: catalog.models });
       this.#projection.loadHistory(list);
+      if (history.truncated) {
+        this.timeline.put({
+          kind: "notice",
+          id: "notice:opencode-history",
+          text: "Earlier messages were not loaded: opencode did not finish returning the conversation history.",
+        });
+      }
       const permissions = await this.#json(
         "GET",
         `/api/session/${encodeURIComponent(session)}/permission`,
@@ -337,17 +604,19 @@ export class OpenCodeDriver implements ChatDriver {
     if (this.#promptSent) return;
     this.#promptSent = true;
     const prompt = this.#request.prompt;
-    if (prompt === null) return;
-    if (this.timeline.snapshot().items.some((item) => item.kind === "user-message")) return;
-    const { itemId, messageId } = this.#projection.userMessage(prompt);
-    void this.#prompt(messageId, prompt, undefined).catch((error: unknown) => {
-      this.timeline.put({
-        kind: "error",
-        id: `error:send:${messageId}`,
-        text: `opencode did not accept the prompt: ${messageOf(error)}`,
-      });
-    });
-    void itemId;
+    if (prompt === null) {
+      this.#request.sendInitialPrompt?.(null);
+      return;
+    }
+    if (this.timeline.snapshot().items.some((item) => item.kind === "user-message")) {
+      this.#request.sendInitialPrompt?.(null);
+      return;
+    }
+    if (this.#request.sendInitialPrompt !== undefined) this.#request.sendInitialPrompt(prompt);
+    else {
+      const expected = this.#request.expectedModel ?? null;
+      this.send(prompt, "prompt", expected === null ? null : { model: expected, level: null });
+    }
   }
 
   async #prompt(messageId: string, text: string, delivery: string | undefined): Promise<void> {
@@ -365,9 +634,16 @@ export class OpenCodeDriver implements ChatDriver {
       await this.#json("GET", `/api/session/${encodeURIComponent(session)}`);
     } catch (error) {
       if (!(error instanceof OpenCodeHttpError) || error.status !== 404) throw error;
+      // The first turn's model rides on the session creation (`POST /api/session` takes the same
+      // `Model.Ref` as a switch), so a new conversation never starts on the server's default and
+      // then has to be moved before its first prompt.
+      const expected = this.#request.expectedModel;
       await this.#json("POST", "/api/session", {
         id: session,
         location: { directory: this.#request.cwd },
+        ...(expected === null || expected === undefined || expected.provider === null
+          ? {}
+          : { model: { id: expected.id, providerID: expected.provider } }),
       });
     }
   }
@@ -380,11 +656,55 @@ export class OpenCodeDriver implements ChatDriver {
     const data = recordOf(recordField(event, "data"));
     if (data === undefined) return;
     if (stringField(data, "sessionID") !== this.#session()) return;
+    const durable = recordOf(recordField(event, "durable"));
+    const sequence = durable?.["seq"];
+    if (
+      durable?.["aggregateID"] === this.#session() &&
+      typeof sequence === "number" &&
+      Number.isSafeInteger(sequence)
+    ) {
+      if (sequence <= this.#lastDurableSequence) return;
+      this.#lastDurableSequence = sequence;
+    }
+    if (!replay) this.#observeTurnBoundary(type, data, durable);
     for (const action of this.#projection.applyEvent(
       { type, data, ...eventShape(event) },
       { replay },
     ))
       this.#apply(action);
+  }
+
+  #observeTurnBoundary(
+    type: string,
+    data: Record<string, unknown>,
+    durable: Record<string, unknown> | undefined,
+  ): void {
+    const seq = durable?.["seq"];
+    if (
+      typeof seq !== "number" ||
+      !Number.isSafeInteger(seq) ||
+      durable?.["aggregateID"] !== this.#session()
+    )
+      return;
+    if (type === "session.inbox.delivered") {
+      const id = stringField(data, "inboxID");
+      const pending = id === undefined ? undefined : this.#turnBoundaries.get(id);
+      if (pending !== undefined) pending.delivered = seq;
+      return;
+    }
+    if (
+      type !== "session.execution.succeeded" &&
+      type !== "session.execution.interrupted" &&
+      type !== "session.execution.failed"
+    )
+      return;
+    // Shutdown leaves OpenCode's execution claim in place for recovery.
+    if (type === "session.execution.interrupted" && data["reason"] === "shutdown") return;
+    for (const [id, pending] of this.#turnBoundaries) {
+      if (pending.delivered === null || seq <= pending.delivered) continue;
+      this.#turnBoundaries.delete(id);
+      pending.resolve(type === "session.execution.succeeded" ? "settled" : "aborted");
+    }
   }
 
   #apply(action: OpenCodeAction): void {
@@ -476,7 +796,12 @@ export class OpenCodeDriver implements ChatDriver {
   }
 
   /** One JSON request to the server; a non-2xx answer is its typed error with the status. */
-  async #json(method: string, path: string, body?: unknown): Promise<unknown> {
+  async #json(
+    method: string,
+    path: string,
+    body?: unknown,
+    expectedStatus?: number,
+  ): Promise<unknown> {
     const response = await fetch(this.#url(path), {
       method,
       headers: {
@@ -491,6 +816,11 @@ export class OpenCodeDriver implements ChatDriver {
       const text = await response.text().catch(() => "");
       throw new OpenCodeHttpError(response.status, detailOf(text, response.status));
     }
+    if (expectedStatus !== undefined && response.status !== expectedStatus)
+      throw new OpenCodeHttpError(
+        response.status,
+        "the opencode server gave an unexpected response",
+      );
     if (response.status === 204) return undefined;
     const text = await response.text();
     if (text === "") return undefined;
@@ -601,21 +931,44 @@ function recordField(value: unknown, key: string): unknown {
 }
 
 /**
- * The `limit.context` of every model in the catalog (`GET /api/model`), keyed the way a session's
- * message names its model. A catalog entry carries both `id` and `modelID`; a message's ref uses
- * `id`, which is the key that has to match.
+ * The enabled models of `GET /api/model` and their context windows. An entry carries both `id`
+ * and `modelID` (2.2.5), or only `id` (2.3.2); a message's ref uses `id`, which is the key that
+ * has to match. `GET /api/model` lists chat models unless asked otherwise.
  */
-function modelWindowsOf(body: unknown): Map<string, number> {
+function catalogOf(body: unknown): { models: ChatModel[]; windows: Map<string, number> } {
+  const models: ChatModel[] = [];
   const windows = new Map<string, number>();
   for (const entry of arrayField(body, "data") ?? []) {
     const provider = stringField(entry, "providerID");
     const id = stringField(entry, "id") ?? stringField(entry, "modelID");
+    if (provider === undefined || id === undefined) continue;
+    if (recordField(entry, "enabled") === false) continue;
+    const name = stringField(entry, "name");
+    models.push({ provider, id, name: name === undefined || name === "" ? id : name });
     const context = recordField(recordField(entry, "limit"), "context");
-    if (provider === undefined || id === undefined || typeof context !== "number") continue;
-    if (!Number.isInteger(context) || context <= 0) continue;
+    if (typeof context !== "number" || !Number.isInteger(context) || context <= 0) continue;
     windows.set(`${provider}/${id}`, context);
   }
-  return windows;
+  return { models, windows };
+}
+
+function sameModelRef(left: ChatModelRef, right: ChatModelRef): boolean {
+  return left.provider === right.provider && left.id === right.id;
+}
+
+/**
+ * The model a `GET /api/session/:id` body reports, in the same keys a `Model.Ref` uses. The body is
+ * `{data: {model}}` or the session itself; the model keys follow a catalog entry (`id`/`modelID`,
+ * `providerID`/`provider`). A variant is ignored: it is the terminal's setting, not part of the
+ * identity the switch decision compares.
+ */
+function sessionModelOf(body: unknown): ChatModelRef | undefined {
+  const data = recordField(body, "data") ?? body;
+  const model = recordField(data, "model");
+  const provider = stringField(model, "providerID") ?? stringField(model, "provider");
+  const id = stringField(model, "id") ?? stringField(model, "modelID");
+  if (provider === undefined || id === undefined) return undefined;
+  return { provider, id };
 }
 
 function stringField(value: unknown, key: string): string | undefined {
@@ -646,11 +999,12 @@ function openCodeChatArgs(_facts: ChatLaunchFacts): string[] {
  * other view starts a client instead of stopping this one.
  */
 export const openCodeChatDriver: ChatDriverRegistration = {
+  requiresPreparationSignal: true,
   capabilities: {
     steer: true,
     followUp: true,
     approvals: true,
-    modelSwitch: false,
+    modelSwitch: true,
     reasoningLevels: false,
     terminalView: "both-live",
   },

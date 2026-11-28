@@ -83,6 +83,10 @@ async function startAgent(kind: string, keys: string) {
   await expect.element(picker().getByRole("radio", { name: "claude" })).toHaveFocus();
   await userEvent.keyboard(keys);
   await expect.element(picker()).not.toBeInTheDocument();
+  await page
+    .getByRole("dialog", { name: "Start agent session" })
+    .getByRole("button", { name: "Start session" })
+    .click();
   await expect.element(sessionButton(kind)).toHaveAttribute("aria-selected", "true");
   await expect.poll(wrappedScreen).toContain(`fake ${kind} ready`);
 }
@@ -257,17 +261,19 @@ test("an agent missing from the server's PATH keeps the picker open with the rea
     .getByRole("radio", { name: /claude/ })
     .click();
   await userEvent.keyboard("{Enter}");
+  const setup = page.getByRole("dialog", { name: "Start agent session" });
+  await setup.getByRole("button", { name: "Start session" }).click();
 
   await expect
-    .element(picker().getByRole("alert"))
+    .element(setup.getByRole("alert"))
     .toMatchTextContent("claude was not found on the server's PATH.");
-  await expect.element(picker()).toBeVisible();
+  await expect.element(setup).toBeVisible();
   expect(client.sessions.getSnapshot().sessions.filter((each) => each.kind === "claude")).toEqual(
     [],
   );
 
   await userEvent.keyboard("{Escape}");
-  await expect.element(picker()).not.toBeInTheDocument();
+  await expect.element(setup).not.toBeInTheDocument();
   await expect.element(shellTabs()).toHaveLength(1);
 });
 

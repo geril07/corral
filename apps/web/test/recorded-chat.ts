@@ -19,6 +19,7 @@ export const IDLE_CHAT: ChatSessionState = {
   models: [],
   reasoning: null,
   reasoningLevels: [],
+  selectionIssue: null,
   context: null,
 };
 

@@ -8,6 +8,7 @@ import {
   createTask,
   openedWindow,
   sessionTabs,
+  startAgentSession,
   taskCard,
 } from "./app-helpers.ts";
 import { readLaunches, test } from "./fixtures.ts";
@@ -45,13 +46,21 @@ view = "terminal"
   await addProject(window, repo);
   await createTask(window, "Profiles");
 
-  await openAgentSessionPicker(window, "terminal");
+  await openAgentSessionPicker(window);
   const picker = window.getByRole("dialog", { name: "New agent session" });
   const profile = picker.getByRole("radio", { name: "Claude sonnet" });
   await expect(profile).toBeVisible();
   await profile.click();
   await window.keyboard.press("Enter");
   await expect(picker).toBeHidden();
+  // Both directions of the view choice, so the terminal launch below is a choice and not a default.
+  const dialog = window.getByRole("dialog", { name: "Start agent session" });
+  await dialog.getByRole("button", { name: "Open in chat" }).click();
+  await expect(dialog.getByRole("button", { name: "Open in chat" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await startAgentSession(window, "terminal");
 
   const tab = sessionTabs(window).getByRole("tab", { name: /^claude/ });
   await expect(tab).toHaveAttribute("aria-selected", "true");

@@ -16,10 +16,10 @@ describe("protocol version in the URL", () => {
     expect(checkProtocolVersion(url)).toBeNull();
   });
 
-  test("the protocol is version 17 and a previous version is rejected", () => {
-    expect(PROTOCOL_VERSION).toBe(18);
-    expect(checkProtocolVersion(new URL("ws://h/rpc?protocol=16"))).toEqual({
-      serverProtocolVersion: 18,
+  test("the protocol is the current version and a previous version is rejected", () => {
+    expect(PROTOCOL_VERSION).toBe(25);
+    expect(checkProtocolVersion(new URL("ws://h/rpc?protocol=24"))).toEqual({
+      serverProtocolVersion: 25,
     });
   });
 

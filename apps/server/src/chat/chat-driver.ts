@@ -2,6 +2,7 @@ import type {
   ChatAnswer,
   ChatDriverCapabilities,
   ChatModelRef,
+  ChatModelSelection,
   ChatSessionState,
 } from "@corral/protocol/chat";
 import type { AgentKind, AgentStatus, ChatSendMode } from "@corral/protocol/rpc";
@@ -52,6 +53,14 @@ export interface ChatLaunchRequest {
   /** The native model and provider a profile or the user chose; `null` where neither is set. */
   model: string | null;
   provider: string | null;
+  /** Exact catalog model selected for a new chat, when its launch flag may be ambiguous. */
+  expectedModel?: ChatModelRef | undefined;
+  /**
+   * The profile this session was started with, for the thinking choice remembered per agent,
+   * profile and model; `null` for a bare model choice. It is part of the launch snapshot and never
+   * changes for the session.
+   */
+  profileId?: string | null;
   /** The agent's own conversation id; `null` when this session has none yet. */
   agentSessionId: string | null;
   /** A new conversation under the id, or the recorded one resumed. */
@@ -135,6 +144,8 @@ export interface ChatWriterClaim {
  */
 export interface ChatDriverLaunch {
   sessionId: string;
+  /** Reports a model write whose completion cannot be confirmed. */
+  onModelWriteUnknown?(): void;
   /**
    * The chat timeline every event of this frontend goes through. The service built it from the
    * reserved sequence floor, so a cursor held from a replaced frontend is a hole and gets a
@@ -150,9 +161,19 @@ export interface ChatDriverLaunch {
    * driver whose frontend is constructed (Claude's SDK `Options.model`) instead of spawned.
    */
   model: string | null;
+  /**
+   * The exact catalog model a new chat chose before its first prompt, when the agent takes it on
+   * the conversation rather than a launch flag (OpenCode's `POST /api/session`). A ref without a
+   * provider cannot be carried by such an agent and is refused before a switch.
+   */
+  expectedModel?: ChatModelRef | undefined;
   /** The conversation this frontend opens, new or resumed (`Options.sessionId`/`resume`). */
   how: "start" | "resume";
   prompt: string | null;
+  /** Reports the candidate initial prompt, or its absence, after native history was checked. */
+  sendInitialPrompt?(text: string | null): void;
+  /** A resumed frontend observed activity ending and may be able to confirm recovery idle. */
+  onRecoveryOpportunity?(): void;
   /**
    * The agent's own conversation id this frontend opens, after the driver's argv was built from it
    * (`ChatLaunchFacts`). A client of an agent server addresses the same id a terminal does.
@@ -179,6 +200,27 @@ export interface ChatDriverLaunch {
 
 /** Everything a driver is built with: the resolved launch and the service's deadlines. */
 export interface ChatDriverStart extends ChatDriverLaunch, ChatTimeouts {}
+
+/**
+ * What one `send` hands back. The id is the contract's answer to the client; the outcome is what
+ * lets the server's own queue stay honest about delivery.
+ */
+export interface ChatSendReceipt {
+  /** The item the message became, or the error item a driver refused it with. */
+  id: string;
+  /**
+   * Settles when the driver learns whether the agent took the message: `null` when it did, the
+   * refusal or transport error when it certainly did not or could not be confirmed. It never
+   * rejects, so a launch prompt whose caller ignores the receipt leaves no unhandled rejection.
+   *
+   * A driver resolves it from its own protocol's answer, never from `send` returning: `send` only
+   * puts the message on the wire. The server keeps a queued message in its durable queue until this
+   * settles, so a crash in between leaves it visible and `uncertain` rather than silently lost.
+   */
+  outcome: Promise<Error | null>;
+  /** A driver-correlated native whole-turn boundary, independent of delivery acceptance. */
+  boundary?: Promise<"settled" | "aborted">;
+}
 
 /**
  * One live chat frontend, whatever the agent behind it. `ChatService` owns the session id, the
@@ -215,8 +257,19 @@ export interface ChatDriver {
   start(): void;
   /** Stops it and resolves once it is gone. Called again after a stop, it just awaits. */
   stop(): Promise<void>;
-  /** Sends a message and returns the id of the item it became. */
-  send(text: string, mode: ChatSendMode): string;
+  /**
+   * Puts a message on the wire and returns its id plus the promise that reports whether the agent
+   * accepted it. Throwing means it certainly was not sent; the receipt carries the later answer.
+   */
+  send(text: string, mode: ChatSendMode, selection?: ChatModelSelection | null): ChatSendReceipt;
+  /** Validate a captured per-turn choice without mutating a currently running turn. */
+  prepareSelection?(
+    selection: ChatModelSelection,
+    options: { forDispatch: boolean },
+  ): Promise<void>;
+  refreshModels?(): Promise<void>;
+  /** On a resumed exclusive frontend, confirm native idle without inferring prior delivery. */
+  recoverIdle?(): Promise<boolean>;
   abort(): Promise<void>;
   respond(itemId: string, value: ChatAnswer): void;
   setModel(model: ChatModelRef): Promise<void>;
@@ -226,6 +279,10 @@ export interface ChatDriver {
 /** One driver this build ships: what it declares, its chat argv, and how it builds a frontend. */
 export interface ChatDriverRegistration {
   readonly capabilities: ChatDriverDeclaration;
+  /** The exclusive frontend emits ordered, non-replayed whole-turn start and settlement events. */
+  readonly orderedTurnBoundaries?: boolean;
+  /** The driver reports completion of history hydration through `sendInitialPrompt`. */
+  readonly requiresPreparationSignal?: boolean;
   /** The argument list of a chat launch, from the agent's own CLI. */
   args(facts: ChatLaunchFacts): string[];
   create(launch: ChatDriverStart): ChatDriver;

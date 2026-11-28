@@ -15,6 +15,7 @@ import {
 import { pi } from "../agents/pi.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { boundedJson } from "./catalog-json.ts";
+import { readCodexCatalog } from "./codex-discovery.ts";
 
 export interface CatalogLaunch {
   kind: AgentKind;
@@ -49,6 +50,7 @@ export async function readNativeCatalog(
   launch: CatalogLaunch,
   active: Set<() => Promise<void>>,
 ): Promise<NativeCatalog> {
+  if (launch.kind === "codex") return readCodexCatalog(launch, active);
   if (launch.kind === "pi") {
     const path = writerPath(launch.recordDir, "pi");
     await releasePreviousWriter(path);

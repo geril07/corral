@@ -91,6 +91,7 @@ export interface ModelPickerProps {
   loading?: boolean | undefined;
   /** A catalog failure or unsupported discovery, shown in the model list. */
   modelStatus?: string | undefined;
+  onRetryModels?: (() => void) | undefined;
   /** Why reasoning cannot be selected in this context. */
   reasoningStatus?: string | undefined;
   error?: string | undefined;
@@ -182,6 +183,7 @@ function PickerContent({
   levelsPending,
   loading,
   modelStatus,
+  onRetryModels,
   reasoningStatus,
   error,
   busy,
@@ -574,6 +576,11 @@ function PickerContent({
               role={error ? "alert" : "status"}
             >
               {error ?? (loading ? "Loading models…" : (modelStatus ?? "No models found."))}
+              {onRetryModels !== undefined && (
+                <Button variant="ghost" size="sm" disabled={busy} onClick={onRetryModels}>
+                  Retry
+                </Button>
+              )}
             </div>
           )}
         </div>
@@ -601,35 +608,44 @@ function PickerContent({
                 ))}
               </div>
             ) : selectedLevels.length > 0 ? (
-              <Toolbar.Root
-                orientation="vertical"
-                aria-label="Thinking"
-                className="model-picker-levels"
-              >
-                {selectedLevels.map((value, index) => (
-                  <Toolbar.Button
-                    key={value}
-                    ref={value === level || (!level && index === 0) ? thinkingRef : undefined}
-                    type="button"
-                    data-level={value}
-                    className="model-picker-level"
-                    aria-pressed={canChangeLevel && value === level}
-                    disabled={busy || (canChangeLevel ? !onLevel : !canChooseCandidateLevel)}
-                    onClick={(event) => {
-                      wantedLevel.current = value;
-                      event.currentTarget.focus();
-                      if (canChangeLevel) onLevel?.(value);
-                      else if (selected && canChooseCandidateLevel)
-                        onModelLevel?.(selected.key, value);
-                    }}
-                  >
-                    <span className="model-picker-level-name">{value}</span>
-                    {canChangeLevel && value === level && (
-                      <CheckIcon aria-hidden="true" className="model-picker-level-check" />
-                    )}
-                  </Toolbar.Button>
-                ))}
-              </Toolbar.Root>
+              <>
+                <Toolbar.Root
+                  orientation="vertical"
+                  aria-label="Thinking"
+                  className="model-picker-levels"
+                >
+                  {selectedLevels.map((value, index) => (
+                    <Toolbar.Button
+                      key={value}
+                      ref={value === level || (!level && index === 0) ? thinkingRef : undefined}
+                      type="button"
+                      data-level={value}
+                      className="model-picker-level"
+                      aria-pressed={canChangeLevel && value === level}
+                      disabled={busy || (canChangeLevel ? !onLevel : !canChooseCandidateLevel)}
+                      onClick={(event) => {
+                        wantedLevel.current = value;
+                        event.currentTarget.focus();
+                        if (canChangeLevel) onLevel?.(value);
+                        else if (selected && canChooseCandidateLevel)
+                          onModelLevel?.(selected.key, value);
+                      }}
+                    >
+                      <span className="model-picker-level-name">{value}</span>
+                      {canChangeLevel && value === level && (
+                        <CheckIcon aria-hidden="true" className="model-picker-level-check" />
+                      )}
+                    </Toolbar.Button>
+                  ))}
+                </Toolbar.Root>
+                {/* A reason the levels cannot be trusted still applies when the last report left
+                    some: the list alone would look selectable without it. */}
+                {reasoningStatus !== undefined && (
+                  <div className="model-picker-levels-empty" role="status">
+                    {reasoningStatus}
+                  </div>
+                )}
+              </>
             ) : (
               <div className="model-picker-levels-empty">
                 {reasoningStatus ??

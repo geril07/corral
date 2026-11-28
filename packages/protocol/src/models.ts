@@ -147,6 +147,9 @@ export const ModelCatalog = z.object({
   status: z.enum(["ready", "partial", "stale", "error", "unsupported"]),
   fetchedAt: z.number().nullable(),
   message: z.string().nullable(),
+  rememberedThinking: z
+    .array(z.object({ model: ChatModelRef, level: z.string().min(1) }))
+    .optional(),
 });
 export type ModelCatalog = z.infer<typeof ModelCatalog>;
 
@@ -160,4 +163,19 @@ export const modelsContract = {
       MODEL_PREFERENCES_CONFIG_INVALID: { status: 422 },
     }),
   catalog: oc.input(ModelCatalogInput).output(ModelCatalog),
+  thinking: oc
+    .input(z.object({ scope: ModelScope, model: ChatModelRef }))
+    .output(z.string().nullable()),
+  rememberThinking: oc
+    .input(
+      ModelCatalogInput.extend({
+        model: ChatModelRef,
+        level: z.string().min(1).max(128),
+      }),
+    )
+    .output(z.object({ level: z.string() }))
+    .errors({
+      MODEL_THINKING_UNCONFIRMED: { status: 409 },
+      MODEL_THINKING_UNAVAILABLE: { status: 422 },
+    }),
 };

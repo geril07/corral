@@ -1,11 +1,14 @@
-import type { ChatAnswer, ChatModelRef } from "@corral/protocol/chat";
+import type { ChatAnswer, ChatModelRef, ChatModelSelection } from "@corral/protocol/chat";
 import type { AgentStatus, ChatSendMode } from "@corral/protocol/rpc";
 import { WebSocket } from "ws";
 import { codexChatSupport } from "../agents/codex-version.ts";
+import { readCodexModels } from "../models/codex-models.ts";
 import {
   ChatModelUnsupportedError,
   ChatReasoningUnsupportedError,
+  ChatRefusalError,
   ChatRequestUnknownError,
+  ChatUnavailableError,
   messageOf,
 } from "./chat-errors.ts";
 import type {
@@ -13,6 +16,7 @@ import type {
   ChatDriverLaunch,
   ChatDriverRegistration,
   ChatLaunchFacts,
+  ChatSendReceipt,
   ChatTimeouts,
 } from "./chat-driver.ts";
 import { CodexProjection, type CodexAction } from "./codex-projection.ts";
@@ -44,10 +48,9 @@ const NO_ROLLOUT = /no rollout found/i;
  * - **The prompt is sent only into an empty conversation.** The rebuilt transcript decides, not a
  *   flag on the session row (C1's P0): a resume never repeats the task prompt.
  * - **One prompt writer.** While a turn runs, `chat.send` with `prompt` is refused with one visible
- *   error item and nothing is sent, and `steer` maps to `turn/steer` (measured live). Follow-up is
- *   declared off — `thread/queue/add` is behind the app-server's experimental capability — so the
- *   composer hides it. Turns the terminal starts arrive as the same notifications, so the chat
- *   shows them live.
+ *   error item and nothing is sent, and `steer` maps to `turn/steer` (measured live). A follow-up
+ *   is Corral's own queue, not `thread/queue/add` (behind the app-server's experimental
+ *   capability). Each queued entry supplies its own model and effort at `turn/start`.
  * - **Approvals go to every client.** The app-server sends `item/…/requestApproval` as a JSON-RPC
  *   request to each attached frontend (measured: both clients saw the same request and a
  *   `serverRequest/resolved` once one answered). The first answer wins; when it came from the
@@ -68,14 +71,20 @@ export class CodexDriver implements ChatDriver {
   #socket: WebSocket | undefined;
   #nextId = 1;
   #threadId: string | null;
+  #provider: string | null;
+  #prepared: { model: ChatModelRef; level: string | null; effort: string | null } | null = null;
+  readonly #turnBoundaries = new Map<string, (outcome: "settled" | "aborted") => void>();
+  readonly #earlyTurnBoundaries = new Map<string, "settled" | "aborted">();
   #readyTimer: NodeJS.Timeout | undefined;
   #closed = false;
   #stopping = false;
+  #catalogRequest: ReturnType<typeof readCodexModels> | undefined;
 
   constructor(request: CodexDriverRequest) {
     this.#request = request;
     this.timeline = request.timeline;
     this.#threadId = request.agentSessionId;
+    this.#provider = request.provider ?? null;
     this.#projection = new CodexProjection(this.timeline, {
       now: () => Date.now(),
       dialogTimeoutMs: request.dialogTimeoutMs,
@@ -118,7 +127,7 @@ export class CodexDriver implements ChatDriver {
     this.#finish(null);
   }
 
-  send(text: string, mode: ChatSendMode): string {
+  send(text: string, mode: ChatSendMode, selection?: ChatModelSelection | null): ChatSendReceipt {
     if (mode === "prompt" && this.timeline.state.turn === "working") {
       // The client offers steer and follow-up while a turn runs; a prompt would be a second
       // writer on the same turn, so it is refused visibly and nothing is sent.
@@ -128,23 +137,52 @@ export class CodexDriver implements ChatDriver {
         id: refused,
         text: "a turn is running in this session; steer it or queue a follow-up instead",
       });
-      return refused;
+      return { id: refused, outcome: Promise.resolve(new ChatRefusalError("a turn is running")) };
     }
     const running = this.timeline.state.turn === "working";
     const refusedId = `error:send:${this.#nextId}`;
-    // Measured: `thread/queue/add` needs the app-server's `experimentalApi` capability, which this
-    // driver does not opt into for one call; the record declares `followUp: false` and the composer
-    // hides the mode. A follow-up that arrives anyway is refused visibly and **not** added as a sent
-    // message, so the transcript never shows words that never left the client.
-    if (mode === "follow-up" && running) {
+    if (mode === "steer" && (!running || this.#projection.activeTurnId === undefined)) {
       this.timeline.put({
         kind: "error",
         id: refusedId,
-        text: "codex does not queue follow-ups in this build; steer the running turn or wait for it to finish",
+        text: "codex has not reported an active turn to steer",
       });
-      return refusedId;
+      return {
+        id: refusedId,
+        outcome: Promise.resolve(new ChatRefusalError("codex has not reported an active turn")),
+      };
+    }
+    // The service owns follow-up queueing and starts it as the next turn; a follow-up that reaches
+    // the driver directly has no turn to run and would be a second writer, so it is refused.
+    if (mode === "follow-up") {
+      this.timeline.put({
+        kind: "error",
+        id: refusedId,
+        text: "a follow-up is queued by the server, not the codex driver",
+      });
+      return {
+        id: refusedId,
+        outcome: Promise.resolve(new ChatRefusalError("a follow-up is queued by the server")),
+      };
+    }
+    let effort = selection?.level ?? null;
+    if (mode === "prompt" && selection != null) {
+      const prepared = this.#prepared;
+      this.#prepared = null;
+      if (
+        prepared === null ||
+        prepared.model.id !== selection.model.id ||
+        prepared.model.provider !== selection.model.provider ||
+        prepared.level !== selection.level
+      ) {
+        const error = new ChatRefusalError("Codex has not confirmed this turn's selection");
+        return { id: refusedId, outcome: Promise.resolve(error) };
+      }
+      effort = prepared.effort;
     }
     const itemId = `user:${this.#nextId}:${Date.now()}`;
+    if (mode === "prompt" && selection != null)
+      this.timeline.setState({ model: null, reasoning: null });
     this.#projection.userMessage(text, itemId);
     const turnId = this.#projection.activeTurnId;
     const input = [{ type: "text", text }];
@@ -160,15 +198,36 @@ export class CodexDriver implements ChatDriver {
             threadId: this.#thread(),
             input,
             clientUserMessageId: itemId,
+            ...(selection == null ? {} : { model: selection.model.id }),
+            ...(effort === null ? {} : { effort }),
           });
-    void call.catch((error: unknown) => {
-      this.timeline.put({
-        kind: "error",
-        id: `error:send:${itemId}`,
-        text: `codex did not accept the message: ${messageOf(error)}`,
-      });
-    });
-    return itemId;
+    const boundary = mode === "prompt" ? Promise.withResolvers<"settled" | "aborted">() : null;
+    const outcome = call.then(
+      (response) => {
+        if (boundary !== null) {
+          const id = stringOf(recordOf(response["turn"])?.["id"]);
+          if (id !== undefined) {
+            const finished = this.#earlyTurnBoundaries.get(id);
+            if (finished !== undefined) {
+              this.#earlyTurnBoundaries.delete(id);
+              boundary.resolve(finished);
+            } else this.#turnBoundaries.set(id, boundary.resolve);
+          }
+        }
+        return null;
+      },
+      (error: unknown) => {
+        // A JSON-RPC error is the server saying no; a closed socket or timeout may still have
+        // delivered the turn, so only the typed refusal is treated as definitely unsent.
+        this.timeline.put({
+          kind: "error",
+          id: `error:send:${itemId}`,
+          text: `${error instanceof ChatRefusalError ? "codex did not accept the message" : "Could not confirm whether codex accepted the message"}: ${messageOf(error)}`,
+        });
+        return error instanceof Error ? error : new Error(messageOf(error));
+      },
+    );
+    return { id: itemId, outcome, ...(boundary === null ? {} : { boundary: boundary.promise }) };
   }
 
   /** Interrupts the running turn; a pending approval can no longer be answered. */
@@ -214,16 +273,88 @@ export class CodexDriver implements ChatDriver {
   }
 
   async setModel(model: ChatModelRef): Promise<void> {
-    throw new ChatModelUnsupportedError(
-      model,
-      "the codex driver does not switch models in this build",
+    throw new ChatModelUnsupportedError(model, "Codex model choices are applied on the next turn");
+  }
+
+  async prepareSelection(
+    selection: ChatModelSelection,
+    options: { forDispatch: boolean },
+  ): Promise<void> {
+    if (options.forDispatch) this.#prepared = null;
+    let models;
+    try {
+      models = await this.#loadModels();
+    } catch {
+      throw new ChatUnavailableError("Codex could not confirm its model list.", "turn-unconfirmed");
+    }
+    const model = models.find(
+      (candidate) =>
+        candidate.id === selection.model.id && candidate.provider === selection.model.provider,
     );
+    if (model === undefined)
+      throw new ChatModelUnsupportedError(selection.model, "Codex did not offer this model");
+    if (selection.level !== null && !model.reasoningLevels?.includes(selection.level))
+      throw new ChatReasoningUnsupportedError(selection.level, "Codex did not offer this effort");
+    if (options.forDispatch) {
+      let effort = selection.level;
+      if (effort === null) {
+        let config: Record<string, unknown> | undefined;
+        try {
+          config = recordOf((await this.#call("config/read", { includeLayers: false }))["config"]);
+        } catch {
+          // A missing default is different from the model's native default.
+        }
+        if (config === undefined || !("model_reasoning_effort" in config))
+          throw new ChatUnavailableError(
+            "Codex could not confirm the configured reasoning default.",
+            "turn-unconfirmed",
+          );
+        const configured = config["model_reasoning_effort"];
+        if (configured === null) {
+          if (model.reasoningLevels?.length === 0) {
+            let current: Record<string, unknown>;
+            try {
+              current = await this.#call("thread/resume", { threadId: this.#thread() });
+            } catch {
+              throw new ChatUnavailableError(
+                "Codex could not confirm whether a previous effort is still active.",
+                "turn-unconfirmed",
+              );
+            }
+            if (!("reasoningEffort" in current) || current["reasoningEffort"] !== null)
+              throw new ChatUnavailableError(
+                "Codex cannot reset a previous effort for this model without reasoning levels.",
+                "turn-unconfirmed",
+              );
+          } else effort = model.defaultReasoningEffort;
+        } else if (typeof configured === "string" && configured.length > 0) effort = configured;
+        else
+          throw new ChatUnavailableError(
+            "Codex could not confirm the configured reasoning default.",
+            "turn-unconfirmed",
+          );
+        if (effort !== null && !model.reasoningLevels?.includes(effort))
+          throw new ChatUnavailableError(
+            "The configured Codex reasoning default is not offered by this model.",
+            "turn-unconfirmed",
+          );
+      }
+      this.#prepared = { model: selection.model, level: selection.level, effort };
+    }
+  }
+
+  async refreshModels(): Promise<void> {
+    try {
+      await this.#loadModels();
+    } catch {
+      throw new ChatUnavailableError("Codex could not load its model list.", "turn-unconfirmed");
+    }
   }
 
   async setReasoning(level: string): Promise<void> {
     throw new ChatReasoningUnsupportedError(
       level,
-      "the codex driver has no reasoning levels in this build",
+      "Codex reasoning choices are applied on the next turn",
     );
   }
 
@@ -244,11 +375,56 @@ export class CodexDriver implements ChatDriver {
       for (const action of actions) this.#apply(action);
       this.#clearReadyTimer();
       if (this.timeline.state.turn === "idle") this.#report({ state: "done" });
+      await this.#discoverModels();
+      if (this.#closed || this.#stopping) return;
       this.#sendPromptIfNeeded();
     } catch (error) {
       if (this.#stopping || this.#closed) return;
       this.#finish(`codex chat could not start: ${messageOf(error)}`);
     }
+  }
+
+  async #discoverModels(): Promise<void> {
+    try {
+      await this.#loadModels(Math.min(2500, this.#request.readyTimeoutMs));
+    } catch {
+      // A metadata failure must not prevent an otherwise valid configured launch.
+    }
+  }
+
+  #loadModels(timeoutMs = REQUEST_TIMEOUT_MS): ReturnType<typeof readCodexModels> {
+    if (this.#catalogRequest !== undefined) return this.#catalogRequest;
+    this.timeline.setState({ modelsStatus: "loading", reasoningStatus: "loading" });
+    const deadline = Date.now() + timeoutMs;
+    const request = readCodexModels(this.#provider, (params) =>
+      this.#call("model/list", params, Math.max(1, deadline - Date.now())),
+    )
+      .then((models) => {
+        if (!this.#closed) {
+          const current = models.find(
+            (model) =>
+              model.id === this.state.model?.id && model.provider === this.state.model?.provider,
+          );
+          this.timeline.setState({
+            models,
+            modelsStatus: "ready",
+            ...(current === undefined ? {} : { model: current }),
+            reasoningLevels: current?.reasoningLevels ?? [],
+            reasoningStatus: current === undefined ? "error" : "ready",
+          });
+        }
+        return models;
+      })
+      .catch((error: unknown) => {
+        if (!this.#closed)
+          this.timeline.setState({ modelsStatus: "error", reasoningStatus: "error" });
+        throw error;
+      })
+      .finally(() => {
+        this.#catalogRequest = undefined;
+      });
+    this.#catalogRequest = request;
+    return request;
   }
 
   /** One WebSocket over the app-server's unix socket; a close before `stop` is a failed frontend. */
@@ -358,7 +534,8 @@ export class CodexDriver implements ChatDriver {
   #applyModel(thread: Record<string, unknown>): void {
     const id = stringOf(thread["model"]);
     if (id === undefined) return;
-    this.#projection.sessionState({ id, provider: stringOf(thread["modelProvider"]) ?? null });
+    this.#provider = stringOf(thread["modelProvider"]) ?? this.#provider;
+    this.#projection.sessionState({ id, provider: this.#provider });
   }
 
   /**
@@ -369,21 +546,16 @@ export class CodexDriver implements ChatDriver {
    */
   #sendPromptIfNeeded(): void {
     const prompt = this.#request.prompt;
-    if (prompt === null) return;
-    if (this.#projection.hasUserMessage()) return;
-    const itemId = `user:${this.#nextId}:${Date.now()}`;
-    this.#projection.userMessage(prompt, itemId);
-    void this.#call("turn/start", {
-      threadId: this.#thread(),
-      input: [{ type: "text", text: prompt }],
-      clientUserMessageId: itemId,
-    }).catch((error: unknown) => {
-      this.timeline.put({
-        kind: "error",
-        id: `error:prompt:${itemId}`,
-        text: `codex did not accept the prompt: ${messageOf(error)}`,
-      });
-    });
+    if (prompt === null) {
+      this.#request.sendInitialPrompt?.(null);
+      return;
+    }
+    if (this.#projection.hasUserMessage()) {
+      this.#request.sendInitialPrompt?.(null);
+      return;
+    }
+    if (this.#request.sendInitialPrompt !== undefined) this.#request.sendInitialPrompt(prompt);
+    else this.send(prompt, "prompt");
   }
 
   #onFrame(payload: string): void {
@@ -406,7 +578,9 @@ export class CodexDriver implements ChatDriver {
       this.#pending.delete(id);
       const error = recordOf(frame["error"]);
       if (error !== undefined) {
-        pending.reject(new Error(stringOf(error["message"]) ?? `${pending.method} failed`));
+        pending.reject(
+          new ChatRefusalError(stringOf(error["message"]) ?? `${pending.method} failed`),
+        );
         return;
       }
       pending.resolve(recordOf(frame["result"]) ?? {});
@@ -476,6 +650,26 @@ export class CodexDriver implements ChatDriver {
       return;
     }
     if (this.#threadId !== null && stringOf(params["threadId"]) !== this.#threadId) return;
+    if (method === "turn/completed") {
+      const turn = recordOf(params["turn"]);
+      const id = stringOf(turn?.["id"]);
+      const status = stringOf(turn?.["status"]);
+      if (
+        id !== undefined &&
+        (status === "completed" || status === "interrupted" || status === "failed")
+      ) {
+        const result = status === "completed" ? "settled" : "aborted";
+        const settle = this.#turnBoundaries.get(id);
+        if (settle === undefined) {
+          this.#earlyTurnBoundaries.set(id, result);
+          if (this.#earlyTurnBoundaries.size > 128)
+            this.#earlyTurnBoundaries.delete(this.#earlyTurnBoundaries.keys().next().value!);
+        } else {
+          this.#turnBoundaries.delete(id);
+          settle(result);
+        }
+      }
+    }
     for (const action of this.#projection.apply(method, params)) this.#apply(action);
   }
 
@@ -525,7 +719,11 @@ export class CodexDriver implements ChatDriver {
     this.#request.onStatus(status);
   }
 
-  #call(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  #call(
+    method: string,
+    params: Record<string, unknown>,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  ): Promise<Record<string, unknown>> {
     return new Promise((resolve, reject) => {
       const id = this.#nextId++;
       this.#pending.set(id, {
@@ -538,8 +736,8 @@ export class CodexDriver implements ChatDriver {
         const pending = this.#pending.get(id);
         if (pending === undefined) return;
         this.#pending.delete(id);
-        reject(new Error(`${method} did not answer within ${REQUEST_TIMEOUT_MS} ms`));
-      }, REQUEST_TIMEOUT_MS).unref?.();
+        reject(new Error(`${method} did not answer within ${timeoutMs} ms`));
+      }, timeoutMs).unref?.();
     });
   }
 
@@ -654,12 +852,14 @@ function codexChatArgs(_facts: ChatLaunchFacts): string[] {
  * of stopping this one.
  */
 export const codexChatDriver: ChatDriverRegistration = {
+  requiresPreparationSignal: true,
   capabilities: {
     steer: true,
-    followUp: false,
+    followUp: true,
     approvals: true,
-    modelSwitch: false,
-    reasoningLevels: false,
+    modelSwitch: true,
+    modelRefresh: true,
+    reasoningLevels: true,
     terminalView: "both-live",
   },
   args: codexChatArgs,

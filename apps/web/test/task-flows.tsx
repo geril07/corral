@@ -49,7 +49,10 @@ export async function openAgentSessionPicker(view: "chat" | "terminal") {
   await prefixThen("s");
   const picker = page.getByRole("dialog", { name: "New agent session" });
   await expect.element(picker).toBeVisible();
-  await picker.getByRole("button", { name: `Open in ${view}` }).click();
+  await userEvent.keyboard("{Escape}");
+  const setup = page.getByRole("dialog", { name: "Start agent session" });
+  await setup.getByRole("button", { name: `Open in ${view}` }).click();
+  await setup.getByRole("button", { name: /^Agent / }).click();
   await picker.getByRole("radio", { checked: true }).click();
   return picker;
 }

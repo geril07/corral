@@ -3,6 +3,7 @@ import type {
   ChatDiff,
   ChatItem,
   ChatModel,
+  ChatModelRef,
   ChatRequestKind,
   ChatToolCall,
   ChatUserRequest,
@@ -48,6 +49,8 @@ interface LiveBlock {
 
 interface LiveAssistant {
   blocks: Map<number, LiveBlock>;
+  /** The model this message reports, when its `message_start` carries one. */
+  model?: ChatModelRef;
 }
 
 const DIALOG_METHODS: Record<string, ChatRequestKind> = {
@@ -119,10 +122,9 @@ export class PiProjection {
       case "extension_ui_request":
         return this.#extensionRequest(record);
       case "queue_update":
-        this.#timeline.setState({
-          steering: stringsField(record, "steering"),
-          followUp: stringsField(record, "followUp"),
-        });
+        // `followUp` belongs to the server's own queue (chat-choices): pi's native queue is not
+        // used for it, and its report must not overwrite the messages Corral is holding.
+        this.#timeline.setState({ steering: stringsField(record, "steering") });
         return [];
       case "thinking_level_changed": {
         const level = stringField(record, "level");
@@ -289,7 +291,8 @@ export class PiProjection {
   #messageStart(record: PiRecord): void {
     const message = objectField(record, "message");
     if (message === undefined || stringField(message, "role") !== "assistant") return;
-    this.#live = { blocks: new Map() };
+    const model = modelRefOf(message);
+    this.#live = { blocks: new Map(), ...(model === undefined ? {} : { model }) };
   }
 
   #messageUpdate(record: PiRecord): PiAction[] {
@@ -369,6 +372,7 @@ export class PiProjection {
     }
     if (role !== "assistant") return [];
     const live = (this.#live ??= { blocks: new Map() });
+    const model = modelRefOf(message);
     const content = arrayField(message, "content") ?? [];
     for (const [index, block] of content.entries()) {
       if (!isRecord(block)) continue;
@@ -380,6 +384,7 @@ export class PiProjection {
             this.#timeline.item(existing.itemId),
             stringField(typed, "text") ?? "",
             false,
+            model,
           );
           break;
         }
@@ -501,6 +506,7 @@ export class PiProjection {
   }
 
   #historyAssistant(prefix: string, message: PiRecord): void {
+    const model = modelRefOf(message);
     const content = arrayField(message, "content") ?? [];
     for (const [index, block] of content.entries()) {
       if (!isRecord(block)) continue;
@@ -513,6 +519,7 @@ export class PiProjection {
             id,
             text: stringField(typed, "text") ?? "",
             streaming: false,
+            ...(model === undefined ? {} : { model }),
           });
           break;
         case "thinking":
@@ -602,7 +609,13 @@ export class PiProjection {
     if (existing !== undefined && existing.kind === "text") return existing;
     const block: LiveBlock = { itemId: `text-${(this.#nextId += 1)}`, kind: "text" };
     live.blocks.set(index, block);
-    this.#timeline.put({ kind: "assistant-message", id: block.itemId, text: "", streaming: true });
+    this.#timeline.put({
+      kind: "assistant-message",
+      id: block.itemId,
+      text: "",
+      streaming: true,
+      ...(live.model === undefined ? {} : { model: live.model }),
+    });
     return block;
   }
 
@@ -641,9 +654,16 @@ export class PiProjection {
     });
   }
 
-  #replaceText(item: ChatItem | undefined, text: string, streaming = true): void {
+  #replaceText(
+    item: ChatItem | undefined,
+    text: string,
+    streaming = true,
+    model?: ChatModelRef,
+  ): void {
     if (item === undefined) return;
-    if (item.kind === "assistant-message" || item.kind === "reasoning") {
+    if (item.kind === "assistant-message") {
+      this.#timeline.put({ ...item, text, streaming, ...(model === undefined ? {} : { model }) });
+    } else if (item.kind === "reasoning") {
       this.#timeline.put({ ...item, text, streaming });
     }
   }
@@ -680,6 +700,16 @@ export class PiProjection {
   #error(text: string): void {
     this.#timeline.put({ kind: "error", id: `error-${(this.#nextId += 1)}`, text });
   }
+}
+
+/**
+ * The model one of pi's assistant messages names. The message is the only source: a missing model
+ * leaves the answer unattributed instead of borrowing the session's current model.
+ */
+function modelRefOf(message: PiRecord): ChatModelRef | undefined {
+  const id = stringField(message, "model");
+  if (id === undefined || id === "") return undefined;
+  return { provider: stringField(message, "provider") ?? null, id };
 }
 
 /** pi's model object as the chat contract's model entry. */

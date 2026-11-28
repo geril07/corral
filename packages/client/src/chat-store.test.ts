@@ -34,6 +34,7 @@ const idle: ChatSessionState = {
   models: [],
   reasoning: null,
   reasoningLevels: [],
+  selectionIssue: null,
   context: null,
 };
 

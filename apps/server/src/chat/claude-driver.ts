@@ -15,11 +15,13 @@ import {
   type SpawnedProcess,
 } from "@anthropic-ai/claude-agent-sdk";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import {
   ChatModelUnsupportedError,
   ChatReasoningUnsupportedError,
+  ChatRefusalError,
   ChatRequestUnknownError,
   ChatUnavailableError,
   agentStatus,
@@ -29,6 +31,7 @@ import type {
   ChatDriver,
   ChatDriverLaunch,
   ChatDriverRegistration,
+  ChatSendReceipt,
   ChatTimeouts,
 } from "./chat-driver.ts";
 import { ClaudeProjection, type ClaudeAction } from "./claude-projection.ts";
@@ -102,6 +105,13 @@ export class ClaudeDriver implements ChatDriver {
   readonly #sdk: ClaudeSdk;
   readonly #projection: ClaudeProjection;
   readonly #input = new PromptQueue();
+  /**
+   * Sent messages the CLI has not named back yet, keyed by the uuid this driver gave each one. The
+   * delivery receipt resolves only from a native echo (`user_message_uuid`/`user_message_uuids` on
+   * the turn's frames) or from the frontend ending with the message still unconfirmed.
+   */
+  readonly #deliveries = new Map<string, (error: Error | null) => void>();
+  readonly #turnBoundaries = new Map<string, (outcome: "settled" | "aborted") => void>();
   readonly #timers = new Map<string, NodeJS.Timeout>();
   #query: ClaudeSdkQuery | undefined;
   #child: ChildProcess | undefined;
@@ -311,23 +321,34 @@ export class ClaudeDriver implements ChatDriver {
     await this.#exited;
   }
 
-  /** Sends the user's message and returns the id of the item it became. */
-  send(text: string, mode: ChatSendMode): string {
+  /**
+   * Sends the user's message into the SDK's input. The handoff is not acceptance: the iterator
+   * taking a message proves only that Corral put it on the SDK's transport, and a crash in between
+   * could lose the words. Claude Code 2.1.330 echoed the prompt UUID in an isolated local-stub
+   * test; versions or turns without the echo remain unconfirmed rather than being guessed.
+   */
+  send(text: string, mode: ChatSendMode): ChatSendReceipt {
     if (this.#closed) throw this.#unavailable();
     const itemId = this.#projection.userMessage(text);
     this.#aborting = false;
-    // `priority` is the SDK's own queue: "now" for a steer, "later" for a follow-up, "next" for a
-    // prompt sent while a turn runs. The CLI folds a queued message into the running turn, so none
-    // of the three is a second writer on the conversation.
-    this.#input.push({
-      type: "user",
-      message: { role: "user", content: text },
-      parent_tool_use_id: null,
-      priority: mode === "steer" ? "now" : mode === "follow-up" ? "later" : "next",
-    });
+    // The UUID is Corral's own id for this send; only a frame naming it can confirm this delivery.
+    const uuid = randomUUID();
+    const outcome = new Promise<Error | null>((settle) => this.#deliveries.set(uuid, settle));
+    const boundary = mode === "prompt" ? Promise.withResolvers<"settled" | "aborted">() : null;
+    if (boundary !== null) this.#turnBoundaries.set(uuid, boundary.resolve);
+    this.#input.push(
+      {
+        type: "user",
+        message: { role: "user", content: text },
+        parent_tool_use_id: null,
+        priority: mode === "steer" ? "now" : mode === "follow-up" ? "later" : "next",
+        uuid,
+      },
+      (error) => this.#settleDelivery(uuid, error),
+    );
     this.timeline.setState({ turn: "working" });
     this.#report({ state: "working" });
-    return itemId;
+    return { id: itemId, outcome, ...(boundary === null ? {} : { boundary: boundary.promise }) };
   }
 
   /** Interrupts the running turn; a request waiting for an answer is expired first. */
@@ -447,12 +468,37 @@ export class ClaudeDriver implements ChatDriver {
   }
 
   #onMessage(message: SDKMessage): void {
+    // The echo is read before buffering: the CLI consumed the message whether or not the
+    // projection is ready to show its turn.
+    this.#acknowledge(message);
+    if (message.type === "result" && !("isReplay" in message && message.isReplay === true)) {
+      for (const uuid of consumedUuids(message)) {
+        const settle = this.#turnBoundaries.get(uuid);
+        if (settle === undefined) continue;
+        this.#turnBoundaries.delete(uuid);
+        settle(message.subtype === "success" && !message.is_error ? "settled" : "aborted");
+      }
+    }
     if (message.type === "system" && message.subtype === "init") this.#init(message);
     if (!this.#prepared) {
       this.#buffered.push(message);
       return;
     }
     this.#apply(message);
+  }
+
+  /** Confirms every delivery the frame names as consumed by the turn it belongs to. */
+  #acknowledge(message: SDKMessage): void {
+    if ("isReplay" in message && message.isReplay) return;
+    for (const uuid of consumedUuids(message)) this.#settleDelivery(uuid, null);
+  }
+
+  #settleDelivery(uuid: string, error: Error | null): void {
+    const settle = this.#deliveries.get(uuid);
+    if (settle === undefined) return;
+    this.#deliveries.delete(uuid);
+    if (error !== null) this.#turnBoundaries.delete(uuid);
+    settle(error);
   }
 
   /**
@@ -522,16 +568,24 @@ export class ClaudeDriver implements ChatDriver {
    */
   #sendPromptIfNeeded(history: SessionMessage[] | null): void {
     const prompt = this.#request.prompt;
-    if (prompt === null) return;
+    if (prompt === null) {
+      this.#request.sendInitialPrompt?.(null);
+      return;
+    }
     const hasUser = this.timeline.snapshot().items.some((item) => item.kind === "user-message");
-    if (hasUser) return;
+    if (hasUser) {
+      this.#request.sendInitialPrompt?.(null);
+      return;
+    }
     if (history === null || !historyIsReadable(this.#request.env)) {
       this.#projection.notice(
         "The Claude conversation could not be rebuilt, so the task prompt was not sent again. Send it here if the conversation is empty.",
       );
+      this.#request.sendInitialPrompt?.(null);
       return;
     }
-    this.send(prompt, "prompt");
+    if (this.#request.sendInitialPrompt !== undefined) this.#request.sendInitialPrompt(prompt);
+    else this.send(prompt, "prompt");
   }
 
   /** One `canUseTool`: ask the user, with the server's own deadline beside the CLI's signal. */
@@ -634,6 +688,14 @@ export class ClaudeDriver implements ChatDriver {
     this.#clearReadyTimer();
     this.#clearTimers();
     this.#input.end();
+    // What is left was handed to the transport but never named back by the CLI: a stop or a crash
+    // may have lost it after that handoff, so it stays unconfirmed and is never retried. Messages
+    // the queue had not taken were refused by `end()` above and are already settled.
+    const unconfirmed = [...this.#deliveries.values()];
+    this.#deliveries.clear();
+    this.#turnBoundaries.clear();
+    for (const settle of unconfirmed)
+      settle(new Error("the claude frontend ended before the agent confirmed the message"));
     this.#projection.expireAll();
     if (reason !== null) {
       this.#request.onStatus(agentStatus("error", Date.now(), { message: reason }));
@@ -704,19 +766,30 @@ export class ClaudeDriver implements ChatDriver {
 
 /** The streaming input the SDK reads: user messages from `send`, ended by a stop. */
 class PromptQueue implements AsyncIterable<SDKUserMessage> {
-  #items: SDKUserMessage[] = [];
+  #items: { message: SDKUserMessage; refuse: (error: Error) => void }[] = [];
   #wake: (() => void) | undefined;
   #done = false;
 
-  push(message: SDKUserMessage): void {
-    if (this.#done) return;
-    this.#items.push(message);
+  /**
+   * Queues one message. `refuse` runs only when the queue ends before the SDK's iterator takes the
+   * message: that is the one point at which Corral knows the words certainly did not leave. Being
+   * taken is not acceptance — the driver waits for the CLI to name the message back.
+   */
+  push(message: SDKUserMessage, refuse: (error: Error) => void): void {
+    if (this.#done) {
+      refuse(refusedBeforeHandoff());
+      return;
+    }
+    this.#items.push({ message, refuse });
     this.#wake?.();
     this.#wake = undefined;
   }
 
   end(): void {
     this.#done = true;
+    const pending = this.#items;
+    this.#items = [];
+    for (const item of pending) item.refuse(refusedBeforeHandoff());
     this.#wake?.();
     this.#wake = undefined;
   }
@@ -725,7 +798,7 @@ class PromptQueue implements AsyncIterable<SDKUserMessage> {
     while (true) {
       const item = this.#items.shift();
       if (item !== undefined) {
-        yield item;
+        yield item.message;
         continue;
       }
       if (this.#done) return;
@@ -733,6 +806,29 @@ class PromptQueue implements AsyncIterable<SDKUserMessage> {
       await new Promise<void>((settle) => (this.#wake = settle));
     }
   }
+}
+
+function refusedBeforeHandoff(): ChatRefusalError {
+  return new ChatRefusalError("the frontend stopped before taking the message");
+}
+
+/**
+ * The client UUIDs a frame names. A frame without them confirms nothing, even when a later
+ * background wake happens to produce its own result.
+ */
+function consumedUuids(message: SDKMessage): readonly string[] {
+  if (
+    message.type === "assistant" ||
+    message.type === "stream_event" ||
+    message.type === "result"
+  ) {
+    const uuids = message.user_message_uuids ?? [];
+    return message.user_message_uuid === undefined ? uuids : [...uuids, message.user_message_uuid];
+  }
+  if (message.type === "system" && message.subtype === "thinking_tokens") {
+    return message.user_message_uuid === undefined ? [] : [message.user_message_uuid];
+  }
+  return [];
 }
 
 /**
@@ -818,6 +914,7 @@ function claudeChatArgs(): string[] {
  * `prefix v` uses serial stop-and-start and the terminal leg is `claude --resume <id>`.
  */
 export const claudeChatDriver: ChatDriverRegistration = {
+  requiresPreparationSignal: true,
   capabilities: {
     steer: true,
     followUp: true,

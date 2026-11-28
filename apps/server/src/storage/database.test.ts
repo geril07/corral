@@ -51,6 +51,32 @@ test("a failing migration changes nothing and leaves the version where it was", 
   expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'b'").all()).toEqual([]);
 });
 
+test("a database from before chat choices gains their tables and keeps its rows", () => {
+  const db = new DatabaseSync(":memory:");
+  // The schema a released server wrote: the first two steps, with the user's data in it.
+  migrate(db, MIGRATIONS.slice(0, 2));
+  db.exec(
+    "INSERT INTO projects (id, name, path, default_base_branch) VALUES ('p', 'n', '/n', 'main')",
+  );
+
+  migrate(db, MIGRATIONS);
+
+  expect(schemaVersion(db)).toBe(MIGRATIONS.length);
+  expect(db.prepare("SELECT id FROM projects").all()).toEqual([{ id: "p" }]);
+  expect(
+    db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'chat_%' ORDER BY name",
+      )
+      .all(),
+  ).toEqual([
+    { name: "chat_queue" },
+    { name: "chat_session_selections" },
+    { name: "chat_thinking_memory" },
+  ]);
+  db.close();
+});
+
 test("a database from a newer server is refused", () => {
   const db = new DatabaseSync(":memory:");
   db.exec(`PRAGMA user_version = ${MIGRATIONS.length + 1}`);

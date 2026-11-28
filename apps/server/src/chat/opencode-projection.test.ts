@@ -22,6 +22,11 @@ function textOf(timeline: ChatTimeline, id: string): string {
   return item?.kind === "assistant-message" ? item.text : "";
 }
 
+function assistantAt(timeline: ChatTimeline, id: string) {
+  const item = timeline.item(id);
+  return item?.kind === "assistant-message" ? item : undefined;
+}
+
 test("a delta that repeats the previous tail is appended, not deduplicated", () => {
   const { timeline, projection: view } = projection();
   for (const piece of ["coffe", "e"]) view.applyEvent(delta("msg_one", piece));
@@ -51,6 +56,79 @@ test("only a replay is measured against the hydrated text", () => {
   // A live delta that happens to repeat the tail is new text.
   view.applyEvent(delta("msg_hydrated", " world"));
   expect(textOf(timeline, "text:msg_hydrated:0")).toBe("Hello world world");
+});
+
+function stepStarted(messageId: string, model?: { id: string; providerID: string }) {
+  return {
+    type: "session.step.started",
+    data: {
+      sessionID: "ses_test",
+      assistantMessageID: messageId,
+      agent: "build",
+      started: 1,
+      ...(model === undefined ? {} : { model }),
+    },
+  };
+}
+
+test("each live answer takes its own step's model, and a step without one stays unattributed", () => {
+  const { timeline, projection: view } = projection();
+  view.applyEvent(stepStarted("msg_first", { id: "a-1", providerID: "alpha" }));
+  view.applyEvent(delta("msg_first", "first"));
+  view.applyEvent(stepStarted("msg_second", { id: "b-2", providerID: "beta" }));
+  view.applyEvent(delta("msg_second", "second"));
+  view.applyEvent(stepStarted("msg_third"));
+  view.applyEvent(delta("msg_third", "third"));
+
+  expect(assistantAt(timeline, "text:msg_first:0")?.model).toEqual({
+    provider: "alpha",
+    id: "a-1",
+  });
+  expect(assistantAt(timeline, "text:msg_second:0")?.model).toEqual({
+    provider: "beta",
+    id: "b-2",
+  });
+  const unattributed = assistantAt(timeline, "text:msg_third:0");
+  expect(unattributed !== undefined && "model" in unattributed).toBe(false);
+});
+
+test("a step that starts after its text still gives that answer its model", () => {
+  const { timeline, projection: view } = projection();
+  view.applyEvent(delta("msg_late", "text"));
+  view.applyEvent(stepStarted("msg_late", { id: "c-3", providerID: "gamma" }));
+  expect(assistantAt(timeline, "text:msg_late:0")?.model).toEqual({ provider: "gamma", id: "c-3" });
+});
+
+test("a rebuilt transcript keeps a model per answer and leaves an unknown one absent", () => {
+  const { timeline, projection: view } = projection();
+  view.loadHistory([
+    {
+      id: "msg_h1",
+      type: "assistant",
+      content: [{ type: "text", text: "older" }],
+      model: { id: "a-1", providerID: "alpha" },
+    },
+    {
+      id: "msg_h2",
+      type: "assistant",
+      content: [{ type: "text", text: "newest" }],
+      model: { id: "b-2", providerID: "beta" },
+    },
+    { id: "msg_h3", type: "assistant", content: [{ type: "text", text: "unattributed" }] },
+  ]);
+  // The last hydrated message changed the session's own model, not the older answer's.
+  expect(timeline.state.model).toEqual({ provider: "beta", id: "b-2", name: "b-2" });
+  expect(assistantAt(timeline, "text:msg_h1:0")?.model).toEqual({ provider: "alpha", id: "a-1" });
+  expect(assistantAt(timeline, "text:msg_h2:0")?.model).toEqual({ provider: "beta", id: "b-2" });
+  const unattributed = assistantAt(timeline, "text:msg_h3:0");
+  expect(unattributed !== undefined && "model" in unattributed).toBe(false);
+
+  // A replayed completion of a hydrated message rebuilds it with the same model.
+  view.applyEvent({
+    type: "session.text.ended",
+    data: { sessionID: "ses_test", assistantMessageID: "msg_h1", ordinal: 0, text: "older" },
+  });
+  expect(assistantAt(timeline, "text:msg_h1:0")?.model).toEqual({ provider: "alpha", id: "a-1" });
 });
 
 test("message tokens become the context reading against the catalogued model window", () => {

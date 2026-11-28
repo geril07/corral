@@ -22,6 +22,8 @@ const agents = useFakeAgents();
 const SIZE = { cols: 80, rows: 24 };
 const configFile = () => join(server.configDir, "config.toml");
 const SENTINEL_TOKEN = "sk-profile-secret-sentinel-2f6d";
+// Native frontend startup and the shared fixture deadline must fit the test's own budget.
+vi.setConfig({ testTimeout: 20_000 });
 
 afterEach(() => vi.restoreAllMocks());
 

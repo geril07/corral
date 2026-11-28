@@ -17,6 +17,7 @@ import type {
   ChatDriverLaunch,
   ChatDriverRegistration,
   ChatLaunchFacts,
+  ChatSendReceipt,
   ChatTimeouts,
 } from "./chat-driver.ts";
 import {
@@ -33,6 +34,20 @@ import type { ChatTimeline } from "./timeline.ts";
 
 /** What pi's chat frontend is started with: the resolved launch and the supervision deadlines. */
 export interface PiDriverRequest extends ChatDriverLaunch, ChatTimeouts {}
+
+interface PiTurnBoundary {
+  generation: number;
+  accepted: boolean;
+  started: boolean;
+  candidate: boolean;
+  aborted: boolean;
+  compacting: boolean;
+  retrying: boolean;
+  pendingSteers: number;
+  uncertainSteer: boolean;
+  probing: boolean;
+  boundary: PromiseWithResolvers<"settled" | "aborted">;
+}
 
 /**
  * One chat session's live frontend: the pi RPC child, the JSONL client (hand-written against
@@ -65,6 +80,12 @@ export class PiDriver implements ChatDriver {
   #failureReason: string | undefined;
   #exited: Promise<void> = Promise.resolve();
   #resolveExited: (() => void) | undefined;
+  #turnBoundary: PiTurnBoundary | null = null;
+  #activityGeneration = 0;
+  #recoverySteers = 0;
+  #uncertainRecoverySteer = false;
+  #recoveryCompacting = false;
+  #recoveryRetrying = false;
 
   constructor(request: PiDriverRequest) {
     this.#request = request;
@@ -164,15 +185,79 @@ export class PiDriver implements ChatDriver {
     await this.#exited;
   }
 
-  /** Sends the user's message and returns the id of the item it became. */
-  send(text: string, mode: ChatSendMode): string {
+  /** Puts the message on pi's wire; the command's answer is the delivery outcome. */
+  send(text: string, mode: ChatSendMode): ChatSendReceipt {
+    if (mode === "steer") {
+      this.#recoverySteers += 1;
+      this.#activityGeneration += 1;
+    }
+    const turn =
+      mode === "prompt"
+        ? (this.#turnBoundary = {
+            generation: 0,
+            accepted: false,
+            started: false,
+            candidate: false,
+            aborted: false,
+            compacting: false,
+            retrying: false,
+            pendingSteers: 0,
+            uncertainSteer: false,
+            probing: false,
+            boundary: Promise.withResolvers<"settled" | "aborted">(),
+          })
+        : this.#turnBoundary;
+    if (mode === "steer" && turn !== null) {
+      turn.pendingSteers += 1;
+      turn.generation += 1;
+    }
     const itemId = this.#projection.userMessage(text);
     const type = mode === "steer" ? "steer" : mode === "follow-up" ? "follow_up" : "prompt";
-    void this.#requestCommand(type, { message: text }).catch((error: unknown) => {
-      // The words are in the timeline; the failure is a visible error next to them, not a lost send.
-      this.#projection.rejectedCommand(`pi did not accept the message: ${messageOf(error)}`);
-    });
-    return itemId;
+    const outcome = this.#requestCommand(type, { message: text }).then(
+      () => {
+        if (mode === "steer") {
+          this.#recoverySteers -= 1;
+          this.#activityGeneration += 1;
+          this.#request.onRecoveryOpportunity?.();
+        }
+        if (turn !== null && this.#turnBoundary === turn) {
+          if (mode === "prompt") turn.accepted = true;
+          if (mode === "steer") turn.pendingSteers -= 1;
+          this.#probeBoundary(turn);
+        }
+        return null;
+      },
+      (error: unknown) => {
+        if (mode === "steer") {
+          this.#recoverySteers -= 1;
+          this.#activityGeneration += 1;
+          if (!(error instanceof PiCommandError)) this.#uncertainRecoverySteer = true;
+          this.#request.onRecoveryOpportunity?.();
+        }
+        // The words are in the timeline; the failure is a visible error next to them, not a lost
+        // send. A `success:false` answer is a refusal; a lost pipe is only unconfirmed.
+        const description =
+          error instanceof PiCommandError
+            ? "pi did not accept the message"
+            : "Could not confirm whether pi accepted the message";
+        this.#projection.rejectedCommand(`${description}: ${messageOf(error)}`);
+        if (turn !== null && this.#turnBoundary === turn) {
+          if (mode === "steer") {
+            turn.pendingSteers -= 1;
+            if (!(error instanceof PiCommandError)) turn.uncertainSteer = true;
+            this.#probeBoundary(turn);
+          } else if (mode === "prompt" && error instanceof PiCommandError) {
+            this.#turnBoundary = null;
+          }
+        }
+        return error instanceof Error ? error : new Error(messageOf(error));
+      },
+    );
+    return {
+      id: itemId,
+      outcome,
+      ...(mode === "prompt" && turn !== null ? { boundary: turn.boundary.promise } : {}),
+    };
   }
 
   /** Stops the turn; pending dialogs are cancelled first so an abort cannot wait on one forever. */
@@ -237,12 +322,33 @@ export class PiDriver implements ChatDriver {
     });
   }
 
+  /**
+   * Sets the level and reads it back: pi may accept a command and clamp the level to one the model
+   * takes, so the reported value is `get_state`'s, never the requested string. A level it did not
+   * keep is a refusal, so the caller does not claim it ran.
+   */
   async setReasoning(level: string): Promise<void> {
     await this.#modelCommand("set_thinking_level", { level }).catch((error: unknown) => {
       if (error instanceof ChatUnavailableError) throw error;
       throw new ChatReasoningUnsupportedError(level, messageOf(error));
     });
-    this.timeline.setState({ reasoning: level });
+    let applied: string | null;
+    try {
+      const state = await this.#modelCommand("get_state");
+      applied = stringField(state, "thinkingLevel") ?? null;
+    } catch (error) {
+      if (error instanceof ChatUnavailableError) throw error;
+      throw new ChatReasoningUnsupportedError(
+        level,
+        `pi did not confirm the level: ${messageOf(error)}`,
+      );
+    }
+    this.timeline.setState({ reasoning: applied });
+    if (applied !== level)
+      throw new ChatReasoningUnsupportedError(
+        level,
+        `pi kept ${applied ?? "its own default"} instead`,
+      );
   }
 
   /** The start-up commands whose answers rebuild the chat from pi, then the first prompt. */
@@ -268,9 +374,42 @@ export class PiDriver implements ChatDriver {
       // prompt is never handed over twice, and a start that died before pi wrote it hands it over.
       this.#prepared.resolve();
       const firstStart = !history.some((message) => message["role"] === "user");
-      if (firstStart && this.#request.prompt !== null) this.send(this.#request.prompt, "prompt");
+      const prompt = firstStart ? this.#request.prompt : null;
+      if (this.#request.sendInitialPrompt !== undefined) this.#request.sendInitialPrompt(prompt);
+      else if (prompt !== null) this.send(prompt, "prompt");
     } catch (error) {
       this.#fail(messageOf(error));
+    }
+  }
+
+  async recoverIdle(): Promise<boolean> {
+    await this.#prepared.promise;
+    if (
+      this.#closed ||
+      this.#turnBoundary !== null ||
+      this.#recoverySteers !== 0 ||
+      this.#uncertainRecoverySteer ||
+      this.#recoveryCompacting ||
+      this.#recoveryRetrying
+    )
+      return false;
+    const generation = this.#activityGeneration;
+    try {
+      const state = await this.#requestCommand("get_state", {}, this.#request.readyTimeoutMs);
+      return (
+        !this.#closed &&
+        this.#turnBoundary === null &&
+        this.#recoverySteers === 0 &&
+        !this.#uncertainRecoverySteer &&
+        !this.#recoveryCompacting &&
+        !this.#recoveryRetrying &&
+        generation === this.#activityGeneration &&
+        state["isStreaming"] === false &&
+        state["isCompacting"] === false &&
+        state["pendingMessageCount"] === 0
+      );
+    } catch {
+      return false;
     }
   }
 
@@ -291,7 +430,106 @@ export class PiDriver implements ChatDriver {
       this.#onResponse(record);
       return;
     }
+    this.#activityGeneration += 1;
+    switch (typeOf(record)) {
+      case "compaction_start":
+        this.#recoveryCompacting = true;
+        break;
+      case "compaction_end":
+        this.#recoveryCompacting = false;
+        break;
+      case "auto_retry_start":
+        this.#recoveryRetrying = true;
+        break;
+      case "auto_retry_end":
+        this.#recoveryRetrying = false;
+        break;
+    }
+    this.#observeBoundary(record);
     for (const action of this.#projection.apply(record)) this.#runAction(action);
+    if (
+      typeOf(record) === "agent_settled" ||
+      typeOf(record) === "compaction_end" ||
+      typeOf(record) === "auto_retry_end"
+    )
+      this.#request.onRecoveryOpportunity?.();
+  }
+
+  #observeBoundary(record: PiRecord): void {
+    const turn = this.#turnBoundary;
+    if (turn === null) return;
+    switch (typeOf(record)) {
+      case "agent_start":
+        turn.generation += 1;
+        turn.started = true;
+        turn.candidate = false;
+        break;
+      case "agent_settled":
+        turn.generation += 1;
+        turn.candidate = true;
+        turn.aborted = record["aborted"] === true;
+        this.#probeBoundary(turn);
+        break;
+      case "compaction_start":
+        turn.generation += 1;
+        turn.compacting = true;
+        break;
+      case "compaction_end":
+        turn.generation += 1;
+        turn.compacting = false;
+        this.#probeBoundary(turn);
+        break;
+      case "auto_retry_start":
+        turn.generation += 1;
+        turn.retrying = true;
+        break;
+      case "auto_retry_end":
+        turn.generation += 1;
+        turn.retrying = false;
+        this.#probeBoundary(turn);
+        break;
+    }
+  }
+
+  #probeBoundary(turn: PiTurnBoundary): void {
+    if (
+      this.#closed ||
+      this.#turnBoundary !== turn ||
+      !turn.accepted ||
+      !turn.started ||
+      !turn.candidate ||
+      turn.compacting ||
+      turn.retrying ||
+      turn.pendingSteers !== 0 ||
+      turn.uncertainSteer ||
+      turn.probing
+    )
+      return;
+    turn.probing = true;
+    const generation = turn.generation;
+    void this.#requestCommand("get_state").then(
+      (state) => {
+        turn.probing = false;
+        if (this.#closed || this.#turnBoundary !== turn) return;
+        if (generation !== turn.generation) {
+          this.#probeBoundary(turn);
+          return;
+        }
+        if (
+          state["isStreaming"] !== false ||
+          state["isCompacting"] !== false ||
+          state["pendingMessageCount"] !== 0
+        )
+          return;
+        if (turn.pendingSteers !== 0 || turn.uncertainSteer || turn.compacting || turn.retrying)
+          return;
+        this.#turnBoundary = null;
+        turn.boundary.resolve(turn.aborted ? "aborted" : "settled");
+      },
+      () => {
+        turn.probing = false;
+      },
+    );
   }
 
   #onResponse(record: PiRecord): void {
@@ -357,7 +595,11 @@ export class PiDriver implements ChatDriver {
     this.#dialogTimers.delete(itemId);
   }
 
-  #requestCommand(type: string, fields: Record<string, unknown> = {}): Promise<PiRecord> {
+  #requestCommand(
+    type: string,
+    fields: Record<string, unknown> = {},
+    timeoutMs?: number,
+  ): Promise<PiRecord> {
     if (this.#closed) return Promise.reject(this.#unavailable());
     const id = `c${(this.#commandCounter += 1)}`;
     const answer = new Promise<PiRecord>((resolve, reject) => {
@@ -366,9 +608,19 @@ export class PiDriver implements ChatDriver {
     void this.#write(command(id, type, fields)).catch((error: unknown) => {
       const pending = this.#pending.get(id);
       this.#pending.delete(id);
-      pending?.reject(error instanceof Error ? error : new PiCommandError(type, messageOf(error)));
+      pending?.reject(error instanceof Error ? error : new Error(messageOf(error)));
     });
-    return answer;
+    if (timeoutMs === undefined) return answer;
+    const timer = setTimeout(
+      () => {
+        const pending = this.#pending.get(id);
+        this.#pending.delete(id);
+        pending?.reject(new Error(`pi did not answer ${type}`));
+      },
+      Math.max(1, timeoutMs),
+    );
+    timer.unref();
+    return answer.finally(() => clearTimeout(timer));
   }
 
   async #modelCommand(type: string, fields: Record<string, unknown> = {}): Promise<PiRecord> {
@@ -521,7 +773,7 @@ export class PiDriver implements ChatDriver {
   #rejectPending(detail: string): void {
     const pending = [...this.#pending.values()];
     this.#pending.clear();
-    for (const entry of pending) entry.reject(new PiCommandError(entry.command, detail));
+    for (const entry of pending) entry.reject(new ChatUnavailableError(detail, "exited"));
   }
 
   #unavailable(): ChatUnavailableError {
@@ -547,7 +799,7 @@ function seconds(milliseconds: number): string {
 }
 
 /**
- * pi's chat argv: RPC mode, the profile's model and provider flags, and the session id. pi's
+ * pi's chat argv: RPC mode, the launch model on a new conversation, and the session id. pi's
  * `--session-id` opens the conversation or creates it, so a resume and a start name the same flag;
  * there is no prompt argument, because RPC rejects the TUI's `@file` prompt shape — the prompt
  * travels as a `prompt` command once the child has said whether it has a conversation.
@@ -557,7 +809,7 @@ export function piChatArgs(facts: ChatLaunchFacts): string[] {
   return [
     "--mode",
     "rpc",
-    ...pi.launchArgs(facts.model, facts.provider),
+    ...(facts.how === "start" ? pi.launchArgs(facts.model, facts.provider) : []),
     ...(facts.how === "resume" && id !== null ? pi.resumeArgs(id) : pi.startArgs(id)),
   ];
 }
@@ -569,6 +821,7 @@ export function piChatArgs(facts: ChatLaunchFacts): string[] {
  * reports the thinking levels it takes.
  */
 export const piChatDriver: ChatDriverRegistration = {
+  requiresPreparationSignal: true,
   capabilities: {
     steer: true,
     followUp: true,

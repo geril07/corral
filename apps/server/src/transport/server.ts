@@ -17,6 +17,7 @@ import { ModelPreferencesStore } from "../models/model-preferences.ts";
 import { ModelCatalogService } from "../models/model-catalog.ts";
 import { ChatService } from "../chat/chat-service.ts";
 import type { ChatDriverRegistry, ChatTimeouts } from "../chat/chat-driver.ts";
+import { SqliteChatChoices } from "../chat/sqlite-chat-choices.ts";
 import { ChangesService } from "../changes/changes-service.ts";
 import { PullRequestStore } from "../changes/pull-request-store.ts";
 import { CodexServers } from "../chat/codex-server.ts";
@@ -65,11 +66,17 @@ export function startServer(options: {
    * service's test seam (`ChatServiceOptions.drivers`): a suite can register a recording driver and
    * exercise the session service's launch wiring without the real agent SDK.
    */
-  chat?: Partial<ChatTimeouts> & { writerWaitMs?: number; drivers?: ChatDriverRegistry };
+  chat?: Partial<ChatTimeouts> & {
+    writerWaitMs?: number;
+    boundaryWaitMs?: number;
+    drivers?: ChatDriverRegistry;
+  };
   /** `gh`/`glab` deadline for the Changes tab's pull-request calls; tests shorten it. */
   pullRequestTimeoutMs?: number;
   /** Metadata process deadline; tests shorten it against isolated fake CLIs. */
   modelCatalogTimeoutMs?: number;
+  /** Test barrier for the reserved OpenCode terminal launch. */
+  beforeOpenCodeTerminal?: (sessionId: string) => Promise<void>;
 }): Promise<RunningServer> {
   const temporaryDataDir =
     options.dataDir === undefined ? mkdtempSync(join(tmpdir(), "corral-data-")) : undefined;
@@ -97,6 +104,9 @@ export function startServer(options: {
   const { drivers: chatDrivers, ...chatTimeouts } = options.chat ?? {};
   const chat = new ChatService({
     dataDir,
+    // The session's choice, thinking memory and queue are server state: they outlive a restart
+    // and are not part of the immutable launch snapshot.
+    choices: new SqliteChatChoices(database),
     ...(options.chat === undefined ? {} : { timeouts: chatTimeouts }),
     ...(chatDrivers === undefined ? {} : { drivers: chatDrivers }),
     onWorkspaceChange: (sessionId) => changes.workspaceChanged(sessionId),
@@ -151,11 +161,15 @@ export function startServer(options: {
     tasks: taskStore,
     terminals,
     chat,
+    ...(options.beforeOpenCodeTerminal === undefined
+      ? {}
+      : { beforeOpenCodeTerminal: options.beforeOpenCodeTerminal }),
     statusUrl: (sessionId) => `${httpOrigin}${statusReportPath(sessionId)}`,
     openCode: OpenCodeIntegration.install(dataDir),
     openCodeServers,
     codexServers,
     config,
+    modelCatalog,
     // Defined below, once there is a TaskService to notify; called only after startup.
     taskEvents: {
       primarySessionRemoved: () => tasks.primarySessionRemoved(),

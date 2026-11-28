@@ -5,7 +5,7 @@ import { modelKey, modelVisible, orderModels } from "@corral/protocol/models";
 import { useModelPreferences } from "../settings/index.ts";
 import type { AgentSettings, LaunchProfile } from "@corral/protocol/config";
 import type { AgentKind, LaunchSnapshot } from "@corral/protocol/rpc";
-import { useState, useSyncExternalStore, type RefObject } from "react";
+import { useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { ModelPicker, type PickerModel } from "../../common/ui/index.ts";
 import {
   launchKey,
@@ -32,6 +32,7 @@ export interface ChatChoiceDialogProps {
   anchor: RefObject<HTMLElement | null>;
   onSetModel: (model: ChatModelRef, level?: string) => Promise<void>;
   onSetReasoning: (level: string) => Promise<void>;
+  onRefreshModels?: (() => Promise<void>) | undefined;
   onClose: () => void;
 }
 
@@ -51,6 +52,7 @@ export function ChatChoiceDialog({
   anchor,
   onSetModel,
   onSetReasoning,
+  onRefreshModels,
   onClose,
 }: ChatChoiceDialogProps) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -65,7 +67,26 @@ export function ChatChoiceDialog({
   const currentKey = launchKey(current);
   const [failure, setFailure] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const reported = state.model ? chatModelKey(state.model) : undefined;
+  const mounted = useRef(false);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // The chooser marks the next turn's choice, which is what a click here changes; the running
+  // model stays visible on the answers that used it.
+  const selection = state.selection ?? null;
+  const chosen = selection?.model ?? state.model;
+  const reported = chosen ? chatModelKey(chosen) : undefined;
+  const chosenEntry =
+    reported === undefined
+      ? undefined
+      : state.models.find((model) => chatModelKey(model) === reported);
+  const chosenLevelsFromCatalog =
+    state.modelsStatus === "ready" &&
+    chosenEntry?.reasoningLevels !== undefined &&
+    (state.model === null || reported !== chatModelKey(state.model));
   const preferences = useModelPreferences(launchScope(current));
   const favorite = (model: { provider: string | null; id: string }) =>
     preferences.policy.favorites.some((entry) => modelKey(entry) === modelKey(model));
@@ -97,27 +118,51 @@ export function ChatChoiceDialog({
     provider: model.provider ?? undefined,
     detail: model.id === model.name ? undefined : model.id,
     current: chatModelKey(model) === reported,
-    disabled: !modelSwitchSupported,
+    disabled:
+      !modelSwitchSupported || state.modelsStatus === "error" || state.modelsStatus === "loading",
     favorite: favorite(model),
     levels: levelsSupported ? model.reasoningLevels : undefined,
   }));
-  // A policy that hides the running model must not hide that the chat is on it.
-  const running = state.model;
+  // A policy that hides the chosen model must not hide that the chat is on it.
+  const chosenName =
+    chosenEntry?.name ??
+    (chosen !== null && state.model !== null && chatModelKey(chosen) === chatModelKey(state.model)
+      ? state.model.name
+      : chosen?.id);
   if (
-    running &&
-    !shown.some((model) => chatModelKey(model) === chatModelKey(running)) &&
+    chosen &&
+    !shown.some((model) => chatModelKey(model) === chatModelKey(chosen)) &&
     reported !== undefined
   )
     models.unshift({
       key: reported,
-      name: running.name,
-      provider: running.provider ?? undefined,
-      detail: "Current · hidden by filter",
+      name: chosenName ?? reported,
+      provider: chosen.provider ?? undefined,
+      detail: chosenEntry === undefined ? "Current" : "Current · hidden by filter",
       current: true,
       disabled: true,
-      favorite: favorite(running),
-      levels: levelsSupported ? running.reasoningLevels : undefined,
+      favorite: favorite(chosen),
+      levels: levelsSupported ? chosenEntry?.reasoningLevels : undefined,
     });
+  // The levels are the selected model's, not the running one's: a queued or next-turn model may be
+  // different, and offering the other model's levels would be a choice it cannot take.
+  const levels =
+    chosenEntry?.reasoningLevels ??
+    (reported !== undefined && state.model !== null && reported === chatModelKey(state.model)
+      ? state.reasoningLevels
+      : []);
+  // A level the live driver has not confirmed is stored, but it is not the choice a turn would
+  // run on; marking it as selected here would claim it was applied.
+  const selectionIssue = state.selectionIssue ?? null;
+  const selectedLevel =
+    selectionIssue !== null
+      ? undefined
+      : selection === null
+        ? state.reasoning
+        : (selection.level ??
+          (reported !== undefined && state.model !== null && reported === chatModelKey(state.model)
+            ? state.reasoning
+            : null));
   const apply = async (action: () => Promise<void>) => {
     if (busy) return;
     setBusy(true);
@@ -132,8 +177,15 @@ export function ChatChoiceDialog({
   };
   const chooseModel = (key: string) => {
     const model = state.models.find((candidate) => chatModelKey(candidate) === key);
-    if (!model || key === reported) return;
-    void apply(() => onSetModel({ provider: model.provider, id: model.id }));
+    if (!model || busy) return;
+    if (key === reported) {
+      onClose();
+      return;
+    }
+    void apply(async () => {
+      await onSetModel({ provider: model.provider, id: model.id });
+      if (mounted.current) onClose();
+    });
   };
   return (
     <ModelPicker
@@ -146,25 +198,58 @@ export function ChatChoiceDialog({
       onInstance={() => undefined}
       models={models}
       onModel={chooseModel}
-      levels={state.reasoningLevels}
-      level={state.reasoning}
-      onLevel={levelsSupported ? (level) => void apply(() => onSetReasoning(level)) : undefined}
+      modelStatus={
+        state.modelsStatus === "error"
+          ? "Could not load the model list."
+          : state.modelsStatus === "loading"
+            ? "Loading models…"
+            : undefined
+      }
+      onRetryModels={
+        state.modelsStatus === "error" && onRefreshModels !== undefined
+          ? () =>
+              void apply(async () => {
+                try {
+                  await onRefreshModels();
+                } catch {
+                  // The catalog status owns the error, so a later successful refresh clears it.
+                }
+              })
+          : undefined
+      }
+      levels={levels}
+      level={selectedLevel}
+      onLevel={
+        levelsSupported && state.modelsStatus !== "error" && state.modelsStatus !== "loading"
+          ? (level) => void apply(() => onSetReasoning(level))
+          : undefined
+      }
       onModelLevel={
-        levelsSupported && modelSwitchSupported
+        levelsSupported &&
+        modelSwitchSupported &&
+        state.modelsStatus !== "error" &&
+        state.modelsStatus !== "loading"
           ? (key, level) => {
               const model = state.models.find((candidate) => chatModelKey(candidate) === key);
               if (model)
-                void apply(() => onSetModel({ provider: model.provider, id: model.id }, level));
+                void apply(async () => {
+                  await onSetModel({ provider: model.provider, id: model.id }, level);
+                  if (mounted.current) onClose();
+                });
             }
           : undefined
       }
-      levelsPending={state.reasoningStatus === "loading"}
+      levelsPending={state.reasoningStatus === "loading" && !chosenLevelsFromCatalog}
       reasoningStatus={
         !levelsSupported
           ? "This agent does not support changing reasoning."
-          : state.reasoningStatus === "error"
-            ? "Could not load reasoning levels."
-            : undefined
+          : selectionIssue !== null
+            ? selectionIssue.reason === "unavailable"
+              ? "The selected thinking level is no longer available. Choose another level."
+              : "The selected thinking level could not be confirmed. Choose another level."
+            : state.reasoningStatus === "error" && !chosenLevelsFromCatalog
+              ? "Could not load reasoning levels."
+              : undefined
       }
       error={failure}
       busy={busy || state.modelSelectionPending === true}

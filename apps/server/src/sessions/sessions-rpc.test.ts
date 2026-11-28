@@ -22,6 +22,8 @@ const agents = useFakeAgents();
 const SIZE = { cols: 80, rows: 24 };
 // Wide enough that a worktree path does not wrap on screen.
 const WIDE = { cols: 300, rows: 24 };
+// Native frontend startup and the shared fixture deadline must fit the test's own budget.
+vi.setConfig({ testTimeout: 20_000 });
 
 function launchesOf(agent: Launch["agent"], count: number) {
   return launchesOfAgent(agents, agent, count);

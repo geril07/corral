@@ -34,7 +34,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeTranscriptExists, writeClaudeTranscript } from "../claude-transcripts.ts";
 import { writeRollout } from "../rollouts.ts";
-import { startFakeCodexServer } from "./fake-codex-server.ts";
+import { isRecord } from "../json.ts";
+import { FAKE_CODEX_MODELS, startFakeCodexServer } from "./fake-codex-server.ts";
 import { runFakeOpenCodeServer } from "./fake-opencode-server.ts";
 import { startFakePiRpc } from "./fake-pi-rpc.ts";
 
@@ -137,7 +138,43 @@ if (logFile) {
 // leg speak (C3). It stays in this process until it is killed; the journal keeps its threads.
 if (name === "codex" && argv[0] === "app-server") {
   const listen = argumentValue(argv, "--listen");
-  if (listen === undefined || !listen.startsWith("unix://")) {
+  if (listen === undefined) {
+    const { createInterface } = await import("node:readline");
+    const input = createInterface({ input: process.stdin });
+    input.on("line", (line) => {
+      const frame: unknown = JSON.parse(line);
+      if (!isRecord(frame) || typeof frame["id"] !== "number") return;
+      if (
+        frame["method"] === "model/list" &&
+        process.env["CODEX_HOME"] !== undefined &&
+        existsSync(join(process.env["CODEX_HOME"], "catalog-error"))
+      ) {
+        process.stdout.write(JSON.stringify({ id: frame["id"], error: {} }) + "\n");
+        return;
+      }
+      const result =
+        frame["method"] === "initialize"
+          ? {}
+          : frame["method"] === "config/read"
+            ? {
+                config: {
+                  model_provider:
+                    process.env["FAKE_CODEX_DEFAULT_PROVIDER"] === "1" ? null : "stub",
+                },
+              }
+            : frame["method"] === "model/list"
+              ? { data: FAKE_CODEX_MODELS, nextCursor: null }
+              : undefined;
+      process.stdout.write(
+        JSON.stringify(
+          result === undefined ? { id: frame["id"], error: {} } : { id: frame["id"], result },
+        ) + "\n",
+      );
+    });
+    await new Promise<void>((resolve) => input.once("close", resolve));
+    process.exit(0);
+  }
+  if (!listen.startsWith("unix://")) {
     console.error("fake codex: app-server needs --listen unix://PATH");
     process.exit(2);
   }

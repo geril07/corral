@@ -17,6 +17,8 @@ export interface AgentLaunchChoice {
   profileId?: string;
   expectedProfileRevision?: string;
   model?: string;
+  expectedModel?: ChatModelRef | undefined;
+  thinking?: { model: ChatModelRef; level: string; remembered?: boolean | undefined } | undefined;
   view?: TaskView;
 }
 
@@ -26,6 +28,8 @@ export interface LaunchSelection {
   profile: Pick<LaunchProfile, "id" | "name" | "revision" | "model" | "provider"> | null;
   /** Raw input, including an unfinished/invalid native ID. Only submit trims and validates it. */
   model: string;
+  expectedModel?: ChatModelRef | undefined;
+  thinking?: { model: ChatModelRef; level: string; remembered?: boolean | undefined } | undefined;
 }
 
 export function supportsModel(kind: AgentKind): boolean {
@@ -137,6 +141,14 @@ export function launchModel(selection: LaunchSelection): string | undefined {
   return model === "" ? undefined : model;
 }
 
+/**
+ * The model a launch button names. pi and Codex carry it on the launch flag; OpenCode carries it
+ * on the chat conversation, so its catalog choice is the only name there is.
+ */
+export function launchModelLabel(selection: LaunchSelection, chat: boolean): string | undefined {
+  return launchModel(selection) ?? (chat ? selection.expectedModel?.id : undefined);
+}
+
 export function launchChoice(selection: LaunchSelection): AgentLaunchChoice {
   const model = supportsModel(selection.kind) ? modelOverride(selection.model) : undefined;
   return {
@@ -145,6 +157,8 @@ export function launchChoice(selection: LaunchSelection): AgentLaunchChoice {
       ? { profileId: selection.profile.id, expectedProfileRevision: selection.profile.revision }
       : {}),
     ...(model ? { model } : {}),
+    ...(selection.expectedModel === undefined ? {} : { expectedModel: selection.expectedModel }),
+    ...(selection.thinking === undefined ? {} : { thinking: selection.thinking }),
   };
 }
 

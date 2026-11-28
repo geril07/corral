@@ -70,6 +70,97 @@ test("a prompt typed into the composer creates the task and its agent works on i
     .toMatchTextContent("Explain the build");
 });
 
+test("the first pi chat message uses the model and thinking selected before creation", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await openDraft(project.name);
+  await picker(/^Agent /).click();
+  const models = page.getByRole("dialog", { name: "Agent and model" });
+  await models.getByRole("radio", { name: "pi", exact: true }).click();
+  await models.getByRole("option", { name: /Stub Two/ }).click();
+  await expect.element(models).not.toBeInTheDocument();
+  await composer()
+    .getByRole("button", { name: /^Reasoning/ })
+    .click();
+  await models.getByRole("button", { name: "high", exact: true }).click();
+  await expect.element(models).not.toBeInTheDocument();
+  await expect.element(composer().getByRole("button", { name: "Reasoning high" })).toBeVisible();
+  const sessionsBefore = client.sessions.getSnapshot().sessions.length;
+  await picker(/^Agent /).click();
+  await models.getByRole("option", { name: /Stub One/ }).click();
+  await expect.element(composer().getByRole("button", { name: /^Reasoning/ })).toBeVisible();
+  await picker(/^Agent /).click();
+  await models.getByRole("option", { name: /Stub Two/ }).click();
+  await expect.element(composer().getByRole("button", { name: "Reasoning high" })).toBeVisible();
+  expect(client.sessions.getSnapshot().sessions).toHaveLength(sessionsBefore);
+  await promptField().fill("First selected turn");
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .element(page.getByRole("log", { name: "Chat transcript" }))
+    .toMatchTextContent("First selected turn");
+  await expect.element(page.getByRole("button", { name: "Model Stub Two" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Reasoning high" })).toBeVisible();
+  const task = client.tasks
+    .getSnapshot()
+    .tasks.find((entry) => entry.title === "First selected turn");
+  expect(task?.primarySessionId).not.toBeNull();
+  await openDraft(project.name);
+  await picker(/^Agent /).click();
+  await models.getByRole("radio", { name: "pi", exact: true }).click();
+  await models.getByRole("option", { name: /Stub Two/ }).click();
+  await expect.element(composer().getByRole("button", { name: "Reasoning high" })).toBeVisible();
+});
+
+test("a new Codex task captures a model and effort before its first message", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await openDraft(project.name);
+  await picker(/^Agent /).click();
+  const models = page.getByRole("dialog", { name: "Agent and model" });
+  await models.getByRole("radio", { name: "codex", exact: true }).click();
+  await models.getByRole("option", { name: /Stub Two/ }).click();
+  await expect.element(models).not.toBeInTheDocument();
+  await composer()
+    .getByRole("button", { name: /^Reasoning/ })
+    .click();
+  await models.getByRole("button", { name: "high", exact: true }).click();
+  await expect.element(composer().getByRole("button", { name: "Reasoning high" })).toBeVisible();
+  await promptField().fill("First Codex selection");
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .element(page.getByRole("log", { name: "Chat transcript" }))
+    .toMatchTextContent("First Codex selection");
+  const task = client.tasks
+    .getSnapshot()
+    .tasks.find((entry) => entry.title === "First Codex selection");
+  const session = client.sessions
+    .getSnapshot()
+    .sessions.find((entry) => entry.id === task?.primarySessionId);
+  expect(session?.launch).toMatchObject({
+    model: "stub-two",
+    expectedModel: { provider: "stub", id: "stub-two" },
+  });
+});
+
+test("a model selection reads another client's latest remembered level without starting a session", async () => {
+  const { client, project } = await appWithProject(newClient());
+  await openDraft(project.name);
+  await picker(/^Agent /).click();
+  const models = page.getByRole("dialog", { name: "Agent and model" });
+  await models.getByRole("radio", { name: "pi", exact: true }).click();
+  await expect.element(models.getByRole("option", { name: /Stub Two/ })).toBeVisible();
+  const other = newClient();
+  await expect.poll(() => other.connection.state.getSnapshot().status).toBe("connected");
+  await other.connection.api.models.rememberThinking({
+    scope: { kind: "pi", profileId: null },
+    context: { projectId: project.id },
+    model: { provider: "stub", id: "stub-2" },
+    level: "max",
+  });
+  const sessionsBefore = client.sessions.getSnapshot().sessions.length;
+  await models.getByRole("option", { name: /Stub Two/ }).click();
+  await expect.element(composer().getByRole("button", { name: "Reasoning max" })).toBeVisible();
+  expect(client.sessions.getSnapshot().sessions).toHaveLength(sessionsBefore);
+});
+
 test("each project's own defaults prefill the composer and name the agent the task starts", async () => {
   const { client, repo, project } = await appWithProject(newClient());
 
@@ -123,7 +214,9 @@ test("a project's chat view default opens the new task as chat", async () => {
   await expect.element(page.getByRole("log", { name: "Chat transcript" })).toBeVisible();
   await expect.element(page.getByRole("textbox", { name: "Message" })).toBeVisible();
   await vi.waitFor(async () => {
-    const fresh = (await agentLaunches()).slice(before);
+    const fresh = (await agentLaunches())
+      .slice(before)
+      .filter((launch) => !(launch.agent === "codex" && launch.argv.join(" ") === "app-server"));
     expect(fresh).toHaveLength(1);
     expect(fresh[0]?.agent).toBe("pi");
     expect(fresh[0]?.argv).toContain("rpc");
@@ -153,7 +246,9 @@ test("a disabled agent disappears from the pickers and the task starts one still
   await expect.element(card("Enabled agent only")).toHaveAttribute("aria-current", "true");
 
   await vi.waitFor(async () => {
-    const fresh = (await agentLaunches()).slice(before);
+    const fresh = (await agentLaunches())
+      .slice(before)
+      .filter((launch) => !(launch.agent === "codex" && launch.argv.join(" ") === "app-server"));
     expect(fresh.map((launch) => launch.agent)).toEqual(["codex"]);
   });
 

@@ -1,7 +1,12 @@
 import { beforeEach, expect, test } from "vite-plus/test";
 import type { ChatSendMode } from "@corral/protocol/rpc";
 import { agentStatus } from "./chat-errors.ts";
-import type { ChatDriver, ChatDriverRegistration, ChatDriverStart } from "./chat-driver.ts";
+import type {
+  ChatDriver,
+  ChatDriverRegistration,
+  ChatDriverStart,
+  ChatSendReceipt,
+} from "./chat-driver.ts";
 import type { ChatTimeline } from "./timeline.ts";
 import { useFakeAgents } from "../../test/fake-agents.ts";
 import { addProject } from "../../test/project-fixture.ts";
@@ -53,8 +58,8 @@ class RecordingChatDriver implements ChatDriver {
     this.#request.onExit(null);
   }
 
-  send(_text: string, _mode: ChatSendMode): string {
-    return "recording-driver-item";
+  send(_text: string, _mode: ChatSendMode): ChatSendReceipt {
+    return { id: "recording-driver-item", outcome: Promise.resolve(null) };
   }
 
   async abort(): Promise<void> {}

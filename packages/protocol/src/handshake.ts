@@ -59,8 +59,21 @@ import { z } from "zod";
  * client's live `Working` row would carry no time and its last `Worked` row no duration, and the
  * refusal names the version instead. Version 18 carries per-model reasoning capabilities:
  * an older server would silently omit capabilities that the picker needs for a candidate model.
+ * Version 19 moves a chat's model and reasoning choice to the turn boundary: the state carries the
+ * next-turn `selection`, the part of it the live driver has not confirmed (`selectionIssue`), and
+ * the server-owned `queue` with the selection each message captured, and an assistant message may
+ * carry the model its own answer reports. A version 18 server applies a choice to the running turn
+ * and hands a follow-up to the agent's own queue, so the two versions would not agree about which
+ * model runs the next turn; the optional attribution would also be lost, so neither side shows one
+ * instead of a wrong one. Version 20 distinguishes a live chat with an unconfirmed turn from an
+ * exited frontend, so an older client cannot silently treat a blocked send as an unrelated failure.
+ * Version 21 carries recovered-idle queue statuses that older clients cannot parse.
+ * Version 22 carries pre-launch model confirmation and thinking choices and the thinking-memory API.
+ * Version 23 carries each model's native catalog default separately from its active reasoning.
+ * Version 24 distinguishes a configured, model or unknown next-turn reasoning default.
+ * Version 25 adds live model catalog status and explicit refresh.
  */
-export const PROTOCOL_VERSION = 18;
+export const PROTOCOL_VERSION = 25;
 
 /**
  * Every WebSocket URL carries the client's version as `?protocol=N`. The handshake lives in

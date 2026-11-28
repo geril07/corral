@@ -1,3 +1,4 @@
+import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,7 +26,11 @@ function noop(): void {}
 
 /** A pool on a fresh data directory, one driver on it, and what it reported. */
 async function harness(
-  options: { prompt?: string | null; sessionId?: string } = {},
+  options: {
+    prompt?: string | null;
+    sessionId?: string;
+    expectedModel?: { provider: string | null; id: string };
+  } = {},
 ): Promise<Harness> {
   const root = await mkdtemp(join(tmpdir(), "corral-opencode-"));
   const servers = new OpenCodeServers({ dataDir: root, readyTimeoutMs: 10_000, exitGraceMs: 500 });
@@ -49,6 +54,7 @@ async function harness(
     model: null,
     how: "start",
     prompt: options.prompt ?? null,
+    ...(options.expectedModel === undefined ? {} : { expectedModel: options.expectedModel }),
     agentSessionId: sessionId,
     server,
     writer: { record: () => {}, release: () => {} },
@@ -98,6 +104,49 @@ async function prompts(): Promise<Record<string, unknown>[]> {
   return (await journal()).filter((entry) => entry["action"] === "prompt");
 }
 
+async function modelSwitches(): Promise<Record<string, unknown>[]> {
+  // The terminal is another client of the same server; its own switch is journaled with `tui`
+  // and is not the driver's, which is what these tests count.
+  return (await journal()).filter(
+    (entry) => entry["action"] === "model-switch" && entry["tui"] !== true,
+  );
+}
+
+/** A switch the terminal leg makes through the same API, as the TUI would. */
+async function terminalSwitchModel(
+  server: OpenCodeServerAddress,
+  sessionId: string,
+  model: Record<string, unknown>,
+): Promise<void> {
+  const response = await fetch(`${server.url}/api/session/${sessionId}/model`, {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${Buffer.from(`opencode:${server.password}`).toString("base64")}`,
+      "content-type": "application/json",
+      "x-fake-client": "tui",
+    },
+    body: JSON.stringify({ model }),
+  });
+  expect(response.status).toBe(204);
+}
+
+/** The model the session reports through `GET /api/session/:id`, variant included. */
+async function sessionModel(
+  server: OpenCodeServerAddress,
+  sessionId: string,
+): Promise<Record<string, unknown> | undefined> {
+  const response = await fetch(`${server.url}/api/session/${sessionId}`, {
+    headers: {
+      authorization: `Basic ${Buffer.from(`opencode:${server.password}`).toString("base64")}`,
+    },
+  });
+  expect(response.status).toBe(200);
+  const body: unknown = await response.json();
+  const data = isRecord(body) && isRecord(body["data"]) ? body["data"] : body;
+  const model = isRecord(data) ? data["model"] : undefined;
+  return isRecord(model) ? model : undefined;
+}
+
 async function until(
   predicate: () => boolean | Promise<boolean>,
   description: string,
@@ -121,6 +170,70 @@ function textOf(timeline: ChatTimeline): string {
     .snapshot()
     .items.flatMap((item) => (item.kind === "assistant-message" ? [item.text] : []))
     .join("");
+}
+
+function usersOf(timeline: ChatTimeline) {
+  return items(timeline).flatMap((item) => (item.kind === "user-message" ? [item] : []));
+}
+
+function answersOf(timeline: ChatTimeline) {
+  return items(timeline).flatMap((item) => (item.kind === "assistant-message" ? [item] : []));
+}
+
+function noticeOf(timeline: ChatTimeline) {
+  return items(timeline).find((item) => item.kind === "notice");
+}
+
+/** Writes one of the fake's persisted sessions into its data directory before the server starts. */
+function seedHistory(sessionId: string, turns: number): void {
+  const messages: Record<string, unknown>[] = [];
+  for (let turn = 1; turn <= turns; turn += 1) {
+    const model =
+      turn % 2 === 0
+        ? { id: "other-model", providerID: "other" }
+        : { id: "stub-model", providerID: "stub" };
+    messages.push({
+      id: `msg_seeduser${turn}`,
+      type: "user",
+      text: `question ${turn}`,
+      time: { created: turn * 10 },
+    });
+    messages.push({
+      id: `msg_seedassistant${turn}`,
+      type: "assistant",
+      agent: "build",
+      model,
+      time: { created: turn * 10 + 1 },
+      content: [{ type: "text", text: `answer ${turn}` }],
+    });
+    messages.push({ id: `msg_seedidle${turn}`, type: "idle", outcome: "succeeded" });
+  }
+  writeFakeState(
+    `${sessionId}.json`,
+    JSON.stringify({
+      id: sessionId,
+      title: "seeded history",
+      directory: "/tmp",
+      messages,
+      permissions: [],
+      busy: false,
+      outcome: "succeeded",
+    }),
+  );
+}
+
+/** The fake's paging behaviour for the next `/message` requests (see `messageMode` in it). */
+function setMessageMode(mode: string): void {
+  writeFakeState("message-mode", mode);
+}
+
+function writeFakeState(name: string, content: string): void {
+  mkdirSync(agents.openCodeState, { recursive: true });
+  writeFileSync(join(agents.openCodeState, name), content);
+}
+
+async function messagePages(): Promise<Record<string, unknown>[]> {
+  return (await journal()).filter((entry) => entry["action"] === "message-list");
 }
 
 test("a turn streams text and a tool call into the timeline, with the diff the tool carried", async () => {
@@ -180,6 +293,299 @@ test("an answer that arrives while a turn runs is a steer; a prompt then is refu
     await test1.driver.abort();
     await until(() => test1.timeline.state.turn === "aborted", "the interrupted turn");
     expect((await journal()).some((entry) => entry["action"] === "interrupt")).toBe(true);
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a prepared selection switches the model before its prompt, and the catalog is the offer", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    expect(test1.timeline.state.models).toEqual([
+      { provider: "stub", id: "stub-model", name: "Stub Model" },
+      { provider: "other", id: "other-model", name: "Other Model" },
+    ]);
+
+    const selection = { model: { provider: "other", id: "other-model" }, level: null };
+    await test1.driver.prepareSelection(selection, { forDispatch: true });
+    test1.driver.send("stream please", "prompt", selection);
+    await until(() => test1.timeline.state.turn === "settled", "the turn");
+
+    const entries = await journal();
+    const switched = entries.findIndex((entry) => entry["action"] === "model-switch");
+    const prompted = entries.findIndex(
+      (entry) => entry["action"] === "prompt" && entry["text"] === "stream please",
+    );
+    expect(switched).toBeGreaterThanOrEqual(0);
+    expect(entries[switched]).toMatchObject({
+      sessionID: "ses_driver0000000000000000000",
+      model: { id: "other-model", providerID: "other" },
+    });
+    expect(switched).toBeLessThan(prompted);
+    expect(test1.timeline.state.model).toMatchObject({ provider: "other", id: "other-model" });
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a selection with no offered model never reaches the session and leaves no user item", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    const receipt = test1.driver.send("keep these words", "prompt", {
+      model: { provider: "stub", id: "missing-model" },
+      level: null,
+    });
+    const failure = await receipt.outcome;
+    expect(failure?.name).toBe("ChatRefusalError");
+    expect(failure?.message).toContain("did not offer this model");
+    await until(
+      () =>
+        items(test1.timeline).some(
+          (item) => item.kind === "error" && item.text.includes("did not switch the model"),
+        ),
+      "the visible refusal",
+    );
+    expect(usersOf(test1.timeline)).toHaveLength(0);
+    expect(await prompts()).toEqual([]);
+    expect(await modelSwitches()).toEqual([]);
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a steer keeps the running turn's model and a selection chosen meanwhile does not switch it", async () => {
+  const test1 = await harness();
+  try {
+    test1.driver.send("hold", "prompt");
+    await until(() => test1.timeline.state.turn === "working", "the working turn");
+    await test1.driver.prepareSelection(
+      { model: { provider: "other", id: "other-model" }, level: null },
+      { forDispatch: false },
+    );
+    test1.driver.send("more context", "steer");
+    await until(async () => (await prompts()).length === 2, "the steer");
+
+    expect(await modelSwitches()).toEqual([]);
+    expect(test1.timeline.state.model).toMatchObject({ provider: "stub", id: "stub-model" });
+    expect((await prompts())[1]).toMatchObject({ text: "more context", delivery: "steer" });
+    await test1.driver.abort();
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a new conversation starts on its chosen model without a redundant switch", async () => {
+  const test1 = await harness({
+    prompt: "stream please",
+    expectedModel: { provider: "other", id: "other-model" },
+  });
+  try {
+    await until(() => test1.timeline.state.turn === "settled", "the first turn");
+    const entries = await journal();
+    const created = entries.findIndex((entry) => entry["action"] === "session-create");
+    const prompted = entries.findIndex(
+      (entry) => entry["action"] === "prompt" && entry["text"] === "stream please",
+    );
+    expect(entries[created]).toMatchObject({
+      model: { id: "other-model", providerID: "other" },
+    });
+    expect(created).toBeLessThan(prompted);
+    // The creation already carries the model, and the prompt's own read confirms it, so no switch
+    // is sent for a model the session already has.
+    expect(await modelSwitches()).toEqual([]);
+    expect(test1.timeline.state.model).toMatchObject({ provider: "other", id: "other-model" });
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a resumed conversation keeps the model its session recorded without a redundant switch", async () => {
+  const root = await mkdtemp(join(tmpdir(), "corral-opencode-"));
+  const servers = new OpenCodeServers({ dataDir: root, readyTimeoutMs: 10_000 });
+  const command = join(import.meta.dirname, "../..", "test", "fake-agents", "bin", "opencode");
+  const server = await servers.acquire("chat:first", { command, cwd: root, env: processEnv() });
+  const sessionId = "ses_resume000000000000000000";
+  try {
+    const first = new ChatTimeline(0);
+    const started = driverOn(server, sessionId, {
+      timeline: first,
+      expectedModel: { provider: "other", id: "other-model" },
+    });
+    started.start();
+    await until(() => first.state.model !== null, "the created session's model");
+    expect(first.state.model).toMatchObject({ provider: "other", id: "other-model" });
+    await started.stop();
+
+    const resumedTimeline = new ChatTimeline(0);
+    const resumed = driverOn(server, sessionId, { timeline: resumedTimeline, how: "resume" });
+    resumed.start();
+    await until(() => resumedTimeline.state.model !== null, "the resumed model");
+    expect(resumedTimeline.state.model).toMatchObject({ provider: "other", id: "other-model" });
+    const selection = { model: { provider: "other", id: "other-model" }, level: null };
+    await resumed.prepareSelection(selection, { forDispatch: true });
+    resumed.send("after resume", "prompt", selection);
+    await until(() => resumedTimeline.state.turn === "settled", "the resumed turn");
+    expect((await prompts())[0]).toMatchObject({ text: "after resume" });
+    expect(await modelSwitches()).toEqual([]);
+    await resumed.stop();
+  } finally {
+    await servers.closeAll();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a prompt on the model the session already has keeps the terminal's variant", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    const sessionId = "ses_driver0000000000000000000";
+    // The terminal picks a variant of the same model; a switch for an equal id+provider would
+    // replace the ref and drop it.
+    await terminalSwitchModel(test1.server, sessionId, {
+      id: "stub-model",
+      providerID: "stub",
+      variant: "high",
+    });
+    const selection = { model: { provider: "stub", id: "stub-model" }, level: null };
+    await test1.driver.prepareSelection(selection, { forDispatch: true });
+    test1.driver.send("stream please", "prompt", selection);
+    await until(() => test1.timeline.state.turn === "settled", "the turn");
+
+    expect(await prompts()).toHaveLength(1);
+    expect(await modelSwitches()).toEqual([]);
+    expect(await sessionModel(test1.server, sessionId)).toMatchObject({
+      id: "stub-model",
+      providerID: "stub",
+      variant: "high",
+    });
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a model the terminal moved is corrected to the chat's choice before the prompt", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    const sessionId = "ses_driver0000000000000000000";
+    await terminalSwitchModel(test1.server, sessionId, {
+      id: "other-model",
+      providerID: "other",
+      variant: "high",
+    });
+
+    const selection = { model: { provider: "stub", id: "stub-model" }, level: null };
+    await test1.driver.prepareSelection(selection, { forDispatch: true });
+    test1.driver.send("stream please", "prompt", selection);
+    await until(() => test1.timeline.state.turn === "settled", "the turn");
+
+    const entries = await journal();
+    const switched = entries.findIndex(
+      (entry) => entry["action"] === "model-switch" && entry["tui"] !== true,
+    );
+    const prompted = entries.findIndex(
+      (entry) => entry["action"] === "prompt" && entry["text"] === "stream please",
+    );
+    expect(switched).toBeGreaterThanOrEqual(0);
+    expect(entries[switched]).toMatchObject({ model: { id: "stub-model", providerID: "stub" } });
+    expect(switched).toBeLessThan(prompted);
+    const switchedModel = isRecord(entries[switched]?.["model"]) ? entries[switched]["model"] : {};
+    expect(switchedModel["variant"]).toBeUndefined();
+    const corrected = await sessionModel(test1.server, sessionId);
+    expect(corrected).toMatchObject({ id: "stub-model", providerID: "stub" });
+    expect(corrected?.["variant"]).toBeUndefined();
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("choosing another model switches to it without carrying the session model's variant", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    const sessionId = "ses_driver0000000000000000000";
+    await terminalSwitchModel(test1.server, sessionId, {
+      id: "stub-model",
+      providerID: "stub",
+      variant: "high",
+    });
+
+    const selection = { model: { provider: "other", id: "other-model" }, level: null };
+    await test1.driver.prepareSelection(selection, { forDispatch: true });
+    test1.driver.send("stream please", "prompt", selection);
+    await until(() => test1.timeline.state.turn === "settled", "the turn");
+
+    const switches = await modelSwitches();
+    expect(switches).toHaveLength(1);
+    expect(switches[0]).toMatchObject({ model: { id: "other-model", providerID: "other" } });
+    const switchedModel = isRecord(switches[0]) ? switches[0]["model"] : undefined;
+    expect(isRecord(switchedModel) ? switchedModel["variant"] : undefined).toBeUndefined();
+    const chosen = await sessionModel(test1.server, sessionId);
+    expect(chosen).toMatchObject({ id: "other-model", providerID: "other" });
+    expect(chosen?.["variant"]).toBeUndefined();
+    expect(test1.timeline.state.model).toMatchObject({ provider: "other", id: "other-model" });
+    expect((await prompts())[0]).toMatchObject({ text: "stream please" });
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a session whose model cannot be read refuses the prompt and keeps the words", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    const selection = { model: { provider: "stub", id: "stub-model" }, level: null };
+    await test1.driver.prepareSelection(selection, { forDispatch: true });
+    writeFakeState("session-read-mode", "fail");
+
+    const receipt = test1.driver.send("keep these words", "prompt", selection);
+    const failure = await receipt.outcome;
+    expect(failure?.name).toBe("ChatRefusalError");
+    expect(failure?.message).toContain("could not confirm the session's model");
+    await until(
+      () =>
+        items(test1.timeline).some(
+          (item) => item.kind === "error" && item.text.includes("did not switch the model"),
+        ),
+      "the visible refusal",
+    );
+    expect(usersOf(test1.timeline)).toHaveLength(0);
+    expect(await prompts()).toEqual([]);
+    expect(await modelSwitches()).toEqual([]);
+  } finally {
+    await test1.stop();
+  }
+});
+
+test("a refused switch refuses the prompt and keeps the words", async () => {
+  const test1 = await harness();
+  try {
+    await until(() => test1.timeline.state.models.length > 0, "the model catalog");
+    const selection = { model: { provider: "other", id: "other-model" }, level: null };
+    await test1.driver.prepareSelection(selection, { forDispatch: true });
+    writeFakeState("model-switch-mode", "fail");
+
+    const receipt = test1.driver.send("keep these words", "prompt", selection);
+    const failure = await receipt.outcome;
+    expect(failure?.name).toBe("ChatRefusalError");
+    expect(failure?.message).toContain("the model was refused");
+    await until(
+      () =>
+        items(test1.timeline).some(
+          (item) => item.kind === "error" && item.text.includes("did not switch the model"),
+        ),
+      "the visible refusal",
+    );
+    expect(usersOf(test1.timeline)).toHaveLength(0);
+    expect(await prompts()).toEqual([]);
+    expect(await modelSwitches()).toEqual([
+      expect.objectContaining({
+        model: { id: "other-model", providerID: "other" },
+        mode: "fail",
+      }),
+    ]);
   } finally {
     await test1.stop();
   }
@@ -365,7 +771,13 @@ test("a server that dies is reported as an exit with the reason, not as silence"
 function driverOn(
   server: { url: string; password: string },
   sessionId: string,
-  options: { prompt?: string | null; timeline: ChatTimeline; statuses?: string[] },
+  options: {
+    prompt?: string | null;
+    timeline: ChatTimeline;
+    statuses?: string[];
+    expectedModel?: { provider: string | null; id: string };
+    how?: "start" | "resume";
+  },
 ): OpenCodeDriver {
   return new OpenCodeDriver({
     sessionId: "corral-session-2",
@@ -375,8 +787,9 @@ function driverOn(
     cwd: "/tmp",
     env: processEnv(),
     model: null,
-    how: "start",
+    how: options.how ?? "start",
     prompt: options.prompt ?? null,
+    ...(options.expectedModel === undefined ? {} : { expectedModel: options.expectedModel }),
     agentSessionId: sessionId,
     server,
     writer: { record: () => {}, release: () => {} },
@@ -471,6 +884,184 @@ test("a prompt the other frontend types appears as its user message, with the id
         .map((item) => [item.id, item.text]),
     ).toEqual([[`user:${messageId}`, "from the terminal"]]);
     await second.stop();
+  } finally {
+    await test1.stop();
+  }
+});
+
+test(
+  "a long history is read page by page, in order, with every answer's model",
+  { timeout: 20_000 },
+  async () => {
+    const sessionId = "ses_history000000000000000000";
+    seedHistory(sessionId, 150);
+    const test1 = await harness({ sessionId });
+    try {
+      await until(
+        () => answersOf(test1.timeline).length === 150 && test1.timeline.state.turn === "settled",
+        "the whole seeded history",
+      );
+      expect(usersOf(test1.timeline).map((item) => item.text)).toEqual(
+        Array.from({ length: 150 }, (_, index) => `question ${index + 1}`),
+      );
+      const answers = answersOf(test1.timeline);
+      expect(answers.map((item) => item.text)).toEqual(
+        Array.from({ length: 150 }, (_, index) => `answer ${index + 1}`),
+      );
+      // The model is the one each answer names in the transcript, not the session's latest one.
+      expect(answers[0]).toMatchObject({
+        text: "answer 1",
+        model: { provider: "stub", id: "stub-model" },
+      });
+      expect(answers[1]).toMatchObject({
+        text: "answer 2",
+        model: { provider: "other", id: "other-model" },
+      });
+      expect(answers.at(-1)).toMatchObject({
+        text: "answer 150",
+        model: { provider: "other", id: "other-model" },
+      });
+      expect(test1.timeline.state.model).toEqual({
+        provider: "other",
+        id: "other-model",
+        name: "other-model",
+      });
+      const ids = items(test1.timeline).map((item) => item.id);
+      expect(new Set(ids).size).toBe(ids.length);
+
+      const pages = await messagePages();
+      expect(pages.length).toBeGreaterThan(1);
+      expect(pages[0]).toMatchObject({
+        mode: "paged",
+        limit: 200,
+        order: "desc",
+        cursor: null,
+      });
+      expect(pages[1]?.["cursor"]).toEqual(expect.any(String));
+      // Only the first page names an order; a cursor already carries it.
+      expect(pages[1]?.["order"]).toBeNull();
+      expect(noticeOf(test1.timeline)).toBeUndefined();
+    } finally {
+      await test1.stop();
+    }
+  },
+);
+
+test(
+  "a cursor that repeats ends the walk and shows that earlier messages are missing",
+  { timeout: 20_000 },
+  async () => {
+    const sessionId = "ses_repeat0000000000000000000";
+    seedHistory(sessionId, 150);
+    setMessageMode("repeat-cursor");
+    const test1 = await harness({ sessionId });
+    try {
+      await until(() => noticeOf(test1.timeline) !== undefined, "the truncation notice");
+      expect(noticeOf(test1.timeline)?.text).toContain("Earlier messages were not loaded");
+      // What was read is the newest page: the current turn survives, older turns do not.
+      expect(usersOf(test1.timeline).at(-1)?.text).toBe("question 150");
+      expect(answersOf(test1.timeline).at(-1)?.text).toBe("answer 150");
+      expect(answersOf(test1.timeline).length).toBeLessThan(150);
+      expect(await messagePages()).toHaveLength(2);
+      expect(test1.timeline.state.turn).toBe("settled");
+    } finally {
+      await test1.stop();
+    }
+  },
+);
+
+test(
+  "the page cap stops an endless cursor and marks the transcript as partial",
+  { timeout: 20_000 },
+  async () => {
+    const sessionId = "ses_endless000000000000000000";
+    seedHistory(sessionId, 0);
+    setMessageMode("endless");
+    const test1 = await harness({ sessionId });
+    try {
+      await until(() => noticeOf(test1.timeline) !== undefined, "the cap notice");
+      expect(noticeOf(test1.timeline)?.text).toContain("Earlier messages were not loaded");
+      expect(answersOf(test1.timeline)).toHaveLength(100);
+      expect(await messagePages()).toHaveLength(100);
+    } finally {
+      await test1.stop();
+    }
+  },
+);
+
+test("a short history with no next cursor is loaded as it is", async () => {
+  const sessionId = "ses_short00000000000000000000";
+  seedHistory(sessionId, 2);
+  setMessageMode("no-next");
+  const test1 = await harness({ sessionId });
+  try {
+    await until(
+      () => answersOf(test1.timeline).length === 2 && test1.timeline.state.turn === "settled",
+      "the short history",
+    );
+    expect(usersOf(test1.timeline).map((item) => item.text)).toEqual(["question 1", "question 2"]);
+    expect(answersOf(test1.timeline).map((item) => item.text)).toEqual(["answer 1", "answer 2"]);
+    expect(answersOf(test1.timeline)[1]).toMatchObject({
+      model: { provider: "other", id: "other-model" },
+    });
+    expect(noticeOf(test1.timeline)).toBeUndefined();
+    expect(await messagePages()).toHaveLength(1);
+  } finally {
+    await test1.stop();
+  }
+});
+
+test(
+  "a server that ignores limit still returns the whole history in one answer",
+  { timeout: 20_000 },
+  async () => {
+    const sessionId = "ses_ignore0000000000000000000";
+    seedHistory(sessionId, 150);
+    setMessageMode("ignore-limit");
+    const test1 = await harness({ sessionId });
+    try {
+      await until(
+        () => answersOf(test1.timeline).length === 150 && test1.timeline.state.turn === "settled",
+        "the whole history",
+      );
+      expect(usersOf(test1.timeline)).toHaveLength(150);
+      expect(usersOf(test1.timeline).at(-1)?.text).toBe("question 150");
+      expect(answersOf(test1.timeline).at(-1)?.text).toBe("answer 150");
+      expect(answersOf(test1.timeline)[1]).toMatchObject({
+        model: { provider: "other", id: "other-model" },
+      });
+      expect(noticeOf(test1.timeline)).toBeUndefined();
+      expect(await messagePages()).toHaveLength(1);
+    } finally {
+      await test1.stop();
+    }
+  },
+);
+
+test("live deltas after a rebuilt history append once, after the hydrated answers", async () => {
+  const sessionId = "ses_live00000000000000000000";
+  seedHistory(sessionId, 2);
+  const test1 = await harness({ sessionId });
+  try {
+    await until(
+      () => answersOf(test1.timeline).length === 2 && test1.timeline.state.turn === "settled",
+      "the hydrated history",
+    );
+    test1.driver.send("split", "prompt");
+    await until(
+      () =>
+        answersOf(test1.timeline).at(-1)?.text === "coffee" &&
+        test1.timeline.state.turn === "settled",
+      "the live answer",
+    );
+    expect(answersOf(test1.timeline).map((item) => item.text)).toEqual([
+      "answer 1",
+      "answer 2",
+      "coffee",
+    ]);
+    expect(usersOf(test1.timeline).at(-1)?.text).toBe("split");
+    const ids = items(test1.timeline).map((item) => item.id);
+    expect(new Set(ids).size).toBe(ids.length);
   } finally {
     await test1.stop();
   }

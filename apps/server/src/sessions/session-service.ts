@@ -30,6 +30,7 @@ import { isExecutable } from "../agents/executable-lookup.ts";
 import { isReservedEnvName, resolveEnvRefs, ReservedEnvRefError } from "../agents/launch-env.ts";
 import { ChangeFeed } from "../changes/change-feed.ts";
 import type { ConfigWatcher } from "../config/config-watcher.ts";
+import type { ModelCatalogService } from "../models/model-catalog.ts";
 import { isInsideResolved, workspaceExists } from "../files/file-access.ts";
 import { WorkspaceMissingError } from "../files/errors.ts";
 import { newId } from "../storage/ids.ts";
@@ -85,6 +86,14 @@ export interface SessionStartChoice {
   profileId?: string | undefined;
   expectedProfileRevision?: string | undefined;
   model?: string | undefined;
+  expectedModel?: { provider: string | null; id: string } | undefined;
+  thinking?:
+    | {
+        model: { provider: string | null; id: string };
+        level: string;
+        remembered?: boolean | undefined;
+      }
+    | undefined;
   /** What the agent starts working on; the first launch is the only one that gets it. */
   prompt?: string | undefined;
   /** `terminal` when omitted; `chat` needs an agent with a chat driver. */
@@ -138,6 +147,7 @@ export class SessionService {
   readonly #tasks: TaskStore;
   readonly #terminals: TerminalRegistry;
   readonly #chat: ChatService;
+  readonly #beforeOpenCodeTerminal: ((sessionId: string) => Promise<void>) | undefined;
   readonly #live = new Map<string, Live>();
   readonly #statusUrl: (sessionId: string) => string;
   readonly #openCode: OpenCodeIntegration;
@@ -147,6 +157,7 @@ export class SessionService {
   readonly #codexServers: CodexServers;
   /** The current config, for the instance a new session names; never read to resume one. */
   readonly #config: Pick<ConfigWatcher, "state" | "resolveInstance">;
+  readonly #modelCatalog: Pick<ModelCatalogService, "catalog"> | undefined;
   readonly #taskEvents: SessionTasks;
   // Kept after the process is gone: a `done` or `error` outlives it. Not persisted.
   readonly #statuses = new Map<string, AgentStatus>();
@@ -163,6 +174,8 @@ export class SessionService {
     terminals: TerminalRegistry;
     /** The chat frontends; a `view: "chat"` session launches here instead of a PTY. */
     chat: ChatService;
+    /** Test barrier after the terminal reservation, before the launch begins. */
+    beforeOpenCodeTerminal?: (sessionId: string) => Promise<void>;
     /** Where an agent of this session POSTs its status; resolved at launch, when the server is listening. */
     statusUrl: (sessionId: string) => string;
     openCode: OpenCodeIntegration;
@@ -172,6 +185,7 @@ export class SessionService {
     codexServers: CodexServers;
     /** The current config, for the instance a new session names. Never read to resume one. */
     config: Pick<ConfigWatcher, "state" | "resolveInstance">;
+    modelCatalog?: Pick<ModelCatalogService, "catalog">;
     /** Told when a removal took a task's primary session away, so the task feed republishes it. */
     taskEvents: SessionTasks;
   }) {
@@ -180,11 +194,13 @@ export class SessionService {
     this.#taskEvents = options.taskEvents;
     this.#terminals = options.terminals;
     this.#chat = options.chat;
+    this.#beforeOpenCodeTerminal = options.beforeOpenCodeTerminal;
     this.#statusUrl = options.statusUrl;
     this.#openCode = options.openCode;
     this.#openCodeServers = options.openCodeServers;
     this.#codexServers = options.codexServers;
     this.#config = options.config;
+    this.#modelCatalog = options.modelCatalog;
   }
 
   list(): Session[] {
@@ -220,6 +236,8 @@ export class SessionService {
           profileId: agent.profileId,
           expectedProfileRevision: agent.expectedProfileRevision,
           model: agent.model,
+          expectedModel: agent.expectedModel,
+          thinking: agent.thinking,
           prompt: prompt ?? undefined,
           view: agent.view,
         },
@@ -252,6 +270,7 @@ export class SessionService {
       launch: null,
     };
     let privateLaunch: PrivateLaunchSpec | null = null;
+    let inserted = false;
     try {
       stored.view = this.#viewFor(kind, choice.view);
       // A disabled agent is not offered anywhere; a new launch of it is refused rather than run
@@ -260,16 +279,110 @@ export class SessionService {
       if (kind !== "shell" && !this.#agentEnabled(kind)) throw new AgentDisabledError(kind);
       const profile = choice.profileId === undefined ? undefined : this.#profile(choice.profileId);
       stored.launch = this.#launchSnapshot(kind, profile, choice);
+      if (choice.expectedModel !== undefined) {
+        const expected = choice.expectedModel;
+        const model = stored.launch?.model;
+        // pi and Codex name the model on their launch flag, so the flag and the catalog choice
+        // must agree. OpenCode has no model flag: its catalog choice is carried on the
+        // conversation (`POST /api/session`), applied before the first prompt, and it needs a
+        // provider because `Model.Ref` is provider-qualified.
+        const launchMatches =
+          (kind === "pi" || kind === "codex") &&
+          stored.view === "chat" &&
+          model != null &&
+          (model === expected.id || model === `${expected.provider}/${expected.id}`) &&
+          (stored.launch?.provider == null || stored.launch.provider === expected.provider) &&
+          (choice.thinking === undefined ||
+            (choice.thinking.model.id === expected.id &&
+              choice.thinking.model.provider === expected.provider));
+        const conversationMatches =
+          kind === "opencode" &&
+          stored.view === "chat" &&
+          choice.thinking === undefined &&
+          expected.provider !== null;
+        if (!launchMatches && !conversationMatches) {
+          throw new LaunchSpawnError(kind, "This launch cannot confirm the selected model.");
+        }
+        stored.launch = {
+          ...(stored.launch ?? { kind, profile: null, model: null, provider: null, env: [] }),
+          expectedModel: expected,
+        };
+      }
       privateLaunch = kind === "shell" ? null : this.#newLaunchSpec(kind, profile);
       const prompt = this.#promptFor(kind, choice.prompt);
+      if (choice.thinking !== undefined) {
+        const chosen = choice.thinking.model;
+        const model = stored.launch?.model;
+        if (
+          (kind !== "pi" && kind !== "codex") ||
+          stored.view !== "chat" ||
+          model == null ||
+          (model !== chosen.id && model !== `${chosen.provider}/${chosen.id}`) ||
+          (stored.launch?.provider != null && stored.launch.provider !== chosen.provider)
+        ) {
+          throw new LaunchSpawnError(
+            kind,
+            "This launch cannot apply the selected model and thinking level.",
+          );
+        }
+      }
+      if (
+        kind === "codex" &&
+        choice.thinking !== undefined &&
+        choice.thinking.remembered !== true
+      ) {
+        const catalog = await this.#modelCatalog?.catalog({
+          scope: { kind, profileId: profile?.id ?? null },
+          context: { taskId },
+          refresh: true,
+          ...(choice.expectedProfileRevision === undefined
+            ? {}
+            : { expectedProfileRevision: choice.expectedProfileRevision }),
+        });
+        const selected = catalog?.models.find(
+          (model) =>
+            model.provider === choice.thinking!.model.provider &&
+            model.id === choice.thinking!.model.id,
+        );
+        if (
+          catalog?.status !== "ready" ||
+          !selected?.reasoningLevels?.includes(choice.thinking.level)
+        )
+          throw new LaunchSpawnError(kind, "The selected Codex thinking level was not confirmed.");
+      }
+      const thinking = choice.thinking;
+      const expectedModel = choice.expectedModel;
+      this.#store.insert(
+        stored,
+        privateLaunch,
+        kind !== "shell" &&
+          (thinking !== undefined ||
+            ((kind === "codex" || kind === "opencode") && expectedModel !== undefined))
+          ? () =>
+              this.#chat.initializeSelection(
+                stored.id,
+                { kind, profileId: profile?.id ?? null },
+                thinking === undefined
+                  ? { model: expectedModel!, level: null }
+                  : { model: thinking.model, level: thinking.level },
+                thinking !== undefined && thinking.remembered !== true,
+              )
+          : undefined,
+      );
+      inserted = true;
       await this.#launch(stored, task, size, "start", prompt, privateLaunch);
     } catch (error) {
+      this.#chat.cancelInitialSelection(stored.id);
       // A start that finds the workspace gone keeps its session like a primary creation does:
       // the pane then names the sentence instead of the raw PTY line a missing cwd prints.
-      if (!keepFailedLaunch && !(error instanceof WorkspaceMissingError)) throw error;
+      if (!keepFailedLaunch && !(error instanceof WorkspaceMissingError)) {
+        if (inserted) this.#store.delete(stored.id);
+        throw error;
+      }
       const reason = launchFailureReason(error);
       const failed: StoredSession = { ...stored, state: "stopped" };
-      this.#store.insert(failed, privateLaunch);
+      if (inserted) this.#store.setState(failed.id, "stopped");
+      else this.#store.insert(failed, privateLaunch);
       this.#launchErrors.set(failed.id, reason);
       this.#changes.notify();
       console.error(
@@ -278,7 +391,6 @@ export class SessionService {
       );
       return this.#withTerminal(failed);
     }
-    this.#store.insert(stored, privateLaunch);
     this.#changes.notify();
     return this.#withTerminal(stored);
   }
@@ -345,6 +457,8 @@ export class SessionService {
     return this.#queue.run(async () => {
       const stored = this.#stored(id);
       if (stored.state === "running") throw new AlreadyRunningError(id);
+      if (stored.kind === "opencode" && stored.view === "terminal")
+        this.#chat.reserveOpenCodeTerminal(id, this.#openCodeServers.address)();
       // Starting work in a settled task is new work: the task becomes active before the restart,
       // so no client keeps the session it is watching marked as shelved.
       this.#activate(stored.taskId);
@@ -859,6 +973,26 @@ export class SessionService {
     prompt: string | null = null,
     privateLaunch?: PrivateLaunchSpec | null,
   ): Promise<void> {
+    const release =
+      stored.kind === "opencode" && stored.view === "terminal"
+        ? this.#chat.reserveOpenCodeTerminal(stored.id, this.#openCodeServers.address)
+        : undefined;
+    try {
+      if (release !== undefined) await this.#beforeOpenCodeTerminal?.(stored.id);
+      await this.#launchReserved(stored, task, size, how, prompt, privateLaunch);
+    } finally {
+      release?.();
+    }
+  }
+
+  async #launchReserved(
+    stored: StoredSession,
+    task: Task,
+    size: TerminalSize,
+    how: "start" | "resume",
+    prompt: string | null,
+    privateLaunch?: PrivateLaunchSpec | null,
+  ): Promise<void> {
     const adapter = stored.kind === "shell" ? undefined : AGENTS[stored.kind];
     // node-pty does not throw for a missing cwd: the child prints `chdir(2) failed` and exits 1.
     // So the workspace is checked before a terminal, an agent server or a chat child is acquired.
@@ -1170,6 +1304,10 @@ export class SessionService {
         ...(spec.args.length === 0 ? {} : { instanceArgs: spec.args }),
         model: stored.launch?.model ?? null,
         provider: stored.launch?.provider ?? null,
+        ...(stored.launch?.expectedModel === undefined
+          ? {}
+          : { expectedModel: stored.launch.expectedModel }),
+        profileId: stored.launch?.profile?.id ?? null,
         agentSessionId: stored.agentSessionId,
         // The decision `#launch` already made for this launch, shared with the terminal leg.
         how: resume ? "resume" : "start",
@@ -1227,6 +1365,7 @@ export class SessionService {
         // is still listed until it is closed or the session starts again.
         await this.#openCodeServers.release(openCodeOwner("terminal", sessionId));
         await this.#codexServers.release(codexOwner("terminal", sessionId), sessionId);
+        if (live.chat && !this.#terminalAlive(sessionId)) this.#chat.terminalExited(sessionId);
       } else {
         live.chat = false;
         await this.#openCodeServers.release(openCodeOwner("chat", sessionId));

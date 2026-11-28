@@ -41,6 +41,7 @@ export const initialChatSnapshot: ChatStoreSnapshot = {
     models: [],
     reasoning: null,
     reasoningLevels: [],
+    selectionIssue: null,
     context: null,
   },
   items: [],

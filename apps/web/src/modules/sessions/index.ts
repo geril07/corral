@@ -16,6 +16,7 @@ export {
   catalogLaunchModel,
   launchCatalogRow,
   launchModel,
+  launchModelLabel,
   launchName,
   launchProblem,
   launchView,

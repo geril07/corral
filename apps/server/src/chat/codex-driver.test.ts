@@ -1,8 +1,8 @@
 import type { ChatItem } from "@corral/protocol/chat";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "vite-plus/test";
+import { expect, test, vi } from "vite-plus/test";
 import { resetCodexVersionCache } from "../agents/codex-version.ts";
 import { useFakeAgents } from "../../test/fake-agents.ts";
 import { isRecord } from "../../test/json.ts";
@@ -11,7 +11,7 @@ import { CodexServers } from "./codex-server.ts";
 import { ChatTimeline } from "./timeline.ts";
 
 // The fake agents go first on PATH and CODEX_HOME is a temp directory for this file.
-useFakeAgents();
+const agents = useFakeAgents();
 // The version is cached per executable for the server's lifetime; a test may swap it.
 resetCodexVersionCache();
 const FAKE_CODEX = join(import.meta.dirname, "../../test/fake-agents/bin/codex");
@@ -151,6 +151,114 @@ async function journal(path: string): Promise<Record<string, unknown>[]> {
     .map((line) => JSON.parse(line) as unknown)
     .filter(isRecord);
 }
+
+test("a successful catalog without the configured model is not a catalog failure", async () => {
+  const h = await harness();
+  try {
+    const { timeline } = await h.open({ model: "custom-model", provider: "stub" });
+    await until(() => timeline.state.modelsStatus === "ready", "the catalog");
+    expect(timeline.state.model?.id).toBe("custom-model");
+    expect(timeline.state.models.some((model) => model.id === "custom-model")).toBe(false);
+    expect(timeline.state.reasoningStatus).toBe("error");
+  } finally {
+    await h.close();
+  }
+});
+
+test("a successful empty catalog is ready and keeps the configured model", async () => {
+  const h = await harness();
+  const emptyFile = join(agents.codexHome, "catalog-empty");
+  try {
+    await mkdir(agents.codexHome, { recursive: true });
+    await writeFile(emptyFile, "");
+    const { driver, timeline } = await h.open({ model: "custom-model", provider: "stub" });
+    await until(() => timeline.state.modelsStatus === "ready", "the empty catalog");
+    expect(timeline.state.models).toEqual([]);
+    expect(timeline.state.model?.id).toBe("custom-model");
+    expect(timeline.state.reasoningStatus).toBe("error");
+    await driver.refreshModels();
+    expect(timeline.state.modelsStatus).toBe("ready");
+    expect(timeline.state.models).toEqual([]);
+  } finally {
+    await rm(emptyFile, { force: true });
+    await h.close();
+  }
+});
+
+test("concurrent catalog refreshes share one fake server request and later refreshes run again", async () => {
+  const h = await harness();
+  const journalPath = join(h.root, "server.jsonl");
+  vi.stubEnv("FAKE_CODEX_SERVER_LOG", journalPath);
+  const requests = async () =>
+    (await journal(journalPath)).filter((entry) => entry["action"] === "model/list").length;
+  try {
+    const { driver, timeline } = await h.open();
+    await until(() => timeline.state.modelsStatus === "ready", "the initial catalog");
+    const before = await requests();
+    await Promise.all([driver.refreshModels(), driver.refreshModels(), driver.refreshModels()]);
+    expect(await requests()).toBe(before + 1);
+    await mkdir(agents.codexHome, { recursive: true });
+    const errorFile = join(agents.codexHome, "catalog-error");
+    await writeFile(errorFile, "");
+    const failures = await Promise.allSettled([driver.refreshModels(), driver.refreshModels()]);
+    expect(failures.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    expect(await requests()).toBe(before + 2);
+    expect(timeline.state.modelsStatus).toBe("error");
+    await rm(errorFile);
+    await driver.refreshModels();
+    expect(await requests()).toBe(before + 3);
+    expect(timeline.state.modelsStatus).toBe("ready");
+  } finally {
+    await h.close();
+  }
+});
+
+test("a confirmed selection refreshes the catalog after a failed refresh", async () => {
+  const h = await harness();
+  const errorFile = join(agents.codexHome, "catalog-error");
+  try {
+    const { driver, timeline } = await h.open();
+    await until(() => timeline.state.modelsStatus === "ready", "the catalog");
+    const original = timeline.state.models;
+    await mkdir(agents.codexHome, { recursive: true });
+    await writeFile(errorFile, "");
+    await expect(driver.refreshModels()).rejects.toThrow("Codex could not load its model list.");
+    expect(timeline.state.modelsStatus).toBe("error");
+    expect(timeline.state.models).toEqual(original);
+    await rm(errorFile, { force: true });
+    await driver.prepareSelection(
+      { model: { provider: "stub", id: "stub-two" }, level: "high" },
+      { forDispatch: false },
+    );
+    expect(timeline.state.modelsStatus).toBe("ready");
+    expect(timeline.state.models.some((model) => model.id === "stub-two")).toBe(true);
+  } finally {
+    await rm(errorFile, { force: true });
+    await h.close();
+  }
+});
+
+test("Codex correlates an early completion and ignores completions for other turns and threads", async () => {
+  const test1 = await harness();
+  try {
+    const { driver, timeline, ready } = await test1.open();
+    await ready;
+    const early = driver.send("EARLY_COMPLETION", "prompt");
+    expect(await early.outcome).toBeNull();
+    expect(await early.boundary).toBe("settled");
+    const current = driver.send("SLOW FOREIGN_COMPLETION", "prompt");
+    expect(await current.outcome).toBeNull();
+    let outcome: string | undefined;
+    void current.boundary?.then((value) => (outcome = value));
+    await until(() => textOf(timeline).includes("part 0"), "the current streaming turn");
+    expect(timeline.state.turn).toBe("working");
+    expect(outcome).toBeUndefined();
+    await driver.abort();
+    expect(await current.boundary).toBe("aborted");
+  } finally {
+    await test1.close();
+  }
+});
 
 test(
   "a turn streams text, reports the assigned thread id and settles",
@@ -302,7 +410,8 @@ test(
       );
       // A follow-up is declared off: it is refused visibly and is not added as a sent message.
       const refused = driver.send("a follow-up", "follow-up");
-      expect(refused).toMatch(/^error:send:/);
+      expect(refused.id).toMatch(/^error:send:/);
+      expect(await refused.outcome).toBeInstanceOf(Error);
       expect(
         items(timeline).some((item) => item.kind === "user-message" && item.text === "a follow-up"),
       ).toBe(false);

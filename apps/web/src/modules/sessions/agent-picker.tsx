@@ -8,12 +8,15 @@ import type {
 } from "@corral/protocol/config";
 import type { ModelContext } from "@corral/protocol/models";
 import type { AgentKind } from "@corral/protocol/rpc";
-import { useState, type RefObject } from "react";
+import { useRef, useState, type RefObject } from "react";
+import { Button, ModelPickerButton, TaskDialog } from "../../common/ui/index.ts";
 import { AgentLaunchPicker, LaunchViewControls } from "./agent-launch-picker.tsx";
 import {
   defaultLaunch,
   launchChoice,
   launchKey,
+  launchModelLabel,
+  launchName,
   launchProblem,
   launchView,
   type AgentLaunchChoice,
@@ -51,6 +54,9 @@ export function AgentPicker({
   const [failure, setFailure] = useState<string>();
   const [conflicted, setConflicted] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(true);
+  const [pickingReasoning, setPickingReasoning] = useState(false);
+  const modelAnchor = useRef<HTMLButtonElement>(null);
   const wanted = view ?? settings.view.value;
   const waiting = wanted === "chat" && !capabilitiesReady;
   const effectiveView =
@@ -79,7 +85,11 @@ export function AgentPicker({
       target.kind,
       chatDrivers,
     );
-    void onStart({ ...launchChoice(target), view: targetView })
+    void onStart({
+      ...launchChoice(target),
+      ...(targetView === "chat" ? {} : { thinking: undefined, expectedModel: undefined }),
+      view: targetView,
+    })
       .catch((caught: unknown) => {
         if (launchErrorCode(caught) === "LAUNCH_PROFILE_CHANGED") setConflicted(launchKey(target));
         else setFailure(describeLaunchError(caught) ?? describeError(caught));
@@ -87,38 +97,102 @@ export function AgentPicker({
       .finally(() => setBusy(false));
   };
   return (
-    <AgentLaunchPicker
-      title="New agent session"
-      context={context}
-      anchor={anchor}
-      profiles={profiles}
-      agents={agents}
-      selection={selection}
-      defaultSelection={defaultLaunch(settings, profiles, agents)}
-      onChange={(next, reason) => {
-        setSelection(next);
-        setFailure(undefined);
-        if (reason === "instance") setConflicted(undefined);
-      }}
-      onCommit={submit}
-      onClose={() => {
-        if (!busy) onClose();
-      }}
-      error={error}
-      blocked={
-        !!launchProblem({ ...selection, model: "" }, profiles, agents) ||
-        conflicted === launchKey(selection)
-      }
-      busy={busy || waiting}
-      footer={
+    <TaskDialog
+      title="Start agent session"
+      onClose={onClose}
+      finalFocus={() => anchor?.current ?? null}
+      beforeClose={() => !busy}
+    >
+      <div className="flex flex-col gap-4">
+        <ModelPickerButton
+          ref={modelAnchor}
+          kind={selection.kind}
+          label={[launchName(selection), launchModelLabel(selection, effectiveView === "chat")]
+            .filter(Boolean)
+            .join(" · ")}
+          aria-label={`Agent ${[launchName(selection), launchModelLabel(selection, effectiveView === "chat")].filter(Boolean).join(" · ")}`}
+          onClick={() => {
+            setPickingReasoning(false);
+            setPicking(true);
+          }}
+          disabled={busy}
+        />
+        {effectiveView === "chat" && (
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={selection.thinking ? `Reasoning ${selection.thinking.level}` : "Reasoning"}
+            disabled={busy || (selection.kind !== "pi" && selection.kind !== "codex")}
+            onClick={() => {
+              setPickingReasoning(true);
+              setPicking(true);
+            }}
+          >
+            {selection.thinking?.level ?? "Reasoning"}
+          </Button>
+        )}
         <LaunchViewControls
           value={effectiveView}
           kind={selection.kind}
           chatDrivers={chatDrivers}
           disabled={busy}
-          onChange={setView}
+          onChange={(next) => {
+            setView(next);
+            if (next !== "chat")
+              setSelection((current) => ({
+                ...current,
+                thinking: undefined,
+                expectedModel: undefined,
+              }));
+          }}
         />
-      }
-    />
+        {error && (
+          <p role="alert" className="m-0 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        <Button
+          disabled={
+            busy ||
+            waiting ||
+            launchProblem(selection, profiles, agents) !== undefined ||
+            conflicted === launchKey(selection)
+          }
+          onClick={() => submit(selection)}
+        >
+          Start session
+        </Button>
+      </div>
+      {picking && (
+        <AgentLaunchPicker
+          title="New agent session"
+          context={context}
+          anchor={modelAnchor}
+          restoreFocus="anchor"
+          profiles={profiles}
+          agents={agents}
+          selection={selection}
+          thinkingEnabled={effectiveView === "chat"}
+          focus={pickingReasoning ? "thinking" : "search"}
+          defaultSelection={defaultLaunch(settings, profiles, agents)}
+          onChange={(next, reason) => {
+            setSelection(next);
+            setFailure(undefined);
+            if (reason === "instance") setConflicted(undefined);
+          }}
+          onCommit={(target) => {
+            if (!launchProblem(target, profiles, agents) && conflicted !== launchKey(target))
+              setPicking(false);
+          }}
+          onClose={() => setPicking(false)}
+          error={error}
+          blocked={
+            !!launchProblem({ ...selection, model: "" }, profiles, agents) ||
+            conflicted === launchKey(selection)
+          }
+          busy={busy || waiting}
+        />
+      )}
+    </TaskDialog>
   );
 }

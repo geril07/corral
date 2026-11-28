@@ -73,15 +73,27 @@ export const newTaskView = (window: Page) => window.getByRole("form", { name: "N
 export const promptField = (window: Page) =>
   newTaskView(window).getByRole("textbox", { name: "Prompt" });
 
-/** TUI scenarios opt out of the chat default through the same visible control as a user. */
-export async function openAgentSessionPicker(window: Page, view: "chat" | "terminal") {
+/**
+ * Opens the additional-session dialog, which puts its agent and model picker on top. The picker
+ * only chooses; committing it returns to the dialog that owns the view and the start.
+ */
+export async function openAgentSessionPicker(window: Page) {
   await window.keyboard.press("Alt+KeyA");
   await window.keyboard.press("KeyS");
   const picker = window.getByRole("dialog", { name: "New agent session" });
   await expect(picker).toBeVisible();
-  await picker.getByRole("button", { name: `Open in ${view}` }).click();
-  await picker.getByRole("radio", { checked: true }).click();
   return picker;
+}
+
+/** Starts the chosen agent from its dialog, in the view a user selects there. */
+export async function startAgentSession(window: Page, view: "chat" | "terminal") {
+  const dialog = window.getByRole("dialog", { name: "Start agent session" });
+  await expect(dialog).toBeVisible();
+  const control = dialog.getByRole("button", { name: `Open in ${view}` });
+  await control.click();
+  await expect(control).toHaveAttribute("aria-pressed", "true");
+  await dialog.getByRole("button", { name: "Start session" }).click();
+  await expect(dialog).toBeHidden();
 }
 
 export async function chooseTaskAgent(window: Page, name: string) {

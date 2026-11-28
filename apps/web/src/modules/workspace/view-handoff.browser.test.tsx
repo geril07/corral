@@ -5,6 +5,7 @@ import type { SessionsSnapshot } from "@corral/client/sessions-store";
 import { Store } from "@corral/client/store";
 import type { TasksSnapshot } from "@corral/client/tasks-store";
 import type { AgentStatus, Session, SessionView, Task } from "@corral/protocol/rpc";
+import { ORPCError } from "@orpc/client";
 import { expect, test, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { prefixThen, realServerClients } from "../../../test/real-client.ts";
@@ -317,6 +318,47 @@ test("a both-live agent opens the other view beside the running one: no handoff,
     await expect.element(page.getByRole("alertdialog")).not.toBeInTheDocument();
     releaseSetView();
     await expect.element(composer).toHaveValue("Unsent through a view handoff");
+  } finally {
+    tasks.set({ loaded: true, tasks: [] });
+    sessions.set({ loaded: true, sessions: [] });
+    chatStore.close();
+    expect(real.sessions.getSnapshot().sessions).toEqual([]);
+  }
+});
+
+test("a refused OpenCode terminal handoff shows its reason and keeps the draft", async () => {
+  const { client, real, tasks, sessions, setView, chatStore } = seededClient({
+    drivers: "opencode",
+    bothLive: true,
+    turn: "idle",
+  });
+  setView.mockRejectedValue(
+    new ORPCError("LAUNCH_FAILED", {
+      defined: true,
+      data: { kind: "opencode", message: "The outcome of a model switch is unknown." },
+    }),
+  );
+  const { repo } = await appWithProject(client);
+  const project = await vi.waitFor(() => {
+    const found = real.projects.getSnapshot().projects.find((each) => each.path === repo);
+    if (found === undefined) throw new Error("the project is not in the list yet");
+    return found;
+  });
+  await vi.waitFor(() => expect(real.sessions.getSnapshot().loaded).toBe(true));
+  const task = seededTask(project.id, project.path);
+  try {
+    tasks.set({ loaded: true, tasks: [task] });
+    sessions.set({
+      loaded: true,
+      sessions: [seededSession("agent-oc", task.id, "opencode", "chat")],
+    });
+    await openSeededTask("Handoff");
+    const composer = page.getByRole("textbox", { name: "Message" });
+    await composer.fill("Keep this draft");
+    await prefixThen("v");
+    await expect.element(page.getByText(/The outcome of a model switch is unknown/)).toBeVisible();
+    await expect.element(composer).toHaveValue("Keep this draft");
+    await expect.element(page.getByRole("log", { name: "Chat transcript" })).toBeVisible();
   } finally {
     tasks.set({ loaded: true, tasks: [] });
     sessions.set({ loaded: true, sessions: [] });

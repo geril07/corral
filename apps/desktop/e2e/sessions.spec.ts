@@ -8,6 +8,7 @@ import {
   screenText,
   sessionTab,
   sessionTabs,
+  startAgentSession,
   startShell,
   taskCard,
   unwrappedScreenText,
@@ -63,10 +64,14 @@ test("an agent session is started, stopped and restarted, and a running one come
   await expect.poll(() => screenText(window)).toContain("fake claude ready");
 
   // pi is started and then stopped: it must stay stopped across the restart.
-  await openAgentSessionPicker(window, "terminal");
+  await openAgentSessionPicker(window);
   const picker = window.getByRole("dialog", { name: "New agent session" });
-  await expect(picker.getByRole("radio", { name: "claude" })).toBeFocused();
+  // The picker opens on its search field; the digit shortcut is a rail affordance.
+  await expect(picker.getByRole("combobox", { name: "Search models" })).toBeFocused();
+  await picker.getByRole("radio", { name: "claude" }).click();
   await window.keyboard.press("Digit3");
+  await expect(picker).toBeHidden();
+  await startAgentSession(window, "terminal");
   await expect(session("pi")).toHaveAttribute("aria-selected", "true");
   await expect.poll(() => screenText(window)).toContain("fake pi ready");
   await window.keyboard.press("Alt+KeyA");

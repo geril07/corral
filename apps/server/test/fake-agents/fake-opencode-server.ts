@@ -1,10 +1,17 @@
 // The fake `opencode serve` of the server tests: the v2 API subset the chat driver speaks, with a
 // journal of what it was asked to do. It runs as a real child process on a free loopback port and
-// prints the two lines the real 2.2.5 prints, so the driver's start-up path is the real one.
+// prints the two lines the real 2.2.5 prints, so the driver's start-up path is the real one. The
+// message endpoint pages like 2.3.2 by default; a `message-mode` file in the state directory
+// switches it to the shapes a hydration has to survive (see `messageMode` below).
 //
 // The provider side is scripted by the prompt's text, so a test can ask for a streamed answer with
 // a tool call (`stream`), a turn that keeps running until it is interrupted (`hold`), or a turn
 // that asks for permission first (`ask`). No model is called and no network is touched.
+// `POST …/model` updates the session's reported model and is journalled; a `model-switch-mode`
+// file holding `fail` answers it with 400, `error` with a 500 body, `lost` writes then drops the
+// response, and `hold` keeps the request open until the file changes. A `session-read-mode` file
+// holding `fail` answers `GET /api/session/:id` with 500, the shape of a server that cannot report
+// the session.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,6 +23,12 @@ interface SessionMessage {
   [key: string]: unknown;
 }
 
+interface SessionModel {
+  id: string;
+  providerID: string;
+  variant?: string;
+}
+
 interface StoredSession {
   id: string;
   title: string;
@@ -24,7 +37,11 @@ interface StoredSession {
   permissions: Record<string, unknown>[];
   busy: boolean;
   outcome: string | null;
+  /** The model OpenCode reports for the session; absent means the fake's default. */
+  model?: SessionModel;
 }
+
+const DEFAULT_MODEL: SessionModel = { id: "stub-model", providerID: "stub" };
 
 interface ToolPart {
   id: string;
@@ -35,6 +52,25 @@ interface ToolPart {
 interface AssistantMessage extends SessionMessage {
   type: "assistant";
   content: unknown[];
+}
+
+/** The fake cursor is opaque to the driver, but carries enough to resume the same order. */
+function encodeMessageCursor(order: "asc" | "desc", offset: number): string {
+  return Buffer.from(JSON.stringify({ order, offset })).toString("base64url");
+}
+
+function decodeMessageCursor(value: string): { order: "asc" | "desc"; offset: number } | undefined {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!isRecord(parsed)) return undefined;
+    const rawOrder = parsed["order"];
+    const offset = parsed["offset"];
+    if (rawOrder !== "asc" && rawOrder !== "desc") return undefined;
+    if (typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) return undefined;
+    return { order: rawOrder, offset };
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -49,6 +85,8 @@ export function runFakeOpenCodeServer(options: {
   hostname: string;
 }): void {
   const password = options.password;
+  const configuredSlow = Number.parseInt(process.env["FAKE_OPENCODE_SLOW_MS"] ?? "", 10);
+  const slowMs = configuredSlow > 0 ? configuredSlow : 300;
   const sessions = new Map<string, StoredSession>();
   /** One event stream per attached client. */
   const streams = new Set<ServerResponse>();
@@ -97,7 +135,7 @@ export function runFakeOpenCodeServer(options: {
   /** The per-session durable sequence, as OpenCode's own events carry it. */
   const sequences = new Map<string, number>();
 
-  const emit = (type: string, data: Record<string, unknown>) => {
+  const emit = (type: string, data: Record<string, unknown>, staleSequence?: number) => {
     events += 1;
     const sessionID = typeof data["sessionID"] === "string" ? data["sessionID"] : undefined;
     const seq = sessionID === undefined ? undefined : (sequences.get(sessionID) ?? 0) + 1;
@@ -109,7 +147,7 @@ export function runFakeOpenCodeServer(options: {
       data,
       ...(sessionID === undefined || seq === undefined
         ? {}
-        : { durable: { aggregateID: sessionID, seq: seq - 1, version: 1 } }),
+        : { durable: { aggregateID: sessionID, seq: staleSequence ?? seq - 1, version: 1 } }),
     };
     const chunk = `data: ${JSON.stringify(frame)}\n\n`;
     for (const stream of streams) stream.write(chunk);
@@ -126,6 +164,37 @@ export function runFakeOpenCodeServer(options: {
     return match?.[1] === undefined ? undefined : load(decodeURIComponent(match[1]));
   };
 
+  /**
+   * The message endpoint's paging shape, chosen by a file in the state directory so one test does
+   * not inherit another's server behaviour: `paged` (the 2.3.2 contract), `ignore-limit` (a 2.2.5
+   * fake that always answers with everything), `repeat-cursor`, `no-next` and `endless`.
+   */
+  const messageMode = (): string => {
+    try {
+      return readFileSync(join(options.stateDir ?? "", "message-mode"), "utf8").trim();
+    } catch {
+      return "";
+    }
+  };
+
+  /** `fail` makes `POST …/model` answer 400, the shape a server refusing a switch gives. */
+  const switchMode = (): string => {
+    try {
+      return readFileSync(join(options.stateDir ?? "", "model-switch-mode"), "utf8").trim();
+    } catch {
+      return "";
+    }
+  };
+
+  /** `fail` makes `GET /api/session/:id` answer 500, the shape of a session that cannot be read. */
+  const readMode = (): string => {
+    try {
+      return readFileSync(join(options.stateDir ?? "", "session-read-mode"), "utf8").trim();
+    } catch {
+      return "";
+    }
+  };
+
   /** The assistant message of the turn a scripted prompt starts; the history keeps it. */
   let assistant: AssistantMessage | undefined;
   let turnTools: ToolPart[] = [];
@@ -135,7 +204,7 @@ export function runFakeOpenCodeServer(options: {
       id: `msg_fakeassistant${session.messages.length + 1}`,
       type: "assistant",
       agent: "build",
-      model: { id: "stub-model", providerID: "stub" },
+      model: { ...(session.model ?? DEFAULT_MODEL) },
       time: { created: Date.now() },
       content: [],
     };
@@ -245,7 +314,17 @@ export function runFakeOpenCodeServer(options: {
     }
     session.busy = true;
     emit("session.execution.started", { sessionID: session.id });
+    if (text === "stale-events") emit("session.execution.succeeded", { sessionID: session.id }, 0);
     startAssistant(session);
+    if (text === "stale-events") {
+      textDelta(session, "still running");
+      return;
+    }
+    if (text === "shutdown-interruption") {
+      textDelta(session, "interrupted for shutdown");
+      emit("session.execution.interrupted", { sessionID: session.id, reason: "shutdown" });
+      return;
+    }
     if (text === "hold") {
       textDelta(session, "holding");
       return;
@@ -256,7 +335,7 @@ export function runFakeOpenCodeServer(options: {
         textDelta(session, " then done");
         endText(session, "working then done");
         finish(session, "succeeded");
-      }, 300).unref();
+      }, slowMs).unref();
       return;
     }
     if (text === "split" || text === "haha") {
@@ -334,6 +413,10 @@ export function runFakeOpenCodeServer(options: {
         } catch {
           /* no scenario */
         }
+        if (mode === "hold") {
+          journal({ action: "catalog-held" });
+          await new Promise<void>((resolve) => process.once("SIGUSR2", resolve));
+        }
         if (mode === "partial-error" && modelReads > 1) {
           json(response, 503, {});
           return;
@@ -356,6 +439,7 @@ export function runFakeOpenCodeServer(options: {
         const body = await readBody(request);
         const location = (body["location"] ?? {}) as { directory?: string };
         const id = typeof body["id"] === "string" ? body["id"] : `ses_fake${sessions.size + 1}`;
+        const model = modelOfBody(body["model"]) ?? DEFAULT_MODEL;
         const session: StoredSession = {
           id,
           title: typeof body["title"] === "string" ? body["title"] : "",
@@ -364,10 +448,11 @@ export function runFakeOpenCodeServer(options: {
           permissions: [],
           busy: false,
           outcome: null,
+          model,
         };
         sessions.set(id, session);
         save(session);
-        journal({ action: "session-create", sessionID: id, directory: session.directory });
+        journal({ action: "session-create", sessionID: id, directory: session.directory, model });
         json(response, 200, { data: sessionInfo(session) });
         return;
       }
@@ -387,15 +472,123 @@ export function runFakeOpenCodeServer(options: {
       const rest = url.pathname.slice(`/api/session/${encodeURIComponent(session.id)}`.length);
       if (tui) journal({ action: "client", client: "tui", sessionID: session.id, path: rest });
       if (request.method === "GET" && rest === "") {
+        const mode = readMode();
+        journal({ action: "session-read", sessionID: session.id, mode, tui });
+        if (mode === "fail") {
+          json(response, 500, { message: "the session could not be read" });
+          return;
+        }
         json(response, 200, { data: sessionInfo(session) });
         return;
       }
       if (request.method === "GET" && rest === "/message") {
-        json(response, 200, { data: session.messages, cursor: { previous: null, next: null } });
+        const mode = messageMode();
+        const requestedLimit = Number(url.searchParams.get("limit") ?? "50");
+        const limit =
+          Number.isSafeInteger(requestedLimit) && requestedLimit > 0 ? requestedLimit : 50;
+        const order = url.searchParams.get("order") === "asc" ? "asc" : "desc";
+        const cursorParam = url.searchParams.get("cursor");
+        const decoded = cursorParam === null ? undefined : decodeMessageCursor(cursorParam);
+        journal({
+          action: "message-list",
+          sessionID: session.id,
+          mode: mode === "" ? "paged" : mode,
+          limit,
+          order: url.searchParams.get("order"),
+          cursor: cursorParam,
+        });
+        if (cursorParam !== null && decoded === undefined) {
+          json(response, 400, { _tag: "InvalidCursorError", message: "Invalid cursor" });
+          return;
+        }
+        const pageOrder = decoded?.order ?? order;
+        const offset = decoded?.offset ?? 0;
+        const ordered = pageOrder === "asc" ? session.messages : [...session.messages].toReversed();
+        if (mode === "ignore-limit") {
+          // A 2.2.5-era server that ignores limit and cursor: one answer with everything in it.
+          json(response, 200, { data: ordered, cursor: { previous: null, next: null } });
+          return;
+        }
+        if (mode === "endless") {
+          // One fresh message per page with a new cursor: only the driver's page cap ends this.
+          json(response, 200, {
+            data: [
+              {
+                id: `msg_endless${offset}`,
+                type: "assistant",
+                agent: "build",
+                model: { id: "stub-model", providerID: "stub" },
+                time: { created: offset },
+                content: [{ type: "text", text: `endless ${offset}` }],
+              },
+            ],
+            cursor: {
+              previous: null,
+              next: encodeMessageCursor(pageOrder, offset + 1),
+            },
+          });
+          return;
+        }
+        const page = ordered.slice(offset, offset + limit);
+        const next =
+          mode === "no-next"
+            ? null
+            : mode === "repeat-cursor"
+              ? encodeMessageCursor(pageOrder, 0)
+              : offset + limit < ordered.length
+                ? encodeMessageCursor(pageOrder, offset + limit)
+                : null;
+        json(response, 200, {
+          data: page,
+          cursor: {
+            previous:
+              offset > 0 ? encodeMessageCursor(pageOrder, Math.max(0, offset - limit)) : null,
+            next,
+          },
+        });
         return;
       }
       if (request.method === "GET" && rest === "/permission") {
         json(response, 200, { data: session.permissions });
+        return;
+      }
+      if (request.method === "POST" && rest === "/model") {
+        const body = await readBody(request);
+        const model = modelOfBody(body["model"]);
+        const mode = switchMode();
+        journal({ action: "model-switch", sessionID: session.id, model: model ?? null, mode, tui });
+        if (model === undefined) {
+          json(response, 400, { _tag: "InvalidRequestError", message: "Invalid model reference" });
+          return;
+        }
+        if (mode === "fail") {
+          json(response, 400, { _tag: "InvalidRequestError", message: "the model was refused" });
+          return;
+        }
+        if (mode === "error") {
+          json(response, 500, { message: "provider secret should not be shown" });
+          return;
+        }
+        if (mode === "hold") {
+          while (switchMode() === "hold" && !response.destroyed) {
+            // The test releases this request by changing the scenario file.
+            // oxlint-disable-next-line no-await-in-loop -- the held request must observe release
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          if (response.destroyed) return;
+        }
+        session.model = model;
+        save(session);
+        if (mode === "lost" || (mode === "hold" && switchMode() === "lost")) {
+          response.destroy();
+          return;
+        }
+        emit("session.next.model.switched", {
+          sessionID: session.id,
+          messageID: `msg_fakeswitch${session.messages.length + 1}`,
+          model,
+        });
+        response.writeHead(204).end();
         return;
       }
       if (request.method === "POST" && rest === "/prompt") {
@@ -525,7 +718,22 @@ function sessionInfo(session: StoredSession): Record<string, unknown> {
     title: session.title,
     location: { directory: session.directory },
     ...(session.outcome === null ? {} : { outcome: session.outcome }),
-    model: { id: "stub-model", providerID: "stub" },
+    model: { ...(session.model ?? DEFAULT_MODEL) },
+  };
+}
+
+/** A `Model.Ref` from a request body; a variant is kept when it is a non-empty string. */
+function modelOfBody(value: unknown): SessionModel | undefined {
+  if (!isRecord(value)) return undefined;
+  const id = value["id"];
+  const providerID = value["providerID"];
+  const variant = value["variant"];
+  if (typeof id !== "string" || id === "") return undefined;
+  if (typeof providerID !== "string" || providerID === "") return undefined;
+  return {
+    id,
+    providerID,
+    ...(typeof variant === "string" && variant !== "" ? { variant } : {}),
   };
 }
 
@@ -539,7 +747,8 @@ function isStoredSession(value: unknown): value is StoredSession {
     Array.isArray(value["messages"]) &&
     Array.isArray(value["permissions"]) &&
     typeof value["busy"] === "boolean" &&
-    (value["outcome"] === null || typeof value["outcome"] === "string")
+    (value["outcome"] === null || typeof value["outcome"] === "string") &&
+    (value["model"] === undefined || modelOfBody(value["model"]) !== undefined)
   );
 }
 

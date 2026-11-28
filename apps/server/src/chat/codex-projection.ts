@@ -384,6 +384,9 @@ export class CodexProjection {
   }
 
   #turnCompleted(turn: Record<string, unknown> | undefined): CodexAction[] {
+    const id = stringOf(turn?.["id"]);
+    if (id !== undefined && this.#activeTurnId !== undefined && id !== this.#activeTurnId)
+      return [];
     const status = stringOf(turn?.["status"]);
     const message = stringOf(recordOf(turn?.["error"])?.["message"]);
     this.#activeTurnId = undefined;

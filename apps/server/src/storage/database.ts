@@ -46,6 +46,31 @@ export const MIGRATIONS: readonly Migration[] = [
     if (!tableHasColumn(db, "tasks", "snoozed_at"))
       db.exec("ALTER TABLE tasks ADD COLUMN snoozed_at INTEGER");
   },
+  // A chat's own choices are server state, not part of the immutable launch snapshot: the snapshot
+  // says how the conversation was opened, these rows say what its next turn should run and what is
+  // queued for it. The queue outlives a client and a server crash; its status, not a client's
+  // optimism, decides whether it may be sent again.
+  `CREATE TABLE IF NOT EXISTS chat_session_selections (
+     session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+     selection TEXT NOT NULL,
+     updated_at INTEGER NOT NULL
+   ) STRICT;
+   CREATE TABLE IF NOT EXISTS chat_thinking_memory (
+     scope TEXT NOT NULL,
+     model TEXT NOT NULL,
+     level TEXT NOT NULL,
+     updated_at INTEGER NOT NULL,
+     PRIMARY KEY (scope, model)
+   ) STRICT;
+   CREATE TABLE IF NOT EXISTS chat_queue (
+     id TEXT PRIMARY KEY,
+     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+     text TEXT NOT NULL,
+     selection TEXT,
+     status TEXT NOT NULL,
+     created_at INTEGER NOT NULL
+   ) STRICT;
+   CREATE INDEX IF NOT EXISTS chat_queue_by_session ON chat_queue(session_id);`,
 ];
 
 /** Whether `table` already has `column`; the guard a conditional schema step writes. */

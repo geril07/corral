@@ -30,7 +30,7 @@ import {
   AgentLaunchPicker,
   defaultLaunch,
   launchChoice,
-  launchModel,
+  launchModelLabel,
   launchName,
   launchProblem,
   launchView,
@@ -85,8 +85,7 @@ export interface TaskComposerProps {
  * The production task composer: prompt first, then one internal row with attach, instance/model
  * and reasoning on the left and send on the right. Below it one context row names the project,
  * the workspace and its branch. It creates nothing until Send, so a draft costs no agent turn.
- * Attachments and pre-launch reasoning are not in the server contract yet, and their controls say
- * so instead of pretending.
+ * Attachments are not in the server contract yet.
  */
 export function TaskComposer({
   projects,
@@ -109,6 +108,7 @@ export function TaskComposer({
   const prompt = useRef<HTMLTextAreaElement>(null);
   const agentAnchor = useRef<HTMLButtonElement>(null);
   const [pickingAgent, setPickingAgent] = useState(false);
+  const [pickingReasoning, setPickingReasoning] = useState(false);
   const [pickingProject, setPickingProject] = useState(false);
   const [baseRefs, setBaseRefs] = useState<BaseRefState>();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -211,7 +211,15 @@ export function TaskComposer({
     onCreate({
       projectId: draft.projectId,
       prompt: promptText,
-      ...(agent === undefined ? {} : { agent: { ...launchChoice(agent), view } }),
+      ...(agent === undefined
+        ? {}
+        : {
+            agent: {
+              ...launchChoice(agent),
+              ...(view === "chat" ? {} : { thinking: undefined, expectedModel: undefined }),
+              view,
+            },
+          }),
       workspace:
         draft.projectId === null
           ? { type: "scratch" }
@@ -302,9 +310,14 @@ export function TaskComposer({
                 <ModelPickerButton
                   ref={agentAnchor}
                   kind={agent.kind}
-                  label={[launchName(agent), launchModel(agent)].filter(Boolean).join(" · ")}
-                  aria-label={`Agent ${[launchName(agent), launchModel(agent)].filter(Boolean).join(" · ")}`}
-                  onClick={() => setPickingAgent(true)}
+                  label={[launchName(agent), launchModelLabel(agent, view === "chat")]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  aria-label={`Agent ${[launchName(agent), launchModelLabel(agent, view === "chat")].filter(Boolean).join(" · ")}`}
+                  onClick={() => {
+                    setPickingReasoning(false);
+                    setPickingAgent(true);
+                  }}
                 />
               ) : (
                 <Hint content="Every agent is disabled in the config file, so this task starts no agent.">
@@ -319,15 +332,33 @@ export function TaskComposer({
                   </Button>
                 </Hint>
               )}
-              <Hint content="Reasoning is reported by a running chat; there is no pre-launch reasoning contract yet.">
+              <Hint
+                content={
+                  (agent?.kind === "pi" || agent?.kind === "codex") && view === "chat"
+                    ? undefined
+                    : "Reasoning cannot be selected before launch for this agent."
+                }
+              >
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  aria-label="Reasoning unavailable before launch"
-                  aria-disabled="true"
+                  aria-label={
+                    view === "chat" && agent?.thinking
+                      ? `Reasoning ${agent.thinking.level}`
+                      : "Reasoning"
+                  }
+                  aria-disabled={
+                    (agent?.kind !== "pi" && agent?.kind !== "codex") || view !== "chat"
+                  }
+                  onClick={() => {
+                    if ((agent?.kind !== "pi" && agent?.kind !== "codex") || view !== "chat")
+                      return;
+                    setPickingReasoning(true);
+                    setPickingAgent(true);
+                  }}
                 >
-                  Reasoning
+                  {(view === "chat" ? agent?.thinking?.level : undefined) ?? "Reasoning"}
                 </Button>
               </Hint>
             </div>
@@ -497,6 +528,8 @@ export function TaskComposer({
           profiles={profiles}
           agents={config.agents}
           selection={agent}
+          thinkingEnabled={view === "chat"}
+          focus={pickingReasoning ? "thinking" : "search"}
           defaultSelection={defaultLaunch(settings, profiles, config.agents)}
           onChange={(next) => onDraftChange({ ...draft, agent: next })}
           onCommit={(target) => {
